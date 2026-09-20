@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { assetServing } from './assetServing.ts'
 import { assets } from './assets.ts'
 import { installTestWiki } from '../test/mocks.ts'
+import { CONTENT_TYPES } from './storage.ts'
 import type { StorageTarget } from './storage.ts'
 
 /**
@@ -45,7 +46,7 @@ function makeDbTarget(
     banner: '',
     vendor: '',
     website: '',
-    contentTypes: { activeTypes: [], largeThreshold: '5MB' },
+    contentTypes: { activeTypes: [], supportedTypes: [...CONTENT_TYPES], largeThreshold: '5MB' },
     assetDelivery: {
       isStreamingSupported: true,
       isDirectAccessSupported: true,
@@ -133,7 +134,11 @@ test('governingTarget prefers an enabled direct-access target that covers the as
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [dbTarget, s3Target] })
@@ -148,7 +153,11 @@ test('governingTarget falls back to db when the direct-access target does not co
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['documents'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['documents'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [dbTarget, s3Target] })
@@ -164,7 +173,11 @@ test('governingTarget falls back to db when the direct-access target is disabled
       id: 'target-s3',
       module: 's3',
       isEnabled: false,
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [dbTarget, s3Target] })
@@ -179,7 +192,11 @@ test('governingTarget falls back to db when the direct-access target has directA
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [dbTarget, s3Target] })
@@ -194,7 +211,11 @@ test('governingTarget ignores content-type matching entirely when called with no
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [dbTarget, s3Target] })
@@ -209,7 +230,11 @@ test('governingTargetFrom is a pure function of the targets it is handed — no 
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [], ensureModule: unreachable('ensureModule') })
@@ -401,7 +426,11 @@ test('readContent redirects through a non-db direct-access target (e.g. s3) that
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({

@@ -150,6 +150,7 @@ export interface StorageDefinition {
   vendor: string
   website: string
   contentTypes: {
+    supportedTypes: string[]
     defaultTypesEnabled: string[]
     defaultLargeThreshold: string
   }
@@ -205,6 +206,7 @@ export interface StorageTarget {
   website: string
   contentTypes: {
     activeTypes: string[]
+    supportedTypes: string[]
     largeThreshold: string
   }
   assetDelivery: {
@@ -335,6 +337,12 @@ class Storage {
           parsed.supportedModes = parsed.supportedModes ?? ['push']
           parsed.defaultMode = parsed.defaultMode ?? parsed.supportedModes[0]
           parsed.schedule = parsed.schedule ?? false
+          parsed.contentTypes = {
+            defaultTypesEnabled: [],
+            defaultLargeThreshold: '5MB',
+            ...parsed.contentTypes,
+            supportedTypes: parsed.contentTypes?.supportedTypes ?? [...CONTENT_TYPES]
+          }
           parsed.hasImplementation = await this.hasImplementation(key)
           return parsed as StorageDefinition
         }
@@ -456,6 +464,7 @@ class Storage {
       const assetDelivery = (row.assetDelivery ?? {}) as Record<string, any>
       const versioning = (row.versioning ?? {}) as Record<string, any>
       const config = this.buildConfig(definition.key, {}, row.config as Record<string, any>)
+      const supportedTypes = definition.contentTypes.supportedTypes
       targets.push({
         id: row.id,
         siteId: row.siteId,
@@ -468,7 +477,10 @@ class Storage {
         vendor: definition.vendor,
         website: definition.website,
         contentTypes: {
-          activeTypes: contentTypes.activeTypes ?? [],
+          activeTypes: ((contentTypes.activeTypes ?? []) as string[]).filter((type) =>
+            supportedTypes.includes(type)
+          ),
+          supportedTypes,
           largeThreshold: contentTypes.largeThreshold ?? '5MB'
         },
         assetDelivery: {
@@ -545,6 +557,12 @@ class Storage {
       if (unknown) {
         return `"${unknown}" is not a valid content type.`
       }
+      const unsupported = activeTypes.find(
+        (type) => !definition.contentTypes.supportedTypes.includes(type)
+      )
+      if (unsupported) {
+        return `${definition.title} does not store "${unsupported}".`
+      }
       if (target.module === DB_MODULE && !activeTypes.includes('pages')) {
         return 'The database storage target must keep holding pages.'
       }
@@ -608,7 +626,9 @@ class Storage {
     }
     if (patch.contentTypes) {
       values.contentTypes = {
-        activeTypes: patch.contentTypes.activeTypes ?? target.contentTypes.activeTypes,
+        activeTypes: (patch.contentTypes.activeTypes ?? target.contentTypes.activeTypes).filter(
+          (type) => definition.contentTypes.supportedTypes.includes(type)
+        ),
         largeThreshold: patch.contentTypes.largeThreshold ?? target.contentTypes.largeThreshold
       }
     }

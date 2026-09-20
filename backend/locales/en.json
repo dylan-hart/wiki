@@ -1295,6 +1295,7 @@
   "admin.storage.contentTypePagesHint": "Page content source, in Markdown, HTML or JSON format depending on the editor.",
   "admin.storage.contentTypes": "Content Types",
   "admin.storage.contentTypesHint": "Select the type of content that should be stored to this storage target:",
+  "admin.storage.contentTypesNoLiveSyncHint": "This target is not written to on every change. These selections only decide what its actions, such as a dump or an export, include.",
   "admin.storage.currentState": "Current State",
   "admin.storage.deliveryPaths": "Delivery Paths",
   "admin.storage.deliveryPathsLegend": "Legend:",

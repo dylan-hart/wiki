@@ -81,8 +81,14 @@
         <div class="flex flex-wrap gap-4">
           <div class="min-w-0 flex-1">
             <w-settings-card :title="t('admin.storage.contentTypes')">
-              <template #hint>{{ t('admin.storage.contentTypesHint') }}</template>
+              <template #hint>
+                <div>{{ t('admin.storage.contentTypesHint') }}</div>
+                <div v-if="!state.target.sync?.supportsContentSync">
+                  {{ t('admin.storage.contentTypesNoLiveSyncHint') }}
+                </div>
+              </template>
               <w-settings-row
+                v-if="supportsContentType(`pages`)"
                 tag="label"
                 control-width="auto"
                 icon="tabler:file-text"
@@ -96,6 +102,7 @@
                   :disabled="state.target.module === `db`" />
               </w-settings-row>
               <w-settings-row
+                v-if="supportsContentType(`images`)"
                 tag="label"
                 control-width="auto"
                 icon="tabler:photo"
@@ -108,6 +115,7 @@
                   :aria-label="t(`admin.storage.contentTypeImages`)" />
               </w-settings-row>
               <w-settings-row
+                v-if="supportsContentType(`documents`)"
                 tag="label"
                 control-width="auto"
                 icon="tabler:file-typography"
@@ -120,6 +128,7 @@
                   :aria-label="t(`admin.storage.contentTypeDocuments`)" />
               </w-settings-row>
               <w-settings-row
+                v-if="supportsContentType(`others`)"
                 tag="label"
                 control-width="auto"
                 icon="tabler:files"
@@ -132,6 +141,7 @@
                   :aria-label="t(`admin.storage.contentTypeOthers`)" />
               </w-settings-row>
               <w-settings-row
+                v-if="supportsContentType(`large`)"
                 tag="label"
                 control-width="auto"
                 icon="tabler:database-import"
@@ -735,6 +745,10 @@ async function save({ silent = false } = {}) {
   }
   state.loading--
   return saveSuccess
+}
+
+function supportsContentType(type) {
+  return state.target?.contentTypes?.supportedTypes?.includes(type) ?? true
 }
 
 function getTargetSubtitle(target) {

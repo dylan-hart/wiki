@@ -10,6 +10,7 @@ import {
   type PageExportRow
 } from './pages.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
+import { CONTENT_TYPES } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { ensureTemporal } from '../../../test/temporal.ts'
 
@@ -38,7 +39,11 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
   return makeStorageTarget('sftp', {
     id: 'target-1',
     title: 'SFTP',
-    contentTypes: { activeTypes: ['pages'], largeThreshold: '5MB' },
+    contentTypes: {
+      activeTypes: ['pages'],
+      supportedTypes: [...CONTENT_TYPES],
+      largeThreshold: '5MB'
+    },
     assetDelivery: {
       isStreamingSupported: false,
       isDirectAccessSupported: false,
@@ -173,7 +178,13 @@ describe('exportPages', () => {
 
   test('does nothing when pages is not in target.contentTypes.activeTypes', async () => {
     const client = makeStubClient()
-    const target = makeTarget({ contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' } })
+    const target = makeTarget({
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
+    })
     const fetchBatch = mock.fn(async () => [])
 
     await exportPages(client as unknown as Client, target, {

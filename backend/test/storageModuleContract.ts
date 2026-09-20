@@ -2,6 +2,7 @@ import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { installTestWiki } from './mocks.ts'
 import { DIRECT_ACCESS_TTL_SECONDS } from '../modules/storage/blobBase.ts'
+import { CONTENT_TYPES } from '../models/storage.ts'
 import type { StorageModule, StorageTarget } from '../models/storage.ts'
 
 /**
@@ -201,7 +202,11 @@ export function runStorageModuleContract(name: string, options: StorageContractO
     test(`${name}: exportAll pushes only the assets the target's contentTypes cover`, async () => {
       const sdk = stubSdk()
       const target = makeTarget()
-      target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
+      target.contentTypes = {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '1MB'
+      }
       CARDINAL.models.assets.streamAll = async function* () {
         yield streamedAsset()
         yield streamedAsset({
@@ -224,7 +229,11 @@ export function runStorageModuleContract(name: string, options: StorageContractO
     test(`${name}: exportAll pushes a large asset under the large bucket when large is active`, async () => {
       const sdk = stubSdk()
       const target = makeTarget()
-      target.contentTypes = { activeTypes: ['large'], largeThreshold: '1B' }
+      target.contentTypes = {
+        activeTypes: ['large'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '1B'
+      }
       CARDINAL.models.assets.streamAll = async function* () {
         yield streamedAsset({
           fileName: 'huge.bin',

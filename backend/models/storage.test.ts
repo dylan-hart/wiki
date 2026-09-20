@@ -73,7 +73,11 @@ function makeTarget(moduleKey: string): StorageTarget {
     banner: definition.banner,
     vendor: definition.vendor,
     website: definition.website,
-    contentTypes: { activeTypes: [], largeThreshold: '5MB' },
+    contentTypes: {
+      activeTypes: [],
+      supportedTypes: definition.contentTypes.supportedTypes,
+      largeThreshold: '5MB'
+    },
     assetDelivery: {
       isStreamingSupported: false,
       isDirectAccessSupported: false,
@@ -482,6 +486,60 @@ test('getSiteTargets reports supportsContentSync per module', async () => {
   // -> git implements the content handlers; disk implements none of them
   assert.equal(git?.sync.supportsContentSync, true)
   assert.equal(disk?.sync.supportsContentSync, false)
+})
+
+test('the blob modules declare no supported page type; the others keep every type', () => {
+  for (const key of ['s3', 'gcs', 'azure']) {
+    assert.deepEqual(
+      storage.getDefinition(key)!.contentTypes.supportedTypes,
+      ['images', 'documents', 'others', 'large'],
+      key
+    )
+  }
+  for (const key of ['db', 'disk', 'sftp', 'git']) {
+    assert.ok(storage.getDefinition(key)!.contentTypes.supportedTypes.includes('pages'), key)
+  }
+})
+
+test('a module with asset write handlers but no page handlers never lists pages as supported', async () => {
+  for (const definition of storage.definitions) {
+    const mod = await storage.ensureModule(definition.key)
+    if (!mod) {
+      continue
+    }
+    const handlesAssets = typeof mod.assetUploaded === 'function'
+    const handlesPages = typeof mod.created === 'function' || typeof mod.updated === 'function'
+    if (handlesAssets && !handlesPages) {
+      assert.equal(
+        definition.contentTypes.supportedTypes.includes('pages'),
+        false,
+        `${definition.key} claims pages but only implements asset handlers`
+      )
+    }
+  }
+})
+
+test('getSiteTargets exposes supportedTypes and drops an unsupported stored type', async () => {
+  fakeDispatchDeps([makeRow('s3', { activeTypes: ['pages', 'images'] })])
+  const [s3] = await storage.getSiteTargets('site-1')
+  assert.deepEqual(s3.contentTypes.supportedTypes, ['images', 'documents', 'others', 'large'])
+  assert.deepEqual(s3.contentTypes.activeTypes, ['images'])
+})
+
+test('dispatch does not queue a page job for an object-store target holding a stale pages type', async () => {
+  const jobs = fakeDispatchDeps([makeRow('s3', { activeTypes: ['pages', 'images'] })])
+  const queued = await storage.dispatch('page:create', { id: 'p1', siteId: 'site-1' })
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 0)
+})
+
+test('validateTarget refuses a content type the module does not support', async () => {
+  const target = makeTarget('s3')
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    contentTypes: { activeTypes: ['pages'] }
+  })
+  assert.match(invalid ?? '', /does not store "pages"/)
 })
 
 function makeTickRow(

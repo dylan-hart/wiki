@@ -13,6 +13,7 @@ import {
 import storageModule from './storage.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
+import { CONTENT_TYPES } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
@@ -160,7 +161,11 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
 
   test('exportAll writes only the assets the target contentTypes cover, at the real computed keys', async () => {
     const target = makeTarget()
-    target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
+    target.contentTypes = {
+      activeTypes: ['images'],
+      supportedTypes: [...CONTENT_TYPES],
+      largeThreshold: '1MB'
+    }
     CARDINAL.models.assets.streamAll = async function* () {
       yield {
         id: 'a1',
