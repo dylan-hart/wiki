@@ -160,7 +160,7 @@ onBeforeUnmount(disposeEditor)
 */
 .save-conflict-diff {
   height: 320px;
-  border: 1px solid rgba(#fff, 0.08);
+  border: 1px solid rgb(255 255 255 / 8%);
   overflow: hidden;
 }
 </style>

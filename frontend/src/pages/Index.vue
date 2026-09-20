@@ -1547,11 +1547,11 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     it and falls back to its own default. Both declarations should be bare `var(--color-hairline…)`.
   */
   .w-separator {
-    --w-hairline-color: #{var(--color-hairline)};
+    --w-hairline-color: var(--color-hairline);
     margin-block: 22px;
   }
   .body--dark & .w-separator {
-    --w-hairline-color: #{var(--color-hairline-dark)};
+    --w-hairline-color: var(--color-hairline-dark);
   }
 
   /*

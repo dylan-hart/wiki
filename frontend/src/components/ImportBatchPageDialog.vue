@@ -734,21 +734,21 @@ function rowClasses(row) {
 .import-batch-dropzone {
   border: 2px dashed rgba(0, 0, 0, 0.2);
   transition: border-color 0.15s ease;
+}
 
-  &--over {
-    border-color: var(--color-primary);
-  }
+.import-batch-dropzone--over {
+  border-color: var(--color-primary);
 }
 
 .import-batch-row {
   border: 1px solid rgba(0, 0, 0, 0.1);
+}
 
-  &--failed {
-    border-color: color-mix(in srgb, var(--color-negative) 40%, transparent);
-  }
+.import-batch-row--failed {
+  border-color: color-mix(in srgb, var(--color-negative) 40%, transparent);
+}
 
-  &--saved {
-    border-color: color-mix(in srgb, var(--color-positive) 40%, transparent);
-  }
+.import-batch-row--saved {
+  border-color: color-mix(in srgb, var(--color-positive) 40%, transparent);
 }
 </style>

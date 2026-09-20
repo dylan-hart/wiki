@@ -1029,10 +1029,10 @@ body.body--cobalt .admin-page-icon {
   */
   .count-badge {
     border-inline-end: 5px solid var(--color-negative-fill);
+  }
 
-    &--filled {
-      border-inline-end-color: var(--color-positive-fill);
-    }
+  .count-badge--filled {
+    border-inline-end-color: var(--color-positive-fill);
   }
 
   .admin-nav-section,
