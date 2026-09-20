@@ -8,6 +8,7 @@ import {
 } from '../../helpers/common.ts'
 import { defaultLocale } from '../../helpers/localeRouting.ts'
 import { limitAuthAttempts } from '../../helpers/rateLimit.ts'
+import { semanticSearchEnabledFor } from '../../helpers/semanticSearch.ts'
 import {
   computeTranslationStatus,
   computeTranslationStatuses,
@@ -80,20 +81,6 @@ async function attachLocaleStatus(siteId: string, results: SearchResult[]): Prom
   for (const result of results) {
     result.localeStatus = statuses.get(result.path) ?? []
   }
-}
-
-/**
- * Both the boot-time pgvector capability flag and the site's own `semanticEnabled` setting: the
- * capability flag alone would bypass a site admin's off-switch.
- *
- * TODO: `api/sites.ts#semanticSearchAvailable` is a second copy of this AND. Hoist one into
- * `helpers/` (a route file may not import another) and drop the `as any`:
- * `CardinalGlobal.capabilities` is typed.
- */
-function semanticSearchEnabledFor(siteId: string): boolean {
-  const capabilityEnabled = Boolean((CARDINAL as any).capabilities?.semanticSearch)
-  const siteEnabled = Boolean(CARDINAL.sites[siteId]?.config?.search?.config?.semanticEnabled)
-  return capabilityEnabled && siteEnabled
 }
 
 async function routes(app: FastifyInstance) {
