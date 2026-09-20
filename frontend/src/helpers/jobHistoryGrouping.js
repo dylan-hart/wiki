@@ -1,22 +1,12 @@
 /**
  * Groups the Scheduler admin area's job-history list by task name, so a task that ran many times in
- * a row -- `storageSyncTick`'s every-minute cron tick is the motivating case, OpenProject #2337 --
- * collapses into one summary row instead of drowning out every other task in the Completed/Failed
- * tabs.
- *
- * Nothing here talks to the scheduler or changes what gets recorded: `AdminScheduler.vue`'s
- * `scheduler/jobs` fetch is untouched, and the raw list is still what `state.jobsTotal` and the
- * "Showing the N most recent of M jobs" caption count against. This purely reshapes how that list
- * renders.
+ * a row -- `storageSyncTick`'s every-minute cron tick is the motivating case -- collapses into one
+ * summary row instead of drowning out every other task in the Completed/Failed tabs.
  */
 
 /**
- * @param {Array<{ task: string }>} jobs A job-history list, newest-first (what `GET
- *   /_api/scheduler/jobs` already returns -- see its own `description`).
- * @returns {Array<{ task: string, entries: object[], count: number }>} One group per distinct task
- *   name, in the order each task's most recent entry appears in `jobs` -- since `jobs` is
- *   newest-first, that is also each group's own recency order. `entries` keeps its members in their
- *   original (newest-first) relative order.
+ * `jobs` must arrive newest-first, as `GET /_api/scheduler/jobs` returns it: group order and each
+ * group's `entries` order are inherited from it, so recency ordering holds only under that.
  */
 export function groupJobHistory(jobs) {
   const groups = []
@@ -34,25 +24,11 @@ export function groupJobHistory(jobs) {
 }
 
 /**
- * Flattens `groupJobHistory`'s output into the row list a `<w-table>` renders.
- *
- * A task with exactly one entry renders exactly as it always did (`groupCount: 1`, no group chrome).
- * A task with two or more entries renders as a single synthetic summary row instead -- built from
- * the group's most recent entry's own fields (so its state icon/date/etc. reflect the latest run),
- * plus `groupCount` (the badge count), `groupTask` (what the expand toggle addresses) and
- * `groupExpanded`. Expanding it (`expandedTasks.has(task)`) additionally lists every entry in the
- * group underneath, each marked `groupChild: true` and `groupCount: 1` -- `groupCount: 1` on purpose,
- * since a child row is a real, individually-actionable entry and should be treated exactly like an
- * ungrouped row everywhere else (in particular: eligible for the retry action).
- *
- * The summary row's `id` is deliberately NOT any real entry's id -- `group:<task>` instead, which
- * cannot collide with a real job id (a uuid) -- specifically so a row-keyed table can never confuse
- * it for one of its own children, and so a caller gating an id-addressed action (retry) on
- * `groupCount === 1` can never have that action fire against a row with no real job behind it.
- *
- * @param {object[]} jobs A job-history list, newest-first.
- * @param {Set<string>} [expandedTasks] Task names currently expanded. Absent/empty expands nothing.
- * @returns {object[]}
+ * A child row carries `groupCount: 1` on purpose: it is a real, individually-actionable entry and
+ * must behave exactly like an ungrouped row everywhere else, the retry action included. The summary
+ * row's `id` is `group:<task>` rather than any real entry's (a uuid), so a row-keyed table cannot
+ * confuse it for one of its children and an id-addressed action gated on `groupCount === 1` can
+ * never fire against a row with no real job behind it.
  */
 export function flattenJobHistoryRows(jobs, expandedTasks) {
   const rows = []

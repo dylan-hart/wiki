@@ -4,11 +4,9 @@ import { findEditableTables } from './markdownTable'
 
 /**
  * `findEditableTables` is what the "Edit Table" CodeLens (`EditorMarkdown.vue`) draws its lenses
- * from -- the lens appears exactly where this says a table starts, and never over a table this
- * cannot hold (a multi-line cell, a `^^` rowspan, or a second MultiMarkdown body). See task 481
- * (Feature 364)'s manual pass: this is the automatable half of "the lens appears only over an
- * editable table" -- Monaco's own positioning of a lens given a range is not something a unit test
- * can usefully re-verify.
+ * from: the lens appears exactly where this says a table starts, and never over a table the editor
+ * cannot hold. Monaco's own positioning of a lens given a range is not something a unit test can
+ * usefully re-verify, so that half stays manual.
  */
 describe('findEditableTables', () => {
   it('finds an ordinary table with a header row', () => {

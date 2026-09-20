@@ -1,121 +1,67 @@
 /*
   THE RENDERED PAGE
-  =================
 
-  Everything a page's own markup can produce, and nothing else: every selector in this file is nested
-  under `.page-contents`, which is the only element the render is injected into -- the article column
-  in the page view, and the preview pane in the markdown editor. Both carry that class, so the two
-  cannot drift apart.
+  Every selector here is nested under `.page-contents`, the only element a render is injected into --
+  the article column in the page view and the preview pane in the markdown editor both carry that
+  class, so the two cannot drift apart.
 
   The app's Tailwind base layer strips margins, list markers and heading sizes from every element, so
-  this file is not a set of tweaks over browser defaults: it is the whole typographic system for
-  content, and it has to be, or a rendered page comes out as undifferentiated 14px text.
+  this is not a set of tweaks over browser defaults: it is the whole typographic system for content.
+  It is written against what `renderers/markdown.js` emits and what `models/rendering.ts` does to it
+  server-side.
 
-  Written against what `renderers/markdown.js` actually emits (and what `models/rendering.ts` does to
-  it server-side), which is: heading anchors, `pre.codeblock` with highlight.js token classes and an
-  optional line-number gutter, task lists, footnotes, multi-line tables, admonitions, twemoji images,
-  and whatever classes an author attaches through `markdown-it-attrs` (`id`, `class` and `target` are
-  the ones the renderer allows through).
+  Diagrams and most maths are blocks, styling themselves inside a shadow root nothing here reaches.
+  Inline `$…$`/`$$…$$` TeX is the one exception: the renderer resolves it to literal KaTeX markup in
+  the light DOM, so `.tex-math-error` below is the one piece of it this file owns -- the formula's own
+  look comes from KaTeX's stylesheet, imported globally in `app.css`.
 
-  Diagrams are not in that list: they are blocks -- `block-diagram`, `block-plantuml` -- and a block
-  styles itself inside its own shadow root, which nothing here reaches. Maths mostly follows the same
-  rule (`block-katex`, `block-mathjax`), but `$…$`/`$$…$$` TeX authored inline is the one exception:
-  `renderers/markdown.js` resolves it to literal KaTeX markup at render time, landing it right here in
-  the light DOM alongside everything else this file styles -- see `.tex-math-error` below for the one
-  piece of it this file actually owns; the formula's own look comes from KaTeX's stylesheet, imported
-  globally in `app.css`.
-
-  The measurements follow what the documentation platforms have converged on -- 15.5px body text, headings
-  at 600 with far more space above than below, ruled h1/h2, tinted code, a table headed by a tinted
-  strip in a framed, ruled and banded body, a left-ruled quote -- because those conventions are what
-  makes a long page scannable, not because any one of them is copied.
-
-  Colours go through custom properties declared on the root block, for three reasons: dark mode is
-  then one override block rather than a rule per element, an author's own CSS can retint content
-  without rewriting selectors, and the brand colours stay indirected through `--color-primary` so a
-  re-themed site follows.
+  Colours go through custom properties on the root block, for three reasons: dark mode is then one
+  override block rather than a rule per element, an author's own CSS can retint content without
+  rewriting selectors, and the brand colours stay indirected through `--color-primary` so a re-themed
+  site follows.
 */
 
 .page-contents {
-  /* -- Palette ----------------------------------------------------------------- */
-
-  /*
-    Ink at three strengths: body, secondary (quotes, captions), and incidental (gutters, markers).
-    Cardinal's own text tiers, so a rendered page and the chrome around it are set in one palette.
-  */
   --content-ink: var(--color-text-body);
   --content-ink-muted: var(--color-text-secondary);
   --content-ink-faint: var(--color-text-caption);
 
-  /* A link takes the strong accent tone: `--color-accent` is under the floor on paper, see tailwind.css */
+  /* The strong accent tone: `--color-accent` itself is under the contrast floor on paper */
   --content-link: var(--color-accent-strong);
 
-  /*
-    A heading is INK, and its rule a flat hairline.
-
-    Both used to be the site's brand colour, with the rule a gradient fading out to the right -- which
-    put the loudest colour on the page at the top of every section and made a heading compete with the
-    one accent Cardinal reserves for the live edge. The design draws headings in `--color-ink` under a
-    plain `--color-hairline`, and the hierarchy comes from the size and the display face instead.
-  */
   --content-h1: var(--color-ink);
   --content-h1-rule: var(--color-hairline);
   /*
-    A section heading's own colour, which used to be inherited rather than stated. Ledger sets both
-    top levels in ink and lets the type carry the hierarchy; Cobalt sets h2 in cobalt and drops the
-    rule under it entirely (`--color-heading-h2` / `--content-h2-rule: transparent`), so the level
-    needs a property of its own to move.
+    A property of its own rather than an inherited colour, because Cobalt sets h2 in cobalt and drops
+    the rule under it entirely while Ledger sets both top levels in ink.
   */
   --content-h2: var(--color-ink);
 
   /*
-    How far the rule under an h1 reaches back into the padding of whatever is holding the content, so
-    that it starts at the sidebar rather than at the text. Both surfaces pad by 1rem -- the article
-    column's `p-4` and the preview pane's own padding -- and a surface that pads differently overrides
-    this one property rather than the rule.
+    How far a rule reaches back into the padding of whatever holds the content, so it starts at the
+    sidebar rather than at the text. Both surfaces pad by 1rem; a surface that pads differently
+    overrides this one property rather than the rules that read it.
   */
   --content-bleed: 1rem;
 
-  /* Rules: the hairline between table cells and around panels, and a heavier one for a quote's bar */
   --content-rule: var(--color-hairline);
   --content-rule-strong: var(--color-slate-faint);
-  /*
-    The grey under a section heading. Stronger than `--content-rule`, because it is only at full
-    strength at its left end -- a hairline's weight would leave nothing visible once it starts fading.
-  */
   --content-h2-rule: var(--color-hairline);
 
   /*
-    Two surfaces. `code` is the panel behind a code block -- opaque, because the preview pane sits on
-    grey and a translucent tint would disappear into it -- and `alt` is the wash behind an inline code
-    span or a row header inside a table body, translucent so it works on either. The head of a table is
-    no longer one of them; see `--content-table-head` below.
-  */
-  /*
-    A code block is drawn on INK in both themes, as the design does it -- code is read on a dark ground
-    here the way it is in the editor -- with the accent down its leading edge. `alt` stays the tint,
-    which is what an inline code span and a table's row header sit on.
+    A code block is drawn on INK in both themes, so its surface is opaque: the editor's preview pane
+    sits on grey, where a translucent tint would disappear into it. `alt` is the translucent wash an
+    inline code span or a table's row header sits on.
   */
   --content-surface-code: var(--color-ink);
   --content-surface-alt: var(--color-tint);
-  /* -> The ground a framed thing in the content is drawn ON: a quote's box, a table's body */
   --content-surface: var(--color-surface);
 
   /*
-    -- Tables (OpenProject #2916) -----------------------------------------------
-
-    A table is a tinted-strip head over a ruled, banded body, drawn inside its own frame -- not the
-    dark title-bar-over-plain-rows shape this block drew before. `markdown-tables.md`'s token table is
-    the source for every value below; where a value is an exact match for an existing global token
-    this references it (verified against `tailwind.css`, not assumed), and a literal otherwise. The
-    frame/radius/corner-marks/shadow and the ruling/banding/hover mechanics that read these are the
-    `// TABLES` section further down; see its own header comment for the wrapper element they draw on.
-
-    Four are dark-invariant PER AESTHETIC (same value in that aesthetic's light and dark form) and so
-    take no separate `.body--dark &` entry below: radius and corner marks already track the aesthetic
-    through `--radius-card`/`--corner-marks` (`tailwind.css`'s own comment calls both "dark-invariant,
-    same as" each other), the shadow is `none` everywhere full stop, and the cell padding only moves
-    between aesthetics, not modes.
+    Table tokens, from `markdown-tables.md`'s token table; where a value is an exact match for an
+    existing global token this references it rather than restating the literal. Radius, corner marks,
+    shadow and cell padding take no `.body--dark &` entry below -- each is the same in an aesthetic's
+    light and dark form.
   */
   --content-table-frame: var(--color-hairline);
   --content-table-radius: var(--radius-card);
@@ -123,54 +69,34 @@
   --content-table-shadow: none;
 
   /*
-    The head strip. Ledger light's `#f0f2f7` is `--color-tint-alt`, not the plainer `--color-tint`
-    (`#eef1f7`) -- confirmed against `tailwind.css`, one hex digit apart and genuinely two different
-    tokens despite how close they read.
+    `--color-tint-alt` (`#f0f2f7`), not the near-identical `--color-tint` (`#eef1f7`) -- genuinely two
+    different tokens, one hex digit apart.
   */
   --content-table-head: var(--color-tint-alt);
   --content-table-head-ink: var(--color-text-secondary);
-  /* -> A mono eyebrow: see the Ledger-specifics section of `markdown-tables.md` for why mono/tracked/
-        uppercase is Ledger's own head treatment, moved onto Cobalt's own type below */
   --content-table-head-font: 600 0.65625rem/1.4 var(--font-mono);
   --content-table-head-tracking: 0.14em;
   --content-table-head-transform: uppercase;
-  /* -> The grid line below and between head cells; same value as the frame in Ledger, a plain hairline */
   --content-table-head-rule: var(--color-hairline);
 
   /*
-    Row rules (the line under every cell) and column rules (the line beside every cell but the last)
-    are deliberately NOT the same strength in Ledger: the column rule is a step fainter, so the grid
-    reads as a ledger sheet rather than a spreadsheet -- see `markdown-tables.md`'s Ledger-specifics
-    section. Neither has an existing token at this exact value, unlike the row rule (which is the
-    plain hairline, same as the frame and head rule).
+    The column rule is deliberately a step fainter than the row rule, so the grid reads as a ledger
+    sheet rather than a spreadsheet. No existing token sits at that value, hence the literal.
   */
   --content-table-rule: var(--color-hairline);
   --content-table-col-rule: #e9edf3;
 
-  /*
-    The body's row colours. The plain row is the surface itself now (`transparent` -- a REMOVAL, see
-    the WP: the previous "both rows tinted" body is gone), and only the banded row is tinted, one step
-    lighter than the strip colour it sits under.
-  */
   --content-table-row: transparent;
   --content-table-row-alt: #f7f8fb;
-  /* -> Hover, painted over the band; the inset accent lands on the row's leading cell only */
   --content-table-row-hover: #eef1f7;
   --content-table-hover-edge: inset 2px 0 0 #e4676b;
 
   --content-table-cell-padding: 9px 14px;
 
   /*
-    OpenProject #2917, reconciled with the handoff's global scrollbar spec under #3007. A wide
-    table's own scrollbar stays thinned and coloured to match the frame rather than the app's more
-    prominent chrome scrollbar (`--color-rule` thumb, the same tint the head strip sits on for a
-    track) -- deliberately subtler at rest than the global `.body--ledger` scrollbar's own
-    `--color-slate-faint` thumb, so a table reads as part of its own frame rather than a chrome
-    fixture. Hover steps up to that exact global resting tone; the drag colour is `--color-negative-
-    fill`, matching the global rule's own drag colour exactly -- the one state kept consistent
-    everywhere, table included, since that's the strong signal the handoff cares most about being
-    recognisable. `::-webkit-scrollbar*` rules live with `.table-scroll` itself, further down this
-    file (`// TABLES`), which is what actually consumes these four tokens for every aesthetic.
+    A wide table's own scrollbar blends into the frame rather than matching the app's more prominent
+    chrome scrollbar -- a table sits on one known surface and can afford to. Only the drag colour is
+    kept identical to the global rule's, since that is the signal worth recognising everywhere.
   */
   --content-table-scrollbar-thumb: var(--color-rule);
   --content-table-scrollbar-track: var(--color-tint-alt);
@@ -178,11 +104,9 @@
   --content-table-scrollbar-thumb-active: var(--color-negative-fill);
 
   /*
-    OpenProject #3239: the cell-range select mode's own highlight, drawn over a selected cell
-    regardless of the zebra/hover state under it. `color-mix` off `--color-primary` rather than a
-    fixed grey -- the same approach `--content-links-row-hover` above already takes -- so the accent
-    reads as the site's own colour and stays dark-invariant for the same reason that one is: mixing
-    against `transparent` keeps resolving correctly whatever ground it ends up composited over.
+    The cell-range select highlight, drawn over whatever zebra or hover state is under it.
+    `color-mix` off `--color-primary` rather than a fixed grey, so it is the site's own colour and --
+    mixing against `transparent` -- composites correctly on any ground, dark included.
   */
   --content-table-select-bg: color-mix(in srgb, var(--color-primary) 16%, transparent);
   --content-table-select-ring: var(--color-primary);
@@ -190,51 +114,33 @@
   --content-mark: #fdf1a0;
 
   /*
-    The rows of a `{.links-list}`: the wash each one sits on, and the tint it takes under the pointer.
-    Washes rather than fixed greys, for the same reason the table's rows are ones -- the editor's
-    preview pane sits on grey, where a fixed near-white row would read as a lit strip.
-
-    The hover tint is mixed from the site's colour, so it answers the bar that appears beside it rather
-    than being a blue that happens to sit near one.
+    A `{.links-list}` row's wash and the tint it takes under the pointer. Washes rather than fixed
+    greys: the editor's preview pane sits on grey, where a fixed near-white row would read as a lit
+    strip.
   */
   --content-links-row: rgba(0, 0, 0, 0.045);
   --content-links-row-hover: color-mix(in srgb, var(--color-primary) 8%, transparent);
   /*
-    And the light down the top of a row, over whichever of the two it is carrying. A separate layer
-    rather than a two-stop wash, because the wash is the half that changes: a gradient cannot be
-    transitioned to another gradient, so a row built out of one would jump to its hover colour while
-    everything else on the page fades.
+    The light down the top of a row, layered over whichever wash it is carrying rather than built into
+    it as a second stop: a gradient cannot be transitioned to another gradient, so a row built that
+    way would jump to its hover colour while everything else on the page fades.
   */
   --content-links-sheen: rgba(255, 255, 255, 0.8);
   /*
-    And the drop under it, so a row sits ON the page rather than being a tint drawn into it. One tight
-    layer where the table has two: these come five and ten at a time down a page, and the wide soft
-    half of a table's shadow repeated that often reads as a smudge behind the whole list.
+    One tight shadow layer where the table has two: these come ten at a time down a page, and the wide
+    soft half of a table's shadow repeated that often reads as a smudge behind the whole list.
   */
   --content-links-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
 
-  /*
-    A task-list checkbox, exactly as the primitives sheet draws one: a done item is the ACCENT fill
-    carrying a tick, and an item still to do is a bare hairline square with nothing in it.
-
-    Both halves used to disagree with that sheet. The box was a neutral grey (`#5b616b`), a tone the
-    language does not have, so the one place a rendered page says "done" said it in a colour nothing
-    else on screen uses; and the empty box was filled white, which on the article column makes an
-    unticked item read as a lit square rather than as an outline waiting to be filled.
-  */
   --content-tick: var(--color-accent-fill);
-  /* -> The empty box is its outline and nothing else, on whichever surface the content sits on */
   --content-tick-empty: transparent;
-  /* -> The edge of that outline: `--color-slate-pale` is the tone Cardinal draws an OFF control in */
+  /* -> `--color-slate-pale` is the tone Cardinal draws an OFF control in */
   --content-tick-edge: var(--color-slate-pale);
 
   /*
-    Admonition hues: the bar and the wash behind it, per severity, in the language's own status tones
-    (`css/tailwind.css`) rather than the generic Material-era set this carried -- a rendered page was
-    putting five hues on screen that appear nowhere else in the app.
-
-    Each is the TEXT tone of its status, not the fill: these colour the bar, the icon and the alert's
-    own title, and the prose under them stays at `--content-ink` either way.
+    Admonition hues, from the language's own status tones (`css/tailwind.css`). Each is the TEXT tone
+    of its status, not the fill: they colour the bar, the icon and the alert's own title, and the
+    prose under them stays at `--content-ink` either way.
   */
   --content-info: var(--color-info);
   --content-info-wash: rgba(56, 70, 95, 0.07);
@@ -245,71 +151,48 @@
   --content-danger: var(--color-negative);
   --content-danger-wash: rgba(193, 74, 82, 0.08);
   /*
-    A fifth tone, for `[!IMPORTANT]`: it sits between "worth knowing" and "watch out", which is
-    exactly the gap the other four leave. Ink rather than a fifth hue -- Cardinal has no sixth colour
-    to spend here, and the strongest tone in the language reads as the most emphatic thing on the page
-    without inventing one.
+    `[!IMPORTANT]` sits between "worth knowing" and "watch out", the gap the other four leave. Ink
+    rather than a fifth hue: there is no spare colour in the language to spend here, and the strongest
+    tone already reads as the most emphatic thing on the page.
   */
   --content-important: var(--color-ink);
   --content-important-wash: rgba(28, 34, 51, 0.06);
-  /* -> A sixth tone, for `[!QUESTION]`: teal, distinct from every status hue the other five draw on */
+  /* -> `[!QUESTION]`: teal, the one hue none of the other five draw on */
   --content-question: var(--color-teal);
   --content-question-wash: rgba(0, 150, 136, 0.08);
 
   /*
-    The ink of an inline code chip and of a `<kbd>` plate -- the two small mono marks that sit IN
-    prose, on the tint rather than in the code block. `--color-slate` on `--color-tint` is what the
-    design draws; the dark block moves both onto the lightened chrome tone, because the same literal
-    slate on the dark theme's own chip is 1.09:1 and was simply unreadable.
+    The ink of an inline code chip and of a `<kbd>` plate. The dark block moves both onto the
+    lightened chrome tone: the same literal slate on the dark theme's own chip is 1.09:1, unreadable.
   */
   --content-code-ink: var(--color-slate);
   /*
-    The inline chip's own ground, edge and corner -- split out from `--content-surface-alt` and
-    `--content-rule`, which it used to borrow, because Cobalt moves the chip onto the accent wash
-    with no edge at all while the quote gutter and the rules those two also serve stay where they
-    are. Ledger's values below are the two it borrowed, so nothing moves there.
+    Split out from `--content-surface-alt`/`--content-rule` (Ledger's values are still exactly those
+    two) because Cobalt moves the chip onto the accent wash with no edge at all, while the quote
+    gutter and the rules those two also serve stay where they are.
   */
   --content-code-chip-bg: var(--content-surface-alt);
   --content-code-chip-edge: var(--content-rule);
   /*
-    And the ink of the code BLOCK, which is a different question: the block is drawn on ink in both
-    themes, so its text is the dark ramp's own. It is a token rather than a literal so the print
-    block can put it back to black -- printing draws the block on white, where near-white text is
-    nothing at all.
+    A token rather than a literal so the print block can put it back to black: printing draws the
+    block on white, where near-white text is nothing at all.
   */
   --content-code-block-ink: var(--color-text-dark);
   /*
-    And the block's two edges. The accent runs down its leading edge in both themes -- lightened in
-    the dark one, because `--color-accent-fill` on the deepest well is the same too-loud red every
-    other dark surface stopped using. The frame is drawn only on a dark page: the light Ledger sets
-    the block on a white column, where ink against paper IS the edge, and the dark Ledger frames it
-    in a hairline because a near-black block on a dark page has nothing else to end it.
+    The frame is drawn only on a dark page: on a light one the block sits in a white column, where ink
+    against paper IS the edge, while a near-black block on a dark page has nothing else to end it.
   */
   --content-code-edge: var(--color-accent-fill);
   --content-code-frame: transparent;
 
   /*
-    -- Code tokens -----------------------------------------------------------
+    Code tokens -- the FALLBACK, for a site that has chosen no code theme. `App.vue` injects the
+    highlight.js theme picked under Admin → Theme scoped to this same element, and being injected
+    later it wins at equal weight. Without either, a code block renders as uncoloured monospace.
 
-    The FALLBACK, for a site that has chosen no code theme: `App.vue` injects the highlight.js theme
-    picked under Admin → Theme, scoped to this same element, and being injected later it takes
-    precedence over everything below at equal weight. Without either, a code block would render as
-    uncoloured monospace, which is what it did before both halves existed.
-
-    THESE ARE LIGHT-ON-DARK, AND THAT IS NOT A MISTAKE. The second pass moved the code block onto
-    `--color-ink` in both themes -- "an ink code block with an accent edge", as the design draws it
-    -- but left this palette at GitHub's LIGHT theme, which is a set of dark inks meant for a white
-    ground. Measured against the ground they actually landed on (`#1c2233`), every one of the eight
-    was under the 4.5:1 floor this work set for itself: comment 3.29, keyword 2.96, number and attr
-    2.09, type 2.14, title 2.78, meta 2.48, and `string` (`#0a3069`) at 1.24, which is to say
-    invisible. The retired set is not gone -- it is exactly right for a white ground, so the print
-    block below is where it now lives.
-
-    The replacements are Cardinal's own hues rather than another vendor theme's, one per token
-    class, so a code block is coloured out of the same box as everything around it: the accent for
-    keywords, positive for strings, warning for numbers and attributes, the lightened chrome slate
-    for titles, the custom-block purple lightened for types, and the two dark text tiers for the two
-    things that are commentary rather than code. `helpers/accessibility.test.js` pins every one of
+    These are light-on-dark deliberately: the block is drawn on ink in both themes. They are
+    Cardinal's own hues rather than another vendor theme's, one per token class, so a code block is
+    coloured out of the same box as everything around it. `helpers/accessibility.test.js` pins each of
     them against the ground it is drawn on.
   */
   --content-code-comment: var(--color-text-caption-dark);
@@ -319,8 +202,8 @@
   --content-code-title: var(--color-slate-light);
   /* -> `#7a4a86`, the language's custom-block purple, lifted onto an ink ground */
   --content-code-type: #c79ad2;
-  /* -> An attribute is a name with a value, which is the same shape a number is; GitHub pairs them
-        too, and Cardinal has no seventh hue to spend separating them */
+  /* -> Paired with the number: an attribute is a name with a value, the same shape, and there is no
+        seventh hue to spend separating them */
   --content-code-attr: #e0b86a;
   --content-code-meta: var(--color-text-secondary-dark);
   --content-code-addition: #7fc4a8;
@@ -329,46 +212,33 @@
   --content-code-deletion-wash: rgba(240, 130, 135, 0.16);
 
   /*
-    A footnote the reader was just sent to. Cardinal's highlight is the accent wash, not the yellow
-    this used to draw -- `#fdf1a0` appears nowhere else in the app, and a rendered page was the only
-    surface putting it on screen. `<mark>` keeps its own yellow (`--content-mark`): an author's
-    highlighter and "here is the note you asked for" are different statements.
+    A footnote the reader was just sent to. `<mark>` keeps its own yellow (`--content-mark`): an
+    author's highlighter and "here is the note you asked for" are different statements.
   */
   --content-landed-wash: var(--color-accent-wash);
   --content-landed-edge: var(--color-accent-fill);
 
   color: var(--content-ink);
   /*
-    `--font-content` is written scoped to this selector, at runtime, by `helpers/fonts.js`'s
-    `applyContentFont()` -- the same nested-`<style>` pattern `App.vue`'s `applyCodeBlocksTheme()`
-    uses for the highlight.js theme, so a reader's chosen content font never leaks past this element
-    into the surrounding chrome. With nothing selected (`theme.contentFont === 'user'`, or before the
-    site's theme has loaded at all) the property is never set, and this falls back to whatever
-    `--font-sans` resolves to -- the same font the rest of the app is using, not the browser default.
+    `--font-content` is written scoped to this selector at runtime by `helpers/fonts.js`'s
+    `applyContentFont()`, so a reader's chosen content font never leaks past this element into the
+    surrounding chrome. With nothing selected the property is never set and this falls back to
+    `--font-sans` -- the font the rest of the app is using, not the browser default.
   */
   font-family: var(--font-content, var(--font-sans));
   /*
-    `ui-iteration-cobalt-typography/cobalt-typography.md` §0.1: 15.5px, not the 16px (`1rem`) this
-    used to read -- `rem` rather than a bare px value so a reader's browser-level font-size
-    preference still scales the whole article the same way it always has.
+    `rem` rather than a bare px value, so a reader's browser-level font-size preference still scales
+    the whole article.
   */
   font-size: 0.96875rem;
-  /*
-    1.72, not the 1.6 this used to read at 16px: the same design pass raises both together, and at
-    15.5px the looser leading is what keeps a paragraph's lines reading as a block rather than
-    gapping open.
-  */
   line-height: 1.72;
-  /* -> A pasted URL or a long identifier wraps rather than widening the whole column */
   overflow-wrap: break-word;
 
   /*
-    Content never stacks above the app's own chrome. A block's internals are free to use whatever
-    z-indexes they need -- leaflet alone puts its panes at 400 and its controls at 800, and a shadow
-    root is not a stacking context, so those numbers land in whichever context the page provides.
-    Against the header's 20 the map won, and the search panel hanging off the header was drawn behind
-    it. Isolating here gives every block a ceiling of this element's own place in the page, whatever
-    it does inside.
+    Content never stacks above the app's own chrome. A block's internals use whatever z-indexes they
+    need -- leaflet alone puts its panes at 400 and its controls at 800 -- and a shadow root is not a
+    stacking context, so those numbers land in whichever context the page provides. Isolating gives
+    every block a ceiling of this element's own place in the page, whatever it does inside.
   */
   isolation: isolate;
 
@@ -377,16 +247,10 @@
     --content-ink-muted: var(--color-text-secondary-dark);
     --content-ink-faint: var(--color-text-caption-dark);
 
-    /* -> The accent lightens on ink; the mid tone is under the floor there (see tailwind.css) */
+    /* -> The accent lightens on ink; the mid tone is under the contrast floor there */
     --content-link: var(--color-accent-dark);
-    /* -> A heading stays INK-side text rather than taking the accent, matching the light theme */
     --content-h1: var(--color-text-dark);
     --content-h1-rule: var(--color-hairline-dark);
-    /*
-      And the same for a section heading, which is a stated colour now rather than an inherited one
-      -- Cobalt sets h2 in cobalt and needs a property to move, and a property that only Ledger LIGHT
-      declares leaves the dark theme drawing ink on ink.
-    */
     --content-h2: var(--color-text-dark);
 
     --content-rule: var(--color-hairline-dark);
@@ -399,11 +263,9 @@
     --content-surface: var(--color-dark-3);
 
     /*
-      Ledger dark table tokens (OpenProject #2916). Frame/rules move to the dark hairline; the head
-      strip goes darker than the body panel rather than lighter -- `#14171f` is `--color-dark-5`, the
-      ramp's own "page ground" rung (see its comment further up this file), a step below
-      `--content-surface`'s `--color-dark-3` panel, which is what makes the strip read as recessed
-      rather than raised the way the light theme's tint does.
+      The head strip goes DARKER than the body panel rather than lighter: `--color-dark-5` is the
+      ramp's page-ground rung, a step below `--content-surface`'s panel, which is what makes the strip
+      read as recessed here the way the light theme's tint reads as raised.
     */
     --content-table-frame: var(--color-hairline-dark);
     --content-table-head: var(--color-dark-5);
@@ -415,12 +277,6 @@
     --content-table-row-alt: rgba(255, 255, 255, 0.025);
     --content-table-row-hover: rgba(255, 255, 255, 0.05);
     --content-table-hover-edge: inset 2px 0 0 #f08287;
-    /*
-      The scrollbar drops to the dark hairline on the page's own ground rung. Hover steps up to
-      `--color-border-dark` -- the same tone the global `.body--ledger.body--dark` scrollbar rests at
-      -- and the drag colour is `--color-accent-dark`, matching that global rule's own drag colour
-      exactly, same reconciliation as the light pair above.
-    */
     --content-table-scrollbar-thumb: var(--color-hairline-dark);
     --content-table-scrollbar-track: var(--color-ink-dark);
     --content-table-scrollbar-thumb-hover: var(--color-border-dark);
@@ -428,23 +284,20 @@
 
     --content-mark: #6b5d13;
 
-    /* -> Lifted off the dark page, and mixed from the lighter blue for the same reason links are */
     --content-links-row: rgba(255, 255, 255, 0.05);
     --content-links-row-hover: color-mix(in srgb, var(--color-primary-light) 14%, transparent);
     /* -> Barely there: on a dark page the same light that reads as a rounded top edge reads as a bar */
     --content-links-sheen: rgba(255, 255, 255, 0.045);
-    /* -> Deepened, and no wider, for the reason the table's is: a 7% black drop is invisible here */
+    /* -> Deepened and no wider: the light theme's 14% black drop is invisible here */
     --content-links-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 
     /*
       The accent lightens on ink and its fill then carries DARK ink rather than white -- the locked
-      dark-theme rule, and what the dark primitives sheet draws this exact box as. The empty box's
-      edge moves to the dark ramp's own off-control tone.
+      dark-theme rule for every accent fill in the app.
     */
     --content-tick: var(--color-accent-dark);
     --content-tick-edge: var(--color-disabled-dark);
 
-    /* -> The same five, lightened for ink: `var(--color-slate-light)`, and the dark ramp's own status tones */
     --content-info: #8ea6cf;
     --content-info-wash: rgba(142, 166, 207, 0.12);
     --content-success: #7fc4a8;
@@ -458,21 +311,16 @@
     --content-question: #5fc9bb;
     --content-question-wash: rgba(95, 201, 187, 0.12);
 
-    /* -> Both small mono marks move onto the lightened chrome tone, as the dark Ledger draws them */
     --content-code-ink: var(--color-slate-light);
     --content-code-edge: var(--color-accent-dark);
     --content-code-frame: var(--color-hairline-dark);
 
     /*
-      The second code palette, and a genuinely second one rather than the light theme's set reused.
-
-      On a light page the code block is a dark ISLAND, and the tones above are held where they are so
-      the island does not glare out of a white column. Here the block is the deepest well of an
-      already-dark page (`--color-dark-6`, a step below the page ground), and the same tones would
-      repeat the chrome's own accent, positive and warning at the same strength -- so a code block
-      would be coloured in exactly the language of the panels around it rather than reading as its
-      own place. Each is therefore lifted a step, which the deeper ground has the room for: the
-      floor here is 7.46:1 against 5.08:1 in the light theme.
+      A genuinely second palette, not the light theme's set reused. There the code block is a dark
+      ISLAND in a white column; here it is the deepest well of an already-dark page, where the same
+      tones would repeat the chrome's own accent, positive and warning at the same strength and a
+      block would read in exactly the language of the panels around it. Each is lifted a step, which
+      the deeper ground has the contrast room for.
     */
     --content-code-comment: #98a4bb;
     --content-code-keyword: #ff9ba0;
@@ -487,68 +335,52 @@
     --content-code-deletion: #ff9ba0;
     --content-code-deletion-wash: rgba(255, 155, 160, 0.16);
 
-    /* -> The accent's own dark wash, and the lightened accent for the edge that marks the item */
     --content-landed-wash: var(--color-accent-wash-dark);
     --content-landed-edge: var(--color-accent-dark);
   }
 
   /*
-    -- The Cobalt aesthetic ---------------------------------------------------
+    The Cobalt aesthetic (`ui-redesign-cobalt/HANDOFF.md`). Placed AFTER the dark block above so it
+    wins at equal specificity for the properties both set, and split into an aesthetic block and an
+    aesthetic-and-dark one because the two axes are independent.
 
-    Source: `ui-redesign-cobalt/HANDOFF.md` and `Cardinal Wiki - Page View 3x - Cobalt.dc.html`, the
-    canonical Cobalt screen. Placed AFTER the dark block above so it wins at equal specificity for
-    the properties both set, and written as two blocks -- aesthetic, then aesthetic-and-dark -- for
-    the same reason `tailwind.css` splits its own: the two axes are independent, and Cobalt dark
-    changes only what the dark ground forces, never the shape.
-
-    Everything here is a colour or a corner. The three places Cobalt genuinely draws something
-    Ledger does not -- an ordered list's numbered step plates, the code block's language label, and
-    the quote's flat left-ruled callout in place of the corner-marked gutter -- are rules beside
-    their Ledger counterparts further down, not tokens, because there is no value that turns one
-    into the other.
+    Everything here is a colour or a corner. The three places Cobalt genuinely draws something Ledger
+    does not -- an ordered list's numbered step plates, the code block's language label, and the
+    quote's flat left-ruled callout in place of the corner-marked gutter -- are rules beside their
+    Ledger counterparts further down, not tokens, because no value turns one into the other.
   */
   body.body--cobalt & {
     /*
-      -> h1 is body ink, not the aesthetic's saturated navy `--color-ink` -- the Ledger-default
-      `--content-h1: var(--color-ink)` reads as a second "blue" heading beside h2's own accent color,
-      which only h2 is meant to carry (OpenProject #2964). h2 keeps no rule under it, per the
-      handoff.
+      -> h1 is body ink, not the aesthetic's saturated navy `--color-ink`, which would read as a
+      second "blue" heading beside h2's own accent -- only h2 is meant to carry it.
     */
     --content-h1: var(--color-text-body);
     --content-h2: var(--color-heading-h2);
     --content-h2-rule: transparent;
 
     /*
-      The inline chip: the accent wash carrying accent TEXT, edgeless and 4px-cornered -- the one
-      mark in Cobalt's prose that is red rather than blue. `--color-tag-chip-accent-text` is the
-      fixed design token for exactly this red-on-wash chip look (`#c8303c`) -- the same one the
-      accent tag-chip variant uses -- not `--color-accent` (`var(--q-accent)`), which is the site's
-      own admin-configurable brand color and only *defaults* to that hex; using it here would drag
-      inline code's color along with a site's own accent customization, which the design doesn't
-      call for. Never `--color-accent-fill`'s `#ff4d5a` either, which is 3.1:1 on the wash.
+      The inline chip: the accent wash carrying accent TEXT, edgeless -- the one mark in Cobalt's
+      prose that is red rather than blue. `--color-tag-chip-accent-text` is the fixed design token for
+      exactly this red-on-wash look, NOT `--color-accent`, which is the site's own
+      admin-configurable brand colour and would drag inline code along with a site's customisation.
+      Never `--color-accent-fill` either, which is 3.1:1 on the wash.
     */
     --content-code-ink: var(--color-tag-chip-accent-text);
     --content-code-chip-bg: var(--color-accent-wash);
     --content-code-chip-edge: transparent;
 
     /*
-      The code block. `--content-surface-code` already resolves to the mockup's `#10194a` on its own
-      (it is `var(--color-ink)`, which Cobalt overrides to exactly that), so only the edge moves:
-      Cobalt draws no accent bar down the block's leading side -- see the `pre` rule below, which
-      zeroes its width -- and no frame.
+      `--content-surface-code` already resolves to Cobalt's own `#10194a` (it is `var(--color-ink)`,
+      which Cobalt overrides to exactly that), so only the edge moves: no accent bar down the block's
+      leading side, and no frame.
 
-      The block's own ink is `#e6eaff`, one step off Ledger's `--color-text-dark` (`#e6eaf2`, the
-      generic, non-aesthetic-specific token `--content-code-block-ink` otherwise resolves to) --
-      close enough to read as a typo if left alone, but the handoff's Cobalt page views draw a
-      distinct literal, so it gets its own override here rather than inheriting Ledger's.
-      Unchanged in Cobalt dark: the handoff gives the block the same ink in both modes, the same
-      "same both" shape the syntax tones below already have, so no dark-specific restatement.
+      `#e6eaff` is one step off Ledger's `--color-text-dark` (`#e6eaf2`, what the generic
+      `--content-code-block-ink` otherwise resolves to) -- close enough to read as a typo, but the
+      handoff draws a distinct literal, in both modes, hence no dark-specific restatement.
 
-      The handoff gives Cobalt exactly two syntax tones, `#ff7a84` and `#8fb0ff`, against the block's
-      `#10194a`. They are assigned by what a token IS rather than spread thin: the red is the tone
-      for a language's own words (keyword, type, and a deletion), the blue for everything a value or
-      a name (string, number, title, attribute, meta, addition). `--content-code-comment` is neither
-      -- it is commentary, so it takes the dimmer chrome tone the mockup sets its `bash` label in.
+      Cobalt gets exactly two syntax tones, assigned by what a token IS rather than spread thin: the
+      red for a language's own words (keyword, type, deletion), the blue for anything that is a value
+      or a name. A comment is neither, so it takes the dimmer chrome tone the mockup's label uses.
     */
     --content-code-edge: transparent;
     --content-code-frame: transparent;
@@ -566,27 +398,20 @@
     --content-code-addition: #8fb0ff;
     --content-code-addition-wash: rgba(143, 176, 255, 0.16);
 
-    /*
-      The callout's own fill and rule, and the ink on it: `#e6edff` under `#1a2f7a` with a `#1f4fd6`
-      bar, straight off the canonical page view. `--content-info` doubles as the plain quote's rule
-      here, since Cobalt draws the two the same way.
-    */
+    /* -> `--content-info` doubles as the plain quote's rule here, since Cobalt draws the two alike */
     --content-info: var(--color-heading-h2);
     --content-info-wash: #e6edff;
     --content-callout-ink: #1a2f7a;
     --content-step-bg: var(--color-heading-h2);
     --content-step-fg: #fff;
 
-    /* -> The tick a task-list item is marked with is an untexted fill, so it is the bright accent */
+    /* -> A tick is an untexted fill, so it takes the bright accent */
     --content-tick: var(--color-accent-fill);
 
     /*
-      Cobalt table tokens (OpenProject #2916). The frame is the same colour the app's own card border
-      draws with (`--shadow-card`'s ring, which happens to equal `--color-hairline` here); the head
-      strip is the aesthetic's own tint, Barlow rather than Ledger's mono eyebrow, sentence case with
-      no tracking; rules are soft (drawn in the tint itself, not a hairline) except the head's own
-      column rule, which steps one shade deeper so it still shows on the strip -- see
-      `markdown-tables.md`'s Cobalt-specifics section.
+      The head strip is the aesthetic's own tint set in Barlow, sentence case, no tracking. Rules are
+      soft -- drawn in the tint itself rather than a hairline -- except the head's own column rule,
+      which steps a shade deeper so it still shows against the strip.
     */
     --content-table-frame: var(--color-hairline);
     --content-table-head: var(--color-tint);
@@ -603,21 +428,10 @@
     --content-table-cell-padding: 10px 14px;
 
     /*
-      Cobalt table styling, light (OpenProject #2918). Every colour a table needs is already one of
-      the `--content-table-*` tokens above; the wide-table scrollbar (`// TABLES`, further down this
-      file) is the one exception the handoff's global scrollbar spec (#3005/#3006) doesn't cover
-      identically -- its own `.body--cobalt ::-webkit-scrollbar-thumb` is a blue pill on a
-      TRANSPARENT track, chosen to read against every kind of surface the app has, whereas a table
-      sits on a known, single surface (this aesthetic's own page ground) and can afford to blend the
-      idle scrollbar into it instead. Reconciled under #3007 into the same
-      `--content-table-scrollbar-*` token pair Ledger's own table rule already uses (below), rather
-      than staying a separate `.table-scroll` override: `--color-sidebar-actions-text` is the same
-      ink `--color-admin-sidebar-text` already carries on this aesthetic (`#c5cff5`), `--color-paper`
-      is this aesthetic's own page ground (`#f2f5ff`), so an idle scrollbar reads as part of the page
-      rather than a chrome-grey stripe cutting across a card's own tint. Hover deepens toward the
-      sidebar's own icon-stroke indigo; the drag colour is `--color-accent-strong`, matching the
-      global rule's own drag colour exactly -- the one state kept consistent everywhere, table
-      included, since that's the strong signal the handoff cares most about being recognisable.
+      The global Cobalt scrollbar is a blue pill on a TRANSPARENT track, chosen to read against every
+      surface the app has. A table sits on one known surface -- this aesthetic's own page ground --
+      and can afford to blend its idle scrollbar into it instead. Only the drag colour matches the
+      global rule exactly.
     */
     --content-table-scrollbar-thumb: var(--color-sidebar-actions-text);
     --content-table-scrollbar-track: var(--color-paper);
@@ -626,11 +440,9 @@
   }
 
   /*
-    Cobalt on a dark ground. Only what the ground forces: the code block drops to the deepest well
-    the Page View Dark mockup draws it at (`#070b22`, which `tailwind.css` gives Cobalt dark as
-    `--color-dark-4`; `--color-dark-6` is a rung that block deliberately leaves inherited, so it
-    cannot be used here), the chip's accent lightens to the tone that clears the floor on a dark
-    card, and the callout inverts to a translucent cobalt wash.
+    Cobalt on a dark ground: only what the ground forces. The code block drops to `--color-dark-4`,
+    the deepest well the dark mockup draws it at -- `--color-dark-6` is a rung Cobalt dark leaves
+    inherited, so it cannot be used here.
   */
   body.body--cobalt.body--dark & {
     --content-h2: var(--color-heading-h2);
@@ -641,25 +453,17 @@
     --content-info: #8fb0ff;
     --content-info-wash: rgba(61, 109, 247, 0.16);
     --content-callout-ink: #c9d6ff;
-    /* -> The handoff's "Numbered steps ... `#3d6df7` (white text, 4.6:1)" for the dark ground */
+    /* -> The handoff's `#3d6df7` carrying white text, 4.6:1 on the dark ground */
     --content-step-bg: #3d6df7;
     --content-step-fg: #fff;
     --content-tick: var(--color-accent-fill);
 
     /*
-      Cobalt-dark table tokens (OpenProject #2916/#2918), re-derived blue-tinted under #2933. The
-      frame is `--shadow-card`'s own dark ring value, now `var(--color-hairline-dark)` itself (that
-      ring changed from a literal `rgb(255 255 255 / 0.1)` to this same var() under #2933 too, so
-      there is a real colour custom property to point at rather than only a `box-shadow` to copy the
-      number out of). The head strip reuses the rung `.w-section-header`'s own Cobalt-dark override
-      already names for this exact "banded strip header" look (`--color-dark-3-5`), and the head ink
-      is the same `#8fb0ff` `--color-heading-h2` resolves to on this ground. The head's own rule
-      (both its underline and its column rule), the body/column rules, and the banding are each
-      `color-mix()`s of that same `--color-hairline-dark` against transparent -- the same idiom
-      `--content-links-row-hover` above already uses -- at 70%/55%/55%/25% respectively, preserving
-      the original tokens' relative strength (`markdown-tables.md`'s numbers: head-rule/row-hover one
-      notch above the body/column rules, banding faintest of all) while replacing white with the
-      established Cobalt-dark hairline hue instead of inventing a second, unrelated blue.
+      The head strip reuses `--color-dark-3-5`, the rung `.w-section-header`'s own Cobalt-dark
+      override already names for this banded-strip look. The rules and the banding are `color-mix()`s
+      of `--color-hairline-dark` against transparent at 70%/55%/55%/25%, preserving
+      `markdown-tables.md`'s relative strengths while staying on the established Cobalt-dark hairline
+      hue rather than inventing a second, unrelated blue.
     */
     --content-table-frame: var(--color-hairline-dark);
     --content-table-head: var(--color-dark-3-5);
@@ -672,26 +476,16 @@
     --content-table-hover-edge: none;
 
     /*
-      `markdown-tables.md`'s Cobalt-specifics also give a table LINK its own dark tone (`#7fa0ff`),
-      distinct from `--content-link`'s ordinary dark-mode value: the un-scoped `.body--dark &` block
-      above sets it to `var(--color-accent-dark)`, which on this aesthetic is `#ff8f97` -- a warm
-      coral reserved for negative/deletion accents, not the cool blue every Cobalt dark mockup draws
-      a link in. `--color-accent-strong` is that blue here (`#7fa0ff`, the same tone the head ink
-      and the sidebar text already carry), so restating `--content-link` against it is a one-line
-      fix rather than a new token -- and it corrects every link this element renders on a dark
-      Cobalt page, a table's included, not only the table's own.
+      The unscoped `.body--dark &` block above sets `--content-link` to `var(--color-accent-dark)`,
+      which on this aesthetic is `#ff8f97` -- a warm coral reserved for negative accents, not the cool
+      blue every Cobalt dark mockup draws a link in. `--color-accent-strong` is that blue here.
     */
     --content-link: var(--color-accent-strong);
 
     /*
-      Wide-table scrollbar, dark half of the light block's own comment above: thumb `rgba(255,255,
-      255,.14)`, track `--color-dark-3-5` (`#0e1540`, the same rung the head strip already sits on,
-      so an idle scrollbar reads as part of the card rather than a seam across it), for the same
-      "blend into the table's own surface" reason as the light block. Hover steps the same white up
-      to `.3` alpha; the drag colour is `--color-heading-h2` (`#8fb0ff` here), matching the global
-      rule's own dark-ground drag colour exactly -- `--color-accent-strong` is NOT that value on this
-      ground (`#7fa0ff`, reserved for a table's own link colour just below), so it is deliberately
-      not reused here the way the light block reuses `--color-accent-strong`.
+      The drag colour is `--color-heading-h2`, matching the global dark rule's own -- deliberately NOT
+      `--color-accent-strong` the way the light block does, since on this ground that token is the
+      table's own link blue just above.
     */
     --content-table-scrollbar-thumb: rgba(255, 255, 255, 0.14);
     --content-table-scrollbar-track: var(--color-dark-3-5);
@@ -699,7 +493,6 @@
     --content-table-scrollbar-thumb-active: var(--color-heading-h2);
   }
 
-  /* -> The page's own margins are the container's business; the first and last block give theirs up */
   > :first-child {
     margin-top: 0;
   }
@@ -707,17 +500,13 @@
     margin-bottom: 0;
   }
 
-  /* --------------------------------------------------------------------------- */
   /* HEADINGS */
-  /* --------------------------------------------------------------------------- */
 
   /*
-    Space belongs ABOVE a heading, several times what sits below it: that asymmetry is what visibly
-    binds a heading to its own section instead of leaving it floating between two.
-
-    The margins are in `em`, so each level's gap scales with its own size -- which is what keeps the
-    run of them descending (h1 40px, h2 34px, h3 30px, and so on down) rather than a deeper heading
-    ending up with more room above it than the one it sits under.
+    Space belongs ABOVE a heading, several times what sits below it -- that asymmetry is what binds a
+    heading to its own section rather than leaving it floating between two. The margins are in `em`
+    so each level's gap scales with its own size, which is what keeps the run of them descending
+    rather than a deeper heading ending up with more room above it than the one it sits under.
   */
   h1,
   h2,
@@ -726,36 +515,26 @@
   h5,
   h6 {
     margin: 1.5em 0 0.6em;
-    /*
-      Barlow Condensed, at 600 -- headings are the one thing in a rendered page set in the display
-      face, which is what gives a Cardinal article its shape and lets a long heading stay on one line.
-    */
     font-family: var(--font-display);
     font-weight: 600;
     line-height: 1.15;
     letter-spacing: normal;
     /*
-      Anchors are what the contents sidebar and every `#heading` link aim at, and the article scrolls
-      in its own column inside a fixed shell -- so a heading brought into view needs to stop clear of
-      the column's top edge rather than flush against it.
+      The contents sidebar and every `#heading` link aim at these, and the article scrolls in its own
+      column inside a fixed shell -- so a heading brought into view has to stop clear of the column's
+      top edge rather than flush against it.
     */
     scroll-margin-top: 1.25rem;
   }
 
   /*
-    A rule under the two top levels, which is what makes the sections of a long page findable.
-
-    A FLAT hairline, the full width of the column. It used to be a gradient fading out to the right,
-    the title's in the site's colour and 2px thick -- decoration standing in for hierarchy. The design
-    rules both levels with the same `--color-hairline` the rest of the language is built from and
-    lets the type carry the hierarchy; what remains here is the mechanism, since a border cannot
-    reach past its own box the way the title's still does.
+    A rule under the two top levels, drawn as an `::after` rather than a `border-bottom`: the title's
+    own rule reaches past its box (see `> h1::after` below), which a border cannot do.
   */
   h1,
   h2 {
     position: relative;
-    /* -> 8px under the text, as the design draws it: the rule belongs to the heading, not to the
-          space after it */
+    /* -> The rule belongs to the heading, not to the space after it */
     padding-bottom: 0.3em;
 
     &::after {
@@ -763,7 +542,7 @@
       position: absolute;
       inset-inline-end: 0;
       bottom: 0;
-      /* -> Only a top-level title reaches past the text column; see the override below */
+      /* -> Overridden below for a top-level title, the one heading that reaches past the column */
       inset-inline-start: 0;
       height: var(--content-heading-rule-weight);
       background-color: var(--content-heading-rule-color);
@@ -774,20 +553,17 @@
     --content-heading-rule-weight: 1px;
     --content-heading-rule-color: var(--content-h1-rule);
 
-    /* -> Less than the 1.5em its size would give it, which at 32px was a gap of over 50px */
+    /* -> Less than the shared 1.5em, which at 32px was a gap of over 50px */
     margin-top: 1.25em;
     color: var(--content-h1);
-    /* -> `rem`, not `em`: pinned to 32px (unchanged), regardless of `.page-contents`'s own 15.5px base */
+    /* -> `rem`, not `em`: 32px regardless of `.page-contents`'s own base */
     font-size: 2rem;
     letter-spacing: normal;
 
     /*
-      A step down on a phone, where 32px of display type is a fifth of the column's width and a long
-      title wraps to three lines before the article has started.
-
-      28px rather than further: it has to stay clearly above the 26px of the h2 under it, or the
-      two top levels stop reading as two -- and only this level moves, so the rest of the ramp descends
-      from a shorter first step rather than being redrawn.
+      A step down on a phone, where 32px of display type wraps a long title to three lines before the
+      article has started. Only this level moves, and only to 28px: it has to stay clearly above the
+      26px of the h2 under it, or the two top levels stop reading as two.
     */
     /* -> 599.98px: mirrors tailwind.css's --breakpoint-sm; a media query can't read a custom property */
     @media (max-width: 599.98px) {
@@ -800,20 +576,16 @@
     --content-heading-rule-color: var(--content-h2-rule);
 
     color: var(--content-h2);
-    /* -> A shade under the heading's own 1.625rem, so it stays clear of the h1 above it in the ramp */
     margin-top: 1.4em;
-    /* -> `rem`, not `em`: pinned to 26px (`ui-iteration-cobalt-typography/cobalt-typography.md` §0.1) */
+    /* -> `rem`, not `em`: 26px regardless of `.page-contents`'s own base */
     font-size: 1.625rem;
     letter-spacing: normal;
 
     /*
-      Down with the h1 on a phone, and by the same proportion, so the two top levels keep the distance
-      between them: 28px over 22px reads as a title over its sections, where 28 over 26 had them almost
-      level.
-
-      It closes to within 2px of the h3 below, which is further than the ramp would otherwise allow --
-      but a section heading is the one level that is also RULED, and a grey rule fading out across the
-      column separates it from a plain heading far more than two points of type ever did.
+      Down with the h1 on a phone and by the same proportion, so the two top levels keep the distance
+      between them. It closes to within 2px of the h3 below, which is further than the ramp would
+      otherwise allow -- but h2 is also the one level that is RULED, and the rule separates it from a
+      plain heading far more than two points of type ever did.
     */
     /* -> 599.98px: mirrors tailwind.css's --breakpoint-sm; a media query can't read a custom property */
     @media (max-width: 599.98px) {
@@ -822,35 +594,31 @@
   }
 
   /*
-    The title's rule alone starts at the sidebar rather than at the text, reaching `--content-bleed`
-    back through the container's padding -- and only when the title is the page's own, not one nested
-    in a quote or a list item.
+    The title's rule alone reaches `--content-bleed` back through the container's padding so it starts
+    at the sidebar -- and only the page's own title, not an h1 nested in a quote or a list item.
   */
   > h1::after {
     inset-inline-start: calc(-1 * var(--content-bleed));
   }
 
   h3 {
-    /* -> `rem`, not `em`: pinned to 20px (unchanged), regardless of `.page-contents`'s own 15.5px base */
+    /* -> `rem`, not `em`: 20px regardless of `.page-contents`'s own base */
     font-size: 1.25rem;
   }
   h4 {
-    /* -> `rem`, not `em`: pinned to 17px (unchanged), regardless of `.page-contents`'s own 15.5px base */
+    /* -> `rem`, not `em`: 17px regardless of `.page-contents`'s own base */
     font-size: 1.0625rem;
   }
   h5 {
-    /* -> `em`, not `rem`: h5 IS the base -- 15.5px, exactly `.page-contents`'s own size */
+    /* -> `em`, not `rem`: h5 IS the base, exactly `.page-contents`'s own size */
     font-size: 1em;
   }
   /*
-    The pilcrow that copies a link to a heading, added by `helpers/renderedContent.js`.
-
-    Fixed at the trailing edge of the heading's box rather than trailing its text: a marker that moves
-    with the words is hard to aim at and drags the eye along the line, where a fixed edge is somewhere
-    the pointer can go straight to. The heading reserves its width as padding, which the button then
-    sits in, so a long heading's text cannot run underneath it.
-
-    Hidden with `opacity` so it stays reachable by keyboard, and revealed on focus as well as on hover.
+    The pilcrow that copies a link to a heading, added by `helpers/renderedContent.js`. Fixed at the
+    trailing edge of the heading's box rather than trailing its text: a marker that moves with the
+    words is hard to aim at. The heading reserves its width as padding, which the button sits in, so a
+    long heading's text cannot run underneath it. Hidden with `opacity`, not `visibility`, so it stays
+    reachable by keyboard.
   */
   h1[data-heading-anchor],
   h2[data-heading-anchor],
@@ -859,34 +627,30 @@
   h5[data-heading-anchor],
   h6[data-heading-anchor] {
     position: relative;
-    /* -> In `rem` to match the button it reserves room for, which no longer scales with the heading */
+    /* -> In `rem`, matching the button it reserves room for */
     padding-inline-end: 2.25rem;
   }
 
   .heading-anchor {
     position: absolute;
     /*
-      Centred on the heading's own box, which for a heading on one line -- nearly all of them -- is the
-      middle of its text. Aligning to the first line instead needs that line's height, and neither unit
-      that looks like it would give it does: `em` and `lh` in here both resolve against the BUTTON, so
-      they follow the glyph's size rather than the heading's.
+      Centred on the heading's own box. Aligning to the first line instead needs that line's height,
+      and neither unit that looks like it would give it does: `em` and `lh` in here both resolve
+      against the BUTTON, so they follow the glyph's size rather than the heading's.
     */
     top: 50%;
     inset-inline-end: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    /*
-      Sized in `rem`, so the control is the same on an h1 as on an h6: scaling it with the heading made
-      it a heavy mark on a title and an unaimable one further down.
-    */
+    /* -> In `rem`, so the control is the same on an h1 as on an h6 */
     width: 2rem;
     height: 2rem;
     padding: 0;
     border: 0;
     background: none;
     color: var(--content-ink-faint);
-    /* -> The pilcrow reads small for its point size, so it is set larger than the body text, not smaller */
+    /* -> The pilcrow reads small for its point size, so it is set larger than the body text */
     font-size: 1.375rem;
     font-weight: 400;
     /* -> The heading's own tracking would space a single glyph away from its box */
@@ -909,11 +673,9 @@
     }
 
     /*
-      Its own tooltip, since the pilcrow says nothing on its own about what pressing it does. Built as a
-      pseudo-element rather than with `WTooltip`, which is a component and so out of reach of a control
-      assembled in script -- the look is copied from it. It opens back towards the START because the
-      button sits at the trailing edge of the column, where a bubble opening further out would otherwise
-      be clipped by the scroll container.
+      Its own tooltip as a pseudo-element: `WTooltip` is a component, out of reach of a control
+      assembled in script. It opens back towards the START because the button sits at the trailing
+      edge of the column, where a bubble opening further out would be clipped by the scroll container.
     */
     &::after {
       content: attr(data-tooltip);
@@ -949,18 +711,15 @@
     }
   }
 
-  /* The last level reads as a label rather than a title; there is no room left to go smaller */
   h6 {
-    /* -> `rem`, not `em`: pinned to 13.5px, regardless of `.page-contents`'s own 15.5px base */
+    /* -> `rem`, not `em`: 13.5px regardless of `.page-contents`'s own base */
     font-size: 0.84375rem;
     color: var(--content-ink-muted);
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
 
-  /* --------------------------------------------------------------------------- */
   /* TEXT */
-  /* --------------------------------------------------------------------------- */
 
   p {
     margin: 0 0 1.15em;
@@ -983,11 +742,10 @@
   }
 
   /*
-    OpenProject #2541: the graph-carried keyword highlight/find pass (`renderedContent.js`'s
-    `applyKeywordHighlight`) wraps every match in a plain `<mark class="keyword-highlight">` -- the
-    bare `mark` rule above already gives it the right look, deliberately reused rather than a second
-    yellow. Only the CURRENT match -- the one navigation is centred on -- needs anything more, so a
-    reader scanning the "N of M" indicator can tell which highlight the count refers to.
+    The find/highlight pass (`renderedContent.js`'s `applyKeywordHighlight`) wraps every match in a
+    plain `<mark class="keyword-highlight">`, so the bare `mark` rule above already gives it the right
+    look -- deliberately reused rather than a second yellow. Only the CURRENT match needs anything
+    more, so a reader scanning the "N of M" indicator can tell which highlight the count refers to.
   */
   .keyword-highlight.is-current-match {
     outline: 2px solid var(--content-link);
@@ -1004,7 +762,6 @@
     text-underline-offset: 2px;
   }
 
-  /* Marked up by the renderer's `abbr` plugin: the definition is in the title, so say it is there */
   abbr[title] {
     text-decoration: underline dotted;
     text-decoration-thickness: 1px;
@@ -1013,14 +770,11 @@
   }
 
   /*
-    Glossary terms (OpenProject #870/#2789), whichever of the two forms the renderer emitted
-    (`renderers/modules/markdown-it-glossary.js`): an unlinked term (`<abbr class="glossary-term">`)
-    happens to already get a dotted underline from the `abbr[title]` rule just above -- both share
-    the `abbr` tag -- but a linked term (`<a class="glossary-term">`, when the entry has a canonical
-    page) inherits the plain link rule's `text-decoration: none` instead, with nothing to override
-    it. This rule is `.glossary-term`'s own, keyed off the class rather than the tag, so both forms
-    get the identical dotted underline and "help" cursor -- a higher specificity than the bare `a`
-    rule above is what lets it win there without disturbing any other link.
+    Glossary terms, either form `renderers/modules/markdown-it-glossary.js` emits. An unlinked term
+    (`<abbr class="glossary-term">`) already picks up the `abbr[title]` rule above, but a linked one
+    (`<a class="glossary-term">`, when the entry has a canonical page) would inherit the link rule's
+    `text-decoration: none` instead. Keying off the class rather than the tag gives both forms the
+    same treatment, and outranks the bare `a` rule without disturbing any other link.
   */
   .glossary-term {
     text-decoration: underline dotted;
@@ -1036,18 +790,10 @@
   }
 
   /*
-    A keyboard key, inserted by the editor's keyboard-key button or written by hand in HTML.
-
-    A square hairline plate, which is the one shape Cardinal has for a small framed mark -- the same
-    box the tag chips, the state marks and the inline code chip are drawn as. It used to be a key
-    CAP: a heavier bottom edge (`border-bottom-width: 2px`) faking the lip of a physical key, drawn
-    over a faint slate that is a separator tone rather than an edge. Neither exists in this language;
-    the design has no bevelled, weighted or rounded object anywhere on it.
-
-    It sits alongside inline code deliberately, one tone apart rather than one shape apart: both are
-    mono on the tint inside a hairline, and the key is the one that is a little tighter, a little
-    more tracked, and a step stronger in weight -- because a key is a thing you press, not a thing
-    you read.
+    A keyboard key: the same square hairline plate the tag chips, the state marks and the inline code
+    chip are drawn as -- the language has no bevelled, weighted or rounded object to make it a key
+    CAP. It sits one TONE apart from inline code rather than one shape apart: both are mono on the
+    tint inside a hairline, and the key is the tighter, more tracked, heavier of the two.
   */
   kbd {
     display: inline-block;
@@ -1065,7 +811,6 @@
     white-space: nowrap;
   }
 
-  /* -> A key inside a heading drops the plate, the same way an inline code span does */
   h1,
   h2,
   h3,
@@ -1079,16 +824,13 @@
     }
   }
 
-  /* --------------------------------------------------------------------------- */
   /* LINKS */
-  /* --------------------------------------------------------------------------- */
 
   /*
-    The same `--color-primary` the page title is drawn in -- literally the same token, resolving to the
-    same value in both themes. What made a link look like a paler blue than the title is stroke weight:
-    the title is 600 at 32px and a link is body text, so the same hue covers far fewer pixels and lets
-    more of the page through. A medium weight puts the two back on equal footing without touching the
-    colour, which is what keeps a re-themed site's links and titles in step.
+    The same `--color-primary` token the page title is drawn in. A medium weight is what puts the two
+    on equal footing: the title is 600 at 32px, so the same hue covers far fewer pixels in body text
+    and reads paler. Weight rather than colour is what keeps a re-themed site's links and titles in
+    step.
   */
   a {
     color: var(--content-link);
@@ -1103,16 +845,13 @@
     }
 
     /*
-      A link that leaves the wiki says so.
-
-      Marked with the class the renderer attaches (see `renderers/markdown.js`), because whether an href
-      is off-site is a question about its host, which no selector can ask. The mark is a masked SVG so
-      it takes the link's own colour and needs no icon font -- the app ships none.
+      A link that leaves the wiki says so. Keyed off the class the renderer attaches, because whether
+      an href is off-site is a question about its host, which no selector can ask. The mark is a
+      masked SVG so it takes the link's own colour and needs no icon font -- the app ships none.
     */
     &.is-external-link::after {
       content: '';
       display: inline-block;
-      /* -> Sized in `em`, so it keeps its proportion to the words wherever the link sits */
       width: 0.8em;
       height: 0.8em;
       margin-inline-start: 0.25em;
@@ -1125,15 +864,12 @@
       vertical-align: baseline;
     }
 
-    /* -> A link wrapping code keeps the link's colour, not the code span's */
     code {
       color: inherit;
     }
   }
 
-  /* --------------------------------------------------------------------------- */
   /* LISTS */
-  /* --------------------------------------------------------------------------- */
 
   ul,
   ol {
@@ -1148,7 +884,6 @@
     list-style: decimal;
   }
 
-  /* Depth is legible from the marker as well as the indent, as an outline should be */
   ul ul {
     list-style: circle;
   }
@@ -1163,40 +898,21 @@
   }
 
   /*
-    Cobalt's numbered list, which is the one place its prose changes SHAPE rather than colour: the
-    figure leaves the margin and becomes a 24px cobalt disc carrying a white mono numeral, set
-    against the step it labels (`Page View 3x - Cobalt` -- "Batches of two keep at least 80% ...").
+    Cobalt's numbered list, the one place its prose changes SHAPE rather than colour: the figure
+    leaves the margin and becomes a 24px cobalt disc carrying a white mono numeral.
 
     Built from a counter on a `::before` rather than from `::marker`, which takes neither a box nor a
-    background in any engine. Only a TOP-LEVEL ordered list gets it: a nested `ol` is a sub-step, and
-    a run of discs inside a run of discs stops reading as an outline -- those keep their lower-alpha
-    and lower-roman markers, which is why `> li` is a child combinator and the nested rule restores
-    `list-style` below.
+    background in any engine. Only a TOP-LEVEL ordered list gets it -- a nested `ol` is a sub-step, and
+    a run of discs inside a run of discs stops reading as an outline -- which is why `> li` is a child
+    combinator and the nested rule restores `list-style` below.
 
-    `list-style: none` is what stops the browser drawing its own figure beside this one; the plate
-    then sits in the padding the list already reserves, pulled back into it by a negative margin so
-    the text keeps its measure.
-
-    OpenProject #2883: the plate's own geometry (`width`/`height`/`inset-inline-start`) is in `rem`,
-    not `em` -- real-browser measurement (`getComputedStyle(li, '::before')`) caught what reading the
-    rule could not: `em` on a property OTHER than `font-size` resolves against the element's OWN
-    computed font-size, not its parent's, and this element's own font-size is the fixed 11px set
-    two declarations down. `width: 1.5em` was therefore 1.5 × 11px = 16.5px, not the 24px the handoff
-    draws (`pre.codeblock.line-numbers`'s gutter above takes the same `rem` shape for the same
-    reason). Centering is the handoff's own line-height trick -- `font: 600 11px/1.5rem` puts a
-    single line of text in a line box exactly as tall as the circle, which centers it on the baseline
-    grid with no flexbox and no positional nudge to get right; the flex-centering plus an unexplained
-    `top: 0.05em` nudge this replaces was two ways of solving the same problem, and the nudge only
-    ever corrected for the OTHER bug's fallout.
-
-    OpenProject #2965: the numeral's `font-size` is a fixed `11px`, not `0.6875em` as it used to be.
-    `em` on `font-size` resolves against this element's PARENT (the `li`), which inherits
-    `.page-contents`'s own base font-size -- so an em value here silently drifts any time that base
-    changes, exactly the coupling the sibling "article type scale" fix (dropping `.page-contents`
-    from 16px to 15.5px) would otherwise have introduced (0.6875 × 15.5 ≈ 10.66px). The design target
-    (`600 11px/24px`) is fixed regardless of the article's own base size, so the declaration is fixed
-    too; `line-height: 1.5rem` was already decoupled the same way (`rem` is root-relative, not
-    parent-relative) and needed no change.
+    The plate's geometry is in `rem`, not `em`: `em` on a property OTHER than `font-size` resolves
+    against the element's OWN computed font-size, which here is the fixed 11px two declarations down,
+    so `width: 1.5em` would be 16.5px rather than the 24px the handoff draws. The numeral's own
+    `font-size` is a fixed `11px` for the mirror-image reason -- `em` THERE resolves against the `li`,
+    which inherits `.page-contents`'s base and would drift with it. `font: 600 11px/1.5rem` centres
+    the numeral by giving it a line box exactly as tall as the circle, with no flexbox and no
+    positional nudge to get right.
   */
   body.body--cobalt & {
     > ol,
@@ -1229,15 +945,11 @@
     /*
       A sub-step is still an outline level, so it keeps a marker rather than a second run of discs.
 
-      OpenProject #2883: `counter-reset: cobalt-step` here, not `none` -- `none` is the property's
-      own initial value, so it was a no-op rather than the fresh scope its name suggests, and
-      `counter-increment: cobalt-step` above matches `li > ol > li` at ANY depth, sub-steps included.
-      A real-browser render of a three-level ordered list caught it directly: with no new scope, a
-      sub-step's `li` still incremented the OUTER counter on its way past (its own numeral suppressed
-      by `content: none` below, so nothing looked wrong until the list ran three items with a
-      two-item sub-step in the middle and the fourth top-level item read "6"). Resetting the counter
-      here shadows the outer instance for this subtree, so a sub-step's hidden count no longer steals
-      values the top-level circles are still going to show.
+      `counter-reset: cobalt-step`, not `none`: `none` is the property's own initial value and so a
+      no-op rather than the fresh scope its name suggests, while `counter-increment: cobalt-step`
+      above matches `li > ol > li` at ANY depth. Without a new scope a sub-step's `li` still
+      increments the OUTER counter on its way past -- invisibly, since `content: none` below
+      suppresses its numeral -- stealing values the top-level circles are still going to show.
     */
     ol ol {
       list-style: lower-alpha;
@@ -1255,7 +967,7 @@
   }
 
   li {
-    /* -> `rem`, not `em`: pinned to 15px/1.6, regardless of `.page-contents`'s own 15.5px/1.72 base */
+    /* -> `rem`, not `em`: 15px/1.6 regardless of `.page-contents`'s own base */
     font-size: 0.9375rem;
     line-height: 1.6;
     margin-top: 0.35em;
@@ -1271,8 +983,8 @@
     }
 
     /*
-      A one-paragraph item is tight against its marker; a multi-paragraph item spaces its own
-      paragraphs. Markdown produces either shape depending on whether the list is "loose".
+      Markdown produces either shape depending on whether the list is "loose": a one-paragraph item is
+      tight against its marker, a multi-paragraph item spaces its own paragraphs.
     */
     > p {
       margin: 0;
@@ -1283,11 +995,7 @@
     }
   }
 
-  /*
-    Task lists lose their markers: the checkbox IS the marker. The box is the renderer's own disabled
-    input, so it is coloured rather than replaced -- `accent-color` is all that takes, and it needs no
-    icon font, which is what the treatment this replaces depended on.
-  */
+  /* Task lists lose their markers: the checkbox IS the marker */
   .contains-task-list {
     padding-inline-start: 0;
     list-style: none;
@@ -1301,17 +1009,16 @@
     Laid out inline rather than as a flex row: a task item can contain a nested list, and as a flex
     child that list would sit BESIDE the text instead of under it.
 
-    Drawn here rather than left to the browser, and NOT with `accent-color`: the renderer marks these
-    inputs disabled, and a disabled checkbox ignores `accent-color` entirely -- Chrome paints it its
-    own washed-out grey, which is the pale tick this replaces. `appearance: none` is what gets the
-    box back under this stylesheet's control; the tick then has to be drawn too, since the one the
-    browser supplies goes with the appearance.
+    NOT drawn with `accent-color`: the renderer marks these inputs disabled, and a disabled checkbox
+    ignores `accent-color` entirely -- Chrome paints its own washed-out grey instead. `appearance:
+    none` is what gets the box back under this stylesheet's control, and the tick then has to be drawn
+    too, since the one the browser supplies goes with the appearance.
   */
   .task-list-item-checkbox {
     /*
-      The prefixed form is for Safari before 15.4, which is the last engine that will not take the
-      unprefixed one -- and which without it draws its own rounded box UNDER these rules, so the
-      border and the fill land on a control that is still the platform's.
+      The prefixed form is for Safari before 15.4, the last engine that will not take the unprefixed
+      one -- and which without it draws its own rounded box UNDER these rules, so the border and the
+      fill land on a control that is still the platform's.
     */
     -webkit-appearance: none;
     appearance: none;
@@ -1332,15 +1039,12 @@
     vertical-align: -0.1em;
 
     /*
-      A done item: the accent fill with a tick laid over it, edge included -- the primitives sheet
-      draws the box's border in the fill's own colour rather than dropping it, so a ticked and an
-      unticked box measure the same and a run of them does not shift by a pixel down the list.
+      The border takes the fill's own colour rather than being dropped, so a ticked and an unticked
+      box measure the same and a run of them does not shift by a pixel down the list.
 
-      The tick is a data URI per theme, and it has to be: the light theme's accent fill carries a
-      WHITE mark and the dark theme's lightened accent carries INK, which is the locked rule for
-      every accent fill in the app, and a stroke colour inside a data URI cannot be a custom
-      property. Two literals is the honest form of "the dark theme is a second palette, not a
-      filter" -- the alternative, one URI recoloured by a filter, is exactly what that rule forbids.
+      Two literal data URIs, one per theme: the light fill carries a WHITE mark and the dark one INK
+      -- the locked rule for every accent fill in the app -- and a stroke colour inside a data URI
+      cannot be a custom property, so one URI recoloured by a filter is not an option.
     */
     &:checked {
       background-color: var(--content-tick);
@@ -1361,27 +1065,24 @@
 
   /*
     The renderer leaves the raw marker behind the checkbox -- `<input><span>x</span> text` -- so the
-    box would otherwise be followed by a literal "x" or a stray space. The box says the same thing.
+    box would otherwise be followed by a literal "x". The box says the same thing.
   */
   .task-list-item > .task-list-item-checkbox + span {
     display: none;
   }
 
   /*
-    A LIST OF LINKS, from `{.links-list}` on a bulleted list -- carried over from 2.x, where it is what
-    the guide pages are built out of:
+    A LIST OF LINKS, from `{.links-list}` on a bulleted list:
 
-        - [The Basics *New to Wiki.js? Learn how to use it and create your first page.*](/guide/intro)
-        - [Using Editors *Learn how to use the various editors.*](/editors)
+        - [The Basics *What this covers.*](/guide/intro)
         {.links-list}
 
-    Each item becomes a row rather than a bullet: the title in the link's colour, the emphasis after it
-    read as a description and set upright in the body colour, with a rule between the two. The class
-    reaches the list through `markdown-it-attrs`, which is why nothing in the renderer knows about this.
+    Each item becomes a row rather than a bullet: the title in the link's colour, the emphasis after
+    it read as a description and set upright, with a rule between the two. The class reaches the list
+    through `markdown-it-attrs`, which is why nothing in the renderer knows about this.
 
     Bulleted lists only. `{.links-list}` sticks to an ordered list just as readily, and there it would
-    be a numbered list of links with its numbers taken away -- which is a list the author asked for and
-    would no longer be looking at.
+    be a numbered list of links with its numbers taken away.
   */
   ul.links-list {
     margin: 1.5em 0;
@@ -1391,17 +1092,14 @@
     > li {
       margin-top: 4px;
       /*
-        The bar down the leading edge, grey at rest and the link's colour under the pointer -- so what
-        hovering does is colour something already there rather than add a bar and shunt the words
-        sideways. `border-inline-start`, not `border-left`: this list renders raw markdown, which reads
-        RTL locales same as any other content (`composables/direction.js`), and a bar hardcoded to the
-        physical left would sit on the TRAILING edge of an RTL row -- behind the text rather than
-        leading it in, and on the opposite side from the hover colour a reader's eye is already tracking
-        from every other left-to-right row above the fold.
+        The bar down the leading edge, grey at rest and the link's colour under the pointer -- so
+        hovering colours something already there rather than adding a bar and shunting the words
+        sideways. Logical, not physical: this list renders raw markdown, which reads RTL locales like
+        any other content, and a bar pinned to the physical start would sit on the TRAILING edge of an
+        RTL row, behind the text rather than leading it in.
       */
       border-inline-start: 3px solid var(--content-rule);
       background-color: var(--content-links-row);
-      /* -> The light down the top of the row; see `--content-links-sheen` */
       background-image: linear-gradient(to bottom, var(--content-links-sheen), transparent 65%);
       box-shadow: var(--content-links-shadow);
       transition:
@@ -1417,8 +1115,8 @@
 
     /*
       The padding is the link's, so the whole row is the target rather than just the words in it. A
-      loose list -- one written with blank lines between its items -- wraps each item in a paragraph
-      first, which is why the link is reached through both shapes.
+      loose list wraps each item in a paragraph first, which is why the link is reached through both
+      shapes.
     */
     > li > a,
     > li > p > a {
@@ -1438,11 +1136,7 @@
       color: var(--content-ink-muted);
     }
 
-    /*
-      The description. Upright and in the body colour: it is a second voice in the row, not emphasis
-      within the title -- and italic at this length is what makes the difference between a caption and
-      a line of small print.
-    */
+    /* -> Upright and in the body colour: a second voice in the row, not emphasis within the title */
     em {
       margin-inline-start: 0.5em;
       padding-inline-start: 0.75em;
@@ -1453,8 +1147,8 @@
     }
 
     /*
-      On a phone the two halves stack. The rule between them goes with the arrangement it was drawn
-      for: down the leading edge of a wrapped description it would read as a quote inside the row.
+      On a phone the two halves stack, and the rule between them goes with the arrangement it was
+      drawn for: down the leading edge of a wrapped description it would read as a quote in the row.
     */
     /* -> 599.98px: mirrors tailwind.css's --breakpoint-sm; a media query can't read a custom property */
     @media (max-width: 599.98px) {
@@ -1466,9 +1160,8 @@
       }
 
       /*
-        -> A line break rather than a block, so that what follows the description on the row -- the
-           marker on an external link is the one thing that does -- stays on its last line instead of
-           dropping to one of its own.
+        -> A line break rather than a block, so what follows the description on the row -- the marker
+           on an external link is the one thing that does -- stays on its last line.
       */
       em::before {
         content: '\a';
@@ -1483,28 +1176,21 @@
     }
   }
 
-  /* --------------------------------------------------------------------------- */
   /* QUOTES AND ADMONITIONS */
-  /* --------------------------------------------------------------------------- */
 
   /*
-    A quote is a BOX in Cardinal: a hairline rectangle on the content surface with a tinted gutter
-    down its leading edge, and blueprint corner marks at all four corners -- the same treatment the
-    design gives every framed thing in the language (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`).
-    It replaces a bare 3px bar with dimmed text, which said "aside" but drew nothing.
+    A quote is a BOX: a hairline rectangle on the content surface with a tinted gutter down its
+    leading edge and blueprint corner marks, the same treatment every framed thing in the language
+    gets.
 
     The gutter is a `::before` band rather than an inset shadow: a blockquote's contents are whatever
     the author wrote, so there is nowhere to put a real child element -- and a shadow's offsets are
     physical, which would put the band on the wrong side of an RTL quote. An absolutely-positioned
-    pseudo-element takes `inset-inline-start`, so it follows the content's own direction like
-    everything else in this file. The matching `padding-inline` keeps the text clear of it.
+    pseudo-element takes `inset-inline-start` and follows the content's own direction instead.
   */
   blockquote {
     position: relative;
-    /*
-      -> `rem`, not `em`: an absolute 14.5px/1.6 regardless of `.page-contents`'s own 15.5px/1.72
-         base, the same reasoning the table cells further down already use.
-    */
+    /* -> `rem`, not `em`: an absolute 14.5px/1.6 regardless of `.page-contents`'s own base */
     font-size: 0.90625rem;
     line-height: 1.6;
     margin: 1.5em 0;
@@ -1514,7 +1200,6 @@
     background-color: var(--content-surface);
     color: var(--content-ink-muted);
 
-    /* -> The tinted gutter down the leading edge, and the hairline closing its inner side */
     &::before {
       content: '';
       position: absolute;
@@ -1531,10 +1216,9 @@
     }
 
     /*
-      The corner marks: one box overhanging the quote by 5px on every side, with the eight short
-      strokes painted as background gradients rather than as borders -- four borders would draw four
-      full sides, and what the design draws is 7px of each corner and nothing between them. `::before`
-      is already the gutter, so this is the one pseudo-element left.
+      The corner marks: eight short strokes painted as background gradients rather than as borders --
+      four borders would draw four full sides, where the design draws 7px of each corner and nothing
+      between them. `::before` is already the gutter, so this is the one pseudo-element left.
     */
     &::after {
       content: '';
@@ -1557,10 +1241,8 @@
 
     /*
       Cobalt's quote is a flat left-ruled callout, not Ledger's corner-marked box with a tinted
-      gutter: `#e6edff` behind `#1a2f7a`, a 4px cobalt bar on the leading edge, a 6px corner, and
-      neither the gutter nor the marks (`Page View 3x - Cobalt`). Both pseudo-elements go -- one IS
-      the gutter and the other IS the marks -- and the padding closes up to what a bar needs rather
-      than what a 44px gutter did.
+      gutter. Both pseudo-elements go -- one IS the gutter and the other IS the marks -- and the
+      padding closes up to what a bar needs rather than what a 44px gutter did.
     */
     body.body--cobalt & {
       padding-inline: 1em 1.1em;
@@ -1579,13 +1261,11 @@
 
   /*
     Admonitions, from `{.is-info}` and friends on a blockquote -- and from a GitHub-style `> [!NOTE]`,
-    which `renderers/modules/github-alerts.js` turns into the very same classes plus a label.
+    which `renderers/modules/github-alerts.js` turns into the very same classes plus a label. A wash,
+    a heavier bar AND an icon: colour alone would leave the kinds indistinguishable to a reader who
+    cannot separate the hues. The icon is a masked SVG rather than a glyph, since the app ships no
+    webfont for one.
 
-    A wash, a heavier bar and an icon: colour alone would leave the kinds indistinguishable to a
-    reader who cannot separate the hues, and the icon is a masked SVG rather than a glyph so it needs
-    no webfont -- the app dropped those, which is why the markers here used to render as tofu.
-  */
-  /*
     Matched on the quote itself and on a quote CONTAINING the class, because where the class lands
     depends on how it was attached: raw HTML puts it on the blockquote, while an attribute written in
     markdown attaches to whichever node the plugin resolves it against -- often the paragraph inside.
@@ -1611,14 +1291,10 @@
       color: var(--content-ink);
 
       /*
-        An admonition is a different object from a plain quote -- a coloured bar and an icon, not a
-        tinted-gutter box -- but Ledger still draws it with the SAME square-cornered, corner-marked
-        treatment as every other framed thing in the language: no radius set here (there is nothing
-        left to round, where this rule used to unconditionally round the two corners opposite the
-        accent bar), and no `content: none` override on `::after` either, so the base blockquote
-        rule's own eight-stroke corner marks (`--color-slate-soft`, one selector up) cascade straight
-        through onto this box with no duplicated CSS. `::before` is still reused for the icon, below,
-        unchanged.
+        An admonition is a different object from a plain quote, but Ledger still draws it with the
+        SAME square-cornered, corner-marked treatment as every other framed thing in the language:
+        nothing to round here, and no `content: none` override on `::after` either, so the base
+        blockquote rule's own corner marks cascade straight through with no duplicated CSS.
       */
 
       &::before {
@@ -1627,17 +1303,14 @@
         /* -> Not the base gutter's band: no hairline of its own, and sized by the icon below */
         border-inline-end: 0;
         /*
-          Centred on the CAP BAND of the first line, not on the line box that holds it.
-
-          A line box is ascent plus descent, and a title like "Note" or "Caution" inks only the part
-          between the cap line and the baseline -- so an icon centred on the line came out a pixel high,
-          and at this size that reads as its bottom edge running flush with the baseline while its top
-          towers over the capitals. Which is why the warning triangle looked right and nothing else did:
-          its mass is all at the base, so a bottom-flush box still reads as balanced.
+          Centred on the CAP BAND of the first line, not on the line box that holds it: a line box is
+          ascent plus descent, and a title like "Note" inks only the part between the cap line and the
+          baseline, so an icon centred on the line reads as sitting flush with the baseline while its
+          top towers over the capitals.
 
           `0.9em` is the padding above the first line, `0.79em` the middle of the cap band within it
-          (half-leading plus ascent, less half the cap height, for the app's Roboto at 1.6 line-height),
-          and `0.625em` half the icon.
+          (half-leading plus ascent, less half the cap height, at 1.6 line-height), `0.625em` half the
+          icon.
         */
         top: calc(0.9em + 0.79em - 0.625em);
         inset-inline-start: 1.1em;
@@ -1648,16 +1321,11 @@
         mask-size: contain;
       }
 
-      /* -> The icon takes the severity's colour; the prose stays at full contrast to read well */
       > :last-child {
         margin-bottom: 0;
       }
 
-      /*
-        The label a GitHub-style alert opens with -- "Note", "Tip" -- standing in for the marker the
-        author typed. In the severity's own colour, since it is naming the severity, and close above
-        the text it introduces rather than a paragraph's distance from it.
-      */
+      /* -> The label a GitHub-style alert opens with, in the severity's own colour since it names it */
       > .alert-title {
         margin-bottom: 0.3em;
         color: var(--alert-hue);
@@ -1669,12 +1337,10 @@
       }
 
       /*
-        Cobalt's own established "pill growth" language (see this file's comment at ~line 2258),
-        rather than an incidental byproduct of no override existing: the same two corners this rule
-        used to round unconditionally, still rounded, and no corner marks. Scoped by BOTH the
-        severity class/`:has()` AND `body.body--cobalt` so it outranks the plain quote's own Cobalt
-        override above on specificity, regardless of source order -- an admonition is still a
-        `blockquote`, so that generic rule would otherwise also be in the running here.
+        Cobalt rounds the two corners opposite the bar and draws no corner marks. Scoped by BOTH the
+        severity class/`:has()` AND `body.body--cobalt`, so it outranks the plain quote's own Cobalt
+        override above on specificity regardless of source order -- an admonition is still a
+        `blockquote`, so that generic rule is otherwise in the running here too.
       */
       body.body--cobalt & {
         border-start-end-radius: 6px;
@@ -1766,14 +1432,8 @@
     }
   }
 
-  /* --------------------------------------------------------------------------- */
   /* CODE */
-  /* --------------------------------------------------------------------------- */
 
-  /*
-    An inline span is a square tinted chip with a hairline edge, as the design draws it -- the same
-    box every other small framed thing in the language gets, rather than a soft rounded wash.
-  */
   code {
     padding: 1px 5px;
     border: 1px solid var(--content-code-chip-edge);
@@ -1781,7 +1441,7 @@
     background-color: var(--content-code-chip-bg);
     color: var(--content-code-ink);
     font-family: var(--font-mono);
-    /* -> `rem`, not `em`: pinned to 14px (unchanged), regardless of the surrounding text's own size */
+    /* -> `rem`, not `em`: 14px regardless of the surrounding text's own size */
     font-size: 0.875rem;
   }
 
@@ -1812,11 +1472,6 @@
   pre {
     margin: 1.25em 0;
     padding: 1rem 1.125rem;
-    /*
-      Ink with the accent down its leading edge, in BOTH themes -- the design's own treatment, and the
-      one place a rendered page goes dark. It replaces a rounded, hairline-bordered tint: a code block
-      is the one thing on a page that is not prose, and the ground change is what says so.
-    */
     border: 1px solid var(--content-code-frame);
     border-inline-start: 2px solid var(--content-code-edge);
     border-radius: var(--radius-card);
@@ -1824,20 +1479,18 @@
     color: var(--content-code-block-ink);
     font-family: var(--font-mono);
     font-size: 0.8125rem;
-    /* -> Tracks the body's leading; code at 13px needs a little more of it, not much */
     line-height: 1.75;
     /* -> Code does not wrap: a wrapped line is a different line, and indentation stops meaning anything */
     overflow-x: auto;
     tab-size: 2;
     /*
-      Code reads left-to-right whatever the surrounding content's own direction is -- there is no such
-      thing as RTL source code -- so this is pinned rather than left to inherit `dir`. It also anchors
-      what the logical properties below resolve against: the line-number gutter stays on the same
-      physical side of the block in either direction, rather than swapping to sit over the code.
+      Code reads left-to-right whatever the surrounding content's own direction is, so this is pinned
+      rather than left to inherit `dir`. It also anchors what the logical properties below resolve
+      against: the line-number gutter stays on the same physical side of the block in either
+      direction, rather than swapping to sit over the code.
     */
     direction: ltr;
 
-    /* -> The panel is the block's own; the code inside it drops the inline span's chip entirely */
     > code {
       display: block;
       padding: 0;
@@ -1848,32 +1501,11 @@
     }
 
     /*
-      Cobalt's own code block draws no accent leading edge -- a plain, evenly-bordered panel in both
-      mockups (`Page View 3x - Cobalt`'s carries no border at all, drawn on the frame's own already-
-      transparent light default; `Editor 3x - Cobalt`'s render preview matches it; the two mockups'
-      DARK code blocks, not pictured in either of those two, are not this rule's concern). Radius
-      already comes from the unconditional `--radius-card` above; the frame itself (`border: 1px solid
-      var(--content-code-frame)`) is untouched, since `--content-code-frame` already resolves
-      correctly per theme (transparent in light, `--color-hairline-dark` in dark, which is itself
-      Cobalt-dark-aware) without anything Cobalt-specific here.
-
-      `--content-surface-code` already resolves to the mockups' exact `#10194a` in light (it is
-      `var(--color-ink)`, which Cobalt's own block overrides to that value) -- the DARK half is NOT
-      re-checked here: it stays `--color-dark-6`, a rung the Cobalt-dark token block never restates,
-      so it does not carry the Page View Dark mockup's own `#070b22` (that mockup's `--color-dark-4`).
-      Fixing that needs either a new `--content-surface-code` override in this file's own dark block
-      or a Cobalt value for `--color-dark-6` in `tailwind.css`, neither of which is this Task's file
-      ownership to add unreviewed -- logged, not fixed (OpenProject #2774). The mockups' own top-right
-      `bash` language label is a new render-pipeline affordance (`helpers/renderedContent.js` would
-      need to emit it, for every fenced block app-wide), not a style tweak, and is logged for the same
-      reason.
-    */
-    /*
       Cobalt's own code block: no accent bar down the leading edge (the token above already made the
       edge transparent; this closes the 2px of space it occupied), and the language named in a mono
-      label in the top-right corner, as `Page View 3x - Cobalt` draws it. `data-lang` is put on the
-      block by `helpers/renderedContent.js` -- a `language-*` class on the `<code>` inside is what
-      the renderer emits, and CSS cannot read a suffix out of a class name.
+      label in the top-right corner. `data-lang` is put on the block by `helpers/renderedContent.js`
+      -- the renderer emits a `language-*` class on the `<code>` inside, and CSS cannot read a suffix
+      out of a class name.
 
       `position: relative` is already established by the `.line-numbers` rule for a multi-line block
       but not for a one-liner, so it is stated here; the label sits clear of the copy button, which
@@ -1883,11 +1515,10 @@
       border-inline-start-width: 0;
       /*
         Restated at this weight because the highlight.js theme `App.vue` injects carries a background
-        of its own (`github-dark`'s `#0d1117`) as a `.hljs` rule nested under `.page-contents`, which
-        outranks the element-selector `pre` rule above and paints the block its own near-black. The
-        block's GROUND belongs to the aesthetic -- Cobalt draws it at `#10194a`, and the mockup's
-        `bash` label and syntax tones are pitched against exactly that -- while the syntax colours
-        stay the admin's `codeBlocksTheme` to choose, which is the split the handoff describes.
+        of its own as a `.hljs` rule nested under `.page-contents`, which outranks the
+        element-selector `pre` rule above and would paint the block its own near-black. The block's
+        GROUND belongs to the aesthetic; the syntax colours stay the admin's `codeBlocksTheme` to
+        choose.
       */
       background-color: var(--content-surface-code);
     }
@@ -1917,27 +1548,20 @@
   }
 
   /*
-    The copy button, added to each block by `helpers/renderedContent.js`.
-
-    Out of the way until the pointer is over the block, and revealed by keyboard focus as well -- it
-    stays in the tab order the whole time, so `opacity` rather than `visibility` is what hides it: a
-    reader who cannot use a pointer would otherwise have no way to reach it at all.
+    The copy button, added to each block by `helpers/renderedContent.js`. It stays in the tab order
+    the whole time, so `opacity` rather than `visibility` is what hides it: a reader who cannot use a
+    pointer would otherwise have no way to reach it at all.
   */
   pre.codeblock[data-code-copy] {
     position: relative;
   }
 
   /*
-    The button takes its colours from the block it sits on, not from the site's theme.
-
-    `inherit` is all it takes, and it needs no filter: a highlight.js theme paints `.hljs`, which is the
-    `pre` itself, so the panel's colour and its ink are already on this button's parent -- dark panel,
-    light icon; light panel, dark icon; and a mid-tone theme handled as correctly as either. Inverting
-    what is behind the button (`backdrop-filter: invert()`) could only ever approximate that, and would
-    hue-shift anything that is not near-black or near-white.
-
-    That also means the code theme and the site theme can disagree freely -- a dark code theme on a
-    light page keeps a dark button -- which is what makes it read as part of the block.
+    The button takes its colours from the block it sits on, not from the site's theme: a highlight.js
+    theme paints `.hljs`, which IS the `pre`, so `inherit` already gives it the panel's colour and its
+    ink -- dark panel, light icon; light panel, dark icon; and a mid-tone theme handled as correctly
+    as either. Inverting what is behind it could only approximate that, and would hue-shift anything
+    that is not near-black or near-white.
   */
   .code-copy {
     position: absolute;
@@ -1960,8 +1584,8 @@
       box-shadow 0.15s var(--ease-standard);
 
     /*
-      Hover lifts it off the panel with a wash of the panel's own ink, laid inside the box: a second
-      background colour would have to be a fixed value, and any fixed value is wrong for some theme.
+      A wash of the panel's own ink laid inside the box: a second background colour would have to be a
+      fixed value, and any fixed value is wrong for some theme.
     */
     &:hover {
       box-shadow: inset 0 0 0 2rem color-mix(in srgb, currentColor 12%, transparent);
@@ -1986,11 +1610,9 @@
   }
 
   /*
-    The copy-to-CSV button on a rendered table, added by `helpers/renderedContent.js`. Same
-    positioning/reveal treatment as `.code-copy` above (see that comment), just appended to
-    `.table-wrap` -- the outer, non-scrolling frame from the `// TABLES` section further down this
-    file -- rather than `pre.codeblock`, so the control sits with the frame and never scrolls away
-    with `.table-scroll`'s own horizontal overflow.
+    The copy-to-CSV button on a rendered table. Same treatment as `.code-copy` above, but appended to
+    `.table-wrap` -- the outer, non-scrolling frame -- so the control sits with the frame and never
+    scrolls away with `.table-scroll`'s own horizontal overflow.
   */
   .table-copy {
     position: absolute;
@@ -2033,9 +1655,8 @@
   }
 
   /*
-    The line-number gutter, for a block of more than one line. The renderer emits one empty <span> per
-    line inside `.line-numbers-rows`; a counter turns those into numbers, so the digits are never part
-    of the text and a copied selection stays clean.
+    The renderer emits one empty <span> per line inside `.line-numbers-rows` and a counter turns those
+    into numbers, so the digits are never part of the text and a copied selection stays clean.
   */
   pre.codeblock.line-numbers {
     position: relative;
@@ -2071,9 +1692,8 @@
   }
 
   /*
-    Diagram sources -- a mermaid, plantuml, kroki or drawio fence, or a base64 `diagram` block -- reach
-    the page as code, and are drawn later or not at all. A quiet dashed panel says "this is a diagram
-    that has not been drawn" rather than pretending to be a code sample.
+    Diagram sources reach the page as code and are drawn later or not at all. A quiet dashed panel
+    says "a diagram that has not been drawn" rather than pretending to be a code sample.
   */
   pre.codeblock-drawio,
   pre.codeblock-kroki,
@@ -2089,8 +1709,8 @@
   /*
     A `$…$`/`$$…$$` formula that failed to typeset, or was left empty -- `renderers/markdown.js`'s
     `texMathError`. The same "say why, don't vanish" treatment `block-katex`/`block-mathjax` give a
-    bad fence, carried over to a syntax that has no shadow root of its own to draw it in: a dashed
-    panel in the negative hue, `pre-wrap` so KaTeX's own multi-line parse errors stay readable.
+    bad fence, for a syntax with no shadow root of its own to draw it in. `pre-wrap` so KaTeX's own
+    multi-line parse errors stay readable.
   */
   .tex-math-error {
     display: inline-block;
@@ -2106,8 +1726,6 @@
     padding: 1rem;
     margin-bottom: 16px;
   }
-
-  /* -- highlight.js tokens ------------------------------------------------------ */
 
   .hljs-comment,
   .hljs-quote {
@@ -2191,67 +1809,30 @@
     font-weight: 600;
   }
 
-  /* --------------------------------------------------------------------------- */
   /* TABLES */
-  /* --------------------------------------------------------------------------- */
 
   /*
-    A wide table scrolls itself rather than widening the article -- inside its own scroll box now,
-    not through a `table { display:block; overflow-x:auto }` trick on the table itself (OpenProject
-    #2916). That trick has no box of its own to hang a frame on that sits OUTSIDE the table's own
-    border box: Cobalt's rounded corners (`#2918`) would still get squared off by the scrollbar
-    painting across the bottom of the table's own box, which has no radius of its own to clip it to.
-    `renderers/markdown.js`'s `table_open`/`table_close` override is what makes these three nested
-    divs exist at all -- the renderer wraps every table, from either the built-in parser or
-    `markdown-it-multimd-table`'s, in `<div class="table-wrap"><div class="table-clip"><div
-    class="table-scroll">` before it ever reaches this file.
+    A wide table scrolls itself rather than widening the article. `renderers/markdown.js` wraps every
+    table -- from either the built-in parser or `markdown-it-multimd-table` -- in three nested divs
+    before it ever reaches this file, and all three occupy the same rectangle.
 
-    THREE boxes, not two (OpenProject #2958, tightening #2935's split further -- resolving the
-    variance #2935 itself deleted from `docs/variances.md`): `.table-wrap` is the outer, non-scrolling
-    FRAME -- border, radius, shadow, background and the corner marks below all live here, and it
-    carries no `overflow` of its own, so nothing it draws past its own edge (the marks) is ever
-    clipped.
+    `.table-wrap` is the outer, non-scrolling FRAME: border, radius, shadow, background and the corner
+    marks below all live here. It carries no `overflow` of its own, so the marks it paints past its
+    own edge are never clipped, and its `position: relative` is what they position against. Its
+    `background-color` is the body's own ground -- a plain row is `transparent`, so without it the
+    surface behind would be whatever the article column happens to sit on.
 
-    `.table-clip`, nested inside it, is a plain `overflow: hidden` box repeating the same
-    `--content-table-radius` and NOTHING else -- no scroll, no background, no border of its own. It
-    exists purely to own the clip: an `overflow: hidden` box that does not itself scroll has no
-    scrollbar of its own to worry about, so it clips whatever its child paints -- content and any
-    scrollbar chrome that child renders alike -- to its own rounded rectangle exactly the way any
-    ordinary `overflow: hidden` clips any ordinary content.
+    `.table-clip` is a plain `overflow: hidden` box repeating the radius and NOTHING else. It exists
+    purely to own the clip: a box that does not itself scroll has no scrollbar of its own to worry
+    about, so it clips whatever its child paints -- content and scrollbar chrome alike -- to its own
+    rounded rectangle.
 
-    `.table-scroll`, nested inside THAT, is the actual scroller, carrying `overflow-x: auto` and the
-    scrollbar tokens but no `border-radius` of its own any more. #2935 landed `.table-scroll` with
-    BOTH `overflow-x: auto` and its own radius on the same element, reasoning that a lone
-    `overflow-x` resolves `overflow-y` to `auto` too and so clips content the same as `overflow:
-    hidden` would -- true for ordinary painted content (a `td`'s background, confirmed directly in a
-    real Chromium), but not for the native scrollbar `overflow-x: auto` itself produces: a
-    classic, space-reserving scrollbar (Windows/Linux by default, macOS whenever scrollbars are set
-    to show always rather than only while scrolling) is browser/OS-painted chrome, not a normal
-    stacking-context descendant, and is not reliably clipped by `border-radius` on the SAME element
-    that renders it -- it squares off the very corner it sits against, which is what OpenProject
-    #2958 reported hands-on on a live instance despite every existing test (all written against
-    ordinary DOM content, not native scrollbar chrome) passing. Moving the radius one level out, onto
-    `.table-clip`, sidesteps the whole class of problem: `.table-clip` isn't the element producing the
-    scrollbar, so its `overflow: hidden` clip applies to `.table-scroll` as a single opaque child, the
-    same as it would to any other element. See `ui-iteration-markdown-tables/markdown-tables.md`'s
-    original "the scrollbar painting over the rounded corners" note -- the same failure mode this
-    closes, one layer deeper than #2935 reached.
-
-    All three boxes occupy the same rectangle (each fills its parent's content box, no padding
-    between any of them), so `--content-table-radius` clips correctly wherever it's applied. A single
-    combined box, as this used to be before #2935, could not give the frame a radius at all without
-    also clipping its own `::before`/`::after` pseudo-elements -- the corner marks below -- the moment
-    they rendered past its edge, which is exactly what forced them flush instead of the 4px overhang
-    `markdown-tables.md` specifies. Splitting the frame from the clip (and now the clip from the
-    scroll) is what lets the marks overhang a box that itself never clips them; see
-    `_page-contents.test.js`.
-
-    `position: relative` (on the frame) is what the corner marks below position against.
-    `background-color` is the body's own ground (OpenProject #2917) -- a plain row is `transparent`
-    now (see `--content-table-row`), so without this the surface behind it would be whatever the
-    article column happens to sit on rather than the stated ground a framed table draws on. It stays
-    on the frame rather than the scroller so it shows through consistently regardless of which box a
-    reader's cursor happens to be over.
+    `.table-scroll` is the actual scroller and deliberately carries no radius. A classic,
+    space-reserving scrollbar (Windows/Linux by default, macOS whenever scrollbars are set to show
+    always) is browser-painted chrome, not a normal stacking-context descendant, and is NOT reliably
+    clipped by `border-radius` on the SAME element that renders it -- it squares off the very corner
+    it sits against. Ordinary painted content, a cell background included, clips fine; the scrollbar
+    is the exception, which is why the radius sits one level out.
   */
   .table-wrap {
     position: relative;
@@ -2274,30 +1855,14 @@
   }
 
   /*
-    OpenProject #3007: reconciling this shared rule with the handoff's global scrollbar spec. The
-    engine gotcha applies here exactly as it does in `_base.css` -- `scrollbar-width`/`scrollbar-
-    color` never sit unwrapped on the same selector as a `::-webkit-scrollbar*` rule, so the standard
-    properties stay isolated in their own `@supports not selector(::-webkit-scrollbar)` block below.
+    `scrollbar-width`/`scrollbar-color` must never sit unwrapped on the same selector as a
+    `::-webkit-scrollbar*` rule -- the same engine gotcha as `_base.css` -- so the standard properties
+    stay isolated in their own `@supports` block. Their `::-webkit-scrollbar*` counterparts are the
+    flat, `body`-first rules at the bottom of this file.
 
     Both aesthetics' global scrollbar already reaches `.table-scroll` for free, as a descendant of
-    `.body--ledger`/`.body--cobalt` -- width, shape (Ledger's square corners, Cobalt's pill growth)
-    and buttons all inherit unchanged. Only colour is overridden here, off the four `--content-table-
-    scrollbar-*` tokens each aesthetic's own section above sets, which is what lets a table's
-    scrollbar blend into ITS OWN surface (the frame in Ledger, the page ground in Cobalt) rather than
-    read as the app's more prominent chrome scrollbar dropped onto a table. The leading `body`
-    element each override's selector starts with is deliberate, not decoration: it is what keeps
-    each override at a strictly higher specificity than the aesthetic-scoped global rule it
-    overrides (both are otherwise one class plus one pseudo-element/-class, which would tie and fall
-    back to source order between two different files -- exactly the trap `PageActionsCol.vue`'s own
-    header comment warns about) regardless of how the two stylesheets end up concatenated.
-
-    OpenProject #3252: these four rules used to be `@at-root body .table-scroll::-webkit-scrollbar-*`
-    right here, escaping the outer `.page-contents { ... }` this whole file sits inside for a
-    second, purely structural reason -- an ordinary nested rule in this spot would compile to
-    `.page-contents body .table-scroll::-webkit-scrollbar-thumb`, `body` AFTER `.page-contents`,
-    requiring a `<body>` descendant of the article column, which does not exist. Native CSS nesting
-    has no `@at-root`; hand-converted to plain, unnested rules at the bottom of this file instead --
-    see "Hand-converted @at-root escapes" there, `body` written first exactly as `@at-root` used to.
+    `.body--ledger`/`.body--cobalt`: width, shape and buttons all inherit unchanged. Only colour is
+    overridden, off the four `--content-table-scrollbar-*` tokens each aesthetic's section above sets.
   */
   @supports not selector(::-webkit-scrollbar) {
     .table-scroll {
@@ -2307,17 +1872,12 @@
   }
 
   /*
-    Ledger's corner marks (OpenProject #2917): a blueprint L at the top-left and bottom-right corners
-    only, in `--color-slate-soft` -- the same background-gradient technique `.page-header-icon__marks`
-    (`PageHeader.vue`) and the blockquote's own `&::after` use, just two corners instead of four, and
-    gated on the same `--corner-marks` token those two read (`none` under Cobalt, which draws no
-    marks at all -- `#2918`).
+    Ledger's corner marks: a blueprint L at two opposite corners, painted as background gradients the
+    same way `.page-header-icon__marks` and the blockquote's own `&::after` are, and gated on the same
+    `--corner-marks` token those two read (`none` under Cobalt, which draws no marks at all).
 
-    Drawn 4px outside the frame (`inset: -5px` against the frame's own 1px border), matching
-    `.page-header-icon__marks` and the blockquote's `&::after` exactly (OpenProject #2935) -- this
-    lives on `.table-wrap`, the outer frame above, which has no `overflow` of its own, so the negative
-    inset is never cropped the way it was when the frame and the scroller were the same box. See that
-    box's own comment for the split that made this possible.
+    Drawn 4px outside the frame (`inset: -5px` against its 1px border), which only works because
+    `.table-wrap` has no `overflow` of its own to crop the negative inset.
   */
   .table-wrap::after {
     content: '';
@@ -2335,46 +1895,28 @@
   }
 
   /*
-    Column sizing, CSS Grid style (OpenProject #2997/#3014/#3015). The table is a
-    `div[role="table"]` now, not a `<table>` -- see `renderers/markdown.js`'s "TABLE GRID MARKUP"
-    comment for why -- so there is no `border-collapse`/automatic-table-layout box to size columns
-    off any more, and no CSS selector can read the real column count out of the markup either.
+    Column sizing, CSS Grid style. The table is a `div[role="table"]`, not a `<table>` -- see
+    `renderers/markdown.js`'s "TABLE GRID MARKUP" comment for why -- so there is no automatic
+    table-layout box to size columns off, and no selector can read the real column count out of the
+    markup either.
 
-    `[role="table"]` is `display: grid` with a FIXED, generous number of explicit `max-content`
-    column tracks (16 -- comfortably above any table in this file's own test fixtures, which top
-    out at 12) rather than the real count. A track no row's cell ever lands in has nothing to
-    measure and collapses to 0 width, so a table with fewer real columns leaves no dead space; a
-    table with more than 16 loses alignment past the 16th, with no author-facing signal today --
-    a known, accepted limitation, not a silent regression from prior behaviour (which had no cap at
-    all). `max-content`, not `minmax(0, max-content)`: with a `0` floor a track would happily shrink
-    below its content's natural size to fit whatever room is left, which is exactly backwards for a
-    WIDE table -- `max-content` as the floor is what lets a track refuse to shrink and forces
-    `[role="table"]`'s own box past `.table-scroll`'s width instead, which is what triggers the
-    scrollbar in the first place. One real behaviour change from the old `width: max-content;
-    min-width: 100%`: a table narrower than the frame no longer stretches its own columns to fill it
-    (that was the browser's automatic `<table>` column-width redistribution, which a fixed grid
-    template has no equivalent for without knowing the real column count) -- it now renders at its
-    natural width. OpenProject #3033: that natural width used to be masked by `.table-wrap` itself
-    still filling the frame (an ordinary block box's `width: auto` resolves to "fill the containing
-    block"), leaving blank frame background trailing a narrow table instead of the wrap shrinking to
-    meet it -- `.table-wrap`'s own `width: fit-content` (below) is what closes that gap, so the whole
-    three-box frame now hugs the table's natural width instead of just the grid inside it. A `1fr`
-    column track was tested and rejected as the way to let columns share the container's extra width
-    instead: a `fr` track does not degrade to a content-based size during a shrink-to-fit pass, so it
-    silently defeats `.table-wrap`'s own `fit-content` and re-stretches the table to the full
-    container width -- `max-content`, unchanged above, is what `fit-content` on the wrap depends on.
+    A FIXED, generous 16 explicit `max-content` tracks stands in for the real count. A track no cell
+    ever lands in has nothing to measure and collapses to 0 width, so a narrower table leaves no dead
+    space; a table with more than 16 columns loses alignment past the 16th, a known and accepted
+    limitation. `max-content`, not `minmax(0, max-content)`: with a `0` floor a track would shrink
+    below its content to fit whatever room is left, which is backwards for a WIDE table -- refusing to
+    shrink is what forces the grid past `.table-scroll`'s width and triggers the scrollbar at all. A
+    `1fr` track was tried and rejected for the mirror-image reason: `fr` does not degrade to a
+    content-based size during a shrink-to-fit pass, so it silently defeats `.table-wrap`'s own
+    `fit-content` and re-stretches the table to the full container width.
 
-    Every `[role="row"]` is `display: grid; grid-template-columns: subgrid; grid-column: 1 / -1` --
-    CSS SUBGRID, not `display: contents`. Subgrid is what lets each row's own cells size against the
-    SAME shared tracks the table above defines, so a column's width agrees across every row -- the
-    entire point of a table -- while `grid-column: 1 / -1` (spanning the full generous width) is what
-    forces each row onto its own grid line, the same way a `<tr>` always started a new table row.
-    `display: contents` alone cannot do this: flattening every cell straight into the table's own
-    grid gives the browser no notion of a row boundary once the row's own box is gone -- the next
-    row's cells would just keep filling the CURRENT grid row's remaining (mostly unused) tracks
-    instead of starting a new one. A cell needs no `grid-column` of its own inside its row's subgrid:
-    implicit auto-placement fills the row's subgridded tracks left-to-right in DOM order, exactly one
-    cell per column the way `<td>` always was.
+    Every `[role="row"]` uses SUBGRID, not `display: contents`, so each row's cells size against the
+    SAME shared tracks the table defines and a column's width agrees across every row -- the entire
+    point of a table -- while `grid-column: 1 / -1` forces each row onto its own grid line the way a
+    `<tr>` always started a new one. `display: contents` cannot: with the row's own box gone the
+    browser has no notion of a row boundary, and the next row's cells just keep filling the current
+    row's remaining tracks. A cell needs no `grid-column` of its own -- auto-placement fills the row's
+    subgridded tracks in DOM order, one cell per column.
   */
   [role='table'] {
     display: grid;
@@ -2389,7 +1931,7 @@
   }
 
   /*
-    Interior rules only. A cell border all the way round would double the wrapper's own frame at the
+    Interior rules only: a cell border all the way round would double the wrapper's own frame at the
     perimeter, and at the corners it would be a straight line cut off by the radius -- a notch rather
     than a curve.
   */
@@ -2400,29 +1942,25 @@
     border-bottom: 1px solid var(--content-table-rule);
     /*
       -> `start`, not `end`: markdown's own `:---:`/`---:` column-alignment syntax renders as an inline
-         `style="text-align:..."` on the cell (see `renderers/markdown.js`'s table rule), which wins on
-         specificity over this base rule regardless -- so a `---:`-aligned column keeps reading as
-         "right" in either direction, exactly as its markdown author asked for, while every other
-         column follows `dir` instead of being stuck on the physical left.
+         `style="text-align:..."` on the cell, which wins on specificity over this base rule
+         regardless -- so an explicitly aligned column keeps the alignment its author asked for while
+         every other column follows `dir`.
     */
     text-align: start;
-    /* -> `align-self`, not `vertical-align`: these are grid items now, and `vertical-align` has no
-          effect on one -- `align-self: start` is the grid equivalent of the old top alignment. */
+    /* -> `align-self`, not `vertical-align`: these are grid items, and `vertical-align` has no effect
+          on one */
     align-self: start;
-    /* -> `rem`, not `em`: an absolute 14.5px regardless of any ancestor's own font-size, matching how
-          `markdown-tables.md` states it and how this file's own base size is stated (`font-size:
-          0.96875rem` further up) rather than inherited-and-scaled */
+    /* -> `rem`, not `em`: an absolute 14.5px regardless of any ancestor's own font-size */
     font-size: 0.90625rem;
     line-height: 1.5;
     color: var(--content-ink);
   }
 
   /*
-    A right-aligned column is numeric by convention, so it takes the mono face with tabular figures
-    rather than Barlow -- a `---:` column is the renderer's own signal, never author intent read out
-    of the content, which is why this keys off the SAME inline `style` the base rule above already
-    yields to rather than a class. A centre-aligned (`:---:`) column gets no inline `text-align:right`
-    and stays in Barlow.
+    A `---:` column is numeric by convention, so it takes the mono face with tabular figures rather
+    than Barlow. Keyed off the SAME inline `style` the base rule above already yields to, not a class:
+    the alignment is the renderer's own signal, never author intent read out of the content. A
+    centre-aligned (`:---:`) column carries no such style and stays in Barlow.
   */
   [role='columnheader'][style*='text-align:right'],
   [role='cell'][style*='text-align:right'] {
@@ -2443,9 +1981,8 @@
 
   /*
     A multi-line cell holds block content -- its text arrives wrapped in a paragraph, and may be a list
-    or a fence -- and the outer margins of that content are the cell's padding's business, exactly as
-    they are the container's at the top level. Without this a multi-line row stands 1.15em taller than
-    the single-line rows around it.
+    or a fence -- and those outer margins are the cell's padding's business. Without this a multi-line
+    row stands 1.15em taller than the single-line rows around it.
   */
   [role='columnheader'] > :first-child,
   [role='cell'] > :first-child {
@@ -2456,23 +1993,20 @@
     margin-bottom: 0;
   }
 
-  /* -> A row header inside the body (author HTML; markdown has no syntax for one, and the renderer's
-        own token overrides never touch raw author HTML, so a hand-written `<th>` mid-body stays a
-        real `<th>`, not a `[role="columnheader"]` div) keeps the plain wash -- a title bar down the
-        side of a table is a different thing altogether, see below. It won't slot into the
-        surrounding grid the way a role-bearing cell does; that's a markup-shape gap in the renderer
-        (OpenProject #3014), not something this rule can fix on its own. */
+  /* -> A row header inside the body comes only from author HTML -- markdown has no syntax for one,
+        and the renderer's token overrides never touch raw author HTML -- so it stays a real `<th>`
+        rather than a `[role="columnheader"]` div, and will not slot into the surrounding grid the way
+        a role-bearing cell does. That is a markup-shape gap in the renderer, not one this rule can
+        close. */
   th {
     background-color: var(--content-surface-alt);
     font-weight: 600;
   }
 
   /*
-    The head as a tinted strip in the theme's own tint colour, not a dark title bar -- painted
-    directly on each header cell rather than on a `thead` ancestor (there isn't one any more; the
-    renderer's `thead_open`/`thead_close` render as nothing). Grid cells sit flush with no gap
-    between them, so per-cell painting reads as one continuous strip exactly like the old
-    ancestor-painted version did.
+    The head strip is painted directly on each header cell rather than on a `thead` ancestor -- there
+    isn't one; the renderer's `thead_open`/`thead_close` render as nothing. Grid cells sit flush with
+    no gap between them, so per-cell painting reads as one continuous strip.
   */
   [role='columnheader'] {
     border-inline-end-color: var(--content-table-head-rule);
@@ -2485,17 +2019,14 @@
   }
 
   /*
-    Banding: BOTH row colours are stated, even though the plain row is `transparent` -- an untinted
-    row still needs the declaration so a future retint is a token change, not a rule rewrite. Faint
-    enough that the band still guides the eye across a wide row without striping the page, and the two
-    are a step apart rather than a contrast -- the head is what the eye lands on.
+    BOTH row colours are stated even though the plain row is `transparent`, so a future retint is a
+    token change rather than a rule rewrite.
 
-    `:nth-child(... of S)` with `S` excluding a row that has a `[role="columnheader"]` child is the
-    replacement for the old `tbody > tr:nth-child(...)` scoping -- there's no `tbody` any more to
-    keep the header row out of the count, and a header row (when one exists) is always the first row,
-    so a plain `:nth-child(even)` here would count it as row 1 and shift every table's banding phase
-    by one. The `:not(:has(...))` filter also correctly falls through to "every row counts" for a
-    headerless MultiMarkdown table, where no row carries a `columnheader` cell at all.
+    `:nth-child(... of S)` with `S` excluding a row that has a `[role="columnheader"]` child stands in
+    for the old `tbody > tr:nth-child(...)` scoping: there is no `tbody` to keep the header row out of
+    the count, and a header row is always the first, so a plain `:nth-child(even)` would count it as
+    row 1 and shift every table's banding phase by one. The filter also falls through to "every row
+    counts" for a headerless MultiMarkdown table, where no row carries a `columnheader` cell at all.
   */
   [role='row']:not(:has(> [role='columnheader'])) > [role='cell'] {
     background-color: var(--content-table-row);
@@ -2506,17 +2037,13 @@
   }
 
   /*
-    Hover, painted over the band rather than replacing it, and gated on `(hover: hover)` -- a touch
-    screen has no hover state to leave stuck on the last row it happened to scroll past. The inset
-    edge on the leading cell only, so the accent reads as a marker on the live row rather than a
-    second border running the row's own width.
+    Hover is painted over the band rather than replacing it, and gated on `(hover: hover)` -- a touch
+    screen has no hover state to leave stuck on the last row it happened to scroll past.
 
-    The `:not(:has(> [role='columnheader']))` clause is duplicated here (redundant, but valid) purely
-    to bump specificity: the zebra rule above resolves to specificity 5 (`:nth-child(even of S)`
-    contributes 1 for the pseudo-class plus S's own specificity of 2, plus `[role='row']` and
-    `[role='cell']`), while a single `:not()` clause here would only reach 4 and lose to the band on
-    every banded row regardless of a real `:hover` match. Tied at 5, source order (this rule comes
-    after the zebra rule) is what lets hover win -- see OpenProject #3039.
+    The `:not(:has(> [role='columnheader']))` clause is duplicated (redundant, but valid) purely to
+    bump specificity: the zebra rule above resolves to 5, while a single `:not()` clause here would
+    reach only 4 and lose to the band on every banded row regardless of a real `:hover` match. Tied at
+    5, source order -- this rule comes after the zebra rule -- is what lets hover win.
   */
   @media (hover: hover) {
     [role='row']:not(:has(> [role='columnheader'])):not(:has(> [role='columnheader'])):hover
@@ -2529,22 +2056,13 @@
   }
 
   /*
-    Cell-range select mode (OpenProject #3239). `enableTableSelectMode`
-    (`helpers/renderedContent.js`) stamps `data-table-selected` on exactly the cells inside the
-    active anchor<->focus rectangle; this rule is the entire rest of what draws it -- a wash plus an
-    inset ring, over EITHER a plain/banded row or the head strip alike. `box-shadow` is never
-    contested (nothing else in this section sets it outside the `:hover` media block below, which a
-    selected cell can still also be under), but `background-color` is -- the zebra rule reaches
-    specificity 3 for a plain row (`[role='row']` + `:not(:has(...))` + `[role='cell']`) and 5 once
-    banded (`:nth-child(even of S)` embeds that same `:not(:has(...))` again as `S`, the same count
-    `_page-contents.test.js`'s hover-tie-break test documents), both of which a bare two-attribute
-    `[role='cell'][data-table-selected]` (specificity 2) loses to outright. The `[data-table-
-    selected]` clause is repeated -- redundant but valid, the exact technique the hover rule below
-    already uses on its own `:not(:has(...))` clause for the identical reason -- purely to clear that
-    bar (specificity 6) with a safety margin, so the highlight wins regardless of banding or hover
-    state and with no dependence on cascade order. `box-shadow`, not a real border for the ring --
-    inset never nudges `--content-table-cell-padding` or the grid's own column tracks the way adding
-    a border would.
+    Cell-range select mode. `enableTableSelectMode` (`helpers/renderedContent.js`) stamps
+    `data-table-selected` on the cells inside the active rectangle; this rule is the rest of what
+    draws it, over a plain, banded or head-strip cell alike. The `[data-table-selected]` clause is
+    repeated -- redundant but valid, the same technique the hover rule above uses -- purely to clear
+    the zebra rule's specificity (3 on a plain row, 5 once banded) with a margin, so the highlight
+    wins regardless of banding, hover state or cascade order. `box-shadow`, not a real border, for the
+    ring: inset never nudges `--content-table-cell-padding` or the grid's own column tracks.
   */
   [role='columnheader'][data-table-selected][data-table-selected][data-table-selected][data-table-selected][data-table-selected],
   [role='cell'][data-table-selected][data-table-selected][data-table-selected][data-table-selected][data-table-selected] {
@@ -2553,14 +2071,10 @@
   }
 
   /*
-    `{.table-leading-col}`, written on the line under a table -- which is where `markdown-it-attrs` reads
-    a block's attributes from -- for a table whose first column says what its row IS rather than holding
-    one of its values: a setting name, a key, a term. It is set in the head's own weight, so the column
-    reads as the label for its row that it is.
-
-    Inline code comes with it and needs no rule of its own: `code` declares no weight, so a `` `key` ``
-    in that column inherits this one -- which matters, because a label like that is usually written as
-    code in the first place.
+    `{.table-leading-col}`, written on the line under a table -- which is where `markdown-it-attrs`
+    reads a block's attributes from -- for a table whose first column says what its row IS rather than
+    holding one of its values. Inline code needs no rule of its own: `code` declares no weight, so a
+    key written as code in that column inherits this one, which matters because it usually is.
   */
   [role='table'].table-leading-col
     > [role='row']:not(:has(> [role='columnheader']))
@@ -2569,13 +2083,11 @@
   }
 
   /*
-    `{.table-code-nohighlight}`, attached the same way, for a table where nearly every cell holds inline
-    code -- a table of settings, of keys, of tag names. The wash is there to pick a code span out of a
-    sentence; a column of them is not a sentence, and forty chips in a grid read as noise over the row
-    colours rather than as emphasis. The monospace face is what says "code" there.
-
-    The padding goes with the wash, as it does inside a heading: it exists to keep the tint off the
-    glyphs, and left behind on its own it is a gap in the middle of a phrase with nothing to explain it.
+    `{.table-code-nohighlight}`, attached the same way, for a table where nearly every cell holds
+    inline code. The wash is there to pick a code span out of a sentence; a column of them is not a
+    sentence, and forty chips in a grid read as noise rather than emphasis -- the monospace face is
+    what says "code" there. The padding goes with the wash: it exists to keep the tint off the glyphs,
+    and left on its own it is an unexplained gap in the middle of a phrase.
   */
   [role='table'].table-code-nohighlight code {
     padding: 0;
@@ -2583,12 +2095,10 @@
   }
 
   /*
-    `{.table-vertical-middle}`, again on the line under the table. Cells top-align by default, which is
-    what a row of prose wants -- the first lines of each cell line up and the row reads across. A row of
-    single lines next to one tall cell does not: an image, a `^^` rowspan or one long wrapped sentence
-    leaves the short cells hanging at the top of the row with the gap under them.
-
-    -> `align-self`, not `vertical-align` -- see the base cell rule above for why.
+    `{.table-vertical-middle}`, again on the line under the table. Cells top-align by default, which
+    is what a row of prose wants. A row of single lines next to one tall cell -- an image, a `^^`
+    rowspan, one long wrapped sentence -- does not: the short cells hang at the top with the gap
+    under them.
   */
   [role='table'].table-vertical-middle > [role='row']:not(:has(> [role='columnheader'])) > * {
     align-self: center;
@@ -2602,35 +2112,22 @@
   }
 
   /*
-    MultiMarkdown table caption (OpenProject #2997/#3014/#3023). `markdown-it-multimd-table` always
-    pushes `caption_open`/`caption_close` as the FIRST child inside `table_open`/`table_close`,
-    regardless of whether the caption was authored above or below the table (verified in the plugin
-    source) -- and `renderers/markdown.js` retags it to `<div class="table-caption">`, the same way
-    every other table-related token there is retagged, rather than leaving it a real `<caption>`.
+    MultiMarkdown table caption. `markdown-it-multimd-table` always pushes it as the FIRST child
+    inside the table, regardless of whether it was authored above or below, and `renderers/markdown.js`
+    retags it to `<div class="table-caption">`.
 
-    This is NOT a styling nicety: a bare `<caption>` left as-is is invisible to any CSS fix at all.
-    The WHATWG HTML parser's "in body" insertion mode treats a `caption` (or `tr`/`td`/`th`/`thead`/
-    `tbody`/`col`/`colgroup`) start tag encountered outside an ACTUAL `<table>` element's own
-    insertion mode as a parse error and drops the token outright -- and since `table_open` above
-    already retags every table token to `<div>`, there is no real `<table>` anywhere on the page for
-    a caption to be "inside" any more. Verified directly against a real Chromium:
-    `<div role="table"><caption>Cap</caption>…` parses back with the `<caption>` tag gone and a bare,
-    unwrapped "Cap" text node in its place -- there is no element left for any selector to match, so
-    no amount of `caption { … }` CSS could ever have fixed this. `.table-caption` is a plain `<div>`,
-    never subject to that table-tag rule, so it survives parsing with all of its attributes intact
-    (the plugin's own `id`/`style="caption-side: bottom"`).
+    That retag is not a styling nicety: the WHATWG parser's "in body" insertion mode drops a `caption`
+    start tag encountered outside an ACTUAL `<table>`, and `table_open` already retags every table
+    token to `<div>`, so there is no real `<table>` left on the page for one to be inside. A bare
+    `<caption>` parses away to an unwrapped text node, leaving no element for any selector to match --
+    no amount of `caption { … }` CSS could reach it. A plain `<div>` is never subject to that rule and
+    survives with its attributes intact.
 
-    `grid-column: 1 / -1` is what makes it span every column of the grid's fixed 16-column track
-    instead of auto-placing into column 1 alone, the same as any other bare grid child would.
-
-    Separately: a caption authored BELOW the table carries the plugin's own inline
-    `style="caption-side: bottom"` -- a real effect inside a `<table>` layout, but a no-op on a grid
-    child, since `[role="table"]` is not a table box any more. Left alone the caption renders on top
-    regardless of what the author asked for, because DOM order wins. `order` is grid's own
-    placement-order property and, unlike paint order alone, the auto-placement algorithm actually
-    respects it for implicit-grid slotting: bumping a bottom-authored caption past every row's
-    default `order: 0` (no row ever sets one) moves it into the last auto-placed slot -- i.e. after
-    every row -- with no need to know the table's real row count.
+    `grid-column: 1 / -1` spans the grid's fixed 16 tracks instead of auto-placing into column 1. A
+    caption authored BELOW the table carries the plugin's inline `style="caption-side: bottom"`, a
+    no-op on a grid child, so DOM order would otherwise put it on top regardless. `order` IS respected
+    by auto-placement, so bumping it past every row's default `order: 0` moves it into the last slot
+    with no need to know the real row count.
   */
   [role='table'] > .table-caption {
     padding-bottom: 0.5em;
@@ -2644,34 +2141,27 @@
     order: 1;
   }
 
-  /* --------------------------------------------------------------------------- */
   /* FIGURES, IMAGES AND DIAGRAMS */
-  /* --------------------------------------------------------------------------- */
 
   img {
     max-width: 100%;
     height: auto;
-    /* -> An image is a block when it is the whole paragraph, and inline when it sits in a sentence */
     vertical-align: middle;
   }
 
   /*
-    The click-to-zoom affordance `helpers/contentImageZoom.js` wires up (OpenProject #3066).
-    `"active"` is what that pass marks an image once it has actually attached the click handler --
-    one it left alone instead, because it sits inside a link, is marked `"skipped"` and keeps its
-    ordinary link cursor.
+    Click-to-zoom, wired up by `helpers/contentImageZoom.js`. `"active"` is what that pass marks an
+    image once it has actually attached the handler; one it skipped -- because it sits inside a link
+    -- is marked `"skipped"` and keeps its ordinary link cursor.
   */
   img[data-content-zoom='active'] {
     cursor: zoom-in;
   }
 
   /*
-    An image in a list item stays in the sentence. Tailwind's preflight declares `img { display:
-    block }`, so without this the image takes a line of its own and the item's own words go under it,
-    which reads as a broken item rather than as an illustrated one.
-
-    `align-left` / `align-right` / `align-center` still win on specificity, so an author who asks for
-    one of those in a list still gets it.
+    Tailwind's preflight declares `img { display: block }`, so without this an image in a list item
+    takes a line of its own and the item's words go under it. The `align-*` classes still win on
+    specificity, so an author who asks for one in a list still gets it.
   */
   li img {
     display: inline-block;
@@ -2707,17 +2197,11 @@
   }
 
   /*
-    An Iconify icon, drawn into the page as an `<svg>` when it was saved -- see `inlineIcons` in
-    `models/rendering.ts`. Coloured by the markup itself (`currentColor`), so what it needs from here
-    is to be part of the line -- Preflight makes every `svg` a block, which would put an icon written
-    mid-sentence on a line of its own -- and to be big enough to read beside the text it sits in.
-
-    1.4em rather than the 1em Iconify draws at: an icon is read as a glyph, and a glyph the same
-    nominal size as the type around it looks smaller than it, because a letter fills a fraction of
-    its em box while an icon fills the whole one.
-
-    An author who asked for a size gets it: `inlineIcons` writes that one as an inline style, which
-    outranks this.
+    An Iconify icon inlined into the page as an `<svg>` at save time (`inlineIcons` in
+    `models/rendering.ts`). Preflight makes every `svg` a block, which would put an icon written
+    mid-sentence on a line of its own. 1.4em rather than the 1em Iconify draws at: a letter fills a
+    fraction of its em box while an icon fills the whole one, so matching sizes look smaller. An
+    author who asked for a size still gets it -- `inlineIcons` writes that as an inline style.
   */
   svg.icon {
     display: inline-block;
@@ -2726,14 +2210,10 @@
   }
 
   /*
-    The same icon before it has been inlined: what the editor's preview draws, what a page saved
-    before this carries, and what is left where a set could not be resolved at save time.
-
-    Sized through `font-size` rather than through `width`, which is the one difference between the
-    two: the element draws its own `<svg width="1em">` inside a shadow root nothing here can reach,
-    so growing the host box would leave a 1em glyph centred in a 1.4em one. Scaling what that `em`
-    measures against grows the drawing. An explicit `width` on the element is in pixels and is
-    untouched by this, exactly as the inline style above leaves the inlined form alone.
+    The same icon before it has been inlined: what the editor's preview draws, and what is left where
+    a set could not be resolved at save time. Sized through `font-size` rather than `width`: the
+    element draws its own `<svg width="1em">` inside a shadow root nothing here can reach, so growing
+    the host box would leave a 1em glyph centred in a 1.4em one.
   */
   iconify-icon {
     font-size: 1.4em;
@@ -2749,9 +2229,7 @@
     vertical-align: -0.2em;
   }
 
-  /* --------------------------------------------------------------------------- */
   /* RULES AND DISCLOSURES */
-  /* --------------------------------------------------------------------------- */
 
   hr {
     height: 1px;
@@ -2770,7 +2248,6 @@
       cursor: pointer;
       font-weight: 600;
 
-      /* -> Only spaced away from the content once there IS content below it */
       &:focus-visible {
         outline: 2px solid var(--content-link);
         outline-offset: 2px;
@@ -2788,14 +2265,11 @@
     }
   }
 
-  /* --------------------------------------------------------------------------- */
   /* FOOTNOTES */
-  /* --------------------------------------------------------------------------- */
 
   /*
-    The reference in the text. `markdown-it-footnote` emits it already bracketed -- `[1]` -- so the
-    mark is a small mono figure rather than a bare number in the body face, which is how every other
-    count, code and index in Cardinal is set. It does not need underlining to be seen.
+    `markdown-it-footnote` emits the reference already bracketed -- `[1]` -- so it is set as a small
+    mono figure rather than a bare number in the body face, and needs no underline to be seen.
   */
   .footnote-ref > a {
     padding: 0 0.15em;
@@ -2806,12 +2280,9 @@
   }
 
   /*
-    The rule between the article and its notes, and the one rule on the page that is genuinely
-    structural rather than decorative: everything above it is what the author wrote, everything below
-    is apparatus. It therefore reaches back through the container's padding the same way the title's
-    own rule does, using the same `--content-bleed` the surface sets, so the two rules that divide
-    the article start at the same place instead of one being inset by whatever the padding happens
-    to be.
+    The rule between the article and its notes reaches back through the container's padding on the
+    same `--content-bleed` the title's own rule uses, so the two rules that divide the article start
+    at the same place instead of one being inset by whatever the padding happens to be.
   */
   .footnotes-sep {
     margin-top: 3em;
@@ -2823,11 +2294,8 @@
     font-size: 0.875em;
 
     /*
-      Ruled rows with a mono accent marker, which is how the Ledger draws its own numbered list: the
-      figure is the small mono kicker the language uses for an index, and the hairline under each
-      note is what lets a reader's eye find the boundary between two of them at this size. The list
-      keeps its own decimal numbering -- these are the numbers the references point at, so they are
-      content, not a marker style.
+      The list keeps its own decimal numbering: these are the numbers the references point at, so
+      they are content, not a marker style.
     */
     .footnotes-list {
       padding-inline-start: 1.9em;
@@ -2853,31 +2321,21 @@
   }
 
   /*
-    Where a footnote link has just landed, so the reader can see which one they were sent to: one item
-    among a list of near-identical ones, where arriving says nothing about which is which.
+    Where a footnote link has just landed. Keyed off the class `helpers/anchors.js` leaves on it
+    rather than `:target`, which stopped matching once an in-content fragment link began updating the
+    URL with `router.push` -- a pushed hash sets no target element. Keep the name in step with
+    `LANDED_CLASS` there.
 
-    Keyed off the class `helpers/anchors.js` leaves on it rather than `:target`, which stopped matching
-    once an in-content fragment link began updating the URL with `router.push` -- a pushed hash sets no
-    target element. Keep the name in step with `LANDED_CLASS` there.
-
-    Headings are deliberately not styled: a heading is what the reader asked for and it announces itself
-    by sitting at the top of the column, so the wash only added noise to every jump to a section.
+    Headings are deliberately not styled: a heading announces itself by sitting at the top of the
+    column, so the wash only added noise to every jump to a section.
   */
   .footnote-item.is-anchor-landed {
-    /*
-      The accent wash with the accent down its leading edge -- the same "this one" plate the rest of
-      the language draws, rather than the yellow highlighter this used to paint. The edge is inside
-      the row's own padding, so a landed note does not shift the notes under it.
-    */
+    /* -> The edge is inside the row's own padding, so a landed note does not shift the ones under it */
     padding-inline-start: 0.7em;
     border-inline-start: 2px solid var(--content-landed-edge);
     background-color: var(--content-landed-wash);
   }
 
-  /*
-    The link back to where the reference was. A mono accent glyph, sized down: it is apparatus inside
-    apparatus, and at the note's own weight it competes with the note.
-  */
   .footnote-backref {
     margin-inline-start: 0.4em;
     color: var(--content-link);
@@ -2886,9 +2344,7 @@
     text-decoration: none;
   }
 
-  /* --------------------------------------------------------------------------- */
   /* PRINT */
-  /* --------------------------------------------------------------------------- */
 
   @media print {
     /* Washes and tints cost ink and print muddy; the structure has to come from the rules instead */
@@ -2897,12 +2353,8 @@
     --content-surface-code: #fff;
     --content-surface-alt: #fff;
     /*
-      Which goes double for a table's head: a tinted strip is the most ink anything in content asks
-      for, and on paper it buys nothing -- the bold text and the rules already say "head". Every rule
-      goes back to the same plain hairline every other cell prints, rather than each aesthetic's own
-      tint (`--content-table-rule`/`-col-rule` are `--content-table-head-rule`'s own reset for the
-      same reason; the rest of the file already left `--content-table-shadow` at `none` everywhere,
-      so there is nothing left to reset there).
+      Which goes double for a table's head: the bold text and the rules already say "head". Every rule
+      goes back to the plain hairline every other cell prints rather than each aesthetic's own tint.
     */
     --content-table-head: #fff;
     --content-table-head-ink: #000;
@@ -2913,12 +2365,9 @@
     --content-table-row-alt: transparent;
 
     /*
-      A code block prints on white, which makes it the one place in the file where the palette has
-      to invert. The block's own ink goes back to black, its accent edge to a plain rule -- a 2pt
-      pastel red down the side of a listing is ink spent on nothing -- and the tokens to the GitHub
-      LIGHT set the screen palette used to be. That set was wrong on screen for exactly the reason
-      it is right here: it is a set of dark inks for a white ground, and every one of the eight
-      clears the 4.5:1 floor against paper (4.82:1 -- 12.81:1).
+      A code block prints on white, which makes it the one place the palette has to invert: its ink
+      back to black, its accent edge to a plain rule, and the tokens to the GitHub LIGHT set -- a set
+      of dark inks meant for a white ground, every one of which clears 4.5:1 against paper.
     */
     --content-code-block-ink: #000;
     --content-code-edge: var(--content-rule);
@@ -2934,9 +2383,8 @@
     --content-code-addition: #1a7f37;
     --content-code-deletion: #cf222e;
     /*
-      The diff washes go, rather than printing as pale tints under coloured text: composited on
-      paper they drop the token that sits on them to 4.33:1 / 4.40:1, just under the floor, and the
-      token's own colour is what says added or removed anyway.
+      The diff washes go: composited on paper they drop the token sitting on them to just under the
+      4.5:1 floor, and the token's own colour is what says added or removed anyway.
     */
     --content-code-addition-wash: transparent;
     --content-code-deletion-wash: transparent;
@@ -2953,13 +2401,10 @@
     blockquote,
     details,
     /*
-      A footnote item is ordinary prose, sometimes several sentences long, and had no guard at all --
-      unlike every other block-level piece of content in this list -- so it was the one thing left
-      free to split mid-sentence across a page boundary in an export. That is exactly the "footnotes
-      render incorrectly in exported PDF" shape reported upstream (discussion #6944): the note itself
-      is intact in the stored HTML (see `rendering.test.ts`/`markdown.test.js` for that half), the
-      fidelity loss is Chromium's print pagination cutting one list item in two with no rule telling
-      it not to.
+      A footnote item is ordinary prose, sometimes several sentences long, and was the one
+      block-level thing in this list free to split mid-sentence across a page boundary in an export --
+      the "footnotes render incorrectly in exported PDF" shape reported upstream (discussion #6944).
+      The note itself is intact in the stored HTML; the fidelity loss is Chromium's print pagination.
     */
     .footnote-item {
       /* -> A block split across a page break is unreadable in both halves */
@@ -2983,13 +2428,13 @@
 }
 
 /*
-  Hand-converted @at-root escapes (OpenProject #3252). The four rules below used to sit inline in
-  the TABLES section above, just under `.table-scroll`, as `@at-root body
-  .table-scroll::-webkit-scrollbar-*` -- see that section's own comment for why `body` leads each
-  selector and why plain nesting can't reach it (this whole file sits inside `.page-contents { ... }`,
-  so an ordinary nested rule would put `body` AFTER `.page-contents` instead of first). Native CSS
-  nesting has no `@at-root`; these stay flat, top-level rules instead, `body` written first exactly
-  as `@at-root` used to compile it.
+  The `.table-scroll` scrollbar colours, flat and top-level rather than nested up in the TABLES
+  section with everything else they belong to. This whole file sits inside `.page-contents { ... }`,
+  so an ordinary nested rule would compile `body` AFTER `.page-contents` and require a `<body>`
+  descendant of the article column, which does not exist -- and native CSS nesting has no `@at-root`
+  to escape with. The leading `body` also keeps each at a strictly higher specificity than the
+  aesthetic-scoped global scrollbar rule it overrides, which would otherwise tie and fall back to
+  source order between two different stylesheets.
 */
 body .table-scroll::-webkit-scrollbar-track {
   background: var(--content-table-scrollbar-track);

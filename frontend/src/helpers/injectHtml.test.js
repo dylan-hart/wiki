@@ -1,8 +1,7 @@
 // @vitest-environment-options {"settings":{"enableJavaScriptEvaluation":true,"suppressInsecureJavaScriptEnvironmentWarning":true}}
 //
-// Off by default in happy-dom (`DefaultBrowserSettings.enableJavaScriptEvaluation === false`):
-// this suite is exactly the one place in the frontend that needs a <script> injected into the DOM
-// to actually run, so it opts back in rather than flipping the setting for every test in the repo.
+// Script evaluation is off by default in happy-dom; this suite needs an injected <script> to really
+// run, so it opts back in here rather than flipping the setting for every test in the repo.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { applyInjectBody, applyInjectHead } from './injectHtml.js'

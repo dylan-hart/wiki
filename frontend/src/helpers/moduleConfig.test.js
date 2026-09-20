@@ -2,11 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { buildConfigEditor, buildConfigPayload } from './moduleConfig'
 
-/**
- * `buildConfigEditor()`/`buildConfigPayload()`, extracted (task #556) out of what had been two
- * identical copies in `AdminStorage.vue` and `AdminSearch.vue` -- see `ModuleConfigForm.vue` for the
- * rendering half of the same extraction.
- */
 describe('buildConfigEditor', () => {
   it('fills each declared prop with its stored value, falling back to the prop default', () => {
     const config = buildConfigEditor(
@@ -19,7 +14,6 @@ describe('buildConfigEditor', () => {
 
     expect(config.apiKey.value).toBe('stored-key')
     expect(config.retries.value).toBe(3)
-    // -> The rest of the prop declaration rides along unchanged
     expect(config.apiKey.title).toBe('API Key')
   })
 

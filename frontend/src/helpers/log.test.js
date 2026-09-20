@@ -10,9 +10,8 @@ import { useFlagsStore } from '@/stores/flags'
 import { log, LOG_SCOPES } from './log.js'
 
 /*
-  This suite is the one place in `frontend/src` that reads the console rather than writing to it: the
-  helper's whole contract IS what reaches `console.warn`/`.error`/`.debug` and when, so a spy on each
-  is the subject, not a workaround.
+  The helper's whole contract IS what reaches `console.warn`/`.error`/`.debug` and when, so a spy on
+  each is the subject here, not a workaround.
 */
 let warnSpy
 let errorSpy
@@ -44,8 +43,6 @@ describe('log: prefix format', () => {
 
     log.warn('page', 'could not load the page', err)
 
-    // -> The object itself, not `err.message` and not `String(err)` -- an interpolated message is a
-    //    flat line with no stack behind it
     expect(warnSpy.mock.calls[0][1]).toBe(err)
   })
 
@@ -96,9 +93,8 @@ describe('log: the scope list', () => {
 
 describe('log: gating', () => {
   it('speaks warn and debug in development with no flag set at all', () => {
-    // -> `import.meta.env.DEV` is true under Vitest, which is what lets the suites that count
-    //    `console.warn` calls (stores/common.test.js, pages/Graph.keywordSearch.test.js) keep
-    //    asserting against the console rather than the helper
+    // -> `import.meta.env.DEV` is true under Vitest, which is what lets other suites keep asserting
+    //    against the console rather than against this helper
     expect(import.meta.env.DEV).toBe(true)
     expect(useFlagsStore().experimental).toBe(false)
 
@@ -151,12 +147,6 @@ describe('log: resolving the flag safely', () => {
 
   it('reads the flag without instantiating the flags store, so a store that logs cannot recurse', () => {
     vi.stubEnv('DEV', false)
-    /*
-      `stores/flags.js` is one of the swept files -- it logs through this helper. Were the gate to
-      resolve the flag by calling `useFlagsStore()`, that would be a module cycle AND an unbounded
-      `shouldSpeak()` -> store setup -> `log.warn` -> `shouldSpeak()` loop. Reading pinia's state tree
-      directly closes both: the store is never created on this path.
-    */
     const pinia = getActivePinia()
     expect(pinia.state.value.flags).toBeUndefined()
 
