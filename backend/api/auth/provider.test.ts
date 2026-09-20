@@ -29,6 +29,8 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
   let loginCalls: any[]
   let profileCalls: any[]
   let loginResult: Record<string, any>
+  let profileOverride: Record<string, any> = {}
+  let loginError: Error | null = null
 
   function freshFlow(overrides: Record<string, any> = {}) {
     return {
@@ -47,6 +49,8 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     loginCalls = []
     profileCalls = []
     loginResult = { authenticated: true, nextAction: 'redirect', redirect: '/welcome' }
+    profileOverride = {}
+    loginError = null
   })
 
   before(async () => {
@@ -58,6 +62,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
       config: { security: { authRateLimitEnabled: false } },
       models: {
         flags: { authDebug: () => {} },
+        auditLog: { record: async () => {} },
         authentication: {
           getStrategyById: async (id: string) =>
             id === STRATEGY_ID
@@ -69,6 +74,9 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
         login: {
           loginWithProvider: async (args: any) => {
             loginCalls.push(args)
+            if (loginError) {
+              throw loginError
+            }
             return loginResult
           }
         }
@@ -78,7 +86,12 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
         strategies: {
           [STRATEGY_ID]: {
             module: 'saml',
-            profile: async () => ({ id: 'ext-1', email: 'ada@example.com', name: 'Ada Lovelace' }),
+            profile: async () => ({
+              id: 'ext-1',
+              email: 'ada@example.com',
+              name: 'Ada Lovelace',
+              ...profileOverride
+            }),
             authorizationUrl: async () => 'https://idp.example.com/authorize?x=1'
           },
           [CAS_STRATEGY_ID]: {
@@ -124,6 +137,59 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     assert.equal(loginCalls.length, 1)
     assert.equal(loginCalls[0].profile.email, 'ada@example.com')
     assert.equal(loginCalls[0].siteId, 'site-1')
+  })
+
+  describe('retaining the provider ID token', () => {
+    function callback() {
+      return app.inject({
+        method: 'POST',
+        url: `/auth/${STRATEGY_ID}/callback`,
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: new URLSearchParams({ SAMLResponse: 'r', RelayState: 'abc123' }).toString()
+      })
+    }
+
+    test('a completed login with an ID token leaves the strategy id and token on the session', async () => {
+      session = { authFlow: freshFlow() }
+      profileOverride = { idToken: 'header.payload.sig' }
+
+      const res = await callback()
+
+      assert.equal(res.statusCode, 302)
+      assert.deepEqual(session.idpSession, {
+        strategyId: STRATEGY_ID,
+        idToken: 'header.payload.sig'
+      })
+    })
+
+    test('a login whose profile carries no ID token stores none', async () => {
+      session = { authFlow: freshFlow() }
+
+      await callback()
+
+      assert.equal(session.idpSession, undefined)
+    })
+
+    test('a login stopped short of a session (2FA, password change) stores none', async () => {
+      session = { authFlow: freshFlow() }
+      profileOverride = { idToken: 'header.payload.sig' }
+      loginResult = { nextAction: 'provideTfa', continuationToken: 't', redirect: '/' }
+
+      await callback()
+
+      assert.equal(session.idpSession, undefined)
+    })
+
+    test('a failed login stores none', async () => {
+      session = { authFlow: freshFlow() }
+      profileOverride = { idToken: 'header.payload.sig' }
+      loginError = new Error('ERR_LOGIN_FAILED')
+
+      const res = await callback()
+
+      assert.match(res.headers.location as string, /^\/login\?error=ERR_LOGIN_FAILED/)
+      assert.equal(session.idpSession, undefined)
+    })
   })
 
   test('a RelayState that does not match the session flow is refused, login not attempted', async () => {

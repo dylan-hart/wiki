@@ -82,6 +82,10 @@ declare module 'fastify' {
       /** An ISO instant, so that a stale flow can be refused. */
       startedAt: string
     }
+    idpSession?: {
+      strategyId: string
+      idToken: string
+    }
     /**
      * The WebAuthn challenge a passkey ceremony is waiting on. It lives on the session because a
      * login challenge belongs to nobody yet: a passkey identifies the account it signs for, so the

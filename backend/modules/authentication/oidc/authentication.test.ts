@@ -1,4 +1,4 @@
-import { describe, test } from 'node:test'
+import { describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -92,6 +92,52 @@ describe('OidcAuthentication#authorizationUrl', () => {
  * Every branded OIDC preset delegates its claim mapping here, so these cases cover them too — a
  * preset's own test only has to prove its config reaches this class unmodified.
  */
+describe('OidcAuthentication#profile', () => {
+  const conf = {
+    clientId: 'abc',
+    clientSecret: 'xyz',
+    issuer: 'https://issuer.example',
+    useDiscovery: false,
+    authorizationURL: 'https://issuer.example/authorize',
+    tokenURL: 'https://issuer.example/token',
+    jwksURL: 'https://issuer.example/jwks'
+  }
+  const callback = {
+    currentUrl: 'https://wiki.example/_api/auth/s1/callback?code=c&state=s',
+    state: 's',
+    nonce: 'n',
+    codeVerifier: 'v',
+    redirectUri: 'https://wiki.example/_api/auth/s1/callback'
+  }
+
+  function withTokens(tokens: Record<string, any>) {
+    const auth = new OidcAuthentication('s1', conf)
+    mock.method(auth as any, 'exchangeCode', async () => ({
+      access_token: 'access',
+      claims: () => ({ sub: 'user-1', email: 'ada@example.com', name: 'Ada' }),
+      ...tokens
+    }))
+    return auth
+  }
+
+  test('returns the ID token the code exchange produced as idToken', async () => {
+    const profile = await withTokens({ id_token: 'header.payload.sig' }).profile(callback)
+    assert.equal(profile.idToken, 'header.payload.sig')
+    assert.equal(profile.id, 'user-1')
+    assert.equal(profile.email, 'ada@example.com')
+  })
+
+  test('leaves idToken off the profile when the exchange returned none', async () => {
+    const profile = await withTokens({}).profile(callback)
+    assert.equal('idToken' in profile, false)
+  })
+
+  test('leaves idToken off the profile when the ID token is not a non-empty string', async () => {
+    const profile = await withTokens({ id_token: '' }).profile(callback)
+    assert.equal('idToken' in profile, false)
+  })
+})
+
 describe('mapOidcProfile', () => {
   const conf = { emailClaim: 'email', displayNameClaim: 'name' }
 
@@ -303,6 +349,11 @@ describe('mapOidcProfile', () => {
       picture: '   '
     })
     assert.equal('picture' in profile, false)
+  })
+
+  test('never sets idToken: the mapper reads claims only', () => {
+    const profile = mapOidcProfile({}, 'sub-1', { email: 'a@example.com', id_token: 'x' })
+    assert.equal('idToken' in profile, false)
   })
 
   test('a non-string picture claim value is ignored rather than coerced into a URL', () => {

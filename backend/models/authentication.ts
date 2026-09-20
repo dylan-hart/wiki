@@ -105,6 +105,7 @@ export interface ProviderProfile {
   groups?: string[]
   /** Absent means the provider did not say — never fabricate one. */
   picture?: string
+  idToken?: string
 }
 
 /**
