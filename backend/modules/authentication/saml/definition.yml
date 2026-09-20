@@ -49,6 +49,14 @@ props:
     sensitive: true
     default: ''
     order: 5
+  signingCert:
+    type: String
+    title: Service Provider Certificate
+    hint: (optional) The public certificate matching the Service Provider Private Key above, PEM-encoded. Published in this wiki's SP metadata for identity providers that require signed AuthnRequests. Paste more than one, separated by a `|`, during a certificate rotation.
+    icon: secure
+    multiline: true
+    default: ''
+    order: 6
   decryptionPvk:
     type: String
     title: Assertion Decryption Key
@@ -57,7 +65,15 @@ props:
     multiline: true
     sensitive: true
     default: ''
-    order: 6
+    order: 7
+  decryptionCert:
+    type: String
+    title: Assertion Decryption Certificate
+    hint: (optional) The public certificate matching the Assertion Decryption Key above, PEM-encoded. Published in this wiki's SP metadata for identity providers that encrypt assertions.
+    icon: secure
+    multiline: true
+    default: ''
+    order: 8
   signatureAlgorithm:
     type: String
     title: Signature Algorithm
@@ -68,7 +84,7 @@ props:
       - sha256|SHA-256
       - sha512|SHA-512
     default: 'sha256'
-    order: 7
+    order: 9
   digestAlgorithm:
     type: String
     title: Digest Algorithm
@@ -79,42 +95,42 @@ props:
       - sha256|SHA-256
       - sha512|SHA-512
     default: 'sha256'
-    order: 8
+    order: 10
   identifierFormat:
     type: String
     title: NameID Format
     hint: (optional) The `NameID` format requested of the identity provider, e.g. `urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress`. Left empty, none is requested.
     icon: tabler:tag
     default: ''
-    order: 9
+    order: 11
   wantAssertionsSigned:
     type: Boolean
     title: Require Signed Assertions
     hint: Refuse a response whose assertion is not itself signed, even if the response envelope is.
     icon: tabler:certificate
     default: true
-    order: 10
+    order: 12
   acceptedClockSkewMs:
     type: Number
     title: Accepted Clock Skew (ms)
     hint: How far apart this server's and the identity provider's clocks may be before an assertion just inside its validity window is refused anyway. `-1` disables the check entirely — not recommended.
     icon: tabler:clock
     default: 0
-    order: 11
+    order: 13
   disableRequestedAuthnContext:
     type: Boolean
     title: Disable Requested Authn Context
     hint: Omit the `RequestedAuthnContext` element from the AuthnRequest entirely, rather than requesting the context below.
     icon: tabler:certificate
     default: false
-    order: 12
+    order: 14
   authnContext:
     type: String
     title: Authn Context
     hint: (optional) One or more authentication context class references to request, comma-separated. Defaults to password authentication when left empty.
     icon: tabler:certificate
     default: ''
-    order: 13
+    order: 15
     if:
       - { key: 'disableRequestedAuthnContext', eq: false }
   racComparison:
@@ -128,7 +144,7 @@ props:
       - maximum|Maximum
       - better|Better
     default: 'exact'
-    order: 14
+    order: 16
     if:
       - { key: 'disableRequestedAuthnContext', eq: false }
   forceAuthn:
@@ -137,28 +153,28 @@ props:
     hint: Require the identity provider to prompt for credentials again, even if the person already has a session there.
     icon: tabler:certificate
     default: false
-    order: 15
+    order: 17
   passive:
     type: Boolean
     title: Passive
     hint: Ask the identity provider not to interact with the user at all — it may only silently succeed or fail. Rarely wanted on an interactive login button.
     icon: tabler:info-circle
     default: false
-    order: 16
+    order: 18
   providerName:
     type: String
     title: Provider Name
     hint: (optional) A human-readable name for this wiki, shown to the person by some identity providers during sign-in.
     icon: tabler:tag
     default: ''
-    order: 17
+    order: 19
   skipRequestCompression:
     type: Boolean
     title: Skip Request Compression
     hint: Send the AuthnRequest uncompressed. Some identity providers are strict about this; most accept the default DEFLATE-compressed form.
     icon: tabler:adjustments-horizontal
     default: false
-    order: 18
+    order: 20
   authnRequestBinding:
     type: String
     title: Authn Request Binding
@@ -168,49 +184,49 @@ props:
       - HTTP-POST|HTTP-POST
       - HTTP-Redirect|HTTP-Redirect
     default: 'HTTP-POST'
-    order: 19
+    order: 21
   mappingUID:
     type: String
     title: Unique ID Claim Mapping
     hint: The claim (attribute URI or name) holding the user's unique identifier. Falls back to the assertion's `NameID` when left empty.
     icon: tabler:fingerprint
     default: ''
-    order: 20
+    order: 22
   mappingEmail:
     type: String
     title: Email Claim Mapping
     hint: The claim holding the user's email address. Falls back to the assertion's `NameID` when left empty.
     icon: tabler:mail
     default: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress'
-    order: 21
+    order: 23
   mappingDisplayName:
     type: String
     title: Display Name Claim Mapping
     hint: The claim holding the user's display name.
     icon: tabler:user
     default: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'
-    order: 22
+    order: 24
   mappingPicture:
     type: String
     title: Picture Claim Mapping
     hint: (optional) The claim holding a URL to the user's avatar/picture. Leave empty to not sync an avatar from this identity provider. A manually-uploaded avatar is never overwritten.
     icon: tabler:photo
     default: ''
-    order: 23
+    order: 25
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all).
     icon: tabler:users
     default: false
-    order: 24
+    order: 26
   mappingGroups:
     type: String
     title: Groups Claim Mapping
     hint: The claim holding the user's group memberships. A SAML claim with several values is repeated as several `AttributeValue` elements, not comma-joined.
     icon: tabler:users
     default: 'http://schemas.xmlsoap.org/claims/Group'
-    order: 25
+    order: 27
     if:
       - { key: 'mapGroups', eq: true }
 refs:
@@ -219,3 +235,8 @@ refs:
     hint: Register this as the ACS URL (sometimes called the reply URL or single sign-on URL) at the identity provider.
     icon: tabler:arrow-back
     value: '{host}/_api/auth/{id}/callback'
+  metadataUrl:
+    title: Service Provider Metadata URL
+    hint: Identity provider administrators can import this URL to register this wiki without typing the values above by hand.
+    icon: internet
+    value: '{host}/_api/auth/{id}/metadata'

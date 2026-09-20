@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { inflateRawSync } from 'node:zlib'
 import { after, before, test } from 'node:test'
+import { XMLParser, XMLValidator } from 'fast-xml-parser'
 import SamlAuthentication from './authentication.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 // -> A deep import into `@node-saml/node-saml`'s compiled output, not the package's public entry
@@ -665,4 +666,114 @@ test('profile: with no configured audience, an assertion for a different audienc
     }),
     /[Aa]udience/
   )
+})
+
+const PRIVATE_KEY_MARKER = 'PRIVATE KEY'
+
+function pemBody(pem: string): string {
+  return pem
+    .replace(/-----[A-Z ]+-----/g, '')
+    .replace(/\s+/g, '')
+    .trim()
+}
+
+function parseMetadata(xml: string) {
+  assert.equal(XMLValidator.validate(xml), true, 'metadata is well-formed XML')
+  const parsed = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@' }).parse(xml)
+  const sp = parsed.EntityDescriptor.SPSSODescriptor
+  const keyDescriptors: any[] = [sp.KeyDescriptor ?? []].flat(Infinity)
+  return { entity: parsed.EntityDescriptor, sp, keyDescriptors }
+}
+
+test('metadata: is well-formed XML carrying the issuer as entityID and the redirect URI as the ACS Location', () => {
+  const auth = new SamlAuthentication('strategy1', BASE_CONF)
+  const { entity, sp } = parseMetadata(auth.metadata(REDIRECT_URI))
+  assert.equal(entity['@entityID'], AUDIENCE)
+  assert.equal(sp.AssertionConsumerService['@Location'], REDIRECT_URI)
+})
+
+test('metadata: with no certificates configured, has neither a signing nor an encryption KeyDescriptor', () => {
+  const auth = new SamlAuthentication('strategy1', BASE_CONF)
+  const { keyDescriptors } = parseMetadata(auth.metadata(REDIRECT_URI))
+  assert.equal(keyDescriptors.length, 0)
+})
+
+test('metadata: with both key pairs configured, has a signing and an encryption KeyDescriptor holding the public certificates', () => {
+  const auth = new SamlAuthentication('strategy1', {
+    ...BASE_CONF,
+    privateKey: keyPem,
+    signingCert: certPem,
+    decryptionPvk: keyPem,
+    decryptionCert: certPem
+  })
+  const xml = auth.metadata(REDIRECT_URI)
+  const { sp, keyDescriptors } = parseMetadata(xml)
+  const uses = keyDescriptors.map((k) => k['@use']).sort()
+  assert.deepEqual(uses, ['encryption', 'signing'])
+  for (const k of keyDescriptors) {
+    assert.equal(pemBody(k['ds:KeyInfo']['ds:X509Data']['ds:X509Certificate']), pemBody(certPem))
+  }
+  assert.equal(`${sp['@AuthnRequestsSigned']}`, 'true')
+})
+
+test('metadata: publishes only the pair that is configured', () => {
+  const signingOnly = new SamlAuthentication('strategy1', {
+    ...BASE_CONF,
+    privateKey: keyPem,
+    signingCert: certPem
+  })
+  assert.deepEqual(
+    parseMetadata(signingOnly.metadata(REDIRECT_URI)).keyDescriptors.map((k) => k['@use']),
+    ['signing']
+  )
+  const encryptionOnly = new SamlAuthentication('strategy1', {
+    ...BASE_CONF,
+    decryptionPvk: keyPem,
+    decryptionCert: certPem
+  })
+  assert.deepEqual(
+    parseMetadata(encryptionOnly.metadata(REDIRECT_URI)).keyDescriptors.map((k) => k['@use']),
+    ['encryption']
+  )
+})
+
+test('metadata: a private key with no matching certificate publishes nothing for it rather than failing', () => {
+  const auth = new SamlAuthentication('strategy1', {
+    ...BASE_CONF,
+    privateKey: keyPem,
+    signingCert: '',
+    decryptionPvk: keyPem,
+    decryptionCert: ''
+  })
+  const { keyDescriptors, sp } = parseMetadata(auth.metadata(REDIRECT_URI))
+  assert.equal(keyDescriptors.length, 0)
+  assert.equal(`${sp['@AuthnRequestsSigned']}`, 'false')
+})
+
+test('metadata: a pipe-separated signingCert publishes one signing KeyDescriptor per certificate', () => {
+  const auth = new SamlAuthentication('strategy1', {
+    ...BASE_CONF,
+    privateKey: keyPem,
+    signingCert: `${certPem}|${certPem}`
+  })
+  const { keyDescriptors } = parseMetadata(auth.metadata(REDIRECT_URI))
+  assert.equal(keyDescriptors.filter((k) => k['@use'] === 'signing').length, 2)
+})
+
+test('metadata: never contains private key text', () => {
+  const auth = new SamlAuthentication('strategy1', {
+    ...BASE_CONF,
+    privateKey: keyPem,
+    signingCert: certPem,
+    decryptionPvk: keyPem,
+    decryptionCert: certPem
+  })
+  const xml = auth.metadata(REDIRECT_URI)
+  assert.ok(!xml.includes(PRIVATE_KEY_MARKER))
+  assert.ok(!xml.includes(pemBody(keyPem)))
+})
+
+test('metadata: a strategy missing its required fields is refused as misconfigured', () => {
+  const auth = new SamlAuthentication('strategy1', { ...BASE_CONF, issuer: '' })
+  assert.throws(() => auth.metadata(REDIRECT_URI), { message: 'ERR_STRATEGY_MISCONFIGURED' })
 })
