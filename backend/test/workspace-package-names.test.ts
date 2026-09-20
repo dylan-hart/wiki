@@ -1,25 +1,16 @@
 /**
- * Guards OpenProject #2658 (the rebrand sweep's package/config-metadata child).
- *
  * Two separate claims, and the second is the one that actually bites:
  *
  * 1. All four workspaces name themselves `cardinal-<workspace directory>`. Nothing resolves a
  *    workspace by name — there is no root package and no monorepo tooling — and every one of the
- *    four is `private: true` and never published — so this is
- *    branding, and the point of asserting it is that the scheme stays a scheme instead of drifting
- *    back into the ad-hoc set it replaced (`wiki-backend` / `wiki-ux` / `blocks` / `wiki-e2e`,
- *    where `wiki-ux` had additionally outlived the `ux/` directory it was named for).
+ *    four is `private: true` and never published, so this is branding, asserted only to keep the
+ *    scheme a scheme.
  *
  * 2. Each `package.json` name matches BOTH name fields in its own `package-lock.json` — the
  *    top-level one and `packages[""].name`. This is the half with real consequences: npm writes
  *    the package name into the lockfile, `npm ci` refuses to install when the two disagree, and
  *    nothing in the local unit-test loop reproduces that. A rename applied to the manifest alone
- *    is green everywhere until CI runs `npm ci` — in `quality.yml`, `build.yml`, `release.yml` and
- *    `dev/build/Dockerfile` all at once.
- *
- * This sits in `backend/test/` rather than beside a source file because its subjects are four
- * sibling workspaces' manifests, none of which live under `backend/` — the same reason
- * `lockfile-integrity.test.ts` and `dependabot-config.test.ts` are here.
+ *    is green everywhere until CI runs `npm ci`.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'

@@ -1,19 +1,11 @@
 /**
- * OpenProject #2736: no job in any workflow under `.github/workflows/` declared `timeout-minutes`,
- * so a wedged GitHub-hosted runner relied on GitHub Actions' own silent 360-minute (6 hour) default
- * job timeout to ever get killed -- discovered when PR #52's "Backend Tests" step sat stuck
- * `in_progress` for 65+ minutes with nothing to surface it early (observed baseline for that step:
- * ~6-8 minutes).
- *
- * This is a structural/self-consistency check against `.github/workflows/*.yml`, which has no
- * backend-workspace file of its own to sit next to -- same category as `verifyCi.test.ts` and
- * `release-workflow.test.ts`, which already parse these same four files.
+ * Without a `timeout-minutes` of its own, a wedged GitHub-hosted runner relies on GitHub Actions'
+ * silent 360-minute (6 hour) default job timeout to ever get killed.
  *
  * What this deliberately does NOT assert: that any particular number is "the right" timeout. A
- * wedged-runner floor is a judgment call sized with headroom over an observed/estimated baseline,
- * not a measured SLA -- the point here is only that every job HAS one, and that none of them is so
- * loose it stops meaning anything (silently drifting back toward the 360-minute default a job gets
- * when the key is simply omitted).
+ * wedged-runner floor is a judgment call sized with headroom over an observed baseline, not a
+ * measured SLA -- the point here is only that every job HAS one, and that none of them is so loose
+ * it stops meaning anything (silently drifting back toward that 360-minute default).
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -31,8 +23,7 @@ const WORKFLOW_FILES = [
 ]
 
 // GitHub Actions' own silent default for a job with no timeout-minutes at all. Anything at or
-// above this defeats the point of declaring one -- it would still let a wedged runner run out the
-// same 6-hour clock this check exists to catch.
+// above this defeats the point of declaring one.
 const GITHUB_DEFAULT_JOB_TIMEOUT_MINUTES = 360
 
 type Workflow = { jobs: Record<string, { 'timeout-minutes'?: unknown; uses?: string }> }
@@ -46,9 +37,8 @@ describe('every workflow job declares a sane timeout-minutes (OpenProject #2736)
     const doc = loadWorkflow(relPath)
 
     for (const [jobId, job] of Object.entries(doc.jobs)) {
-      // A job that only `uses:` another workflow (quality.yml, called from build.yml) has no
-      // steps of its own to run long -- the timeout lives on the called workflow's own job(s)
-      // instead, asserted by this same test when quality.yml is its own turn through the loop.
+      // A job that only `uses:` another workflow has no steps of its own to run long -- the timeout
+      // lives on the called workflow's own job(s), asserted when that file's turn comes.
       if (typeof job.uses === 'string') continue
 
       test(`${relPath} → ${jobId} declares timeout-minutes`, () => {

@@ -1,17 +1,7 @@
-// Regression test for docs/migration/migration-runbook.md (Feature 421 task 751). Lives here rather
-// than next to the doc because npm run test's '**/*.test.ts' glob only resolves inside this
-// workspace.
-//
-// Trimmed by OpenProject #2690 (`docs/testing-audit/backend.md`'s `test/migration-runbook-doc` row):
-// the runbook's prose (which cutover steps it covers, its stated rollback rationale) is deleted —
-// nothing gates a stale runbook but the next operator who follows it, and that failure is loud, not
-// silent. What survives is the one genuine cross-file drift check: the CLI flags the runbook tells an
-// operator to run are real flags this branch's source-args.ts/cli.ts/verify-cli.ts define, not
-// invented or since-removed ones. Nothing else cross-checks the doc against the flags —
-// `migration/cli.test.ts` covers what the flags *do*, not whether the runbook still names them
-// correctly.
-//
-// No database or network access needed at test time: every input is read as plain text/source.
+// Covers docs/migration/migration-runbook.md. Lives here rather than beside the doc because npm run
+// test's '**/*.test.ts' glob only resolves inside this workspace. The one drift nothing else
+// catches: whether the flags the runbook tells an operator to run still exist. `migration/cli.test.ts`
+// covers what the flags do, not whether the runbook names them correctly.
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -54,9 +44,8 @@ describe('docs/migration/migration-runbook.md', () => {
       assert.ok(cliSrc.includes(flag), `fixture assumption broken: cli.ts lacks ${flag}`)
       assert.ok(doc.includes(flag), `expected runbook to mention ${flag}`)
     }
-    // Re-run/idempotency support (--update-existing) was deliberately dropped once the destination
-    // was guaranteed to always start empty (see importers/users-groups.ts's own doc comment) — the
-    // runbook must not describe a flag the CLI no longer accepts.
+    // The destination always starts empty, so there is no `--update-existing` to re-run with, and
+    // the runbook must not describe a flag the CLI does not accept.
     assert.ok(
       !cliSrc.includes('--update-existing'),
       'fixture assumption broken: cli.ts has grown --update-existing back'

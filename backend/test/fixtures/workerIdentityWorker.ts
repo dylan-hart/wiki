@@ -2,17 +2,11 @@ import { threadId, workerData } from 'node:worker_threads'
 import { workerInstanceId } from '../../helpers/bootSummary.ts'
 
 /**
- * Fixture for `core/schedulerWorkerIdentity.test.ts`'s worker-identity suite (OpenProject #2671).
- *
- * `worker.ts` itself cannot be imported by a test — it boots a whole minimal `CARDINAL`, reads config
- * off disk and constructs its own async handler at import time — so this is the same three lines it
- * uses to settle its `INSTANCE_ID`, run in a real thread. What it proves is the half
- * `helpers/bootSummary.test.ts` cannot: that piscina's `workerData` option actually reaches the
- * worker thread's `node:worker_threads` module, which is the transport the parent instance id
- * travels on.
- *
- * It answers with its own derived id and reads the id at module scope, exactly as `worker.ts` does,
- * so a regression that only settles the id once a job arrives would still show up here.
+ * `worker.ts` cannot be imported by a test — it boots a minimal `CARDINAL`, reads config off disk
+ * and builds its handler at import time — so this repeats the three lines it uses to settle its
+ * `INSTANCE_ID`, in a real thread: proof that piscina's `workerData` really does reach the thread's
+ * `node:worker_threads` module. The read is at module scope, as `worker.ts` does it, so a
+ * regression that only settles the id once a job arrives still shows up here.
  */
 const INSTANCE_ID = workerInstanceId(
   (workerData as { parentInstanceId?: unknown } | null)?.parentInstanceId,

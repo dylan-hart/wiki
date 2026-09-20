@@ -1,12 +1,10 @@
 /**
- * OpenProject #3439: every workflow's postgres service container used a bare `--health-cmd
- * pg_isready`. With no `-U`, pg_isready probes as the container's OS user (`root`), so Postgres
- * logged `FATAL: role "root" does not exist` on every probe -- a line in every run's container log
- * that already misdirected the diagnosis of #3424. The service's POSTGRES_USER is the default
+ * With no `-U`, `pg_isready` probes as the container's OS user (`root`), so Postgres logs
+ * `FATAL: role "root" does not exist` on every probe -- a line in every run's container log that
+ * reads like a real failure and misdirects a diagnosis. The service's POSTGRES_USER is the default
  * `postgres`, so the probe has to say so.
  *
- * Structural check against `.github/workflows/*.yml`, same category as `workflowTimeouts.test.ts`:
- * it asserts the option is present, not that Postgres reports healthy (that is CI's own job).
+ * This asserts the option is present, not that Postgres reports healthy (that is CI's own job).
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -26,7 +24,6 @@ const WORKFLOW_FILES = [
 type Service = { image?: string; options?: string }
 type Workflow = { jobs: Record<string, { services?: Record<string, Service> }> }
 
-/** Extract the value of `--health-cmd`, honoring a single- or double-quoted argument. */
 function healthCmdOf(options: string): string | null {
   const match = /--health-cmd(?:=|\s+)(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(options)
   return match ? (match[1] ?? match[2] ?? match[3] ?? null) : null

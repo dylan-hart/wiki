@@ -12,14 +12,10 @@ import {
 import { permissionPreHandler } from '../core/http/authHooks.ts'
 
 /**
- * The harness's own regression coverage.
- *
- * The one thing worth proving directly rather than through a converted suite: `buildTestApp` runs the
- * REAL `core/http/authHooks.ts#permissionPreHandler`, not an approximation of it — including the
- * `req.apiKey` branch that all six hand-written replicas this harness replaces had dropped.
+ * `buildTestApp` runs the REAL `core/http/authHooks.ts#permissionPreHandler` rather than an
+ * approximation — `req.apiKey` branch included, which is the part a hand-written replica drops.
  */
 
-/** A trivial route pair: one permission-gated, one open, one that throws a sensible error. */
 const probeRoutes: FastifyPluginAsync = async (app) => {
   app.get('/guarded', { config: { permissions: ['manage:groups'] } }, async () => ({ ok: true }))
   app.get('/open', async () => ({ ok: true }))
@@ -83,7 +79,6 @@ describe('buildTestApp / permissions', () => {
     })
     assert.equal(viaSession.statusCode, 200)
 
-    // -> Both spellings the suites had grown: a comma-separated list and a JSON array.
     const viaCsv = await app.inject({
       method: 'GET',
       url: '/guarded',
@@ -97,7 +92,6 @@ describe('buildTestApp / permissions', () => {
     })
     assert.equal(viaJson.statusCode, 403)
 
-    // -> The branch every hand-written replica dropped: a verified API key stands in for a session.
     const viaApiKey = await app.inject({
       method: 'GET',
       url: '/guarded',

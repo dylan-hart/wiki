@@ -1,26 +1,7 @@
 /**
- * DB-backed test fixture: setup/teardown for model tests that need a real Postgres connection.
- *
- * Gated on `DATABASE_URL` exactly like the rare DB-backed `helpers/` test. A suite that needs this
- * calls `hasTestDatabase()` in its own gate (skip the whole
- * `describe` when false) and `setupTestDb()` / `teardownTestDb()` in `before()`/`after()`.
- *
- * `setupTestDb()` creates a fresh, randomly-named schema and migrates into it, so a run never inherits
- * rows a previous run — or a concurrently-running suite's own setup — left behind; `teardownTestDb()`
- * drops it again. The fixture is disposable by construction rather than by remembering to clean up
- * afterwards, which is what makes it safe to point at either a throwaway container or a schema carved
- * out of a long-lived instance (e.g. `.devcontainer/docker-compose.yml`'s postgres). It then seeds
- * exactly the fixture `models/pages.ts`/`groups.ts`/`users.ts` tests need to exist before anything
- * else runs: one site, one user, one group — matching how a fresh Cardinal.js installation seeds itself
- * (`core/config.ts#initDbValues`), just without the rest of that sequence (no default admin/guest
- * accounts, no settings rows) that these tests have no use for. `seedTreeEntry()` seeds additional
- * `tree` rows (pages/folders/assets) on top of that base fixture, for suites — `models/navigation.ts`
- * is the first — that need entries in the tree beyond what `setupTestDb()` provides.
- *
- * Installs a minimal `CARDINAL` global alongside it — `db`, a quiet `logger`, `sites`, `config`, `models`,
- * plus the `cache`/`events`/`scheduler` stubs from `./mocks.ts`. Safe to do once per test file: `node --test`
- * isolates each matched file into its own process by default, so this global does not leak into any
- * other file's run.
+ * DB-backed test fixture. Gate the whole `describe` on `hasTestDatabase()` — an unset `DATABASE_URL`
+ * must report as skipped, not fail — and call `setupTestDb()`/`teardownTestDb()` from
+ * `before()`/`after()`.
  */
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -43,7 +24,7 @@ import type { WikiDb } from '../core/db.ts'
 import type { NavigationMode } from '../models/navigation.ts'
 import { installTestWiki } from './mocks.ts'
 
-/** Same list `core/db.ts` installs before migrating — some migration's SQL depends on each. */
+/** Mirrors `core/db.ts` — migration SQL depends on each, so keep the two lists in step. */
 const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm', 'pgcrypto']
 
 export interface TestFixtures {
@@ -51,37 +32,27 @@ export interface TestFixtures {
   siteId: string
   userId: string
   groupId: string
-  /** A seeded classification level's id — every `pages.classification` insert needs one (the column
-   *  is `NOT NULL`), and this is the fixture's "most open" default, matching what a fresh install's
-   *  own seeding (`models/classificationLevels.ts#init`) would call `Public`. */
+  /** The most open seeded level — `pages.classification` is `NOT NULL`, so every insert needs one. */
   classificationId: string
-  /** The schema this run's tables live in — a worker thread standing up its own `CARDINAL` needs this to
-   *  point its own pool's `search_path` at the same tables rather than an empty `public`. */
+  /** A worker thread standing up its own `CARDINAL` points its pool's `search_path` here, or it
+   *  sees an empty `public` instead of this run's tables. */
   schema: string
 }
 
-/** Whether a DB-backed suite may run at all. Gate every such `describe` on this. */
 export function hasTestDatabase(): boolean {
   return Boolean(process.env.DATABASE_URL)
 }
 
 let pool: Pool | null = null
 let currentSchema: string | null = null
-/** The restore handle `installTestWiki()` hands back, held so `teardownTestDb()` can put back
- *  whatever `globalThis.CARDINAL` was before rather than leaving this fixture's `CARDINAL` in place for
- *  whatever runs next in the same file (see #1021). */
+/** Held so teardown puts back whatever `globalThis.CARDINAL` was: `node --test` isolates files, not
+ *  suites within a file, so this fixture's stub would otherwise outlive it. */
 let wikiHandle: { restore(): void } | null = null
 
 /**
- * Connect, create a fresh schema, migrate, install `CARDINAL`, and seed one site/user/group.
- *
- * Each call gets its own randomly-named schema rather than reusing a fixed one (`public`): `node
- * --test` runs matched files concurrently by default, and every DB-backed suite in this repo points
- * at the same `DATABASE_URL` — a shared schema would mean two suites' `DROP SCHEMA` / `CREATE SCHEMA`
- * racing each other. A schema of its own is what makes a suite's "no leaking state between runs"
- * true even when another suite is mid-run against the same physical database at the same time.
- *
- * @throws If `DATABASE_URL` is unset — callers must check `hasTestDatabase()` first and skip instead.
+ * Each call gets its own randomly-named schema rather than reusing a fixed one: `node --test` runs
+ * matched files concurrently and every DB-backed suite points at the same `DATABASE_URL`, so a
+ * shared schema would mean two suites' `CREATE SCHEMA`/`DROP SCHEMA` racing each other.
  */
 export async function setupTestDb(): Promise<TestFixtures> {
   if (!process.env.DATABASE_URL) {
@@ -91,11 +62,9 @@ export async function setupTestDb(): Promise<TestFixtures> {
   }
 
   const schema = `test_${randomBytes(6).toString('hex')}`
-  // -> `public` stays on the search path behind the test schema: a postgres extension is a
-  //    per-database object, not a per-schema one, so whichever suite happens to create `ltree` first
-  //    owns it — every other suite's schema still needs to see it, or its migration fails on a type
-  //    it does not consider itself to have. Installing extensions into `public` explicitly (below)
-  //    and keeping it visible here is what lets every concurrently-running suite share them safely.
+  // -> `public` stays on the search path behind the test schema: an extension is a per-database
+  //    object, so whichever suite creates `ltree` first owns it and every other schema still has to
+  //    see it or its migration fails on a type it does not consider itself to have.
   pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     options: `-c search_path=${schema},public`
@@ -142,15 +111,9 @@ export async function setupTestDb(): Promise<TestFixtures> {
     })
     .returning({ id: groupsTable.id })
 
-  // -> The pre-squash migration history (task 2) used to seed these three fixed-id rows directly in
-  //    the `ALTER TABLE` migration that added `pages.classification` — that statement existed only to
-  //    backfill an already-existing install's pages when the NOT NULL column was added, so squashing
-  //    the whole history into one genesis `CREATE TABLE` (which needs no backfill) dropped it: a fresh
-  //    schema has no seed data of its own. A real boot re-seeds them anyway
-  //    (`core/config.ts#initDbValues()` -> `models.classificationLevels.init()`, idempotent via
-  //    `onConflictDoNothing`) using the exact fixed ids `base.yml`'s `systemIds` declares, so this
-  //    fixture seeds the same three rows at the same ids directly, matching what a real boot ends up
-  //    with — the same "Public" a fresh install gets.
+  // -> Migrating a fresh schema seeds no rows, so these stand in for what a real boot's
+  //    `models.classificationLevels.init()` would insert — same three levels at the same fixed ids
+  //    `base.yml`'s `systemIds` declares.
   await db.insert(classificationLevelsTable).values([
     { id: '30000000-0000-4000-8000-000000000001', name: 'Public', sortOrder: 0 },
     { id: '30000000-0000-4000-8000-000000000002', name: 'Internal', sortOrder: 1 },
@@ -161,14 +124,12 @@ export async function setupTestDb(): Promise<TestFixtures> {
     .from(classificationLevelsTable)
     .orderBy(asc(classificationLevelsTable.sortOrder))
     .limit(1)
-  // -> The floor invariant (#1080) reads the in-memory cache, not the db directly — see
-  //    `models/classificationLevels.ts`. Without this, a model test calling `createPage()`/`movePage()`
-  //    would see an empty level list and fail `defaultLevel()`'s guard.
+  // -> `defaultLevel()` reads the in-memory cache, not the db, so without this a `createPage()` or
+  //    `movePage()` sees an empty level list and fails its guard.
   await models.classificationLevels.reloadCache()
 
-  // -> `config` reads back as `unknown` (no `$type<>` pin on the jsonb column -- see `SiteRow`'s own
-  //    comment in `db/schema.ts`); the cast matches the one `models/sites.ts#reloadCache()` applies
-  //    to the same shape in production.
+  // -> `config` reads back as `unknown` (no `$type<>` pin on the jsonb column); the cast matches the
+  //    one `models/sites.ts#reloadCache()` applies to the same shape in production.
   CARDINAL.sites[site!.id] = site! as SiteRow
 
   return {
@@ -182,20 +143,11 @@ export async function setupTestDb(): Promise<TestFixtures> {
 }
 
 /**
- * Create `REQUIRED_EXTENSIONS` in `public`, serialized against every other suite doing the same.
- *
- * A session-scoped advisory lock, not just `IF NOT EXISTS`: postgres's own existence check for
- * `CREATE EXTENSION IF NOT EXISTS` is not atomic against another session doing the same thing at the
- * same moment, and two suites' setup racing to create `ltree` for the first time hits a duplicate-key
- * error on `pg_extension` despite the guard. The lock and its release have to run on the exact same
- * physical connection — a `Pool` query checks a connection out and back in per call, so a lock taken
- * through `db.execute()` could be released from a different one — hence the dedicated client here
- * rather than reusing the pool passed to `drizzle()`.
- *
- * Exported (not just used by `setupTestDb()`) so a suite that cannot use `setupTestDb()` wholesale —
- * one that needs its own hand-rolled minimal fixture with no pre-seeded rows — can still get the same
- * race-free extension setup, against the caller's own `Pool`, rather than duplicating this lock dance.
- * `core/config.test.ts`'s `ensureSeeded()` suite is one such case.
+ * An advisory lock, not just `IF NOT EXISTS`: postgres's existence check for `CREATE EXTENSION IF
+ * NOT EXISTS` is not atomic against another session doing the same thing, so two suites racing to
+ * create `ltree` for the first time hit a duplicate-key error on `pg_extension` despite the guard.
+ * Lock and unlock must run on the same physical connection — a `Pool` query checks one out and back
+ * in per call — hence the dedicated client rather than `db.execute()`.
  */
 export async function createExtensionsSerialized(pool: Pool): Promise<void> {
   const client = await pool.connect()
@@ -215,12 +167,8 @@ export async function createExtensionsSerialized(pool: Pool): Promise<void> {
 
 export interface SeedTreeEntryInput {
   siteId: string
-  /**
-   * Full path, e.g. `'docs/child'` — split into `folderPath`/`fileName` the same way
-   * `models/tree.ts` encodes one: lowercased, `/` become `.` (`helpers/common.ts#encodeTreePath`).
-   * Ignored when `folderPath`/`fileName` are given directly, which is the escape hatch for a path
-   * `encodeTreePath` can't express.
-   */
+  /** Full path, e.g. `'docs/child'`. Pass `folderPath`/`fileName` instead for anything
+   *  `encodeTreePath` can't express. */
   path?: string
   folderPath?: string
   fileName?: string
@@ -234,10 +182,8 @@ export interface SeedTreeEntryInput {
 }
 
 /**
- * Seed one `tree` row directly — a page, folder, or asset entry — for tests exercising
- * `models/navigation.ts` or anything else keyed off the tree, without going through
- * `models/pages.ts#createPage`'s full write path (which also touches `pages`/`pageHistory` this
- * fixture has no use for).
+ * Bypasses `models/pages.ts#createPage`'s write path, which also touches `pages`/`pageHistory` a
+ * tree-only test has no use for.
  */
 export async function seedTreeEntry(db: WikiDb, input: SeedTreeEntryInput) {
   const encoded = input.path !== undefined ? encodeTreePath(input.path) : undefined
@@ -265,12 +211,8 @@ export async function seedTreeEntry(db: WikiDb, input: SeedTreeEntryInput) {
 }
 
 /**
- * Drops this suite's schema and closes the pool.
- *
- * Call from `after()`: dropping the schema is what keeps a long-running shared instance (the
- * `.devcontainer` postgres, or a container reused across several local test invocations) from
- * accumulating one abandoned schema per run, and closing the pool is what lets the process exit
- * instead of hanging on an open socket.
+ * Call from `after()`: the drop keeps a long-lived shared instance from accumulating one abandoned
+ * schema per run, and closing the pool is what lets the process exit instead of hanging on a socket.
  */
 export async function teardownTestDb(): Promise<void> {
   if (pool && currentSchema) {
@@ -293,12 +235,10 @@ export interface SeedLocaleInput {
 }
 
 /**
- * Seed one `locales` row directly — the `locales` table starts empty for a fresh `setupTestDb()`
- * schema, but `models/locales.ts#getLocales()` (and therefore `isReservedLocaleCode()`) reads
- * through it, so a suite exercising the reserved-locale-segment checks needs at least the codes it
- * asserts against actually installed. `code` is split on its first `-` into `language`/`region` the
- * same way `models/locales.ts#localeCode` composes one — enough for every fixture's purposes (`en`,
- * `fr`, `pt-BR`); pass `region`/`script` directly for anything more specific.
+ * The `locales` table starts empty on a fresh schema, but `models/locales.ts#getLocales()` (and so
+ * `isReservedLocaleCode()`) reads through it — a suite asserting on locale codes has to install
+ * them first. `code` is split on its first `-` into `language`/`region`; pass `region`/`script`
+ * directly for anything that split can't express.
  */
 export async function seedLocale(db: WikiDb, input: SeedLocaleInput) {
   const [language, region] = input.code.split('-')
@@ -318,30 +258,20 @@ export async function seedLocale(db: WikiDb, input: SeedLocaleInput) {
 }
 
 /**
- * The minimal `CARDINAL` global these tests need. Not the full boot sequence in `index.ts` — that also
- * starts the HTTP server, the scheduler's thread pool and the postgres LISTEN/NOTIFY subscription,
- * none of which model-layer logic touches, and any one of which is a reason a test could hang or
- * flake for a cause unrelated to the code under test.
- *
- * The shape itself is `test/mocks.ts#createWikiStub()`'s (TEST-F1) — this adds only the three members
- * a DB-backed run needs on top of it, and keeps the restore handle for `teardownTestDb()`.
+ * Deliberately not `index.ts`'s boot sequence: that also starts the HTTP server, the scheduler's
+ * thread pool and the postgres LISTEN/NOTIFY subscription, none of which model-layer logic touches
+ * and any one of which can hang or flake a test for a cause unrelated to the code under test.
  */
 function installDbTestWiki(db: WikiDb, models: typeof import('../models/index.ts').default): void {
   // -> Puppeteer is never installed in this test environment, so the real `ensureCanRender()` would
-  //    refuse every render-less `createPage()`/`updatePage()` call (OpenProject #1716) -- stubbed out
-  //    here, the same way `cache`/`events`/`scheduler` are, so a suite with no reason to care
-  //    about server-side rendering doesn't have to mock it just to call `createPage()` with plain
-  //    content. A suite that DOES care (`models/pages.test.ts`'s own describe block) re-wraps this
-  //    with `mock.method()`, which fully replaces this implementation rather than layering on it.
+  //    refuse every `createPage()`/`updatePage()` call. A suite that does care about rendering
+  //    re-wraps this with `mock.method()`.
   models.renderQueue.ensureCanRender = async () => {}
   wikiHandle = installTestWiki({
     db,
-    // -> `helpers/advisoryLock.ts#getLockPool()` lazily builds its dedicated lock pool from
-    //    `CARDINAL.dbManager.config` (a real boot populates this once `dbManager.init()` runs) --
-    //    a suite that exercises the real `withAdvisoryLock` (not the dependency-injected fakes
-    //    most task-level tests use) needs this present, or it crashes reading `.config` off
-    //    `undefined` (OpenProject #2347). Only `config.connectionString` is provided: nothing
-    //    under a DB-backed suite reaches `dbManager.pool`/`listenerPool`/etc. through this stub.
+    // -> `helpers/advisoryLock.ts#getLockPool()` builds its lock pool from `CARDINAL.dbManager.config`,
+    //    so a suite exercising the real `withAdvisoryLock` crashes reading `.config` off `undefined`
+    //    without this. Only `connectionString` — nothing DB-backed reaches the other members.
     dbManager: { config: { connectionString: process.env.DATABASE_URL } },
     models
   })

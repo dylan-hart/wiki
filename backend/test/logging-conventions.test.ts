@@ -1,26 +1,15 @@
 /**
- * The structural half of the logging conventions gate (OpenProject #2668, Phase 2 of Epic #2643;
- * spec: `docs/logging-reviews/2026-09-05-recommendations.md` §8.2).
- *
- * Three gates enforce the conventions between them, and they cover different things:
- *
- * - **The type checker** covers the scope vocabulary at a *scoped child*'s declaration
- *   (`CARDINAL.logger.scope('storage', …)` — `LogScope` is a union, so a typo is a compile error) and,
- *   once #2668 deleted the legacy `(msg, context?)` overload, the shape of every direct call too.
- * - **`no-console` in `backend/.oxlintrc.json`** covers the other direction: a line that never
- *   reached the logger at all.
- * - **This file** covers what neither can see — that a call site says the *right thing*: a scope
- *   from the vocabulary, a message an operator can read, and an error in `fields.error` rather than
- *   pasted over the message.
- *
- * Same shape as `api/routeTags.test.ts` / `api/responseErrors.test.ts`: a scan over the real source
- * tree, so a new call site is covered the moment it is written and there is no per-file list to keep
- * in step.
+ * The structural half of the logging conventions gate. The type checker covers the scope vocabulary
+ * and the call shape; `no-console` covers a line that never reached the logger at all; this file
+ * covers what neither can see — whether a call site says the *right thing*: a scope from the
+ * vocabulary, a message an operator can read, and an error in `fields.error` rather than pasted over
+ * the message. It scans the real source tree, so a new call site is covered the moment it is written
+ * and there is no per-file list to keep in step.
  *
  * **Escape hatch.** `// log-conventions: allow <reason>` on the line immediately above a call
- * exempts that one call. It exists because every rule below is a text heuristic over a language the
- * scanner does not parse — a genuinely correct line the heuristic refuses is annotated, never
- * answered by loosening the rule for everybody.
+ * exempts that one call. Every rule below is a text heuristic over a language the scanner does not
+ * parse, so a correct line the heuristic refuses is annotated rather than answered by loosening the
+ * rule for everybody.
  */
 import assert from 'node:assert/strict'
 import path from 'node:path'
@@ -33,35 +22,26 @@ import { listSourceFiles } from './sourceFiles.ts'
 const BACKEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
- * What the scan is NOT about.
- *
  * `test/` and `*.test.ts` log deliberately odd things to prove the renderer handles them;
- * `scripts/` and `db/migrations/` are one-off/generated code that runs outside a booted `CARDINAL`
- * (`scripts/` carries a file-level `no-console` disable for the same reason).
+ * `scripts/` and `db/migrations/` run outside a booted `CARDINAL` entirely.
  */
 const SKIP_DIRS = ['node_modules', 'compiled', 'test', 'scripts', 'migrations']
 
-/** Every level the logger implements, plus the two 2.x names that must never come back. */
 const LEVELS = ['error', 'warn', 'info', 'debug'] as const
 const RETIRED_LEVELS = ['verbose', 'silly'] as const
 
 /**
- * Acronyms allowed to open a message in capitals.
- *
- * A message is a lowercase sentence fragment, but `HTTP server failed to bind` is not the same
- * sentence as `http server failed to bind` — `http` there would read as the scope name repeated.
- * Closed list on purpose: a sixth acronym is a deliberate edit here, not a call site's own decision.
+ * A message is a lowercase fragment, but `HTTP server failed to bind` is not the same sentence as
+ * `http server failed to bind` — `http` there reads as the scope name repeated. Closed on purpose:
+ * another acronym is a deliberate edit here, not a call site's own decision.
  */
 const ALLOWED_LEADING_ACRONYMS = ['HTTP', 'HTTPS', 'SQL', 'DB', 'API', 'MCP', 'TLS', 'URL']
 
 /**
- * Message arguments that are an error and nothing else — the pre-Phase-2 call shape
- * (`CARDINAL.logger.error(err)`, and the `err.message` variant that at least kept the line readable).
- *
- * The audit's finding (§4.1) is that both throw away the situation: an operator gets
+ * A message argument that is an error and nothing else throws away the situation: an operator gets
  * `ENOENT: no such file or directory` with nothing saying what the instance was trying to do. The
- * fix is always the same — a message that names the operation, and the error in `fields.error`,
- * where the renderer puts it and its stack on the SAME record.
+ * fix is always a message naming the operation plus the error in `fields.error`, which is what puts
+ * both on the same record.
  */
 const ERROR_ONLY_MESSAGE = /^(err|error|e|ex)(\.message)?$/
 
@@ -70,11 +50,9 @@ const COMMENT = 1
 const STRING = 2
 
 /**
- * Characters after which a `/` opens a regular expression rather than dividing.
- *
- * Without this the scanner reads `/[\s"]/` in `core/logger.ts` as a division followed by an
- * unterminated string, and every logger call after it in that file disappears from the scan — a
- * silent hole, which is the one failure mode a gate must not have.
+ * Tokens after which a `/` opens a regular expression rather than dividing. Without this the scanner
+ * reads a regex like `/[\s"]/` as a division followed by an unterminated string, and every logger
+ * call after it in that file disappears from the scan — the one failure mode a gate must not have.
  */
 const REGEX_PRECEDERS = new Set([
   '',
@@ -114,13 +92,10 @@ const REGEX_PRECEDERS = new Set([
 ])
 
 /**
- * One byte per source character: is it code, a comment, or the inside of a string?
- *
- * Every rule below is a text match, and a text match over raw source finds the sample calls in doc
- * comments as readily as the real thing — `helpers/errorHandler.ts`'s own comment contains the
- * literal text `CARDINAL.logger.error(error)` while explaining why that shape was wrong, and would
- * otherwise fail the very rule it documents. Template literals re-enter code inside `${…}`, so an
- * interpolated call is still seen.
+ * One byte per source character: code, comment, or the inside of a string. Every rule below is a
+ * text match, and over raw source a text match finds the sample calls quoted in doc comments as
+ * readily as the real thing — so a comment explaining why a shape is wrong would fail the very rule
+ * it documents. Template literals re-enter code inside `${…}`, so an interpolated call is still seen.
  */
 function classifySource(src: string): Uint8Array {
   const mask = new Uint8Array(src.length)
@@ -271,7 +246,6 @@ interface LoggerCall {
   annotated: boolean
 }
 
-/** Which receivers this scan claims: the global logger, and anything named as a logger. */
 function isLoggerReceiver(receiver: string): boolean {
   if (receiver === 'CARDINAL.logger') {
     return true
@@ -281,11 +255,8 @@ function isLoggerReceiver(receiver: string): boolean {
 }
 
 /**
- * The argument list of a call, split at top level.
- *
- * Depth counting consults the mask, so a `)` inside a message string or a `,` inside a doc comment
- * in the middle of a multi-line call does not end an argument early — and multi-line calls are the
- * common case here (`core/db.ts:103`, `tasks/migrate.ts:84`, every call with a fields object).
+ * Depth counting consults the mask, so a `)` inside a message string or a `,` inside a comment
+ * mid-call does not end an argument early — and multi-line calls are the common case here.
  */
 function splitArguments(src: string, mask: Uint8Array, open: number): string[] | null {
   const args: string[] = []
@@ -316,19 +287,17 @@ function splitArguments(src: string, mask: Uint8Array, open: number): string[] |
 }
 
 /**
- * `<receiver>.<level>(` — the four real levels plus the two retired ones, so a `verbose` call is
- * *found* and then refused by name rather than quietly falling outside the scan.
+ * Matches the retired levels too, so a `verbose` call is *found* and then refused by name rather
+ * than quietly falling outside the scan.
  */
 const CALL_PATTERN = new RegExp(
   String.raw`\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\.(${[...LEVELS, ...RETIRED_LEVELS].join('|')})\s*\(`,
   'g'
 )
 
-/** Every logger call in one file, with the annotation state of the line above each. */
 function collectCalls(file: string, source?: string): LoggerCall[] {
-  // -> `source` is for this file's own coverage of the scanner: the escape hatch and the
-  //    receiver/argument rules are only trustworthy if they can be driven with a known input, and
-  //    writing a temp file to do that would make the scan's own tests depend on the filesystem.
+  // -> `source` lets this file's own tests drive the scanner with a known input, without a temp
+  //    file making them depend on the filesystem.
   const src = source ?? readFileSync(file, 'utf8')
   const mask = classifySource(src)
   const lineStarts: number[] = [0]
@@ -369,8 +338,8 @@ function collectCalls(file: string, source?: string): LoggerCall[] {
       continue
     }
     const lineIndex = lineOf(match.index)
-    // -> The annotation sits on the line above, so a wrapped call ("the call starts here") and a
-    //    one-liner are annotated the same way.
+    // -> The annotation sits above the line the call STARTS on, so a wrapped call and a one-liner
+    //    are annotated the same way.
     let above = lineIndex - 1
     while (above >= 0 && lines[above].trim() === '') {
       above -= 1
@@ -387,13 +356,12 @@ function collectCalls(file: string, source?: string): LoggerCall[] {
   return out
 }
 
-/** `'boot'` -> `boot`; anything that is not a single-quoted or double-quoted literal -> `null`. */
 function stringLiteralValue(text: string): string | null {
   const match = /^(['"])((?:[^\\]|\\.)*?)\1$/.exec(text)
   return match ? match[2] : null
 }
 
-/** The readable text of a message argument, or `null` when it is a variable this scan cannot read. */
+/** `null` when the argument is a variable this scan cannot read. */
 function messageText(text: string): string | null {
   const literal = stringLiteralValue(text)
   if (literal !== null) {
@@ -413,19 +381,11 @@ const ALL_CALLS = listSourceFiles(BACKEND_ROOT, {
   //    argument, which `collectCalls`' optional `source` parameter would swallow.
 }).flatMap((file) => collectCalls(file))
 
-/** The message argument, wherever it sits: second on a parent call, first on a scoped child's. */
 function messageArgument(call: LoggerCall): string | undefined {
   return call.receiver === 'CARDINAL.logger' ? call.args[1] : call.args[0]
 }
 
-/**
- * The four rules, as named functions rather than lambdas inside their tests.
- *
- * Each answers `null` for a call it is happy with, or the sentence the failure message shows. Named
- * so the fixture test at the bottom can drive every one of them against a known-bad source — three
- * of the four pass vacuously on a clean tree, and a rule that has never fired is a rule nobody has
- * checked.
- */
+/** Each rule answers `null` for a call it is happy with, or the sentence the failure shows. */
 function retiredLevelFailure(call: LoggerCall): string | null {
   return (RETIRED_LEVELS as readonly string[]).includes(call.level)
     ? `\`${call.level}\` is not a level this logger implements — use \`debug\``
@@ -453,9 +413,8 @@ function scopeFailure(call: LoggerCall): string | null {
 }
 
 function errorAsMessageFailure(call: LoggerCall): string | null {
-  // -> A one-argument parent call is the pre-scope shape entire: what looks like the scope slot is
-  //    holding what used to be the whole message. `scopeFailure` refuses it too, but only as "not a
-  //    string literal"; this says what to do about it.
+  // -> On a one-argument parent call the scope slot is holding the message. `scopeFailure` refuses
+  //    it too, but only as "not a string literal"; this says what to do about it.
   const message =
     messageArgument(call) ?? (call.receiver === 'CARDINAL.logger' ? call.args[0] : undefined)
   if (message === undefined) {
@@ -473,8 +432,7 @@ function messageShapeFailure(call: LoggerCall): string | null {
   }
   const text = messageText(argument)
   if (text === null) {
-    // -> A variable message (`CARDINAL.logger.info('migrate', note)`) is assembled elsewhere; the rules
-    //    still apply, this scan just cannot read it.
+    // -> A variable message is assembled elsewhere: the rules still apply, this scan cannot read it.
     return null
   }
   if (/\[ [A-Z]+ \]/.test(text)) {
@@ -494,7 +452,6 @@ function messageShapeFailure(call: LoggerCall): string | null {
   return null
 }
 
-/** `file:line  CARDINAL.logger.info(…)` — enough to jump straight to the offender. */
 function describeCall(call: LoggerCall): string {
   return `${call.file}:${call.line}  ${call.receiver}.${call.level}(${call.args.join(', ').slice(0, 90)})`
 }
@@ -522,20 +479,14 @@ function assertNoFailures(found: string[], remedy: string): void {
 }
 
 /**
- * OpenProject #2723: the four rules above only ever look at `CARDINAL.logger`/scoped-child receivers
- * (`isLoggerReceiver`) -- a bare status word passed straight to `console.<level>()` is invisible to
- * all of them, which is exactly how `core/config.ts`'s pre-logger boot window
- * (`console.info(styleText(['green', 'bold'], 'OK'))`) survived every gate this file polices. A
- * `console.*` call before `CARDINAL.logger` exists is a documented sink exception (`core/config.ts`
- * named explicitly) -- that exception covers *where* the line goes, not
- * the 2.x-style tag, which the conventions ban regardless of sink.
+ * The rules above only look at logger receivers, so a status word passed straight to
+ * `console.<level>()` in the pre-logger boot window is invisible to every one of them. Being a
+ * documented `console.*` sink exception covers *where* a line goes, not the 2.x-style tag, which is
+ * banned regardless of sink.
  *
- * Deliberately narrower than `messageShapeFailure`'s full battery: a `console.*` call is often
- * genuine human-facing CLI text (a script's `Usage: ...` line, an interactive tool's status prose)
- * that has no reason to read as a lowercase log fragment, so only the closed set of 2.x-style status
- * words is refused here, not the whole shape. The check runs on the raw argument text rather than
- * requiring the tag to be the direct argument, since the real shape wraps it in a styling call
- * (`styleText([...], 'OK')`).
+ * Deliberately narrower than `messageShapeFailure`: `console.*` is often genuine human-facing CLI
+ * text with no reason to read as a lowercase log fragment, so only these words are refused. The
+ * check runs on the raw argument text because the real shape wraps the tag in a styling call.
  */
 const STATUS_TAG_WORDS = ['OK', 'FAILED', 'SKIPPED', 'COMPLETED'] as const
 const STATUS_TAG_LITERAL = new RegExp(String.raw`(['"])(${STATUS_TAG_WORDS.join('|')})\1`)
@@ -547,7 +498,6 @@ interface ConsoleCall {
   args: string[]
 }
 
-/** Every `console.<level>(...)` call in one file -- not filtered by `isLoggerReceiver`. */
 function collectConsoleCalls(file: string, source?: string): ConsoleCall[] {
   const src = source ?? readFileSync(file, 'utf8')
   const mask = classifySource(src)
@@ -596,9 +546,8 @@ const ALL_CONSOLE_CALLS = listSourceFiles(BACKEND_ROOT, {
 
 describe('logging conventions (OpenProject #2668)', () => {
   test('the scan actually found the logger call sites it is meant to police', () => {
-    // -> A scanner that silently matches nothing passes every rule below. `backend/` had 339 direct
-    //    `CARDINAL.logger.*` calls when this was written, so a floor of 200 catches a regex or a mask
-    //    bug without turning the count itself into something to keep updated.
+    // -> A scanner that silently matches nothing passes every rule below. The floor is loose on
+    //    purpose: it catches a regex or mask bug without becoming a count to keep updated.
     assert.ok(
       ALL_CALLS.length >= 200,
       `expected the scan to find the backend's logger call sites; found only ${ALL_CALLS.length} — the scanner is broken, not the codebase`
@@ -610,8 +559,6 @@ describe('logging conventions (OpenProject #2668)', () => {
   })
 
   test('`verbose` and `silly` are gone and stay gone', () => {
-    // -> #2647 deleted both levels: 2.x had six, this logger has four, and a `verbose` call is a
-    //    method that does not exist rather than a line nobody reads.
     assertNoFailures(
       failures(retiredLevelFailure),
       'Levels are `error` / `warn` / `info` / `debug` (docs/logging-reviews/2026-09-05-recommendations.md §3).'
@@ -619,10 +566,8 @@ describe('logging conventions (OpenProject #2668)', () => {
   })
 
   test('every `CARDINAL.logger.<level>` call names a scope from LOG_SCOPES', () => {
-    // -> A scoped child gets this from the type checker (`LogScope` is a union at `.scope()`), but a
-    //    direct call's first argument is only checked here when the value is spelled inline — and
-    //    the vocabulary being CLOSED is the whole point: a new subsystem is a field on an existing
-    //    scope, not a 28th name (§2.3).
+    // -> A scoped child gets this from the type checker (`LogScope` is a union at `.scope()`); a
+    //    direct call's first argument is only checked here, and only when spelled inline.
     assertNoFailures(
       failures(scopeFailure),
       'The vocabulary is `backend/core/logScopes.ts`; extending it is a deliberate edit there, not a call site decision.'
@@ -630,9 +575,6 @@ describe('logging conventions (OpenProject #2668)', () => {
   })
 
   test('no call passes an error where the message belongs', () => {
-    // -> §4.1: `CARDINAL.logger.error(err)` renders `ENOENT: no such file or directory` and nothing about
-    //    what the instance was doing. The message names the operation; the error goes in
-    //    `fields.error`, which is what puts the situation and the stack on one record.
     assertNoFailures(
       failures(errorAsMessageFailure),
       'Pattern: `CARDINAL.logger.error(scope, "fetching locale metadata failed", { error: err })`.'
@@ -640,10 +582,8 @@ describe('logging conventions (OpenProject #2668)', () => {
   })
 
   test('messages are lowercase sentence fragments with no tag and no trailing period', () => {
-    // -> §4.2/§4.3: `[ OK ]`-style tags and `MODULE/SUBMODULE` prefixes were the 2.x way of saying
-    //    what a line was about; the scope field says it now, and a tag is one more thing to strip
-    //    before a line is greppable. A trailing period reads as prose in a column of fragments, and
-    //    `...` promised a follow-up line that a structured logger does not emit.
+    // -> The scope field says what a `[ OK ]`-style tag used to, and a tag is one more thing to
+    //    strip before a line is greppable. `...` promises a follow-up line nothing ever emits.
     assertNoFailures(
       failures(messageShapeFailure),
       'Annotate a genuine exception with `// log-conventions: allow <reason>` rather than widening the rule.'
@@ -651,9 +591,8 @@ describe('logging conventions (OpenProject #2668)', () => {
   })
 
   test('the escape hatch is used sparingly and always carries a reason', () => {
-    // -> An annotation with no reason is a silenced rule nobody can review. The cap is not a budget
-    //    to spend: it is there so a wave of annotations shows up as a failing test rather than as a
-    //    quiet erosion of the gate.
+    // -> The cap is not a budget to spend: it is there so a wave of annotations shows up as a
+    //    failing test rather than as a quiet erosion of the gate.
     const annotated = ALL_CALLS.filter((call) => call.annotated)
     assert.ok(
       annotated.length <= 12,
@@ -662,9 +601,8 @@ describe('logging conventions (OpenProject #2668)', () => {
   })
 
   test('the escape hatch exempts the call below it, and only that one', () => {
-    // -> #2672/#2674/#2676 were told to annotate rather than ask for a rule to be widened, so the
-    //    annotation has to actually work — including the "and only that one" half, or one exemption
-    //    would quietly cover a whole file.
+    // -> The "and only that one" half matters as much as the exemption itself: without it, one
+    //    annotation would quietly cover a whole file.
     const source = [
       "CARDINAL.logger.info('boot', 'Capitalised And Ends.')",
       '// log-conventions: allow a fixture proving the annotation is read',
@@ -688,9 +626,8 @@ describe('logging conventions (OpenProject #2668)', () => {
   })
 
   test('the scanner ignores calls that only appear in comments and strings', () => {
-    // -> Self-check for `classifySource`, the one part of this file whose failure mode is silence:
-    //    a mask bug either invents failures out of doc comments (`helpers/errorHandler.ts` quotes
-    //    the very shape the rules refuse) or hides real calls after a regex literal.
+    // -> `classifySource` is the part of this file whose failure mode is silence: a mask bug either
+    //    invents failures out of doc comments or hides real calls after a regex literal.
     const src = [
       '// CARDINAL.logger.error(err)',
       'const sample = \'CARDINAL.logger.info("nope")\'',
@@ -712,9 +649,6 @@ describe('logging conventions (OpenProject #2668)', () => {
   })
 
   test('the rules actually reject the shapes they name', () => {
-    // -> The rules above are only as good as their predicates, and every one of them passes
-    //    vacuously on a clean tree. These are the shapes the audit found, run through the same
-    //    helpers the scan uses.
     assert.equal(stringLiteralValue("'boot'"), 'boot')
     assert.equal(stringLiteralValue('scopeVariable'), null)
     assert.equal(
@@ -731,8 +665,8 @@ describe('logging conventions (OpenProject #2668)', () => {
 
   test('each rule fires on the shape it names, through the real scanner', () => {
     // -> Three of the four rules pass vacuously on a clean tree, so without this they prove nothing
-    //    about a call site written tomorrow. Every line below is a shape the audit actually found in
-    //    `backend/`, driven through `collectCalls` rather than through a hand-built `LoggerCall`.
+    //    about a call site written tomorrow. Driven through the real `collectCalls`, not a
+    //    hand-built `LoggerCall`, so the scanner is on trial here too.
     const failing = (source: string, rule: (call: LoggerCall) => string | null) =>
       collectCalls('fixture.ts', source).filter((call) => rule(call) !== null).length
 
@@ -765,7 +699,6 @@ describe('logging conventions (OpenProject #2668)', () => {
       failing("CARDINAL.logger.info('db', 'connected successfully.')", messageShapeFailure),
       1
     )
-    // -> The allow-list, and the interpolated first token, both of which real call sites use.
     assert.equal(
       failing("CARDINAL.logger.warn('http', 'HTTP server failed to bind')", messageShapeFailure),
       0
@@ -791,9 +724,8 @@ describe('logging conventions (OpenProject #2668)', () => {
   })
 
   test('the console-call scan actually catches the shape it is meant to police', () => {
-    // -> The exact shape `core/config.ts` used to carry: the tag is a nested argument to a styling
-    //    call, not the direct argument, which is why this checks the raw argument text rather than
-    //    requiring the message itself to be the bare literal.
+    // -> The tag arrives as a nested argument to a styling call, not the direct argument, which is
+    //    why the check reads raw argument text rather than requiring a bare literal.
     const calls = collectConsoleCalls(
       'fixture.ts',
       "console.info(styleText(['green', 'bold'], 'OK'))"

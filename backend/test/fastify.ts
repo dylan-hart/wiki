@@ -1,22 +1,11 @@
 /**
- * The shared Fastify harness for route-level backend tests (TEST-F2).
+ * The shared Fastify harness for route-level backend tests. Every piece it installs is the REAL
+ * production one — `apiErrorHandler`, `permissionPreHandler` (API-key branch included) and
+ * `registerAllSchemas` — so a suite exercises the app's own gate rather than a replica of it that
+ * can quietly drift.
  *
- * Before this existed, 66 test files each carried their own copy of the same preamble: a `fastify()`
- * boot, `@fastify/sensible`, a hand-written `setErrorHandler` that only APPROXIMATED `index.ts`'s
- * real one, a hand-picked list of `registerSchemas` imports, and — in six files — a re-implementation
- * of the route-permission `preHandler` that had all independently dropped the `req.apiKey` branch.
- * Everything here installs the REAL production piece instead:
- *
- * - `helpers/errorHandler.ts#apiErrorHandler` — the actual `/_api/` branch of `index.ts`'s handler.
- * - `core/http/authHooks.ts#permissionPreHandler` — the actual route-permission gate, API-key branch
- *   included, so a test app answers 401/403 exactly as the running server does.
- * - `api/index.ts#registerAllSchemas` — the actual shared-schema set, so a suite can never `$ref` a
- *   schema the real app registers but its own hand-picked list forgot.
- *
- * What stays the harness's own concern is session seeding: there is no production
- * `testSessionOnRequest` to borrow, because the running server gets a session from a signed cookie.
- * `session: 'header'` below is the one convention that replaces the four incompatible ones the suites
- * had grown (`x-test-session`, `x-test-permissions`, `x-test-api-key`, `x-simulate-api-key`).
+ * Session seeding is the exception, and stays the harness's own concern: a running server takes its
+ * session from a signed cookie, so there is no production piece to borrow.
  */
 import fastify from 'fastify'
 import fastifySensible from '@fastify/sensible'
@@ -31,57 +20,42 @@ import { apiKeySitePinHook } from '../helpers/apiKeySite.ts'
 import { apiErrorHandler } from '../helpers/errorHandler.ts'
 import { installTestWiki } from './mocks.ts'
 
-/** One route plugin, optionally mounted under its own prefix. */
 export type TestRoutes =
   | FastifyPluginAsync
   | { plugin: FastifyPluginAsync; prefix?: string }
   | Array<FastifyPluginAsync | { plugin: FastifyPluginAsync; prefix?: string }>
 
-/** A shared-schema registrar — `registerSchemas` / `registerParamsSchemas` from `api/schemas/*.ts`. */
 export type SchemaRegistrar = (app: FastifyInstance) => void | Promise<void>
 
 export interface BuildTestAppOptions {
-  /** The route plugin(s) under test. */
   routes: TestRoutes
   /**
-   * A `CARDINAL` global to install for the lifetime of the app, deep-merged over `createWikiStub()`'s
-   * defaults. Omit to leave whatever global is already in place alone — which is what a DB-backed
-   * suite wants, since `setupTestDb()` has already installed one.
+   * Deep-merged over `createWikiStub()`'s defaults. Omit to leave whatever global is already in
+   * place alone — which is what a DB-backed suite wants, `setupTestDb()` having installed one.
    */
   wiki?: Record<string, any>
-  /**
-   * `'all'` registers every shared schema the real app does (`registerAllSchemas`); an array
-   * registers exactly the named registrars, in order. Defaults to `'all'`.
-   */
+  /** Defaults to `'all'`; an array registers exactly the named registrars, in order. */
   schemas?: 'all' | SchemaRegistrar[]
   /**
-   * How `req.session` (and `req.apiKey`) are seeded:
-   * - `false` / omitted — not at all.
-   * - `'header'` — from the request's own test headers, so one app can serve many identities.
-   * - an object — that exact session on every request.
-   * - a function — its return value as the session, `undefined` to leave the request anonymous.
+   * How `req.session` (and `req.apiKey`) are seeded: `'header'` reads the request's own test
+   * headers, so one app can serve many identities; an object is that exact session on every
+   * request; a function's return value is the session, `undefined` leaving the request anonymous.
    */
   session?: false | 'header' | Record<string, any> | ((req: FastifyRequest) => any)
-  /** Install the real `permissionPreHandler`, so `config.permissions` is actually enforced. */
+  /** Enforce `config.permissions` with the real `permissionPreHandler`. */
   permissions?: boolean
   /** Install the real `apiKeySitePinHook`, so a site-pinned key is refused off its own site. */
   apiKeySitePin?: boolean
-  /** Build the instance with `createHttpApp()`'s ajv customization (the 5 hand-registered formats). */
   ajv?: boolean
-  /** Register `@fastify/swagger` with `hideUntagged: true`, for a suite asserting on the OpenAPI doc. */
   swagger?: boolean
-  /** Mount `routes` under this prefix (the real app's own `/sites`, `/users`, … registration prefix). */
   prefix?: string
 }
 
 /**
- * The test headers `session: 'header'` understands.
- *
- * `x-test-session` carries a whole session object as JSON; `x-test-permissions` is the shorthand for
- * the common case of "an authenticated caller holding exactly these", accepted as either a JSON array
- * or a comma-separated list because both spellings were already in use across the suites this
- * replaces. `x-test-api-key` seeds `req.apiKey` instead, which is what makes the API-key branch of
- * the real `permissionPreHandler` reachable at all.
+ * `x-test-session` carries a whole session as JSON; `x-test-permissions` is the shorthand for an
+ * authenticated caller holding exactly these, as a JSON array or a comma-separated list;
+ * `x-test-api-key` seeds `req.apiKey`, which is what makes the real `permissionPreHandler`'s
+ * API-key branch reachable at all.
  */
 export const TEST_SESSION_HEADER = 'x-test-session'
 export const TEST_PERMISSIONS_HEADER = 'x-test-permissions'
@@ -95,7 +69,6 @@ function parsePermissions(raw: string): string[] {
   return trimmed.split(',').filter(Boolean)
 }
 
-/** Build the `{ session, apiKey }` a request's own test headers ask for. */
 function identityFromHeaders(req: FastifyRequest): { session?: any; apiKey?: any } {
   const out: { session?: any; apiKey?: any } = {}
   const sessionHeader = req.headers[TEST_SESSION_HEADER]
@@ -116,18 +89,13 @@ function identityFromHeaders(req: FastifyRequest): { session?: any; apiKey?: any
   return out
 }
 
-/** The ajv customization `createHttpApp()` builds its own instance with — same 5 formats. */
 function ajvOptions() {
   return { onCreate: registerAjvFormats }
 }
 
-/** Restore handles keyed by the app that owns them, so `closeTestApp` can put `CARDINAL` back. */
 const wikiHandles = new WeakMap<FastifyInstance, { restore(): void }>()
 
 /**
- * Boot a Fastify instance carrying the real error handler, the real shared schemas and — when asked —
- * the real auth hooks, with `routes` registered on it and `ready()` already awaited.
- *
  * Always pair with `closeTestApp(app)` in `after()`: that is what closes the instance AND restores
  * whatever `CARDINAL` global was in place before.
  */
@@ -158,10 +126,9 @@ export async function buildTestApp(opts: BuildTestAppOptions): Promise<FastifyIn
     }
   }
 
-  // -> Decorated rather than assigned onto a bare request, exactly as `index.ts` does: Fastify
-  //    optimises a decorated property into the request's shape, and `permissionPreHandler` reads
-  //    both of these by name. `session` is typed non-nullable by `@fastify/session`'s augmentation
-  //    (a real boot always has one), so the null default needs the cast.
+  // -> Decorated rather than assigned onto a bare request, as `index.ts` does: Fastify optimises a
+  //    decorated property into the request's shape. `session` is typed non-nullable by
+  //    `@fastify/session`'s augmentation, so the null default needs the cast.
   app.decorateRequest('session', null as any)
   app.decorateRequest('apiKey', null)
 
@@ -210,7 +177,6 @@ export async function buildTestApp(opts: BuildTestAppOptions): Promise<FastifyIn
   return app
 }
 
-/** Close the instance and restore whatever `CARDINAL` global `buildTestApp` displaced. */
 export async function closeTestApp(app: FastifyInstance | undefined): Promise<void> {
   if (!app) {
     return
@@ -220,12 +186,6 @@ export async function closeTestApp(app: FastifyInstance | undefined): Promise<vo
   wikiHandles.delete(app)
 }
 
-/**
- * A bare `FastifyRequest` stand-in for a hook or helper tested directly, with no server around it.
- *
- * Defaults describe an anonymous `GET /_api/pages` from a fixed IP — enough for every rate-limit,
- * site-resolution and permission helper that reads `method`/`url`/`ip`/`session`/`apiKey`.
- */
 export function makeRequestStub(overrides: Partial<FastifyRequest> | Record<string, any> = {}) {
   return {
     method: 'GET',
@@ -238,11 +198,6 @@ export function makeRequestStub(overrides: Partial<FastifyRequest> | Record<stri
   } as unknown as FastifyRequest
 }
 
-/**
- * A `FastifyReply` stand-in recording every terminal call a hook may make, chainable like the real
- * one. `calls.forbidden` / `calls.notFound` hold the MESSAGES (`string[]`), which is the accessor
- * shape `helpers/common.test.ts` asserts against.
- */
 export function makeReplyStub() {
   const calls: {
     forbidden: string[]
@@ -274,10 +229,6 @@ export function makeReplyStub() {
   return { reply: reply as FastifyReply, calls }
 }
 
-/**
- * A `done` callback recording whether — and with what — a callback-style hook completed. `called` is
- * what proves a hook fell through rather than answering the request itself.
- */
 export function makeDoneStub() {
   const done = mock.fn((_err?: Error) => {})
   return {

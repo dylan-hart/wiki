@@ -4,15 +4,6 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/**
- * Guards work package #2432 — the built-in `markdown-it-attrs` classes this fork actually styles
- * ({.links-list}, the three table-* classes, the three align-* classes) used to exist only as SCSS
- * comments, with zero documentation anywhere an author would look. This asserts the reference doc
- * exists, names every one of those classes, and stays cross-checked against the actual class
- * selectors in `frontend/src/css/_page-contents.css` so the doc can't silently drift from the
- * styling it describes.
- */
-
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.join(HERE, '../..')
 const DOC_PATH = path.join(REPO_ROOT, 'docs', 'markdown-syntax.md')
