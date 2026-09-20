@@ -274,10 +274,11 @@ import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref, wat
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-import { dialog } from '@/composables/dialog'
+import { dialog, openDialogs } from '@/composables/dialog'
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
 import { usePageSaveFlow } from '@/composables/pageSaveFlow'
+import { useSaveShortcut } from '@/composables/saveShortcut'
 import { usePathDisplay } from '@/composables/pathDisplay'
 import { useMinWidth } from '@/composables/screen'
 
@@ -450,6 +451,27 @@ const { discardChanges, saveChanges } = usePageSaveFlow({
   isSuggesting,
   processPendingAssets
 })
+
+function saveFromShortcut() {
+  if (!editorStore.isActive || openDialogs.length > 0) {
+    return
+  }
+  if (isSuggesting.value) {
+    if (editorStore.hasPendingChanges) {
+      submitSuggestion()
+    }
+    return
+  }
+  if (editorStore.mode === 'create') {
+    createPage()
+    return
+  }
+  if (editorStore.hasPendingChanges) {
+    saveChanges(false)
+  }
+}
+
+useSaveShortcut(saveFromShortcut)
 
 async function createPage() {
   if (pageStore.path === 'home') {

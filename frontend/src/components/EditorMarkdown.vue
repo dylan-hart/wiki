@@ -475,6 +475,7 @@ import { useAesthetic } from '@/composables/aesthetic'
 import { dialog } from '@/composables/dialog'
 import { useMarkdownCollab } from '@/composables/markdownCollab'
 import { notify } from '@/composables/notify'
+import { requestSave } from '@/composables/saveShortcut'
 import {
   EDITOR_MIN_WIDTH_PX,
   PREVIEW_HIDE_THRESHOLD_PX,
@@ -1506,7 +1507,10 @@ onMounted(async () => {
     precondition: '',
     // TODO: this only swallows the browser's own save dialog -- Ctrl+S never reaches `pageSave()`,
     //       and nothing else in the app binds it. Wire it up or drop the action.
-    run(ed) {}
+    run() {
+      debouncedContentChange?.flush()
+      requestSave()
+    }
   })
 
   debouncedContentChange = debounce((ev) => {
