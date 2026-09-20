@@ -1,11 +1,7 @@
 /**
- * The recursive source-file walker every structural scanner needs (TEST-F15).
- *
- * Originally extracted because two now-deleted structural doc-drift tests carried identical copies
- * of it, differing only in one skipped suffix — a scanner that walks the tree slightly differently
- * from its neighbour is exactly how two "the same scan" tests end up disagreeing about what the repo
- * contains. Kept for its current callers: `test/logging-conventions.test.ts` and
- * `helpers/httpCache.test.ts`.
+ * One recursive source-file walker for every structural scanner: a scanner that walks the tree
+ * slightly differently from its neighbour is exactly how two "the same scan" tests end up
+ * disagreeing about what the repo contains.
  */
 import { readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
@@ -19,7 +15,6 @@ export interface ListSourceFilesOptions {
   skipDirs?: string[]
 }
 
-/** Machine output and dependencies — never something to scan as this repo's own source. */
 const DEFAULT_SKIP_DIRS = ['node_modules', 'compiled']
 
 /** Every file under `root`, recursively, as absolute paths in directory-entry order. */

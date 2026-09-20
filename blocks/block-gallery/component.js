@@ -7,13 +7,6 @@ import { renderError } from '../shared/render.js'
 import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
-/*
-  Tabler `chevron-left` / `chevron-right` / `x`, pasted verbatim from
-  frontend/src/assets/icons.generated.js (OpenProject #2875 -- blocks.md's ground rules: "Material
-  path SVGs (..., chevrons) -> Tabler"). Declared locally rather than added to
-  blocks/shared/icons.js#MDI_PATHS -- that file is Task #2876's (shared fragments theming), not this
-  one's, to touch.
-*/
 const PREVIOUS_SVG = svg`<svg viewBox="0 0 24 24" aria-hidden="true" data-icon="tabler:chevron-left">
   <path fill="none" stroke="currentColor" stroke-width="1.5" d="m15 6l-6 6l6 6" />
 </svg>`
@@ -24,24 +17,18 @@ const CLOSE_SVG = svg`<svg viewBox="0 0 24 24" aria-hidden="true" data-icon="tab
   <path fill="none" stroke="currentColor" stroke-width="1.5" d="M18 6L6 18M6 6l12 12" />
 </svg>`
 
-/** Where an uploaded file is served from, and so what a bare path in the body is taken to mean. */
 const FILES_PREFIX = '/_files/'
 
 /**
- * An address that already says where it points: a full URL, a protocol-relative one, a data URI —
- * or one of the wiki's own `/_` routes, `/_files/` among them.
+ * An address that already says where it points — including the wiki's own `/_` routes, `/_files/`
+ * among them.
  */
 const ABSOLUTE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/_)/i
 
 /**
- * The address a line of the body points at.
- *
- * Anything that names its own location is left exactly as written. Everything else is a path into the
- * file manager, which is where the images on a wiki page live — so `photos/summer.jpg` and
- * `/photos/summer.jpg` both mean `/_files/photos/summer.jpg`, and an author can paste the path the
- * file manager shows without having to remember the prefix. Wiki routes are spared that: they all
- * start with `/_`, and `/_files/` is one of them, so a path already carrying the prefix is not given
- * a second one.
+ * Everything else is a path into the file manager, so an author can paste the path the file manager
+ * shows without remembering the prefix. `/_` routes are spared that — `/_files/` is one of them, so
+ * a path already carrying the prefix is not given a second one.
  */
 function resolveSource(value) {
   const address = value.trim()
@@ -51,10 +38,7 @@ function resolveSource(value) {
   return FILES_PREFIX + address.replace(/^\/+/, '')
 }
 
-/**
- * What to call an image, for a screen reader and for a browser drawing the alt text of one that did
- * not load. The file name is all a list of addresses carries.
- */
+/** Alt text for an image: the file name is all a list of addresses carries. */
 function labelFor(address) {
   const path = address.split(/[?#]/)[0]
   const name = path.split('/').filter(Boolean).at(-1) ?? address
@@ -66,22 +50,10 @@ function labelFor(address) {
   }
 }
 
-/**
- * Block Gallery
- *
- * A grid of thumbnails from a list of addresses, and a lightbox over the whole site to look at any
- * one of them full size. The list is the block's body, one address per line:
- *
- *     ::block-gallery
- *     https://example.com/photo-1.jpg
- *     /photos/photo-2.jpg
- *     ::
- */
 export class BlockGalleryElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * must stay a plain literal.
    */
   static definition = {
     block: 'gallery',
@@ -301,34 +273,17 @@ https://example.com/photo-2.jpg`
   static get properties() {
     return {
       /**
-       * Smallest a thumbnail may be, in pixels
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `thumbnailsize` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `thumbnail-size` — writes `thumbnail-size` into
-       *    the page.
-       * @type {number}
+       * -> Explicit `attribute`: Lit's default lowercases the property name without inserting a
+       *    dash, so it would listen for `thumbnailsize` while the block picker writes the literal
+       *    `static definition.props[].name` into the page.
        */
       thumbnailSize: { type: Number, attribute: 'thumbnail-size' },
 
-      /**
-       * How a thumbnail fills its tile: `cover` or `contain`
-       * @type {string}
-       */
       fit: { type: String },
 
-      /**
-       * Whether a tile takes the shape of its image rather than being held square
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `unlockaspectratio` while the block picker — which writes
-       *    the literal `static definition.props[].name`, `unlock-aspect-ratio` — writes
-       *    `unlock-aspect-ratio` into the page.
-       * @type {boolean}
-       */
+      /** -> Explicit `attribute`, for the same reason as `thumbnailSize`. */
       unlockAspectRatio: { ...boolean, attribute: 'unlock-aspect-ratio' },
 
-      // Internal Properties
       _images: { state: true }
     }
   }
@@ -343,7 +298,7 @@ https://example.com/photo-2.jpg`
     this._darkMode = new DarkMode(this)
     this._lightbox = new LightboxController(this, {
       count: () => this._images.length,
-      // -> Preloading is this block's own concern, not the shared primitive's; -1 is the close case
+      // -> index -1 is the close case
       onIndexChange: (index) => {
         if (index >= 0) {
           this._preloadNeighbours(index)
@@ -353,16 +308,10 @@ https://example.com/photo-2.jpg`
   }
 
   /**
-   * Read the list of images out of the block's body.
-   *
-   * The body has been through markdown by the time it gets here, which for a list of addresses leaves
-   * the addresses themselves: linkified or not, the text of the paragraph is what was typed. It is
-   * split on whitespace rather than on line endings alone, so a body whose lines markdown joined into
-   * one still reads as the list it was written as.
-   *
-   * Images markdown drew for itself are collected too, since `![](photo.jpg)` is the other way an
-   * author writes an image and arrives here as an `img` carrying no text at all. A fenced code block
-   * wins outright, as everywhere else: it is the way to hand a block a body markdown has not touched.
+   * Markdown has already run over the body, so the split is on whitespace rather than line endings:
+   * lines markdown joined into one paragraph still read as the list they were written as. Images
+   * markdown drew for itself are collected too, since `![](photo.jpg)` arrives as an `img` carrying
+   * no text at all — but not out of a fence, which markdown has not touched.
    */
   firstUpdated() {
     const { source, fenced } = readFencedSource(this)
@@ -372,12 +321,10 @@ https://example.com/photo-2.jpg`
         found.push(resolveSource(image.getAttribute('src') ?? ''))
       }
     }
-    // -> An address written once and drawn twice -- as a link and as the image it points at -- is one
-    //    photo, and the order they were written in is the order the gallery shows them in
+    // -> An address markdown both linkified and drew as an image arrives twice, and is one photo
     this._images = [...new Set(found)]
   }
 
-  /** Keep the neighbours of what is showing ready, so a chevron is a step rather than a load. */
   _preloadNeighbours(index) {
     for (const step of [-1, 1]) {
       const image = new Image()
@@ -386,11 +333,9 @@ https://example.com/photo-2.jpg`
   }
 
   /**
-   * The lightbox, empty until it is opened.
-   *
-   * The dialog itself is always in the shadow tree, since it is what `showModal` is called on, but
-   * nothing inside it is built for a lightbox nobody has opened — an image the reader may never ask
-   * for is a photo fetched per gallery on every page it appears on.
+   * The `<dialog>` is always in the shadow tree, since it is what `showModal` is called on, but its
+   * contents wait until it opens: otherwise every gallery on the page fetches a full-size photo the
+   * reader may never ask for.
    */
   _renderLightbox() {
     const address = this._images[this._lightbox.index]

@@ -1,35 +1,24 @@
 /**
- * Regression coverage for OpenProject #3256 ("PDF export fails with net::ERR_INVALID_ARGUMENT even
- * with allowPuppeteerNoSandbox:true (puppeteer 25.4.0 vs. system chromium 152 in
- * dev/build/Dockerfile)").
- *
  * `dev/build/Dockerfile` installs whichever `chromium` build Debian bookworm's apt repo currently
  * serves (`PUPPETEER_SKIP_DOWNLOAD` + `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium` — see
  * `helpers/puppeteer.ts`), rather than the Chrome-for-Testing build `puppeteer` itself would
- * otherwise download. Those two versions drifting too far apart is exactly what #3256 found: a CDP
- * client built against a much older protocol than the browser it drives can get its `Page.navigate`
- * refused outright with `net::ERR_INVALID_ARGUMENT`, even once the (unrelated) sandbox problem
- * tracked by #3214 is worked around.
+ * otherwise download. When those two drift too far apart, a CDP client built against a much older
+ * protocol than the browser it drives gets its `Page.navigate` refused outright with
+ * `net::ERR_INVALID_ARGUMENT` — sandbox flags or no sandbox flags.
  *
- * `docs/decisions/2026-09-14-puppeteer-chromium-protocol-pin.md` records the full investigation:
- * `puppeteer@25.4.0` pinned Chrome `151.0.7922.47` against a system Chromium that had already moved
- * to `152.0.7977.75`; `puppeteer@25.9.0` pins `152.0.7977.54`, in the same `152.0.7977.x` build train
- * and the closest match available on the registry at the time this was fixed — closer than jumping to
- * the newest release (`25.11.0` pins Chrome `153.x`, which would just reintroduce the same class of
- * skew in the other direction against today's apt-installed `152.x`).
- *
- * This test does not — cannot, from this sandbox — reach into a built `dev/build/Dockerfile` image
- * and ask its `chromium` binary what version it actually is; that verification is a manual repeat of
- * #3256's own repro (build the image, boot it, request a PDF export). What this test guards against
- * is silent drift: a routine `npm run ncu` bumping `puppeteer` (or `puppeteer-core`) without anyone
- * re-checking that pairing. Bumping the pinned version here is expected and fine — but do it
- * deliberately, by re-running the check below and updating both this assertion and the decision doc:
+ * Nothing here can reach into a built image and ask its `chromium` binary what version it is; that
+ * stays a manual check (build the image, boot it, request a PDF export). What this guards is silent
+ * drift: a routine `npm run ncu` bumping `puppeteer` without anyone re-checking the pairing. Bumping
+ * the pin is expected and fine — but do it deliberately:
  *
  *   npm view puppeteer-core@<candidate version> dependencies   # confirms the version resolves
  *   npm pack puppeteer-core@<candidate version> && tar xzf …   # then read lib/puppeteer/revisions.js
  *
- * and compare the `chrome` field there against the `chromium` version `dev/build/Dockerfile`'s apt
- * install currently resolves to (see the decision doc for how that was captured for this pass).
+ * compare the `chrome` field there against the `chromium` version the Dockerfile's apt install
+ * resolves to, and update both constants below plus
+ * `docs/decisions/2026-09-14-puppeteer-chromium-protocol-pin.md`. Jumping straight to the newest
+ * puppeteer is not the safe move: it can pin a Chrome major ahead of apt's and reintroduce the same
+ * skew in the other direction.
  */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
@@ -39,10 +28,8 @@ import path from 'node:path'
 const BACKEND_ROOT = path.resolve(import.meta.dirname, '..')
 
 /**
- * The puppeteer version last confirmed (via the registry-metadata investigation in the decision doc)
- * to pin a Chrome-for-Testing build close to what `dev/build/Dockerfile` actually installs. Bumping
- * `backend/package.json`'s `puppeteer` without updating this constant is exactly the silent drift
- * this test exists to catch.
+ * The puppeteer version last confirmed to pin a Chrome-for-Testing build close to what
+ * `dev/build/Dockerfile` actually installs.
  */
 const EXPECTED_PUPPETEER_VERSION = '25.9.0'
 
@@ -62,9 +49,8 @@ describe('puppeteer/chromium version pairing (OpenProject #3256)', () => {
   })
 
   test('installed puppeteer-core (when present) still pins the expected Chrome major version', async (t) => {
-    // puppeteer is an optionalDependency (backend/CLAUDE.md's Puppeteer availability convention) — a
-    // worktree that never ran `npm install`/`npm ci` genuinely has no node_modules/puppeteer-core to
-    // check, and that is not this test's concern; skip rather than fail.
+    // puppeteer is an optionalDependency, so a worktree that never installed it genuinely has no
+    // puppeteer-core to check; that is not this test's concern, so skip rather than fail.
     let revisions: { chrome: string }
     try {
       ;({ PUPPETEER_REVISIONS: revisions } =

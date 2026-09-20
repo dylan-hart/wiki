@@ -1,31 +1,19 @@
 /**
- * The real round trip Epic #2437's replication feature is actually about: a "scheduled pull" is
- * ultimately just `models/replicationExport.ts#buildSnapshot()` (source side, WP #2489) feeding its
- * output straight into `models/replicationImport.ts#importSnapshot()` (target side, WP #2490) — this
- * suite is the one place that runs both, back to back, against real Postgres, and proves the wire
- * format one side writes is exactly what the other reads. Each model already has its own co-located
- * unit-level suite (`models/replicationExport.test.ts`, `models/replicationImport.db.test.ts`), the
- * same way `api/blocks.ts`/`controllers/blocks.ts` did before `blockUploadServing.test.ts` — this
- * file is that round trip, not a third copy of either side's own coverage.
+ * A "scheduled pull" is ultimately `models/replicationExport.ts#buildSnapshot()` feeding its output
+ * straight into `models/replicationImport.ts#importSnapshot()`. Each model has its own co-located
+ * unit-level suite; this file is the round trip between them — the one place that runs both, back to
+ * back, against real Postgres, proving the wire format one side writes is what the other reads.
  *
- * SCOPE NOTE (OpenProject #2493): Feature #2437's full "scheduled pull" also needs an admin settings
- * panel for the source URL/token/cron schedule (WP #2491) and the actual scheduler wiring that fetches
- * an archive from a REMOTE instance over HTTP on a cron trigger (WP #2492) — neither exists in any
- * branch as of this WP. There is therefore nothing yet to drive this round trip through a real HTTP
- * pull or a real cron firing. What IS fully built and testable is the wipe-and-mirror mechanism a
- * scheduled run will invoke once #2492 lands: hand `buildSnapshot()`'s own output straight to
- * `importSnapshot()`, exactly as a same-process pull would once #2492 exists to download it first.
- * That mechanism is what this suite verifies. Re-visit once #2492 lands: at that point this suite (or
- * a sibling next to `core/scheduler.ts`) should additionally cover the cron trigger itself.
+ * TODO: the HTTP fetch from a remote instance and the cron trigger a scheduled pull needs do not
+ * exist yet, so nothing can drive this through a real pull. Cover the cron trigger here (or beside
+ * `core/scheduler.ts`) once it lands; what is verified meanwhile is the wipe-and-mirror mechanism a
+ * scheduled run will invoke, fed the snapshot in-process instead of over HTTP.
  *
- * Two real "instances" are stood up as two independent, randomly-named schemas against the SAME
- * `DATABASE_URL` -- not `setupTestDb()` twice: that fixture keeps its schema/pool/`CARDINAL` handle in
- * module-level singletons (see its own doc comment — "one `setupTestDb()` for the whole file"), so a
- * second call would clobber the first's bookkeeping rather than run alongside it. This file instead
- * open-codes the same schema-per-run approach `test/db.ts#setupTestDb()` uses internally, reusing its
- * exported `createExtensionsSerialized()` for the race-free extension setup exactly as
- * `migration/phases/settings.integration.test.ts` and `core/config.test.ts` already do for their own
- * hand-rolled fixtures.
+ * Two "instances" are two independent, randomly-named schemas against the SAME `DATABASE_URL` --
+ * not `setupTestDb()` twice: that fixture keeps its schema/pool/`CARDINAL` handle in module-level
+ * singletons, so a second call would clobber the first's bookkeeping rather than run alongside it.
+ * This file open-codes the same schema-per-run approach, reusing `test/db.ts`'s exported
+ * `createExtensionsSerialized()` for race-free extension setup.
  */
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
@@ -57,7 +45,6 @@ import { installTestWiki } from './mocks.ts'
 import { ensureTemporal } from './temporal.ts'
 import type { WikiDb } from '../core/db.ts'
 
-/** One end of the round trip: its own pool, schema name and drizzle handle. */
 interface Instance {
   pool: Pool
   schema: string
@@ -88,9 +75,8 @@ async function closeInstance(instance: Instance): Promise<void> {
   await instance.pool.end()
 }
 
-/** One of every record kind `buildSnapshot()`/`importSnapshot()` cover, wired together with valid
- *  foreign keys — deliberately distinct ids/values between `seedContent()` calls for "source" and
- *  "target" so the round trip can tell whose rows ended up where. */
+/** Ids and values are deliberately distinct between the "source" and "target" `seedContent()` calls,
+ *  so the round trip can tell whose rows ended up where. */
 interface SeededContent {
   siteId: string
   classificationId: string
@@ -257,14 +243,14 @@ describe(
       source = await openInstance()
       target = await openInstance()
       sourceContent = await seedContent(source.db, 'source')
-      // -> Target's own pre-existing content, standing in for whatever staging held before the
-      //    scheduled pull ran -- this is what proves the import genuinely WIPES rather than merges.
+      // -> Target's own pre-existing content: this is what proves the import genuinely WIPES rather
+      //    than merges.
       targetContent = await seedContent(target.db, 'target')
 
       dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-replication-round-trip-'))
-      // -> A single CARDINAL global is installed for the whole suite; each step below reassigns `.db`
-      //    immediately before the call that needs it, rather than juggling two CARDINAL stubs. Nothing
-      //    under test reads `CARDINAL.db` outside the two calls this suite makes.
+      // -> One CARDINAL global for the whole suite, with each step below reassigning `.db` right
+      //    before the call that needs it: nothing under test reads `CARDINAL.db` outside the two
+      //    calls this suite makes, so juggling two stubs would buy nothing.
       wikiHandle = installTestWiki({ db: source.db, config: { dataPath } })
     })
 
@@ -279,7 +265,6 @@ describe(
       const { replicationExport } = await import('../models/replicationExport.ts')
       const { replicationImportModel } = await import('../models/replicationImport.ts')
 
-      // -> Source side: build a real snapshot tarball off `source.db`.
       CARDINAL.db = source.db
       const exportResult = await replicationExport.buildSnapshot()
       assert.match(exportResult.filePath, /\.tar\.gz$/)
@@ -287,8 +272,6 @@ describe(
       assert.equal(stat.size, exportResult.fileSize)
       assert.ok(exportResult.fileSize > 0)
 
-      // -> Target side: feed that exact file straight into the real importer against `target.db`,
-      //    exactly as a same-process pull would once WP #2492 exists to have downloaded it first.
       CARDINAL.db = target.db
       const report = await replicationImportModel.importSnapshot(exportResult.filePath)
 
@@ -307,7 +290,6 @@ describe(
         settings: 1
       })
 
-      // -> WIPED: none of target's own pre-existing rows survived the pull.
       const allSites = await target.db.select().from(sitesTable)
       assert.equal(allSites.length, 1, 'target should hold exactly the one mirrored site')
       assert.equal(allSites[0]!.id, sourceContent.siteId)

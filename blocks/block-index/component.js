@@ -6,42 +6,24 @@ import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { getSiteId, getSiteLocales, getCurrentPage } from '../shared/site.js'
 
-/**
- * What to draw for a leaf page carrying no icon of its own.
- *
- * The same one the app gives a new page (`DEFAULT_PAGE_ICON` in the page store), so that a listing
- * mixing pages made in the editor with pages made through the API still lines up down the left.
- */
+/** Mirrors the page store's own `DEFAULT_PAGE_ICON`, so a listing does not mix two defaults. */
 const DEFAULT_PAGE_ICON = 'tabler:file-text'
 
-/**
- * What to draw for a "book" page carrying no icon of its own — one with a page nested below its own
- * path, the BookStack-style chapter arrangement `hasChildren` signals (OpenProject #2462). An
- * "outline" glyph, matching `DEFAULT_PAGE_ICON`'s style.
- */
+/** For a page with another nested below its own path, which is what `hasChildren` signals. */
 const BOOK_PAGE_ICON = 'tabler:book-2'
 
-/**
- * Block Index
- */
 export class BlockIndexElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * must stay a plain literal.
    *
-   * `props` is what the picker turns into a form, and therefore what an author can set from the
-   * editor: one entry per attribute worth writing into the page, in the order they should be asked
-   * for. It mirrors `static get properties()` below — that one tells Lit how to read an attribute at
-   * runtime, this one describes it to a person — so a property meant to be authored belongs in both.
-   * It is also what survives being saved: the renderer strips any attribute a block does not declare.
+   * `props` is what the editor's picker turns into a form, in the order they are asked for, and what
+   * survives a save: the renderer strips any attribute a block does not declare. It mirrors `static
+   * get properties()` below, so a property meant to be authored belongs in both lists.
    *
-   * A `boolean` prop must default to false, unless the block reads the attribute itself. MDC writes
-   * attributes as strings and Lit reads any attribute that is present as true, so `showThing="false"`
-   * would come out true — the picker leaves a prop out entirely when it still holds its default,
-   * which is what keeps false meaning false. A block declaring the converter `block-asciinema` and
-   * `block-youtube` share is free of that, and so free to default a prop to true: `false` written out
-   * is then read back as false, which is the only case the stock converter gets wrong.
+   * A `boolean` prop must default to false unless the block declares the shared converter: Lit's
+   * stock one reads any present attribute — `showThing="false"` included — as true, and what keeps
+   * false meaning false is the picker leaving out a prop that still holds its default.
    */
   static definition = {
     block: 'index',
@@ -288,80 +270,37 @@ export class BlockIndexElement extends LitElement {
 
   static get properties() {
     return {
-      /**
-       * The base path to fetch pages from
-       * @type {string}
-       */
       path: { type: String },
 
-      /**
-       * A comma-separated list of tags to filter with
-       * @type {string}
-       */
       tags: { type: String },
 
-      /**
-       * The maximum number of items to fetch
-       * @type {number}
-       */
       limit: { type: Number },
 
       /**
-       * Ordering (createdAt, fileName, title, updatedAt)
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `orderby` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `order-by` — writes `order-by` into the page.
-       * @type {string}
+       * -> Explicit `attribute`: Lit's default lowercases the property name without inserting a
+       *    dash, so it would listen for `orderby` while the block picker writes the literal
+       *    `static definition.props[].name` into the page.
        */
       orderBy: { type: String, attribute: 'order-by' },
 
-      /**
-       * Ordering direction (asc, desc)
-       *
-       * -> Explicit `attribute`, for the same reason as `orderBy` above: the picker writes the
-       *    dashed `order-by-direction`, not Lit's default lowercased `orderbydirection`.
-       * @type {string}
-       */
+      /** -> Explicit `attribute`, for the same reason as `orderBy` above. */
       orderByDirection: { type: String, attribute: 'order-by-direction' },
 
-      /**
-       * Maximum folder depth to fetch
-       * @type {number}
-       */
       depth: { type: Number },
 
-      /**
-       * A fallback message if no results are returned
-       *
-       * -> Explicit `attribute`, for the same reason as `orderBy` above: the picker writes the
-       *    dashed `no-result-msg`, not Lit's default lowercased `noresultmsg`.
-       * @type {string}
-       */
+      /** -> Explicit `attribute`, for the same reason as `orderBy` above. */
       noResultMsg: { type: String, attribute: 'no-result-msg' },
 
       /**
-       * Most columns to lay the pages out in (1, 2, 3)
-       *
-       * Declared for the sake of the pair -- an authored prop belongs in both lists -- and because
-       * Lit would otherwise not know the attribute at all. Nothing in `render()` reads it: the layout
-       * is the styles' business, and they match `:host([columns])` on the page's own attribute.
-       *
-       * @type {string}
+       * Nothing in `render()` reads this: the layout is the styles' business, and they match
+       * `:host([columns])` on the page's own attribute. Declared so Lit knows the attribute at all,
+       * and because an authored prop belongs in both lists.
        */
       columns: { type: String },
 
-      /**
-       * Whether each page's icon is drawn beside its title
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `showicons` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `show-icons` — writes `show-icons` into the page.
-       * @type {boolean}
-       */
+      /** -> Explicit `attribute`, for the same reason as `orderBy` above. */
       showIcons: { ...boolean, attribute: 'show-icons' },
 
-      // Internal Properties
       _loading: { state: true },
       _pages: { state: true }
     }
@@ -387,10 +326,8 @@ export class BlockIndexElement extends LitElement {
   async connectedCallback() {
     super.connectedCallback()
     try {
-      // -> A page reader's request needs no site id or session threaded down to it -- see
-      //    `../shared/site.js`'s header for the convention. `fetch` carries the session cookie the
-      //    same as `API_CLIENT` did, same-origin, so a signed-in reader's listing is still the one
-      //    they would get anywhere else -- only pages they may open come back.
+      // -> `fetch` carries the session cookie same-origin, so the server's own page-rule check
+      //    decides what comes back: only pages this reader may open.
       const [siteId, locales, current] = await Promise.all([
         getSiteId(),
         getSiteLocales(),
@@ -419,8 +356,8 @@ export class BlockIndexElement extends LitElement {
         throw new Error(`Request failed (${resp.status}).`)
       }
       const pages = await resp.json()
-      // -> A block cannot import the frontend's own `localizedPagePath` helper (a separate,
-      //    unrelated-at-build-time workspace), so the same rule it applies is composed locally instead.
+      // -> The frontend's `localizedPagePath` lives in a workspace a block cannot import from, so
+      //    the same rule is composed locally -- keep the two in step.
       const pageLocale = current.locale
       const prefix =
         locales?.active?.length > 1 &&
@@ -440,13 +377,10 @@ export class BlockIndexElement extends LitElement {
   }
 
   /**
-   * Fetch the icons the listing is about to draw.
-   *
-   * All of them at once rather than one after another, since the shared cache collapses the repeats:
-   * a listing of pages that never had an icon chosen for them is one request for the default, however
-   * many rows there are. An `img:` icon is a file to point at and needs nothing fetched.
-   *
-   * Failures are already an empty string, so a row whose icon could not be had is a row without one.
+   * All at once rather than one after another, since the shared cache collapses the repeats: a
+   * listing of pages that never had an icon chosen is one request for the default, however many rows
+   * there are. An `img:` icon is a file to point at and needs nothing fetched, and a failure is
+   * already an empty string, so a row whose icon could not be had is a row without one.
    */
   async _loadIcons() {
     await Promise.all(
@@ -462,16 +396,13 @@ export class BlockIndexElement extends LitElement {
   }
 
   /**
-   * One page's icon reference: the author's own choice when there is one, otherwise the book/file
-   * default carried by `hasChildren` (OpenProject #2462) — a page with a nested page below its own
-   * path draws as a book, a leaf page as a file. Shared by `_loadIcons()` (what to prefetch) and
-   * `_icon()` (what to draw), so the two never disagree about which reference a row resolved to.
+   * Shared by `_loadIcons()` (what to prefetch) and `_icon()` (what to draw), so the two never
+   * disagree about which reference a row resolved to.
    */
   _iconReference(page) {
     return page.icon || (page.hasChildren ? BOOK_PAGE_ICON : DEFAULT_PAGE_ICON)
   }
 
-  /** One page's icon: an inlined SVG, or an `<img>` for a reference that names a file. */
   _icon(page) {
     const image = iconImageUrl(this._iconReference(page))
     return html`<span class="icon">
@@ -480,10 +411,9 @@ export class BlockIndexElement extends LitElement {
   }
 
   render() {
-    // -> A depth-0-only listing still lays out in the usual 1-3 columns; the moment any row is
-    //    indented, an inline single-column override (which always beats the CSS grid rules, media
-    //    queries included) keeps a deep row from having its `--depth` indent read against the wrong
-    //    column's width.
+    // -> The moment any row is indented the listing drops to one column: an inline style beats the
+    //    grid rules, media queries included, and a deep row's `--depth` indent would otherwise be
+    //    read against the wrong column's width.
     const nested = this._pages.some((p) => (p.depth || 0) > 0)
     return this._pages.length > 0 || this._loading
       ? html`
@@ -527,10 +457,8 @@ export class BlockIndexElement extends LitElement {
   }
 
   /*
-    -> `currentTarget` is the anchor the handler is bound to; `target` is whatever was clicked, which
-       is the anchor only for a click that landed on the title. The rest of the row got there by
-       being marked `pointer-events: none`, one declaration at a time -- an icon is one more thing
-       inside the anchor, and asking the element it was bound to is what makes that unnecessary.
+    -> `currentTarget`, not `target`: a click can land on anything inside the anchor, and asking the
+       element the handler was bound to spares marking each of them `pointer-events: none`.
   */
   _navigate(e) {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
@@ -542,10 +470,6 @@ export class BlockIndexElement extends LitElement {
     e.preventDefault()
     globalThis.WIKI_ROUTER.push(e.currentTarget.getAttribute('href'))
   }
-
-  // createRenderRoot() {
-  //   return this;
-  // }
 }
 
 window.customElements.define('block-index', BlockIndexElement)

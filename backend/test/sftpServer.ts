@@ -1,19 +1,15 @@
 /**
  * A real, in-process SFTP server backed by an actual directory on local disk — for integration tests
- * that need to exercise the SFTP wire protocol itself (auth, directory creation, file writes) rather
- * than a stub of `ssh2-sftp-client`'s API surface. Built directly on `ssh2`'s `Server` (already an
- * indirect dependency via `ssh2-sftp-client`, and a direct `devDependency` here) rather than any
- * higher-level "sftp server" package: the ones on npm are either unmaintained (last published years
- * before the `ssh2` major version this repo runs) or pull in dependencies of their own, and the actual
- * protocol surface this backend's SFTP module needs (`connectSftp`/`ensureDirectory`/`client.put`/
- * `client.delete` — see `modules/storage/sftp/connection.ts`) is small enough to implement directly
- * against `ssh2`'s documented server events.
+ * that need the SFTP wire protocol itself (auth, directory creation, file writes) rather than a stub
+ * of `ssh2-sftp-client`'s API surface. Built directly on `ssh2`'s `Server` rather than any
+ * higher-level "sftp server" package: those are either unmaintained (last published years before the
+ * `ssh2` major version this repo runs) or pull in dependencies of their own, and the protocol surface
+ * this backend's SFTP module needs is small enough to implement against `ssh2`'s server events.
  *
- * Deliberately narrow: only the SFTP requests `ssh2-sftp-client`'s `connect`/`exists`/`mkdir`/`put`/
+ * Deliberately narrow: only the requests `ssh2-sftp-client`'s `connect`/`exists`/`mkdir`/`put`/
  * `delete` actually issue are handled (`OPEN`/`FSETSTAT`/`WRITE`/`CLOSE`, `LSTAT`/`STAT`, `MKDIR`,
- * `REMOVE`) — see each SFTP method's `README.md#Commands` history in `ssh2-sftp-client` or the SFTP.md
- * protocol notes shipped with `ssh2` for the full protocol this deliberately doesn't implement (READ,
- * RENAME, SYMLINK, extended attributes, etc.) — this fork's SFTP storage module never issues those.
+ * `REMOVE`). READ, RENAME, SYMLINK and extended attributes are unimplemented — this fork's SFTP
+ * storage module never issues them.
  */
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
@@ -29,12 +25,10 @@ const { Server, utils: ssh2Utils } = ssh2
 const { STATUS_CODE, OPEN_MODE } = ssh2Utils.sftp
 
 /**
- * `@types/ssh2` only models the *client* half of the SFTP protocol (`SFTPWrapper`'s `open`/`write`/
- * `stat`/... methods, documented there as "Client-only"). The server-side surface this fixture needs
- * — the `OPEN`/`WRITE`/`CLOSE`/`MKDIR`/`STAT`/`LSTAT`/`REMOVE`/`FSETSTAT` request events and the
- * `status`/`handle`/`attrs` response methods `ssh2`'s own server examples use — has no upstream types
- * at all, so this narrows exactly the subset actually used here rather than reaching for a blanket
- * `any` on the object `session.on('sftp', accept => ...)` hands back.
+ * `@types/ssh2` models only the *client* half of the SFTP protocol, so the server-side request
+ * events and `status`/`handle`/`attrs` response methods this fixture needs have no upstream types at
+ * all. This narrows exactly the subset used here rather than reaching for a blanket `any` on the
+ * object `session.on('sftp', accept => ...)` hands back.
  */
 interface ServerSftpStream {
   on(event: 'OPEN', listener: (reqid: number, filename: string, flags: number) => void): this
@@ -52,7 +46,6 @@ interface ServerSftpStream {
   attrs(reqid: number, attrs: Record<string, number>): void
 }
 
-/** One account the test server accepts a connection for. */
 export interface TestSftpUser {
   username: string
   /** Present to allow password auth for this user. */
@@ -65,18 +58,15 @@ export interface TestSftpServer {
   port: number
   /** The real directory on local disk every SFTP path is resolved into. */
   rootDir: string
-  /** Read back a file this server wrote, relative to `rootDir` — the assertion surface for a test. */
   readFile(relativePath: string): Buffer
-  /** Whether a path exists on disk, relative to `rootDir`. */
   exists(relativePath: string): boolean
-  /** Every file path written so far, relative to `rootDir`, sorted — a full "remote file tree". */
+  /** Every file path written so far, relative to `rootDir`, sorted. */
   listFiles(): string[]
   stop(): Promise<void>
 }
 
-/** A freshly generated RSA keypair, PEM-encoded, optionally passphrase-protected — for private-key
- *  auth tests. RSA rather than `ed25519`: broadest compatibility with what a real SFTP host offers,
- *  and this repo's own `connectSftp` treats every algorithm identically. */
+/** RSA rather than `ed25519`: broadest compatibility with what a real SFTP host offers, and this
+ *  repo's own `connectSftp` treats every algorithm identically. */
 export function generateTestKeyPair(passphrase?: string): {
   privateKey: string
   publicKey: string
@@ -93,10 +83,10 @@ export function generateTestKeyPair(passphrase?: string): {
 }
 
 /**
- * Start an in-process SFTP server on `127.0.0.1` (an ephemeral port), backed by a fresh temp
- * directory. `users` is the whole of what it will authenticate — password auth checks a plain string
- * equality (test-only; never do this in production code), private-key auth verifies both that the
- * offered key matches the configured public key and that its signature is valid.
+ * Listens on `127.0.0.1`, on an ephemeral port, backed by a fresh temp directory. `users` is the
+ * whole of what it will authenticate — password auth checks a plain string equality (test-only;
+ * never do this in production code), private-key auth verifies both that the offered key matches the
+ * configured public key and that its signature is valid.
  */
 export async function startTestSftpServer(users: TestSftpUser[]): Promise<TestSftpServer> {
   const rootDir = await mkdtemp(path.join(tmpdir(), 'wiki-sftp-test-'))
@@ -182,8 +172,7 @@ export async function startTestSftpServer(users: TestSftpUser[]): Promise<TestSf
               })
               .on('FSETSTAT', (reqid: number) => {
                 // -> ssh2's client-side WriteStream always issues an FSETSTAT (fchmod) right after
-                //    OPEN; a real filesystem-backed server has nothing meaningful to change here, so
-                //    this just acknowledges it.
+                //    OPEN, and there is nothing meaningful to change here: just acknowledge it.
                 sftp.status(reqid, STATUS_CODE.OK)
               })
               .on('WRITE', (reqid: number, handle: Buffer, offset: number, data: Buffer) => {
@@ -250,8 +239,7 @@ export async function startTestSftpServer(users: TestSftpUser[]): Promise<TestSf
         })
       })
       .on('error', () => {
-        // -> A rejected auth attempt (e.g. the "wrong password" test case) raises a client-side
-        //    error event too; nothing for the server side to do beyond not crashing the process.
+        // -> A rejected auth attempt raises this too; nothing to do beyond not crashing.
       })
   })
 
@@ -290,7 +278,6 @@ export async function startTestSftpServer(users: TestSftpUser[]): Promise<TestSf
   }
 }
 
-/** A short random suffix, handy for keeping fixture usernames/base paths unique per test. */
 export function randomSuffix(): string {
   return randomBytes(4).toString('hex')
 }

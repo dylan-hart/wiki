@@ -1,24 +1,13 @@
 /**
- * Structural check on the quarantine lane's CI wiring — OpenProject #2692 (Feature #2603,
- * Epic #2600). This file guards the half of the lane's rules that lives in YAML, which nothing
- * else can.
+ * Guards the half of the quarantine lane's rules that lives in YAML, which nothing else can. The
+ * defect being guarded against is specific: a report-only step is a step that cannot fail, and a
+ * step that cannot fail is a step nobody reads. Every claim below is one that, if it silently
+ * stopped holding, would leave the lane running but pointless — a workspace with a `test:flaky`
+ * script and no CI step, a step that lost its `continue-on-error` and started gating a release, or
+ * a lane whose result stopped being annotated onto the run page.
  *
- * The defect being guarded against is specific, and it is the one #2692's own spec names: a
- * report-only step is a step that cannot fail, and a step that cannot fail is a step nobody reads.
- * Every claim below is one that, if it silently stopped holding, would leave the lane running but
- * pointless — a workspace with a `test:flaky` script and no CI step, a step that lost its
- * `continue-on-error` and started gating a release, or a lane whose result stopped being annotated
- * onto the run page.
- *
- * This is a structural/self-consistency scan against repo-root CI config with no backend-workspace
- * file to sit next to, which is why it lives in `backend/test/` rather than co-located — the same
- * category, and the same reasoning, as `test/e2e-workflow.test.ts` and
- * `test/release-workflow.test.ts` beside it.
- *
- * What it deliberately does NOT assert: that a GitHub Actions run actually renders the annotation
- * or the summary. That needs a real runner. What is asserted here is that the script is invoked,
- * that it is invoked report-only, that it covers every workspace with a lane, and that the script
- * itself still emits the three things the step depends on.
+ * Whether a real run renders that annotation or the summary needs a real runner, and is not
+ * asserted.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -30,7 +19,6 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const LANE_SCRIPT_REL = 'scripts/ci-quarantine-lane.sh'
 const LANE_SCRIPT = path.join(REPO_ROOT, LANE_SCRIPT_REL)
 
-/** The four workspaces with a `test:flaky` script (Task #2691). */
 const WORKSPACES = ['backend', 'frontend', 'blocks', 'e2e'] as const
 
 interface Step {
@@ -50,7 +38,6 @@ function stepsOf(doc: any, jobName: string): Step[] {
   return (job.steps ?? []) as Step[]
 }
 
-/** Every step in a job whose `run:` invokes the lane script, with the workspaces it names. */
 function laneSteps(steps: Step[]): { step: Step; workspaces: string[] }[] {
   return steps
     .filter((step) => (step.run ?? '').includes(LANE_SCRIPT_REL))
@@ -98,9 +85,8 @@ describe('quarantine lane CI wiring (#2692)', () => {
       'all four workspaces are expected to declare a test:flaky script (Task #2691)'
     )
 
-    // quality.yml runs on every PR and, via build.yml's `quality` job, on every scarlett push.
-    // build.yml's `build` job adds e2e only. Together that is each workspace exactly once per
-    // push — no workspace uncovered, none run twice.
+    // quality.yml runs on every PR and, via build.yml's `quality` job, on every scarlett push;
+    // build.yml's `build` job adds e2e only. Together that is each workspace exactly once per push.
     const coverage = new Map<string, string[]>()
     for (const [file, lanes] of [
       ['quality.yml', qualityLanes],
@@ -157,9 +143,8 @@ describe('quarantine lane CI wiring (#2692)', () => {
   })
 
   test('the e2e lane is wired in build.yml and NOT also in e2e.yml', () => {
-    // e2e.yml's own header records that the same suite must not run twice per commit; #2692's spec
-    // says not to wire the lane into both. This is the assertion that keeps a later well-meant
-    // "e2e.yml should report the lane too" edit from reintroducing it silently.
+    // The same suite must not run twice per commit, so the lane is wired in one workflow only; this
+    // keeps a later well-meant "e2e.yml should report the lane too" edit from undoing that.
     assert.equal(
       e2eLanes.length,
       0,
@@ -177,8 +162,8 @@ describe('quarantine lane CI wiring (#2692)', () => {
       "Feature #2603's resolved scope: a lane that blocks releases is a blocking lane with extra steps"
     )
 
-    // Every other step in release.yml's gate section is fail-closed. Assert that stayed true, so
-    // this one exception cannot quietly spread.
+    // Every other step in release.yml's gate section is fail-closed; asserting that keeps this one
+    // exception from quietly spreading.
     const steps = stepsOf(releaseDoc, 'release')
     const otherLenient = steps.filter(
       (step) => step !== lane.step && step['continue-on-error'] === true
@@ -205,7 +190,7 @@ describe('quarantine lane CI wiring (#2692)', () => {
     )
     // The script exiting non-zero is what turns the step's marker from a plain green tick into
     // GitHub's failed-but-continued one. A script that swallowed the failure would leave the step
-    // permanently green and the lane unread — the exact outcome #2692's spec item 3 warns about.
+    // permanently green and the lane unread.
     assert.match(
       source,
       /if \[ "\$\{#failed_lanes\[@\]\}" -gt 0 \]; then\n\s*exit 1/,
@@ -214,8 +199,8 @@ describe('quarantine lane CI wiring (#2692)', () => {
   })
 
   test('the lane script invokes test:flaky, never a hand-written glob', () => {
-    // The step invokes `npm run test:flaky` per workspace via the script — that indirection is
-    // what lets a workspace's own package.json stay the single statement of its lane's command.
+    // Going through `npm run test:flaky` is what lets a workspace's own package.json stay the
+    // single statement of its lane's command.
     assert.match(fs.readFileSync(LANE_SCRIPT, 'utf8'), /npm run --silent test:flaky/)
   })
 })

@@ -10,40 +10,29 @@ import type { SearchIndexablePage, SearchModule, SearchPagesParams } from '../mo
 
 /**
  * The contract every external search engine module owes `models/search.ts`, run once per engine
- * (TEST-F6).
- *
- * `algolia`, `elasticsearch`, `azure-search` and `aws-cloudsearch` each used to restate these
- * thirteen claims in their own file — test-name-for-test-name in the first two, under different
- * describe names in the other two — over four sets of vendor fakes. That is four places to notice
- * when the contract itself moves: `externalBase.ts`'s `renamed()` re-indexing in place rather than
- * delete-then-add, `neverThrows`' promise that a page save survives an unreachable index, and
- * `shared.ts#toSearchPagesResult`'s rule that `results` and `totalHits` are both derived from the
- * rows an actor may actually READ (OpenProject #2151/#2156). Restated four times, three of them can
- * drift without anything failing.
+ * instead of restated in each engine's own file over its own vendor fakes — restated per engine,
+ * all but one copy can drift without anything failing. What it pins is what is not vendor-specific:
+ * `externalBase.ts`'s `renamed()` re-indexing in place rather than delete-then-add, `neverThrows`'
+ * promise that a page save survives an unreachable index, and `shared.ts#toSearchPagesResult`'s rule
+ * that `results` and `totalHits` are both derived from the rows an actor may actually READ.
  *
  * What stays in each engine's own `search.test.ts` is everything that is genuinely about a vendor:
- * its query translation (`buildFilters` / `buildEsQuery` / `buildFilter` / `buildStructuredQuery`),
- * its document shape, its index provisioning, its batching limits, its client caching, and whatever
- * it does that no other engine does — Azure's protected-content split query, Elasticsearch's
- * sequential-streaming rebuild, Algolia's oversized-page diversion.
+ * its query translation, its document shape, its index provisioning, its batching limits, its client
+ * caching, and whatever it does that no other engine does.
  *
  * The `db` engine is deliberately NOT run through this. It implements the bare `SearchModule`
- * interface rather than extending `ExternalSearchModule` (see that class's own doc comment): it has
- * no vendor client to fake, its `deleted`/`renamed` are genuinely different, and its suite is
- * DB-backed against real postgres — so wiring it here would mean asserting a contract it does not
- * have.
+ * interface rather than extending `ExternalSearchModule`: it has no vendor client to fake, its
+ * `deleted`/`renamed` are genuinely different, and its suite is DB-backed against real postgres — so
+ * wiring it here would mean asserting a contract it does not have.
  */
 
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-/** The site every contract test runs against. */
 export const CONTRACT_SITE_ID = 'site-1'
 
 /**
- * One row of a search response, in the only vocabulary every engine has in common.
- *
- * Each harness turns these into whatever its vendor actually returns — an Algolia hit's flat fields,
- * an Elasticsearch hit's `_source`, an Azure row's `document` — which is the same reason
+ * One row of a search response, in the only vocabulary every engine has in common. Each harness
+ * turns these into whatever its vendor actually returns, which is the same reason
  * `shared.ts#filterVisible` takes a mapper rather than a row type.
  */
 export interface SearchContractHit {
@@ -52,42 +41,34 @@ export interface SearchContractHit {
   locale?: string
   title?: string
   tags?: string[]
-  /** Omitted entirely for a document indexed before the field existed (OpenProject #1125). */
+  /** Omitted entirely by a document indexed before the field existed. */
   classification?: string
 }
 
 /**
- * One engine, wired to a fake vendor client, plus the readers the contract asserts through.
- *
  * Every method is about what the module DID, never about how this engine says it — that translation
- * is the harness's whole job, and is what lets thirteen claims be written once.
+ * is the harness's whole job, and is what lets each claim be written once.
  */
 export interface SearchContractHarness {
-  /** The module under test. */
   mod: SearchModule
   /**
    * Params every `query()` in the contract carries, for an engine whose defaults would otherwise
-   * take a different code path — `azure-search` defaults `hideProtectedContent` to `true`, whose
-   * split-query path it covers in its own file.
+   * take a different code path — `azure-search` defaults `hideProtectedContent` to `true`.
    */
   baseQuery?: Partial<SearchPagesParams>
-  /** Replace this module's client with one that rejects, so `neverThrows` can be observed. */
+  /** Make this module's client reject, so `neverThrows` can be observed. */
   breakClient(): void
-  /** Stage what the vendor answers the next `query()` with, and the total it claims to have matched. */
+  /** Stage the vendor's answer to the next `query()`, plus the total it claims to have matched. */
   setHits(hits: SearchContractHit[], reportedTotal?: number): void
   /** The window each `query()` actually asked the vendor for, in call order. */
   windows(): { offset: number; size: number }[]
-  /** Ids written to the index by `created`/`updated`/`renamed`, in call order. */
   indexedIds(): string[]
-  /** The `path` the last write to the index carried. */
   lastIndexedPath(): string | undefined
-  /** Ids removed from the index by `deleted()`. */
   removedIds(): string[]
   /** Stage the site's pages, however this engine reads them during a rebuild. */
   setPages(pages: SearchIndexablePage[]): void
   /** Ids of every document `rebuild()` uploaded, across every batch. */
   rebuiltIds(): string[]
-  /** How many bulk-upload calls `rebuild()` made. */
   uploadCalls(): number
 }
 
@@ -100,7 +81,6 @@ export interface SearchContractOptions {
   siteConfig: Record<string, any>
 }
 
-/** Swap `checkAccess` for the duration of one test, restoring it however the test ends. */
 async function withCheckAccess(
   checkAccess: (actor: AccessActor, permission: string, page: any) => boolean,
   body: () => Promise<void>
@@ -114,14 +94,9 @@ async function withCheckAccess(
   }
 }
 
-/** The actor every filtering claim below runs as: a real actor, holding nothing in particular. */
+/** A real actor holding nothing in particular: each claim's filtering comes from `checkAccess`. */
 const ACTOR = { groupIds: [], permissions: [] } as unknown as AccessActor
 
-/**
- * Emit the thirteen-test `SearchModule` contract for one engine.
- *
- * @param name The engine's module key, which every generated test name is prefixed with.
- */
 export function runSearchModuleContract(name: string, options: SearchContractOptions): void {
   const { makeModule, config, siteConfig } = options
   const siteId = CONTRACT_SITE_ID
@@ -170,9 +145,9 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
     })
 
     /**
-     * `externalBase.ts#renamed`: this schema's `pages.id` is a stable UUID a move never touches, so a
-     * rename is an ordinary re-index of the same document — never a delete followed by an add, which
-     * would leave the page briefly unfindable.
+     * `pages.id` is a stable UUID a move never touches, so a rename is an ordinary re-index of the
+     * same document — never a delete followed by an add, which would leave the page briefly
+     * unfindable.
      */
     test(`${name}: renamed() re-indexes in place rather than delete+add`, async () => {
       const harness = makeModule(config)
@@ -189,8 +164,8 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
     })
 
     /**
-     * `externalBase.ts#neverThrows`: a page that saved correctly must not report failure because an
-     * external index could not be reached. A later `rebuild()` is what puts the missed write right.
+     * A page that saved correctly must not report failure because an external index could not be
+     * reached. A later `rebuild()` is what puts the missed write right.
      */
     test(`${name}: an index write never throws when the vendor fails`, async () => {
       const harness = makeModule(config)
@@ -200,9 +175,9 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
     })
 
     /**
-     * OpenProject #2156: `offset`/`limit` are no longer sent through as the vendor's own paging —
-     * page-rule filtering happens after the query, so every engine scans a bounded window from the
-     * start and applies the caller's own pagination in JS, over the filtered set.
+     * Page-rule filtering happens after the query, so `offset`/`limit` cannot be delegated to the
+     * vendor's own paging: every engine scans a bounded window from the start and applies the
+     * caller's own pagination in JS, over the filtered set.
      */
     test(`${name}: query() scans from the start with a bounded window, whatever offset/limit was asked for`, async () => {
       const harness = makeModule(config)
@@ -252,8 +227,8 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
 
     /**
      * Search must not be a way around page permissions — a title and an excerpt are content too, so
-     * `shared.ts#filterVisible` runs `checkAccess` per row rather than folding the rules into the
-     * vendor's own filter, which none of them can express.
+     * `checkAccess` runs per row rather than the rules being folded into the vendor's own filter,
+     * which none of them can express.
      */
     test(`${name}: query() drops a hit checkAccess denies`, async () => {
       const harness = makeModule(config)
@@ -283,10 +258,9 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
     })
 
     /**
-     * OpenProject #2151/#2156: the old arithmetic (the vendor's own total, minus this page's rows,
-     * plus the visible ones) leaked matches the caller was never checked against into `totalHits` —
-     * so `?query=<phrase>&limit=1` could confirm a phrase existed inside a page they could not open.
-     * A count derived from `visible` alone can only ever be a floor.
+     * Arithmetic over the vendor's own total would leak matches the caller was never checked
+     * against into `totalHits` — `?query=<phrase>&limit=1` could then confirm a phrase existed
+     * inside a page they cannot open. Derived from the visible rows alone, it can only be a floor.
      */
     test(`${name}: totalHits never reflects the vendor's own count beyond what was checked`, async () => {
       const harness = makeModule(config)
@@ -311,16 +285,15 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
             ...harness.baseQuery
           })
           assert.equal(result.results.length, 2)
-          // -> Exactly the readable count within the scanned window, never the vendor's 100
           assert.equal(result.totalHits, 2)
         }
       )
     })
 
     /**
-     * OpenProject #1125: a CLASSIFICATION page rule is decided against the level indexed WITH the
-     * document, not a hardcoded `null` — which every engine used to pass, silently making every rule
-     * of that kind fall through to the unknown-classification treatment.
+     * A CLASSIFICATION page rule is decided against the level indexed WITH the document; passing a
+     * hardcoded `null` instead silently makes every rule of that kind fall through to the
+     * unknown-classification treatment.
      */
     test(`${name}: query() passes each hit's own indexed classification to checkAccess`, async () => {
       const harness = makeModule(config)
@@ -340,9 +313,8 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
     })
 
     /**
-     * No actor means nothing is filtered: an internal caller, or a configuration that trusts the
-     * caller to have filtered already. `checkAccess` is not consulted at all in that case
-     * (`shared.ts#filterVisible`).
+     * No actor means an internal caller, or one trusted to have filtered already: nothing is
+     * filtered and `checkAccess` is not consulted at all.
      */
     test(`${name}: query() with no actor returns every hit unfiltered`, async () => {
       const harness = makeModule(config)
