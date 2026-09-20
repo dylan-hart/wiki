@@ -12,6 +12,8 @@ import { siteAssetKinds } from '../models/sites.ts'
 import type { SiteAssetKind } from '../models/sites.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
+const LOCALE_ALIAS_PATTERN = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/
+
 const imageUploadLimit = 10 * 1024 * 1024
 
 /**
@@ -433,6 +435,7 @@ async function routes(app: FastifyInstance) {
         primary?: string
         active?: string[]
         forcePrefix?: boolean
+        aliases?: Record<string, string>
         showMenu?: boolean
       }
       robots?: Record<string, any>
@@ -719,6 +722,62 @@ async function routes(app: FastifyInstance) {
             )
           }
         }
+
+        const storedAliases: Record<string, string> = site.config.locales?.aliases ?? {}
+        const suppliedAliases = req.body.locales.aliases
+        const aliases: Record<string, string> = {}
+        const seen = new Map<string, string>()
+        const installedLower = new Set(installedCodes.map((code: string) => code.toLowerCase()))
+        for (const [code, alias] of Object.entries(suppliedAliases ?? storedAliases)) {
+          if (!active.includes(code)) {
+            if (suppliedAliases) {
+              throw new CustomError(
+                'siteUpdateAliasLocaleInactive',
+                `Cannot alias "${code}": it is not an active locale of this site.`
+              )
+            }
+            continue
+          }
+          if (alias === '') {
+            continue
+          }
+          if (!LOCALE_ALIAS_PATTERN.test(alias)) {
+            throw new CustomError(
+              'siteUpdateAliasInvalid',
+              `The alias "${alias}" for "${code}" must be a single URL segment of letters, digits and hyphens.`
+            )
+          }
+          const lower = alias.toLowerCase()
+          const duplicateOf = seen.get(lower)
+          if (duplicateOf) {
+            throw new CustomError(
+              'siteUpdateAliasDuplicate',
+              `The alias "${alias}" is used by both "${duplicateOf}" and "${code}".`
+            )
+          }
+          if (installedLower.has(lower)) {
+            throw new CustomError(
+              'siteUpdateAliasCollidesWithLocale',
+              `The alias "${alias}" for "${code}" collides with an installed locale code.`
+            )
+          }
+          seen.set(lower, code)
+          aliases[code] = alias
+        }
+
+        for (const [code, alias] of Object.entries(aliases)) {
+          if (storedAliases[code] === alias) {
+            continue
+          }
+          if (await CARDINAL.models.tree.hasRootSegment(req.params.siteId, alias)) {
+            throw new CustomError(
+              'siteUpdateAliasCollidesWithContent',
+              `Cannot use "${alias}" as the alias for "${code}": this site already has a page or folder at "${alias}".`,
+              409
+            )
+          }
+        }
+        req.body.locales.aliases = aliases
       }
 
       const config: Record<string, any> = {}

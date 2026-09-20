@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, mock, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import sitesRoutes from './sites.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
@@ -47,6 +47,15 @@ sites[PUT_SITE_ID] = {
 
 async function getSiteById({ id }: { id: string }) {
   return sites[id] ?? null
+}
+
+const ALIAS_SITE_ID = '5b0b8a43-33b7-4a3c-9a4f-6f0a0d3c9e11'
+const rootSegmentsInUse = new Set<string>()
+sites[ALIAS_SITE_ID] = {
+  id: ALIAS_SITE_ID,
+  hostname: 'aliassite.example.com',
+  isEnabled: true,
+  config: { title: 'Alias Site', locales: { primary: 'en', active: ['en', 'zh-CN', 'fr'] } }
 }
 
 let updateSiteCalls: Array<{ id: string; patch: any }> = []
@@ -154,7 +163,11 @@ before(async () => {
         checkSiteAdminAccess
       },
       locales: {
-        getLocales: async () => [{ code: 'en' }]
+        getLocales: async () => [{ code: 'en' }, { code: 'fr' }, { code: 'zh-CN' }, { code: 'ja' }]
+      },
+      tree: {
+        hasRootSegment: async (_siteId: string, segment: string) =>
+          rootSegmentsInUse.has(segment.toLowerCase())
       },
       renderQueue: {
         isAvailable: async () => renderingAvailable
@@ -1188,4 +1201,80 @@ test('blocksIndex omits a disabled block', async () => {
   const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
   assert.equal(res.statusCode, 200)
   assert.deepEqual(res.json().blocksIndex, {})
+})
+
+describe('PUT /:siteId — locale aliases', () => {
+  const ALIAS_HEADERS = { 'x-test-permissions': 'manage:sites' }
+  const put = (locales: Record<string, any>) =>
+    app.inject({
+      method: 'PUT',
+      url: `/${ALIAS_SITE_ID}`,
+      headers: ALIAS_HEADERS,
+      payload: { locales }
+    })
+
+  beforeEach(() => {
+    updateSiteCalls = []
+    rootSegmentsInUse.clear()
+    sites[ALIAS_SITE_ID].config.locales = { primary: 'en', active: ['en', 'zh-CN', 'fr'] }
+  })
+
+  test('a valid alias is accepted and written to the config', async () => {
+    const res = await put({ aliases: { 'zh-CN': 'zh' } })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(updateSiteCalls[0].patch.config.locales.aliases, { 'zh-CN': 'zh' })
+  })
+
+  test('an alias for a locale that is not active is refused', async () => {
+    const res = await put({ aliases: { ja: 'jp' } })
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().error, 'siteUpdateAliasLocaleInactive')
+    assert.equal(updateSiteCalls.length, 0)
+  })
+
+  test('an alias that is not a single URL segment is refused', async () => {
+    for (const alias of ['zh/cn', 'zh cn', '-zh', 'zh_', 'zh.', '../x']) {
+      const res = await put({ aliases: { 'zh-CN': alias } })
+      assert.equal(res.statusCode, 400, alias)
+      assert.equal(res.json().error, 'siteUpdateAliasInvalid', alias)
+    }
+    assert.equal(updateSiteCalls.length, 0)
+  })
+
+  test('a duplicate alias is refused, case-insensitively', async () => {
+    const res = await put({ aliases: { 'zh-CN': 'cn', fr: 'CN' } })
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().error, 'siteUpdateAliasDuplicate')
+  })
+
+  test('an alias equal to an installed locale code is refused, case-insensitively', async () => {
+    for (const alias of ['fr', 'FR', 'ja', 'zh-cn']) {
+      const res = await put({ aliases: { 'zh-CN': alias } })
+      assert.equal(res.statusCode, 400, alias)
+      assert.equal(res.json().error, 'siteUpdateAliasCollidesWithLocale', alias)
+    }
+  })
+
+  test('an alias colliding with an existing root page or folder is refused with a 409', async () => {
+    rootSegmentsInUse.add('zh')
+    const res = await put({ aliases: { 'zh-CN': 'ZH' } })
+    assert.equal(res.statusCode, 409)
+    assert.equal(res.json().error, 'siteUpdateAliasCollidesWithContent')
+    assert.equal(updateSiteCalls.length, 0)
+  })
+
+  test('an alias already stored is not re-checked against content', async () => {
+    sites[ALIAS_SITE_ID].config.locales.aliases = { 'zh-CN': 'zh' }
+    rootSegmentsInUse.add('zh')
+    const res = await put({ showMenu: true })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(updateSiteCalls[0].patch.config.locales.aliases, { 'zh-CN': 'zh' })
+  })
+
+  test('supplying an empty map, or an empty alias, clears aliases', async () => {
+    sites[ALIAS_SITE_ID].config.locales.aliases = { 'zh-CN': 'zh', fr: 'f' }
+    const res = await put({ aliases: { 'zh-CN': '' } })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(updateSiteCalls[0].patch.config.locales.aliases, {})
+  })
 })

@@ -6,6 +6,7 @@ import {
   setupTestDb,
   teardownTestDb,
   seedLocale,
+  seedTreeEntry,
   type TestFixtures
 } from '../test/db.ts'
 import sitesRoutes from './sites.ts'
@@ -88,3 +89,68 @@ describe(
     })
   }
 )
+
+describe('locale aliases (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let app: FastifyInstance
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'zh-CN' })
+    await seedLocale(fixtures.db, { code: 'fr' })
+    app = await buildTestApp({
+      routes: sitesRoutes,
+      ajv: true,
+      session: () => ({
+        authenticated: true,
+        user: { id: fixtures.userId },
+        permissions: ['manage:system']
+      })
+    })
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    await teardownTestDb()
+  })
+
+  const put = (locales: Record<string, any>) =>
+    app.inject({ method: 'PUT', url: `/${fixtures.siteId}`, payload: { locales } })
+
+  const storedLocales = async () => {
+    const res = await app.inject({ method: 'GET', url: `/${fixtures.siteId}` })
+    assert.equal(res.statusCode, 200)
+    return res.json().locales
+  }
+
+  test('a valid alias round-trips, and deactivating its locale clears it', async () => {
+    const saved = await put({ primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } })
+    assert.equal(saved.statusCode, 200)
+    assert.deepEqual((await storedLocales()).aliases, { 'zh-CN': 'zh' })
+
+    const unrelated = await put({ showMenu: false })
+    assert.equal(unrelated.statusCode, 200)
+    assert.deepEqual((await storedLocales()).aliases, { 'zh-CN': 'zh' })
+
+    const deactivated = await put({ active: ['en'] })
+    assert.equal(deactivated.statusCode, 200)
+    assert.deepEqual((await storedLocales()).aliases, {})
+  })
+
+  test('an alias is refused while a root page or folder starts with that segment', async () => {
+    await seedTreeEntry(fixtures.db, { siteId: fixtures.siteId, path: 'docs', type: 'folder' })
+    await seedTreeEntry(fixtures.db, { siteId: fixtures.siteId, path: 'docs/intro' })
+    await seedTreeEntry(fixtures.db, { siteId: fixtures.siteId, path: 'notes/deep/page' })
+
+    const active = ['en', 'zh-CN']
+    for (const alias of ['docs', 'DOCS', 'notes']) {
+      const refused = await put({ active, aliases: { 'zh-CN': alias } })
+      assert.equal(refused.statusCode, 409, alias)
+      assert.equal(refused.json().error, 'siteUpdateAliasCollidesWithContent', alias)
+    }
+
+    const accepted = await put({ active, aliases: { 'zh-CN': 'deep' } })
+    assert.equal(accepted.statusCode, 200)
+  })
+})

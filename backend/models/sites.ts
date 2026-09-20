@@ -313,7 +313,9 @@ class Sites extends ClusterReloaded {
         current[0].config as Record<string, any>,
         patch.config,
         (_targetValue, sourceValue, key) =>
-          Array.isArray(sourceValue) || key === 'dictOverrides' ? sourceValue : undefined
+          Array.isArray(sourceValue) || key === 'dictOverrides' || key === 'aliases'
+            ? sourceValue
+            : undefined
       )
     }
     if (Object.keys(values).length < 1) {
