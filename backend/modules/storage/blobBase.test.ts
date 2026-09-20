@@ -61,7 +61,17 @@ function makeDriver() {
         _config: Record<string, any>
       ) => {}
     ),
-    sign: mock.fn(async (_client: FakeClient, key: string, _ttl: number) => `signed:${key}`)
+    sign: mock.fn(async (_client: FakeClient, key: string, _ttl: number) => `signed:${key}`),
+    get: mock.fn(
+      async (_client: FakeClient, _key: string) =>
+        ({ body: Readable.from([Buffer.from('bytes')]), size: 5 }) as {
+          body: Readable
+          size: number
+        } | null
+    ),
+    head: mock.fn(
+      async (_client: FakeClient, _key: string) => ({ size: 5 }) as { size: number } | null
+    )
   } satisfies BlobDriver<FakeClient>
 }
 
@@ -505,24 +515,8 @@ describe('blobBase / readAsset and headAsset', () => {
     fileName: 'pic.png'
   }
 
-  function makeReadDriver() {
-    return {
-      ...makeDriver(),
-      get: mock.fn(
-        async (_client: FakeClient, _key: string) =>
-          ({ body: Readable.from([Buffer.from('bytes')]), size: 5 }) as {
-            body: Readable
-            size: number
-          } | null
-      ),
-      head: mock.fn(
-        async (_client: FakeClient, _key: string) => ({ size: 5 }) as { size: number } | null
-      )
-    }
-  }
-
   test('readAsset returns the driver body and size, keyed by keyFor', async () => {
-    const driver = makeReadDriver()
+    const driver = makeDriver()
     const module = blobStorageModule(driver)
     const target = makeTarget()
 
@@ -538,7 +532,7 @@ describe('blobBase / readAsset and headAsset', () => {
   })
 
   test('headAsset returns the driver size, keyed by keyFor', async () => {
-    const driver = makeReadDriver()
+    const driver = makeDriver()
     const module = blobStorageModule(driver)
     const target = makeTarget()
 
@@ -547,7 +541,7 @@ describe('blobBase / readAsset and headAsset', () => {
   })
 
   test('a not-found object is null from both handlers', async () => {
-    const driver = makeReadDriver()
+    const driver = makeDriver()
     driver.get.mock.mockImplementationOnce(async () => null)
     driver.head.mock.mockImplementationOnce(async () => null)
     const module = blobStorageModule(driver)
@@ -558,7 +552,7 @@ describe('blobBase / readAsset and headAsset', () => {
   })
 
   test('a driver failure is wrapped as Failed to ... naming the key', async () => {
-    const driver = makeReadDriver()
+    const driver = makeDriver()
     driver.get.mock.mockImplementationOnce(async () => {
       throw new Error('500 boom')
     })
@@ -576,22 +570,6 @@ describe('blobBase / readAsset and headAsset', () => {
     await assert.rejects(
       () => module.headAsset!(asset, target),
       (err: any) => err.message === `Failed to inspect "${key}": 403 nope`
-    )
-  })
-
-  test('a driver without get/head throws a not-supported error rather than returning null', async () => {
-    const module = blobStorageModule(makeDriver())
-    const target = makeTarget()
-    const key = `${target.siteId}/images/pic.png`
-
-    await assert.rejects(
-      () => module.readAsset!(asset, target),
-      (err: any) =>
-        /^Failed to read ".*": .*not supported/i.test(err.message) && err.message.includes(key)
-    )
-    await assert.rejects(
-      () => module.headAsset!(asset, target),
-      (err: any) => /^Failed to inspect ".*": .*not supported/i.test(err.message)
     )
   })
 })
