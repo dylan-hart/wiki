@@ -1,7 +1,7 @@
 import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import {
   hasTestDatabase,
   seedLocale,
@@ -10,7 +10,12 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
-import { pages as pagesTable, sites as sitesTable, tree as treeTable } from '../db/schema.ts'
+import {
+  assets as assetsTable,
+  pages as pagesTable,
+  sites as sitesTable,
+  tree as treeTable
+} from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -1583,6 +1588,352 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         parentId: folder.id
       })
       assert.ok(items.some((item) => item.title === 'Draft By Default'))
+    })
+  })
+
+  describe('duplicateFolder', () => {
+    async function rowAt(folderPath: string, fileName: string) {
+      const rows = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(
+          and(
+            eq(treeTable.siteId, fixtures.siteId),
+            eq(treeTable.locale, 'en'),
+            eq(treeTable.folderPath, folderPath),
+            eq(treeTable.fileName, fileName)
+          )
+        )
+      return rows[0] ?? null
+    }
+
+    async function seedSource(name: string) {
+      const source = await treeModel.createFolder({
+        pathName: name,
+        title: `${name} title`,
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await treeModel.createFolder({
+        parentId: source.id,
+        pathName: 'nested',
+        title: 'Nested',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const intro = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: `${name}/intro`,
+          title: 'Intro',
+          locale: 'en',
+          content: '# Intro\n\nOriginal body.',
+          description: 'An intro',
+          tags: ['alpha', 'beta']
+        }),
+        actor
+      )
+      const deep = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: `${name}/nested/deep`, title: 'Deep', locale: 'en' }),
+        actor
+      )
+      const rootAsset = await assetsModel.upload({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        folderId: source.id,
+        fileName: 'notes.txt',
+        mimeType: 'text/plain',
+        data: Buffer.from('root asset bytes'),
+        authorId: fixtures.userId
+      })
+      const nestedFolder = (await rowAt(name, 'nested'))!
+      const nestedAsset = await assetsModel.upload({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        folderId: nestedFolder.id,
+        fileName: 'pic.png',
+        mimeType: 'image/png',
+        data: Buffer.from('nested asset bytes'),
+        authorId: fixtures.userId
+      })
+      return { source, intro, deep, rootAsset, nestedAsset }
+    }
+
+    async function assetRow(id: string) {
+      const rows = await fixtures.db.select().from(assetsTable).where(eq(assetsTable.id, id))
+      return rows[0] ?? null
+    }
+
+    async function pageAt(path: string) {
+      const rows = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(and(eq(pagesTable.siteId, fixtures.siteId), eq(pagesTable.path, path)))
+      return rows[0] ?? null
+    }
+
+    test('copies every descendant folder, page and asset to a destination created on the way', async () => {
+      const { source, intro, deep, rootAsset, nestedAsset } = await seedSource('dup-full')
+
+      const result = await treeModel.duplicateFolder({
+        id: source.id,
+        siteId: fixtures.siteId,
+        parentPath: 'dup-full-dest',
+        actor
+      })
+
+      assert.equal(result.folders, 2)
+      assert.equal(result.pages, 2)
+      assert.equal(result.assets, 2)
+      assert.equal(result.folder.folderPath, 'dup-full-dest')
+      assert.equal(result.folder.fileName, 'dup-full')
+      assert.equal(result.folder.title, 'dup-full title')
+      assert.notEqual(result.folder.id, source.id)
+
+      assert.ok(await rowAt('', 'dup-full-dest'), 'the missing destination folder is created')
+      assert.ok(await rowAt('dup-full-dest.dup-full', 'nested'))
+
+      const copiedIntro = await pageAt('dup-full-dest/dup-full/intro')
+      assert.ok(copiedIntro)
+      assert.notEqual(copiedIntro!.id, intro.id)
+      assert.equal(copiedIntro!.title, 'Intro')
+      assert.equal(copiedIntro!.content, '# Intro\n\nOriginal body.')
+      assert.equal(copiedIntro!.description, 'An intro')
+      assert.deepEqual(copiedIntro!.tags, ['alpha', 'beta'])
+      assert.ok(await readTreeRow(copiedIntro!.id))
+
+      const copiedDeep = await pageAt('dup-full-dest/dup-full/nested/deep')
+      assert.ok(copiedDeep)
+      assert.notEqual(copiedDeep!.id, deep.id)
+
+      const copiedRootAssetTree = await rowAt('dup-full-dest.dup-full', 'notes.txt')
+      assert.ok(copiedRootAssetTree)
+      assert.notEqual(copiedRootAssetTree!.id, rootAsset.id)
+      const copiedRootAsset = await assetRow(copiedRootAssetTree!.id)
+      assert.equal(copiedRootAsset!.data!.toString(), 'root asset bytes')
+      assert.equal(copiedRootAsset!.mimeType, 'text/plain')
+      assert.equal(copiedRootAsset!.fileSize, 16)
+
+      const copiedNestedAssetTree = await rowAt('dup-full-dest.dup-full.nested', 'pic.png')
+      assert.ok(copiedNestedAssetTree)
+      assert.notEqual(copiedNestedAssetTree!.id, nestedAsset.id)
+      const copiedNestedAsset = await assetRow(copiedNestedAssetTree!.id)
+      assert.equal(copiedNestedAsset!.data!.toString(), 'nested asset bytes')
+      assert.equal(copiedNestedAsset!.kind, 'image')
+      assert.equal(copiedNestedAsset!.authorId, fixtures.userId)
+
+      const copiedFolder = await treeModel.getFolderById(result.folder.id, fixtures.siteId)
+      assert.equal(copiedFolder!.meta.children, 3, 'intro, notes.txt and nested')
+      const destination = (await rowAt('', 'dup-full-dest'))!
+      assert.equal((destination.meta as any).children, 1)
+    })
+
+    test('the copy is independent of the source', async () => {
+      const { source, intro, rootAsset } = await seedSource('dup-indep')
+      await treeModel.duplicateFolder({
+        id: source.id,
+        siteId: fixtures.siteId,
+        parentPath: 'dup-indep-dest',
+        actor
+      })
+
+      const copiedIntro = (await pageAt('dup-indep-dest/dup-indep/intro'))!
+      await fixtures.db
+        .update(pagesTable)
+        .set({ content: 'Edited in the copy.' })
+        .where(eq(pagesTable.id, copiedIntro.id))
+      const copiedAssetTree = (await rowAt('dup-indep-dest.dup-indep', 'notes.txt'))!
+      await fixtures.db.delete(assetsTable).where(eq(assetsTable.id, copiedAssetTree.id))
+      await fixtures.db.delete(treeTable).where(eq(treeTable.id, copiedAssetTree.id))
+
+      const sourceIntro = await pageAt('dup-indep/intro')
+      assert.equal(sourceIntro!.id, intro.id)
+      assert.equal(sourceIntro!.content, '# Intro\n\nOriginal body.')
+      const sourceAsset = await assetRow(rootAsset.id)
+      assert.equal(sourceAsset!.data!.toString(), 'root asset bytes')
+    })
+
+    test('copies the tree row meta of an asset as-is', async () => {
+      const { source, rootAsset } = await seedSource('dup-meta')
+      const meta = { fileSize: 16, fileExt: 'txt', mimeType: 'text/plain', width: 640, height: 480 }
+      await fixtures.db.update(treeTable).set({ meta }).where(eq(treeTable.id, rootAsset.id))
+
+      await treeModel.duplicateFolder({
+        id: source.id,
+        siteId: fixtures.siteId,
+        parentPath: 'dup-meta-dest',
+        actor
+      })
+
+      const copied = (await rowAt('dup-meta-dest.dup-meta', 'notes.txt'))!
+      assert.deepEqual(copied.meta, meta)
+    })
+
+    test('refuses a name collision at the destination with a 409 and changes nothing', async () => {
+      const { source } = await seedSource('dup-clash')
+      const dest = await treeModel.createFolder({
+        pathName: 'dup-clash-dest',
+        title: 'Dest',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await treeModel.createFolder({
+        parentId: dest.id,
+        pathName: 'dup-clash',
+        title: 'Already here',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      await assert.rejects(
+        treeModel.duplicateFolder({
+          id: source.id,
+          siteId: fixtures.siteId,
+          folderId: dest.id,
+          actor
+        }),
+        (err: any) => err.statusCode === 409 && err.name === 'treeFolderDuplicate'
+      )
+
+      assert.equal(await pageAt('dup-clash-dest/dup-clash/intro'), null)
+      const destAfter = await treeModel.getFolderById(dest.id, fixtures.siteId)
+      assert.equal(destAfter!.meta.children, 1)
+    })
+
+    test('a new name lets a folder be copied beside itself', async () => {
+      const { source } = await seedSource('dup-beside')
+
+      const result = await treeModel.duplicateFolder({
+        id: source.id,
+        siteId: fixtures.siteId,
+        pathName: 'dup-beside-copy',
+        title: 'Beside copy',
+        actor
+      })
+
+      assert.equal(result.folder.folderPath, '')
+      assert.equal(result.folder.fileName, 'dup-beside-copy')
+      assert.ok(await pageAt('dup-beside-copy/intro'))
+      assert.ok(await pageAt('dup-beside-copy/nested/deep'))
+    })
+
+    test('refuses a root copy named after an installed locale code', async () => {
+      const { source } = await seedSource('dup-locale')
+
+      await assert.rejects(
+        treeModel.duplicateFolder({
+          id: source.id,
+          siteId: fixtures.siteId,
+          pathName: 'fr',
+          actor
+        }),
+        (err: any) => err.name === 'treeReservedLocaleSegment' && err.statusCode === 400
+      )
+      assert.equal(await rowAt('', 'fr'), null)
+    })
+
+    test('refuses a source folder of another site', async () => {
+      const { source } = await seedSource('dup-foreign')
+
+      await assert.rejects(
+        treeModel.duplicateFolder({
+          id: source.id,
+          siteId: randomUUID(),
+          actor
+        }),
+        (err: any) => err.name === 'treeInvalidFolder' && err.statusCode === 404
+      )
+    })
+
+    test('copying a folder into its own subtree does not copy the copy', async () => {
+      const { source } = await seedSource('dup-self')
+      const nested = (await rowAt('dup-self', 'nested'))!
+
+      const result = await treeModel.duplicateFolder({
+        id: source.id,
+        siteId: fixtures.siteId,
+        folderId: nested.id,
+        actor
+      })
+
+      assert.equal(result.folder.folderPath, 'dup-self.nested')
+      assert.equal(result.folders, 2)
+      assert.ok(await rowAt('dup-self.nested.dup-self', 'nested'))
+      assert.equal(await rowAt('dup-self.nested.dup-self.nested', 'dup-self'), null)
+      assert.ok(await pageAt('dup-self/nested/dup-self/nested/deep'))
+      assert.equal(await pageAt('dup-self/nested/dup-self/nested/dup-self/intro'), null)
+    })
+
+    test('a failure part-way rolls back every folder, page and asset, and fires no side effects', async () => {
+      const { source } = await seedSource('dup-fail')
+      const assetsBefore = await fixtures.db.select({ id: assetsTable.id }).from(assetsTable)
+      const storageModel = (globalThis as any).CARDINAL.models.storage
+      const storageCalls: any[] = []
+      storageModel.dispatch = async (event: string, data: any) => {
+        storageCalls.push({ event, ...data })
+        return 0
+      }
+      let addAssetCalls = 0
+      const original = treeModel.addAsset.bind(treeModel)
+      const addAsset = mock.method(treeModel, 'addAsset', async (args: any) => {
+        addAssetCalls++
+        if (addAssetCalls === 2) {
+          throw new Error('simulated failure on the second asset')
+        }
+        return original(args)
+      })
+
+      try {
+        await assert.rejects(
+          treeModel.duplicateFolder({
+            id: source.id,
+            siteId: fixtures.siteId,
+            parentPath: 'dup-fail-dest',
+            actor
+          }),
+          /simulated failure/
+        )
+      } finally {
+        addAsset.mock.restore()
+        delete storageModel.dispatch
+      }
+
+      assert.equal(addAssetCalls, 2)
+      assert.equal(await rowAt('', 'dup-fail-dest'), null)
+      assert.equal(await pageAt('dup-fail-dest/dup-fail/intro'), null)
+      assert.equal(await pageAt('dup-fail-dest/dup-fail/nested/deep'), null)
+      const assetsAfter = await fixtures.db.select({ id: assetsTable.id }).from(assetsTable)
+      assert.equal(assetsAfter.length, assetsBefore.length)
+      assert.deepEqual(storageCalls, [])
+    })
+
+    test('announces the copied pages and assets once the copy has committed', async () => {
+      const { source } = await seedSource('dup-announce')
+      const storageModel = (globalThis as any).CARDINAL.models.storage
+      const storageCalls: any[] = []
+      storageModel.dispatch = async (event: string, data: any) => {
+        storageCalls.push({ event, ...data })
+        return 0
+      }
+
+      try {
+        await treeModel.duplicateFolder({
+          id: source.id,
+          siteId: fixtures.siteId,
+          parentPath: 'dup-announce-dest',
+          actor
+        })
+      } finally {
+        delete storageModel.dispatch
+      }
+
+      const uploads = storageCalls.filter((call) => call.event === 'asset:upload')
+      assert.equal(uploads.length, 2)
+      assert.deepEqual(uploads.map((call) => call.fileName).sort(), ['notes.txt', 'pic.png'])
+      assert.equal(uploads.find((call) => call.fileName === 'pic.png')!.kind, 'image')
+      const creates = storageCalls.filter((call) => call.event === 'page:create')
+      assert.equal(creates.length, 2)
     })
   })
 })

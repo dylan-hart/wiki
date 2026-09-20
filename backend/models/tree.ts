@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, exists, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
 import { alias, type PgColumn } from 'drizzle-orm/pg-core'
+import { randomUUID } from 'node:crypto'
 import { chunk } from 'es-toolkit/array'
 import type { WikiDbOrTx } from '../core/db.ts'
 import { assets as assetsTable, pages as pagesTable, tree as treeTable } from '../db/schema.ts'
@@ -11,6 +12,8 @@ import {
   isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
+import { announce } from './hooks.ts'
+import type { CreatedPageRows, PageActor, PageInput } from './pages.ts'
 
 export const TREE_UPDATE_CHUNK_SIZE = 200
 
@@ -153,6 +156,13 @@ export interface MovedDescendantAsset {
   previousFolderPath: string
   kind: string
   fileSize: number | null
+}
+
+export interface DuplicatedFolder {
+  folder: TreeRow
+  folders: number
+  pages: number
+  assets: number
 }
 
 export interface TreeRow {
@@ -1420,6 +1430,236 @@ class Tree {
     }
 
     return { pages, assets }
+  }
+
+  async duplicateFolder({
+    id,
+    siteId,
+    folderId,
+    parentPath,
+    pathName,
+    title,
+    actor
+  }: {
+    id: string
+    siteId: string
+    folderId?: string | null
+    parentPath?: string | null
+    pathName?: string
+    title?: string
+    actor: PageActor
+  }): Promise<DuplicatedFolder> {
+    const source = await this.requireFolderById(id, siteId)
+    const sourcePath = childPathOf(source)
+
+    CARDINAL.logger.debug('pages', 'duplicating folder', { folder: source.id, path: sourcePath })
+
+    const createdPages: { rows: CreatedPageRows; input: PageInput }[] = []
+    const createdAssets: {
+      id: string
+      fileName: string
+      folderPath: string
+      kind: string
+      fileSize: number | null
+    }[] = []
+    let folderCount = 0
+
+    const copy = await CARDINAL.db.transaction(async (tx) => {
+      const rows = await tx
+        .select({
+          id: treeTable.id,
+          type: treeTable.type,
+          folderPath: treeTable.folderPath,
+          fileName: treeTable.fileName,
+          title: treeTable.title,
+          tags: treeTable.tags,
+          meta: treeTable.meta,
+          assetId: assetsTable.id,
+          assetKind: assetsTable.kind,
+          assetFileSize: assetsTable.fileSize
+        })
+        .from(treeTable)
+        .leftJoin(assetsTable, eq(assetsTable.id, treeTable.id))
+        .where(
+          and(
+            eq(treeTable.siteId, source.siteId),
+            eq(treeTable.locale, source.locale),
+            sql`${treeTable.folderPath} <@ ${sourcePath}::ltree`
+          )
+        )
+
+      const root = await this.createFolder({
+        parentId: folderId,
+        parentPath: folderId ? undefined : parentPath,
+        pathName: pathName ?? source.fileName,
+        title: title ?? source.title,
+        locale: source.locale,
+        siteId,
+        db: tx
+      })
+      folderCount++
+      const rootPath = childPathOf(root)
+
+      const relocate = (folderPath: string | null): string =>
+        `${rootPath}${(folderPath ?? '').slice(sourcePath.length)}`
+      const depthOf = (folderPath: string | null): number => (folderPath ?? '').split('.').length
+
+      const folders = rows
+        .filter((row) => row.type === 'folder')
+        .toSorted((a, b) => depthOf(a.folderPath) - depthOf(b.folderPath))
+      for (const row of folders) {
+        await this.createFolder({
+          parentPath: decodeTreePath(relocate(row.folderPath)),
+          pathName: row.fileName,
+          title: row.title,
+          locale: root.locale,
+          siteId,
+          db: tx
+        })
+        folderCount++
+      }
+
+      for (const row of rows.filter((entry) => entry.type === 'page')) {
+        const pageRow = (
+          await tx.select().from(pagesTable).where(eq(pagesTable.id, row.id)).limit(1)
+        )[0]
+        if (!pageRow) {
+          CARDINAL.logger.warn('pages', 'skipped a tree page with no page row while duplicating', {
+            page: row.id
+          })
+          continue
+        }
+        const config = (pageRow.config ?? {}) as Record<string, any>
+        const input: PageInput = {
+          path: `${decodeTreePath(relocate(row.folderPath))}/${row.fileName}`,
+          title: pageRow.title,
+          editor: pageRow.editor,
+          content: pageRow.content ?? '',
+          ...(pageRow.render ? { render: pageRow.render } : {}),
+          locale: root.locale,
+          description: pageRow.description ?? '',
+          icon: pageRow.icon ?? '',
+          publishState: pageRow.publishState,
+          publishStartDate: pageRow.publishStartDate?.toISOString() ?? null,
+          publishEndDate: pageRow.publishEndDate?.toISOString() ?? null,
+          isBrowsable: pageRow.isBrowsable,
+          isSearchable: pageRow.isSearchable,
+          relations: pageRow.relations as any[],
+          tags: pageRow.tags,
+          classification: pageRow.classification,
+          allowComments: config.allowComments,
+          allowContributions: config.allowContributions,
+          showSidebar: config.showSidebar,
+          showTags: config.showTags,
+          showToc: config.showToc,
+          tocDepth: config.tocDepth
+        }
+        const created = await CARDINAL.models.pages.insertPageRows(siteId, input, actor, {
+          tx,
+          passwordHash: pageRow.password
+        })
+        createdPages.push({ rows: created, input })
+      }
+
+      for (const row of rows.filter((entry) => entry.type === 'asset')) {
+        if (!row.assetId) {
+          CARDINAL.logger.warn(
+            'assets',
+            'skipped a tree asset with no asset row while duplicating',
+            {
+              asset: row.id
+            }
+          )
+          continue
+        }
+        const folderPath = decodeTreePath(relocate(row.folderPath)) ?? ''
+        const entry = await this.addAsset({
+          id: randomUUID(),
+          parentPath: folderPath,
+          fileName: row.fileName,
+          title: row.title,
+          locale: root.locale,
+          siteId,
+          tags: row.tags ?? [],
+          meta: row.meta as Record<string, any>,
+          db: tx
+        })
+        await tx.execute(sql`
+          INSERT INTO ${assetsTable} (
+            "id", "fileName", "fileExt", "isSystem", "kind", "mimeType", "fileSize", "meta",
+            "data", "preview", "authorId", "siteId"
+          )
+          SELECT
+            ${entry.id}::uuid, ${entry.fileName}, "fileExt", "isSystem", "kind", "mimeType",
+            "fileSize", "meta", "data", "preview", ${actor.id}::uuid, "siteId"
+          FROM ${assetsTable}
+          WHERE "id" = ${row.assetId}::uuid
+        `)
+        createdAssets.push({
+          id: entry.id,
+          fileName: entry.fileName,
+          folderPath,
+          kind: row.assetKind ?? 'other',
+          fileSize: row.assetFileSize ?? null
+        })
+      }
+
+      return root
+    })
+
+    CARDINAL.models.navigation.invalidateCache(siteId)
+
+    for (const { rows, input } of createdPages) {
+      try {
+        await CARDINAL.models.pages.completePageCreate(siteId, rows, input, actor)
+      } catch (err: any) {
+        CARDINAL.logger.warn('pages', 'finishing a duplicated page failed', {
+          page: rows.page.id,
+          error: err
+        })
+      }
+    }
+    for (const asset of createdAssets) {
+      try {
+        await announce(
+          'asset:upload',
+          siteId,
+          {
+            id: asset.id,
+            fileName: asset.fileName,
+            folderPath: asset.folderPath,
+            siteId,
+            authorId: actor.id
+          },
+          {
+            metadata: { fileSize: asset.fileSize, kind: asset.kind },
+            dispatchExtra: { kind: asset.kind, fileSize: asset.fileSize }
+          }
+        )
+      } catch (err: any) {
+        CARDINAL.logger.warn('assets', 'announcing a duplicated asset failed', {
+          asset: asset.id,
+          error: err
+        })
+      }
+    }
+
+    CARDINAL.logger.info('pages', 'duplicated folder', {
+      site: siteId,
+      from: source.id,
+      to: copy.id,
+      folders: folderCount,
+      pages: createdPages.length,
+      assets: createdAssets.length,
+      user: actor.id
+    })
+
+    return {
+      folder: copy,
+      folders: folderCount,
+      pages: createdPages.length,
+      assets: createdAssets.length
+    }
   }
 
   /**
