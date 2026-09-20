@@ -1,5 +1,4 @@
-import proxyAddr from '@fastify/proxy-addr'
-import { CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
+import { compileTrustProxyList, CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
 
 export const SECURITY_FIELDS = [
   'apiRateLimitBan',
@@ -36,7 +35,7 @@ const DURATION_PATTERN = /^\d+[smhdwy]$/
  */
 export function validateTrustProxySpec(spec: string): string | null {
   try {
-    proxyAddr.compile(spec.split(',').map((entry) => entry.trim()))
+    compileTrustProxyList(spec)
     return null
   } catch (err: any) {
     return `The trusted proxy list is invalid: ${err.message}`
