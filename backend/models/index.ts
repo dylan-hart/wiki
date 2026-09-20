@@ -12,6 +12,7 @@ import { blocks } from './blocks.ts'
 import { checklists } from './checklists.ts'
 import { classificationLevels } from './classificationLevels.ts'
 import { commentProviders } from './commentProviders.ts'
+import { commentNotifications } from './commentNotifications.ts'
 import { comments } from './comments.ts'
 import { contentSync } from './contentSync.ts'
 import { diagramProxy } from './diagramProxy.ts'
@@ -73,6 +74,7 @@ export default {
   blocks,
   checklists,
   classificationLevels,
+  commentNotifications,
   commentProviders,
   comments,
   contentSync,
