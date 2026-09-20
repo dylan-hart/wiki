@@ -81,6 +81,27 @@
     </w-item>
     <w-separator inset />
     <w-item>
+      <blueprint-icon icon="tabler:hash" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.handle`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.handleHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-input
+          ref="handleField"
+          v-model="state.config.handle"
+          hide-bottom-space
+          prefix="@"
+          :aria-label="t(`profile.handle`)"
+          :readonly="!canEdit"
+          :rules="[handleRule]"
+          @blur="commitTextField('handle')"
+          @keyup:enter="commitTextField('handle')"
+          @keydown.esc="revertTextField('handle', $event)" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset />
+    <w-item>
       <blueprint-icon icon="tabler:mail" />
       <w-item-section>
         <w-item-label>{{ t(`profile.email`) }}</w-item-label>
@@ -181,6 +202,7 @@ const state = reactive({
     name: '',
     firstName: '',
     lastName: '',
+    handle: '',
     email: '',
     location: '',
     jobTitle: '',
@@ -200,17 +222,19 @@ const state = reactive({
   fieldErrors: {
     name: null,
     firstName: null,
-    lastName: null
+    lastName: null,
+    handle: null
   }
 })
 
 // -> What Esc reverts to: `state.config` only ever holds the in-progress edit, so this parallel
 //    record holds what the server last confirmed. Written only once a fetch or save response lands.
-const TEXT_FIELDS = ['firstName', 'lastName', 'name', 'location', 'jobTitle', 'pronouns']
+const TEXT_FIELDS = ['firstName', 'lastName', 'name', 'handle', 'location', 'jobTitle', 'pronouns']
 const lastSaved = reactive({
   firstName: '',
   lastName: '',
   name: '',
+  handle: '',
   location: '',
   jobTitle: '',
   pronouns: ''
@@ -229,6 +253,7 @@ const AUTO_SAVE_DEBOUNCE_MS = 800
 const firstNameField = ref(null)
 const lastNameField = ref(null)
 const nameField = ref(null)
+const handleField = ref(null)
 
 /*
   `WInput` re-runs its `rules` only on its own `modelValue` change or blur, never because
@@ -239,11 +264,13 @@ function revalidateFieldRefs() {
   firstNameField.value?.validate()
   lastNameField.value?.validate()
   nameField.value?.validate()
+  handleField.value?.validate()
 }
 
 const firstNameRule = () => state.fieldErrors.firstName ?? true
 const lastNameRule = () => state.fieldErrors.lastName ?? true
 const nameRule = () => state.fieldErrors.name ?? true
+const handleRule = () => state.fieldErrors.handle ?? true
 
 const canEdit = computed(() => siteStore.features?.profile)
 
@@ -282,6 +309,7 @@ function applyProfile(profile) {
   state.config.name = profile.name || ''
   state.config.firstName = profile.firstName || ''
   state.config.lastName = profile.lastName || ''
+  state.config.handle = profile.handle || ''
   state.config.email = profile.email || ''
   state.config.location = profile.location || ''
   state.config.jobTitle = profile.jobTitle || ''
@@ -314,6 +342,8 @@ function applyFieldErrors(err) {
     state.fieldErrors.name = message
     state.fieldErrors.firstName = message
     state.fieldErrors.lastName = message
+  } else if (code === 'userHandleTaken' || code === 'userHandleInvalid') {
+    state.fieldErrors.handle = message
   }
   revalidateFieldRefs()
 }
@@ -340,6 +370,7 @@ async function save() {
         name: state.config.name,
         firstName: state.config.firstName,
         lastName: state.config.lastName,
+        handle: state.config.handle,
         location: state.config.location,
         jobTitle: state.config.jobTitle,
         pronouns: state.config.pronouns,
