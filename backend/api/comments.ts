@@ -55,24 +55,6 @@ async function resolveAuthorName(comment: {
   return comment.guestName ?? ''
 }
 
-/** `authorEmail` is always null: a page's comment list may be read anonymously. */
-function toPublicComment(comment: ThreadedComment): Record<string, unknown> {
-  return {
-    id: comment.id,
-    siteId: comment.siteId,
-    pageId: comment.pageId,
-    authorId: comment.authorId,
-    authorName: comment.authorName,
-    authorEmail: null,
-    replyTo: comment.replyTo,
-    content: comment.content,
-    render: comment.render,
-    createdAt: comment.createdAt,
-    updatedAt: comment.updatedAt,
-    replies: comment.replies.map((reply) => toPublicComment(reply))
-  }
-}
-
 function flattenIds(thread: ThreadedComment[]): Set<string> {
   const ids = new Set<string>()
   const visit = (nodes: ThreadedComment[]) => {
@@ -85,6 +67,8 @@ function flattenIds(thread: ThreadedComment[]): Set<string> {
   return ids
 }
 
+type PageRef = { path: string; locale: string | null; tags?: string[] }
+
 /**
  * A comment's own author may edit or delete it without `manage:comments` — a deliberate divergence
  * from Wiki.js 2.5.x, which requires it for every edit and delete. A guest comment (`authorId`
@@ -93,7 +77,7 @@ function flattenIds(thread: ThreadedComment[]): Set<string> {
 function maySelfModerate(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] },
+  page: PageRef,
   comment: { authorId: string | null },
   actor: { id: string } | null
 ): boolean {
@@ -101,6 +85,46 @@ function maySelfModerate(
     return true
   }
   return Boolean(actor && comment.authorId !== null && comment.authorId === actor.id)
+}
+
+/**
+ * What this requester may do to `comment`, resolved server-side so the client gates its controls on
+ * the rule the PATCH/DELETE routes will actually apply. Edit and delete share `maySelfModerate`, so
+ * the two flags always agree today; they stay separate on the wire so the rules can diverge.
+ */
+function moderationFlags(
+  req: FastifyRequest,
+  siteId: string,
+  page: PageRef,
+  comment: { authorId: string | null },
+  actor: { id: string } | null
+): { canEdit: boolean; canDelete: boolean } {
+  const allowed = maySelfModerate(req, siteId, page, comment, actor)
+  return { canEdit: allowed, canDelete: allowed }
+}
+
+/** `authorEmail` is always null: a page's comment list may be read anonymously. */
+function toPublicComment(
+  req: FastifyRequest,
+  page: PageRef,
+  actor: { id: string } | null,
+  comment: ThreadedComment
+): Record<string, unknown> {
+  return {
+    id: comment.id,
+    siteId: comment.siteId,
+    pageId: comment.pageId,
+    authorId: comment.authorId,
+    authorName: comment.authorName,
+    authorEmail: null,
+    replyTo: comment.replyTo,
+    content: comment.content,
+    render: comment.render,
+    createdAt: comment.createdAt,
+    updatedAt: comment.updatedAt,
+    ...moderationFlags(req, comment.siteId, page, comment, actor),
+    replies: comment.replies.map((reply) => toPublicComment(req, page, actor, reply))
+  }
 }
 
 async function routes(app: FastifyInstance) {
@@ -336,8 +360,9 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
+      const actor = actorFrom(req)
       const thread = await CARDINAL.models.comments.listForPage(page.id)
-      return thread.map((comment) => toPublicComment(comment))
+      return thread.map((comment) => toPublicComment(req, page, actor, comment))
     }
   )
 
@@ -509,6 +534,7 @@ async function routes(app: FastifyInstance) {
         render: comment.render,
         createdAt: comment.createdAt,
         updatedAt: comment.updatedAt,
+        ...moderationFlags(req, req.params.siteId, page, comment, actor),
         replies: []
       }
     }
@@ -583,6 +609,7 @@ async function routes(app: FastifyInstance) {
         render: updated.render,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
+        ...moderationFlags(req, req.params.siteId, page, updated, actor),
         replies: []
       }
     }

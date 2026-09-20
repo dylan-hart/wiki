@@ -47,9 +47,10 @@
                 for a tab-focused button, so these would otherwise be invisible to the keyboard.
               -->
               <div
-                v-if="canModerate"
+                v-if="entry.comment.canEdit || entry.comment.canDelete"
                 class="page-comments-actions ms-auto flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                 <w-btn
+                  v-if="entry.comment.canEdit"
                   class="page-comments-edit-toggle"
                   icon="tabler:pencil"
                   flat
@@ -59,6 +60,7 @@
                   :aria-label="t(`common.comments.updateComment`)"
                   @click="startEdit(entry.comment)" />
                 <w-btn
+                  v-if="entry.comment.canDelete"
                   class="page-comments-delete-toggle"
                   icon="tabler:trash"
                   flat
@@ -166,7 +168,6 @@ const canWrite = computed(() => userStore.can('write:comments'))
  * delete their own comment here, even though `maySelfModerate()` (`backend/api/comments.ts`) lets
  * them. The fix is putting those flags on the wire and gating per comment.
  */
-const canModerate = computed(() => userStore.can('manage:comments'))
 
 const loading = ref(true)
 const comments = ref([])
