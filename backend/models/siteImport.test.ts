@@ -19,7 +19,6 @@ import {
 } from '../db/schema.ts'
 import type { SiteRow } from '../db/schema.ts'
 
-/** Stages a `{ name: Buffer }` map to real files under `dir`, then tars them into a fresh archive. */
 async function buildArchive(dir: string, entries: Record<string, Buffer>): Promise<string> {
   const stagingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-test-build-'))
   try {
@@ -37,10 +36,8 @@ async function buildArchive(dir: string, entries: Record<string, Buffer>): Promi
 }
 
 /**
- * `readArchive`'s size ceilings, in isolation — no database, no `CARDINAL` global. Custom `maxEntryBytes`
- * / `maxTotalBytes` are what make this fast: tripping the real production ceilings (500 MB / 2 GB)
- * would mean building gigabyte fixtures, where a handful of small archives and a tiny override prove
- * the exact same abort logic.
+ * Custom `maxEntryBytes`/`maxTotalBytes` are what make this fast: tripping the real production
+ * ceilings would mean gigabyte fixtures to prove the same abort logic.
  */
 describe('readArchive size ceilings (pure, no DB)', () => {
   let readArchive: typeof import('./siteImport.ts').readArchive
@@ -89,9 +86,7 @@ describe('readArchive size ceilings (pure, no DB)', () => {
 
     const result = await readArchive(filePath, { maxEntryBytes: 1000, maxTotalBytes: 1000 })
 
-    // -> The JSON entry is kept in memory ...
     assert.deepEqual(result.entries['manifest.json'], Buffer.from('{"ok":true}'))
-    // -> ... but the asset blobs are staged to disk instead, not held as in-memory Buffers at all
     assert.equal(result.entries['assets/abc.data'], undefined)
     assert.equal(result.entries['assets/abc.preview'], undefined)
 
@@ -107,10 +102,8 @@ describe('readArchive size ceilings (pure, no DB)', () => {
 })
 
 /**
- * `importModel.saveUpload` in isolation — no database, no real HTTP request. Feeds it a plain
- * `Readable` the way `api/system/transfer.ts`'s content-type parser hands it the raw request stream, and
- * checks the same things that parser used to check against a fully-buffered `Buffer` before this
- * task streamed the save.
+ * Fed a plain `Readable`, the way `api/system/transfer.ts`'s content-type parser hands `saveUpload`
+ * the raw request stream.
  */
 describe('importModel.saveUpload (pure, no DB)', () => {
   let importModel: typeof import('./siteImport.ts').importModel
@@ -178,12 +171,8 @@ describe('importModel.saveUpload (pure, no DB)', () => {
 })
 
 /**
- * `importSite` is the mirror image of `exportSite`: read the archive back apart, then a burst of SQL
- * orchestration inside one transaction. Same reasoning as `export.test.ts` for running it against a
- * real, migrated database rather than mocking the query builder — and the two suites share a fixture
- * shape (`models/pages.ts`-created pages, a hand-inserted asset) so a round trip through the real
- * `exportSite` is what most of these tests import back apart, rather than a hand-built fixture archive
- * only this suite would ever produce.
+ * Most of these tests import back an archive the real `exportSite` produced, rather than a hand-built
+ * fixture archive only this suite would ever produce.
  */
 describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -221,13 +210,12 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await teardownTestDb()
   })
 
-  /** Reads every entry of a gzipped tar file back into a `{ name: Buffer }` map. */
   async function readArchiveEntries(filePath: string): Promise<Record<string, Buffer>> {
     const entries: Record<string, Buffer> = {}
     await listTarball({
       file: filePath,
       onReadEntry: (entry) => {
-        // -> `create()` emits a directory entry for `assets/` itself, ahead of the files inside it.
+        // -> `create()` emits a directory entry for `assets/` itself; only the files matter here.
         if (entry.type !== 'File') {
           return
         }
@@ -242,9 +230,8 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   }
 
   /**
-   * Writes a `{ name: Buffer }` map back out as a gzipped tar file, for building a doctored archive.
-   * `tar`'s `Pack` only ever archives real files (it lstats each path itself), so each entry is staged
-   * to a throwaway directory first, the same way `models/export.ts`'s `exportSite` does.
+   * `tar`'s `Pack` only ever archives real files (it lstats each path itself), so each entry is
+   * staged to a throwaway directory first.
    */
   async function writeArchive(filePath: string, entries: Record<string, Buffer>): Promise<void> {
     const stagingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-test-archive-'))
@@ -271,8 +258,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       },
       { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     )
-    // -> A second revision, so the page carries more than the single `created` history row
-    //    `createPage` already recorded.
+    // -> A second revision, so the page carries more than `createPage`'s own `created` history row.
     await pagesModel.updatePage(
       fixtures.siteId,
       page.id,
@@ -280,8 +266,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     )
 
-    // -> The target site already holds page history of its own, unrelated to what is about to be
-    //    imported -- proving the restore replaces it rather than merging with it.
+    // -> Page history of the target site's own, so the restore is shown to replace rather than merge.
     const staleTargetPage = await pagesModel.createPage(
       targetSiteId,
       { path: 'target-stale', title: 'Target Stale', editor: 'markdown', content: 'pre-existing' },
@@ -312,7 +297,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(result.pages, 1)
     assert.equal(result.assets, 1)
     // -> The asset was inserted directly rather than through `models/assets.ts`, so it has no tree
-    //    entry of its own here — only the page's
+    //    entry of its own — only the page's.
     assert.ok(result.tree >= 1)
     assert.equal(result.pageHistory, 2)
     assert.ok(result.groups >= 1)
@@ -323,11 +308,9 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .from(pagesTable)
       .where(and(eq(pagesTable.siteId, targetSiteId), eq(pagesTable.path, 'import-me')))
     assert.ok(importedPage)
-    // -> A fresh id, not the source page's own — see the class-level doc comment on `importSite`
     assert.notEqual(importedPage!.id, page.id)
     assert.equal(importedPage!.authorId, fixtures.userId)
 
-    // -> The pre-existing target-site page-history row is gone, not merged with the imported ones
     assert.ok(staleHistoryRow)
     const [survivingStaleHistoryRow] = await fixtures.db
       .select()
@@ -335,8 +318,6 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .where(eq(pageHistoryTable.id, staleHistoryRow!.id))
     assert.equal(survivingStaleHistoryRow, undefined)
 
-    // -> Every archived revision is present, and each one's `pageId` resolves to the page that was
-    //    just re-inserted under its fresh id.
     const importedHistoryRows = await fixtures.db
       .select()
       .from(pageHistoryTable)
@@ -349,7 +330,6 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(historyRow.authorId, fixtures.userId)
     }
 
-    // -> The page's tree entry must have followed it to the exact same new id
     const [pageTreeEntry] = await fixtures.db
       .select()
       .from(treeTable)
@@ -385,10 +365,8 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const { filePath } = await exportModel.exportSite(fixtures.siteId)
 
-    // -> Simulate the target instance's own Users group having since diverged from whatever it
-    //    looked like at export time (a different instance's own seeded row would never match the
-    //    source's anyway) -- if the import upserted this by id, as it does for every other group, this
-    //    edit would be reverted by the import below.
+    // -> If the import upserted this by id, as it does for every other group, this divergence from
+    //    what the target's own Users group looked like at export time would be reverted below.
     await fixtures.db
       .update(groupsTable)
       .set({ permissions: ['read:pages', 'write:pages'] })
@@ -408,7 +386,6 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .where(eq(groupsTable.id, systemGroup!.id))
     assert.deepEqual(afterImport, beforeImport)
 
-    // -> No second isSystem row was created either
     const systemGroupsByName = await fixtures.db
       .select()
       .from(groupsTable)
@@ -434,9 +411,8 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test("importSite restores page history, remapping pageId and purging the target's own prior history", async () => {
-    // -> Earlier tests in this suite create pages (and, via `createPage`, their own auto-recorded
-    //    `created` pageHistory row) on these same shared fixture sites -- cleared first so the counts
-    //    asserted below reflect only this test's own rows.
+    // -> Earlier tests leave `created` history rows on these shared fixture sites, so the counts
+    //    asserted below would otherwise include them.
     await fixtures.db.delete(pageHistoryTable).where(eq(pageHistoryTable.siteId, fixtures.siteId))
     await fixtures.db.delete(pageHistoryTable).where(eq(pageHistoryTable.siteId, targetSiteId))
 
@@ -447,8 +423,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
     // -> `createPage` above already recorded this page's one `created` pageHistory row.
 
-    // -> A pre-existing history row on the target site that must not survive the import --
-    //    `createPage` records this one automatically too.
+    // -> A pre-existing history row on the target site that must not survive the import.
     const stalePage = await pagesModel.createPage(
       targetSiteId,
       { path: 'stale-history', title: 'Stale History', editor: 'markdown', content: 'stale' },
@@ -485,9 +460,8 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test('importSite restores navigation under the target site, purging what was already there', async () => {
-    // -> Earlier tests in this suite create pages on these same shared fixture sites, which auto-seeds
-    //    a default nav row (`models/navigation.ts#ensureSiteNav`) -- cleared first so this test's own
-    //    rows are the only ones counted below.
+    // -> Creating a page auto-seeds a default nav row (`models/navigation.ts#ensureSiteNav`), so
+    //    earlier tests' rows are on these shared fixture sites and would be counted below.
     await fixtures.db.delete(navigationTable).where(eq(navigationTable.siteId, fixtures.siteId))
     await fixtures.db.delete(navigationTable).where(eq(navigationTable.siteId, targetSiteId))
 
@@ -524,7 +498,8 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .where(eq(navigationTable.siteId, targetSiteId))
     assert.equal(restoredNav.length, 1)
     assert.equal((restoredNav[0]!.items as any[])[0].label, 'Source Home')
-    // -> No row left naming the source site
+    // FIXME: the assertion below is vacuous -- every row is selected by `siteId`, so `every` cannot
+    //        fail. Assert the source site's own nav row survived the import instead.
     const leftoverOnSource = await fixtures.db
       .select()
       .from(navigationTable)
@@ -550,7 +525,6 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .select()
       .from(groupsTable)
       .where(eq(groupsTable.name, 'Administrators'))
-    // -> Exactly the one already there — no imposter duplicate created
     assert.equal(allGroups.length, 1)
     assert.equal(allGroups[0]!.id, administrators!.id)
     assert.equal(allGroups[0]!.isSystem, true)
@@ -653,8 +627,6 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       /version/
     )
 
-    // -> Rejected before any table was touched, so what was already on the target site is exactly
-    //    as it was
     const [found] = await fixtures.db
       .select()
       .from(pagesTable)
@@ -693,8 +665,8 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const { filePath } = await exportModel.exportSite(fixtures.siteId)
     const entries = await readArchiveEntries(filePath)
-    // -> Duplicate one page row so the insert violates the primary key partway through the
-    //    transaction, after the (valid) group upsert immediately before it has already run
+    // -> A duplicated page row violates the primary key partway through the transaction, after the
+    //    valid group upsert immediately before it has already run.
     const pages = JSON.parse(entries['pages.json']!.toString('utf8'))
     entries['pages.json'] = Buffer.from(JSON.stringify([...pages, ...pages]))
 
@@ -703,9 +675,6 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     await assert.rejects(importModel.importSite(badArchive, targetSiteId, fixtures.userId))
 
-    // -> Nothing was left half-restored: the page that was on the target site before the attempt is
-    //    still there, exactly because the group upsert that ran before the failing insert was rolled
-    //    back along with it
     const [found] = await fixtures.db
       .select()
       .from(pagesTable)
@@ -714,10 +683,8 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test('importSite chunks page/tree inserts past one bind-parameter batch, and still rolls back atomically when a later chunk fails', async () => {
-    // -> A dedicated source site rather than `fixtures.siteId`, so this test's synthetic bulk content
-    //    -- built specifically to overrun both `pages`' and `tree`'s per-statement chunk size (see
-    //    `PAGE_INSERT_CHUNK_SIZE`/`TREE_INSERT_CHUNK_SIZE` in `siteImport.ts`) -- never leaks into any
-    //    other test in this file's shared fixture site.
+    // -> A dedicated source site, so this test's synthetic bulk content never leaks into the shared
+    //    fixture site every other test in this file uses.
     const [bulkSourceSite] = await fixtures.db
       .insert(sitesTable)
       .values({
@@ -729,10 +696,8 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const bulkSourceSiteId = bulkSourceSite!.id
     CARDINAL.sites[bulkSourceSiteId] = bulkSourceSite! as SiteRow
 
-    // -> One real page, created through the model so its row has every column a genuine export would
-    //    produce -- then exported and used as a template. `ROW_COUNT` synthetic pages/tree entries are
-    //    cloned from it below rather than created one at a time through `pagesModel`, which is what
-    //    keeps this test fast despite the row count.
+    // -> One real page, exported and then cloned into the synthetic rows below: every column a
+    //    genuine export produces, without paying for `ROW_COUNT` calls through `pagesModel`.
     await pagesModel.createPage(
       bulkSourceSiteId,
       { path: 'template', title: 'Template', editor: 'markdown', content: 'template content' },
@@ -743,17 +708,16 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const [templatePageRow] = JSON.parse(templateEntries['pages.json']!.toString('utf8'))
     const [templateTreeRow] = JSON.parse(templateEntries['tree.json']!.toString('utf8'))
 
-    // -> One row more than a full `pages` chunk (1927) *and* more than a full `tree` chunk (4681) at
-    //    once: with exactly one tree entry per page and no folders, both tables end up with this same
-    //    row count, so a single archive exercises multi-statement chunking on both tables together.
+    // -> One row past a full `TREE_INSERT_CHUNK_SIZE` and several `PAGE_INSERT_CHUNK_SIZE` chunks at
+    //    once: one tree entry per page and no folders, so both tables get this same row count and a
+    //    single archive exercises chunking on both.
     const ROW_COUNT = 4682
 
     /**
-     * Clones the template page/tree rows into `rowCount` pairs, each with its own fresh id and a
-     * unique path/fileName (both tables enforce siteId+locale+path/fileName uniqueness). When
-     * `duplicateFirstIdAtEnd` is set, the very last pair reuses the first pair's id instead of a
-     * fresh one -- landing a primary-key collision in the last (and only the last) insert chunk, so
-     * every earlier chunk has already been applied inside the transaction before the failure hits.
+     * Each clone needs a fresh id and a unique path/fileName, both tables enforcing
+     * siteId+locale+path/fileName uniqueness. `duplicateFirstIdAtEnd` reuses the first pair's id for
+     * the very last one, landing a primary-key collision in the last (and only the last) insert
+     * chunk, so every earlier chunk is already applied inside the transaction when it hits.
      */
     function buildBulkRows(rowCount: number, { duplicateFirstIdAtEnd = false } = {}) {
       const pageRows: Record<string, any>[] = []
@@ -783,8 +747,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       return archivePath
     }
 
-    // -> Every row lands: the archive's page/tree counts are each larger than one chunk, so this only
-    //    passes if `importSite` actually loops over every chunk rather than stopping after the first.
+    // -> Only passes if `importSite` loops over every chunk rather than stopping after the first.
     const [okTargetSite] = await fixtures.db
       .insert(sitesTable)
       .values({
@@ -812,12 +775,9 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .where(eq(treeTable.siteId, okTargetSiteId))
     assert.equal(insertedTree.length, ROW_COUNT)
 
-    // -> Rolls back as a unit even when the failure lands in a later chunk: with `ROW_COUNT` = 4682,
-    //    the page insert splits into chunks of 1927/1927/828 -- the duplicated id falls in that last,
-    //    828-row chunk, so the first two chunks (3854 rows) are already applied inside the transaction
-    //    by the time the third one's primary-key violation aborts it. If those earlier chunks weren't
-    //    rolled back along with the failing one, the target site would be left with 3854 stray pages
-    //    instead of just the one that was there before the attempt.
+    // -> The duplicated id falls in the page insert's last chunk, so a few thousand rows from the
+    //    earlier chunks are already applied inside the transaction when it aborts; without those
+    //    being rolled back too, the target site would be left holding them.
     const [failTargetSite] = await fixtures.db
       .insert(sitesTable)
       .values({
@@ -854,7 +814,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test('importSite chunks pageHistory/navigation inserts past one bind-parameter batch, and still rolls back atomically when a later chunk fails', async () => {
-    // -> A dedicated source site, same isolation reasoning as the pages/tree bulk test above.
+    // -> A dedicated source site, so this test's bulk content stays out of the shared fixture site.
     const [bulkSourceSite] = await fixtures.db
       .insert(sitesTable)
       .values({
@@ -866,9 +826,9 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const bulkSourceSiteId = bulkSourceSite!.id
     CARDINAL.sites[bulkSourceSiteId] = bulkSourceSite! as SiteRow
 
-    // -> One real page, created through the model so it auto-records one `pageHistory` row and (via
-    //    `models/navigation.ts#ensureSiteNav`) the site's one default `navigation` row -- both used as
-    //    templates for the synthetic bulk rows below.
+    // -> Creating a page through the model auto-records one `pageHistory` row and (via
+    //    `models/navigation.ts#ensureSiteNav`) the site's default `navigation` row, the two templates
+    //    the synthetic bulk rows below are cloned from.
     await pagesModel.createPage(
       bulkSourceSiteId,
       { path: 'template', title: 'Template', editor: 'markdown', content: 'template content' },
@@ -881,21 +841,18 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
     const [templateNavigationRow] = JSON.parse(templateEntries['navigation.json']!.toString('utf8'))
 
-    // -> One row more than a full `navigation` chunk (`NAVIGATION_INSERT_CHUNK_SIZE` = 13107): with the
-    //    same row count applied to `pageHistory` too, this also lands well past its own (smaller,
-    //    `PAGE_HISTORY_INSERT_CHUNK_SIZE` = 4681) chunk boundary, so one archive exercises multi-statement
-    //    chunking on both tables together.
+    // -> One row past a full `NAVIGATION_INSERT_CHUNK_SIZE`, and — the same count being applied to
+    //    `pageHistory` too — well past its smaller `PAGE_HISTORY_INSERT_CHUNK_SIZE`, so one archive
+    //    exercises chunking on both tables.
     const ROW_COUNT = 13108
 
     /**
-     * Clones the template pageHistory/navigation rows into `rowCount` pairs, each with its own fresh
-     * id. `pageHistory` has no uniqueness constraint beyond its (always-freshly-randomized-on-import)
-     * id, so nothing about its clones can be made to collide from archive data alone -- the happy path
-     * below is what proves its chunking. `navigation` enforces a unique `(siteId, locale)` index, which
-     * `null` locales (the per-tree-entry-override shape) never trip; when `duplicateLocaleAtEnd` is set,
-     * the very first and very last navigation rows share one non-null locale instead, landing a unique
-     * violation in the last (and only the last) insert chunk once both are attempted -- so every earlier
-     * chunk has already been applied inside the transaction by the time it fails.
+     * `pageHistory` has no uniqueness constraint beyond an id the import always randomizes, so
+     * nothing about its clones can be made to collide from archive data alone — the happy path below
+     * is all that can prove its chunking. `navigation` enforces a unique `(siteId, locale)`, which
+     * the `null` locales of the per-tree-entry-override shape never trip; `duplicateLocaleAtEnd`
+     * instead gives the first and last rows one shared non-null locale, landing the violation in the
+     * last (and only the last) chunk, after every earlier one is applied inside the transaction.
      */
     function buildBulkRows(rowCount: number, { duplicateLocaleAtEnd = false } = {}) {
       const historyRows: Record<string, any>[] = []
@@ -923,9 +880,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       return archivePath
     }
 
-    // -> Every row lands: the archive's pageHistory/navigation counts are each larger than one chunk,
-    //    so this only passes if `importSite` actually loops over every chunk rather than stopping after
-    //    the first.
+    // -> Only passes if `importSite` loops over every chunk rather than stopping after the first.
     const [okTargetSite] = await fixtures.db
       .insert(sitesTable)
       .values({
@@ -953,13 +908,9 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .where(eq(navigationTable.siteId, okTargetSiteId))
     assert.equal(insertedNav.length, ROW_COUNT)
 
-    // -> Rolls back as a unit even when the failure lands in a later chunk: with `ROW_COUNT` = 13108,
-    //    the navigation insert splits into chunks of 13107/1 -- the duplicated locale's second half
-    //    falls in that last, one-row chunk, so the entire first chunk (13107 rows) is already applied
-    //    inside the transaction by the time the second chunk's unique-constraint violation aborts it.
-    //    If that first chunk weren't rolled back along with the failing one, the target site would be
-    //    left with 13107 stray navigation rows instead of just the one that was there before the
-    //    attempt.
+    // -> The duplicated locale's second half falls in the navigation insert's last chunk, so the
+    //    whole first chunk is already applied inside the transaction when it aborts; without that
+    //    being rolled back too, the target site would be left holding those rows.
     const [failTargetSite] = await fixtures.db
       .insert(sitesTable)
       .values({

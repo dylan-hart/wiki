@@ -34,33 +34,22 @@ import type { ImageNormalization } from '../helpers/images.ts'
 import type { SystemIds } from './types.ts'
 
 /**
- * The images a site can have uploaded for it. Each name is also the flag in the site's
- * `config.assets` saying whether there is one — which is what the cached site config is asked before
- * the bytes are ever looked up — and the name the image is addressed by, both to upload it and to
- * serve it.
+ * Each name is triple-duty: the stored kind, the key in the site's `config.assets` flag map, and
+ * the resource name the upload and serve routes address.
  */
 export const siteAssetKinds = ['logo', 'favicon', 'loginBg'] as const
 
 export type SiteAssetKind = (typeof siteAssetKinds)[number]
 
 /**
- * The case styles a site may pick for its `config.pathDisplayCase` setting (Feature #2574) — the
- * live, render-time transform applied to a path-derived label wherever one is shown (breadcrumbs,
- * sidebar/tree navigation, auto-nav, a page's own displayed name), computed off the raw lowercase
- * tree segment rather than the stored `title`. `'off'` is the explicit disable value: the raw
- * lowercase segment is shown unchanged. This is the vocabulary the path-segment humanization helper
- * (sibling Task #2576) and its render-site call sites (Task #2578) key their switch on — do not
- * rename or reorder these without updating both.
+ * `config.pathDisplayCase` transforms the raw lowercase tree segment behind a path-derived label
+ * (breadcrumbs, tree navigation, a page's displayed name) at render time, never the stored `title`.
+ * The frontend's `pathDisplay` composable keys its switch on these names.
  */
 export const pathDisplayCaseStyles = ['off', 'lower', 'upper', 'camel', 'pascal', 'title'] as const
 
 export type PathDisplayCaseStyle = (typeof pathDisplayCaseStyles)[number]
 
-/**
- * The size and format each image is stored at, i.e. what a browser is eventually handed. Every one
- * is far smaller than what an administrator is likely to upload: these are a header logo, a tab icon
- * and a login backdrop, not artwork to be kept at its original resolution.
- */
 const SITE_ASSET_NORMALIZATION: Record<SiteAssetKind, ImageNormalization> = {
   // -> A logo is whatever shape its owner made it, so it is fitted rather than cropped
   logo: { width: 512, height: 512, fit: 'inside', format: 'webp' },
@@ -70,10 +59,6 @@ const SITE_ASSET_NORMALIZATION: Record<SiteAssetKind, ImageNormalization> = {
   loginBg: { width: 1920, height: 1080, fit: 'cover', format: 'webp' }
 }
 
-/**
- * Per-site editor defaults, seeded onto every site's config by both `createSite()` and `init()`
- * (the first-run default site). Previously duplicated verbatim in both places.
- */
 const DEFAULT_SITE_EDITORS = {
   asciidoc: {
     isActive: true,
@@ -103,21 +88,12 @@ const DEFAULT_SITE_EDITORS = {
 }
 
 /**
- * Default theme colours seeded for a site, shared by `createSite()`'s default config and `init()`'s
- * first-run catch-all site so the two can never drift apart from each other. Must match the CSS
- * defaults at `frontend/src/css/tailwind.css`'s `:root` block (`--q-secondary`, `--q-accent`) and
- * `AdminTheme.vue`'s `resetColors()`/`defaultConfig()` -- all four are pinned to agree by
- * `helpers/accessibility.test.js` (frontend) and this file's own `sites.test.ts`. Picked to clear
- * 4.5:1 (WCAG AA) against white, the foreground a solid `WBtn` pairs a background this light or
- * darker with.
- *
- * `colorPrimary`/`colorAccent`/`colorHeader`/`colorSidebar` also agree with
- * `frontend/src/helpers/aestheticDefaults.js`'s `ledger` entry (OpenProject #2768) -- not by
- * importing it (`backend/` and `frontend/` are independently-installed workspaces with no
- * cross-workspace JS-sharing convention) but because a fresh site is always seeded on the `ledger`
- * aesthetic below, so the two literals have to read the same for that seed to actually match what
- * `AdminTheme.vue`'s "Reset defaults" button would produce for a Ledger site. `colorSecondary` is
- * outside that per-aesthetic set on purpose -- it does not change with the aesthetic switch.
+ * Mirrored, with no import across the workspace boundary, in `frontend/src/css/tailwind.css`'s
+ * `:root` block, `AdminTheme.vue`'s `resetColors()`/`defaultConfig()` and
+ * `frontend/src/helpers/aestheticDefaults.js`'s `ledger` entry -- a fresh site is seeded on the
+ * `ledger` aesthetic, so these literals must read the same for that seed to match what "Reset
+ * defaults" produces. Picked to clear 4.5:1 (WCAG AA) against white. `colorSecondary` is outside
+ * the per-aesthetic set and does not change with the aesthetic switch.
  */
 export const DEFAULT_THEME_COLORS = {
   colorPrimary: '#c14a52',
@@ -127,9 +103,6 @@ export const DEFAULT_THEME_COLORS = {
   colorSidebar: '#f0f2f7'
 }
 
-/**
- * Sites model
- */
 class Sites extends ClusterReloaded {
   protected readonly reloadEvent = 'reloadSites'
 
@@ -169,15 +142,14 @@ class Sites extends ClusterReloaded {
 
   async reloadCache(): Promise<void> {
     const sites = await CARDINAL.db.select().from(sitesTable).orderBy(sitesTable.id)
-    // -> `config` reads back from Drizzle as `unknown` (no `$type<>` pin -- see `SiteRow`'s own
-    //    comment in `db/schema.ts` for why); this cast is the one deliberate place that widens it to
-    //    the loose `Record<string, any>` every other `CARDINAL.sites[id].config` read already assumes.
+    // -> Drizzle reads `config` back as `unknown`; this is the one deliberate place it is widened to
+    //    the loose shape every `CARDINAL.sites[id].config` read assumes.
     CARDINAL.sites = keyBy(sites, (s) => s.id) as Record<string, SiteRow>
     CARDINAL.sitesMappings = {}
     for (const site of sites) {
-      // -> Belt and braces: the write side is already lowercase by construction (site
-      //    create/update schemas constrain `hostname` to `^(\*|[a-z0-9.-]+)$`), but routing every
-      //    key through the same normalizer as every read keeps both sides provably in lockstep.
+      // -> The write side is already lowercase by construction (the site schemas constrain
+      //    `hostname` to `^(\*|[a-z0-9.-]+)$`), but keying through the same normalizer every read
+      //    uses keeps the two sides provably in lockstep.
       CARDINAL.sitesMappings[normalizeHostname(site.hostname)] = site.id
     }
     CARDINAL.logger.debug('config', 'reloaded the site configurations', { sites: sites.length })
@@ -197,12 +169,10 @@ class Sites extends ClusterReloaded {
             contentLicense: '',
             footerExtra: '',
             pageExtensions: ['md', 'html', 'txt'],
-            // -> Additive to the hardcoded `ALLOWED_SCHEMES` in `helpers/htmlSanitizePolicy.ts` (task
-            //    #2459 wires this into `sanitizeOptions()`); empty by default so a fresh site permits
-            //    nothing beyond those hardcoded defaults until an admin opts in. `javascript:`/
-            //    `vbscript:`/`data:`-on-non-img stay categorically blocked regardless of what is listed
-            //    here -- that enforcement is task #2458's, at the point these schemes could actually
-            //    take effect, not a save-time denylist here.
+            // -> Additive to `helpers/htmlSanitizePolicy.ts`'s hardcoded `ALLOWED_SCHEMES`, so an
+            //    empty list permits exactly those. `javascript:`/`vbscript:`/`data:`-on-non-img stay
+            //    blocked whatever is listed here -- enforced where the scheme could take effect,
+            //    not as a save-time denylist.
             allowedUrlSchemes: [],
             discoverable: false,
             defaults: {
@@ -215,11 +185,8 @@ class Sites extends ClusterReloaded {
               browse: true,
               collaborativeEditing: true,
               comments: false,
-              // -> Feature #3389 / Task #3403: the site-wide execution kill switch for per-page
-              //    scripts/styles. Off by default -- authoring stays gated separately by
-              //    write:scripts/write:styles (Task #3402); this is the additional AND that decides
-              //    whether an authored script/style is ever allowed to run/render at all, for
-              //    siblings #3404/#3405 to read.
+              // -> Site-wide kill switch for *executing* per-page scripts/styles, ANDed with the
+              //    `write:scripts`/`write:styles` grants, which gate authoring only.
               pageScripts: false,
               profile: true,
               reasonForChange: 'optional',
@@ -228,18 +195,14 @@ class Sites extends ClusterReloaded {
             },
             logoText: true,
             sitemap: true,
-            // -> Off by default: a fresh site shows the raw lowercase path segment unchanged until
-            //    an admin opts into a case style (Feature #2574).
             pathDisplayCase: 'off',
             robots: {
               index: true,
               follow: true
             },
-            // -> Feature #3267 / Task #3274: origins permitted to embed this site's pages via
-            //    iframe. Empty by default -- no embedding allowed until an admin opts a specific
-            //    origin in (Task #3275 reads this to compute a per-request `frame-ancestors` CSP
-            //    directive). Distinct from the instance-wide `security.disallowIframe`/
-            //    `xFrameOptions` config, which this does not touch.
+            // -> Origins permitted to embed this site's pages, read into a per-request
+            //    `frame-ancestors` directive; empty allows none. Distinct from the instance-wide
+            //    `security.disallowIframe`/`xFrameOptions`, which this does not touch.
             security: {
               embedAllowedOrigins: []
             },
@@ -292,10 +255,8 @@ class Sites extends ClusterReloaded {
               engine: 'db',
               config: {
                 dictOverrides: {},
-                // -> Can't enable what isn't there (Task #3104): a fresh site only starts with
-                //    semantic search on when the instance-wide capability (pgvector present, Task
-                //    #3095) is itself true. An operator can still flip it off per site afterwards;
-                //    this is only the first-boot default.
+                // -> Can't enable what isn't there: on only where the instance-wide capability
+                //    (pgvector) is itself true. An operator can still flip it per site afterwards.
                 semanticEnabled: CARDINAL.capabilities?.semanticSearch ?? false
               }
             }
@@ -307,24 +268,19 @@ class Sites extends ClusterReloaded {
 
     const newSite = result[0]
 
-    // -> The menu every page of the site's primary locale inherits by default. Empty to begin with,
-    //    but it has to exist before a page can point at it
+    // -> Empty to begin with, but it has to exist before a page can point at it
     CARDINAL.logger.debug('nav', 'creating the root navigation', { site: newSite.id })
     const newSiteConfig = newSite.config as { locales: { primary: string } }
     await CARDINAL.models.navigation.ensureSiteNav(newSite.id, newSiteConfig.locales.primary)
 
-    // -> Site lookups by id / hostname are served from cache, which must know about the new site —
-    //    on every instance, not just this one
     await CARDINAL.models.sites.broadcastReload()
 
-    // -> Otherwise the new site would have no blocks until the next restart
+    // -> The three module-backed tables are otherwise only seeded at boot, so without these the new
+    //    site would have no blocks, no storage target and no comment provider rows until a restart
     await CARDINAL.models.blocks.syncSite(newSite.id)
 
-    // -> Same for storage: the site needs its database target from the moment it can hold content
     await CARDINAL.models.storage.syncSite(newSite.id)
 
-    // -> Same for comment providers: the site needs a row per module from the moment it can be
-    //    configured, even though none of them are enabled yet
     await CARDINAL.models.commentProviders.syncSite(newSite.id)
 
     return newSite
@@ -342,12 +298,10 @@ class Sites extends ClusterReloaded {
       values.isEnabled = patch.isEnabled
     }
     if (patch.config) {
-      // -> Config is a JSONB blob, so it must be read and merged rather than partially assigned.
-      // Arrays are replaced rather than merged index-wise, otherwise removing an entry (e.g. a page
-      // extension) would leave the original value in place. `dictOverrides` (search config) is the
-      // object equivalent of that same problem -- a locale -> dictionary map with no fixed keys, where
-      // removing an entry must actually remove it rather than leave it merged back in from the
-      // previous value -- so it is replaced wholesale by key name, the same way an array is.
+      // -> Config is a JSONB blob, so it is read and merged rather than partially assigned. Arrays
+      //    are replaced rather than merged index-wise, or removing an entry (a page extension, say)
+      //    would leave the original in place; `dictOverrides` is a locale -> dictionary map with no
+      //    fixed keys and the same problem, so it is replaced by key name too.
       const current = await CARDINAL.db
         .select({ config: sitesTable.config })
         .from(sitesTable)
@@ -379,8 +333,6 @@ class Sites extends ClusterReloaded {
   }
 
   /**
-   * The bytes of an image uploaded for a site, if there is one.
-   *
    * What was stored depends on what the upload could be normalized to — Sharp is an optional
    * extension, and an SVG is never re-encoded at all — so the type is read back off the bytes rather
    * than assumed.
@@ -404,11 +356,8 @@ class Sites extends ClusterReloaded {
   }
 
   /**
-   * The sha1 hash of one of a site's uploaded images, without reading the blob itself — selects
-   * only the `hash` column, kept in step with `data` by every write in `setAsset`. Lets a
-   * conditional request (ETag) be answered without pulling the asset back out of the database.
-   *
-   * @returns The hash, or null if this kind has never been uploaded for this site
+   * Selects the `hash` column alone, so a conditional request (ETag) is answered without pulling
+   * the blob back out of the database.
    */
   async getAssetHash(siteId: string, kind: SiteAssetKind): Promise<string | null> {
     const rows = await CARDINAL.db
@@ -420,39 +369,22 @@ class Sites extends ClusterReloaded {
   }
 
   /**
-   * Replace one of a site's images.
+   * A raster upload is re-encoded to what it will be served at (`SITE_ASSET_NORMALIZATION`), which
+   * needs the optional Sharp extension; without it the bytes are stored as they came in, which the
+   * admin area's standing "requires Sharp" indicator already warns about, so an unresized upload is
+   * not flagged per-upload. An SVG is stored as uploaded either way: it is markup, it already
+   * scales, and rasterizing it discards the only reason to use one.
    *
-   * A raster upload is brought down to the size and format it will be served at, per
-   * `SITE_ASSET_NORMALIZATION` — there is no reason to hand every visitor the multi-megabyte
-   * original of an image displayed 34 pixels tall. That needs the Sharp extension, so without it the
-   * uploaded bytes are stored as they came in, which is what the admin area's "requires Sharp"
-   * indicator is warning about. An SVG is stored as it came in either way: it is markup, it already
-   * scales to any size, and rasterizing it would throw away the only reason to use one.
-   *
-   * Decision: an oversized-but-unresized upload (up to the route's 10 MB `imageUploadLimit`, stored
-   * raw because Sharp is missing) is deliberately NOT flagged per-upload beyond the admin area's
-   * "requires Sharp" indicator, which is a standing warning rather than a one-shot toast — it is
-   * visible on every visit to this screen for as long as Sharp stays uninstalled, which fits an
-   * operator-level problem (fix by reinstalling Sharp, not by re-uploading a smaller file) better
-   * than a dismiss-and-forget notification would. Doing better than that would mean broadening the
-   * upload route's response (today just `{ ok, message }`) to report whether normalization actually
-   * ran and how large the stored bytes ended up — a real feature, not this task's hardening scope.
-   * The 10 MB ceiling already bounds the worst case: what is at stake is "served raw, up to 10 MB",
-   * not an unbounded original.
-   *
-   * @param data The uploaded image, already known to be one of the supported formats
+   * @param data Already known to be one of the supported formats
    */
   async setAsset(siteId: string, kind: SiteAssetKind, data: Buffer): Promise<void> {
-    // -> Only reached when the flag is on: a disabled `security.uploadScanSVG` stores the bytes
-    //    exactly as uploaded, same as before this existed.
     const normalized = detectSvg(data)
       ? CARDINAL.config.security?.uploadScanSVG
         ? sanitizeSvg(data)
         : data
       : ((await normalizeImage(data, SITE_ASSET_NORMALIZATION[kind])) ?? data)
-    // -> Kept in step with `data` on every write -- `hash` is NOT NULL with no default, and this is
-    //    the same sha1-hex digest `controllers/site.ts` computes from the blob for its ETag, so a
-    //    future hash-only reader agrees with what a full blob read would have produced.
+    // -> Must be written with every `data` write (`hash` is NOT NULL, no default): it is the only
+    //    thing `controllers/site.ts` builds its ETag from, without ever reading the blob.
     const hash = crypto.createHash('sha1').update(normalized).digest('hex')
     await CARDINAL.db
       .insert(siteAssetsTable)
@@ -465,9 +397,6 @@ class Sites extends ClusterReloaded {
     await CARDINAL.models.sites.updateSite(siteId, { config: { assets: { [kind]: true } } })
   }
 
-  /**
-   * Remove one of a site's images, leaving the built-in default to be served again.
-   */
   async clearAsset(siteId: string, kind: SiteAssetKind): Promise<void> {
     await CARDINAL.db
       .delete(siteAssetsTable)
@@ -476,44 +405,16 @@ class Sites extends ClusterReloaded {
   }
 
   /**
-   * Delete a site and every row that belongs to it rather than to its content.
+   * Pages and assets are the two tables under a site's RESTRICT FK this method never clears itself,
+   * so they are counted up front and refused before anything is touched. The cleanup then runs in
+   * one transaction, so a refusal — including from an FK this method does not yet know about, or
+   * from content inserted between that count and the deletes — leaves nothing destroyed. Everything
+   * cleared inside it has no cascade and would otherwise block the final delete; `tags` and
+   * `pageviews` are absent because their `siteId` FK cascades in `db/schema.ts`.
    *
-   * Pages and assets are checked for up front, and the whole cleanup runs inside one transaction, so
-   * a refused delete (or one that hits an FK this method doesn't yet know about) destroys nothing —
-   * previously each of the statements below autocommitted on its own, so a delete that was ultimately
-   * refused by the final `sites` FK had already durably destroyed every site setting, block, storage
-   * target, glossary term and navigation menu it passed on the way there.
-   *
-   * Block, block-credential, storage, uploaded image, glossary term and navigation rows belong to the
-   * site rather than to its content, and their FK has no cascade, so they would otherwise block the
-   * delete — navigation includes one row per active locale's site-wide menu
-   * (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
-   * siteId`) plus any per-page override/hide row still standing. `commentProviders` (seeded per site
-   * at creation and re-seeded at every boot), `pageHistory` (a `deleted` row is written before every
-   * page delete, so removing every page guarantees rows remain), `pageWatchEvents`, `glossaryVersions`
-   * and `approvalRules` are the same story: none is content, none cascades, and
-   * nothing else ever deletes their rows. `apiKeys.siteId` is already nullable (OpenProject #2189 — a
-   * null `siteId` is an ordinary, intentional "instance-wide" key, the pre-#2189 default every key
-   * used to be), so a key scoped to this site is widened to instance-wide rather than destroyed: it is
-   * a credential an administrator issued and may still want to use, not a record of the site itself.
-   *
-   * Pages and assets deliberately still lack a cascade and are what the up-front check below refuses
-   * on — see the conflict handling in the route. `pageviews` and `tags` are derived data about the
-   * site rather than content, so their `siteId` FK cascades at the schema level instead (`db/schema.ts`
-   * — see `tags`'/`pageviews`' own column comments); a site that has only ever been viewed or tagged is
-   * not "still holding content", and both are removed for free by Postgres once the final `sites`
-   * delete below commits, with nothing to check or clean up here.
-   *
-   * @throws {CustomError} named `siteHasContent`, statusCode 409, when the site still has pages or
-   *   assets — thrown before anything is deleted.
+   * @throws {CustomError} named `siteHasContent`, 409, when the site still has pages or assets.
    */
   async deleteSite(id: string): Promise<boolean> {
-    // -> Pages and uploaded assets are the tables kept under a site's RESTRICT FK that this method
-    //    never clears itself (see the conflict handling in the route) -- counted up front, before
-    //    anything is touched, so a refused delete is refused cleanly rather than after the six
-    //    unconditional deletes below have already run. Checking here rather than only letting the
-    //    final delete's FK violation happen is what makes the refusal atomic: nothing this method does
-    //    can be observed to have happened when it returns/throws a refusal.
     const [pageCount, assetCount] = await Promise.all([
       CARDINAL.db.$count(pagesTable, eq(pagesTable.siteId, id)),
       CARDINAL.db.$count(assetsTable, eq(assetsTable.siteId, id))
@@ -526,16 +427,6 @@ class Sites extends ClusterReloaded {
       )
     }
 
-    // -> Block, block-credential, storage, uploaded image and glossary term rows belong to the site
-    //    rather than to its content, and their FK has no cascade, so they would otherwise block the
-    //    delete. Every navigation row this site owns — one per active locale's site-wide menu
-    //    (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
-    //    siteId`) plus any per-page override/hide row still standing — is the same story and is
-    //    cleaned up the same way, filtered by the `siteId` column the FK constraint actually checks.
-    //    Wrapped in a transaction (with the precheck above as the normal path, and this as a backstop
-    //    against a race where content is inserted between the count and here) so a FK violation on the
-    //    final delete rolls every one of these back instead of leaving the site's non-content settings
-    //    destroyed while the site row itself survives.
     const deleted = await CARDINAL.db.transaction(async (tx) => {
       await tx.delete(blocksTable).where(eq(blocksTable.siteId, id))
       await tx.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
@@ -543,25 +434,18 @@ class Sites extends ClusterReloaded {
       await tx.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
       await tx.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
       await tx.delete(navigationTable).where(eq(navigationTable.siteId, id))
-      // -> None of the six below is content the delete route means to guard on (see the conflict
-      //    handling in the route): `commentProviders` is seeded per site at creation
-      //    (`createSite()`'s `commentProviders.syncSite()`) and again at every boot, so it blocks even
-      //    a brand-new, otherwise-empty site; `pageHistory` outlives every page it describes by design
-      //    (`pages.deletePage()` writes a `deleted` row *before* removing the page); `glossaryVersions`,
-      //    `pageWatchEvents` and `approvalRules` are all derived/audit data about
-      //    the site rather than content, with no cascade and no other delete call site that would ever
-      //    clear them on their own. `tags` and `pageviews` are deliberately NOT cleared here either —
-      //    both cascade at the schema level (`db/schema.ts`), so Postgres removes them on its own once
-      //    the final `sites` delete below commits.
+      // -> None of these is content the route guards on, and each outlives what it describes:
+      //    `commentProviders` is re-seeded at every boot, so it blocks even a brand-new site, and
+      //    `pageHistory` survives every page (`pages.deletePage()` writes its `deleted` row *before*
+      //    removing the page).
       await tx.delete(commentProvidersTable).where(eq(commentProvidersTable.siteId, id))
       await tx.delete(pageHistoryTable).where(eq(pageHistoryTable.siteId, id))
       await tx.delete(glossaryVersionsTable).where(eq(glossaryVersionsTable.siteId, id))
       await tx.delete(pageWatchEventsTable).where(eq(pageWatchEventsTable.siteId, id))
       await tx.delete(approvalRulesTable).where(eq(approvalRulesTable.siteId, id))
-      // -> `apiKeys.siteId` is already nullable — null means instance-wide, not "no site" — so a key
-      //    that was scoped to this site is widened to instance-wide rather than destroyed: it is a
-      //    credential an administrator issued and may still want to use, not a record of the site
-      //    itself.
+      // -> A null `siteId` means instance-wide, not "no site", so a key scoped to this site is
+      //    widened rather than destroyed: it is a credential an administrator issued and may still
+      //    want, not a record of the site.
       await tx.update(apiKeysTable).set({ siteId: null }).where(eq(apiKeysTable.siteId, id))
 
       const deletedResult = await tx.delete(sitesTable).where(eq(sitesTable.id, id))
@@ -569,8 +453,8 @@ class Sites extends ClusterReloaded {
     })
 
     if (deleted) {
-      // -> Outside the transaction, after commit: other instances should only be told to reload once
-      //    the delete is actually durable.
+      // -> After commit, not inside: other instances are told to reload only once the delete is
+      //    durable.
       await CARDINAL.models.sites.broadcastReload()
     }
     return deleted
