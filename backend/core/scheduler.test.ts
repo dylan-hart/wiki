@@ -110,7 +110,12 @@ describe('addScheduled (fake CARDINAL)', () => {
     // rather than at the cap.
     // FIXME: fails when run in the 24h05m before a Feb 29th -- derive the cron from a date outside
     // the window instead.
-    scheduleJobsMock = [{ task: 'leapTask', cron: '0 0 29 2 *', payload: {} }]
+    const farOff = Temporal.Now.instant()
+      .add({ hours: 7 * 24 })
+      .toZonedDateTimeISO('UTC')
+    scheduleJobsMock = [
+      { task: 'leapTask', cron: `0 0 ${farOff.day} ${farOff.month} *`, payload: {} }
+    ]
     existingJobsMock = []
 
     await scheduler.addScheduled()
