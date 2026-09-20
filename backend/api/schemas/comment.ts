@@ -156,6 +156,16 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         format: 'date-time'
       },
+      canEdit: {
+        type: 'boolean',
+        description:
+          'Whether the requester may edit this comment: the author, or a holder of `manage:comments` on the page.'
+      },
+      canDelete: {
+        type: 'boolean',
+        description:
+          'Whether the requester may delete this comment: the author, or a holder of `manage:comments` on the page.'
+      },
       replies: {
         type: 'array',
         items: { $ref: 'Comment#' },

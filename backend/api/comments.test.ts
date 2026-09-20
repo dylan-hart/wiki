@@ -514,6 +514,118 @@ describe('page-scoped comment routes', () => {
     assert.equal(body[0].authorEmail, null)
   })
 
+  describe('canEdit/canDelete flags (WP #3502)', () => {
+    const REPLY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    const GUEST_TOP_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+
+    async function listFlags(headers: Record<string, string>) {
+      const original = threadsByPage[PAGE_ID]
+      threadsByPage[PAGE_ID] = [
+        {
+          ...original[0],
+          replies: [
+            {
+              ...original[0],
+              id: REPLY_ID,
+              authorId: 'author-2',
+              authorName: 'Bob',
+              replyTo: EXISTING_COMMENT_ID,
+              replies: []
+            }
+          ]
+        },
+        {
+          ...original[0],
+          id: GUEST_TOP_ID,
+          authorId: null,
+          authorName: 'Some Guest',
+          replies: []
+        }
+      ]
+      try {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+          headers
+        })
+        assert.equal(res.statusCode, 200)
+        const [top, guest] = res.json()
+        return {
+          own: [top.canEdit, top.canDelete],
+          reply: [top.replies[0].canEdit, top.replies[0].canDelete],
+          guest: [guest.canEdit, guest.canDelete]
+        }
+      } finally {
+        threadsByPage[PAGE_ID] = original
+      }
+    }
+
+    test('the author gets true on their own comment only; a guest comment stays false', async () => {
+      const flags = await listFlags({
+        'x-test-user-id': 'author-1',
+        'x-test-permissions': 'read:pages,read:comments'
+      })
+      assert.deepEqual(flags, { own: [true, true], reply: [false, false], guest: [false, false] })
+    })
+
+    test('a manage:comments holder gets true on every comment, guest ones and replies included', async () => {
+      const flags = await listFlags({
+        'x-test-user-id': 'a-moderator',
+        'x-test-permissions': 'read:pages,read:comments,manage:comments'
+      })
+      assert.deepEqual(flags, { own: [true, true], reply: [true, true], guest: [true, true] })
+    })
+
+    test('an authenticated non-author without manage:comments gets false everywhere', async () => {
+      const flags = await listFlags({
+        'x-test-user-id': 'someone-else',
+        'x-test-permissions': 'read:pages,read:comments'
+      })
+      assert.deepEqual(flags, { own: [false, false], reply: [false, false], guest: [false, false] })
+    })
+
+    test('an anonymous reader gets an explicit false, not an absent flag', async () => {
+      const flags = await listFlags({ 'x-test-permissions': 'read:pages,read:comments' })
+      assert.deepEqual(flags, { own: [false, false], reply: [false, false], guest: [false, false] })
+    })
+
+    test('POST create returns true for the poster, so the new comment draws its controls', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+        headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+        payload: { content: 'Mine' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.json().canEdit, true)
+      assert.equal(res.json().canDelete, true)
+    })
+
+    test('POST create returns false for an anonymous poster (a guest comment is moderator-only)', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+        headers: { 'x-test-permissions': 'read:pages,write:comments' },
+        payload: { content: 'Guest', guestName: 'G', guestEmail: 'g@example.com' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.json().canEdit, false)
+      assert.equal(res.json().canDelete, false)
+    })
+
+    test('PATCH returns the flags too', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`,
+        headers: { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:pages,read:comments' },
+        payload: { content: 'Edited' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.json().canEdit, true)
+      assert.equal(res.json().canDelete, true)
+    })
+  })
+
   test('POST create: 400 when anonymous and guestName/guestEmail are both missing', async () => {
     const res = await app.inject({
       method: 'POST',
