@@ -150,6 +150,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'The provider-reported avatar URL cached at login, or null when none has been synced. A manually-uploaded avatar (hasAvatar) always takes precedence over this as a rendering fallback.'
       },
+      handle: {
+        type: 'string',
+        nullable: true,
+        description:
+          'The unique, case-insensitive @handle, or null when none is set. Letters, digits, dots, underscores and hyphens only.'
+      },
       location: {
         type: 'string'
       },
@@ -235,6 +241,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         maxLength: 255,
         description: 'May be empty — a mononym derives its display name from `firstName` alone.'
+      },
+      handle: {
+        type: 'string',
+        maxLength: 32,
+        description:
+          'A unique, case-insensitive handle of letters, digits, dots, underscores and hyphens. An empty string clears it; one already taken answers 409.'
       },
       location: {
         type: 'string',
