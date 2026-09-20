@@ -25,9 +25,9 @@
         </div>
       </div>
       <div class="flex-none">
-        <!-- -> A real href, not a router link: the Swagger UI at `/_api` is served by the backend and is
-             not part of this SPA. Labelled rather than tooltipped, so the visible text is already the
-             accessible name and there is no `aria-label` -->
+        <!-- -> A real href, not a router link: the Swagger UI at `/_api` is served by the backend,
+             not by this SPA. Its visible label is already the accessible name, hence no
+             `aria-label` -->
         <w-btn
           class="acrylic-btn me-2 ms-4"
           icon="tabler:book"
@@ -64,10 +64,9 @@
     </div>
     <div class="grid grid-cols-12 p-4 gap-4">
       <!--
-        Task 2410: an admin-issued key here has no bearing on MCP page-authorship attribution --
-        that's a personal token, minted from the reader's own Profile, not this admin screen. Shown
-        unconditionally (not gated on `state.keys.length`), since the confusion this addresses
-        applies whether or not admin keys already exist.
+        An admin-issued key here has no bearing on MCP page-authorship attribution -- that is a
+        personal token, minted from the reader's own Profile. Shown unconditionally rather than
+        gated on `state.keys.length`, since the confusion applies whether or not admin keys exist.
       -->
       <div class="col-span-12">
         <w-card class="rounded bg-warning-fill text-ink">
@@ -105,10 +104,8 @@
       <div class="col-span-12" v-else>
         <w-settings-card :title="t('admin.api.title')">
           <!--
-            One key is one row: its name is the label, everything the key is scoped by stacks in the
-            hint, and its state and the revoke button sit at the trailing edge. An unusable key is
-            marked by the plate's own dot rather than by a red glyph: the plate is chrome, and a
-            green key beside a red key read as two different kinds of thing.
+            An unusable key is marked by the plate's own dot rather than by a red glyph: the plate
+            is chrome, and a green key beside a red key reads as two different kinds of thing.
           -->
           <w-settings-row
             v-for="key of state.keys"
@@ -121,19 +118,15 @@
             <template #hint>
               <div>{{ t('admin.api.keyEndingIn', { suffix: key.keyShort }) }}</div>
               <!--
-                A personal token (`key.userId` set, task/OpenProject #788) carries exactly its owner's
-                own current permissions, resolved live -- there is no fixed `groups` list to name the
-                way an admin-issued key's does, so this line names the owner instead.
+                A personal token carries its owner's own permissions, resolved live -- there is no
+                fixed `groups` list to name the way an admin-issued key has, so this names the
+                owner instead.
               -->
               <div v-if="key.userId">
                 {{ t('admin.api.personalTokenOf', { user: ownerName(key) }) }}
               </div>
               <div v-else>{{ t('admin.api.permissionsFrom', { groups: groupNames(key) }) }}</div>
-              <!--
-                A key's actual reach: `null` means unscoped, the same as every key before scoping
-                existed, so that state gets the reassuring "Full Access" wording rather than reading
-                as an empty, broken list.
-              -->
+              <!-- -> A `null` scope is unscoped, not an empty list: hence "Full Access" wording -->
               <div>
                 {{
                   key.scope === null
@@ -142,10 +135,8 @@
                 }}
               </div>
               <!--
-                OpenProject #1205: `null` is unrestricted, the same as every key before this
-                existed -- same "no narrowing" treatment as `scope` above, rather than a blank
-                line. An empty array is a distinct, deliberately-reachable state (every level
-                unchecked) and gets its own wording rather than reading as "unrestricted".
+                `null` is unrestricted; an empty array is a distinct, deliberately-reachable state
+                (every level unchecked) and gets its own wording rather than reading the same way.
               -->
               <template v-if="key.allowedClassifications != null">
                 <div v-if="key.allowedClassifications.length < 1">
@@ -155,11 +146,7 @@
                   {{ t('admin.api.limitedTo', { levels: classificationLevelNames(key) }) }}
                 </div>
               </template>
-              <!--
-                Which site the key is pinned to: `null` is instance-wide, the same as every key
-                before site-pinning existed, so it gets the same "All Sites" wording the picker
-                itself uses rather than reading as a missing value.
-              -->
+              <!-- -> A `null` site is instance-wide, worded as the picker's own "All Sites" -->
               <div>{{ t('admin.api.keySite', { site: siteName(key) }) }}</div>
               <div>{{ t('admin.api.createdOn', { date: humanizeDate(t, key.createdAt) }) }}</div>
               <div>
@@ -169,11 +156,6 @@
               </div>
             </template>
             <div class="flex items-center gap-2">
-              <!--
-                One state, in the order they explain the key best: revoked is what an operator did
-                to this key, invalidated is what happened to every key at once, expired is the key
-                simply running its course.
-              -->
               <div v-if="keyState(key)">
                 <div class="flex items-center">
                   <w-icon class="me-2" color="negative" size="xs" name="tabler:alert-triangle" />
@@ -181,8 +163,7 @@
                     {{ t(`admin.api.${keyState(key)}`) }}
                   </div>
                 </div>
-                <!-- -> In the row rather than in a tooltip: it is the explanation of the state right
-                     above it, and a tooltip here opened over the admin sidebar -->
+                <!-- -> In the row, not a tooltip: a tooltip here opens over the admin sidebar -->
                 <div class="text-caption text-grey mt-1 text-right" style="max-width: 340px">
                   {{ stateHint(key) }}
                 </div>
@@ -233,30 +214,19 @@ import {
 import { humanizeDate } from '@/helpers/datetime'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.api.title')
 }))
 
-// DATA
-
 const { state, load, refresh } = useAdminSettings({
   i18nPrefix: 'admin.api',
-  // -> Instance-wide, not one site's: no site picker, no reload on switching site
   siteScoped: false,
   extraState: {
     enabled: false,
@@ -266,14 +236,11 @@ const { state, load, refresh } = useAdminSettings({
     sites: [],
     users: [],
     classificationLevels: [],
-    /** When the signing keypair was generated — what an invalidated key is invalidated by. */
+    /** What an invalidated key is invalidated by. */
     certificatesGeneratedAt: null
   },
-  // -> Groups and sites are fetched alongside the keys so the list can name the permissions and
-  //    the site each key carries, the certificate date so an invalidated key can say what
-  //    invalidated it, and users so a personal token (`key.userId` set) can name its owner --
-  //    `limit: 100` rather than every page: this is a display convenience for naming an owner, not
-  //    a picker that has to be complete, and `ownerName()` falls back to the raw ID beyond that.
+  // -> `limit: 100` rather than every page: naming a token's owner is a display convenience, not a
+  //    picker that has to be complete, and `ownerName()` falls back to the raw ID beyond that.
   fetch: () =>
     Promise.all([
       API_CLIENT.get('api-keys').json(),
@@ -292,24 +259,15 @@ const { state, load, refresh } = useAdminSettings({
     state.classificationLevels = classificationLevels ?? []
     state.enabled = apiState?.isEnabled === true
     state.certificatesGeneratedAt = certs?.generatedAt ?? null
-    // -> Keeps the status light in the admin sidebar in step without another round trip
+    // -> Keeps the admin sidebar's status light in step without another round trip
     adminStore.info.isApiEnabled = state.enabled
   }
 })
 
-// METHODS
-
-// -> The personal-token note's link (OpenProject #2532): opens Profile directly on its API-keys
-//    section rather than the whole admin key list, matching what the note's own text promises.
 function openProfileApi() {
   siteStore.openOverlay('Profile', { section: 'api' })
 }
 
-/*
-  What a key's row says about itself is shared with the self-service token list
-  (`pages/ProfileApi.vue`) -- see `helpers/apiKeyState.js`. Each of these is that helper bound to
-  this screen's own vocabulary and to the lists it managed to load.
-*/
 function stateHint(key) {
   return keyStateHint(key, t, {
     i18nPrefix: 'admin.api',
@@ -325,14 +283,14 @@ function classificationLevelNames(key) {
   return keyClassificationLevelNames(key, state.classificationLevels)
 }
 
-/** Group names rather than IDs, falling back to the ID for a group that has since been deleted. */
+/** Falls back to the raw ID for a group that has since been deleted. */
 function groupNames(key) {
   return (key.groups ?? [])
     .map((id) => state.groups.find((g) => g.id === id)?.name ?? id)
     .join(', ')
 }
 
-/** A personal token's owner, by name -- falling back to the ID for an account since deleted. */
+/** Falls back to the raw ID for a deleted account, or one beyond the fetched page of users. */
 function ownerName(key) {
   return state.users.find((u) => u.id === key.userId)?.name ?? key.userId
 }

@@ -5,10 +5,6 @@ import AdminAuditLog from './AdminAuditLog.vue'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
-/**
- * OpenProject #989: the instance-wide audit log's admin list — filtering by actor/type/date, and the
- * retention setting saved alongside it.
- */
 function mountPage() {
   return mountWithApp(AdminAuditLog, {
     messages: {
@@ -163,11 +159,9 @@ describe('AdminAuditLog', () => {
     const wrapper = mountPage()
     await flush(wrapper)
 
-    // The page header carries only view-docs/refresh actions -- no Apply/Save button lives there.
     const header = wrapper.find('.admin-page-header')
     expect(header.text()).not.toContain('Save')
 
-    // The retention setting commits from its own in-card button instead.
     wrapper.vm.state.retentionDays = 90
     const saveBtn = wrapper.find('.retention-save-btn')
     expect(saveBtn.exists()).toBe(true)
@@ -206,8 +200,8 @@ describe('AdminAuditLog', () => {
     await flush(wrapper)
 
     // The days input carries `:rules`, so `w-input` reserves a hint/error row below its visible
-    // box -- `items-end` would align the button to the bottom of that whole reserved area rather
-    // than the visible field, throwing off the alignment this row is meant to read as one row.
+    // box -- `items-end` would align the button to the bottom of that reserved area rather than
+    // to the visible field.
     const row = wrapper.find('.retention-actions')
     expect(row.exists()).toBe(true)
     expect(row.classes()).toContain('items-center')
@@ -217,12 +211,8 @@ describe('AdminAuditLog', () => {
   })
 
   /**
-   * The Cardinal settings pattern, as it reaches a VIEWER page.
-   *
-   * The retention setting is a fixed, design-time named setting with one control at the trailing
-   * edge, so it takes the settings row. The log table above it is a data-driven collection and
-   * takes nothing: its rows carry an event, an actor, a target, a detail blob and a date, none of
-   * which fit a label/hint/control triple.
+   * The log table takes no settings row: it is a data-driven collection whose rows carry an event,
+   * an actor, a target, a detail blob and a date, none of which fit a label/hint/control triple.
    */
   it('draws the retention setting as a settings row and leaves the log table alone', async () => {
     API_CLIENT.get.mockImplementation((url) => {
@@ -244,14 +234,12 @@ describe('AdminAuditLog', () => {
     expect(retention.find('.w-settings-row__hint').text()).toBe(
       'Entries older than this are trimmed automatically.'
     )
-    // -> Both controls stay in the one trailing slot, and the card-local Save stays card-local.
     const control = retention.find('.w-settings-row__control')
     expect(control.find('input[type="number"]').exists()).toBe(true)
     expect(control.text()).toContain('Save')
     expect(wrapper.find('.retention-actions').exists()).toBe(true)
 
-    // -> The old hand-written heading is gone, and no band replaced it: a single-purpose card whose
-    //    one row names itself needs no strip repeating the same word above it.
+    // -> A single-purpose card whose one row names itself needs no heading strip above it.
     expect(wrapper.find('.text-subtitle1').exists()).toBe(false)
     expect(wrapper.findAll('.w-section-header')).toHaveLength(0)
 

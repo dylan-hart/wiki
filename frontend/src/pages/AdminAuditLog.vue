@@ -166,17 +166,10 @@
       <w-separator class="my-4" inset />
 
       <!--
-        Card-local save, not a page-header Apply, by decision (OpenProject #2089): this page is a
-        viewer (audit entries + filters) with settings embedded in it, not itself a settings form,
-        and its filter card above already commits locally the same way.
-
-        The setting itself is drawn as a settings row -- a plate, the name over its sentence, the
-        control at the trailing edge -- rather than as the hand-written `text-subtitle1` + caption
-        pair it was: it is a fixed, design-time named setting, which is exactly the case the row
-        applies to, while the log table above it is not and keeps its own shape. No tint under it
-        either; a settings row sits on paper, held by the card's hairline. Which of these pages'
-        surfaces take the pattern and which do not follows a settled, deliberate split, not
-        per-page taste.
+        Card-local save, not a page-header Apply: this page is a viewer (audit entries + filters)
+        with a setting embedded in it, not itself a settings form, and the filter card above
+        commits locally the same way. The setting takes a settings row because it is a fixed,
+        design-time named setting; the log table above it is a data-driven collection and does not.
       -->
       <w-card>
         <w-settings-row
@@ -186,15 +179,10 @@
           :hint="t('admin.audit.retentionSubtitle')">
           <!--
             The days input carries `:rules`, so without `hide-bottom-space` `w-input` reserves a
-            hint/error row below its visible box even while empty (see WInput.vue's
-            `showsBottom`), making the field taller than the button beside it. Flex `items-center`
-            then centres each item on its own box -- the button on its actual height, the input on
-            its taller reserved-space-included height -- so the two visible controls land on
-            different horizontal lines even though both are "centred" (OpenProject #2331,
-            attempted with `items-center` alone; still visibly off). `hide-bottom-space` (the same
-            prop `GroupCreateDialog.vue`/`FolderCreateDialog.vue` use for the identical reason)
-            drops the reserved row until a real validation error sets it, which is what actually
-            equalises the two heights.
+            hint/error row below its visible box even while empty, making the field taller than the
+            button beside it -- `items-center` then centres each on its own box, landing the two
+            visible controls on different lines. `hide-bottom-space` drops the reserved row until a
+            real validation error sets it, which is what equalises the heights.
           -->
           <div class="flex items-center gap-3 retention-actions">
             <div style="width: 160px">
@@ -239,27 +227,17 @@ import { humanizeDate, relativeDate } from '@/helpers/datetime'
 import { useSiteStore } from '@/stores/site'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.audit.title')
 }))
 
-// DATA
-
-/** How many entries a page of the list fetches at a time. The API caps this at 500. */
+/** The API caps this at 500. */
 const PAGE_LIMIT = 50
 
 const AUDIT_EVENTS = [
@@ -337,16 +315,13 @@ const actorOptions = ref([{ label: t('admin.audit.allActors'), value: null }])
 const retentionInput = ref(null)
 
 /**
- * `min`/`max` on the native control stop the spinner and the slider, not a pasted value -- typing or
- * pasting "0" or "9999" bypasses both silently. Mirrors `ApprovalRuleDialog.vue`'s
- * `minApprovalsValidation` convention.
+ * `min`/`max` on the native control stop the spinner and the slider, not a pasted value -- typing
+ * or pasting "0" or "9999" bypasses both silently.
  */
 const retentionDaysRules = [
   (val) =>
     (Number.isInteger(val) && val >= 1 && val <= 3650) || t('admin.audit.retentionDaysInvalid')
 ]
-
-// METHODS
 
 function resetFilters() {
   state.filters.actorId = null
@@ -463,8 +438,6 @@ async function saveRetention() {
   }
   state.savingRetention = false
 }
-
-// MOUNTED
 
 onMounted(async () => {
   await Promise.all([reload(), loadActors(), loadRetention()])

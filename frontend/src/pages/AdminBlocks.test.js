@@ -25,14 +25,6 @@ vi.mock('@/composables/loading', async (importOriginal) => ({
   loading: { show: vi.fn(), hide: vi.fn() }
 }))
 
-/**
- * Regression coverage for the admin "Blocks" page's per-block "Server" field: only a block
- * whose definition declares one via `props` (block-kroki, block-plantuml) gets one, editing it writes
- * into that block's `config`, and Apply sends `config` alongside `isEnabled` for every block — the
- * PUT-side wiring `models/blocks.ts#setBlocksState` and `api/blocks.ts` persist (see their own tests
- * for the write-side logic itself).
- */
-
 const KROKI_BLOCK = {
   id: 'kroki-id',
   block: 'kroki',
@@ -42,8 +34,8 @@ const KROKI_BLOCK = {
   isEnabled: true,
   isCustom: false,
   config: { server: 'https://kroki.example.com' },
-  // -> WP #1745: block-kroki now declares `server` on `config` too (as well as `props`), so the site's
-  //    saved value actually survives a save instead of being stripped by `sanitizeConfig`.
+  // -> `server` is declared on `configFields` as well as `props`: `sanitizeConfig` strips a saved
+  //    value that the block's config schema does not declare.
   configFields: [{ name: 'server', type: 'string', label: 'Server', default: 'https://kroki.io' }],
   props: [{ name: 'server', type: 'string', label: 'Server', default: 'https://kroki.io' }],
   template: ''
@@ -68,9 +60,8 @@ async function mountAdminBlocks(blocks, credentials = [], siteId = 'site-1') {
   const adminStore = useAdminStore()
   adminStore.currentSiteId = siteId
 
-  // -> useSiteAdminAccess('site:blocks') needs a real route (for its `siteid` param) and a
-  //    permission that satisfies GLOBAL_FALLBACKS['site:blocks'], so this mount neither warns on a
-  //    missing router injection nor redirects away mid-test.
+  // -> `useSiteAdminAccess('site:blocks')` needs a real route (for its `siteid` param) and a
+  //    satisfying permission, or the mount warns on a missing router and redirects away mid-test.
   const userStore = useUserStore()
   userStore.permissions = ['manage:sites']
 
@@ -84,8 +75,6 @@ async function mountAdminBlocks(blocks, credentials = [], siteId = 'site-1') {
   const wrapper = mount(AdminBlocks, {
     global: {
       plugins: [router, i18n]
-      // -> Registered by `boot/components.js` in the real app, not by the shared-component map
-      //    `test/setup.js` installs; stubbed so mounting the page does not warn about it
     }
   })
   await flushPromises()
@@ -93,10 +82,9 @@ async function mountAdminBlocks(blocks, credentials = [], siteId = 'site-1') {
 }
 
 /*
- * OpenProject #829 item 5: upstream discussions #3275/#7258/#7229 all describe the same dead end --
- * an author reaches for Kroki or PlantUML, the block quietly draws against the project's own public
- * demo server, and nothing on this page said so until it rate-limited, went down, or the diagram
- * turned out to carry something the author would rather not have sent to a third party.
+ * Unless a self-hosted server is set, the Kroki and PlantUML blocks draw against their project's
+ * own public demo server -- a third party the diagram's content is then sent to, and one that can
+ * rate-limit or go down. That is what the note says.
  */
 describe('AdminBlocks: self-hosted server note (OpenProject #829 item 5)', () => {
   it('shows the self-hosted server note when a block on this site declares a Server field', async () => {
@@ -153,11 +141,9 @@ describe('AdminBlocks', () => {
 })
 
 /**
- * Covers Task 657: the per-block "Configure" affordance in the admin blocks list, driven by
- * `configFields` (the site-level admin-config-field schema from the block's manifest — see
- * `models/blocks.ts`'s `getSiteBlocks()`), and `save()` carrying `config` through to the PUT payload
- * alongside `id` / `isEnabled`. Independent of the inline "Server" field above, which is driven by
- * `props` instead — a block can have either, both, or neither.
+ * `configFields` — the site-level admin-config schema from the block's manifest — is independent of
+ * the inline "Server" field above, which is driven by `props`: a block can have either, both, or
+ * neither.
  */
 function makeConfigureBlocks() {
   return [
@@ -210,9 +196,8 @@ describe('AdminBlocks Configure affordance', () => {
   })
 
   /**
-   * WP #1745: block-kroki's only config field is `server`, and that field already has a dedicated
-   * inline input (`hasServerProp`) -- so the generic Configure button, which would otherwise open a
-   * second editor for the exact same setting, stays hidden for it.
+   * `server` already has a dedicated inline input, so a generic Configure button would open a
+   * second editor for the exact same setting.
    */
   it('does not show a Configure button for a block whose only config field is the dedicated Server field', async () => {
     const wrapper = await mountAdminBlocks([KROKI_BLOCK])
@@ -225,12 +210,6 @@ describe('AdminBlocks Configure affordance', () => {
   })
 })
 
-/**
- * OpenProject #2356: the per-block "Configure" dialog's `role="dialog"` panel gets a real accessible
- * name via `WDialog`'s `aria-label`, reusing the exact expression already shown as the visible
- * `text-h6` header -- rather than staying unnamed for assistive tech, as every `<w-dialog>` in the app
- * did before WP #1617's infrastructure was actually wired up to a call site.
- */
 describe('AdminBlocks configure dialog accessible name', () => {
   it("gives the configure dialog's panel a non-empty aria-label naming the block", async () => {
     const wrapper = await mountAdminBlocks(makeConfigureBlocks())
@@ -247,10 +226,6 @@ describe('AdminBlocks configure dialog accessible name', () => {
   })
 })
 
-/**
- * OpenProject #868: the per-site block credentials list. `state.credentials` is loaded from
- * `GET sites/:siteId/block-credentials` inside `load()`, alongside the blocks list itself.
- */
 describe('AdminBlocks credentials list', () => {
   it("shows each credential's name and id, and never a secret field", async () => {
     const wrapper = await mountAdminBlocks(
@@ -308,11 +283,6 @@ describe('AdminBlocks credentials list', () => {
   })
 })
 
-/**
- * OpenProject #2039: `deleteCredential()` and `deleteBlock()` used to pass `cancel: true, persistent:
- * true` but never `color`/`okLabel`, leaving a primary-blue OK on an irreversible delete. Both now
- * match the reference treatment (`AdminIcons.vue`'s `confirmDeleteSet()`).
- */
 describe('AdminBlocks destructive confirmations', () => {
   it('deleteCredential() opens a negative-coloured, delete-labelled confirmation', async () => {
     const wrapper = await mountAdminBlocks(
@@ -362,10 +332,9 @@ describe('AdminBlocks destructive confirmations', () => {
 })
 
 /**
- * OpenProject #1736: `onMounted` used to call `loading.show()` unconditionally, before the
- * `if (adminStore.currentSiteId)` test that gates the `load()` call which would hide it again. On a
- * zero-site instance (`currentSiteId` null) that left the full-screen overlay stuck on forever, with
- * nothing in the UI explaining why. `loading.show()` must now be inside that branch.
+ * `loading.show()` must sit inside `onMounted`'s `if (adminStore.currentSiteId)` branch: on a
+ * zero-site instance nothing calls `load()` to hide it again, so the full-screen overlay stays on
+ * forever with nothing in the UI explaining why.
  */
 describe('AdminBlocks: loading overlay on mount (OpenProject #1736)', () => {
   it('does not show the loading overlay when adminStore.currentSiteId is null', async () => {
@@ -416,12 +385,6 @@ describe('AdminBlocks save()', () => {
 })
 
 /**
- * OpenProject #2634. `BlueprintIcon`'s contract is that `icon` is "an ordinary Iconify reference
- * (`tabler:key`), not an asset name assembled here" — and all 26 in-repo blocks shipped bare,
- * unprefixed names left behind by the Tabler migration (which scans `frontend/src` only), so every
- * row on this page drew an empty plate. `blocks/definitions.test.js` guards the declarations; this
- * guards the consumption, which is the half that also has an `isCustom` branch of its own.
- *
  * `WIcon` stamps `data-icon` on all three of its branches, so this reads the same whether the
  * reference happens to be in the inlined bundle or falls through to `iconify-icon` at runtime.
  */
@@ -444,19 +407,9 @@ describe('the block icon', () => {
 })
 
 /**
- * Task #2629: the first full comparison of this screen against
- * `ui-redesign/Cardinal Wiki - Admin Blocks 3x.dc.html`.
- *
- * Everything asserted here is a colour, a typeface or a DOM order the design file states outright,
- * and every one of them was previously drawn out of the Material ramp this app inherited from 2.x --
- * `pink-1`/`pink-9` for a block's tag, `blue-grey-1`/`blue-grey-9` for a credential's id,
- * `teal-7`/`purple` for the two origin marks, `grey-2`/`grey-9` for the note, `grey` for a caption.
- * Cardinal names an exact token for each, so a Material class reappearing on this screen is the
- * regression these guard.
- *
- * Nothing here asserts a height, a padding or a rhythm: jsdom runs no layout engine, and the design's
- * measurement disagreements (the 40px icon plate, the 20/24/40 body padding) are recorded on the work
- * package for the shared-component and cross-page passes that own them rather than changed here.
+ * These assert only colours, typefaces and DOM order the design states outright: Cardinal names an
+ * exact token for each, so a Material-ramp class reappearing on this screen is the regression they
+ * guard. Nothing here asserts a height, a padding or a rhythm -- jsdom runs no layout engine.
  */
 const CUSTOM_BLOCK = {
   id: 'fleet-id',
@@ -499,7 +452,6 @@ describe('AdminBlocks: Cardinal design conformance (Task #2629)', () => {
     expect(classes).toContain('border-hairline')
     expect(classes).toContain('bg-tint')
     expect(classes).toContain('text-slate')
-    // -> The Material pair it used to paint itself with
     expect(classes).not.toContain('bg-grey-2')
     expect(classes).not.toContain('text-grey-7')
   })
@@ -541,7 +493,7 @@ describe('AdminBlocks: Cardinal design conformance (Task #2629)', () => {
     expect(row.firstElementChild.textContent.trim()).toBe('admin.blocks.isEnabled')
     expect(row.lastElementChild.classList.contains('w-toggle')).toBe(true)
 
-    // -> The switch loses its own visible label but keeps its accessible name
+    // -> The visible label sits outside the switch, so the switch carries the accessible name
     expect(toggle.attributes('aria-label')).toBe('admin.blocks.isEnabled')
   })
 
@@ -568,9 +520,8 @@ describe('AdminBlocks: Cardinal design conformance (Task #2629)', () => {
     const copyBtn = wrapper.find('[aria-label="admin.blocks.credentialCopyId"]')
     expect(copyBtn.exists()).toBe(true)
     expect(copyBtn.classes()).not.toContain('rounded-full')
-    // -> WBtn's own default corner is the aesthetic's `--radius-control` token (OpenProject
-    // #2772), not a hardcoded `rounded-none` -- this button asks for neither `round` nor
-    // `rounded`, so it follows that same token like every other default-shaped button.
+    // -> This button asks for neither `round` nor `rounded`, so it takes `WBtn`'s default corner,
+    //    the `--radius-control` token.
     expect(copyBtn.classes()).toContain('rounded-control')
   })
 
@@ -585,9 +536,8 @@ describe('AdminBlocks: Cardinal design conformance (Task #2629)', () => {
       .filter((icon) => icon.attributes('style')?.includes('13px'))
     expect(globes).toHaveLength(2)
 
-    // -> Populated: a neutral chrome glyph beside secondary-tier mono text
     expect(globes[0].classes()).toContain('text-slate-soft')
-    // -> Empty: an unusable credential, so the glyph reddens with the line rather than staying neutral
+    // -> No origins means an unusable credential, so the glyph reddens with the line
     expect(globes[1].classes()).toContain('text-negative')
 
     // -> `span.font-mono` rather than any span: `WItemLabel` renders a span of its own around this

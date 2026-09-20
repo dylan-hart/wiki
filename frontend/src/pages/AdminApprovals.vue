@@ -31,10 +31,6 @@
       </div>
     </div>
     <div class="p-4">
-      <!--
-        An empty list is the normal starting state rather than an error, and it is worth saying what
-        it means: with no rule matching a page, that page takes no suggestions at all.
-      -->
       <w-banner
         v-if="state.rules.length < 1 && state.loading < 1"
         :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
@@ -42,19 +38,17 @@
       </w-banner>
       <template v-else>
         <!--
-          There is no drag-reorder and no precedence marker on the list below, which is deliberate:
-          rules do not have an order to reorder INTO. Said here rather than left to be guessed, since
-          a list that looks reorderable otherwise invites reading one in.
+          No drag-reorder and no precedence marker on the list below, deliberately: rules have no
+          order to reorder into.
         -->
         <div class="text-caption text-grey mb-2">
           {{ t('admin.approval.overlapHint') }}
         </div>
         <w-settings-card :title="t('admin.approval.title')">
           <!--
-            A disabled rule keeps everything it says but covers nothing, so it is dimmed rather than
-            hidden or moved: it is still part of the configuration being read. The dimming is on the
-            row's text only -- the plate was never dimmed, and the controls stay at full strength
-            because re-enabling the rule is what the reader is most likely here to do.
+            A disabled rule is dimmed rather than hidden or moved: it is still part of the
+            configuration being read. Text only -- the controls stay at full strength, since
+            re-enabling the rule is what the reader is most likely here to do.
           -->
           <w-settings-row
             v-for="rule of state.rules"
@@ -77,7 +71,6 @@
                 <div>
                   <span class="text-grey">{{ t('admin.approval.reviewers') }}:</span>
                   {{ groupNames(rule.reviewerGroups) }}
-                  <!-- The ordinary single-approver case says nothing extra here, as before. -->
                   <template v-if="rule.minApprovals > 1">
                     &middot;
                     {{ t('admin.approval.minApprovals') }}: {{ rule.minApprovals }}
@@ -135,40 +128,25 @@ import ApprovalRuleDialog from '@/components/ApprovalRuleDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-// -> Task #684: gates this page behind `site:approvals` (or `manage:sites` / `read:sites`),
-//    redirecting away from a site the caller may not administer. See `composables/siteAdminAccess.js`.
 useSiteAdminAccess('site:approvals')
-
-// STORES
 
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.approval.title')
 }))
 
-// DATA
-
 const { state, load } = useAdminSettings({
   i18nPrefix: 'admin.approval',
-  // -> A listing, not a settings form: this page has never raised the full-screen overlay to read
-  //    its own rows, and the per-row saves below drive the header's own progress instead.
+  // -> A listing, not a settings form: no full-screen overlay while its rows load
   overlay: false,
   extraState: {
     rules: [],
     groups: []
   },
-  // -> The groups are what turn the stored IDs into names, so both are needed before the list means
-  //    anything; fetched together rather than in sequence
   fetch: (siteId) =>
     Promise.all([
       API_CLIENT.get(`sites/${siteId}/approvals/rules`).json(),
@@ -179,8 +157,6 @@ const { state, load } = useAdminSettings({
     state.groups = groups ?? []
   }
 })
-
-// METHODS
 
 function matchLabel(match) {
   return (
@@ -195,7 +171,6 @@ function matchLabel(match) {
   )
 }
 
-/** The pattern as it is written in the rule: a path with its slash, or a plain list of tags. */
 function patternLabel(rule) {
   if (['TAG', 'TAGALL'].includes(rule.match)) {
     return rule.path
@@ -204,8 +179,6 @@ function patternLabel(rule) {
 }
 
 /**
- * Group names for a list of IDs.
- *
  * An ID with no group left to name is shown as-is rather than dropped: a rule pointing at a deleted
  * group grants nothing, and hiding that would make the row look correct.
  */
@@ -214,10 +187,8 @@ function groupNames(groupIds) {
 }
 
 /**
- * Turn a rule on or off, saved as soon as the switch moves.
- *
- * The row is updated from the response rather than optimistically: a refused change has to leave the
- * switch showing what the server actually holds.
+ * The row is updated from the response rather than optimistically: a refused change has to leave
+ * the switch showing what the server actually holds.
  */
 async function setEnabled(rule, isEnabled) {
   state.loading++
