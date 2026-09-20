@@ -25,8 +25,7 @@ describe('page store: viewer.activeEditors (task 546)', () => {
 
   it('applyViewerState() defaults to zero when the server omits activeEditors', () => {
     const pageStore = usePageStore()
-    // -> Not a real response shape (the route always sends it), but the same defensive fallback
-    //    every other viewer field gets here
+    // -> Not a real response shape -- the route always sends it -- but the fallback is real
     pageStore.applyViewerState({ permissions: [] })
 
     expect(pageStore.activeEditors).toEqual({ count: 0, names: [] })
@@ -75,8 +74,7 @@ describe('page store: viewer.draft (OpenProject #2455)', () => {
 
   it('applyViewerState() defaults to null when the server omits draft', () => {
     const pageStore = usePageStore()
-    // -> Not a real response shape (the route always sends it), but the same defensive fallback
-    //    every other viewer field gets here
+    // -> Not a real response shape -- the route always sends it -- but the fallback is real
     pageStore.applyViewerState({ permissions: [] })
 
     expect(pageStore.draft).toBe(null)
@@ -154,16 +152,14 @@ describe('page store: pageLoad()', () => {
 
     const [url] = API_CLIENT.get.mock.calls[0]
     // -> `normalizePagePath('/my page')` -> `'my-page'`, matching `backend/api/pages/read.ts`'s
-    //    by-path lookup for the same input. A drifted local copy that skipped the whitespace-to-hyphen step
-    //    would hash `'my page'` instead, resolving to a hash the server never assigns.
+    //    by-path lookup. A drifted local copy that skipped the whitespace-to-hyphen step would hash
+    //    `'my page'` instead, resolving to a hash the server never assigns.
     expect(url).toBe(`sites/site-1/pages/${pagePathHash('my-page')}`)
   })
 
   /*
-   * OpenProject #2884: `savedIcon`/`savedTitle` are the pre-edit baseline `pageSave()`'s
-   * `navDisplayChanged` compares against -- captured here, from the fetched response, before
-   * `PagePropertiesDialog.vue`'s live `v-model` binding (or `PageHeader.vue`'s) ever gets a chance
-   * to mutate the live `icon`/`title` fields.
+   * Captured from the fetched response before `PagePropertiesDialog.vue`'s live `v-model` binding
+   * (or `PageHeader.vue`'s) ever gets a chance to mutate the live `icon`/`title` fields.
    */
   it('seeds the pre-edit icon/title baseline from the fetched page (OpenProject #2884)', async () => {
     const siteStore = useSiteStore()
@@ -192,10 +188,8 @@ describe('page store: pageLoad()', () => {
   })
 
   /*
-   * OpenProject #1785: `isStale` is the hook `Index.vue`'s route-path watcher passes so a slower,
-   * now-superseded call's response cannot stomp whatever a faster, later navigation already wrote.
-   * Driven directly here (rather than through a full `Index.vue` mount) to pin the store's own half
-   * of the guard in isolation -- the watcher-level wiring gets its own coverage in `Index.test.js`.
+   * Driven directly rather than through a full `Index.vue` mount, to pin the store's own half of
+   * the guard in isolation; the watcher that passes `isStale` is `index/pageRouting.js`'s.
    */
   describe('isStale guard (OpenProject #1785)', () => {
     it('performs no store write when isStale() is true once the response resolves', async () => {
@@ -206,8 +200,7 @@ describe('page store: pageLoad()', () => {
       )
 
       const pageStore = usePageStore()
-      // -> A page already on screen, standing in for whatever a faster, later navigation already
-      //    landed on -- asserted unchanged below.
+      // -> Stands in for whatever a faster, later navigation already landed on.
       pageStore.$patch({ id: 'page-b', path: 'page-b', title: 'Page B' })
 
       await pageStore.pageLoad({ path: '/page-a', isStale: () => true })
@@ -219,8 +212,8 @@ describe('page store: pageLoad()', () => {
     it('does not throw ERR_PAGE_NOT_FOUND for a stale response, even when the page truly is missing', async () => {
       const siteStore = useSiteStore()
       siteStore.id = 'site-1'
-      // -> The default stub shape: no `id` on the payload is what a 404 lookup resolves to
-      //    (`pageLoad`'s own `!pageData?.id` check), which would normally throw.
+      // -> No `id` on the payload is what a 404 lookup resolves to (`pageLoad`'s own
+      //    `!pageData?.id` check), which would normally throw.
       API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(undefined) })
 
       const pageStore = usePageStore()

@@ -12,29 +12,15 @@ import { log } from '@/helpers/log'
 import { usePathDisplay } from '@/composables/pathDisplay'
 
 /**
- * The icon a page starts with.
- *
- * An Iconify reference, so that the icon picker opens on its search tab with this one selected rather
- * than on the custom tab. Kept to a set seeded on every instance (`mdi`), so that it resolves without
- * an administrator having added anything.
+ * An Iconify reference rather than a custom one, so the picker opens on its search tab with this
+ * selected, and from a set seeded on every instance so it resolves before an administrator adds one.
  */
 export const DEFAULT_PAGE_ICON = 'tabler:file-text'
 
 /**
- * A page response, shaped for `$patch`.
- *
- * Three actions apply a page the server just handed back -- `pageLoad`, `pageUnlock` and the tail of
- * `pageSave` -- and each has to do the same four things to it first: keep only the relation fields
- * this store models, keep only the two `tocDepth` bounds, clear the password fields, which the API
- * never returns (OpenProject #2232) and which must therefore not be left holding the previous page's
- * -- or the just-saved -- typed value, and give a page that has never had an icon picked for it the
- * default one.
- *
- * That last is what puts a glyph in the masthead's plate at all: `pages.icon` is nullable and a page
- * created before the picker existed (or through the API, or by the importer) carries an empty string,
- * which `WIcon` renders as nothing -- so the plate drew an empty box with corner marks around it. The
- * initial state below has always been `DEFAULT_PAGE_ICON`; this is the same answer for the loaded
- * page, rather than only for the store before one arrives.
+ * The password fields are write-only -- the API never returns them -- so they are cleared rather
+ * than carried over: left standing they hold the previous page's, or the just-saved, typed value.
+ * `pages.icon` is nullable and an empty one renders as nothing, so the default stands in for it.
  */
 function pagePatch(pageData) {
   return {
@@ -50,11 +36,8 @@ function pagePatch(pageData) {
 }
 
 /**
- * The page fields shared by the two resets -- `pageNotFound` and `pageCreate`.
- *
- * Neither is showing a stored page, so every one of these has to stop saying whatever the previously
- * open page said. Each caller spreads this first and then states what IS true of its own case: a
- * page that does not exist is `notFound`, a page being created has a path, a title and content.
+ * Spread by `pageNotFound` and `pageCreate`, neither of which is showing a stored page: every field
+ * here has to stop saying whatever the previously open page said.
  */
 const BLANK_PAGE = {
   id: '',
@@ -62,8 +45,6 @@ const BLANK_PAGE = {
   title: '',
   description: '',
   icon: DEFAULT_PAGE_ICON,
-  // -> Reset alongside `icon`/`title` themselves -- see the field doc on `savedIcon` below for what
-  //    these hold and why a stale pair from the previously open page must not bleed into this one
   savedIcon: DEFAULT_PAGE_ICON,
   savedTitle: '',
   content: '',
@@ -75,13 +56,8 @@ const BLANK_PAGE = {
   tags: [],
   relations: [],
   publishState: '',
-  // -> The server resolves the default (the parent page's own level, or the most-open configured
-  //    one) when a create request omits it; blank here so neither reset shows the last page's level
   classification: '',
-  // -> Nor the previously-open page's place in ITS history: neither reset is showing a stored page,
-  //    and a stale ordinal is a number that reads as this page's own
   revision: null,
-  // -> Nothing here should carry the previously-open page's typed-but-unsaved password value
   password: '',
   hasPassword: false,
   removePassword: false,
@@ -96,20 +72,15 @@ export const usePageStore = defineStore('page', {
     authorId: 0,
     authorName: '',
     /**
-     * Classification level id (OpenProject #1079). Empty on a page not loaded yet; on `pageCreate`
-     * it stays empty deliberately -- the server resolves the default (the parent page's own level,
-     * or the most-open configured one) when the create request omits it, rather than this store
-     * guessing at a value the picker component has not shown yet.
+     * Empty means "let the server resolve the default" -- the parent page's own level, or the
+     * most-open configured one -- which is what `pageCreate` leaves it as rather than guessing.
      */
     classification: '',
     commentsCount: 0,
     content: '',
     /**
-     * Whether `content` above is this page's actual source, rather than just the state it starts in.
-     *
-     * The API leaves `content` out of a page unless an editor asked for it and the session may see it,
-     * so an empty string in this store means either "the page is empty" or "nobody fetched it" — and
-     * `pageSave` must not write the second one over a page that has content. See the guard there.
+     * The API omits `content` unless an editor asked for it and the session may see it, so an empty
+     * string means either "the page is empty" or "nobody fetched it" -- `pageSave` guards on this.
      */
     contentLoaded: false,
     createdAt: '',
@@ -117,52 +88,35 @@ export const usePageStore = defineStore('page', {
     editor: '',
     icon: DEFAULT_PAGE_ICON,
     /**
-     * The icon/title as the server last confirmed them, distinct from the live `icon`/`title` above.
-     *
-     * OpenProject #2884: `PagePropertiesDialog.vue` and `PageHeader.vue` both bind `icon`/`title`
-     * directly (`v-model`/plain assignment) -- a live two-way binding, not a local draft -- so the
-     * instant a reader picks a new icon or retypes the title, `this.icon`/`this.title` already hold
-     * the new value, well before Save is clicked. Comparing THOSE against the save response
-     * (`pageSave()`'s `navDisplayChanged`) is therefore always "new vs. new" and can never detect a
-     * genuine change. These two are the pre-edit baseline instead: set from the server response
-     * everywhere the store is populated from a fetched page (`pageLoad()`, `pageUnlock()`, and the
-     * tail of `pageSave()` itself, which advances them to the just-saved values for the next edit in
-     * the same session) -- never by a dialog, and never by anything that only changes the live pair.
+     * The pre-edit baseline `pageSave()`'s `navDisplayChanged` compares against, and only ever set
+     * from a server response: `icon`/`title` above are bound live into `PagePropertiesDialog.vue`
+     * and `PageHeader.vue`, so by the time Save is clicked they already hold the new value and
+     * comparing them is always "new vs. new".
      */
     savedIcon: DEFAULT_PAGE_ICON,
     savedTitle: '',
     id: '',
     isBrowsable: true,
     /**
-     * Whether the server withheld this page's body because it is password protected and this reader
-     * has not entered the password. `render`, `toc` and `content` are empty while it is set — the API
-     * never sent them — so nothing here can display a locked page by mistake.
+     * `render`, `toc` and `content` are empty while this is set — the API never sent them for a
+     * password-protected page this reader has not unlocked — so nothing can draw one by mistake.
      */
     isLocked: false,
     isSearchable: true,
     locale: 'en',
     navigationId: null,
     navigationMode: 'inherit',
-    /**
-     * Whether the path in the URL has no page at all. Set by `pageNotFound`, which empties everything
-     * else here at the same time — so this being true means the store holds the *absence* of a page,
-     * not a page that failed to load with the previous one's title and body still in it.
-     */
     notFound: false,
     /**
-     * A new password to protect the page with, in plaintext, never a value the server sent back
-     * (OpenProject #2232 -- the API only ever hashes this and never returns it again, see
-     * `hasPassword`). Empty means "no change" on save unless `removePassword` is also set; the server
-     * hashes whatever is typed here before it touches the database.
+     * Plaintext, and never a value the server sent back: the API only ever hashes this and never
+     * returns it (see `hasPassword`). Empty means "no change" unless `removePassword` is also set.
      */
     password: '',
-    /** Whether the page currently has a password set, as the server last reported it. Informational
-     *  only -- `password` above is what actually changes it on save. */
+    /** Informational only -- `password` above is what actually changes it on save. */
     hasPassword: false,
     /**
-     * Set when the password toggle is turned off in the editor, to tell `pageSave` this save means
-     * "take the password off", distinct from "the field was never touched" -- which `password` alone
-     * cannot say once the server stopped echoing the current value back (OpenProject #2232).
+     * Says this save means "take the password off", distinct from "the field was never touched" --
+     * which `password` alone cannot say when the server never echoes the current value back.
      */
     removePassword: false,
     path: '',
@@ -172,13 +126,9 @@ export const usePageStore = defineStore('page', {
     relations: [],
     render: '',
     /**
-     * Per-page script/style injection (OpenProject #3389/#3402) -- `scriptJsLoad`/`scriptJsUnload`
-     * run once this page loads/just before it's torn down, `scriptCss` is injected as a `<style>`.
-     * Edited by `PageScriptsDialog.vue`, opened from `PagePropertiesDialog.vue`'s Scripts section,
-     * which only renders for a reader holding `write:scripts`/`write:styles` (`userStore.pagePermissions`
-     * -- these are page-scoped, not `userStore.can()`). Saving a changed value needs the matching
-     * permission on the server too -- `api/pages/write.ts` refuses with 403 otherwise, rather than
-     * silently dropping it.
+     * `scriptJsLoad`/`scriptJsUnload` run once this page loads and just before it is torn down,
+     * `scriptCss` is injected as a `<style>`. Changing any of them needs `write:scripts`/
+     * `write:styles` ON THIS PAGE -- page-scoped, so `userStore.pagePermissions`, not `can()`.
      */
     scriptJsLoad: '',
     scriptJsUnload: '',
@@ -195,69 +145,44 @@ export const usePageStore = defineStore('page', {
     },
     updatedAt: '',
     /**
-     * Where this page stands in its own history -- `{ ordinal, changeCount, via }`, the metadata
-     * rail's Revision section (OpenProject #2652; `via` added by #2735). Rides the page read rather
-     * than costing the rail a request of its own; see `Page#.revision` in
-     * `backend/api/schemas/page.ts`.
-     *
-     * `null` means the server did not send one, which it does NOT do for a requester without
-     * `read:history` on the page -- so null is "not allowed to know", not "no history", and the rail
-     * draws the author and the time alone for it. Within a revision that IS present, `changeCount`
-     * is likewise absent rather than zero when there is nothing to diff against (a page whose only
-     * version is its creation), so neither is ever defaulted to a number here: `rev 1` with no
-     * `· 0 changes` clause is a different rendering from `rev 1 · 0 changes`, and only the first
-     * of the two is a thing this section ever draws. `via` is `'editor'` or `'mcp'` and drives the
-     * same "via MCP" badge the history timeline draws (`PageHistoryOverlay.vue`) next to the author
-     * name.
+     * `{ ordinal, changeCount, via: 'editor' | 'mcp' }`, riding the page read rather than costing
+     * the metadata rail a request of its own. `null` is what a requester without `read:history`
+     * gets -- "not allowed to know", not "no history" -- and `changeCount` is likewise absent rather
+     * than zero with nothing to diff against. Never default either to a number.
      */
     revision: null,
     /**
-     * Whether this reader may suggest edits to this page, i.e. an enabled approval rule covers it and
-     * names a group they are in. Answered by the server, since neither the rules nor the reader's
-     * groups are known here — and left false until it does, so the button never flashes into view on
-     * a page that turns out not to take suggestions.
+     * Whether an enabled approval rule covers this page and names a group this reader is in --
+     * server-answered, and false until it answers, so the button never flashes into view on a page
+     * that takes no suggestions.
      */
     canSuggestEdits: false,
-    /** Whether the reader already has a suggestion open on this page, which they would carry on with. */
     hasOpenSuggestion: false,
     /**
-     * What became of this reader's most recently resolved suggestion on this page, if a reviewer has
-     * acted on one -- `{ status: 'approved' | 'declined', reason: string | null, resolvedAt }`, or
-     * null while nothing of theirs has been resolved yet, or for a guest. `hasOpenSuggestion` going
-     * false on its own says nothing about what happened; this is the return leg.
+     * `{ status: 'approved' | 'declined', reason: string | null, resolvedAt }`, or null for a guest
+     * and while nothing of theirs has been resolved. `hasOpenSuggestion` going false says nothing
+     * about what happened; this is the return leg.
      */
     resolvedSubmission: null,
-    /** Whether this reader reviews this page, which is what shows the review button on it. */
     canReview: false,
-    /** The suggestions waiting on this page, oldest first. Empty for everybody who is not its reviewer. */
+    /** Oldest first, and empty for everybody who is not this page's reviewer. */
     pendingSubmissions: [],
-    /**
-     * Whether this reader has asked to be told about changes to this page. Always false for a guest:
-     * a watch belongs to an account, which is what a notification would eventually be sent to.
-     */
+    /** Always false for a guest: a watch belongs to an account, which is what gets notified. */
     isWatching: false,
     /**
-     * Bumped once a `pageWatch()` request has actually resolved -- never on the optimistic flip that
-     * happens synchronously ahead of it, and never on a failed request, which reverted `isWatching`
-     * with nothing having changed server-side. This, not `isWatching` itself, is what
-     * `pages/Index.vue`'s rail watches to know when to re-fetch the page's watchers: `isWatching`
-     * changes before the write commits, so a watcher keyed on it asks the server for the watcher list
-     * while the PUT/DELETE that would change it is still in flight and gets back the state from
-     * before the click (OpenProject #2722).
+     * Bumped only once a `pageWatch()` request has resolved, never on the optimistic flip ahead of
+     * it: `isWatching` changes before the write commits, so a watcher-list re-fetch keyed on that
+     * races the PUT/DELETE and gets back the state from before the click.
      */
     watchersRevision: 0,
     /**
-     * Who else already has this page open in a live collaboration room, on the instance that answered
-     * this request — a same-instance approximation, not a cluster-wide count. What lets the editor say
-     * "N other people have this page open" before a collab session of its own has even started; see
-     * `EditorMarkdown.vue`. Always `{ count: 0, names: [] }` on a site without collaborative editing.
+     * A same-instance approximation of who else has this page open in a live collaboration room --
+     * the instance that answered the request, not a cluster-wide count.
      */
     activeEditors: { count: 0, names: [] },
     /**
-     * An unsaved draft recorded when this page's collaboration room last closed with edits still
-     * pending (OpenProject #2455) -- `{ updatedAt, authorName }`, or `null` when there is none. What
-     * `composables/collab.js` offers to restore once its session syncs. Content is not carried here;
-     * it is fetched only once the reader actually chooses to restore it.
+     * `{ updatedAt, authorName }` for edits left pending when this page's collaboration room last
+     * closed, or `null`. The content is fetched only once the reader chooses to restore it.
      */
     draft: null
   }),
@@ -269,7 +194,7 @@ export const usePageStore = defineStore('page', {
       return segments.map((value, key) => ({
         id: key,
         // -> A deliberate override when the site's path-display setting is on, not just a fallback
-        //    for a segment with no real title of its own (Feature #2574) -- see `usePathDisplay()`.
+        //    for a segment with no real title of its own -- see `usePathDisplay()`.
         title: humanize(value),
         icon: 'tabler:file-text',
         locale: state.locale,
@@ -287,15 +212,10 @@ export const usePageStore = defineStore('page', {
       return isHomePath(state.path)
     },
     /**
-     * Where to send someone who is leaving the editor on this page.
-     *
-     * Its own path, except for a redirection, which is held on arrival: whoever just wrote down where
-     * this page sends people is the one person who does not want to be sent there. `?redirect=no` is
-     * what holds it — see `PageRedirect.vue` — and the screen it lands on offers to follow it.
-     *
-     * Carries the page's own locale prefix, same rule as `breadcrumbs` — this is a real navigation
-     * target (`router.replace` lands on it directly), so an unprefixed link to a non-primary-locale
-     * page would round-trip through the locale-detection default and land on the wrong translation.
+     * The page's own path, except for a redirection, which is held on arrival: whoever just wrote
+     * down where this page sends people is the one person who does not want to be sent there
+     * (`?redirect=no`, see `PageRedirect.vue`). Locale-prefixed because this is a real navigation
+     * target -- unprefixed, it round-trips through locale detection and lands on the wrong one.
      */
     editorExitPath: (state) => {
       const siteStore = useSiteStore()
@@ -305,27 +225,20 @@ export const usePageStore = defineStore('page', {
   },
   actions: {
     /**
-     * PAGE - LOAD
-     *
      * @param {object} args
      * @param {() => boolean} [args.isStale] Checked once the request resolves, before the store is
-     *   touched at all -- a caller that can start a second, overlapping load for a different target
-     *   (`Index.vue`'s route-path watcher, navigating A -> B while A is still in flight) passes this
-     *   so a slower, now-superseded response cannot stomp whatever a faster, later one already wrote.
-     *   Every other caller leaves it unset and keeps the unconditional write this always had
-     *   (OpenProject #1785).
+     *   touched at all, so a caller that can start a second, overlapping load (navigating A -> B
+     *   while A is in flight) is not stomped by the slower, superseded response. Unset leaves the
+     *   write unconditional.
      */
     async pageLoad({ path, id, withContent = false, locale, isStale }) {
       const editorStore = useEditorStore()
       const siteStore = useSiteStore()
       /*
-        The lock, and the absence of a page, belong to the page being loaded rather than to the one
-        before it.
-
-        Everything else in this store stays put until the reply arrives, deliberately -- blanking it
-        would flash an empty page on every navigation. These two cannot be treated that way: they are
-        read as "the page on screen is protected" and "there is no page on screen", and left standing
-        they make the NEXT page look protected, or missing, for as long as the request takes.
+        The lock, and the absence of a page, belong to the page being loaded rather than the one
+        before it. Everything else stays put until the reply arrives -- blanking it would flash an
+        empty page on every navigation -- but these two read as "protected" and "not there", and
+        left standing they say that about the NEXT page for as long as the request takes.
       */
       this.isLocked = false
       this.notFound = false
@@ -336,45 +249,34 @@ export const usePageStore = defineStore('page', {
             searchParams: {
               withContent,
               // -> A hash only identifies a page within a locale; omitted, the server falls back to
-              //    the site's primary one -- see `parseLocalePrefix` in `helpers/pagePaths.js` for
-              //    where this comes from.
+              //    the site's primary one.
               ...(locale ? { locale } : {})
             }
           }
         ).json()
-        // -> Bail before any of it: not just the $patch below, but also the not-found throw, which
-        //    would otherwise send a stale ERR_PAGE_NOT_FOUND back to a caller that has already moved
-        //    on (`Index.vue`'s catch branch guards its own end independently, but there is no reason
-        //    to raise a superseded error at all).
+        // -> Ahead of the not-found throw as well as the `$patch` below: a superseded load has no
+        //    reason to raise `ERR_PAGE_NOT_FOUND` at a caller that has already moved on.
         if (isStale?.()) {
           return
         }
         if (!pageData?.id) {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
-        // Update page store
         const patchedPage = pagePatch(pageData)
         this.$patch({
           ...patchedPage,
-          // -> OpenProject #2884: the pre-edit baseline `navDisplayChanged` compares against, taken
-          //    from the server response before any dialog can mutate the live `icon`/`title` -- see
-          //    the field doc on `savedIcon` above
           savedIcon: patchedPage.icon,
           savedTitle: patchedPage.title,
-          // -> The field is present exactly when the source came with the page, which is what makes
-          //    the copy in this store safe to save; a view-mode load leaves the previous one in place
+          // -> Present, not truthy: an empty string is a real empty page, not a withheld one
           contentLoaded: Object.hasOwn(pageData, 'content'),
           /*
-            Stated rather than left to the spread above, because the server OMITS this key for a
-            reader without `read:history` on the page -- and a spread of a payload that does not
-            carry it leaves the PREVIOUS page's ordinal standing. Navigating from a page whose
-            history this reader may see to one whose history they may not would otherwise keep
-            drawing `rev 14` in the rail, against a page it says nothing about.
+            Stated rather than left to the spread above: the server omits the key entirely for a
+            reader without `read:history` on the page, and a spread that does not carry it leaves
+            the PREVIOUS page's ordinal standing in the rail, against a page it says nothing about.
           */
           revision: pageData.revision ?? null
         })
         this.applyViewerState(pageData.viewer)
-        // -> Nothing has been typed into this freshly-loaded page yet
         editorStore.markClean()
       } catch (err) {
         // -> A missing page is an ordinary outcome, not a failure: it is what puts a new instance in
@@ -383,9 +285,8 @@ export const usePageStore = defineStore('page', {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
         /*
-          Nor is a page the reader may not open: the group rules say so deliberately, and the reader
-          is owed the unauthorized screen -- which offers signing in as somebody else -- rather than
-          an error banner over an empty page view.
+          Nor is a page the reader may not open: they are owed the unauthorized screen, which offers
+          signing in as somebody else, rather than an error banner over an empty page view.
         */
         if (err.response?.status === 403) {
           throw new Error('ERR_PAGE_UNAUTHORIZED')
@@ -395,18 +296,9 @@ export const usePageStore = defineStore('page', {
       }
     },
     /**
-     * PAGE - UNLOCK
-     *
-     * Hands a password for a protected page to the server, which answers with the page — body
-     * included — when it matches. The reply is what fills the content in, rather than this store
-     * flipping `isLocked` and re-reading a page it already had: there is nothing here to unlock, the
-     * body was never sent.
-     *
-     * The server also remembers the unlock for the session, so navigating away and back does not ask
-     * again.
-     *
-     * @param {string} password
-     * @throws When the password is wrong (401) or the request fails; the caller reports it.
+     * The reply is what fills the content in, rather than this store flipping `isLocked` and
+     * re-reading a page it already had: there is nothing here to unlock, the body was never sent.
+     * The server remembers the unlock for the session, so going away and back does not ask again.
      */
     async pageUnlock(password) {
       const siteStore = useSiteStore()
@@ -416,31 +308,15 @@ export const usePageStore = defineStore('page', {
       const patchedPage = pagePatch(pageData)
       this.$patch({
         ...patchedPage,
-        // -> See the field doc on `savedIcon` above -- this too is a fetch that repopulates the
-        //    store from the server, so it re-anchors the pre-edit baseline the same way `pageLoad()`
-        //    does
         savedIcon: patchedPage.icon,
         savedTitle: patchedPage.title,
         contentLoaded: Object.hasOwn(pageData, 'content')
       })
     },
     /**
-     * PAGE - WATCH / UNWATCH
-     *
-     * Asks to be told about changes to this page, or stops asking.
-     *
-     * The store is moved first and put back if the server refuses. A bell that waits for a round trip
-     * before it rings is a bell that feels broken, and the request behind it either succeeds or is
-     * worth an error — there is no third outcome to leave the button guessing at.
-     *
-     * `isWatching` is set again, from the response, once the request actually resolves -- normally a
-     * no-op since it already matches what was asked for, but it is what makes the response the
-     * authoritative word rather than the optimistic guess. `watchersRevision` bumps in that same
-     * place and nowhere else: it is what `pages/Index.vue`'s watcher-list rail keys its re-fetch off
-     * of instead of `isWatching` itself, so that re-fetch is ordered strictly after the write commits
-     * rather than racing it (OpenProject #2722).
-     *
-     * @throws Whatever the request failed with, for the caller to report.
+     * Optimistic: the store is moved first and put back if the server refuses, because a bell that
+     * waits for a round trip before it rings is a bell that feels broken. The response is applied
+     * on top all the same, so the server has the last word rather than the guess.
      */
     async pageWatch(watching) {
       const siteStore = useSiteStore()
@@ -458,18 +334,11 @@ export const usePageStore = defineStore('page', {
       }
     },
     /**
-     * PAGE - APPLY VIEWER STATE
+     * The page permissions go to the user store rather than staying here: they are the reader's,
+     * not the page's, and `userStore.can()` consults them for the path in front of them.
      *
-     * Takes in the `viewer` block the page came with: what this reader may do here, whether they may
-     * suggest an edit, and what they have to review on this page. The page view used to ask three
-     * further endpoints for exactly this, each of which loaded the page again to answer — so the one
-     * request now settles what the whole view draws.
-     *
-     * The page permissions go to the user store, which is where everything reads them from: they are
-     * the reader's, not the page's, and `userStore.can()` consults them for the path in front of them.
-     *
-     * @param viewer Absent from a page that came back from a save or an unlock, which changes none of
-     *               this — so nothing here is touched in that case.
+     * @param viewer Absent from a page that came back from a save or an unlock, which changes none
+     *               of this — so nothing here is touched in that case.
      */
     applyViewerState(viewer) {
       if (!viewer) {
@@ -489,17 +358,11 @@ export const usePageStore = defineStore('page', {
       })
     },
     /**
-     * PAGE - NOT FOUND
+     * A failed load leaves the previous page standing (`pageLoad`, deliberately), which for a path
+     * with nothing behind it means reading the page you came from under a URL that is not its own.
+     * So everything the page view draws is emptied here, and `path` becomes the one asked for.
      *
-     * Puts the store in front of a path that has no page, so that the view can offer to create one.
-     *
-     * A load that fails leaves the previous page standing — see `pageLoad`, where that is on purpose —
-     * and for a path with nothing behind it that means the reader is left reading the page they came
-     * from under a URL that is not its own. So everything the page view draws is emptied here, and
-     * `path` becomes the one that was asked for — the only thing about a page that does not exist that
-     * is actually known, and what the create button goes on to make a page at.
-     *
-     * @param {string} path The path that was requested, with or without its leading slash.
+     * @param {string} path With or without its leading slash.
      */
     pageNotFound({ path }) {
       this.$patch({
@@ -521,12 +384,8 @@ export const usePageStore = defineStore('page', {
       })
     },
     /**
-     * PAGE - RESOLVE ALIAS
-     *
-     * Returns the `{ id, path, locale }` the alias points at -- the locale as well as the bare path,
-     * so the caller can build a properly-prefixed link (`localizedPagePath`) instead of landing on
-     * the primary-locale default for a translation that isn't. `routes.js`'s `/a/:alias` is the only
-     * caller.
+     * Returns the locale as well as the path, so the caller can build a properly-prefixed link
+     * instead of landing on the primary-locale default for a translation that isn't.
      */
     async pageAlias(alias) {
       const siteStore = useSiteStore()
@@ -544,9 +403,6 @@ export const usePageStore = defineStore('page', {
         throw err
       }
     },
-    /**
-     * PAGE - CREATE
-     */
     async pageCreate({
       editor,
       locale,
@@ -561,10 +417,8 @@ export const usePageStore = defineStore('page', {
       const editorStore = useEditorStore()
       const siteStore = useSiteStore()
 
-      // -> Load editor config
       await editorStore.ensureConfigs()
 
-      // -> Path normalization
       if (path?.startsWith('/')) {
         path = path.substring(1)
       }
@@ -575,16 +429,13 @@ export const usePageStore = defineStore('page', {
         basePath = basePath.substring(0, basePath.length - 1)
       }
 
-      // -> Redirect if not at /_create path
       if (!this.router.currentRoute.value.path.startsWith('/_create/') && !fromNavigate) {
         editorStore.$patch({ ignoreRouteChange: true })
         /*
-          `/_create` has no page segment of its own to carry a locale in, so the app router's own
-          locale-prefix guard (`App.vue`'s `beforeEach`, via `resolveRouteLocale`) would otherwise
-          reset `pageStore.locale` to the site's primary the instant this navigation resolves --
-          overwriting whatever gets patched in below before anything downstream can read it back.
-          Carrying it here, as `?locale=`, is what that guard falls back to instead. Skipped for a
-          single-locale site, where that guard never runs at all.
+          `/_create` has no page segment of its own to carry a locale in, so `App.vue`'s
+          locale-prefix guard would otherwise reset `pageStore.locale` to the site's primary the
+          instant this navigation resolves, overwriting whatever gets patched in below. `?locale=`
+          is that guard's fallback. Skipped for a single-locale site, where it never runs at all.
         */
         const createLocale = locale || this.locale
         this.router.push({
@@ -594,23 +445,18 @@ export const usePageStore = defineStore('page', {
       }
 
       /*
-        -> Init editor
-        `lastChangeTimestamp`/`lastSaveTimestamp` are equalized here the same way `pageLoad()` and
-        `pageSuggest()` already do for their own fresh sessions -- this one starts with nothing typed
-        into it yet. Without this, calling `pageCreate()` while already editing another page dirty
-        (the header's New Page menu, mid-edit) would leave `hasPendingChanges` still reading that OLD
-        page's pending state. The `router.push()` above is not awaited, so this synchronous patch runs
-        (and clears it) before `App.vue`'s router guard -- which only runs once that push's own promise
-        machinery gets a turn -- ever gets to read `hasPendingChanges` for this navigation.
+        This session starts with nothing typed into it, so both timestamps are equalized -- opening
+        a create while already editing another page dirty otherwise leaves `hasPendingChanges`
+        reading that OLD page's state. The `router.push()` above is not awaited, so this synchronous
+        patch clears it before `App.vue`'s router guard reads it for that navigation.
       */
       editorStore.markClean({
-        originPageId: editorStore.isActive ? editorStore.originPageId : this.id, // Don't replace if already in edit mode
+        originPageId: editorStore.isActive ? editorStore.originPageId : this.id,
         isActive: true,
         mode: 'create',
         editor
       })
 
-      // -> Default Page Path
       let newPath = path
       if (!path && path !== '') {
         const parentPath =
@@ -618,16 +464,15 @@ export const usePageStore = defineStore('page', {
         newPath = parentPath ? `${parentPath}/new-page` : 'new-page'
       }
 
-      // -> Set Default Page Data
       this.$patch({
         ...BLANK_PAGE,
         id: 0,
         locale: locale || this.locale,
         path: newPath,
         /*
-          The editor is a field of the page being written, not just of the editor holding it: anything
-          asking what KIND of page is on screen reads it here. Left unset, the store kept the last
-          page's answer -- so opening a new page from a redirection said it was one too.
+          Also a field of the page being written, not just of the editor holding it: anything asking
+          what KIND of page is on screen reads it here. Left unset, the store keeps the last page's
+          answer -- so a new page opened from a redirection would say it is one too.
         */
         editor,
         title: title ?? '',
@@ -640,26 +485,20 @@ export const usePageStore = defineStore('page', {
         contentLoaded: true,
         isBrowsable: true,
         /*
-          A redirection is browsable like any other page and findable in none: a search result for one
-          would stand in front of the page the reader actually wanted. The server settles this either
-          way -- see `createPage` in `models/pages.ts` -- so this is the store agreeing with it rather
-          than deciding it.
+          A redirection is browsable like any other page and findable in none: a search result for
+          one would stand in front of the page the reader actually wanted. The server settles this
+          either way, so this is the store agreeing with it rather than deciding it.
         */
         isSearchable: editor !== 'redirect',
         /*
           Neither is real yet, so both are blanked rather than left as whatever `pageLoad` last put
-          here -- unblanked, a page created from an existing one (the header's New Page button, a
-          direct `/_create` visit, `pageDuplicate`) would report THAT page's last-saved and created
-          times as its own (OpenProject #813: the breadcrumb bar now stays up during editing and reads
-          this).
+          here -- unblanked, a page created from an existing one would report THAT page's created
+          and last-saved times as its own in the breadcrumb bar, which stays up during editing.
         */
         updatedAt: '',
         createdAt: ''
       })
     },
-    /**
-     * PAGE - DUPLICATE
-     */
     async pageDuplicate({ sourcePageId, title, path }) {
       const siteStore = useSiteStore()
       try {
@@ -671,9 +510,8 @@ export const usePageStore = defineStore('page', {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
         // -> Awaited so this call's own catch owns the failure: `pageCreate` is async and rejects
-        //    readily (its first act is `editorStore.fetchConfigs()`, a network request that rethrows
-        //    on failure) -- left un-awaited, that rejection escaped this try entirely and became an
-        //    unhandled rejection nobody in `frontend/src` catches (OpenProject #1787).
+        //    readily (its first act fetches the editor configs over the network), and un-awaited
+        //    that rejection escapes this try and becomes an unhandled rejection nobody catches.
         await this.pageCreate({
           editor: pageData.editor,
           title,
@@ -687,11 +525,8 @@ export const usePageStore = defineStore('page', {
       }
     },
     /**
-     * PAGE - SUGGEST EDITS
-     *
-     * Opens the editor on a suggestion rather than on the page. The source comes from the suggestion
-     * endpoint rather than from the page: it hands back whatever this reader already suggested, so
-     * that coming back to the button carries on from where they left off.
+     * The source comes from the suggestion endpoint rather than from the page: it hands back
+     * whatever this reader already suggested, so coming back carries on from where they left off.
      */
     async pageSuggest() {
       const editorStore = useEditorStore()
@@ -719,11 +554,7 @@ export const usePageStore = defineStore('page', {
         editor: this.editor
       })
     },
-    /**
-     * PAGE - SUBMIT SUGGESTED EDITS
-     *
-     * @param {object} [guest] Name and email, required when nobody is logged in
-     */
+    /** `guestName`/`guestEmail` are required when nobody is logged in. */
     async pageSubmitSuggestion({ guestName, guestEmail } = {}) {
       const siteStore = useSiteStore()
       const resp = await API_CLIENT.put(`sites/${siteStore.id}/pages/${this.id}/suggestions/self`, {
@@ -736,9 +567,6 @@ export const usePageStore = defineStore('page', {
       this.hasOpenSuggestion = true
       return resp.submission
     },
-    /**
-     * PAGE - EDIT
-     */
     async pageEdit({ path, id, locale, fromNavigate = false } = {}) {
       const editorStore = useEditorStore()
 
@@ -751,10 +579,8 @@ export const usePageStore = defineStore('page', {
       } else if (path) {
         loadArgs.path = path
         /*
-          A hash only identifies a page within a locale (`pageLoad`'s own comment above), so an editor
-          entry point addressed by path has to carry one along too -- `this.locale` is what App.vue's
-          router guard already resolved from `?locale=` for this route, or the site's primary when
-          none was given, so an un-migrated caller still gets today's behavior.
+          A path lookup needs a locale (see `pageLoad`); `this.locale` is what `App.vue`'s router
+          guard resolved from `?locale=`, or the site's primary when none was given.
         */
         loadArgs.locale = locale ?? this.locale
       } else {
@@ -762,13 +588,10 @@ export const usePageStore = defineStore('page', {
       }
 
       /*
-        Edits made OUTSIDE the editor have to survive opening it.
-
-        The page properties panel writes straight to this store, and the header then offers to save
-        them — so a page can arrive here with a changed title and an unchanged everything else. A full
-        load would replace every field with what is stored and reset the change timestamps, throwing
-        those edits away without a word. The source is the only thing missing in that state, so the
-        source is the only thing fetched.
+        Edits made OUTSIDE the editor have to survive opening it: the page properties panel writes
+        straight to this store, and a full load would replace every field with what is stored and
+        reset the change timestamps, throwing those edits away without a word. The source is the
+        only thing missing in that state, so the source is the only thing fetched.
       */
       if (editorStore.hasPendingChanges) {
         await this.pageLoadSource()
@@ -785,11 +608,8 @@ export const usePageStore = defineStore('page', {
       })
     },
     /**
-     * PAGE - LOAD SOURCE ONLY
-     *
-     * Fetches the source and nothing else, for opening the editor on a page whose other fields have
-     * already been edited elsewhere. Deliberately touches neither the rest of the page nor the editor's
-     * change timestamps: what is pending stays pending, and stays saveable.
+     * Deliberately touches neither the rest of the page nor the editor's change timestamps: what is
+     * pending stays pending, and stays saveable.
      */
     async pageLoadSource() {
       const siteStore = useSiteStore()
@@ -811,9 +631,6 @@ export const usePageStore = defineStore('page', {
         throw err
       }
     },
-    /**
-     * PAGE - MOVE
-     */
     async pageMove({ id, title, path, locale, includeTranslations } = {}) {
       const siteStore = useSiteStore()
       try {
@@ -831,24 +648,18 @@ export const usePageStore = defineStore('page', {
       // -> Following the page only makes sense when it is the one being viewed. Moved from the file
       //    manager, it is some other page, and the reader is still on theirs.
       if (id === this.id) {
-        // -> Through `localizedPagePath` rather than a bare `/${path}`: a move can now change the
-        //    page's locale, and an unprefixed link to a non-primary-locale page round-trips through
-        //    locale detection and lands on whichever translation that picks.
+        // -> A move can change the page's locale, and an unprefixed link round-trips through locale
+        //    detection and lands on whichever translation that picks.
         this.router.replace(localizedPagePath(path, locale ?? this.locale, siteStore.localeRouting))
       }
       /*
-        OpenProject #1012: a move does not touch the page's own `navigationId` (`movePage()` never
-        writes it), but it CAN change what an `auto`/`mixed` menu generates from the tree behind that
-        same unchanged id -- the moved page's new parent folder, its position among siblings -- with
-        nothing on the backend to tell an already-open tab. Force-refetches whatever menu THIS tab's
-        currently viewed page resolves to, whether or not that is the page that got moved: a no-op
-        re-fetch of unrelated, still-correct data when it isn't, the fix itself when it is.
+        A move never writes the page's own `navigationId`, but it CAN change what an `auto`/`mixed`
+        menu generates from the tree behind that same id -- the new parent folder, the position
+        among siblings -- with nothing on the backend to tell an already-open tab. So THIS tab's
+        menu is force-refetched either way: a no-op when the moved page is not the one on screen.
       */
       await siteStore.fetchNavigation(this.navigationId, true)
     },
-    /**
-     * PAGE - Rename
-     */
     async pageRename({ id, title } = {}) {
       const siteStore = useSiteStore()
       try {
@@ -859,17 +670,13 @@ export const usePageStore = defineStore('page', {
         throw new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
       }
 
-      // Update page store
       if (id === this.id) {
         this.$patch({ title })
       }
     },
     /**
-     * PAGE - Convert Editor (OpenProject #3399)
-     *
-     * Flips a page between the `markdown` and `wysiwyg` editors, after `PageConvertDialog.vue`'s
-     * own render-equality guard has already run client-side -- this only carries the flip to the
-     * server, same shape as `pageRename` above.
+     * Only carries the flip to the server: `PageConvertDialog.vue`'s render-equality guard has
+     * already run client-side.
      */
     async convertEditor({ id, editor } = {}) {
       const siteStore = useSiteStore()
@@ -882,40 +689,26 @@ export const usePageStore = defineStore('page', {
         throw new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
       }
 
-      // Update page store
       if (id === this.id) {
         this.$patch({ editor: page.editor })
       }
     },
-    /**
-     * PAGE SAVE
-     */
     async pageSave() {
       const editorStore = useEditorStore()
       const siteStore = useSiteStore()
       try {
         /*
-          Read the mounted editor directly before anything below touches `content`/`render`.
-
-          The editor only syncs those into this store on a 500ms debounce (see `EditorMarkdown.vue`'s
-          `onDidChangeModelContent` handler), so a save issued right after an edit -- pasting an image
-          and saving immediately, before that debounce has fired, is what surfaced this (OpenProject
-          #806) -- could otherwise read a stale pair here and send a dead `blob:` URL to the server.
-          `contentFlusher` is a read-through the editor registers while it is mounted; a save with no
-          editor mounted (a scripted call, for instance) leaves it null and this is a no-op. Awaited
-          rather than called bare: `EditorMarkdown.vue`'s own flusher is synchronous and resolves
-          immediately either way, but `EditorAsciidoc.vue`'s is genuinely asynchronous -- Asciidoctor's
-          `convert` is (`renderers/asciidoc.js`) -- and a save that read `render` before that settled
-          would send up the render from before this edit. Deliberately does not touch `contentLoaded`
-          itself -- that stays exactly what the load or a real edit set it to, which is what the guard
-          just below is reading.
+          Read the mounted editor before anything below touches `content`/`render`: the editor only
+          syncs those into this store on a 500ms debounce, so a save issued right after an edit --
+          pasting an image and saving immediately -- could otherwise send a dead `blob:` URL. A
+          read-through the editor registers while mounted, so null with none mounted. Awaited
+          because `EditorAsciidoc.vue`'s is genuinely asynchronous and would settle after the read.
         */
         await editorStore.contentFlusher?.()
 
-        // -> The render goes up with the content: the markdown pipeline runs here, in the editor, and
-        //    what the preview shows is what gets stored. The server post-processes it — sanitizing it
-        //    against what this author may embed, and deriving the table of contents — so the page it
-        //    returns is the authority on what was actually saved.
+        // -> The render goes up with the content: the pipeline runs here, in the editor, and what
+        //    the preview shows is what gets stored. The server post-processes it — sanitizing
+        //    against what this author may embed, deriving the ToC — so its reply is the authority.
         const body = {
           ...pick(this, [
             'alias',
@@ -943,21 +736,18 @@ export const usePageStore = defineStore('page', {
             'tocDepth'
           ]),
           /*
-            Not a page field: it describes the save rather than the page, and the server records it on
-            the history version this save produces. Collected by the reason-for-change dialog before
-            `pageSave` is called, and cleared below once it has gone up.
+            Not a page field: it describes the save rather than the page, and the server records it
+            on the history version this save produces. Cleared below once it has gone up.
           */
           reasonForChange: editorStore.reasonForChange ?? ''
         }
 
         /*
-          The password is write-only and never round-trips from the server (OpenProject #2232), so
-          unlike every other field above it cannot simply be picked off `this` -- an untouched field
-          reads as `''` here whether the page has a password or not, and sending that on every save
-          would silently strip one every time an author changed the title. Sent only on an actual
-          intent: a new value to hash and store, or an explicit removal from the password toggle
-          being turned off (`toggleRequirePassword` in `PagePropertiesDialog.vue`). Anything else
-          omits the key entirely, which `updatePage` reads as "leave the stored password alone".
+          The password is write-only and never round-trips, so unlike every other field above it
+          cannot simply be picked off `this`: an untouched field reads as `''` whether the page has
+          a password or not, and sending that on every save would strip one every time an author
+          changed the title. Sent only on a real intent -- a new value, or the toggle being turned
+          off -- and otherwise omitted, which `updatePage` reads as "leave the stored one alone".
         */
         if (this.password) {
           body.password = this.password
@@ -966,27 +756,20 @@ export const usePageStore = defineStore('page', {
         }
 
         /*
-          Never save a source this store never received.
-
-          An editor that came up empty because the source was withheld — an expired session, a failed
-          load — is indistinguishable from an empty page by the time the payload is built, and sending
-          the empty string replaces the stored HTML's source with nothing. Dropping the key instead
-          leaves it exactly as it was: `updatePage` only writes `content` when it is not `undefined`.
-
-          Typing into an editor sets the flag, so deliberately clearing a page still works — that empty
-          string came from the author, not from a load that never happened. A page being created always
-          has it set, which is also why this cannot leave the POST short of a required field.
+          Never save a source this store never received. An editor that came up empty because the
+          source was withheld is indistinguishable from an empty page by then, and sending the empty
+          string replaces the stored source with nothing; dropping the key leaves it as it was,
+          since `updatePage` only writes `content` when it is defined. Typing sets the flag, so
+          clearing a page deliberately still works, and a create always has it set.
         */
         if (!this.contentLoaded) {
           delete body.content
           log.warn('page', 'the page source was never loaded; saving without touching it')
         }
         /*
-          OpenProject #1079: an unset classification on create means "let the server pick the
-          default" (the parent page's own level, or the most-open configured one) -- an empty string
-          would fail the API's uuid format validation, so this is dropped rather than sent. A page
-          already loaded always has a real value here (the server never omits it), so this never
-          fires on a save that is not a create.
+          An unset classification on create means "let the server pick the default"; an empty string
+          would fail the API's uuid format validation, so the key is dropped rather than sent. A page
+          already loaded always has a real value, so this only ever fires on a create.
         */
         if (!this.classification) {
           delete body.classification
@@ -1011,9 +794,8 @@ export const usePageStore = defineStore('page', {
           const resp = await API_CLIENT.patch(`sites/${siteStore.id}/pages/${this.id}`, {
             /*
               Not a page field either, and not sent on create: there is nothing yet to conflict
-              with. The server compares this against what it actually has stored and refuses the
-              write on a mismatch -- see the 409 branch below -- which is what stops one editor's
-              save from silently overwriting another's.
+              with. The server refuses the write on a mismatch -- the 409 branch below -- which is
+              what stops one editor's save from silently overwriting another's.
             */
             json: { ...body, expectedUpdatedAt: this.updatedAt }
           }).json()
@@ -1021,66 +803,44 @@ export const usePageStore = defineStore('page', {
           if (!pageData?.id) {
             throw new Error('ERR_PAGE_NOT_FOUND')
           }
-          // -> OpenProject #1080: only ever present on an update that raised the page's own
-          //    classification and left descendants below the new floor -- see the PATCH route.
+          // -> Only ever present on an update that raised the page's own classification and left
+          //    descendants below the new floor.
           classificationConflicts = resp?.classificationConflicts ?? []
         }
 
         const wasCreate = editorStore.mode === 'create'
 
         /*
-          OpenProject #2824/#2884: `NavSidebarItem.vue` draws a cached tree entry's icon and title
-          straight from the nav-tree response, not from a live page fetch -- so a plain content
-          save that changes either one leaves the sidebar showing the pre-save glyph/label until
-          something unrelated (a different menu, an admin nav edit) happens to force a refetch.
-
-          Computed against `this.savedIcon`/`this.savedTitle` -- the pre-edit baseline set the last
-          time the store was actually populated from the server (`pageLoad()`, `pageUnlock()`, or a
-          previous save; see the field doc on `savedIcon` above) -- NOT against `this.icon`/
-          `this.title` themselves: those are live-bound straight into `PagePropertiesDialog.vue` and
-          `PageHeader.vue`, so by the time a save runs they already hold whatever new value was just
-          picked, making a comparison against them "new vs. new" and unable to ever detect a genuine
-          change (#2884). Compared against `patchedPage`'s already-`pagePatch`-normalized `icon`, so
-          an untouched `''` -> default fallback on a page that had never had an icon picked doesn't
-          read as a change.
+          `NavSidebarItem.vue` draws a cached tree entry's icon and title from the nav-tree response,
+          not from a live page fetch, so a save that changes either leaves the sidebar on the
+          pre-save glyph until something unrelated forces a refetch. Against `savedIcon`/`savedTitle`
+          rather than the live pair, which already holds the new value by then, and against the
+          normalized `icon`, so a `''` -> default fallback is not a change.
         */
         const patchedPage = pagePatch(pageData)
         const navDisplayChanged =
           !wasCreate &&
           (patchedPage.icon !== this.savedIcon || patchedPage.title !== this.savedTitle)
 
-        // -> Whatever was just sent has already been written, so `pagePatch`'s password reset is
-        //    what stops a plaintext secret sitting there, pending, past the save it was for
         this.$patch({
           ...patchedPage,
-          // -> Advances the pre-edit baseline to what was just saved, so a second genuine edit
-          //    later in the same session still compares correctly -- see the field doc on
-          //    `savedIcon` above
           savedIcon: patchedPage.icon,
           savedTitle: patchedPage.title,
           /*
-            A save is exactly the thing that moves a page along its own history, and the save
-            response deliberately carries no `revision` (it is history data, present only on a page
-            fetched on its own). So what this store holds is one version out of date the moment the
-            write lands -- and cleared is the honest answer rather than the stale one: absence is
-            what the wire format means by "unknown", and the rail's Revision section falls back to
-            the author and the time until the next real load, instead of reporting the version
-            count from before this save as though it were current.
+            A save moves the page along its own history and the response deliberately carries no
+            `revision` (history data, present only on a page fetched on its own), so what this store
+            holds is one version out of date the moment the write lands. Absence is what the wire
+            format means by "unknown"; reporting the pre-save count as current would be a lie.
           */
           revision: null
         })
 
         /*
-          OpenProject #1012: a newly created page can change what an `auto`/`mixed` menu generates
-          from the tree -- it is a new entry, not an edit to one already there -- with nothing on the
-          backend to tell an already-open tab. `this.navigationId` is already the just-created page's
-          own (`this.$patch()` above just applied it, from the server's `models/tree.ts`-assigned
-          value), which is exactly the menu the reader is about to land on via `editorExitPath` below.
-
-          An ordinary content update never adds or removes a tree entry, so it is left alone rather
-          than force-refetching on every save -- except when it changed what an existing entry
-          *displays* (OpenProject #2824, `navDisplayChanged` above), since the icon and title are
-          drawn from that same cached tree.
+          A newly created page is a new tree entry, so an `auto`/`mixed` menu generates something
+          different from it, with nothing on the backend to tell an already-open tab --
+          `this.navigationId` is by now the created page's own, which is the menu the reader is
+          about to land on. An ordinary content update adds or removes no entry and is left alone,
+          except when it changed what an existing entry *displays* (`navDisplayChanged` above).
         */
         if (wasCreate || navDisplayChanged) {
           await siteStore.fetchNavigation(this.navigationId, true)
@@ -1088,25 +848,22 @@ export const usePageStore = defineStore('page', {
 
         /*
           Ahead of the create-mode navigation just below: `App.vue`'s router guard reads
-          `hasPendingChanges` on every navigation, including this one, so the save has to register as
-          clean before it navigates anywhere -- done after, this internal redirect would read as
-          leaving the editor with unsaved changes and prompt to discard the very save that just
-          succeeded.
+          `hasPendingChanges` on every navigation, so done after, this internal redirect reads as
+          leaving the editor unsaved and prompts to discard the very save that just succeeded.
         */
         editorStore.markClean({ reasonForChange: '' })
 
         if (editorStore.mode === 'create') {
           /*
-            OpenProject #3317: this create session is committing, so `originPageId` (set by
-            `pageCreate()`) must not outlive it -- left set, a later, unrelated edit-mode discard's
-            `cancelPageEdit()` would load this stale origin page instead of the page being edited.
+            This create session is committing, so `originPageId` must not outlive it -- left set, a
+            later, unrelated edit-mode discard's `cancelPageEdit()` would load this stale origin
+            page instead of the page being edited.
           */
           editorStore.$patch({ mode: 'edit', originPageId: '' })
           /*
-            Awaited, because the caller closes the editor the moment this resolves. An unawaited
-            navigation leaves one render of the page view at the route the EDITOR was on -- which for
-            a redirection is a page that reads its own query to decide whether to follow itself, sees
-            the editor's route, and takes its author to the target they just typed in.
+            Awaited, because the caller closes the editor the moment this resolves. Unawaited, one
+            render of the page view happens at the route the EDITOR was on -- which for a
+            redirection reads its own query, sees that route, and follows itself to the new target.
           */
           await this.router.replace(this.editorExitPath)
         }
@@ -1114,11 +871,9 @@ export const usePageStore = defineStore('page', {
         return { classificationConflicts }
       } catch (err) {
         /*
-          Somebody else saved this page first. The server's reply carries the page as it now stands
-          -- see the `expectedUpdatedAt` mismatch handling in `PATCH /sites/:siteId/pages/:pageId`
-          -- which is handed to the editor store rather than reported as an ordinary failure: there is
-          a page to react to here, not just an error to show. `EditorMarkdown.vue` watches it to put
-          up the resolution dialog.
+          Somebody else saved this page first. The reply carries the page as it now stands, handed
+          to the editor store rather than reported as an ordinary failure: there is a page to react
+          to, not just an error. `EditorMarkdown.vue` watches it to put up the resolution dialog.
         */
         if (err.response?.status === 409) {
           editorStore.saveConflict = apiErrorBody(err)?.page ?? null
@@ -1126,11 +881,10 @@ export const usePageStore = defineStore('page', {
         }
         log.warn('page', 'could not save the page', err)
         /*
-          A refused write (ky's `HTTPError`, identified the same way the 409 branch above does --
-          via `.response`) carries the server's real message under `.data.message`, not in `.message`
-          itself -- so it is converted here before rethrowing. The store's own plain `Error`s thrown
-          just above (`ERR_CREATED_PAGE_NOT_FOUND`, `ERR_PAGE_NOT_FOUND`) and a `contentFlusher`
-          failure both already carry the message a caller should show, and pass through unchanged.
+          A refused write (ky's `HTTPError`, identified by `.response` as the 409 branch above does)
+          carries the server's real message under `.data.message`, not `.message`, so it is
+          converted before rethrowing. The store's own plain `Error`s above already carry the
+          message a caller should show and pass through unchanged.
         */
         throw err.response
           ? new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
@@ -1140,7 +894,7 @@ export const usePageStore = defineStore('page', {
     async cancelPageEdit() {
       const editorStore = useEditorStore()
       await this.pageLoad({ id: editorStore.originPageId ? editorStore.originPageId : this.id })
-      // -> Awaited for the same reason as in `pageSave`: the editor closes when this resolves
+      // -> Awaited: the caller closes the editor the moment this resolves
       await this.router.replace(this.editorExitPath)
     }
   }
