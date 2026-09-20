@@ -1,4 +1,5 @@
 import { CronExpressionParser } from 'cron-parser'
+import { isIsoDuration } from '../../models/storage.ts'
 import { pickDefined, transformConfig } from './shared.ts'
 import type { SourceRecord } from '../connector.ts'
 import type { ConfigTransform } from './shared.ts'
@@ -218,14 +219,11 @@ function convertSyncInterval(value: unknown): string | null {
   if (trimmed.length === 0) {
     return null
   }
-  try {
-    // FIXME: `Temporal.Duration.from()` accepts durations `models/storage.ts`'s narrower
-    // `ISO_DURATION_PATTERN` rejects (`P1W`, a negative duration), so such a value passes through
-    // here and is then refused at write time. Validate with the model's own check instead.
-    Temporal.Duration.from(trimmed)
+  // FIXME: `Temporal.Duration.from()` accepts durations `models/storage.ts`'s narrower
+  // `ISO_DURATION_PATTERN` rejects (`P1W`, a negative duration), so such a value passes through
+  // here and is then refused at write time. Validate with the model's own check instead.
+  if (isIsoDuration(trimmed)) {
     return trimmed
-  } catch {
-    // -> Not an ISO-8601 duration; fall through to the cron shapes below
   }
   const everyNMinutes = EVERY_N_MINUTES.exec(trimmed)
   if (everyNMinutes) {

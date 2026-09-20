@@ -147,6 +147,18 @@ describe('mapStorageRow: mode/syncInterval mapping', () => {
     assert.deepEqual(result.droppedFields, { syncInterval: 'not a cron or a duration' })
   })
 
+  test('a syncInterval duration the 3.0 model rejects (weeks, negative, fractional day, year/month) is dropped and reported rather than mapped', async () => {
+    for (const syncInterval of ['P1W', '-PT5M', 'P1.5D', 'P1M', 'P1Y']) {
+      const result = mapStorageRow(baseRow({ key: 'git', syncInterval }), {
+        resolver: await resolver(),
+        siteId: SITE_A
+      })
+      assert.equal(result.status, 'updated', syncInterval)
+      assert.ok(!('scheduleOverride' in result.update!.values), syncInterval)
+      assert.deepEqual(result.droppedFields, { syncInterval }, syncInterval)
+    }
+  })
+
   test('a null/absent mode and syncInterval map to nothing, and are not reported as dropped', async () => {
     const result = mapStorageRow(baseRow({ key: 'disk', mode: null, syncInterval: null }), {
       resolver: await resolver(),

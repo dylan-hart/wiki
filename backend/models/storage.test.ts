@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { ensureTemporal } from '../test/temporal.ts'
-import { getFileExtension, storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
+import { getFileExtension, isIsoDuration, storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
 import { sites as sitesTable } from '../db/schema.ts'
 import type { StorageTarget } from './storage.ts'
 
@@ -169,6 +169,43 @@ test('validateTarget rejects a scheduleOverride that is neither a duration nor a
     sync: { scheduleOverride: 'not-a-duration' }
   })
   assert.match(invalid ?? '', /not a valid ISO-8601 duration or cron expression/)
+})
+
+test('validateTarget rejects a calendar-length or otherwise inexact duration scheduleOverride', async () => {
+  const target = makeTarget('git')
+  for (const scheduleOverride of ['P1Y', 'P1M', 'P1Y2M', 'P1M1D', 'P1W', '-PT5M', 'P1.5D']) {
+    const invalid = await storage.validateTarget(target, {
+      id: target.id,
+      sync: { scheduleOverride }
+    })
+    assert.match(
+      invalid ?? '',
+      /not a valid ISO-8601 duration or cron expression/,
+      scheduleOverride
+    )
+  }
+})
+
+test('validateTarget still accepts every exact-length duration shape', async () => {
+  const target = makeTarget('git')
+  for (const scheduleOverride of ['PT5M', 'P1D', 'P1DT12H', 'PT0.5S', 'PT1H30M']) {
+    const invalid = await storage.validateTarget(target, {
+      id: target.id,
+      sync: { scheduleOverride }
+    })
+    assert.equal(invalid, null, scheduleOverride)
+  }
+})
+
+test('isIsoDuration accepts only durations with an exact length', () => {
+  assert.equal(isIsoDuration('PT5M'), true)
+  assert.equal(isIsoDuration('P1DT12H'), true)
+  assert.equal(isIsoDuration('P1M'), false)
+  assert.equal(isIsoDuration('P1Y'), false)
+  assert.equal(isIsoDuration('P1W'), false)
+  assert.equal(isIsoDuration('P'), false)
+  assert.equal(isIsoDuration('PT'), false)
+  assert.equal(isIsoDuration('30 9 * * 1'), false)
 })
 
 test('validateTarget rejects enabling the disk target with a relative path', async () => {
