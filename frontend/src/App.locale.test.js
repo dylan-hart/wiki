@@ -19,9 +19,6 @@ afterEach(() => {
   currentWrapper?.unmount()
   currentWrapper = undefined
 
-  document.querySelector('#theme-inject-css')?.remove()
-  document.querySelector('#theme-inject-head')?.remove()
-  document.querySelector('#theme-inject-body')?.remove()
   document.querySelector('#theme-content-font')?.remove()
   document.querySelectorAll('link[data-theme-font]').forEach((el) => el.remove())
   document.documentElement.style.removeProperty('--font-sans')

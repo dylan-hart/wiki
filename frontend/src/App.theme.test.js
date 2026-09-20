@@ -76,29 +76,16 @@ afterEach(() => {
 })
 
 describe('App.vue applyTheme()', () => {
-  it('injectCSS: renders the configured rule as a <style> element', async () => {
+  it('injectCSS: the client adds no <style> element for it', async () => {
     const siteStore = await mountApp()
     siteStore.theme.injectCSS = '.probe-css { color: red; }'
     await triggerApplyTheme()
 
-    const styleEl = document.querySelector('#theme-inject-css')
-    expect(styleEl).not.toBeNull()
-    expect(styleEl.tagName).toBe('STYLE')
-    expect(styleEl.textContent).toContain('.probe-css { color: red; }')
-  })
-
-  it('injectCSS: an empty value removes the previously-applied <style> element', async () => {
-    const siteStore = await mountApp()
-    siteStore.theme.injectCSS = '.probe-css { color: red; }'
-    await triggerApplyTheme()
-    expect(document.querySelector('#theme-inject-css')).not.toBeNull()
-
-    siteStore.theme.injectCSS = ''
-    await triggerApplyTheme()
     expect(document.querySelector('#theme-inject-css')).toBeNull()
+    expect(document.head.innerHTML).not.toContain('.probe-css')
   })
 
-  it('injectHead: inserts markup into <head> and executes an embedded <script>', async () => {
+  it('injectHead: the client inserts nothing and runs no embedded <script>', async () => {
     const siteStore = await mountApp()
     window.__appInjectHeadProbe = undefined
     siteStore.theme.injectHead =
@@ -106,16 +93,15 @@ describe('App.vue applyTheme()', () => {
     await triggerApplyTheme()
 
     try {
-      const container = document.head.querySelector('#theme-inject-head')
-      expect(container).not.toBeNull()
-      expect(container.querySelector('meta[name="probe-head"]')).not.toBeNull()
-      expect(window.__appInjectHeadProbe).toBe(42)
+      expect(document.head.querySelector('#theme-inject-head')).toBeNull()
+      expect(document.head.querySelector('meta[name="probe-head"]')).toBeNull()
+      expect(window.__appInjectHeadProbe).toBeUndefined()
     } finally {
       delete window.__appInjectHeadProbe
     }
   })
 
-  it('injectBody: inserts markup into <body> and executes an embedded <script>', async () => {
+  it('injectBody: the client inserts nothing and runs no embedded <script>', async () => {
     const siteStore = await mountApp()
     window.__appInjectBodyProbe = undefined
     siteStore.theme.injectBody =
@@ -123,10 +109,9 @@ describe('App.vue applyTheme()', () => {
     await triggerApplyTheme()
 
     try {
-      const container = document.body.querySelector('#theme-inject-body')
-      expect(container).not.toBeNull()
-      expect(container.querySelector('#probe-body-el')).not.toBeNull()
-      expect(window.__appInjectBodyProbe).toBe('ran')
+      expect(document.body.querySelector('#theme-inject-body')).toBeNull()
+      expect(document.body.querySelector('#probe-body-el')).toBeNull()
+      expect(window.__appInjectBodyProbe).toBeUndefined()
     } finally {
       delete window.__appInjectBodyProbe
     }
@@ -172,7 +157,7 @@ describe('App.vue applyTheme()', () => {
     per-page injection call to gate: the site-wide behaviour is proved by actually navigating to a
     non-content route rather than by reading the source.
   */
-  it('injectHead/injectBody/injectCSS apply on the /login route, not just content pages', async () => {
+  it('injectHead/injectBody/injectCSS add nothing on the /login route either', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()
     siteStore.theme.injectCSS = '.probe-css { color: red; }'
@@ -189,9 +174,9 @@ describe('App.vue applyTheme()', () => {
     await triggerApplyTheme()
 
     expect(router.currentRoute.value.path).toBe('/login')
-    expect(document.querySelector('#theme-inject-css')).not.toBeNull()
-    expect(document.head.querySelector('#theme-inject-head')).not.toBeNull()
-    expect(document.body.querySelector('#theme-inject-body')).not.toBeNull()
+    expect(document.querySelector('#theme-inject-css')).toBeNull()
+    expect(document.head.querySelector('#theme-inject-head')).toBeNull()
+    expect(document.body.querySelector('#theme-inject-body')).toBeNull()
   })
 
   it('repeated applyTheme() calls (e.g. route navigation) do not duplicate injected elements', async () => {
@@ -206,9 +191,9 @@ describe('App.vue applyTheme()', () => {
     await triggerApplyTheme()
     await triggerApplyTheme()
 
-    expect(document.querySelectorAll('#theme-inject-css').length).toBe(1)
-    expect(document.head.querySelectorAll('#theme-inject-head').length).toBe(1)
-    expect(document.body.querySelectorAll('#theme-inject-body').length).toBe(1)
+    expect(document.querySelectorAll('#theme-inject-css').length).toBe(0)
+    expect(document.head.querySelectorAll('#theme-inject-head').length).toBe(0)
+    expect(document.body.querySelectorAll('#theme-inject-body').length).toBe(0)
     expect(document.querySelectorAll('#theme-content-font').length).toBe(1)
     // -> baseFont and contentFont name different families here, so exactly two stylesheet <link>s
     expect(document.head.querySelectorAll('link[data-theme-font]').length).toBe(2)
