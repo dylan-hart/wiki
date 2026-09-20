@@ -6,9 +6,8 @@
         <w-otp-input v-model="state.securityCode" :length="6" autofocus @complete="verifyTFA" />
       </div>
       <!--
-        The design draws no recovery-code field at all -- it covers the six-digit state only -- so
-        this keeps the format placeholder, which says something the field's own name does not, and
-        moves the name onto `aria-label` the way every other field on these screens does.
+        The placeholder shows the code's format rather than the field's name, so the name has to
+        live on `aria-label`, as it does on every other field on these screens.
       -->
       <w-input
         v-else
@@ -19,8 +18,6 @@
         :hint="t(`auth.tfa.recoveryCodeHint`)"
         placeholder="XXXX-XXXX-XXXX-XXXX"
         @keyup:enter="verifyTFA" />
-      <!-- `color="accent"`, not `primary`: a distinct "accent fill, white text" role from primary
-           text/link color. -->
       <w-btn
         class="w-full mt-4"
         color="accent"
@@ -29,10 +26,6 @@
         :label="t(`auth.tfa.verifyToken`)"
         icon="tabler:login"
         @click="verifyTFA" />
-      <!--
-        The alternative to the six digits is a plain line of type, not a second button: the design
-        gives it no fill, no border and no glyph, so it does not compete with Verify above it.
-      -->
       <w-btn
         class="w-full mt-1.5"
         flat
@@ -45,10 +38,6 @@
         @click="toggleRecoveryCodeMode" />
     </template>
     <template v-else-if="props.screen === `tfasetup`">
-      <!--
-        The design leads with the requirement in bold and then two ordinary instruction lines; the
-        QR is a 150px hairline-framed plate rather than a bare 200px SVG dropped into the flow.
-      -->
       <p class="auth-notice auth-notice--lead">{{ t('auth.tfaSetupTitle') }}</p>
       <p class="auth-subtitle">{{ t('auth.tfaSetupInstrFirst') }}</p>
       <div class="flex justify-center">
@@ -82,21 +71,11 @@ import { formatRecoveryCodeInput, isValidTfaCode } from '@/helpers/tfaCode'
 
 import { useSiteStore } from '@/stores/site'
 
-/**
- * The two-factor screens of `AuthLoginPanel.vue`: entering a code to finish a sign-in (`tfa`, with
- * the recovery-code alternative), and entering one to activate a newly-issued secret (`tfasetup`).
- *
- * Split out because the code being typed is theirs alone -- no other screen reads it -- and
- * everything they need from the sign-in attempt is the strategy and the continuation token that
- * identify it.
- */
-
 const siteStore = useSiteStore()
 
 const { t } = useI18n()
 
 const props = defineProps({
-  /** Which of the two screens to draw: `tfa` or `tfasetup`. */
   screen: {
     type: String,
     required: true
@@ -109,7 +88,7 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  /** The `tfasetup` screen's QR image, as the server rendered it (an `<svg>` string, not a URL). */
+  /** An `<svg>` string as the server rendered it, not a URL. */
   qrImage: {
     type: String,
     default: ''
@@ -124,7 +103,6 @@ const state = reactive({
   recoveryCode: ''
 })
 
-/** Matches the server's recovery-code display shape as the user types. */
 const recoveryCodeInput = computed({
   get: () => state.recoveryCode,
   set: (val) => {
@@ -133,17 +111,9 @@ const recoveryCodeInput = computed({
 })
 
 /**
- * The continuation token is only cleared once the code is accepted: a mistyped one can be entered
- * again, up to the handful of attempts the server allows before it discards the token -- and the
- * same counter (`countTfaFailure` on the backend) applies whether the wrong entry was a 6-digit
- * TOTP code or a recovery code, since both go through this one call.
- *
- * `setup` never combines with a recovery code -- the toggle only renders on the `tfa` screen, never
- * `tfasetup` -- matching the backend, which refuses a recovery code mid-setup since none exist yet
- * for a secret that has not been activated.
- *
- * @param setup True on the setup screen, where a correct code also activates the new secret
- * @returns The login response, for the panel's own `handleLoginResponse()`
+ * `setup` never combines with a recovery code: the toggle renders only on the `tfa` screen, and
+ * the backend refuses one mid-setup since none exist yet for an unactivated secret. A wrong code
+ * leaves the continuation token usable until the server's own attempt counter discards it.
  */
 async function submitTFA(setup) {
   const isRecoveryCode = !setup && state.useRecoveryCode
@@ -173,11 +143,7 @@ function toggleRecoveryCodeMode() {
   state.recoveryCode = ''
 }
 
-/**
- * Report a failed 2FA attempt, and start the login over when there is nothing left to continue: an
- * expired token, or one the server has discarded after too many wrong codes, leaves this screen with
- * no way forward.
- */
+/** The server discards the continuation token after too many wrong codes, leaving no way forward. */
 async function handleTFAError(err) {
   const code = apiErrorMessage(err)
   loading.hide()
@@ -189,8 +155,6 @@ async function handleTFAError(err) {
     state.securityCode = ''
     state.useRecoveryCode = false
     state.recoveryCode = ''
-    // -> Nothing left to continue with. The panel owns the continuation token and the password
-    //    typed into its own login form, so it is the one that clears them and puts that screen back.
     emit('restart')
   }
 }
@@ -225,15 +189,10 @@ async function finishSetupTFA() {
 
 <style scoped>
 /*
-  The digit row, re-dressed for the auth panel: `css/tailwind.css`'s app-wide `.otp-input` default
-  is a fixed 3rem square with side margins; this screen instead draws six boxes sharing the row's
-  full width (`flex: 1`), separated by a gap rather than margins, with the accent on the box being
-  typed into rather than the ones already filled.
-
-  Overridden here rather than at source deliberately: `SetupTfaDialog.vue` (the profile's own 2FA
-  activation) uses the same class on an undesigned surface and should not silently inherit this
-  screen's treatment. A scoped `:deep()` rule is unlayered, so it beats `@layer components` without
-  needing `!important`.
+  Overridden here rather than at `css/tailwind.css`'s `.otp-input` default: `SetupTfaDialog.vue`
+  uses the same class on an undesigned surface and should not silently inherit this screen's
+  treatment. A scoped `:deep()` rule is unlayered, so it beats `@layer components` without
+  `!important`.
 */
 .auth-otp :deep(.otp-input-container) {
   display: flex;
@@ -255,7 +214,6 @@ async function finishSetupTFA() {
   color: var(--color-ink);
 }
 
-/* -> The setup screen's row is one step shorter than the sign-in screen's */
 .auth-otp--sm :deep(.otp-input) {
   height: 44px;
   font-size: 18px;
@@ -267,10 +225,7 @@ async function finishSetupTFA() {
   outline: none;
 }
 
-/*
-  A filled digit reads as ordinary: the library's own `is-complete` class is what painted five green
-  boxes and left the one still wanted looking the same as an empty one.
-*/
+/* -> Neutralises the library's own `is-complete` green: a filled digit should read as ordinary */
 .auth-otp :deep(.otp-input.is-complete) {
   border-color: var(--color-hairline);
 }
@@ -285,9 +240,8 @@ async function finishSetupTFA() {
 }
 
 /*
-  The QR plate. 150px inside a hairline frame with 10px of quiet zone, as the design draws it -- the
-  server hands back an `<svg>` string, so the sizing has to reach through to whatever element it
-  produced rather than sitting on it.
+  The padding is the QR's quiet zone. The server hands back an `<svg>` string, so the sizing has to
+  reach through to whatever element it produced rather than sitting on it.
 */
 .auth-qr {
   width: 150px;

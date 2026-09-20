@@ -5,13 +5,10 @@
     @hide="onDialogHide">
     <w-card style="width: 550px">
       <w-card-section class="card-header">
-        <!-- -> The block's own Iconify reference, the same value the picker and Admin Blocks draw. -->
         <w-icon
           :name="definition.isCustom ? 'tabler:puzzle' : definition.icon"
           size="sm"
           class="me-2" />
-        <!-- -> The block is named in the title rather than over the form: one line of chrome above a
-                short form is enough, and which block this is belongs with what is being done to it. -->
         <span>{{ t('editor.blockParams.title', { name: definition.name }) }}</span>
       </w-card-section>
       <w-card-section>
@@ -49,20 +46,13 @@ import { blockPropsFilled } from '@/helpers/blocks'
 
 import BlockPropsForm from '@/components/BlockPropsForm.vue'
 
-/**
- * The same form `BlockPropsForm` fills in for a new block, over the values already on this one.
- * The caller owns writing the answer back to the page; this only hands the finished object back.
- *
- * Values are copied on the way in, so closing without applying leaves the page as it was.
- */
+/** Values are copied on the way in, so closing without applying leaves the page as it was. */
 
 const props = defineProps({
-  /** The block as the API describes it: its name, its icon and the props it declares. */
   definition: {
     type: Object,
     required: true
   },
-  /** What the page currently gives it, by prop name. */
   values: {
     type: Object,
     required: true

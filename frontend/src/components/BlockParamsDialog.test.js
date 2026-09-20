@@ -6,15 +6,10 @@ import BlockParamsDialog from './BlockParamsDialog.vue'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * Regression: nothing else exercises this dialog's icon, so a broken reference here would blank
- * its title band with nothing failing to say so.
- *
- * Draws the reference as-is rather than assembling an `img:/_assets/icons/ultraviolet-<name>.svg`
- * path from it -- a name built by concatenation is invisible to `scripts/generate-icons.mjs`, and
- * `WIcon` draws nothing for a reference with no Iconify prefix.
- *
- * `WIcon` stamps `data-icon` on all three of its branches, so this assertion reads the same
- * whether the reference is in the inlined bundle or falls through to `iconify-icon` at runtime.
+ * `ultraviolet-` is what an assembled `img:` icon path would look like: a name built by
+ * concatenation is invisible to `scripts/generate-icons.mjs`, and `WIcon` draws nothing for a
+ * reference with no Iconify prefix. `WIcon` stamps `data-icon` on all three of its branches, so
+ * the selector holds whether the reference is inlined at build time or falls through at runtime.
  */
 
 const DEFINITION = {

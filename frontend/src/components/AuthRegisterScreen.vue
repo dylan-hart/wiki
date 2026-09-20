@@ -4,12 +4,9 @@
       <p class="auth-subtitle">{{ t('auth.registerSubTitle') }}</p>
       <w-form ref="form" @submit="register">
         <!--
-          Five 40px fields carrying their own name as a placeholder, no label above -- matching the
-          login form's fields above it. Chrome lives in `pages/Login.vue`'s `.auth` stylesheet,
-          since this screen only ever renders inside that column.
-
-          The name is two authored halves rather than one to split: no parsing is ever applied, and
-          the display name derives from them server-side. The last name is optional, for a mononym.
+          Field chrome lives in `pages/Login.vue`'s `.auth` stylesheet -- this screen only ever
+          renders inside that column. The name is two authored halves, never parsed: the display
+          name derives from them server-side, and the last name is optional for a mononym.
         -->
         <w-input
           class="auth-field auth-field--sm"
@@ -76,8 +73,6 @@
           lazy-rules="ondemand">
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
-        <!-- `color="accent"`, not `primary`: a distinct "accent fill, white text" role from primary
-             text/link color. -->
         <w-btn
           class="auth-marks w-full mt-2.5"
           type="submit"
@@ -100,13 +95,9 @@
     </template>
     <template v-else-if="props.screen === `registerCheckEmail`">
       <!--
-        `accent-fill`, not `primary`: the glyph is a 48px line drawing carrying no text of its own,
-        so it uses the bright accent tone (`primary` is the darkened tone, for accent TEXT or a
-        fill under a white label).
-
-        `dark.isActive` swaps it for `accent-dark` under dark mode -- `--color-accent-fill` has no
-        dark-mode override of its own, so left alone this would draw the same bright tone against a
-        dark ground.
+        `accent-fill` is the bright tone, for a glyph carrying no text of its own; `primary` is the
+        darkened tone, for accent TEXT or a fill under a white label. It has no dark-mode override
+        of its own, so dark mode must swap in `accent-dark` or this draws bright on a dark ground.
       -->
       <div class="flex flex-col items-center pt-3.5 text-center">
         <w-icon
@@ -150,12 +141,6 @@ import { passwordStrengthBadge } from '@/helpers/passwordStrength'
 
 import { useSiteStore } from '@/stores/site'
 
-/**
- * Split out of `AuthLoginPanel.vue` because the five fields it fills in are read by nothing else --
- * the panel's own reset and change-password screens ask for a password too, but their own -- so the
- * only thing this needs from the sign-in attempt is which strategy to register against.
- */
-
 const dark = useDark()
 
 const siteStore = useSiteStore()
@@ -163,7 +148,6 @@ const siteStore = useSiteStore()
 const { t } = useI18n()
 
 const props = defineProps({
-  /** Which of the two screens to draw: `register` or `registerCheckEmail`. */
   screen: {
     type: String,
     required: true
@@ -198,12 +182,6 @@ const emailValidation = emailRules(t)
 const passwordValidation = passwordRules(t)
 const passwordVerifyValidation = passwordVerifyRules(t, () => state.newPassword)
 
-/**
- * `nextAction: 'verify'` means the strategy requires email validation: the account was created
- * unverified and a link was mailed to it, so this shows a "check your email" screen instead of
- * calling `handleLoginResponse()` -- there is no session to establish yet. Any other `nextAction`
- * is a login like any other, handed to the same response handler the rest of the panel uses.
- */
 async function register() {
   loading.show({
     message: t('auth.registering')
@@ -225,9 +203,6 @@ async function register() {
     if (resp.ok) {
       state.newPassword = ''
       state.newPasswordVerify = ''
-      // -> Where the flow goes next -- check-your-email or straight into a session -- is the
-      //    panel's call, same as any other successful auth attempt; it also owns the login form's
-      //    own password field, which a completed registration clears.
       emit('registered', resp)
     } else {
       throw new Error(resp.message || 'ERR_REGISTRATION_FAILED')
@@ -241,8 +216,6 @@ async function register() {
   }
 }
 
-// This component exists only while the register screen is up, so mounting is the moment to focus
-// its first field.
 onMounted(() => {
   firstNameIpt.value?.focus()
 })

@@ -7,12 +7,8 @@ import { useDark } from '@/composables/dark'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Self-registration collects First Name and Last Name outright rather than one string that gets
- * split. The naive whitespace split exists only for a federated provider that hands over a single
- * display name -- an account created here is authored directly, and
- * `models/users.ts#resolveNameFields` derives the display name from the halves server-side. There
- * is deliberately no display name field on this screen; it is reachable in the profile once the
- * account exists.
+ * Self-registration collects First Name and Last Name outright: nothing is ever split, the display
+ * name derives from the halves server-side, and there is deliberately no display-name field here.
  */
 const MESSAGES = {
   auth: {
@@ -54,9 +50,8 @@ function mountScreen() {
 }
 
 /**
- * The Cardinal auth screens draw no label above a field -- the name moves onto the placeholder and
- * onto `aria-label`, which `WInput` puts on the `<input>` itself (see `authPanelChrome.test.js`).
- * This resolves the control the same way a screen reader would.
+ * The auth screens draw no label above a field: the name lives on the placeholder and on
+ * `aria-label`, which `WInput` puts on the `<input>` itself, never on an ancestor.
  */
 function inputLabelled(wrapper, text) {
   const input = wrapper.find(`input[aria-label="${text}"]`)
@@ -153,9 +148,8 @@ describe('AuthRegisterScreen first/last name fields', () => {
 })
 
 /**
- * Regression: `--color-accent-fill` has no dark-mode override, so this glyph drew its light-mode
- * tone against a dark ground unless `color` is resolved through `dark.isActive` rather than a
- * static `accent-fill` prop.
+ * `--color-accent-fill` has no dark-mode override, so a static `accent-fill` prop draws the
+ * light-mode tone against a dark ground.
  */
 describe('AuthRegisterScreen check-email glyph dark mode (OpenProject #2807)', () => {
   afterEach(() => {

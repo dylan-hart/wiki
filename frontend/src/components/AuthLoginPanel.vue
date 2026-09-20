@@ -3,12 +3,6 @@
     <template v-if="state.screen === `login`">
       <template v-if="formStrategies.length > 1">
         <p class="auth-hint">{{ t('auth.selectAuthProvider') }}</p>
-        <!--
-          A segmented choice: the selected strategy takes a solid accent fill (`color="accent"`,
-          distinct from `primary`); the others are hairline outline plates in the chrome tone.
-          `WBtn` applies its glow only to a solid chip, so it lands on the selected one
-          automatically.
-        -->
         <div class="auth-strategies">
           <w-btn
             v-for="str of formStrategies"
@@ -24,9 +18,8 @@
       </template>
       <w-form ref="loginForm" @submit="login">
         <!--
-          No label above the field: the design draws a bare hairline box with a leading glyph, so
-          the field's name is its placeholder and its `aria-label` -- which is what keeps it a named
-          control for a screen reader (and keeps `e2e/helpers/admin.js`'s `getByLabel` resolving).
+          No visible label, so the placeholder is the field's name and `aria-label` is the only
+          thing keeping it a named control for a screen reader (and for e2e's `getByLabel`).
         -->
         <w-input
           class="auth-field"
@@ -66,17 +59,14 @@
           icon="tabler:login" />
       </w-form>
       <!--
-        Straight into the browser's passkey prompt: a passkey is a discoverable credential, so the
-        authenticator knows which accounts it holds for this site and asking for an email address first
-        would only be a step in the way.
+        No email field first: a passkey is a discoverable credential, so the authenticator already
+        knows which accounts it holds for this site.
       -->
       <template v-if="canUsePasskeys">
         <w-separator spaced="18px" />
         <!--
-          Outline plates, not `acrylic-btn`: `acrylic-btn` paints a 10% wash of its own text colour
-          and no border, which turns the row into a tinted slab rather than the hairline box the
-          rest of this screen's secondary rows use. This one keeps the accent tone -- it is still a
-          way IN -- while the provider, register and forgot rows below take the chrome tone.
+          Outline, not `acrylic-btn`: that class paints a borderless tinted slab rather than the
+          hairline box this screen's other secondary rows use. Accent tone, since this is a way in.
         -->
         <w-btn
           class="w-full"
@@ -89,9 +79,8 @@
           @click="loginWithPasskey" />
       </template>
       <!--
-        A link, not a form submit: what follows is a page at the provider, not an answer to a
-        request -- pressing it hands the browser over, and it returns at the callback route with a
-        session already established.
+        A link, not a form submit: this hands the browser to the provider, which returns at the
+        callback route with a session already established.
       -->
       <template v-if="redirectStrategies.length > 0">
         <w-separator spaced="18px" />
@@ -120,8 +109,6 @@
           :label="t(`auth.switchToRegister.link`)"
           icon="tabler:user-plus"
           @click="switchTo(`register`)" />
-        <!-- -> Off where the strategy says so: a wiki that hands passwords out rather than letting
-                them be chosen has nothing for this to do -->
         <w-btn
           class="w-full"
           v-if="selectedStrategy.activeStrategy.allowForgotPassword"
@@ -134,11 +121,6 @@
           @click="switchTo(`forgot`)" />
       </template>
     </template>
-    <!--
-      Neither of the next two screens is covered by the design mockups (register, check-your-email
-      and the two 2FA screens only) -- they match the same chrome by hand: 40px fields carrying
-      their own name, a 42px primary with corner marks, a 38px outline plate back to login.
-    -->
     <template v-else-if="state.screen === `forgot`">
       <p class="auth-subtitle">{{ t('auth.forgotPasswordSubtitle') }}</p>
       <w-form ref="forgotForm" @submit="forgotPassword">
@@ -329,10 +311,7 @@ import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/br
 import AuthRegisterScreen from '@/components/AuthRegisterScreen.vue'
 import AuthTfaScreens from '@/components/AuthTfaScreens.vue'
 
-/**
- * Tells `Login.vue` to play the `.auth-content`/`.auth-bg` exit animation: `Login.vue` owns the
- * CSS, this component owns the trigger and the timing budget.
- */
+/** `Login.vue` owns the exit-animation CSS; this component owns the trigger and its timing. */
 const emit = defineEmits(['exit-flourish'])
 
 const dark = useDark()
@@ -369,10 +348,9 @@ const changePwdForm = ref(null)
 const resetPasswordForm = ref(null)
 
 /*
-  The two kinds of strategy this screen deals with are drawn nothing alike: one is a username and
-  a password typed here, the other is a button that leaves for the provider. Splitting them also
-  stops a provider from being picked in the selector above the form, where it would be asked for a
-  password it has no use for.
+  Split because the two are drawn nothing alike -- credentials typed here versus a button that
+  leaves for the provider -- and so a provider can never be picked in the form's own selector,
+  where it would be asked for a password it has no use for.
 */
 const formStrategies = computed(() =>
   state.strategies.filter((str) => str.activeStrategy?.strategy?.useForm !== false)
@@ -392,11 +370,9 @@ const selectedStrategy = computed(() => {
 const passwordStrength = computed(() => passwordStrengthBadge(state.newPassword, t))
 
 /**
- * The chrome tone for every secondary control on this screen -- an unselected strategy chip, a
- * provider button, register, forgot password, back to login. `slate` is a chrome tone for a LIGHT
- * ground; on the ink ground it disappears into the panel, so dark mode takes the lightened rung. A
- * `dark:` utility can't do this: `WBtn` resolves `color` to an inline `var(--color-…)`, so the
- * switch has to happen at the prop.
+ * `slate` is a chrome tone for a LIGHT ground; on the ink ground it disappears into the panel, so
+ * dark mode takes the lightened rung. A `dark:` utility can't do this: `WBtn` resolves `color` to
+ * an inline `var(--color-…)`, so the switch has to happen at the prop.
  */
 const chromeColor = computed(() => (dark.isActive ? 'slate-light' : 'slate'))
 
@@ -464,13 +440,8 @@ async function fetchStrategies(showAll = false) {
 }
 
 /**
- * The backend builds the authorize URL, not this component: everything that ties the answer back
- * to this browser -- `state`, the nonce, the PKCE verifier -- is generated there and kept on the
- * session.
- *
- * No `redirect` param is set here: nothing in this app writes a `loginRedirect` cookie for one to
- * be read from, and the backend's own `GET /_api/auth/:strategyId/authorize` already defaults an
- * absent `redirect` to `/` and validates one that is given (`helpers/redirectTarget.ts`).
+ * The backend builds the authorize URL: everything that ties the answer back to this browser --
+ * `state`, the nonce, the PKCE verifier -- is generated there and kept on the session.
  */
 function authorizeUrl(str) {
   const params = new URLSearchParams({ siteId: siteStore.id })
@@ -511,28 +482,25 @@ async function handleLoginResponse(resp) {
     }
     case 'redirect': {
       /*
-        Every branch below calls `window.location.replace()`, a real browser navigation rather than
-        a router push, which tears down and rebuilds the whole SPA from `bootstrap` -- so there's no
-        surviving Pinia state for the nav sidebar to go stale in here, unlike across logout().
+        `window.location.replace()` below is a real navigation, not a router push: the whole SPA is
+        rebuilt from `bootstrap`, so no Pinia state survives here to go stale, unlike across
+        logout().
       */
       loading.show({
         message: t('auth.loginSuccess')
       })
       /*
-        `resp.redirect` (a group's `redirectOnLogin`) is already validated server-side, but checked
-        again here: `javascript:…` parses as a valid `URL` with no error, so a bare try/catch
-        around `new URL()` isn't enough -- the scheme itself has to be checked.
+        Re-checked client-side as well: `javascript:…` parses as a valid `URL` with no error, so a
+        bare try/catch around `new URL()` isn't enough -- the scheme itself has to be checked.
       */
       const target =
         resp.redirect && isFollowableRedirectTarget(resp.redirect) ? resp.redirect : '/'
       /*
-        Set before either branch below navigates, regardless of `prefers-reduced-motion`: the flag
-        has to exist by the time `MainLayout.vue` reads it on the next mount, even on a run that
-        never animates.
+        Set before either branch navigates, the reduced-motion one included: the flag has to exist
+        by the time `MainLayout.vue` reads it on the next mount, even on a run that never animates.
       */
       sessionStorage.setItem(JUST_LOGGED_IN_KEY, '1')
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        // -> No flourish to wait out: navigate straight away.
         window.location.replace(target)
       } else {
         emit('exit-flourish')
@@ -594,7 +562,7 @@ async function loginWithPasskey() {
       throw new Error(respGen?.message || 'ERR_LOGIN_FAILED')
     }
 
-    // -> No `useBrowserAutofill`: that fills a passkey into a form field the user is typing in, and
+    // -> No `useBrowserAutofill`: that fills a passkey into a field the user is typing in, and
     //    there is no field here -- this opens the browser's own account picker instead
     const authResp = await startAuthentication({ optionsJSON: respGen.authOptions })
 
@@ -609,8 +577,7 @@ async function loginWithPasskey() {
     await handleLoginResponse(respVerif)
   } catch (err) {
     loading.hide()
-    // -> Dismissing the browser's passkey prompt is not a failure to report: the user asked for the
-    //    prompt and then changed their mind, and is looking at the login form again either way
+    // -> Dismissing the browser's passkey prompt is a change of mind, not a failure to report
     if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
       return
     }
@@ -622,10 +589,9 @@ async function loginWithPasskey() {
 }
 
 /**
- * Always shows the same generic message, whatever the backend actually did behind it -- an unknown
- * address, a strategy with resets turned off and a real match all answer the same 200. Branching on
- * the response would turn the form into an account-enumeration oracle (see
- * `POST /sites/:siteId/auth/forgotPassword`'s doc comment in `backend/api/auth/site.ts`).
+ * The same generic message whatever the backend actually did -- an unknown address, a strategy
+ * with resets turned off and a real match all answer the same 200. Branching on the response would
+ * turn this form into an account-enumeration oracle.
  */
 async function forgotPassword() {
   loading.show({
@@ -658,11 +624,7 @@ async function forgotPassword() {
   }
 }
 
-/**
- * Either the account needs activation from an emailed link (no session to establish yet), or this
- * is a login like any other and goes to the same response handler. Clears the login form's own
- * password field -- it belongs to that form, not to the one that just registered.
- */
+/** Clears the login form's own password field -- it belongs to that form, not the register one. */
 function finishRegistration(resp) {
   state.password = ''
   if (resp.nextAction === 'verify') {
@@ -704,11 +666,6 @@ async function changePwd() {
   }
 }
 
-/**
- * Exchanges the token `detectResetToken()` (below) picked up off the URL for a new password. Like
- * `changePwd()` above, every success goes straight to `handleLoginResponse()` -- there's no
- * "changed, now sign in manually" outcome, only `provideTfa` if 2FA is still active.
- */
 async function resetPassword() {
   try {
     const isFormValid = await resetPasswordForm.value.validate(true)
@@ -741,10 +698,7 @@ async function resetPassword() {
   }
 }
 
-/**
- * 2FA could not continue: an expired continuation token, or one the server discarded after too many
- * wrong codes. Nothing is left to go on with, so the login starts over from this panel's own screen.
- */
+/** The continuation token is spent or expired, so nothing is left to continue from. */
 function restartAfterTfa() {
   state.continuationToken = ''
   state.password = ''
@@ -753,10 +707,9 @@ function restartAfterTfa() {
 
 onMounted(async () => {
   /*
-    `detectResetToken()` runs before `fetchStrategies()`'s network round trip: it only reads the
-    URL, so the caret can land on first paint without waiting on a response. Guarded on
-    `state.screen` staying `login` afterwards -- a reset-password link switches screens (and
-    focuses its own field) itself, and this would otherwise steal focus back.
+    Before `fetchStrategies()`'s round trip: reading the URL costs nothing, so the caret can land
+    on first paint. Guarded on the screen still being `login` -- a reset-password link switches
+    screens and focuses its own field, and this would otherwise steal focus back.
   */
   detectResetToken()
   if (state.screen === 'login') {
@@ -771,8 +724,7 @@ onMounted(async () => {
 
 /**
  * A provider login fails at the callback route, which has a browser to redirect and no request to
- * answer, so the reason travels in the URL. Removed from the address bar after reading it so a
- * reload doesn't repeat the toast.
+ * answer, so the reason travels in the URL. Stripped afterwards so a reload doesn't repeat it.
  */
 function reportRedirectLoginError() {
   const params = new URLSearchParams(window.location.search)
@@ -794,10 +746,7 @@ function reportRedirectLoginError() {
   )
 }
 
-/**
- * `GET /auth/verify/:token` redirects here with `?verified=true` on success -- removed from the
- * address bar afterwards for the same reason as `error` above.
- */
+/** `GET /auth/verify/:token` redirects here with `?verified=true` on success. */
 function reportVerifiedSuccess() {
   const params = new URLSearchParams(window.location.search)
   if (params.get('verified') !== 'true') {
@@ -817,9 +766,8 @@ function reportVerifiedSuccess() {
 }
 
 /**
- * `mail.ts`'s forgot-password email points at `/login/reset-password/:token` -- a path segment,
- * not a query string, so this reads `window.location.pathname` rather than following
- * `reportVerifiedSuccess()`'s `URLSearchParams` pattern.
+ * The forgot-password email points at `/login/reset-password/:token` -- a path segment, not a
+ * query param.
  */
 function detectResetToken() {
   const match = window.location.pathname.match(/^\/login\/reset-password\/([^/]+)\/?$/)
@@ -831,10 +779,8 @@ function detectResetToken() {
 }
 
 /**
- * The `admin.login.providersVisbleWarning` escape hatch: `?all=1` (or bare `?all`/`?all=true`)
- * shows every strategy, including ones not marked Visible -- useful to reach local admin login
- * without exposing that provider to normal users. Left in the address bar, unlike
- * `error`/`verified` above, since it's meant to survive a reload while debugging.
+ * Escape hatch: `?all` shows every strategy, Visible or not, so local admin login stays reachable
+ * without exposing that provider to normal users. Left in the address bar so it survives a reload.
  */
 function shouldShowAllStrategies() {
   const params = new URLSearchParams(window.location.search)

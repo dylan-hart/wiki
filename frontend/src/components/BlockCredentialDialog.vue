@@ -95,7 +95,7 @@ const props = defineProps({
     required: true,
     validator: (value) => ['create', 'rotate', 'domains'].includes(value)
   },
-  /** Required for mode `rotate` and `domains`: the credential row being edited. */
+  /** Required for modes `rotate` and `domains`. */
   credential: {
     type: Object,
     default: null
@@ -104,10 +104,6 @@ const props = defineProps({
 
 defineEmits([...dialogComponentEmits])
 
-/**
- * Which field is "first" depends on `mode`: create shows the name field, rotate shows the secret
- * field (the only one it renders), domains shows the allowed-domains input.
- */
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => {
     if (props.mode === 'create') return iptName.value
@@ -133,9 +129,8 @@ const iptName = ref(null)
 const iptSecret = ref(null)
 
 /**
- * Matches `originMatchesAllowlist`'s own accepted syntax (`helpers/originPattern.js`) rather than
- * accepting anything non-empty: a malformed entry would otherwise be stored but never match any
- * real request at resolve time.
+ * Matches `originMatchesAllowlist`'s own accepted syntax: a malformed entry would otherwise be
+ * stored and then never match any real request at resolve time.
  */
 const originValidation = [
   (value) =>
@@ -173,10 +168,9 @@ const submitDisabled = computed(() => {
 })
 
 /**
- * Lowercases only the scheme and host, never the path: unlike a bare hostname, an origin+prefix
- * entry can carry a case-sensitive path (`https://api.example.com/V1` legitimately differs from
- * `.../v1` on most APIs), so blindly lowercasing the whole value would silently corrupt an
- * intentionally-cased prefix.
+ * Only the scheme and host are lowercased: an origin+prefix entry can carry a case-sensitive path
+ * (`https://api.example.com/V1` legitimately differs from `.../v1`), so lowercasing the whole
+ * value would silently corrupt it.
  */
 function normalizeOrigin(raw) {
   const trimmed = raw.trim()
@@ -197,11 +191,9 @@ function addOrigin() {
   if (!value) {
     return
   }
-  // -> Written back before validating, so the admin sees the normalized form rather than their raw
-  //    input. The push decision below is `isValidOriginPattern(value)` directly, not
-  //    `validate()`'s return: `validate()` reads the *prop* `WInput` was last rendered with, which
-  //    only catches up to this write on the next render -- calling it here would validate the
-  //    stale, pre-normalization value.
+  // -> Written back before validating, so the admin sees the normalized form. The push decision
+  //    below is `isValidOriginPattern(value)`, not `validate()`'s return: `validate()` reads the
+  //    *prop* `WInput` last rendered with, which only catches up to this write on the next render.
   state.originInput = value
   originInputRef.value?.validate()
   if (!isValidOriginPattern(value)) {

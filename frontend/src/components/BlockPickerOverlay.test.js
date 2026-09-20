@@ -10,12 +10,8 @@ import WBtn from '@/components/shared/WBtn.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Regression coverage for the picker starting a newly-selected block's form on the site's
- * configured default (`block.config`, see `models/blocks.ts#setBlocksState`) rather than always on
- * the component's own hardcoded `prop.default`. `helpers/blocks.js#propDefault` carries the actual
- * precedence logic and has its own direct unit coverage via `helpers/markdownBlocks.test.js`; this
- * locks down that the picker's `select()` really calls it, by reading the generated markdown back
- * out of the panel.
+ * The fixture carries a site `config` value and a different `prop.default` so the two tests below
+ * can tell which of the two the picker starts a newly-selected block's form on.
  */
 
 const BLOCK = {
@@ -39,7 +35,6 @@ async function mountPicker(blocks) {
   return wrapper
 }
 
-/** The header's Insert button — the second of the two, and the only one that can be disabled. */
 function insertButton(wrapper) {
   return wrapper
     .findAllComponents(WBtn)
@@ -66,9 +61,8 @@ describe('BlockPickerOverlay', () => {
     expect(wrapper.find('.block-picker-output').text()).not.toContain('server=')
   })
 
-  // -> `/guide/blocks` names a concept this fork invented (custom blocks are not an upstream
-  //    Wiki.js feature), so no docs site can describe it -- the help button was deleted rather
-  //    than left pointing at a page that does not exist.
+  // -> Custom blocks are this fork's own concept, not an upstream Wiki.js feature, so no docs
+  //    site describes them and there is no `/guide/blocks` page to point a help button at
   it('has no help/docs button', async () => {
     const wrapper = await mountPicker([BLOCK])
 
@@ -76,9 +70,8 @@ describe('BlockPickerOverlay', () => {
   })
 
   /**
-   * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this
-   * prop -- the picker has no use for it, but must still declare it, or the value falls through
-   * onto its rendered DOM root as a stray attribute.
+   * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts; the
+   * picker has no use for it, but must declare it all the same.
    */
   it('declares overlayOpts as a prop, so it does not fall through onto the rendered DOM root', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([BLOCK]) })
@@ -92,13 +85,10 @@ describe('BlockPickerOverlay', () => {
 })
 
 /**
- * Both halves are asserted here: the definition's Iconify reference reaches `WIcon` untouched, and
- * no `img:/_assets/icons/ultraviolet-<name>.svg` path is assembled from it by concatenation (a
- * built name is invisible to `scripts/generate-icons.mjs`, and `WIcon` draws nothing for a
- * reference with no Iconify prefix).
- *
- * `WIcon` stamps `data-icon` on all three of its branches, so this reads the same whether the
- * reference is in the inlined bundle or falls through to `iconify-icon` at runtime.
+ * `ultraviolet-` is what an assembled `img:` icon path would look like: a name built by
+ * concatenation is invisible to `scripts/generate-icons.mjs`, and `WIcon` draws nothing for a
+ * reference with no Iconify prefix. `WIcon` stamps `data-icon` on all three of its branches, so
+ * the selector holds whether the reference is inlined at build time or falls through at runtime.
  */
 describe('the block icon', () => {
   it("renders the definition's own Iconify reference, unmodified", async () => {
@@ -117,12 +107,9 @@ describe('the block icon', () => {
 })
 
 /**
- * `blocks` is computed straight off `state.isEnabled` with no other gate, so a block the site has
- * switched off must never appear as a card at all -- not just unselected, but literally absent,
- * since a card is the only way to select or insert one. A stale, still-insertable entry can't
- * survive either: the picker fetches the block list fresh on every mount, and the overlay's
- * `<component :is>` (`MainOverlayDialog.vue`) tears this component down and rebuilds it each time
- * the dialog closes and reopens.
+ * A card is the only way to select or insert a block, so a disabled one must be absent rather than
+ * merely unselected. Nothing stale survives either: the overlay's `<component :is>` rebuilds this
+ * component on every open, and the block list is fetched fresh on mount.
  */
 describe('the isEnabled filter', () => {
   const DISABLED = { ...BLOCK, id: 'block-2', block: 'diagram', name: 'Mermaid', isEnabled: false }
@@ -146,16 +133,11 @@ describe('the isEnabled filter', () => {
 })
 
 /**
- * Selection is drawn as line weight -- an accent hairline, four corner marks and a tinted icon
- * plate -- and the design's hard requirement is that NOTHING reflows as selection travels between
- * cards.
- *
- * What is asserted here is the half a DOM emulator can actually answer: that selection is a class
- * swap on an element whose children are identical in both states, so there is nothing for the
- * browser to add or remove and therefore nothing to reflow. The geometry itself -- that the boxes
- * really are pixel-identical, and that the grid really does hold two cards to a row -- is measured
- * in a real browser by `blockPickerLayout.test.js`; neither `happy-dom` nor `jsdom` runs a layout
- * engine, so an assertion about position written here would pass against zeroed rects.
+ * The design's hard requirement is that NOTHING reflows as selection travels between cards. Only
+ * the half a DOM emulator can answer is asserted here: that selection is a class swap over
+ * identical children. The geometry is measured in a real browser by `blockPickerLayout.test.js`,
+ * since neither `happy-dom` nor `jsdom` runs a layout engine and an assertion about position would
+ * pass here against zeroed rects.
  */
 describe('the selection treatment', () => {
   const FIRST = { ...BLOCK, id: 'block-1', block: 'kroki', name: 'Kroki' }
@@ -177,9 +159,8 @@ describe('the selection treatment', () => {
   })
 
   /*
-   * The corner marks are rendered on every card and faded in by the `is-selected` class, never
-   * added to the picked one -- an element that appears on selection is exactly the thing that
-   * could push the row around. Same for the icon plate: one per card, always.
+   * An element that appears on selection is exactly what could push the row around, so the marks
+   * and the plate are on every card and only faded in by `is-selected`.
    */
   it('renders the four corner marks and the icon plate on every card, selected or not', async () => {
     const wrapper = await mountPicker([FIRST, SECOND])
@@ -212,7 +193,6 @@ describe('the selection treatment', () => {
     expect(cards[0].find('.block-picker-plate').exists()).toBe(true)
   })
 
-  // -> The icon reference itself is covered above; this only pins the plate it now sits inside
   it('draws the glyph inside the plate rather than loose on the card', async () => {
     const wrapper = await mountPicker([FIRST])
 
@@ -220,10 +200,7 @@ describe('the selection treatment', () => {
     expect(plate.find('.w-icon').exists()).toBe(true)
   })
 
-  /**
-   * Regression: the card and its plate carried no shape-token classes, so neither ever drew
-   * Cobalt's `--radius-card`/`--shadow-card` (`0`/`none` under Ledger, unchanged there).
-   */
+  /** Both tokens are `0`/`none` under Ledger, so only Cobalt shows whether the classes are there. */
   it('draws the card and its plate off --radius-card/--shadow-card', async () => {
     const wrapper = await mountPicker([FIRST])
 
@@ -236,11 +213,7 @@ describe('the selection treatment', () => {
     expect(plate.classes()).toContain('shadow-card')
   })
 
-  /**
-   * Regression: `.block-picker-mark` drew Ledger's `+` registration-mark corner accents
-   * unconditionally on a selected card, missing the `display: var(--corner-marks)` gate
-   * `Login.vue`/`NavEditMenu.vue` already use to hide the same kind of mark under Cobalt.
-   */
+  /** `--corner-marks` is the gate that hides Ledger's registration marks under Cobalt. */
   it('gates the corner marks on --corner-marks, matching Login.vue/NavEditMenu.vue', () => {
     const source = readFileSync(join(import.meta.dirname, 'BlockPickerOverlay.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'))
@@ -274,12 +247,8 @@ describe('the selection treatment', () => {
 })
 
 /**
- * Insert is this screen's primary action, so it takes `accent` rather than `positive` green --
- * `accent`, not the brighter `accent-fill`, because the label over it is white and only the darker
- * tone clears 4.5:1 contrast under white.
- *
- * What is pinned here is not `canInsert`'s own logic (`blockPropsFilled`), but that the button
- * really is bound to it, in both directions.
+ * `accent`, not the brighter `accent-fill`: the label over it is white, and only the darker tone
+ * clears 4.5:1 contrast under white.
  */
 describe('the Insert action', () => {
   const REQUIRED_PROP = {
@@ -328,19 +297,16 @@ describe('the Insert action', () => {
 })
 
 /*
- * Adjacent buttons in a Cobalt button group take a gap and each keeps its own radius, rather than
- * `WBtnGroup`'s default Ledger look of buttons joined by a single hairline seam. `gap` is a plain
- * CSS value Vitest's compiled CSS resolves under `happy-dom` (`css: true`) with no layout engine
- * needed. The seam itself is a logical `border-inline-end`, which `happy-dom` does not resolve for
- * `getComputedStyle` at all -- so whether it is present is asserted only in a real browser, in
- * `blockPickerLayout.test.js`, off the actual rendered gap between the two buttons.
+ * Under Cobalt the buttons take a gap instead of `WBtnGroup`'s hairline seam. `gap` is a plain CSS
+ * value `happy-dom` resolves with no layout engine; the seam is a logical `border-inline-end`,
+ * which it does not resolve for `getComputedStyle` at all, so that half is asserted in a real
+ * browser by `blockPickerLayout.test.js`.
  */
 describe('BlockPickerOverlay Cancel/Insert button gap (OpenProject #2873)', () => {
   let wrapper
 
-  // -> `attachTo: document.body` leaves the mounted tree attached, so the previous test's own
-  //    `.w-btn-group` has to be torn down before the next mount, or `document.body.querySelector`
-  //    can silently resolve the stale one instead of the fresh mount
+  // -> `attachTo: document.body` leaves the mounted tree attached, so it has to be torn down
+  //    before the next mount or `document.body.querySelector` silently resolves the stale one
   afterEach(() => {
     wrapper?.unmount()
     document.body.classList.remove('body--cobalt', 'body--light', 'body--dark')
