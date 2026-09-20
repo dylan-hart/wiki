@@ -21,6 +21,7 @@ describe('pages API — publishState guardrail (OpenProject #2466)', () => {
   let updatePageCalls: any[] = []
   let checkAccessCalls: string[] = []
   let grantedPermissions: Set<string>
+  let startingPublishState: 'draft' | 'published' | 'scheduled'
 
   let app: FastifyInstance
 
@@ -31,7 +32,9 @@ describe('pages API — publishState guardrail (OpenProject #2466)', () => {
       models: {
         pages: {
           getPage: async ({ id }: { id: string }) =>
-            id === PAGE_ID ? { ...PAGE_FIXTURE, updatedAt: new Date() } : null,
+            id === PAGE_ID
+              ? { ...PAGE_FIXTURE, publishState: startingPublishState, updatedAt: new Date() }
+              : null,
           updatePage: async (siteId: string, id: string, patch: any) => {
             updatePageCalls.push({ siteId, id, patch })
             return {
@@ -39,7 +42,7 @@ describe('pages API — publishState guardrail (OpenProject #2466)', () => {
               path: PAGE_FIXTURE.path,
               locale: PAGE_FIXTURE.locale,
               classification: patch.classification ?? PAGE_FIXTURE.classification,
-              publishState: patch.publishState ?? PAGE_FIXTURE.publishState,
+              publishState: patch.publishState ?? startingPublishState,
               updatedAt: new Date(),
               authorName: ''
             }
@@ -79,6 +82,7 @@ describe('pages API — publishState guardrail (OpenProject #2466)', () => {
     updatePageCalls = []
     checkAccessCalls = []
     grantedPermissions = new Set(['write:pages'])
+    startingPublishState = PAGE_FIXTURE.publishState
   })
 
   const sessionHeader = {
@@ -138,7 +142,7 @@ describe('pages API — publishState guardrail (OpenProject #2466)', () => {
     assert.ok(!checkAccessCalls.includes('publish:pages'))
   })
 
-  test('going from published back to draft (unpublishing) also needs publish:pages', async () => {
+  test('going from draft to scheduled also needs publish:pages', async () => {
     // FIXME: this sends draft -> scheduled, not the unpublish the title names -- the stubbed page
     // always starts as 'draft'. Covering published -> draft needs a fixture that starts published.
     const res = await app.inject({
@@ -149,5 +153,32 @@ describe('pages API — publishState guardrail (OpenProject #2466)', () => {
     })
     assert.equal(res.statusCode, 403)
     assert.equal(updatePageCalls.length, 0)
+  })
+
+  test('going from published back to draft (unpublishing) also needs publish:pages', async () => {
+    startingPublishState = 'published'
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      headers: sessionHeader,
+      payload: { publishState: 'draft' }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(updatePageCalls.length, 0)
+    assert.ok(checkAccessCalls.includes('publish:pages'))
+  })
+
+  test('unpublishing succeeds once the actor also holds publish:pages', async () => {
+    startingPublishState = 'published'
+    grantedPermissions = new Set(['write:pages', 'publish:pages'])
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      headers: sessionHeader,
+      payload: { publishState: 'draft' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updatePageCalls.length, 1)
+    assert.equal(updatePageCalls[0].patch.publishState, 'draft')
   })
 })

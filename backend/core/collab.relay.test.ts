@@ -283,7 +283,7 @@ describe('RELAY_CHUNK_SIZE', () => {
     const worstCase = {
       i: 'V1StGXR8_Z',
       r: '550e8400-e29b-41d4-a716-446655440000',
-      t: 'awareness',
+      t: 'wysiwyg-claimed',
       to: 'V1StGXR8_Z',
       m: '999999999',
       c: 999999,

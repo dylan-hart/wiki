@@ -384,7 +384,7 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
         pageHistory: {
           // FIXME: the history route calls `pageHistory.list`, not `getHistory`, so the PAGE
           // HISTORY case's call count cannot fail. Rename this stub to `list`.
-          getHistory: async () => {
+          list: async () => {
             pageHistoryCalls++
             return { history: [], total: 0 }
           },
@@ -468,7 +468,7 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
     assert.equal(getPageCalls, 0)
   })
 
-  test('PAGE HISTORY: answers 403 for a disabled site, without ever calling getHistory', async () => {
+  test('PAGE HISTORY: answers 403 for a disabled site, without ever calling list', async () => {
     pageHistoryCalls = 0
     const res = await app.inject({
       method: 'GET',

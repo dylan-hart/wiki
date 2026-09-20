@@ -82,7 +82,7 @@ describe('GET/DELETE /sites/:siteId/pages/:pageId/draft', () => {
     assert.equal(res.statusCode, 404)
   })
 
-  test('GET answers 404 when the requester may read but not write the page', async () => {
+  test('GET answers 403 when the requester may read but not write the page', async () => {
     checkAccessImpl = (_actor, permission) => permission === 'read:pages'
     const res = await app.inject({
       method: 'GET',

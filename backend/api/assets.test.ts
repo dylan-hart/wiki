@@ -860,7 +860,7 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     }
   })
 
-  test('rejects a nonexistent `folderId` (404, no upload)', async () => {
+  test('rejects a `folderId` whose folder row carries no matching siteId (404, no upload)', async () => {
     getFolderByIdCalls = []
     checkAccessCalls = []
     uploadCalls = []
