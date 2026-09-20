@@ -28,6 +28,15 @@ export default class LocalAuthentication {
     const passwordMatches = await bcrypt.compare(password, authStrategyData?.password ?? DUMMY_HASH)
 
     if (!user || !authStrategyData || passwordMatches !== true) {
+      CARDINAL.models.flags.authDebug(
+        `Local strategy ${this.strategyId} refused the login: ${
+          !user
+            ? 'no account for that address'
+            : !authStrategyData
+              ? `account ${user.id} is not linked to strategy ${this.strategyId}`
+              : `wrong password for account ${user.id}`
+        }`
+      )
       // -> One error for all three cases: telling "no such account" from "account exists but isn't
       //    linked to this strategy" is a one-request oracle for which emails have accounts.
       throw new Error('ERR_LOGIN_FAILED')
