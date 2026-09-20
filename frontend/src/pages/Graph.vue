@@ -3,7 +3,7 @@
     <canvas
       ref="canvasRef"
       class="graph-view-canvas"
-      :class="{ 'graph-view-canvas--hover': hoveredNode }"
+      :class="{ 'graph-view-canvas--hover': showsPointerCursor }"
       role="img"
       :aria-label="graphAccessibleName"
       @click="onCanvasClick"
@@ -719,6 +719,10 @@ let nodeQuadtree = null
  *  Reset in `loadGraph()` -- a fresh fetch must not carry positions forward from another graph. */
 let syntheticNodeCache = new Map()
 const hoveredNode = ref(null)
+const showsPointerCursor = computed(() =>
+  Boolean(hoveredNode.value && !hoveredNode.value.synthetic)
+)
+let lastPointer = null
 /** Relative to `containerRef`, not the viewport. */
 const tooltipPos = reactive({ x: 0, y: 0 })
 
@@ -845,6 +849,7 @@ function relayout() {
   )
 
   recomputeClusters()
+  refreshHoverFromPointer()
 }
 
 /** Safe to call on every zoom/pan frame: it recomputes no layout. */
@@ -957,26 +962,43 @@ function releaseHoveredNode() {
 }
 
 function onCanvasMouseLeave() {
+  lastPointer = null
   if (releaseHoveredNode()) {
     repaint()
   }
 }
 
-function onCanvasMouseMove(event) {
-  const nextHovered = findNodeAt(event.clientX, event.clientY)
-  if (nextHovered !== hoveredNode.value) {
-    // -> Must run before the pin below: the helper reads `hoveredNode.value`, which is reassigned
-    //    at the end of this branch.
+function setHoveredNode(nextHovered) {
+  if (nextHovered === hoveredNode.value) {
+    return false
+  }
+  // -> Must run before the pin below: the helper reads `hoveredNode.value`, which is reassigned
+  //    at the end of this function.
+  releaseHoveredNode()
+  if (nextHovered) {
+    // -> A defined fx/fy freezes a d3-force node against every force each tick, holding the
+    //    hovered node still while the rest of the layout keeps moving.
+    nextHovered.fx = nextHovered.x
+    nextHovered.fy = nextHovered.y
+    applyHoverPushImpulse(nodes.value, nextHovered)
+    simulation?.alpha(HOVER_PUSH_ALPHA).restart()
+  }
+  hoveredNode.value = nextHovered
+  return true
+}
+
+function refreshHoverFromPointer() {
+  if (hoveredNode.value && !nodes.value.includes(hoveredNode.value)) {
     releaseHoveredNode()
-    if (nextHovered) {
-      // -> A defined fx/fy freezes a d3-force node against every force each tick, holding the
-      //    hovered node still while the rest of the layout keeps moving.
-      nextHovered.fx = nextHovered.x
-      nextHovered.fy = nextHovered.y
-      applyHoverPushImpulse(nodes.value, nextHovered)
-      simulation?.alpha(HOVER_PUSH_ALPHA).restart()
-    }
-    hoveredNode.value = nextHovered
+  }
+  if (lastPointer) {
+    setHoveredNode(findNodeAt(lastPointer.clientX, lastPointer.clientY))
+  }
+}
+
+function onCanvasMouseMove(event) {
+  lastPointer = { clientX: event.clientX, clientY: event.clientY }
+  if (setHoveredNode(findNodeAt(event.clientX, event.clientY))) {
     repaint()
   }
   const containerRect = containerRef.value.getBoundingClientRect()
@@ -1026,6 +1048,7 @@ function attachZoom() {
   attachGraphZoom(canvasRef.value, (transform) => {
     zoomTransform.value = transform
     // -> Only the canvas transform changed, no node moved -- repaint, never relayout.
+    refreshHoverFromPointer()
     repaint()
   })
   zoomTransform.value = zoomIdentity
