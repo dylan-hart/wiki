@@ -218,6 +218,7 @@ import { lerpRadius, sqrtRangeOf } from './graphNodeSize.js'
 import { applyHoverPushImpulse } from './graphForces.js'
 import {
   attachZoom as attachGraphZoom,
+  childCountsFor,
   computeClusters as buildClusters,
   linkDistanceFor,
   startSimulation as runSimulation
@@ -1004,6 +1005,11 @@ function onCanvasMouseMove(event) {
   tooltipPos.y = event.clientY - containerRect.top
 }
 
+function childCountAccessor() {
+  const counts = childCountsFor(edges.value)
+  return (node) => counts.get(nodeId(node)) ?? 0
+}
+
 function startSimulation() {
   const { width, height } = containerRef.value.getBoundingClientRect()
 
@@ -1019,7 +1025,8 @@ function startSimulation() {
         relayout()
         repaint()
       },
-      clusterLevels: CLUSTER_LEVELS
+      clusterLevels: CLUSTER_LEVELS,
+      childCountFor: childCountAccessor()
     }
   )
 }
@@ -1318,7 +1325,10 @@ watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientT
   //    metric just became active. `relayout()`'s own refresh below runs too late for that moment.
   refreshMetricRange()
   simulation?.force('collide', forceCollide(collideRadiusFor))
-  simulation?.force('link')?.distance((link) => linkDistanceFor(link, collideRadiusFor))
+  const childCountFor = childCountAccessor()
+  simulation
+    ?.force('link')
+    ?.distance((link) => linkDistanceFor(link, collideRadiusFor, childCountFor))
   simulation?.alpha(0.3).restart()
   relayout()
   repaint()
@@ -1372,7 +1382,11 @@ function syncSimulationToVisibleSet() {
     return
   }
   simulation.nodes(nodes.value)
-  simulation.force('link')?.links(edges.value)
+  const childCountFor = childCountAccessor()
+  simulation
+    .force('link')
+    ?.links(edges.value)
+    .distance((link) => linkDistanceFor(link, collideRadiusFor, childCountFor))
   recomputeClusters()
   simulation.alpha(0.5).restart()
 }
