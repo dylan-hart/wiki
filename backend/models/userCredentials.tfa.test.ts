@@ -9,14 +9,12 @@ import type { RecoveryCodeEntry } from './userCredentials.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 /**
- * One schema for the whole file rather than one per describe (TEST-F14): every `setupTestDb()` call
- * is a `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same
- * fixture. Anything a describe needs on top of that stays in its own `before()`.
+ * One schema for the whole file rather than one per describe: every `setupTestDb()` call is a
+ * `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same fixture.
  *
  * The `hasTestDatabase()` guard below is what a per-describe `{ skip }` cannot do for a FILE-level
  * hook: `describe(..., { skip })` skips the describe's own hooks and tests, but a root `before()`
- * runs regardless, so without this an unset `DATABASE_URL` would report every describe skipped AND
- * still throw out of the hook. Same shape as `models/contentSync.test.ts`'s own file-level fixture.
+ * runs regardless, so without this an unset `DATABASE_URL` would still throw out of the hook.
  */
 let fixtures: TestFixtures
 
@@ -34,13 +32,6 @@ after(async () => {
   await teardownTestDb()
 })
 
-/**
- * `enableTfa`/`verifyAndConsumeRecoveryCode`/`regenerateRecoveryCodes`/`getRecoveryCodesStatus` are
- * thin persistence wrappers around `issueRecoveryCodes()` and `matchRecoveryCode()` (both covered
- * above without a database) — but the wrapping itself, a JSONB `auth` blob round-tripping through a
- * real update/select, is exactly the kind of thing a query-builder mock would just be re-describing.
- * This suite runs the real methods against a migrated, per-run-fresh database (see `test/db.ts`).
- */
 describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users
 
@@ -49,7 +40,7 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
     await ensureTemporal()
   })
 
-  /** A fresh, otherwise-unused strategy key each test can enable/consume/regenerate against. */
+  /** Tests share the one seeded user, so each isolates itself with a strategy key of its own. */
   function freshStrategyId(): string {
     return `strategy-${Math.random().toString(36).slice(2)}`
   }
@@ -122,10 +113,8 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
   })
 
   test('two concurrent verifyAndConsumeRecoveryCode calls for the same code redeem exactly one entry', async () => {
-    // -> Distinct from the sequential single-use test above, which re-reads the user between
-    //    attempts and so exercises only the serialized case: this fires both attempts at once, off
-    //    two separately-loaded copies of the same row, to prove the advisory lock -- not just
-    //    request ordering -- is what prevents a double-spend.
+    // -> Both attempts fire at once, off two separately-loaded copies of the same row, to prove the
+    //    advisory lock -- not just request ordering -- is what prevents a double-spend.
     const strategyId = freshStrategyId()
     const owner = await usersModel.getById(fixtures.userId)
     const [code] = await userCredentials.enableTfa(owner, strategyId)
@@ -264,7 +253,6 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
       false
     )
 
-    // -> A code from the set that was just replaced no longer works, even though it was never used.
     const user = await usersModel.getById(fixtures.userId)
     assert.equal(
       await userCredentials.verifyAndConsumeRecoveryCode(user, strategyId, original[0]!),
@@ -295,7 +283,7 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
     const strategyId = freshStrategyId()
     const owner = await usersModel.getById(fixtures.userId)
     const codes = await userCredentials.enableTfa(owner, strategyId)
-    // -> Every issued code gets consumed one by one, since each attempt needs a freshly-reloaded user.
+    // -> Each attempt needs a freshly-reloaded user, hence the reload inside the loop.
     for (const code of codes) {
       const consumer = await usersModel.getById(fixtures.userId)
       assert.equal(
@@ -343,9 +331,9 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
     const strategyId = freshStrategyId()
     const owner = await usersModel.getById(fixtures.userId)
     await userCredentials.enableTfa(owner, strategyId)
-    // -> tfaRequired is exactly what disableTfa() refuses to override; an admin doing this on
-    //    purpose is the entire point of adminInvalidateTfa. setUserAuthFlags() only ever touches the
-    //    local strategy, so the flag is set directly on this (fixture, non-local) strategy's entry.
+    // -> tfaRequired is exactly what disableTfa() refuses to override; overriding it on purpose is
+    //    the point of adminInvalidateTfa. setUserAuthFlags() only ever touches the local strategy, so
+    //    the flag is set directly on this (fixture, non-local) strategy's entry.
     const flagged = (await usersModel.getById(fixtures.userId)) as any
     await fixtures.db
       .update(usersTable)
@@ -389,8 +377,8 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
 
   describe('verifyTfaCode single-use (RFC 6238 §5.2)', () => {
     // -> RFC 6238 Appendix B's SHA-1 test vector, the same secret/code pair `helpers/totp.test.ts`
-    //    verifies against -- reused here rather than re-derived, since what is under test is the
-    //    persistence/replay-refusal wrapper around `verifyTotpCode`, not the HOTP algorithm itself.
+    //    verifies against: what is under test here is the replay-refusal wrapper around
+    //    `verifyTotpCode`, not the HOTP algorithm itself.
     const rfcSecret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
     const codeForCounter1 = '287082' // Time=59_000ms -> counter = floor(59 / 30) = 1
 
@@ -443,12 +431,10 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
     })
 
     /*
-      An otherwise-correct code, presented for an account that no longer exists by the time the
-      replay-counter write runs. `verifyTfaCode` reads the secret off the caller's `user` object, so
-      the TOTP comparison itself still succeeds -- what decides the answer is `patchStrategyAuth`,
-      which re-reads the row inside the per-user advisory lock and returns `false` when there is no
-      row to write back to. Deleting the account mid-verification therefore declines the login rather
-      than accepting a code whose single-use counter could never be recorded.
+      `verifyTfaCode` reads the secret off the caller's `user` object, so the TOTP comparison itself
+      still succeeds here -- what decides the answer is `patchStrategyAuth`, which re-reads the row
+      inside the per-user advisory lock and returns `false` when there is no row to write back to,
+      rather than accepting a code whose single-use counter could never be recorded.
     */
     test('declines a code for a user that vanished between the read and the write', async () => {
       const strategyId = freshStrategyId()
@@ -478,11 +464,9 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
   })
 
   /**
-   * OpenProject #3301: `enableTfa()`/`disableTfa()`/`adminInvalidateTfa()` each notify the account
-   * holder by mail. `mail.sendTfaEnabled`/`sendTfaDisabled` are mocked -- same reasoning as
-   * `login.passwordReset.test.ts`'s `sendPasswordResetConfirmed` stub -- so this asserts the
-   * orchestration (which method fires, with what params, and that a send failure never propagates),
-   * not real SMTP delivery or the locale-string resolution mail.ts's own suite already covers.
+   * The mail methods are mocked, so what is asserted is the orchestration -- which one fires, with
+   * what params, and that a send failure never propagates -- not SMTP delivery or the locale-string
+   * resolution `mail.ts`'s own suite already covers.
    */
   describe('2FA enable/disable mail notices', () => {
     let mail: typeof import('./mail.ts').mail
@@ -555,9 +539,8 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
       await userCredentials.enableTfa(reloadedOwner, strategyId)
 
       sendTfaDisabledMock.mock.resetCalls()
-      // -> `adminInvalidateTfa` takes no acting-admin identity at all -- there is nothing here that
-      //    could accidentally resolve an admin's own locale instead of the account holder's, which is
-      //    exactly the property this test is pinning down.
+      // -> `adminInvalidateTfa` takes no acting-admin identity at all, so nothing here could
+      //    accidentally resolve an admin's own locale instead of the account holder's.
       await userCredentials.adminInvalidateTfa(fixtures.userId, strategyId)
 
       assert.equal(sendTfaDisabledMock.mock.calls.length, 1)
@@ -583,19 +566,12 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
 })
 
 /**
- * The lost-update case #2149 closes: every whole-blob `auth` write in `models/userCredentials.ts`
- * (they lived on `models/users.ts` until that model was split) now reads, mutates and writes while
- * holding a `user-auth:<id>` advisory lock (`helpers/advisoryLock.ts`), so
- * two of these calls racing the same user's row can no longer have the second writer's stale copy of
- * the blob clobber the first writer's change. Before this, `adminInvalidateTfa()` blanking
- * `tfaSecret`/`tfaIsActive`/`recoveryCodes` was observed being undone by a concurrent
- * `changeOwnPassword()` that had already read the (still-active) blob and later wrote its own copy of
- * it back, with the password change alone surviving -- silently restoring 2FA the admin had just
- * turned off.
- *
- * This runs both calls concurrently via a real advisory lock against Postgres (not a mock), which is
- * the only way to actually exercise the serialization rather than merely asserting the source calls
- * `withAdvisoryLock`.
+ * The lost update guarded against: two whole-blob `auth` writes racing the same user's row, the
+ * second writer's stale copy of the blob clobbering the first writer's change -- an
+ * `adminInvalidateTfa()` silently undone by a concurrent `changeOwnPassword()`, restoring 2FA an
+ * admin had just turned off. Every such write holds a `user-auth:<id>` advisory lock
+ * (`helpers/advisoryLock.ts`); running both against a real Postgres is the only way to exercise that
+ * serialization rather than merely asserting the source calls `withAdvisoryLock`.
  */
 describe(
   'userCredentials auth-write serialization (DB-backed)',
@@ -648,12 +624,11 @@ describe(
       const reloaded = (await usersModel.getById(fixtures.userId)) as any
       const strategyAuth = reloaded.auth[strategyId]
 
-      // -> The admin's action must have stuck, regardless of which write happened to land second.
+      // -> Both writes must have stuck, whichever of the two landed second.
       assert.equal(strategyAuth.tfaIsActive, false)
       assert.equal(strategyAuth.tfaSecret, '')
       assert.deepEqual(strategyAuth.recoveryCodes, [])
 
-      // -> The password change must have stuck too -- neither write may be the one that gets lost.
       assert.equal(strategyAuth.mustChangePwd, false)
       assert.equal(await bcrypt.compare('a-brand-new-password', strategyAuth.password), true)
     })
