@@ -391,20 +391,16 @@ class ImportModel {
 
       // FIXME: `Promise.all` reads every blob `readArchive` staged to disk back into memory at once,
       //        undoing that staging — read each chunk's blobs inside the insert loop below instead.
-      const mappedAssetRows = await Promise.all(
-        assetManifest.map(async (meta) => {
-          const dataPath = assetBlobs[`assets/${meta.id}.data`]
-          const previewPath = assetBlobs[`assets/${meta.id}.preview`]
-          return {
-            ...meta,
-            id: assetIdMap.get(meta.id),
-            data: dataPath ? await fs.readFile(dataPath) : null,
-            preview: previewPath ? await fs.readFile(previewPath) : null,
-            siteId: targetSiteId,
-            authorId: importedById
-          }
-        })
-      )
+      const mappedAssetRows = assetManifest.map((meta) => ({
+        row: {
+          ...meta,
+          id: assetIdMap.get(meta.id),
+          siteId: targetSiteId,
+          authorId: importedById
+        },
+        dataPath: assetBlobs[`assets/${meta.id}.data`],
+        previewPath: assetBlobs[`assets/${meta.id}.preview`]
+      }))
 
       // -> Computed up front, rather than inline in the `.map()` below, so a navigation row keyed by
       //    a tree entry's own id can resolve to the same new id, and so each tree row's own
@@ -511,7 +507,14 @@ class ImportModel {
         }
 
         for (const batch of chunk(mappedAssetRows, ASSET_INSERT_CHUNK_SIZE)) {
-          await tx.insert(assetsTable).values(batch as any)
+          const values = await Promise.all(
+            batch.map(async ({ row, dataPath, previewPath }) => ({
+              ...row,
+              data: dataPath ? await fs.readFile(dataPath) : null,
+              preview: previewPath ? await fs.readFile(previewPath) : null
+            }))
+          )
+          await tx.insert(assetsTable).values(values as any)
         }
 
         for (const batch of chunk(mappedPageHistoryRows, PAGE_HISTORY_INSERT_CHUNK_SIZE)) {
