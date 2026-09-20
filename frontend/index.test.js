@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import { TEMPORAL_POLYFILL_PLACEHOLDER } from './src/build/temporalPolyfillChunk.js'
 
 /**
  * The preload script has to live inline and non-module in `index.html` to run synchronously during
@@ -32,32 +33,57 @@ describe('temporal polyfill preload script (index.html)', () => {
   beforeEach(() => {
     document.head.querySelectorAll('link[rel="modulepreload"]').forEach((el) => el.remove())
     delete globalThis.Temporal
+    delete window.__wikiTemporalPolyfillUrl
   })
 
   afterEach(() => {
     document.head.querySelectorAll('link[rel="modulepreload"]').forEach((el) => el.remove())
     delete globalThis.Temporal
+    delete window.__wikiTemporalPolyfillUrl
   })
 
   test('script is present and non-module so it runs synchronously in <head>', () => {
     const html = fs.readFileSync(indexHtmlPath, 'utf8')
-    const scriptTag = html.match(/<script>[\s\S]*?__TEMPORAL_POLYFILL_HREF__[\s\S]*?<\/script>/)[0]
+    const scriptTag = html.match(/<script>[\s\S]*?__wikiTemporalPolyfillUrl[\s\S]*?<\/script>/)[0]
     expect(scriptTag).not.toMatch(/type=["']module["']/)
     expect(scriptTag).not.toMatch(/\b(defer|async)\b/)
   })
 
-  test('injects a modulepreload link with the placeholder href when Temporal is missing', () => {
+  test('injects a modulepreload link to the injected chunk URL when Temporal is missing', () => {
     expect(typeof globalThis.Temporal).toBe('undefined')
+    window.__wikiTemporalPolyfillUrl = '/_assets/global.esm-abc123.js'
 
     new Function(script)()
 
     const link = document.head.querySelector('link[rel="modulepreload"]')
     expect(link).not.toBeNull()
-    expect(link.getAttribute('href')).toBe('__TEMPORAL_POLYFILL_HREF__')
+    expect(link.getAttribute('href')).toBe('/_assets/global.esm-abc123.js')
+  })
+
+  test('injects no link when Temporal is missing but no chunk URL was injected (dev server)', () => {
+    expect(typeof globalThis.Temporal).toBe('undefined')
+
+    new Function(script)()
+
+    expect(document.head.querySelector('link[rel="modulepreload"]')).toBeNull()
+  })
+
+  test('never references the retired href placeholder', () => {
+    const markup = fs.readFileSync(indexHtmlPath, 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+    expect(markup).not.toContain('__TEMPORAL_POLYFILL_HREF__')
+  })
+
+  test('the chunk-url placeholder precedes the preload script so the URL is defined when it runs', () => {
+    const html = fs.readFileSync(indexHtmlPath, 'utf8')
+    const placeholderAt = html.indexOf(TEMPORAL_POLYFILL_PLACEHOLDER)
+    expect(placeholderAt).toBeGreaterThan(-1)
+    expect(html.indexOf(TEMPORAL_POLYFILL_PLACEHOLDER, placeholderAt + 1)).toBe(-1)
+    expect(placeholderAt).toBeLessThan(html.indexOf('temporal-polyfill-preload:start'))
   })
 
   test('injects no link when Temporal is already present natively', () => {
     globalThis.Temporal = {}
+    window.__wikiTemporalPolyfillUrl = '/_assets/global.esm-abc123.js'
 
     new Function(script)()
 
