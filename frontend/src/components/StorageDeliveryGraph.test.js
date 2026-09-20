@@ -12,10 +12,9 @@ const componentSource = readFileSync(
 )
 
 /**
- * `StorageDeliveryGraph.vue` is a pure presentational pass over
- * `helpers/storageDeliveryGraph.js#generateGraph()`'s `{ nodes, edges, layouts, paths }` shape (task
- * #3116, replacing `v-network-graph`) -- these fixtures are hand-built rather than run through
- * `generateGraph()` itself, so each case below exercises exactly one geometry rule in isolation.
+ * The fixtures are hand-built rather than run through
+ * `helpers/storageDeliveryGraph.js#generateGraph()`, so each case exercises exactly one geometry
+ * rule in isolation.
  */
 
 function mountGraph(props) {
@@ -107,12 +106,8 @@ describe('StorageDeliveryGraph.vue - nodes', () => {
 
 describe('StorageDeliveryGraph.vue - node hover', () => {
   /**
-   * OpenProject #3134: `v-network-graph` drew node hover effects (scale, highlight) by default;
-   * the #3116 rewrite dropped them outright. `jsdom`/`happy-dom` run no layout engine and don't
-   * evaluate `:hover` (confirmed live in real headless Chromium during implementation, not just
-   * asserted here), so this is a source-level regression guard rather than a rendered-style
-   * assertion: it fails the moment the hover rule is removed or stops actually scaling/highlighting,
-   * the same way it silently disappeared in #3116 with nothing catching it.
+   * `jsdom`/`happy-dom` run no layout engine and never evaluate `:hover`, so this guards the rule
+   * text at source level rather than the style it renders.
    */
   it('keeps a :hover rule on the node group that scales it and highlights its fill', () => {
     const hoverRuleMatch = componentSource.match(/\.storage-delivery-graph__node:hover\s*{([^}]*)}/)
@@ -131,14 +126,8 @@ describe('StorageDeliveryGraph.vue - node hover', () => {
   })
 
   /**
-   * OpenProject #3290 regression guard: a CSS `transform` on an element REPLACES an SVG
-   * presentation-attribute `transform` on that SAME element rather than composing with it, so
-   * putting the position `translate(x y)` and the `:hover { transform: scale(...) }` rule on one
-   * shared `<g>` snapped every node to local origin (0,0) on hover -- which happens to be exactly
-   * where the "pages" node sits, making every other node appear to jitter toward it. The fix keeps
-   * them on separate, nested elements: the outer `[data-node-id]` group carries only the positioning
-   * transform, and a distinct inner `.storage-delivery-graph__node` group (not the same element)
-   * carries the hover-scale class.
+   * A CSS `transform` REPLACES an SVG presentation-attribute `transform` on the SAME element rather
+   * than composing with it, so sharing one `<g>` snaps every node to local origin on hover.
    */
   it('keeps the positioning transform and the hover-scale class on separate, nested elements', () => {
     const wrapper = mountGraph({
@@ -187,8 +176,7 @@ describe('StorageDeliveryGraph.vue - edges', () => {
     expect(lines).toHaveLength(2)
 
     const y1s = lines.map((l) => Number(l.attributes('y1')))
-    // -> Offset symmetrically around the source-target line (perpendicular to a horizontal edge is
-    //    vertical), never both drawn on the same y.
+    // -> The perpendicular of a horizontal edge is vertical, so a symmetric spread shows up in y.
     expect(y1s[0]).not.toBe(y1s[1])
     expect(y1s[0] + y1s[1]).toBeCloseTo(0, 5)
   })
@@ -223,7 +211,6 @@ describe('StorageDeliveryGraph.vue - edges', () => {
     const line = wrapper.find('line.storage-delivery-graph__edge')
     expect(line.classes()).not.toContain('storage-delivery-graph__edge--animated')
     expect(line.attributes('stroke')).toBe('#f03a47')
-    // -> Static edges use a visibly longer dash than the flowing default.
     const normal = mountGraph({
       nodes: { a: { name: 'A' }, b: { name: 'B' } },
       edges: { ab: { source: 'a', target: 'b' } },
@@ -257,14 +244,8 @@ describe('StorageDeliveryGraph.vue - edges', () => {
   })
 
   /**
-   * OpenProject #3134: confirmed live in real headless Chromium that a bare-number
-   * `--sdg-dash-len` custom property made the flow animation interpolate as a discrete jump at the
-   * keyframe's 50% mark instead of a continuous sweep -- `calc(-2 * var(--sdg-dash-len, 1px))`
-   * types as an untyped <number> when the substituted value carries no unit, which cannot
-   * interpolate against the keyframe's implicit <length> start value. Asserting the unit stays on
-   * the custom property is what this regression looks like from the render output alone; the
-   * interpolation behaviour itself isn't observable under jsdom/happy-dom (see the node-hover
-   * describe above for the same caveat).
+   * The unit stands in for the interpolation itself, which jsdom/happy-dom cannot show: bare, the
+   * `calc()` resolves to an untyped <number> and the flow degrades to a discrete jump.
    */
   it('gives --sdg-dash-len an explicit length unit so the animation interpolates continuously', () => {
     const wrapper = mountGraph({

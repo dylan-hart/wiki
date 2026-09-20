@@ -8,9 +8,8 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { createTestI18n } from '../../test/i18n.js'
 
 /*
-  `WDialog`'s content lives behind a `<teleport to="body">`, which lands it as a REAL child of
-  `document.body`, outside `@vue/test-utils`'s own tracked tree -- unmounting the wrapper is what
-  removes it again, keeping each test's dialog the only one present.
+  `WDialog` teleports its content to `document.body`, outside `@vue/test-utils`'s own tracked tree,
+  so unmounting the wrapper is what removes it -- otherwise each test sees the previous dialog too.
 */
 let currentWrapper = null
 afterEach(() => {
@@ -19,13 +18,8 @@ afterEach(() => {
 })
 
 /**
- * Regression test for confirm()'s error handling. The old code chained `.json()` straight off the
- * request (`API_CLIENT.put(...).json()`), which -- because `boot/api.js` sets
- * `throwHttpErrors: (statusNumber) => statusNumber > 400` -- throws a ky `HTTPError` for any status
- * above 400 before ever reaching a place that could parse the body, and `catch (err)` then read ky's
- * generic `err.message` rather than the server's actual reason. This matters as soon as a "cannot
- * disable the last enabled site" guard exists on `PUT /_api/sites/:siteId` (a later task), the same
- * way the "last site" guard matters for `SiteDeleteDialog`.
+ * Shaped like what ky throws above a 400: the server's reason is in the already-parsed `data`, not
+ * in `message`, so a handler reading `err.message` would report ky's generic text instead.
  */
 function httpError(message) {
   return Object.assign(new Error('Request failed with status code 409: PUT /sites/1'), {
@@ -52,10 +46,8 @@ function mountDialog({
 }
 
 /*
-  `WDialog`'s content lives behind a `<teleport to="body">`, so it renders as a real DOM child of
-  `document.body` rather than a descendant of `wrapper.element` -- @vue/test-utils' own `find*` only
-  searches the latter, so the confirm button has to be found (and triggered, via a real DOM event)
-  through `document` directly.
+  Teleported content is not a descendant of `wrapper.element`, which is all @vue/test-utils' `find*`
+  searches, so the confirm button is reached -- and clicked with a real DOM event -- via `document`.
 */
 async function clickConfirm() {
   await flushPromises()

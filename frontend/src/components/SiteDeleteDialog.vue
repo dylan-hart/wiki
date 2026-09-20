@@ -57,8 +57,6 @@ import { computed, reactive } from 'vue'
 
 import { useAdminStore } from '../stores/admin'
 
-// PROPS
-
 const props = defineProps({
   site: {
     type: Object,
@@ -66,34 +64,20 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// STORES
-
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   isLoading: false,
   confirmText: ''
 })
 
-// COMPUTED
-
 const isConfirmed = computed(() => state.confirmText === props.site.title)
-
-// METHODS
 
 async function confirm() {
   if (!isConfirmed.value) {
@@ -111,9 +95,6 @@ async function confirm() {
     })
     onDialogOK()
   } catch (err) {
-    // -> ky throws for statuses above 400 (e.g. 409 for the "last site" or "still holds content"
-    //    guards), where the reason the API gave is in the response body rather than in the error
-    //    message
     notify({
       type: 'negative',
       message: apiErrorMessage(err)

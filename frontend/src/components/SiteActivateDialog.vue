@@ -54,8 +54,6 @@ import { reactive, ref } from 'vue'
 
 import { useAdminStore } from '../stores/admin'
 
-// PROPS
-
 const props = defineProps({
   site: {
     type: Object,
@@ -67,29 +65,17 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// STORES
-
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   isLoading: false
 })
-
-// METHODS
 
 async function confirm() {
   state.isLoading = true
@@ -116,10 +102,6 @@ async function confirm() {
     })
     onDialogOK()
   } catch (err) {
-    // -> ky throws for statuses above 400 (e.g. a future "cannot disable the last enabled site"
-    //    guard), where the reason the API gave is in the response body rather than in the error
-    //    message. Chaining `.json()` straight off the request -- as this used to -- throws before
-    //    it gets the chance to parse anything for a status above 400.
     notify({
       type: 'negative',
       message: apiErrorMessage(err)

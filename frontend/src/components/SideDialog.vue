@@ -32,23 +32,15 @@ const sideDialogs = {
   })
 }
 
-// STORES
-
 const editorStore = useEditorStore()
 const flagsStore = useFlagsStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// ROUTER
-
 const router = useRouter()
 const route = useRoute()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   showSideDialog: false,
@@ -61,13 +53,10 @@ const state = reactive({
   tocSelected: []
 })
 
-// COMPUTED
-
 /**
- * `sideDialogs`' loaded child owns the only visible heading for this panel (its own `<w-header
- * class="card-header">`), so the panel's accessible name is looked up here rather than duplicated as
- * a prop threaded down -- each entry mirrors the exact translation key that child's own header
- * already renders (OpenProject #2356).
+ * The loaded child owns the only visible heading for this panel, so the panel's accessible name is
+ * looked up here rather than threaded down as a prop -- each entry mirrors the translation key that
+ * child's own header already renders.
  */
 const SIDE_DIALOG_TITLES = {
   PageBacklinksDialog: () => t('editor.backlinks.title'),
@@ -78,36 +67,20 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
-/*
-  The rules that used to sit here hung off `.q-dialog__inner` and `.w-card__section`, neither of which
-  this app renders any more -- so the inset, the radius and the panel's minimum width had all silently
-  stopped applying. The inset and radius now come from WDialog's own `right` variant, where they
-  belong; only the panel's floor width is a side-panel concern, and it is stated on the panel itself.
-*/
 .floating-sidepanel {
   /*
-    A definite width, not the `min-width: 450px` this replaces. The panel's content arrives
-    asynchronously behind a loading placeholder, and while the width was content-driven it changed
-    when the real dialog swapped in -- which, on a right-justified panel, jumped the left edge 112px
-    mid-transition and made a 32px slide look like a lurch. 560px is the width the content settles at
-    anyway; measured, nothing inside asks for more, date picker included.
+    A definite width rather than a content-driven one: the panel's content arrives asynchronously
+    behind a loading placeholder, and a width that changed when the real dialog swapped in jumped
+    the right-justified panel's leading edge mid-transition.
   */
 }
 .floating-sidepanel .w-dialog-panel {
   width: 560px;
   /*
-    Cobalt dialog corner fringe (OpenProject #2865, `ui-iteration/README.md` Part 1.2): a dark
-    header clipped by a filled, `overflow:auto` panel's rounded corner leaves a light antialias
-    fringe at the top corners under Chromium -- worse here since the panel is *also* clipping a
-    scroll container to its padding box. Fixed the same way as `MainOverlayDialog` (OpenProject
-    #2864): the panel itself goes transparent and stops clipping, and the header/body bands round
-    and fill themselves instead -- side-specific radii (left corners only, matching this panel's
-    own left-edge float) rather than MainOverlayDialog's all-four-corner treatment.
+    A dark header clipped by a filled, `overflow: auto` panel's rounded corner leaves a light
+    antialias fringe at the top corners under Chromium. So the panel goes transparent and stops
+    clipping, and the header/body bands round and fill themselves instead -- left corners only,
+    matching this panel's own left-edge float.
   */
 }
 .body--cobalt .floating-sidepanel .w-dialog-panel {
@@ -116,10 +89,8 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
 }
 .floating-sidepanel {
   /*
-    The header band. Whichever child is mounted (`PageBacklinksDialog`, `PagePropertiesDialog`;
-    see `sideDialogs` above), its heading is always a `<w-toolbar>` -- there is exactly one per
-    dialog, so this stays a plain descendant selector rather than reaching into either child's own
-    markup or class names.
+    The header band: every child mounted here has exactly one `<w-toolbar>`, so this stays a plain
+    descendant selector rather than reaching into either child's own markup or class names.
   */
 }
 .body--cobalt .floating-sidepanel .w-toolbar {
@@ -127,10 +98,8 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
 }
 .floating-sidepanel {
   /*
-    The body band -- the scroll area beneath the header, same one-per-dialog guarantee. Carries the
-    surface fill the now-transparent panel no longer provides, matching `.w-card`'s own background
-    (`tailwind.css`'s `.w-card` / `body.body--dark .w-card`) since that fill is what this replaces;
-    `overflow: auto` is `WScrollArea`'s own base style already, unconditionally.
+    The body band, same one-per-dialog guarantee: it carries the surface fill the transparent panel
+    no longer provides, matching `.w-card`'s own background in `tailwind.css`.
   */
 }
 .body--cobalt .floating-sidepanel .w-scroll-area {
@@ -142,23 +111,11 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
 }
 .floating-sidepanel {
   /*
-    The card itself (OpenProject #2895): both dialogs mounted here (`PagePropertiesDialog.vue`,
-    `PageBacklinksDialog.vue`) wrap their content in one root `<w-card>` -- the panel's direct child,
-    same as the toolbar/scroll-area above are its grandchildren. `WCard.vue`'s own Cobalt radius
-    (`--radius-card: 8px`) is smaller than this panel's `--radius-dialog: 12px`, which the toolbar
-    and scroll-area above already round themselves to, and `.w-card`'s base rule (`tailwind.css`)
-    fills it solid in every aesthetic. Left alone, the card's own 8px corner paints solid in the
-    8-12px band the toolbar's wider 12px curve leaves unpainted, showing through as a mismatched-
-    colour notch just inside the header's rounded corner -- vivid in light mode (white card against
-    the header's indigo `--color-dialog-header-bg: #1c2a70`), barely visible in dark mode where the
-    card's `--color-dark-3` and the header's `--color-dialog-header-bg: #1a43bd` are both dark blues,
-    which is why this reads as a light-mode-only defect.
-
-    Fixed the same way as the panel and the header/scroll-area bands: the card stops filling or
-    drawing its own edge in Cobalt (`--shadow-card`'s hairline ring would otherwise paint its own
-    8px-radius outline over the 12px corner too), since the toolbar and scroll-area already cover the
-    whole visible surface between them. Ledger keeps the card's real fill and edge -- `--radius-card`/
-    `--radius-dialog` are both 0 there, so there is no radius to mismatch.
+    The card each mounted dialog wraps its content in. `--radius-card` (8px) is smaller than this
+    panel's `--radius-dialog` (12px) that the toolbar and scroll area round themselves to, so a
+    filled card paints a mismatched-colour notch just inside the header's wider curve. It therefore
+    stops filling and drawing its own edge in Cobalt -- the toolbar and scroll area already cover
+    the whole visible surface between them. Ledger's radii are both 0, so nothing can mismatch.
   */
 }
 .body--cobalt .floating-sidepanel .w-card {
@@ -183,17 +140,10 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
 }
 .floating-sidepanel {
   /*
-    The rail below hangs outside the panel, so the panel holding it must not clip.
-
-    `WDialog` puts `overflow: auto` on `.w-dialog-panel` -- that is what rounds a centred dialog whose
-    inner bands would otherwise paint over its corners, and it keeps oversized content reachable. The
-    rail's containing block is the card INSIDE that panel, so the clip catches it and it disappeared
-    outright the moment that overflow arrived.
-
-    Lifted only for the panel that actually carries a rail, rather than for every side panel: a side
-    dialog with no rail can still lean on the panel both to round it and to scroll a card wider than
-    the panel is. Nothing is given up here -- `PagePropertiesDialog` rounds its own toolbar and scroll
-    area, and that scroll area is what its body scrolls in.
+    The rail below hangs outside the panel, but its containing block is the card INSIDE the panel,
+    so `WDialog`'s `overflow: auto` on `.w-dialog-panel` clips it away entirely. Lifted only for the
+    panel that actually carries a rail: a side dialog without one still leans on that overflow both
+    to round the panel and to scroll a card wider than it.
   */
 }
 .floating-sidepanel .w-dialog-panel:has(> .page-properties-dialog) {
@@ -201,19 +151,12 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
 }
 .floating-sidepanel {
   /*
-    The quick-jump rail, which sits outside the panel's leading edge.
+    The quick-jump rail sits outside the panel's leading edge, anchored to the card (`WCard` is a
+    positioned element) so it tracks whatever width the panel ends up with rather than a hard-coded
+    offset.
 
-    Two things kept it off screen. It was `position: fixed` at a hard-coded `right: 486px`, a number
-    derived from a panel 450px wide with a 24px margin -- once the panel sized itself to its content
-    (562px) that offset landed the rail INSIDE the panel. And `z-index: -1` then painted it behind the
-    card's own background, so even overlapping it was invisible.
-
-    Anchored to the card instead (`WCard` is a positioned element), so it tracks whatever width the
-    panel ends up with. The two `.q-transition--jump-*` rules that hid it mid-animation are gone with
-    the Quasar transitions they named; the 300ms timer in the dialog already keeps it out of the slide.
-
-    -> `inset-inline-end`, not `right` (OpenProject #1601): the rail is a leading-edge companion to
-       the panel, not a screen-corner anchor, so it follows the panel to the other side under RTL.
+    -> `inset-inline-end`, not `right`: the rail is a leading-edge companion to the panel, not a
+       screen-corner anchor, so it follows the panel to the other side under RTL.
   */
 }
 .floating-sidepanel-quickaccess {

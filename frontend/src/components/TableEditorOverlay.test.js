@@ -10,10 +10,8 @@ import { mountWithApp } from '../../test/mount.js'
 import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * The other half of OpenProject #1929's change here: deleting the `docsBase`-based help button left
- * `siteStore` still in use elsewhere in this component, so removing the button must not have taken
- * the store with it. The "no docsBase button" assertion itself lives in `src/docsBaseGate.test.js`
- * alongside the six other fork-invented surfaces it applies to.
+ * `src/docsBaseGate.test.js` owns the "no docsBase help button" assertion for this component; what
+ * is left to guard here is that dropping that button did not take `siteStore` with it.
  */
 const source = readFileSync(join(import.meta.dirname, 'TableEditorOverlay.vue'), 'utf-8')
 
@@ -23,10 +21,6 @@ describe('TableEditorOverlay help link', () => {
   })
 })
 
-/**
- * OpenProject #2530: `editing` (and therefore the starting grid) now reads off the `overlayOpts` prop
- * `MainOverlayDialog.vue` forwards, not `siteStore.overlayOpts` directly.
- */
 describe('TableEditorOverlay editing state (OpenProject #2530)', () => {
   function mountOverlay(overlayOpts) {
     setActivePinia(createPinia())
@@ -64,13 +58,9 @@ describe('TableEditorOverlay editing state (OpenProject #2530)', () => {
 })
 
 /**
- * OpenProject #2628 -- the first full comparison of this screen against
- * `ui-redesign/Cardinal Wiki - Table Editor 3x.dc.html`.
- *
- * These are the claims a DOM emulator can actually answer: which glyph is drawn, which element
- * carries which role, what a prop resolved to. The metrics the design states in pixels -- the 28px
- * toolbar band, the 24x22 tool plates, the 200px cell -- are measured in a real browser in the
- * describe below, because neither `happy-dom` nor `jsdom` runs a layout engine.
+ * The claims a DOM emulator can answer: which glyph is drawn, which element carries which role,
+ * what a prop resolved to. The metrics the design states in pixels are measured in a real browser
+ * in the describe below, because neither `happy-dom` nor `jsdom` runs a layout engine.
  */
 describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
   function mountOverlay() {
@@ -81,16 +71,14 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
     const wrapper = mountOverlay()
 
     expect(wrapper.find('.card-header .w-icon').attributes('data-icon')).toBe('tabler:table')
-    // -> The regression this replaces: an `img:/_assets/icons/color-*.svg` reference, which `WIcon`
-    //    draws as an <img> and which was the last colour icon left in any overlay header
+    // -> `WIcon` draws an `img:` reference as an <img>, which is the colour-asset form no overlay
+    //    header may fall back to
     expect(source).not.toMatch(/name="img:/)
   })
 
   /*
-    `dense` IS the design's 28px band on a 10px inset -- `WBtn` writes both inline off its own
-    12.5px font size (2.24em / 0.8em), so the resolved inline style is what the prop actually did.
-    Asserted here rather than by looking for the word `dense` in the template, which would pass just
-    as happily if `WBtn`'s dense metrics ever stopped being the design's.
+    Asserted off `WBtn`'s resolved inline style rather than the word `dense` in the template, which
+    would pass just as happily if `WBtn`'s dense metrics stopped being the design's band.
   */
   it('draws every toolbar control on the 28px band the design draws them at', () => {
     const wrapper = mountOverlay()
@@ -105,8 +93,8 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
 
   /*
     The design strokes the alignment glyph `#64789f` (the icon slate) and the delete `#c14a52` (the
-    accent, which is what `negative` resolves to). The alignment used to be drawn in the accent too,
-    which left two reds in a row where the design has one.
+    accent, which is what `negative` resolves to) -- drawing both in the accent leaves two reds in a
+    row where the design has one.
   */
   it('strokes the column alignment tool in the icon slate and the delete in the accent', () => {
     const wrapper = mountOverlay()
@@ -118,14 +106,13 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
   })
 
   /*
-    Only the cells holding an input are plates. The tools row above the head and the row-tools column
-    down the side are chrome and stay unstyled -- which is what lets the plate rule be a plain class
-    rather than a `th, td` rule undone twice with `!important`.
+    Only the cells holding an input are plates; the tools row and the row-tools column are chrome
+    and stay unstyled. That is what lets the plate rule be a plain class rather than a `th, td`
+    rule undone twice with `!important`.
   */
   it('marks the data cells as plates and leaves the two chrome columns alone', () => {
     const wrapper = mountOverlay()
 
-    // -> 3 header cells + 2 body rows x 3 = 9
     expect(wrapper.findAll('.table-editor-cellbox').length).toBe(9)
     expect(wrapper.findAll('.table-editor-cellbox .table-editor-cell').length).toBe(9)
     expect(wrapper.findAll('.table-editor-rowtools.table-editor-cellbox').length).toBe(0)
@@ -133,8 +120,7 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
   })
 
   /*
-    A headerless table has no head row at all, so its plates are the body's alone -- the tick has to
-    keep the grid's own structure in step, not just the markdown under it.
+    The headerless tick has to keep the grid's own structure in step, not just the markdown under it.
   */
   it("drops the header row's plates entirely when the table is headerless", async () => {
     const wrapper = mountOverlay()
@@ -146,18 +132,16 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
   })
 
   /*
-    This screen must NOT retune `.w-section-header` -- OpenProject #2631 owns the band's own rhythm
-    across all eleven of its callers.
+    `.w-section-header`'s rhythm is shared across every screen that uses the band, so this one must
+    not retune it.
   */
   it('leaves the section-header band alone', () => {
     expect(source).toContain('class="w-section-header')
     expect(source).not.toMatch(/\.w-section-header\s*\{/)
   })
 
-  // -> OpenProject #3254 flattened this file's nesting, so the Cobalt rules that used to sit inside
-  //    one `body.body--cobalt & { ... }` wrapper are now a contiguous run of separate, flat
-  //    top-level rules instead -- extracted here as one text range (start of the first rule through
-  //    the close of the last) rather than one brace-balanced block.
+  // -> The Cobalt rules are a contiguous run of flat top-level rules rather than one nested block,
+  //    so the region is taken as a text range instead of by brace balancing.
   const cobaltRegionStart = source.indexOf('body.body--cobalt .table-editor-grid table {')
   const cobaltRegionEndMarker =
     'body.body--cobalt.body--dark .table-editor th.table-editor-cellbox {'
@@ -166,9 +150,8 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
   const cobaltBlock = source.slice(cobaltRegionStart, cobaltRegionEnd)
 
   /*
-    The `--radius-*` scale is zeroed outside Cobalt, and this grid used to draw no radius at all --
-    OpenProject #2858 is the one deliberate exception, and it must stay scoped to `.body--cobalt`
-    rather than leaking a radius onto the grid under any other aesthetic.
+    The `--radius-*` scale is zeroed outside Cobalt, so the grid's one radius must stay scoped to
+    `.body--cobalt` rather than leaking out under any other aesthetic.
   */
   it('scopes the single-plate radius to Cobalt alone, leaving every other aesthetic square', () => {
     expect(cobaltRegionStart).toBeGreaterThan(-1)
@@ -178,12 +161,6 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
     expect(withoutCobaltBlock).not.toMatch(/border-radius|rounded-(?!none)/)
   })
 
-  /*
-    OpenProject #2858: Cobalt's single-plate grid. These are the DOM-shape and literal-CSS-text
-    claims a jsdom mount can answer -- the actual rendered colours, the removed per-cell border and
-    the plate's own radius are measured in a real browser below, because neither `happy-dom` nor
-    `jsdom` runs a layout/paint engine.
-  */
   it("collapses the per-cell border into the plate's own border-spacing gap under Cobalt", () => {
     expect(cobaltBlock).toContain('border-collapse: separate')
     expect(cobaltBlock).toContain('border-spacing: 2px')
@@ -203,21 +180,17 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
 })
 
 /*
- * OpenProject #2871: adjacent buttons in a Cobalt button group take an 8-10px gap and each keeps its
- * own radius, per the general rule (Task #2859, `ui-iteration/README.md` Part 2), rather than
- * `WBtnGroup`'s default Ledger look of buttons joined by a single hairline seam. `gap` is a plain CSS
- * value Vitest's compiled SCSS resolves under `happy-dom` (`css: true`) with no layout engine needed.
- * The seam itself is a logical `border-inline-end`, which `happy-dom` does not resolve for
- * `getComputedStyle` at all (verified directly: even a bare `border-inline-end` rule with no cascade
- * involved reads back empty) -- so whether it is present is asserted only in the real-layout describe
- * below, off the actual rendered gap between the two buttons.
+ * `gap` is a plain CSS value `happy-dom` resolves with no layout engine needed. The Ledger seam it
+ * replaces is a logical `border-inline-end`, which `happy-dom` does not resolve for
+ * `getComputedStyle` at all -- even a bare rule with no cascade involved reads back empty -- so the
+ * seam's own presence is asserted only in the real-layout describe below.
  */
 describe('TableEditorOverlay Cancel/Update button gap (OpenProject #2871)', () => {
   let wrapper
 
   // -> `attachTo: document.body` leaves the mounted tree attached, so the previous test's own
-  //    `.w-btn-group` has to be torn down before the next mount, or `document.body.querySelector`
-  //    can silently resolve the stale one instead of the fresh mount
+  //    `.w-btn-group` has to be torn down first or `document.body.querySelector` can silently
+  //    resolve the stale one
   afterEach(() => {
     wrapper?.unmount()
     document.body.classList.remove('body--cobalt', 'body--light', 'body--dark')
@@ -241,21 +214,15 @@ describe('TableEditorOverlay Cancel/Update button gap (OpenProject #2871)', () =
 })
 
 /*
- * OpenProject #2871: adjacent buttons in a Cobalt button group take an 8-10px gap and each keeps its
- * own radius, per the general rule (Task #2859, `ui-iteration/README.md` Part 2), rather than
- * `WBtnGroup`'s default Ledger look of buttons joined by a single hairline seam. `gap` is a plain CSS
- * value Vitest's compiled SCSS resolves under `happy-dom` (`css: true`) with no layout engine needed.
- * The seam itself is a logical `border-inline-end`, which `happy-dom` does not resolve for
- * `getComputedStyle` at all (verified directly: even a bare `border-inline-end` rule with no cascade
- * involved reads back empty) -- so whether it is present is asserted only in the real-layout describe
- * below, off the actual rendered gap between the two buttons.
+ * FIXME: this describe, name and body alike, is a verbatim duplicate of the one directly above it.
+ * Delete this copy.
  */
 describe('TableEditorOverlay Cancel/Update button gap (OpenProject #2871)', () => {
   let wrapper
 
   // -> `attachTo: document.body` leaves the mounted tree attached, so the previous test's own
-  //    `.w-btn-group` has to be torn down before the next mount, or `document.body.querySelector`
-  //    can silently resolve the stale one instead of the fresh mount
+  //    `.w-btn-group` has to be torn down first or `document.body.querySelector` can silently
+  //    resolve the stale one
   afterEach(() => {
     wrapper?.unmount()
     document.body.classList.remove('body--cobalt', 'body--light', 'body--dark')
@@ -279,17 +246,14 @@ describe('TableEditorOverlay Cancel/Update button gap (OpenProject #2871)', () =
 })
 
 /*
-  The design's pixel claims, measured in a real headless Chromium: `happy-dom` reports every element
-  at a zeroed rect regardless of its CSS, so none of this is answerable under the default
-  environment. `{ skip: !hasChromium() }` and the raised timeout follow `ApiKeyCreateDialog.test.js`,
-  for the same reasons its own comment gives -- `npm ci` installs the Playwright library, not the
-  browser, and a cold launch is not a 5-second operation beside seven other worker processes.
+  `happy-dom` reports every element at a zeroed rect regardless of its CSS, so the design's pixel
+  claims are measured in a real headless Chromium. `{ skip: !hasChromium() }` and the raised timeout
+  are there because `npm ci` installs the Playwright library but not the browser, and a cold launch
+  is not a 5-second operation beside seven other worker processes.
 
-  The stylesheet handed to the page is the app's real compiled Tailwind (`buildAppCss()`) PLUS every
-  `<style>` Vitest injected into this process's document -- which, with `css: true`, is where this
-  SFC's own compiled SCSS lands. Both halves are needed: the toolbar's ground is a Tailwind utility
-  chain and the tool plate is an SFC rule that has to beat `WBtn`'s inline metrics, and measuring
-  either without the other would prove nothing.
+  The page is handed the app's real compiled Tailwind PLUS every `<style>` Vitest injected for this
+  SFC. Both halves are needed: the toolbar's ground is a utility chain and the tool plate an SFC
+  rule that has to beat `WBtn`'s inline metrics, so either alone would prove nothing.
 */
 describe(
   'TableEditorOverlay design conformance — real layout (OpenProject #2628)',
@@ -302,8 +266,7 @@ describe(
     let cobaltDark
 
     /*
-      Measured under BOTH body classes off the same markup. Dark mode here is not a filter over the
-      light rules -- the toolbar, the cell plate and the banding each name their own rung of the dark
+      Dark mode is not a filter over the light rules -- each surface names its own rung of the dark
       ramp -- and it is the half nobody looks at while working, so a rule that never matches would
       otherwise ship silently.
     */
@@ -391,9 +354,9 @@ describe(
     })
 
     /*
-      The claim this exists for: `WBtn` writes `min-height` and `padding` INLINE, so the 24x22 plate
-      is a cascade question, not a declaration one -- get the specificity wrong and the plate is
-      silently the 32px button band instead, with nothing in the markup to say so.
+      `WBtn` writes `min-height` and `padding` INLINE, so the plate's size is a cascade question,
+      not a declaration one -- get the specificity wrong and it is silently the 32px button band
+      instead, with nothing in the markup to say so.
     */
     it("sizes every column and row tool as the design's 24x22 plate", () => {
       expect(metrics.toolButtons.length).toBe(8)
@@ -426,10 +389,9 @@ describe(
     })
 
     /*
-      The same three surfaces on the dark ramp: `$dark-2` raised for the toolbar, `$dark-3` panel for
-      a cell plate, `$dark-4` recessed for the band -- the same two-step apart the light half draws,
-      one rung lower. There is no dark sheet for this screen, so these are the ramp's own answers
-      rather than measured design values, and they are pinned here so they stay deliberate.
+      The same three surfaces one rung lower: raised for the toolbar, panel for a cell plate,
+      recessed for the band. There is no dark sheet for this screen, so these are the ramp's own
+      answers rather than measured design values, pinned here so they stay deliberate.
     */
     it('carries the same three surfaces onto the dark ramp', () => {
       expect(dark.toolbarBg).toBe('rgb(36, 43, 58)')
@@ -438,18 +400,12 @@ describe(
       expect(dark.bodyRows).toEqual(['rgb(27, 31, 42)', 'rgb(23, 27, 36)'])
     })
 
-    /* -> The plate is a cascade fight with `WBtn`'s inline metrics, and the cascade is theme-blind --
-          but a `dark:` utility landing on the same element is not, so it is measured either way */
+    /* -> The cascade the plate wins is theme-blind, but a `dark:` utility landing on the same
+          element is not, so it is measured either way */
     it('keeps the tool plates at 24x22 in dark mode too', () => {
       expect(dark.toolButtons).toEqual(metrics.toolButtons)
     })
 
-    /*
-      OpenProject #2858: Cobalt's single-plate grid, measured against
-      `ui-iteration/cobalt/Cardinal Wiki - Table Editor 3x - Cobalt.dc.html`. Ledger's own rendering
-      (`metrics`/`dark` above) is untouched by any of this -- these assertions run only against the
-      `cobalt`/`cobaltDark` captures.
-    */
     it('grounds the grid in one tinted, radiused plate rather than a collapsed table', () => {
       // -> `--color-tint` #e6edff light, `--radius-card` 8px
       expect(cobalt.plateBg).toBe('rgb(230, 237, 255)')
@@ -463,8 +419,8 @@ describe(
     })
 
     it('tints the Cobalt header row distinctly from the plate and the white data cells', () => {
-      // -> `#eef2ff` light; `--color-dark-3` `#141c4f` dark (no design board for Cobalt dark here,
-      //    so this is the ramp's own "one rung more raised than the plate" answer -- see the SFC)
+      // -> `#eef2ff` light; `--color-dark-3` `#141c4f` dark -- no design board for Cobalt dark, so
+      //    that is the ramp's own "one rung more raised than the plate" answer
       expect(cobalt.headerCellBg).toBe('rgb(238, 242, 255)')
       expect(cobaltDark.headerCellBg).toBe('rgb(20, 28, 79)')
     })
@@ -489,11 +445,9 @@ describe(
 )
 
 /*
-  OpenProject #2871's real pixel claim: the 8px gap between Cancel and Update. `happy-dom`/`jsdom`
-  report every rect at zero regardless of CSS (see the describe above), so the actual on-screen
-  distance between the two buttons -- as opposed to the `gap` property's literal value, already
-  covered under jsdom -- needs the same real headless Chromium the rest of this screen's pixel claims
-  do.
+  The on-screen distance between the two buttons, as opposed to the `gap` property's literal value
+  already covered under jsdom, needs a real browser: `happy-dom` reports every rect at zero
+  regardless of CSS.
 */
 describe(
   'TableEditorOverlay Cancel/Update button gap — real layout (OpenProject #2871)',
@@ -547,11 +501,8 @@ describe(
 )
 
 /*
-  OpenProject #2871's real pixel claim: the 8px gap between Cancel and Update. `happy-dom`/`jsdom`
-  report every rect at zero regardless of CSS (see the describe above), so the actual on-screen
-  distance between the two buttons -- as opposed to the `gap` property's literal value, already
-  covered under jsdom -- needs the same real headless Chromium the rest of this screen's pixel claims
-  do.
+  FIXME: this describe, name and body alike, is a verbatim duplicate of the one directly above it.
+  Delete this copy.
 */
 describe(
   'TableEditorOverlay Cancel/Update button gap — real layout (OpenProject #2871)',

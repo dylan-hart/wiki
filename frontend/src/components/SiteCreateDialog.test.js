@@ -8,10 +8,9 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { createTestI18n } from '../../test/i18n.js'
 
 /*
-  `WDialog`'s content lives behind a `<teleport to="body">`, which lands it as a REAL child of
-  `document.body`, outside `@vue/test-utils`'s own tracked tree -- unmounting the wrapper is what
-  removes it again. Without this, a second test's `document.body.querySelectorAll('input')` would
-  also see the first test's now-orphaned dialog, whose elements sort first in document order.
+  `WDialog` teleports its content to `document.body`, outside `@vue/test-utils`'s own tracked tree,
+  so unmounting the wrapper is what removes it. Without this, a later test's
+  `document.body.querySelectorAll('input')` also sees the earlier dialog, which sorts first.
 */
 let currentWrapper = null
 afterEach(() => {
@@ -19,12 +18,6 @@ afterEach(() => {
   currentWrapper = null
 })
 
-/**
- * Regression coverage for #1767: `create()` used to test the resolved 400's `resp?.ok` and read
- * `resp.json()` for the message -- dead once `boot/api.js` throws on every non-2xx status instead of
- * resolving a 400. The `catch` now reads the same message off `err.data` via `apiErrorMessage()`,
- * same as `SiteDeleteDialog` / `SiteActivateDialog`.
- */
 function mountDialog() {
   setActivePinia(createPinia())
 
@@ -37,10 +30,9 @@ function mountDialog() {
 }
 
 /*
-  `WDialog`'s content lives behind a `<teleport to="body">`, so it renders as a real DOM child of
-  `document.body` rather than a descendant of `wrapper.element` -- @vue/test-utils' own `find*` only
-  searches the latter, so fields and the confirm button have to be found (and driven, via real DOM
-  events) through `document` directly.
+  Teleported content is not a descendant of `wrapper.element`, which is all @vue/test-utils' `find*`
+  searches, so the fields and the confirm button are reached -- and driven with real DOM events --
+  via `document`.
 */
 async function fillAndSubmit() {
   await flushPromises()

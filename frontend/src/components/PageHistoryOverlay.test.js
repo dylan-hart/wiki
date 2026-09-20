@@ -6,11 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { flushPromises } from '@vue/test-utils'
 
 /*
-  The diff pane is real Monaco, which needs a layout engine this test has no reason to drag in -- the
-  shared VERSION/FULL_VERSION fixtures below carry `meta.editor: 'html'` specifically so `renderOf()`
-  never reaches the markdown pipeline either (a redirect-editor fixture appears in one test further
-  down, but only on the applyDiff path, which never calls `renderOf()`), and this is the only thing
-  standing between mounting and a DOM Monaco cannot use under happy-dom.
+  The diff pane is real Monaco, which needs a layout engine happy-dom does not have.
 */
 vi.mock('monaco-editor', () => ({
   editor: {
@@ -25,19 +21,16 @@ vi.mock('monaco-editor', () => ({
 }))
 
 /*
-  Never reached at runtime here -- every version below has `meta.editor: 'html'`, so `renderOf()`
-  short-circuits before touching this -- but it is still imported at module scope by
-  `PageHistoryOverlay.vue`, pulling in the full markdown-it plugin chain unrelated to this suite.
-  Stubbed so importing the component under test doesn't pay for that before a single test runs.
+  Never reached at runtime -- every version fixture below is `meta.editor: 'html'`, so `renderOf()`
+  short-circuits first -- but imported at module scope by the component, which would pull in the
+  whole markdown-it plugin chain before a single test runs.
 */
 vi.mock('@/renderers/markdown', () => ({ MarkdownRenderer: vi.fn() }))
 
-// -> Real `browser-fs-access` reaches for `showSaveFilePicker` / anchor-click download plumbing this
-//    environment has no reason to exercise; mocked so a download test can assert what was handed to
-//    it instead of what a real save dialog would have done with it.
+// -> Real `browser-fs-access` reaches for `showSaveFilePicker` / anchor-click download plumbing, so
+//    the download test asserts what was handed to it instead
 vi.mock('browser-fs-access', () => ({ fileSave: vi.fn().mockResolvedValue(undefined) }))
 
-// -> The mocked modules' own `vi.fn()`s, so a test can assert what the component asked them to do
 import * as monaco from 'monaco-editor'
 import { fileSave } from 'browser-fs-access'
 
@@ -50,19 +43,14 @@ import { buildTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
-/**
- * Regression coverage for task 516: `branchFrom`'s destination locale, and the three failure shapes
- * `restoreVersion`/`branchFrom` must surface as an actionable caption rather than a bare toast.
- */
-
 const VERSION = {
   id: 'v1',
   action: 'created',
   changedFields: [],
   reason: '',
   versionDate: '2024-01-01T00:00:00.000Z',
-  // -> Different from the page's CURRENT locale on purpose -- this is what proves `branchFrom` reads
-  //    the version's own field rather than the hardcoded `pageStore.locale` it used to.
+  // -> Different from the page's CURRENT locale on purpose: this is what proves `branchFrom` reads
+  //    the version's own field rather than `pageStore.locale`
   locale: 'fr',
   path: 'my-page',
   title: 'My Page',
@@ -90,9 +78,8 @@ function mockGetEndpoints() {
 
 /*
   `messages` is left undefined by default on purpose: with no catalogue the test i18n renders each
-  key as its own path, which is what almost every assertion below matches on. The one caller that
-  passes it is the real-layout describe, where a label's WIDTH is part of what is being measured and
-  `history.versionLabelA` is nothing like the "A" the app actually draws.
+  key as its own path, which is what almost every assertion below matches on. Only the real-layout
+  describe passes one, where a label's WIDTH is part of what is being measured.
 */
 async function mountOverlay({ mockEndpoints = mockGetEndpoints, overlayOpts, messages } = {}) {
   mockEndpoints()
@@ -125,7 +112,6 @@ async function mountOverlay({ mockEndpoints = mockGetEndpoints, overlayOpts, mes
   return { wrapper, router }
 }
 
-/** Opens the row's "..." menu and clicks the named action inside it. */
 async function clickRowAction(label) {
   const menuBtn = document.body.querySelector('.page-history-pick button')
   await menuBtn.dispatchEvent(new Event('click', { bubbles: true }))
@@ -150,9 +136,9 @@ beforeEach(() => {
 })
 
 /**
- * OpenProject #2530: `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it
- * mounts as this prop -- this overlay has no use for it, but must still declare it, or the value
- * falls through onto its rendered DOM root as a stray attribute.
+ * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this prop.
+ * This one has no use for it but must still declare it, or the value falls through onto its
+ * rendered DOM root as a stray attribute.
  */
 describe('PageHistoryOverlay overlayOpts prop (OpenProject #2530)', () => {
   it('declares overlayOpts as a prop, so it does not fall through onto the rendered DOM root', async () => {
@@ -231,7 +217,7 @@ describe('PageHistoryOverlay: branchFrom', () => {
     const opened = openDialogs.at(-1)
 
     // -> `throwHttpErrors` (boot/api.js) does not throw for exactly 400, so this resolves with
-    //    `ok: false` rather than rejecting -- `branchFrom` reads that off `resp.message`.
+    //    `ok: false` rather than rejecting
     globalThis.API_CLIENT.post.mockReturnValueOnce({
       json: () =>
         Promise.resolve({
@@ -268,7 +254,6 @@ describe('PageHistoryOverlay: restoreVersion', () => {
     })
 
     await clickRowAction('history.restore')
-    // -> The confirm() dialog opened by `restoreVersion`; simulate its own OK
     const confirmDialog = openDialogs.at(-1)
     confirmDialog.handlers.ok[0](true)
     await flushPromises()
@@ -295,10 +280,9 @@ describe('PageHistoryOverlay: restoreVersion', () => {
 })
 
 /**
- * Task 518: at the scale a real large page reaches (tens of thousands of lines/characters), Monaco's
- * own diff computation does not freeze the tab -- it runs in a worker -- but past its computation
- * budget it silently gives up and returns no changes, which reads exactly like two identical versions.
- * `applyDiff` catches the pair before it ever reaches Monaco and shows an honest notice instead.
+ * Past its computation budget Monaco's diff silently gives up and returns no changes, which reads
+ * exactly like two identical versions. `applyDiff` catches the oversized pair before it ever
+ * reaches Monaco and shows an honest notice instead.
  */
 describe('PageHistoryOverlay: diff too large to render inline', () => {
   const OLDER = { ...VERSION, id: 'v0', versionDate: '2023-12-31T00:00:00.000Z' }
@@ -329,7 +313,6 @@ describe('PageHistoryOverlay: diff too large to render inline', () => {
 
     expect(wrapper.text()).toContain('history.diffTooLarge')
     expect(monaco.editor.createModel).not.toHaveBeenCalled()
-    // -> The container stays mounted (hidden), never handed a model
     expect(monaco.editor.createDiffEditor).not.toHaveBeenCalled()
   })
 
@@ -342,8 +325,8 @@ describe('PageHistoryOverlay: diff too large to render inline', () => {
     const buttons = [...notice.querySelectorAll('button')]
     expect(buttons.length).toBe(2)
 
-    // -> The A button: proves it is wired to the OLDER, oversized side specifically, not just to
-    //    something that happens to download
+    // -> The A button, whose content assertion below proves it is wired to the OLDER, oversized
+    //    side specifically rather than to something that merely downloads
     await buttons[0].dispatchEvent(new Event('click', { bubbles: true }))
     await flushPromises()
 
@@ -361,10 +344,9 @@ describe('PageHistoryOverlay: diff too large to render inline', () => {
 })
 
 /**
- * Task 518: a redirect page's content is `{kind, target, showInterstitial}` as JSON (see
- * `helpers/pageRedirect.js`), not prose or markup. `languageOf`'s two-way html/markdown mapping used to
- * fall this through to `markdown`, which mis-colours a target such as `/foo_bar` as broken emphasis
- * syntax rather than showing it as the plain path it is.
+ * A redirect page's content is `{kind, target, showInterstitial}` as JSON (`helpers/pageRedirect.js`),
+ * not prose or markup: highlighted as markdown, a target such as `/foo_bar` mis-colours as broken
+ * emphasis syntax rather than showing as the plain path it is.
  */
 describe('PageHistoryOverlay: languageOf for a redirect-editor page', () => {
   it('colours a redirect versions diff as JSON, not markdown', async () => {
@@ -398,15 +380,6 @@ describe('PageHistoryOverlay: languageOf for a redirect-editor page', () => {
   })
 })
 
-/**
- * OpenProject #811: defense in depth for `load()` -- an empty history list (which is what an
- * unsaved page's `id` would fetch, were the overlay ever reached with one) must not crash indexing
- * `state.versions[0]`, and must not raise a "failed to load" toast either, since nothing failed.
- */
-/**
- * OpenProject #1119: page-history provenance -- a reader looking at the timeline must be able to tell
- * an MCP-authored version apart from one typed into the editor.
- */
 describe('PageHistoryOverlay: MCP provenance marker', () => {
   it('shows a "via MCP" badge on a version whose via is mcp', async () => {
     const mcpVersion = { ...VERSION, via: 'mcp' }
@@ -427,8 +400,8 @@ describe('PageHistoryOverlay: MCP provenance marker', () => {
   })
 
   /**
-   * OpenProject #2913: the badge must read in the accent color, not the muted `slate-pale` tone --
-   * `WBadge.vue`'s `outline` styling resolves `color` straight to `style="color: var(--color-...)"`.
+   * `WBadge.vue`'s `outline` styling resolves `color` straight to an inline style, which is why
+   * this reads the attribute rather than a class.
    */
   it('renders the "via MCP" badge in the accent color, not slate-pale', async () => {
     const mcpVersion = { ...VERSION, via: 'mcp' }
@@ -459,10 +432,6 @@ describe('PageHistoryOverlay: MCP provenance marker', () => {
   })
 })
 
-/**
- * OpenProject #1859: `pageHistory.list` is now keyset-paginated rather than returning the whole
- * history in one call, so the overlay has to fetch further pages itself.
- */
 describe('PageHistoryOverlay: cursor pagination', () => {
   const OLDER = { ...VERSION, id: 'v0', versionDate: '2023-12-31T00:00:00.000Z' }
 
@@ -491,9 +460,7 @@ describe('PageHistoryOverlay: cursor pagination', () => {
       'sites/site-1/pages/page-1/history',
       expect.objectContaining({ searchParams: { cursor: 'cursor-1' } })
     )
-    // -> The older page's entry is now on the timeline, appended after the first page's
     expect(wrapper.findAll('.page-history-item')).toHaveLength(2)
-    // -> nextCursor came back null, so there is nothing left to load
     expect(loadMoreBtn()).toBeNull()
   })
 
@@ -521,36 +488,23 @@ describe('PageHistoryOverlay: no history yet', () => {
   })
 })
 
-/**
- * OpenProject #2637, notes 1 and 2 of Dylan's 2026-09-05 review: "the PAGE HISTORY icon is too
- * large; the mockup defines it smaller and accent-colored. the page title in the dialog is normal
- * case, not uppercased, in the mockup."
- *
- * Both are read off `ui-redesign/Cardinal Wiki - History 3x.dc.html`'s own header row.
- */
 describe('PageHistoryOverlay: the header band (OpenProject #2637)', () => {
   it('draws the history glyph at the designs 20px, in the accent rather than the headers white', async () => {
     await mountOverlay()
 
     const icon = document.body.querySelector('.card-header [data-icon="tabler:history"]')
-    /*
-      `w-icon` sizes itself in `em` off `font-size`, so 20px here IS the design's `width="20"`. It was
-      `size="md"` -- 32px, per `components/shared/metrics.js` -- which is what made it read as chrome
-      rather than as a mark beside the label.
-    */
+    // -> `w-icon` sizes itself in `em` off `font-size`, so the inline `font-size` is where the
+    //    design's 20px width lands
     expect(icon.style.fontSize).toBe('20px')
-    // -> `color="accent-dark"`, the `#f08287` the design strokes it in; see the template's own note
-    //    on why the DARK accent is the right one on a surface that is inked in both themes
+    // -> The DARK accent, because this surface is inked in both themes
     expect([...icon.classList]).toContain('text-accent-dark')
   })
 
   it('leaves the page title in the case its author wrote it, despite the uppercased title band', async () => {
     /*
-      `.card-header` uppercases a dialog's title band (`css/_base.css`), and the page-title span sits
-      inside it -- so this is a cascade fact, and asserting it needs both halves present. The overlay
-      brings its own stylesheet with it (Vitest's `css: true`), but `_base.css` is a global sheet the
-      app loads in `main.js` and no component test pulls in, so its one relevant declaration is
-      restated here rather than the whole file being imported for it.
+      A cascade fact -- `.card-header` uppercases a dialog's title band and the page-title span sits
+      inside it -- so asserting it needs both halves present. `css/_base.css` is a global sheet no
+      component test pulls in, so its one relevant declaration is restated here.
     */
     const baseSheet = document.createElement('style')
     baseSheet.textContent = '.card-header { text-transform: uppercase; }'
@@ -562,7 +516,7 @@ describe('PageHistoryOverlay: the header band (OpenProject #2637)', () => {
       const band = document.body.querySelector('.card-header')
       const title = document.body.querySelector('.page-history-page')
 
-      // -> The control: the band itself really is uppercased, so the next assertion means something
+      // -> The control: without it the next assertion would pass on a band that never uppercased
       expect(getComputedStyle(band).textTransform).toBe('uppercase')
       expect(getComputedStyle(title).textTransform).toBe('none')
     } finally {
@@ -572,9 +526,8 @@ describe('PageHistoryOverlay: the header band (OpenProject #2637)', () => {
 })
 
 /**
- * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
- * the close button drew the same bright light-mode tone against a dark ground. Fixed by resolving
- * `color` through `dark.isActive` instead of the static `accent-fill` prop.
+ * `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so the close button
+ * resolves its colour through `dark.isActive` rather than a static `accent-fill` prop.
  */
 describe('PageHistoryOverlay close button dark mode (OpenProject #2807)', () => {
   afterEach(() => {
@@ -600,15 +553,6 @@ describe('PageHistoryOverlay close button dark mode (OpenProject #2807)', () => 
   })
 })
 
-/**
- * OpenProject #2622 -- item 3 of `docs/cardinal-reskin-second-pass.md`'s "Still to do" list: the
- * timeline entry's own layout, against `ui-redesign/Cardinal Wiki - History 3x.dc.html`.
- *
- * The design draws one entry as a 28px round action dot, a text column and the A/B cursors on one
- * row, with the reason and the changed-fields list wrapped onto a row of their own beneath them,
- * indented to start under the text column rather than under the dot. What each of the three dot
- * kinds is filled with, and which ink its glyph takes, come from the same file.
- */
 const TIMELINE_VERSIONS = [
   {
     ...VERSION,
@@ -629,10 +573,9 @@ const TIMELINE_VERSIONS = [
 ]
 
 /*
-  `backend/locales/en.json`'s own values for every string the timeline entry draws. A measurement is
-  only worth taking against what the app actually renders: "A" and "B" are 24px plates, where the
-  bare `history.versionLabelA` key the test i18n falls back to is a 155px one, wide enough to push
-  the whole A/B column onto a row of its own.
+  `backend/locales/en.json`'s own values, because a measurement is only worth taking against what
+  the app actually renders: the bare `history.versionLabelA` key the test i18n falls back to draws
+  far wider than the "A" plate, wide enough to push the A/B column onto a row of its own.
 */
 const TIMELINE_MESSAGES = {
   'history.action.created': 'Created',
@@ -694,8 +637,8 @@ describe('PageHistoryOverlay timeline entry: structure', () => {
   })
 
   /*
-    The wrapped row only wraps if it is a SIBLING of the dot, the text column and the A/B cursors --
-    a `flex: 0 0 100%` child nested inside the text column would just fill that column instead.
+    The row only wraps if it is a SIBLING of the dot, the text column and the A/B cursors -- a
+    `flex: 0 0 100%` child nested inside the text column would just fill that column instead.
   */
   it('puts the reason/fields row on the entry itself, beside the dot rather than inside the text column', async () => {
     await mountOverlay({ mockEndpoints: mockTimelineEndpoints })
@@ -720,9 +663,8 @@ describe('PageHistoryOverlay timeline entry: structure', () => {
   })
 
   /*
-    The design sets the timestamp and the moved-to path in mono and the author's name in the
-    proportional face; all three used to be one `.page-history-meta` class, so the whole block came
-    out proportional. These classes are the hook the stylesheet hangs the two mono lines off.
+    The timestamp and the moved-to path are set in mono and the author's name in the proportional
+    face; these classes are the hook the stylesheet hangs the two mono lines off.
   */
   it('marks the timestamp and the moved-to path as the entrys mono lines', async () => {
     await mountOverlay({ mockEndpoints: mockTimelineEndpoints })
@@ -737,13 +679,8 @@ describe('PageHistoryOverlay timeline entry: structure', () => {
   })
 
   /*
-    Cardinal zeroes every radius but a genuinely round shape (`0` under Ledger, `--radius-mark`'s
-    real value under Cobalt -- OpenProject #2767/#2772), and the design draws both of the entry's
-    markers as square mono plates. `WBadge`'s `rounded` prop is the pill.
-
-    `rounded-mark`, not `rounded-none`: OpenProject #2772's own radii sweep moved `WBadge`'s
-    non-pill corner from a hardcoded `rounded-none` onto the shared `--radius-mark` token (see
-    `WBadge.vue`'s own comment), which is what this assertion was still pinned to.
+    `WBadge`'s `rounded` prop is the pill; its non-pill corner is the shared `--radius-mark` token,
+    so the square plates the design draws assert `rounded-mark` rather than `rounded-none`.
   */
   it('draws the current and via-MCP markers as square plates, not pills', async () => {
     await mountOverlay({
@@ -769,19 +706,17 @@ describe('PageHistoryOverlay timeline entry: structure', () => {
 })
 
 /*
-  Everything above is structure; none of it can answer whether the dot is actually 28px and round,
-  or whether the reason/fields row actually lands on a row of its own under the text column. Neither
-  `happy-dom` nor `jsdom` runs a layout engine -- every `getBoundingClientRect()` comes back zeroed
-  -- so a measurement claim needs a real browser, which is what `test/realGridLayout.js` is for.
+  Everything above is structure; whether the dot is actually 28px and round, or the reason/fields
+  row actually lands on a row of its own, needs a layout engine, and neither `happy-dom` nor `jsdom`
+  runs one -- every `getBoundingClientRect()` comes back zeroed. Hence a real browser, via
+  `test/realGridLayout.js`.
 
-  The page is assembled from two stylesheets: `buildAppCss()` compiles the app's own
-  `src/css/tailwind.css` exactly as the production build does, and the SFC style blocks Vitest has
-  already compiled (`css: true`) and injected into this environment's `<head>` carry the component's
-  own SCSS -- including the dot rules, which is the half being measured. 380px is the timeline
-  drawer's real width (`<w-drawer :width="380">`).
+  The page is assembled from `buildAppCss()`'s compiled `src/css/tailwind.css` plus the SFC style
+  blocks Vitest has already injected into this environment's `<head>` (`css: true`), which carry the
+  dot rules being measured. 380px is the timeline drawer's real width.
 
-  The 30s suite timeout is the same allowance `ApiKeyCreateDialog.test.js` documents: the browser
-  launch and the Tailwind build are paid for while seven other files transform in parallel workers.
+  The 30s timeout covers the browser launch and the Tailwind build, paid while other files transform
+  in parallel workers.
 */
 describe(
   'PageHistoryOverlay timeline entry — real layout',
@@ -797,7 +732,6 @@ describe(
       await browser?.close()
     })
 
-    /** Mounts the three-entry timeline, renders it at the drawer's real width and measures it. */
     async function measureTimeline() {
       await mountOverlay({ mockEndpoints: mockTimelineEndpoints, messages: TIMELINE_MESSAGES })
 
@@ -865,15 +799,12 @@ describe(
 
       expect(updated.dot.width).toBe(28)
       expect(updated.dot.height).toBe(28)
-      // -> `border-radius: 50%` of a 28px box; anything less is a rounded square, not a dot
       expect(updated.dotRadius).toBe('50%')
-      // -> The design's 14px glyph, centred in the 28px plate
       expect(updated.glyph.width).toBe(14)
       expect(updated.glyph.height).toBe(14)
       /*
-        $dark-4 (#171b24), the timeline column's ground -- NOT $dark-5 (#14171f), the diff pane's,
-        which is what this was and which drew a visible dark halo instead of hiding the line behind
-        the dot.
+        The timeline column's own ground, NOT the diff pane's: the ring's job is to hide the
+        timeline line behind the dot, and the wrong ground draws a visible dark halo instead.
       */
       expect(updated.dotRing).toContain('rgb(23, 27, 36)')
       expect(updated.dotRing).toContain('3px')
@@ -882,12 +813,12 @@ describe(
     it('fills each dot with the designs own tone and the ink that clears it', async () => {
       const [updated, moved, created] = await measureTimeline()
 
-      // -> #5f78a8 / #5f9c86: dark enough to carry the white glyph the design draws on them
+      // -> Dark enough to carry a white glyph
       expect(updated.dotFill).toBe('rgb(95, 120, 168)')
       expect(updated.dotInk).toBe('rgb(255, 255, 255)')
       expect(created.dotFill).toBe('rgb(95, 156, 134)')
       expect(created.dotInk).toBe('rgb(255, 255, 255)')
-      // -> #d9a441 is a bright fill, so its glyph takes $ink (#1c2233) -- as the design draws it
+      // -> A bright fill, so its glyph takes the ink tone instead
       expect(moved.dotFill).toBe('rgb(217, 164, 65)')
       expect(moved.dotInk).toBe('rgb(28, 34, 51)')
     })
@@ -895,20 +826,17 @@ describe(
     it('wraps the reason and changed-fields onto a row of their own, indented under the text column', async () => {
       const [updated] = await measureTimeline()
 
-      // -> The dot, the text column and the A/B cursors are one row: same top, in that order
       expect(updated.body.top).toBe(updated.dot.top)
       expect(updated.pick.top).toBe(updated.dot.top)
       expect(updated.body.left).toBeGreaterThan(updated.dot.right)
       expect(updated.pick.left).toBeGreaterThanOrEqual(updated.body.right)
 
-      // -> ...and the reason/fields are NOT: they start below the dot, on their own row
       expect(updated.reason.top).toBeGreaterThanOrEqual(updated.dot.bottom)
       expect(updated.fields.top).toBeGreaterThanOrEqual(updated.reason.bottom)
 
       /*
-        Indented to start under the entry's text rather than under its dot -- the 40px the design
-        gives the row is exactly the dot plus the row gap, so the two edges line up rather than
-        merely landing close to one another.
+        The row's 40px indent is exactly the dot plus the row gap, so the edges line up exactly
+        rather than merely landing close to one another -- hence equality, not a tolerance.
       */
       expect(updated.reason.left).toBe(updated.body.left)
       expect(updated.fields.left).toBe(updated.body.left)
@@ -927,14 +855,9 @@ describe(
 )
 
 /**
- * OpenProject #2741: the per-version "..." menu's icons were hardcoded `text-blue-7`, with no
- * dark-mode counterpart -- the identical bug this profile menu this copies from also had.
- *
- * Tailwind's global stylesheet is never imported under Vitest (see `vitest.config.js`'s own note on
- * what it does and does not mirror from the real build), so a `getComputedStyle` assertion cannot
- * observe whether the `dark:` utility actually paints a different colour -- only that the literal
- * class is present on the rendered icon. This matches the `text-accent-dark` classList-membership
- * assertion above (OpenProject #2637's describe), for the same reason.
+ * Tailwind's global stylesheet is never imported under Vitest, so a `getComputedStyle` assertion
+ * cannot observe whether the `dark:` utility actually paints a different colour -- only that the
+ * literal class is present on the rendered icon.
  */
 describe('PageHistoryOverlay: version-actions menu icons stay legible in dark mode (OpenProject #2741)', () => {
   it('pairs every text-blue-7 menu icon with a literal dark:text-blue-4 counterpart', async () => {
@@ -961,26 +884,14 @@ describe('PageHistoryOverlay: version-actions menu icons stay legible in dark mo
 })
 
 /**
- * OpenProject #2776 ("History + File manager: diff against Cobalt mockups, fix gaps"). Diffing
- * this overlay against `Cardinal Wiki - History 3x - Cobalt.dc.html` at the same width found:
+ * This overlay is drawn on ink in both site THEMES by design, so its colours have to come from the
+ * `--color-*` custom properties `css/tailwind.css` swaps per AESTHETIC rather than from values
+ * frozen at Ledger's. The site accent and the site-brand primary are the same tone in Ledger and
+ * different ones under Cobalt, which is what makes confusing them invisible until then.
  *
- * 1. The "Current" badge and the A/B compare-bar letter plates filled `color="primary"` /
- *    `$primary` -- the same tone as Cobalt's white-text accent (`--q-accent`, `#c8303c`) in
- *    Ledger, but not `--q-primary` (Cobalt's unrelated site-brand blue, `#1f4fd6`), which is what
- *    both actually resolved to once a second aesthetic told the two apart. The badge is covered
- *    directly through `WBadge`'s own resolved inline style, the same way `WBtn.test.js` covers the
- *    same mechanism on a button.
- * 2. This overlay is drawn on ink in both site THEMES by design (see this file's own stylesheet
- *    comment), but its `<style>` block spelled that out with Sass compile-time
- *    constants (`$dark-4`, `$hairline-dark`, `$primary`, ...) rather than the CSS custom
- *    properties `css/tailwind.css` actually swaps per AESTHETIC (`--color-dark-4`,
- *    `--color-hairline-dark`, `--color-accent-fill`/`--color-accent`, ...) -- identical in Ledger,
- *    since a Sass constant and its custom-property twin start at the same value, but frozen there
- *    under Cobalt too, which made "in both themes" quietly also mean "in both aesthetics." There is
- *    no compiled stylesheet in this test environment for a computed-style assertion to resolve
- *    `var()` cascades against (this file's own dark-mode `text-accent-dark` describe already notes
- *    the same constraint), so this is checked the same way `css/cobaltTokens.test.js` checks a
- *    hand-edited token file: against the component's own source text.
+ * No compiled stylesheet exists in this environment for a computed-style assertion to resolve
+ * `var()` cascades against, so the stylesheet half is checked against the component's own source
+ * text, the way `css/cobaltTokens.test.js` checks a hand-edited token file.
  */
 describe('PageHistoryOverlay Cobalt aesthetic conformance (OpenProject #2776)', () => {
   const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'PageHistoryOverlay.vue')
@@ -1008,8 +919,8 @@ describe('PageHistoryOverlay Cobalt aesthetic conformance (OpenProject #2776)', 
   })
 
   it('reads the aesthetic-aware dark custom properties, not the frozen Ledger Sass constants', () => {
-    // -> One representative per role this pass converted; a regression on any of them means the
-    //    ink-drawn diff/timeline stopped following the site's aesthetic again.
+    // -> One representative per role; a miss on any of them means the ink-drawn diff/timeline
+    //    stopped following the site's aesthetic
     for (const token of [
       '--color-dark-2',
       '--color-dark-4',
@@ -1030,12 +941,9 @@ describe('PageHistoryOverlay Cobalt aesthetic conformance (OpenProject #2776)', 
 })
 
 /**
- * OpenProject #2872 (`ui-iteration/README.md` Part 1.1/Part 2): under Cobalt, the Side by
- * side/Inline toggle and the A/B pick chips get a real gap between their buttons -- and the
- * `WBtnGroup.vue` seam hairline meant for touching squares, which no longer belongs once there is
- * a gap, is switched off for these two groups. No compiled token stylesheet exists in this test
- * environment to resolve a real cascade against (see the describe above), so this is checked the
- * same way: against the component's own template markup and source text.
+ * Under Cobalt these two groups get a real gap between their buttons, so `WBtnGroup.vue`'s seam
+ * hairline -- meant for touching squares -- no longer belongs and is switched off for them.
+ * Checked against the component's own source text, since no compiled token stylesheet exists here.
  */
 describe('PageHistoryOverlay Cobalt polish: toggle/chip spacing (OpenProject #2872)', () => {
   const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'PageHistoryOverlay.vue')
