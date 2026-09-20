@@ -1585,4 +1585,367 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.ok(items.some((item) => item.title === 'Draft By Default'))
     })
   })
+
+  describe('moveFolder (OpenProject #3665)', () => {
+    async function makeFolder(pathName: string, parentId?: string, locale = 'en') {
+      return treeModel.createFolder({
+        pathName,
+        title: pathName,
+        locale,
+        siteId: fixtures.siteId,
+        parentId
+      })
+    }
+
+    async function childrenOf(id: string): Promise<number> {
+      const row = await readTreeRow(id)
+      return (row!.meta as any)?.children ?? 0
+    }
+
+    function spyOnSideEffects() {
+      const searchModel = (globalThis as any).CARDINAL.models.search
+      const storageModel = (globalThis as any).CARDINAL.models.storage
+      const searchCalls: any[] = []
+      const storageCalls: any[] = []
+      searchModel.renamed = async (
+        siteId: string,
+        page: any,
+        previousPath: string,
+        previousLocale: string
+      ) => {
+        searchCalls.push({ siteId, id: page.id, path: page.path, previousPath, previousLocale })
+      }
+      storageModel.dispatch = async (event: string, data: any) => {
+        storageCalls.push({ event, ...data })
+        return 0
+      }
+      return {
+        searchCalls,
+        storageCalls,
+        restore() {
+          delete searchModel.renamed
+          delete storageModel.dispatch
+        }
+      }
+    }
+
+    test('moves a folder with nested folders, pages and assets, and every descendant follows', async () => {
+      const source = await makeFolder('mv-src')
+      const inner = await makeFolder('inner', source.id)
+      const dest = await makeFolder('mv-dest')
+      const topPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'mv-src/top', title: 'Top', locale: 'en' }),
+        actor
+      )
+      const deepPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'mv-src/inner/deep', title: 'Deep', locale: 'en' }),
+        actor
+      )
+      const topAsset = await assetsModel.upload({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        folderId: source.id,
+        fileName: 'top.png',
+        mimeType: 'image/png',
+        data: Buffer.from('top'),
+        authorId: fixtures.userId
+      })
+      const deepAsset = await assetsModel.upload({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        folderId: inner.id,
+        fileName: 'deep.png',
+        mimeType: 'image/png',
+        data: Buffer.from('deep'),
+        authorId: fixtures.userId
+      })
+      const destBefore = await childrenOf(dest.id)
+
+      const spies = spyOnSideEffects()
+      try {
+        const moved = await treeModel.moveFolder({
+          folderId: source.id,
+          siteId: fixtures.siteId,
+          destinationId: dest.id
+        })
+        assert.equal(moved.folderPath, 'mv-dest')
+        assert.equal(moved.fileName, 'mv-src')
+
+        const top = await pagesModel.getPage({
+          siteId: fixtures.siteId,
+          hash: generatePathHash('mv-dest/mv-src/top'),
+          locale: 'en'
+        })
+        assert.equal(top?.id, topPage.id)
+        const deep = await pagesModel.getPage({
+          siteId: fixtures.siteId,
+          hash: generatePathHash('mv-dest/mv-src/inner/deep'),
+          locale: 'en'
+        })
+        assert.equal(deep?.id, deepPage.id)
+        assert.equal(
+          await pagesModel.getPage({
+            siteId: fixtures.siteId,
+            hash: generatePathHash('mv-src/top'),
+            locale: 'en'
+          }),
+          null,
+          'the old path must no longer resolve'
+        )
+
+        assert.equal((await readTreeRow(inner.id))!.folderPath, 'mv-dest.mv-src')
+        assert.equal((await readTreeRow(topPage.id))!.folderPath, 'mv-dest.mv-src')
+        assert.equal((await readTreeRow(deepPage.id))!.folderPath, 'mv-dest.mv-src.inner')
+        assert.equal((await readTreeRow(topAsset.id))!.folderPath, 'mv-dest.mv-src')
+        assert.equal((await readTreeRow(deepAsset.id))!.folderPath, 'mv-dest.mv-src.inner')
+
+        assert.equal(await childrenOf(dest.id), destBefore + 1)
+
+        assert.deepEqual(
+          new Set(spies.searchCalls.map((c) => c.id)),
+          new Set([topPage.id, deepPage.id])
+        )
+        const deepSearch = spies.searchCalls.find((c) => c.id === deepPage.id)!
+        assert.equal(deepSearch.previousPath, 'mv-src/inner/deep')
+        assert.equal(deepSearch.path, 'mv-dest/mv-src/inner/deep')
+        assert.equal(spies.storageCalls.filter((c) => c.event === 'page:rename').length, 2)
+        const assetCalls = spies.storageCalls.filter((c) => c.event === 'asset:move')
+        assert.equal(assetCalls.length, 2)
+        const deepAssetCall = assetCalls.find((c) => c.id === deepAsset.id)!
+        assert.equal(deepAssetCall.previousFolderPath, 'mv-src/inner')
+        assert.equal(deepAssetCall.folderPath, 'mv-dest/mv-src/inner')
+        const topAssetCall = assetCalls.find((c) => c.id === topAsset.id)!
+        assert.equal(topAssetCall.previousFolderPath, 'mv-src')
+        assert.equal(topAssetCall.folderPath, 'mv-dest/mv-src')
+      } finally {
+        spies.restore()
+      }
+    })
+
+    test('moves a nested folder to the site root and keeps the parents counts straight', async () => {
+      const parent = await makeFolder('mv-root-parent')
+      const child = await makeFolder('mv-root-child', parent.id)
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'mv-root-parent/mv-root-child/leaf', title: 'Leaf', locale: 'en' }),
+        actor
+      )
+      const parentBefore = await childrenOf(parent.id)
+
+      const moved = await treeModel.moveFolder({ folderId: child.id, siteId: fixtures.siteId })
+      assert.equal(moved.folderPath, '')
+      assert.ok(
+        await pagesModel.getPage({
+          siteId: fixtures.siteId,
+          hash: generatePathHash('mv-root-child/leaf'),
+          locale: 'en'
+        })
+      )
+      assert.equal(await childrenOf(parent.id), parentBefore - 1)
+    })
+
+    test('resolves a parentPath destination, creating it when missing', async () => {
+      const folder = await makeFolder('mv-by-path')
+      const moved = await treeModel.moveFolder({
+        folderId: folder.id,
+        siteId: fixtures.siteId,
+        parentPath: 'mv-made/on-the-fly'
+      })
+      assert.equal(moved.folderPath, 'mv-made.on-the-fly')
+      const made = await treeModel.getFolder({
+        path: 'mv-made/on-the-fly',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      assert.equal(made.fileName, 'on-the-fly')
+    })
+
+    test('refuses a move into itself or its own descendants, and changes nothing', async () => {
+      const outer = await makeFolder('mv-self')
+      const inner = await makeFolder('inner', outer.id)
+      const deeper = await makeFolder('deeper', inner.id)
+
+      for (const attempt of [
+        { destinationId: outer.id },
+        { destinationId: inner.id },
+        { destinationId: deeper.id },
+        { parentPath: 'mv-self' },
+        { parentPath: 'mv-self/inner/deeper/not-yet-made' }
+      ]) {
+        await assert.rejects(
+          treeModel.moveFolder({ folderId: outer.id, siteId: fixtures.siteId, ...attempt }),
+          (err: any) => err.name === 'treeMoveIntoSelf' && err.statusCode === 400,
+          JSON.stringify(attempt)
+        )
+      }
+      assert.equal((await readTreeRow(outer.id))!.folderPath, '')
+      assert.equal((await readTreeRow(deeper.id))!.folderPath, 'mv-self.inner')
+      await assert.rejects(
+        treeModel.getFolder({
+          path: 'mv-self/inner/deeper/not-yet-made',
+          locale: 'en',
+          siteId: fixtures.siteId
+        }),
+        (err: any) => err.name === 'treeInvalidFolder'
+      )
+    })
+
+    test('a sibling whose name merely starts with the folder name is not its subtree', async () => {
+      const docs = await makeFolder('mv-docs')
+      const archive = await makeFolder('mv-docs-archive')
+      const moved = await treeModel.moveFolder({
+        folderId: docs.id,
+        siteId: fixtures.siteId,
+        destinationId: archive.id
+      })
+      assert.equal(moved.folderPath, 'mv-docs-archive')
+    })
+
+    test('answers 409 on a name collision at the destination, and moves nothing', async () => {
+      const dest = await makeFolder('mv-collide-dest')
+      await makeFolder('twin', dest.id)
+      const mover = await makeFolder('twin')
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'twin/kept', title: 'Kept', locale: 'en' }),
+        actor
+      )
+
+      await assert.rejects(
+        treeModel.moveFolder({
+          folderId: mover.id,
+          siteId: fixtures.siteId,
+          destinationId: dest.id
+        }),
+        (err: any) => err.name === 'treeFolderDuplicate' && err.statusCode === 409
+      )
+      assert.equal((await readTreeRow(mover.id))!.folderPath, '')
+      assert.ok(
+        await pagesModel.getPage({
+          siteId: fixtures.siteId,
+          hash: generatePathHash('twin/kept'),
+          locale: 'en'
+        })
+      )
+    })
+
+    test('a page holding the name at the destination does not block the move', async () => {
+      const dest = await makeFolder('mv-page-dest')
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'mv-page-dest/mv-shared', title: 'Shared', locale: 'en' }),
+        actor
+      )
+      const mover = await makeFolder('mv-shared')
+      const moved = await treeModel.moveFolder({
+        folderId: mover.id,
+        siteId: fixtures.siteId,
+        destinationId: dest.id
+      })
+      assert.equal(moved.folderPath, 'mv-page-dest')
+    })
+
+    test('refuses moving a folder named for an installed locale to the site root', async () => {
+      const parent = await makeFolder('mv-locale-parent')
+      const nested = await makeFolder('fr', parent.id)
+      await assert.rejects(
+        treeModel.moveFolder({ folderId: nested.id, siteId: fixtures.siteId }),
+        (err: any) => err.name === 'treeReservedLocaleSegment'
+      )
+      assert.equal((await readTreeRow(nested.id))!.folderPath, 'mv-locale-parent')
+    })
+
+    test('moving to the folder it is already in is a no-op that fires nothing', async () => {
+      const parent = await makeFolder('mv-noop-parent')
+      const child = await makeFolder('mv-noop-child', parent.id)
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'mv-noop-parent/mv-noop-child/p', title: 'P', locale: 'en' }),
+        actor
+      )
+      const spies = spyOnSideEffects()
+      try {
+        const result = await treeModel.moveFolder({
+          folderId: child.id,
+          siteId: fixtures.siteId,
+          destinationId: parent.id
+        })
+        assert.equal(result.id, child.id)
+        assert.equal(result.folderPath, 'mv-noop-parent')
+        assert.equal(spies.searchCalls.length, 0)
+        assert.equal(spies.storageCalls.length, 0)
+      } finally {
+        spies.restore()
+      }
+    })
+
+    test('refuses a foreign-site folder, a foreign-site destination and a destination in another locale', async () => {
+      const [otherSite] = await fixtures.db
+        .insert(sitesTable)
+        .values({
+          hostname: 'move-foreign.localhost',
+          isEnabled: true,
+          config: { locales: { primary: 'en', active: ['en'] } }
+        })
+        .returning({ id: sitesTable.id })
+      const foreignFolder = await treeModel.createFolder({
+        pathName: 'mv-foreign',
+        title: 'Foreign',
+        locale: 'en',
+        siteId: otherSite.id
+      })
+      const mine = await makeFolder('mv-mine')
+      const frDest = await makeFolder('mv-fr-dest', undefined, 'fr')
+
+      await assert.rejects(
+        treeModel.moveFolder({ folderId: foreignFolder.id, siteId: fixtures.siteId }),
+        (err: any) => err.name === 'treeInvalidFolder'
+      )
+      await assert.rejects(
+        treeModel.moveFolder({
+          folderId: mine.id,
+          siteId: fixtures.siteId,
+          destinationId: foreignFolder.id
+        }),
+        (err: any) => err.name === 'treeInvalidParent' && err.statusCode === 404
+      )
+      await assert.rejects(
+        treeModel.moveFolder({
+          folderId: mine.id,
+          siteId: fixtures.siteId,
+          destinationId: frDest.id
+        }),
+        (err: any) => err.name === 'treeLocaleMismatch'
+      )
+      assert.equal((await readTreeRow(mine.id))!.folderPath, '')
+    })
+
+    test('only its own locale moves: a same-named folder in another locale stays put', async () => {
+      const en = await makeFolder('mv-locale-twin')
+      const fr = await makeFolder('mv-locale-twin', undefined, 'fr')
+      const enDest = await makeFolder('mv-locale-twin-dest')
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'mv-locale-twin/page', locale: 'fr', title: 'Page FR' }),
+        actor
+      )
+
+      await treeModel.moveFolder({
+        folderId: en.id,
+        siteId: fixtures.siteId,
+        destinationId: enDest.id
+      })
+
+      assert.equal((await readTreeRow(fr.id))!.folderPath, '')
+      assert.ok(
+        await pagesModel.getPage({
+          siteId: fixtures.siteId,
+          hash: generatePathHash('mv-locale-twin/page'),
+          locale: 'fr'
+        })
+      )
+    })
+  })
 })

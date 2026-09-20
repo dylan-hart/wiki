@@ -1171,6 +1171,154 @@ class Tree {
     return updated[0] as TreeRow
   }
 
+  async moveFolder({
+    folderId,
+    siteId,
+    destinationId,
+    parentPath
+  }: {
+    folderId: string
+    siteId: string
+    destinationId?: string | null
+    parentPath?: string | null
+  }): Promise<TreeRow> {
+    const folder = await this.requireFolderById(folderId, siteId)
+    const name = folder.fileName
+    const oldPath = childPathOf(folder)
+    const oldParent = folder.folderPath ?? ''
+
+    let newParent: string
+    if (destinationId) {
+      const destination = await this.getFolderById(destinationId, siteId)
+      if (!destination) {
+        throw new CustomError('treeInvalidParent', 'The destination folder does not exist.', 404)
+      }
+      if (destination.locale !== folder.locale) {
+        throw new CustomError(
+          'treeLocaleMismatch',
+          'A folder cannot be moved into a folder of another locale.',
+          400
+        )
+      }
+      newParent = childPathOf(destination)
+    } else {
+      newParent = encodeTreePath(parentPath)
+    }
+
+    if (newParent === oldPath || newParent.startsWith(`${oldPath}.`)) {
+      throw new CustomError(
+        'treeMoveIntoSelf',
+        'A folder cannot be moved into itself or one of its own subfolders.',
+        400
+      )
+    }
+
+    if (newParent === oldParent) {
+      return folder
+    }
+
+    if (!newParent && (await CARDINAL.models.locales.isReservedLocaleCode(name))) {
+      throw new CustomError(
+        'treeReservedLocaleSegment',
+        `"${name}" is an installed locale code and cannot name a root folder.`,
+        400
+      )
+    }
+
+    await this.assertFolderNameFree(folder.siteId, folder.locale, newParent, name, folder.id)
+
+    const newPath = newParent ? `${newParent}.${name}` : name
+
+    CARDINAL.logger.debug('pages', 'moving folder', {
+      folder: folder.id,
+      from: oldPath,
+      path: newPath
+    })
+
+    let movedPages: MovedDescendantPage[] = []
+    let movedAssets: MovedDescendantAsset[] = []
+
+    let updated: TreeRow[]
+    try {
+      updated = (await CARDINAL.db.transaction(async (tx) => {
+        if (!destinationId && newParent) {
+          await this.getFolder({
+            path: decodeTreePath(newParent),
+            locale: folder.locale,
+            siteId: folder.siteId,
+            createIfMissing: true,
+            db: tx
+          })
+        }
+
+        await tx
+          .update(treeTable)
+          .set({ folderPath: newPath })
+          .where(
+            and(
+              eq(treeTable.siteId, folder.siteId),
+              eq(treeTable.locale, folder.locale),
+              eq(treeTable.folderPath, oldPath)
+            )
+          )
+        await tx
+          .update(treeTable)
+          .set({
+            folderPath: sql`${newPath}::ltree || subpath(${treeTable.folderPath}, nlevel(${oldPath}::ltree))`
+          })
+          .where(
+            and(
+              eq(treeTable.siteId, folder.siteId),
+              eq(treeTable.locale, folder.locale),
+              sql`${treeTable.folderPath} <@ ${oldPath}::ltree`
+            )
+          )
+
+        const moved = await tx
+          .update(treeTable)
+          .set({ folderPath: newParent, updatedAt: sql`now()` })
+          .where(eq(treeTable.id, folder.id))
+          .returning()
+
+        await this.countTowardsFolderAt(folder.siteId, folder.locale, oldParent, -1, tx)
+        await this.countTowardsFolderAt(folder.siteId, folder.locale, newParent, 1, tx)
+
+        movedPages = await this.refreshDescendantPaths(folder.siteId, folder.locale, newPath, tx)
+        movedAssets = await this.refreshDescendantAssetFolders(
+          folder.siteId,
+          folder.locale,
+          oldPath,
+          newPath,
+          tx
+        )
+
+        return moved as TreeRow[]
+      })) as TreeRow[]
+    } catch (err: any) {
+      if (isUniqueViolation(err)) {
+        throw duplicateEntryError()
+      }
+      throw err
+    }
+
+    CARDINAL.models.assetServing.forgetAllPaths()
+
+    for (const moved of movedPages) {
+      await this.fireDescendantMoveSideEffects(folder.siteId, moved)
+    }
+    if (movedPages.length > 0) {
+      CARDINAL.models.glossary.invalidateCache(folder.siteId)
+    }
+    for (const moved of movedAssets) {
+      await this.fireDescendantAssetMoveSideEffects(folder.siteId, moved)
+    }
+
+    CARDINAL.models.navigation.invalidateCache(folder.siteId)
+
+    CARDINAL.logger.debug('pages', 'moved folder', { folder: folder.id })
+    return updated[0]
+  }
+
   /**
    * A page keeps a second copy of its path on `pages` -- the `path` itself and the `hash` a reader's
    * request is actually resolved through -- so leaving it after a folder move would keep serving the

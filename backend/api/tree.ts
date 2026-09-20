@@ -583,6 +583,165 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  app.put<{
+    Params: { siteId: string; folderId: string }
+    Body: { folderId?: string; parentPath?: string }
+  }>(
+    '/sites/:siteId/tree/folders/:folderId/parent',
+    {
+      // -> No route-level `permissions`: page permissions are path-bound, checked in the handler
+      schema: {
+        summary: 'Move a folder to another parent folder',
+        description:
+          "Reparents the folder and everything under it -- its name, title and locale are untouched, every descendant's path follows. `folderId` wins over `parentPath` when both are sent; neither given moves it to the site root. `parentPath` is created, along with any missing ancestor, if it does not exist yet. Moving a folder into itself or into one of its own subfolders answers 400, and so does a destination in another locale.\n\nAll-or-nothing, the same shape the rename and delete routes use: the caller needs `manage:pages` on the folder's current path AND `write:pages` on its new one, `manage:pages` at the current and `write:pages` at the new path of every descendant page (judged on its own tags and classification), and `manage:assets` at the current and `write:assets` at the new path of every descendant asset. A single unauthorized descendant refuses the whole request (403) and moves nothing. A folder or file already holding the name at the destination answers 409.",
+        tags: ['Tree'],
+        params: { $ref: 'SiteFolderParams#' },
+        body: {
+          type: 'object',
+          properties: {
+            folderId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'The destination folder. Wins over `parentPath`.'
+            },
+            parentPath: {
+              type: 'string',
+              maxLength: 2048,
+              description:
+                'Slash-separated path of the destination folder, created (with any missing ancestor) if it does not exist yet. The site root when both are absent, same as an empty string.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Folder moved successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              folder: { $ref: 'Folder#' }
+            }
+          },
+          400: {
+            $ref: 'ApiError#',
+            description:
+              'The destination is the folder itself or one of its own subfolders, is in another locale, or would put a locale-code-named folder at the site root.'
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description: 'A folder or file already holds this name at the destination.'
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const existing = await CARDINAL.models.tree.getFolderById(
+        req.params.folderId,
+        req.params.siteId
+      )
+      if (!existing) {
+        return reply.notFound('This folder does not exist.')
+      }
+      const currentPath = folderPathOf(existing)
+      if (!mayOnFolder(req, 'manage:pages', req.params.siteId, currentPath, existing.locale)) {
+        return reply.forbidden('You are not allowed to move this folder.')
+      }
+
+      // -> A destination id that does not resolve in this site is refused, never read as the
+      //    request's own `parentPath`, which would authorize against the wrong place
+      let destinationPath = req.body?.parentPath ? normalizePagePath(req.body.parentPath) : ''
+      if (req.body?.folderId) {
+        const destination = await CARDINAL.models.tree.getFolderById(
+          req.body.folderId,
+          req.params.siteId
+        )
+        if (!destination) {
+          return reply.notFound('The destination folder does not exist.')
+        }
+        destinationPath = folderPathOf(destination)
+      }
+
+      // -> Nothing below can authorize a move the model is going to refuse anyway, and the refusal
+      //    should not depend on which permissions the caller holds
+      if (destinationPath === currentPath || destinationPath.startsWith(`${currentPath}/`)) {
+        return reply.badRequest(
+          'A folder cannot be moved into itself or one of its own subfolders.'
+        )
+      }
+
+      const newPath = destinationPath
+        ? `${destinationPath}/${existing.fileName}`
+        : existing.fileName
+      if (!mayOnFolder(req, 'write:pages', req.params.siteId, newPath, existing.locale)) {
+        return reply.forbidden('You are not allowed to move a folder here.')
+      }
+
+      // -> Everything under the folder moves too, so each page and asset needs the same two-sided
+      //    check the single-entry move routes make, on its own path, tags and classification
+      const descendants = await CARDINAL.models.tree.listDescendants(
+        req.params.folderId,
+        req.params.siteId
+      )
+      for (const descendant of descendants.pages) {
+        const sourceRef = {
+          path: descendant.path,
+          locale: existing.locale,
+          tags: descendant.tags,
+          classification: descendant.classification
+        }
+        const destRef = {
+          ...sourceRef,
+          path: newPath + descendant.path.slice(currentPath.length)
+        }
+        if (
+          !mayOnPage(req, 'manage:pages', req.params.siteId, sourceRef) ||
+          !mayOnPage(req, 'write:pages', req.params.siteId, destRef)
+        ) {
+          return reply.forbidden(
+            `You are not allowed to move this folder: it would move the page at "${descendant.path}" (${existing.locale}).`
+          )
+        }
+      }
+      for (const asset of descendants.assets) {
+        const destAsset = {
+          folderPath: newPath + asset.folderPath.slice(currentPath.length),
+          fileName: asset.fileName,
+          locale: asset.locale
+        }
+        if (
+          !mayOnAsset(req, 'manage:assets', req.params.siteId, asset) ||
+          !mayOnAsset(req, 'write:assets', req.params.siteId, destAsset)
+        ) {
+          return reply.forbidden(
+            `You are not allowed to move this folder: it would move the asset at "${asset.path}" (${asset.locale}).`
+          )
+        }
+      }
+
+      const folder = await CARDINAL.models.tree.moveFolder({
+        siteId: req.params.siteId,
+        folderId: req.params.folderId,
+        destinationId: req.body?.folderId,
+        parentPath: req.body?.folderId ? undefined : destinationPath
+      })
+      return {
+        ok: true,
+        message: 'Folder moved successfully.',
+        folder: {
+          ...folder,
+          folderPath: decodeTreePath(folder.folderPath ?? '') ?? '',
+          childrenCount: folder.meta?.children ?? 0
+        }
+      }
+    }
+  )
+
   app.delete<{ Params: { siteId: string; folderId: string } }>(
     '/sites/:siteId/tree/folders/:folderId',
     {
