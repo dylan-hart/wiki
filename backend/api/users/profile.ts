@@ -281,10 +281,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      if (
-        !(await isProfileEditable(req)) &&
-        PROFILE_IDENTITY_FIELDS.some((key) => req.body[key] !== undefined)
-      ) {
+      if (!(await isProfileEditable(req))) {
         return reply.forbidden('Profile editing is disabled on this site.')
       }
 
@@ -339,10 +336,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      if (
-        !(await isProfileEditable(req)) &&
-        PROFILE_IDENTITY_FIELDS.some((key) => req.body[key] !== undefined)
-      ) {
+      if (!(await isProfileEditable(req))) {
         return reply.forbidden('Profile editing is disabled on this site.')
       }
 
