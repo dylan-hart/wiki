@@ -4,12 +4,9 @@ import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /*
-  jsdom implements neither `IntersectionObserver` nor `ResizeObserver`, and `_setupObservers()`
-  constructs both in `firstUpdated()` -- so mounting this block at all throws in this environment
-  without them. Stubbed rather than worked around, the same way `pdfjs-dist` is mocked below and
-  `block-diagram`'s suite polyfills the two SVG measurement calls mermaid reaches for: what the
-  observers drive (lazy page rendering, re-fitting on a resize) is the real viewer, which jsdom
-  cannot lay out in the first place.
+  jsdom implements neither observer, and `firstUpdated()` constructs both, so mounting this block at
+  all throws without them. Stubs rather than fakes: what they drive is lazy page rendering and
+  re-fitting on a resize, neither of which jsdom can lay out in the first place.
 */
 globalThis.IntersectionObserver ??= class {
   observe() {}
@@ -23,12 +20,9 @@ globalThis.ResizeObserver ??= class {
 }
 
 /*
-  `pdfjs-dist/build/pdf.mjs` pulls in a canvas backend that reads `DOMMatrix` at module-eval time --
-  jsdom (this workspace's pinned 30.0.1) does not implement it, so even IMPORTING the real module
-  throws before a single test runs (confirmed directly: `ReferenceError: DOMMatrix is not defined`).
-  Mocked here, the same way block-asciinema's real renderer is kept out of this environment's gaps --
-  `_parseZoom`/`_openingPage` are pure logic with no actual dependency on pdf.js itself, which is what
-  makes testing them through a stub rather than the real library the right trade.
+  `pdfjs-dist/build/pdf.mjs` pulls in a canvas backend that reads `DOMMatrix` at module-eval time,
+  which jsdom does not implement, so even importing the real module throws before a test runs. What
+  is under test here is pure logic with no dependency on pdf.js itself.
 */
 vi.mock('pdfjs-dist/build/pdf.mjs', () => ({
   getDocument: vi.fn(),
@@ -62,7 +56,7 @@ describe('block-pdf', () => {
 
     it.each([
       ['150%', 1.5],
-      ['150', 1.5], // -> the % sign is optional
+      ['150', 1.5],
       ['100%', 1]
     ])('reads a percentage %j as a scale of %j', (input, expected) => {
       const el = new BlockPdfElement()
@@ -123,7 +117,7 @@ describe('block-pdf', () => {
     })
   })
 
-  // -> Mounted with no `src`, which lands in the "this viewer needs an address" state rather than
-  //    touching the mocked pdf.js at all -- the controller is constructed either way.
+  // -> No `src`, so the block lands in its error state without touching the mocked pdf.js; the dark
+  //    mode controller is constructed either way.
   describeDarkMode(() => mountBlock('block-pdf'))
 })

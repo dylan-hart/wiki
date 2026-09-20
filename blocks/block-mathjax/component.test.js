@@ -6,12 +6,8 @@ import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
- * Appends a `<block-mathjax>` carrying `source` as its light-DOM body (the way the wiki's own
- * markdown renderer leaves it for an unfenced call — see block-gallery's component.test.js for the
- * precedent) and waits for Lit's first render, then for typesetting itself to finish -- which, for a
- * formula needing a dynamic glyph chunk, includes the `mathjax.asyncLoad` round trip. `el._ready` is
- * the handle `firstUpdated()` keeps for exactly this, the same pattern `shared/diagram-image.js` uses
- * for the two diagram blocks' own async draw.
+ * `text` is the body shape the markdown renderer leaves for an unfenced call; `el._ready` waits out
+ * the typeset, which for a formula needing a glyph chunk includes the `mathjax.asyncLoad` round trip.
  */
 const mountMathjax = (source) =>
   mountBlock('block-mathjax', { text: source, settle: (el) => el._ready })
@@ -20,14 +16,9 @@ describe('block-mathjax', () => {
   afterEach(resetBlockDom)
 
   /*
-    Feature 366 / Task 634 audited PACKAGES against 2.5.x's actual MathJax setup
-    (server/modules/rendering/markdown-mathjax/renderer.js, pre-3.x): its explicit `extensions` list
-    plus everything MathJax's own `autoload` package could reach from the default `input/tex` bundle
-    it loaded (AutoloadConfiguration.ts's `autoload` map — action, amscd, bbox, boldsymbol, braket,
-    bussproofs, cancel, color, enclose, extpfeil, html, mhchem, newcommand, unicode, verb). `html` is
-    the one deliberate exclusion (documented at component.js:10-23, unchanged by this task). Every
-    other package 2.5.x could reach must stay in PACKAGES — this pins that finding so a future edit
-    to the list can't silently drop one of them.
+    The reachable set is 2.5.x's own `extensions` list plus whatever MathJax's `autoload` map could
+    pull from the `input/tex` bundle it loaded. `html` is in that set but is the one package
+    component.js deliberately leaves out, so it is absent here too.
   */
   it('is a superset of every TeX package 2.5.x content could reach', () => {
     const reachableIn25x = [
@@ -68,12 +59,8 @@ describe('block-mathjax', () => {
   })
 
   /*
-    extpfeil is in PACKAGES (and was reachable in 2.5.x), but its extensible arrows are drawn from a
-    font chunk (@mathjax/mathjax-newcm-font's svg/dynamic/arrows) that MathJax fetches through a
-    `mathjax.asyncLoad` hook — declaring the package alone was never sufficient for these three
-    macros. OpenProject #3190 wired that hook up (component.js's `mathjax.asyncLoad` + the literal
-    `import()`s in dynamicChunks.js), so this now pins the fixed behavior instead of the previously
-    broken one.
+    Declaring extpfeil is not enough for these three macros: their arrows are drawn from a font chunk
+    (svg/dynamic/arrows) that only arrives through the `mathjax.asyncLoad` hook.
   */
   it('typesets extpfeil, whose extensible arrows load a dynamic font chunk', async () => {
     const rightarrow = await mountMathjax(String.raw`\xtwoheadrightarrow{f}`)
@@ -89,10 +76,7 @@ describe('block-mathjax', () => {
     expect(mapsto.shadowRoot.querySelector('.drawing svg')).not.toBeNull()
   })
 
-  /*
-    \verb draws from the font's monospace dynamic chunk — a second, independent glyph range from
-    extpfeil's, and one 2.5.x's autoload map could also reach.
-  */
+  // A second glyph range, independent of extpfeil's.
   it('typesets \\verb, whose monospace glyphs load a dynamic font chunk', async () => {
     const el = await mountMathjax(String.raw`\verb|x+y|`)
 
@@ -100,11 +84,7 @@ describe('block-mathjax', () => {
     expect(el.shadowRoot.querySelector('.drawing svg')).not.toBeNull()
   })
 
-  /*
-    An accented Latin character and a non-Latin one, each drawn from their own dynamic chunk
-    (accents-b-i and cyrillic respectively) rather than the base bundle -- the third acceptance case
-    #3190 names alongside extpfeil and \verb.
-  */
+  // Two further independent ranges: accents-b-i and cyrillic.
   it('typesets an accented Latin character from a dynamic font chunk', async () => {
     const el = await mountMathjax(String.raw`\text{café}`)
 

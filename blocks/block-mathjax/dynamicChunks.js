@@ -1,24 +1,9 @@
 /**
- * `@mathjax/mathjax-newcm-font`'s dynamically-loaded SVG glyph chunks — extpfeil's extensible
- * arrows, `\verb`'s monospace glyphs, and every non-Latin or accented Unicode range the font ships
- * separately from its base bundle rather than inside it.
- *
- * MathJax's own `FontData.dynamicFileName()` (`@mathjax/src`) decides which one it needs at
- * *typesetting* time, as a string assembled at runtime — `dynamicPrefix + '/' + file + '.js'`, with
- * `dynamicPrefix` defaulting to the bare package specifier `@mathjax/mathjax-newcm-font/js/svg/
- * dynamic` — and hands it to `mathjax.asyncLoad`. The bundler can only fold an `import()` into its
- * own chunk graph when the call's specifier is a literal it can see in the source; a string built at
- * runtime is opaque to it, and handing that runtime string straight to a browser's native `import()`
- * is exactly the previously-broken behavior this block shipped (a bare specifier with nothing to
- * resolve it — no import map, no bundler watching at request time). So every file the installed
- * package ships gets its own literal `import()` here, which Rolldown's default multi-entry code
- * splitting turns into its own chunk under `compiled/` with no config change needed — and
- * `component.js`'s `mathjax.asyncLoad` hook picks the matching entry out of this map instead of
- * passing MathJax's computed name to `import()` unchanged.
- *
- * `dynamicChunks.test.js` is the guard against this list drifting from the package's actual
- * `svg/dynamic/` contents on a version bump — the same shape of check `rolldown.config.mjs`'s
- * `blocksManifest()` runs against block directories, applied here to a third-party font package.
+ * MathJax's `FontData.dynamicFileName()` assembles a glyph chunk's specifier at typesetting time and
+ * hands it to `mathjax.asyncLoad`. A bundler only folds an `import()` into its chunk graph when the
+ * specifier is a literal in the source, and a browser handed that runtime-built bare specifier has
+ * nothing to resolve it with — so every file the font package ships gets a literal `import()` here,
+ * and `component.js`'s hook looks the matching entry up by key.
  */
 export const DYNAMIC_CHUNKS = {
   PUA: () => import('@mathjax/mathjax-newcm-font/js/svg/dynamic/PUA.js'),

@@ -8,18 +8,12 @@ import { RegisterHTMLHandler } from '@mathjax/src/js/handlers/html.js'
 import { MathJaxNewcmFont } from '@mathjax/mathjax-newcm-font/js/svg.js'
 import { MathJaxMhchemFontExtension } from '@mathjax/mathjax-mhchem-font-extension/js/svg.js'
 /*
-  Every TeX package the block understands, imported for its side effect: a configuration registers
-  itself under its name, and `PACKAGES` below is what then switches it on.
-
-  This is the set MathJax's own "all packages" bundle carries, less three of them. `html` is left out
-  because it exists to put HTML into the page from inside TeX — a link, a class, a style attribute —
-  which is not what a formula is for. `noerrors` and `noundefined` are left out because both answer a
-  mistake by drawing something: the unreadable source in place of the formula, or a black box where a
-  macro should have been. Without them the error reaches this file, which has a panel to say so in.
-
-  Nothing here loads anything at run time. `require` and `autoload` are absent for that reason: both
-  fetch a package the moment TeX asks for one, which cannot work in a bundle — the block is a single
-  file served from /_blocks, with no MathJax install behind it to fetch from.
+  Side-effect imports: each configuration registers itself under its name, and `PACKAGES` below
+  switches it on. MathJax's "all packages" set, less three. `html` puts markup into the page from
+  inside TeX, which is not what a formula is for; `noerrors` and `noundefined` each answer a mistake
+  by drawing something, and without them the error reaches the panel in `render` instead. `require`
+  and `autoload` fetch a package the moment TeX asks for one, which a single bundled file served
+  from /_blocks cannot do.
 */
 import '@mathjax/src/js/input/tex/base/BaseConfiguration.js'
 import '@mathjax/src/js/input/tex/action/ActionConfiguration.js'
@@ -55,8 +49,6 @@ import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { DYNAMIC_CHUNKS } from './dynamicChunks.js'
 
-// -> Exported so component.test.js can pin it against the 2.5.x-reachable set audited for
-//    Feature 366 / Task 634 without duplicating the list.
 export const PACKAGES = [
   'base',
   'action',
@@ -87,28 +79,21 @@ export const PACKAGES = [
 ]
 
 /**
- * MathJax, set up once for the page.
- *
  * Off the document entirely: the SVG output measures nothing in the DOM — it has the metrics of every
- * glyph in the font it draws with — so a formula can be typeset against a document MathJax makes up
- * for itself and handed back as markup. That is what makes it usable from inside a shadow root, which
+ * glyph in the font it draws with — so a formula is typeset against a document MathJax makes up for
+ * itself and handed back as markup. That is what makes it usable from inside a shadow root, which
  * MathJax has no notion of and where its own stylesheet in the page would not reach.
  */
 const adaptor = liteAdaptor()
 RegisterHTMLHandler(adaptor)
 
 /*
-  Some glyph ranges -- extpfeil's extensible arrows (\xtwoheadrightarrow &c.), \verb's monospace
-  glyphs, every non-Latin/accented Unicode range -- ship as files of their own rather than inside the
-  font's base bundle, and MathJax fetches one only the first time a formula actually needs it. Doing
-  that fetch is `mathjax.asyncLoad`'s job, and none of the hooks MathJax ships one for (see
-  `@mathjax/src/js/util/asyncLoad/{esm,node,system}.js`) apply here: the esm one assumes an import
-  map or a same-origin relative fetch that still names the range as a bare npm specifier, the node
-  one assumes `require`, and this block is a single bundled file running in a browser with neither --
-  which is exactly why `\xtwoheadrightarrow` failed before this (OpenProject #3190). `DYNAMIC_CHUNKS`
-  in `./dynamicChunks.js` is where the real fetch happens, one literal `import()` per range so Rollup
-  can chunk each one on its own; this hook only has to turn MathJax's runtime-computed filename back
-  into the matching map entry.
+  Some glyph ranges -- extpfeil's extensible arrows, \verb's monospace glyphs, every non-Latin range
+  -- ship as files of their own that MathJax fetches the first time a formula needs one. None of the
+  `asyncLoad` hooks MathJax ships (`@mathjax/src/js/util/asyncLoad/{esm,node,system}.js`) work for a
+  single bundled file in a browser: they assume an import map, a bare-specifier fetch, or `require`.
+  `DYNAMIC_CHUNKS` does the real fetch, one literal `import()` per range so the bundler can chunk
+  each on its own; this hook only turns MathJax's runtime-computed filename back into that key.
 */
 mathjax.asyncLoad = (name) => {
   const key = name.replace(/^.*\//, '').replace(/\.js$/, '')
@@ -121,17 +106,17 @@ mathjax.asyncLoad = (name) => {
 const output = new SVG({
   fontData: MathJaxNewcmFont,
   /*
-    Each formula carries its own glyph definitions. The alternative, one cache for the page, is a
-    single hidden `svg` in the document that every formula points into — and a reference from inside a
-    shadow root does not resolve to it, so every letter would come out blank.
+    Each formula carries its own glyph definitions. A page-wide cache is one hidden `svg` in the
+    document that every formula points into, and a reference from inside a shadow root does not
+    resolve to it — every letter would come out blank.
   */
   fontCache: 'local'
 })
 
 /*
-  mhchem's bonds, arrows and brackets are glyphs of their own, in a font variant the text font has no
-  reason to carry. Added here rather than fetched: MathJax's own build loads this on demand the first
-  time a `\ce` turns up, which is the one thing a bundled block cannot do.
+  mhchem's bonds, arrows and brackets live in a font variant the text font has no reason to carry.
+  Added up front rather than fetched: MathJax's own build loads it the first time a `\ce` turns up,
+  which is the one thing a bundled block cannot do.
 */
 output.font.addExtension(MathJaxMhchemFontExtension)
 
@@ -146,14 +131,10 @@ const document_ = mathjax.document('', {
   OutputJax: output
 })
 
-/**
- * Block MathJax
- */
 export class BlockMathjaxElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of this source text at build time into `compiled/blocks.manifest.json`, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'mathjax',
@@ -162,9 +143,9 @@ export class BlockMathjaxElement extends LitElement {
       "Typesets a TeX formula, including chemical equations written with mhchem's \\ce and \\pu commands.",
     icon: 'tabler:math-symbols',
     /*
-      Fenced, and not as a nicety: TeX is made of the characters markdown reads as its own. A lone
-      backslash goes missing, `_` and `^` open emphasis, `\\` at the end of a line is a break, and the
-      typographer rewrites quotes and dashes inside the source. Inside a fence it arrives as typed.
+      Fenced because TeX is made of the characters markdown reads as its own: a lone backslash goes
+      missing, `_` and `^` open emphasis, `\\` ends a line, and the typographer rewrites quotes and
+      dashes. Inside a fence the source arrives as typed.
     */
     template: `\`\`\`latex
 x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
@@ -205,19 +186,8 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
 
   static get properties() {
     return {
-      /**
-       * Text shown under the formula
-       * @type {string}
-       */
       caption: { type: String },
-
-      /**
-       * Where the formula sits in the column, `center` or `left`
-       * @type {string}
-       */
       align: { type: String },
-
-      // Internal Properties
       _svg: { state: true },
       _error: { state: true }
     }
@@ -229,19 +199,15 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
     this.align = 'center'
     this._svg = ''
     this._error = ''
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
   }
 
   /**
-   * Typeset the source, or say why it could not be.
-   *
    * `document_.convert()` throws MathJax's "retry" signal (`retryAfter()` in `@mathjax/src`'s
-   * `util/Retries.js`) the first time a formula needs a dynamic glyph chunk `mathjax.asyncLoad`
-   * hasn't fetched yet — a real `Error` whose `.retry` is the in-flight load's promise, not a
-   * typesetting failure to report. `mathjax.handleRetriesFor` is what turns that signal into an
-   * actual wait: it re-runs the conversion once the load resolves, and keeps doing so for however
-   * many chunks one formula ends up needing, so this only has to await it once.
+   * `util/Retries.js`) the first time a formula needs a glyph chunk `mathjax.asyncLoad` hasn't
+   * fetched — a real `Error` whose `.retry` is the in-flight load, not a typesetting failure.
+   * `handleRetriesFor` re-runs the conversion once that load resolves, however many chunks one
+   * formula needs, so a single await covers them all.
    */
   async _typeset(source, fenced) {
     try {
@@ -250,11 +216,10 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
       )
       const drawing = adaptor.firstChild(container)
       /*
-        The formula named for a reader who cannot see it. MathJax's own answer to this is a MathML
-        copy of the expression alongside the drawing, which needs its stylesheet in the page to stay
-        hidden and its speech engine to read well — neither of which a block in a shadow root has. The
-        source is what is left, and it is what the author wrote: imperfectly read aloud, but the
-        drawing already carries role="img", and an image with no name at all is worse.
+        MathJax's own answer to naming the drawing is a MathML copy alongside it, which needs its
+        stylesheet in the page to stay hidden and its speech engine to read well — neither of which a
+        block in a shadow root has. The TeX source reads aloud imperfectly, but the drawing carries
+        role="img" and an image with no name at all is worse.
       */
       adaptor.setAttribute(drawing, 'aria-label', source)
       this._svg = adaptor.outerHTML(drawing)
@@ -271,9 +236,8 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
       this._error = explainEmptySource('formula', { source: 'TeX source' })
       return
     }
-    // -> Not awaited: Lit does not wait on firstUpdated's return value, and there is nothing here
-    //    that needs to block it. Kept on the instance so a test can await the typeset finishing --
-    //    see shared/diagram-image.js's identical `_ready` for the two diagram blocks.
+    // -> Lit ignores firstUpdated's return value; kept on the instance so a test can await the
+    //    typeset finishing.
     this._ready = this._typeset(source, fenced)
   }
 

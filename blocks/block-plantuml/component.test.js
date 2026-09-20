@@ -5,14 +5,6 @@ import { _resetSiteCache } from '../shared/site.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID } from '../test/mount.js'
 
-/**
- * `firstUpdated()`'s empty-source error used to name "the PlantUML option in the markdown editor
- * settings" — a toggle in `backend/base.yml`'s `editors.markdown.config` that `markdown.js` never
- * actually read (a fence is always left as source for the block to draw, see its `highlight()`).
- * That vestigial `plantuml: true` key has been removed from `base.yml`, so the copy can no longer
- * point at it — this locks down what replaced it.
- */
-
 const svgResponse = (data = '<svg>uml</svg>') => ({
   ok: true,
   headers: { get: () => 'image/svg+xml' },
@@ -22,9 +14,8 @@ const svgResponse = (data = '<svg>uml</svg>') => ({
 const mountEmpty = (withImage = false) =>
   mountBlock('block-plantuml', { html: withImage ? '<img>' : undefined })
 
-// -> The `settle` hook: firstUpdated() kicks off _draw() without awaiting it (the POST is
-//    asynchronous), so the state change it produces lands after the first update cycle — `_ready`
-//    is the handle `DiagramImageElement` keeps on that work for exactly this.
+// -> `firstUpdated()` kicks off `_draw()` without awaiting it, so the state it produces lands after
+//    the first update cycle; `_ready` is the handle `DiagramImageElement` keeps on that work.
 const mountPlantuml = (body = '', props = {}) =>
   mountBlock('block-plantuml', { pre: body, props, settle: (el) => el._ready })
 
@@ -51,13 +42,6 @@ describe('block-plantuml', () => {
     expect(message).not.toContain('markdown editor settings')
     expect(message).not.toContain('PlantUML option')
   })
-
-  /*
-    `block-plantuml` used to encode diagram source straight into a GET URL, guarded by an
-    8,000-character pre-flight check against what a reverse proxy would accept. It now POSTs the
-    source, with no size ceiling of its own, to this site's PlantUML proxy
-    (`POST /_api/sites/:siteId/diagrams/render`, OpenProject task 3228).
-  */
 
   it('draws a small diagram normally, with no error', async () => {
     stubSiteFetch({ onRequest: () => svgResponse() })
@@ -99,14 +83,10 @@ describe('block-plantuml', () => {
     expect(error).not.toBeNull()
     expect(error.textContent).toBe('PlantUML could not read this diagram: Syntax error')
     expect(el.shadowRoot.querySelector('img')).toBeNull()
-    // -> Exactly one request: the old two-request `_explain()` dance is gone, the proxy's own JSON
-    //    error already carries the reason.
+    // -> One request is enough: the proxy's own JSON error already carries the reason.
     expect(fetchMock.mock.calls.filter(([u]) => u !== '/_api/sites/current')).toHaveLength(1)
   })
 
-  // -> Inherited from `shared/diagram-image.js`'s `DiagramImageElement`, which constructs the
-  //    controller for both remote-image diagram blocks — see `shared/video-embed.test.js` for the
-  //    other half of that split.
   describeDarkMode(() => {
     stubSiteFetch({ onRequest: () => svgResponse() })
     return mountPlantuml('@startuml\nAlice -> Bob : hello\n@enduml')

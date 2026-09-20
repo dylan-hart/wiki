@@ -16,31 +16,18 @@ import { PAGE_GAP, textLayerStyles, viewerStyles } from './styles.js'
 import { renderToolbar, ZOOM_LEVELS } from './toolbar.js'
 
 /*
-  Where the parsing happens.
-
-  `worker.js` in this directory is compiled to `block-pdf.worker.js` alongside this bundle, so the
-  address is this file's own, one name over. Resolved from `import.meta.url` rather than written as
-  `/_blocks/...`: the block knows where it was loaded from, and nothing else here has to agree with
-  the server about a path.
-
-  Everything pdf.js does with a document happens behind this: reading its structure, decoding its
-  images, turning glyph runs into drawing operations. Left on the page's thread -- which is what
-  pdf.js falls back to when the worker cannot be reached -- a document of any size locks the wiki up
-  while it loads.
+  `worker.js` compiles to `block-pdf.worker.js` beside this bundle, so the address is this file's own,
+  one name over -- resolved from `import.meta.url` so nothing here has to agree with the server about
+  a path. Unreachable, pdf.js falls back to parsing on the page's thread, which locks the wiki up for
+  as long as a document takes to load.
 */
 GlobalWorkerOptions.workerSrc = new URL('block-pdf.worker.js', import.meta.url).href
 
 /*
-  Where the data files pdf.js fetches for itself live, put there by the build's `blockAssets` step.
-
-  Nothing below is loaded until a document turns out to need it, which is why they are files rather
-  than part of the bundle -- and why they can be listed unconditionally here. Each covers a case that
-  is otherwise a silently half-drawn page:
-
-  - `cmaps` are the predefined CJK character maps, for a document naming one instead of embedding it.
-  - `standard_fonts` are the base 14 fonts, for a reader whose system has nothing to answer with.
-  - `wasm` decodes JPEG 2000 and JBIG2 images -- the compression scanners tend to produce.
-  - `iccs` is the CMYK profile, without which those colours are converted by approximation.
+  pdf.js fetches these for itself, and only once a document turns out to need one: the predefined CJK
+  cmaps, the base 14 standard fonts, the JPEG 2000/JBIG2 decoder, and the CMYK profile. Files put
+  beside the bundle by the build's `blockAssets` step rather than part of it; missing, each one is a
+  silently half-drawn page.
 */
 const DATA_URL = new URL('block-pdf/', import.meta.url).href
 
@@ -48,39 +35,24 @@ const MIN_SCALE = 0.1
 const MAX_SCALE = 10
 
 /**
- * How far either side of what is on screen to keep drawn.
- *
- * A page is drawn when it comes within a page of the viewport and thrown away again once it is this
- * many pages past it. Every drawn page is a canvas holding its own pixels, so a document read end to
- * end would otherwise accumulate all of them; a couple of pages of slack is what makes scrolling back
- * a few lines free rather than a redraw.
+ * Every drawn page is a canvas holding its own pixels, so a document read end to end would otherwise
+ * accumulate all of them; a couple of pages of slack is what makes scrolling back a few lines free
+ * rather than a redraw.
  */
 const KEEP_PAGES = 2
 
 /*
-  What a single page's canvas may cost, before the device's pixel ratio is honoured any further.
-
-  These are pdf.js's own viewer defaults. A canvas past them is drawn at a lower resolution and
-  scaled up by CSS instead, which is a soft loss of sharpness -- where asking a browser for a canvas
-  larger than it will allocate is a hard failure, and a page zoomed to 300% on a retina display is
-  already asking for one.
+  pdf.js's own viewer defaults for what one page's canvas may cost. Past them a page is drawn at a
+  lower resolution and scaled up by CSS -- a soft loss of sharpness, where asking a browser for a
+  canvas larger than it will allocate is a hard failure, which 300% on a retina display already is.
 */
 const MAX_CANVAS_PIXELS = 2 ** 25
 const MAX_CANVAS_DIM = 32767
 
-/**
- * Block PDF
- *
- * A continuous viewer: every page of the document is laid out at once, and the ones near the
- * viewport are drawn. Parsing runs in a worker and pdf.js's own data files are served alongside the
- * block — see `DATA_URL` above and `assets.json` beside this file — so a document is read here the
- * way it would be in a desktop reader, rather than to the extent a single bundle allows.
- */
 export class BlockPdfElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of this source text at build time into `compiled/blocks.manifest.json`, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'pdf',
@@ -134,42 +106,19 @@ export class BlockPdfElement extends LitElement {
 
   static get properties() {
     return {
-      /**
-       * Path or URL of the PDF file
-       * @type {string}
-       */
       src: { type: String },
-
-      /**
-       * Page to open the document at
-       * @type {number}
-       */
       page: { type: Number },
-
-      /**
-       * `page-width`, `page-fit`, or a percentage
-       * @type {string}
-       */
       zoom: { type: String },
 
-      /**
-       * Height of the viewer in pixels, 0 to grow to the document
-       * @type {number}
-       */
+      /** Pixels; 0 grows the viewer to the whole document instead of scrolling within a box. */
       height: { type: Number },
 
       /**
-       * Whether to leave out the page and zoom controls
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `hidetoolbar` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `hide-toolbar` — writes `hide-toolbar` into the
-       *    page.
-       * @type {boolean}
+       * Explicit `attribute`: Lit's default lowercases the property name without inserting a dash,
+       * so it would listen for `hidetoolbar` while the block picker writes `hide-toolbar`.
        */
       hideToolbar: { ...boolean, attribute: 'hide-toolbar' },
 
-      // Internal Properties
       _error: { state: true },
       _loading: { state: true },
       _progress: { state: true },
@@ -202,7 +151,6 @@ export class BlockPdfElement extends LitElement {
     this._loadedSrc = null
     this._loadingTask = null
     this._doc = null
-    /** One entry per page, in order. See `_buildPages`. */
     this._pages = []
     this._observer = null
     this._resizeObserver = null
@@ -217,7 +165,6 @@ export class BlockPdfElement extends LitElement {
     return this.renderRoot?.querySelector('.pages') ?? null
   }
 
-  /** Whether the viewer scrolls within itself, rather than being as tall as the document. */
   get _hasInnerScroll() {
     return this.height > 0
   }
@@ -225,9 +172,9 @@ export class BlockPdfElement extends LitElement {
   connectedCallback() {
     super.connectedCallback()
     /*
-      Moved, rather than newly built: leaving took the document and both observers with it, and the
-      shadow tree they were watching is still here to be watched again. `hasUpdated` is what tells the
-      two apart -- on a first connection there is no shadow tree yet, and `firstUpdated` does this.
+      A re-connection: disconnecting took the document and both observers with it, and the shadow
+      tree they watched is still here. `hasUpdated` tells that from a first connection, where there
+      is no shadow tree yet and `firstUpdated` does this instead.
     */
     if (this.hasUpdated) {
       this._setupObservers()
@@ -241,10 +188,8 @@ export class BlockPdfElement extends LitElement {
   }
 
   _setupObservers() {
-    /*
-      -> The scroller is the scrolling ancestor to measure against, unless the block was told to grow
-         to the document, in which case the page itself is.
-    */
+    // -> The scroller is the scrolling ancestor to measure against, unless the block was told to
+    //    grow to the document, in which case the page itself is.
     this._observer = new IntersectionObserver((entries) => this._onVisibility(entries), {
       root: this._hasInnerScroll ? this._scroller : null
     })
@@ -278,11 +223,9 @@ export class BlockPdfElement extends LitElement {
   }
 
   /**
-   * Read what the author wrote in the `zoom` prop.
-   *
-   * Either of the two fitting modes, or a percentage — `150%`, and `150` for an author who left the
-   * sign off. Anything else is the default rather than an error: a viewer that will not open because
-   * of the zoom would be a poor trade.
+   * A fitting mode or a percentage (`150%`, or `150` for an author who left the sign off). Anything
+   * else falls back to the default rather than erroring: a viewer that will not open over its zoom
+   * would be a poor trade.
    */
   _parseZoom(value) {
     const zoom = String(value ?? '').trim()
@@ -296,18 +239,14 @@ export class BlockPdfElement extends LitElement {
     return 'page-width'
   }
 
-  /** What the toolbar's list is showing, in the vocabulary of the `zoom` prop. */
   get _zoomValue() {
     return typeof this._zoom === 'number' ? `${Math.round(this._zoom * 100)}%` : this._zoom
   }
 
   /**
-   * Open the document.
-   *
-   * The address is resolved against the page it is written on, so that a relative one means what an
-   * author writing a link would expect. pdf.js is left to fetch it: it asks for the file in ranges
-   * where the server offers them, which is what lets a long document start showing before the whole
-   * of it has arrived.
+   * The address is resolved against the page it is written on, so a relative one means what an
+   * author writing a link would expect. Fetching is left to pdf.js, which asks for ranges where the
+   * server offers them and so can start showing a long document before all of it has arrived.
    */
   async _load() {
     const src = this.src?.trim()
@@ -337,8 +276,8 @@ export class BlockPdfElement extends LitElement {
     this._loading = true
     const task = getDocument({
       url,
-      // -> pdf.js compiles some fonts and patterns with `eval` where it is allowed to; a wiki is the
-      //    kind of place that turns that off, and the slower path draws the same thing.
+      // -> pdf.js compiles some fonts and patterns with `eval` where it is allowed to; a wiki's CSP
+      //    is the kind that turns that off, and the slower path draws the same thing.
       isEvalSupported: false,
       cMapUrl: `${DATA_URL}cmaps/`,
       standardFontDataUrl: `${DATA_URL}standard_fonts/`,
@@ -365,9 +304,8 @@ export class BlockPdfElement extends LitElement {
       await this.updateComplete
       this._buildPages()
       const opening = this._openingPage()
-      // -> Page 1 is where a viewer already is. Saying so anyway would be harmless in a scroller of
-      //    its own, but a block grown to the whole document scrolls the wiki page to obey, dragging
-      //    the reader down past whatever was written above the block the moment it finishes loading.
+      // -> Page 1 is where the viewer already is, and a block grown to the whole document scrolls
+      //    the wiki page itself to obey — dragging the reader past whatever is written above it.
       if (opening > 1) {
         this._goToPage(opening)
       }
@@ -380,7 +318,6 @@ export class BlockPdfElement extends LitElement {
     }
   }
 
-  /** The page the author asked the document to open at, within the document it turned out to be. */
   _openingPage() {
     const page = Number(this.page)
     if (!Number.isFinite(page)) {
@@ -389,7 +326,6 @@ export class BlockPdfElement extends LitElement {
     return Math.min(Math.max(Math.trunc(page), 1), this._pageCount)
   }
 
-  /** What went wrong, said to whoever is reading the page rather than to a console. */
   _explain(err, src) {
     if (err instanceof PasswordException) {
       return 'This document is password-protected, and cannot be shown here.'
@@ -406,22 +342,19 @@ export class BlockPdfElement extends LitElement {
     return `This document could not be loaded from ${src} — ${err?.message ?? err}`
   }
 
-  /** A page's size before any zoom, in PDF units carried over as they are written. */
   _rawSize(viewport) {
     const { pageWidth, pageHeight } = viewport.rawDims
     return { width: pageWidth, height: pageHeight, userUnit: viewport.userUnit || 1 }
   }
 
   /**
-   * Lay the whole document out at once.
+   * Every page gets its box straight away, so the scrollbar is the document's length from the first
+   * moment. Sizes are the first page's guess until a page has been drawn and can say otherwise —
+   * asking the worker for all of them up front is a round trip per page, and a document whose pages
+   * differ in size is the rare one.
    *
-   * Every page gets its box straight away, so the scrollbar is the length of the document from the
-   * first moment rather than growing as pages arrive. Their sizes are the first page's until each one
-   * has been drawn and can say otherwise — asking the worker for all of them up front is a round trip
-   * per page, and a document whose pages are not all the same size is the rare one.
-   *
-   * The pages are built by hand rather than rendered from a template: they hold a canvas that must
-   * survive every re-render of the toolbar above them, and pdf.js writes into both of them itself.
+   * Built by hand rather than from a template: each page holds a canvas that must survive every
+   * re-render of the toolbar above it, and pdf.js writes into it and the text layer itself.
    */
   _buildPages() {
     const container = this._pagesEl
@@ -453,10 +386,9 @@ export class BlockPdfElement extends LitElement {
         renderTask: null,
         textLayer: null,
         /*
-          Bumped every time the page is let go of, so that a draw already in flight can tell that what
-          it was drawing for is gone -- a zoom, a scroll far enough away, or the document itself being
-          closed. Nothing else can stop it: the work up to the first `renderTask` is a request to the
-          worker, and there is no handle on that to cancel.
+          Bumped whenever the page is let go of, so a draw already in flight can tell that what it
+          was drawing for is gone. Nothing else can stop it: the work up to the first `renderTask` is
+          a request to the worker, with no handle to cancel.
         */
         epoch: 0
       })
@@ -469,7 +401,6 @@ export class BlockPdfElement extends LitElement {
     }
   }
 
-  /** Give a page the box its current size and the current zoom put it in. */
   _sizePage(entry) {
     const total = this._scale * entry.raw.userUnit
     entry.el.style.setProperty('--scale-factor', this._scale)
@@ -479,11 +410,9 @@ export class BlockPdfElement extends LitElement {
   }
 
   /**
-   * The zoom, as a number.
-   *
-   * The fitting modes are measured against the first page, which is what the pages were laid out to
-   * before any of them had been read — fitting each page to itself would leave a document scrolling
-   * through a different size every page.
+   * The fitting modes are measured against the first page, which is what every page was laid out to
+   * — fitting each page to itself would leave a document scrolling through a different size on every
+   * page.
    */
   _resolveScale() {
     if (typeof this._zoom === 'number') {
@@ -510,15 +439,12 @@ export class BlockPdfElement extends LitElement {
   }
 
   /**
-   * Redraw at whatever the zoom now resolves to, keeping the reader where they were.
-   *
-   * Everything drawn is thrown away rather than scaled: a canvas stretched to a new size is a blurred
-   * page, and the text over it would be positioned for the old one.
+   * Everything drawn is thrown away rather than scaled: a canvas stretched to a new size is a
+   * blurred page, and the text over it would be positioned for the old one.
    */
   _applyScale() {
     const scale = this._resolveScale()
-    // -> A resize of a few pixels resolves to a scale a few thousandths different, which is not worth
-    //    redrawing the document over
+    // -> A resize of a few pixels moves the scale by a few thousandths, not worth a redraw
     if (Math.abs(scale - this._scale) < 0.001) {
       return
     }
@@ -537,7 +463,6 @@ export class BlockPdfElement extends LitElement {
     this._applyScale()
   }
 
-  /** Step to the next zoom level up or down from wherever the current one landed. */
   _stepZoom(direction) {
     const levels = direction > 0 ? ZOOM_LEVELS : [...ZOOM_LEVELS].reverse()
     const next = levels.find((level) =>
@@ -568,15 +493,13 @@ export class BlockPdfElement extends LitElement {
   }
 
   /**
-   * Name the page the reader is actually looking at.
+   * The page covering most of the viewport, not the topmost one showing: scrolled to the top of a
+   * page, the page above is still intersecting by the sliver the gap leaves, and naming that one
+   * would leave the counter a page behind all the way down.
    *
-   * The one taking up the most of the viewport, rather than the topmost one showing: scrolled to the
-   * top of a page, the page above is still intersecting by the sliver the gap between them leaves,
-   * and naming that one would have the counter reading a page behind all the way down the document.
-   *
-   * Measured here rather than taken from the rectangles the observer hands over, which are only
-   * delivered for a page whose intersecting-ness has just changed — so a page that has scrolled off
-   * behind another still carries the area it had when it filled the screen, and goes on winning.
+   * Measured here rather than from the observer's own rectangles, which arrive only for a page whose
+   * intersecting-ness just changed — a page scrolled off behind another still carries the area it
+   * had when it filled the screen, and would go on winning.
    */
   _trackCurrentPage() {
     const root = this._hasInnerScroll
@@ -606,10 +529,8 @@ export class BlockPdfElement extends LitElement {
   }
 
   /**
-   * Draw what is in front of the reader, and let go of what is well behind them.
-   *
-   * The page after the last visible one and the page before the first are drawn too, so that
-   * scrolling on arrives at a page that is already there rather than at a blank one.
+   * The page either side of the visible run is drawn too, so scrolling on arrives at a page that is
+   * already there rather than a blank one.
    */
   _syncRendering() {
     if (this._pages.length < 1) {
@@ -630,11 +551,9 @@ export class BlockPdfElement extends LitElement {
   }
 
   /**
-   * Draw one page, and lay its text over it.
-   *
-   * The canvas is drawn at the device's pixel ratio and shown at the page's size, which is what keeps
-   * a page sharp on a retina display — bounded by `limitCanvas`, pdf.js's own reckoning of what a
-   * browser will actually allocate.
+   * The canvas is drawn at the device's pixel ratio and shown at the page's size, which is what
+   * keeps a page sharp on a retina display — bounded by `limitCanvas`, pdf.js's own reckoning of
+   * what a browser will actually allocate.
    */
   async _renderPage(entry) {
     const doc = this._doc
@@ -698,7 +617,7 @@ export class BlockPdfElement extends LitElement {
     }
   }
 
-  /** Give back everything one page is holding, leaving its box where it was. */
+  /** Leaves the page's box in place, so letting a page go does not shift the layout. */
   _releasePage(entry) {
     entry.epoch++
     entry.renderTask?.cancel()
@@ -712,7 +631,6 @@ export class BlockPdfElement extends LitElement {
     entry.drawn = false
   }
 
-  /** Drop the document, and everything drawn from it. */
   _teardown() {
     for (const entry of this._pages) {
       this._releasePage(entry)

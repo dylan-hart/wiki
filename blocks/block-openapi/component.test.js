@@ -7,26 +7,16 @@ let resolveSpecSource
 
 beforeAll(async () => {
   /*
-    jsdom implements `CSS.escape` as a WebIDL operation branded to the `CSS` namespace object, not a
-    free-standing function — calling it detached from that receiver throws "'escape' called on an
-    object that is not a valid instance of CSS." The `css.escape` npm package swagger-ui depends on
-    does exactly that: when `window.CSS.escape` already exists it returns the method itself
-    (`return root.CSS.escape`) rather than a bound wrapper, on the reasoning that a real browser's
-    `CSS.escape` needs no receiver to work. swagger-ui then calls that detached reference from deep
-    link path building, on every operation row — real browsers accept this the `css.escape` package
-    assumes, jsdom's implementation does not. Rebinding it here, before `component.js` (and so
-    swagger-ui) is ever imported, is a jsdom test-environment fix — nothing in the block or its
-    dependency is at fault, and there is nothing to change in application code.
+    jsdom brands `CSS.escape` to the `CSS` namespace object, so calling it detached from that
+    receiver throws. The `css.escape` package swagger-ui depends on returns `root.CSS.escape` itself
+    rather than a bound wrapper when one already exists, and swagger-ui calls that detached reference
+    while building deep links. Rebind before `component.js`, and so swagger-ui, is ever imported —
+    a test-environment fix, with nothing to change in the block.
   */
   globalThis.CSS.escape = globalThis.CSS.escape.bind(globalThis.CSS)
   ;({ resolveSpecSource } = await import('./component.js'))
 })
 
-/**
- * Appends a `<block-openapi>` carrying `url` and/or `body` the way the wiki's own editor leaves them:
- * `url` as an attribute, `body` as a fenced code block's light-DOM content — exactly as typed, since
- * that is what `firstUpdated()` reads with `textContent`.
- */
 const mountOpenapi = ({ url = '', body = '' } = {}) =>
   mountBlock('block-openapi', { attrs: url ? { url } : undefined, pre: body || undefined })
 
@@ -44,12 +34,6 @@ paths:
 `
 
 describe('resolveSpecSource', () => {
-  /*
-    The actual point of this block — what a reader ends up seeing given a `url` prop and/or a body —
-    kept directly testable without mounting swagger-ui, per the reasoning in the function's own
-    comment (mirroring `resolveTileSettings` in block-map).
-  */
-
   it('reports an error when neither a url nor a body is given', () => {
     expect(resolveSpecSource('', '')).toEqual({
       error: 'This block needs a spec URL, or a fenced YAML/JSON body with the spec written inline.'
@@ -135,12 +119,10 @@ describe('block-openapi', () => {
     const container = el.shadowRoot.querySelector('.container')
     expect(container).not.toBeNull()
     /*
-      `SwaggerUIBundle()` hands the container to React and returns immediately; the tree it renders —
-      and the redux store's own resolution of the spec — land a tick or more later, outside Lit's own
-      update cycle, so `el.updateComplete` alone does not cover it.
+      `SwaggerUIBundle()` hands the container to React and returns immediately; the tree it renders
+      lands a tick or more later, outside Lit's update cycle, so `el.updateComplete` does not cover it.
     */
     await vi.waitFor(() => {
-      // -> swagger-ui's own root class, proof its React tree actually mounted into our container
       expect(container.querySelector('.swagger-ui')).not.toBeNull()
     })
     expect(container.textContent).toContain('Sample API')
@@ -156,8 +138,6 @@ describe('block-openapi', () => {
   })
 
   it('hides every "Execute" control when tryItOut is turned off', async () => {
-    // -> Set on the property directly rather than as an attribute: see block-pdf's `boolean`
-    //    converter for how the block picker's own `tryItOut="false"` attribute form is read.
     const el = await mountBlock('block-openapi', { pre: VALID_SPEC, props: { tryItOut: false } })
 
     const container = el.shadowRoot.querySelector('.container')
