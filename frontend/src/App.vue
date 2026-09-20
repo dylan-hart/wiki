@@ -4,6 +4,7 @@
   <w-notifications />
   <w-loading-overlay />
   <w-dialog-host />
+  <user-profile-popover />
   <component :is="DevQuickMenu" v-if="DevQuickMenu" />
 </template>
 
@@ -27,6 +28,7 @@ import { confirm } from '@/composables/dialog'
 import { useDirection } from '@/composables/direction'
 import { notify } from '@/composables/notify'
 
+import UserProfilePopover from '@/components/UserProfilePopover.vue'
 import WDialogHost from '@/components/shared/WDialogHost.vue'
 import WLoadingOverlay from '@/components/shared/WLoadingOverlay.vue'
 import WNotifications from '@/components/shared/WNotifications.vue'

@@ -295,14 +295,23 @@
               <div class="page-watchers">
                 <!-- -> The plate is two letters wide by design, so the full name is hovered for; two
                      uppercase letters are not a name to a screen reader either -->
-                <div
+                <component
+                  :is="canViewProfiles ? 'button' : 'div'"
                   v-for="watcher of watcherPlates"
                   :key="watcher.userId"
                   class="page-watchers-plate"
+                  :class="{ 'page-watchers-plate--button': canViewProfiles }"
+                  :type="canViewProfiles ? 'button' : undefined"
+                  :aria-haspopup="canViewProfiles ? 'dialog' : undefined"
                   :title="watcher.name"
-                  :aria-label="watcher.name">
+                  :aria-label="
+                    canViewProfiles
+                      ? t('profilePopover.avatarLabel', { name: watcher.name })
+                      : watcher.name
+                  "
+                  @click="openWatcherProfile(watcher, $event)">
                   {{ watcher.initials }}
-                </div>
+                </component>
                 <span
                   v-if="watcherRemainder > 0"
                   class="page-watchers-remainder"
@@ -400,6 +409,7 @@ import { useDark } from '@/composables/dark'
 import { dialog } from '@/composables/dialog'
 import { useMeta } from '@/composables/meta'
 import { usePageScripts } from '@/composables/pageScripts'
+import { canOpenProfilePopover, openProfilePopover } from '@/composables/profilePopover'
 import { useMinWidth } from '@/composables/screen'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
@@ -648,6 +658,13 @@ const watcherPlates = computed(() => {
 const watcherRemainder = computed(() =>
   Math.max(watcherTotal.value - watcherPlates.value.length, 0)
 )
+const canViewProfiles = computed(() => canOpenProfilePopover())
+
+function openWatcherProfile(watcher, ev) {
+  if (canViewProfiles.value) {
+    openProfilePopover({ userId: watcher.userId, anchor: ev.currentTarget, name: watcher.name })
+  }
+}
 /*
   Editing the tags is saving the page -- they go up with the rest of it rather than through an endpoint
   of their own -- so the test is the pair the PATCH route accepts. Read off `pagePermissions`, not
@@ -1737,6 +1754,11 @@ body.body--cobalt .page-sidebar-revision {
   font-size: 10px;
   font-weight: 600;
   line-height: 1;
+}
+
+.page-watchers-plate--button {
+  padding: 0;
+  cursor: pointer;
 }
 
 .body--dark .page-watchers-plate {

@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import PageComments from './PageComments.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+import { closeProfilePopover, profilePopoverState } from '@/composables/profilePopover'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -45,6 +46,9 @@ const MESSAGES = {
         title: 'Unexpected Error'
       }
     }
+  },
+  profilePopover: {
+    avatarLabel: 'Open the profile of {name}'
   },
   auth: {
     errors: {
@@ -639,6 +643,64 @@ describe('PageComments', () => {
       expect(avatar.attributes('style')).toContain('font-size: 11px')
       // -> The fill is the shared class's `--color-account-avatar-bg`, not an inline primary
       expect(avatar.attributes('style')).not.toContain('background-color')
+    })
+  })
+
+  describe('avatar profile popover', () => {
+    afterEach(() => {
+      closeProfilePopover()
+    })
+
+    async function mountWith(overrides, options) {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment(overrides)]) })
+      return mountComments(options)
+    }
+
+    it('names the author on the avatar with a tooltip, for anyone', async () => {
+      const { wrapper } = await mountWith({}, { authenticated: false })
+
+      expect(wrapper.find('.page-comments-avatar').attributes('title')).toBe('Jane Doe')
+    })
+
+    it('leaves a guest with no way to open a profile while the setting is off', async () => {
+      const { wrapper } = await mountWith({}, { authenticated: false })
+
+      const avatar = wrapper.find('.page-comments-avatar')
+      expect(avatar.element.tagName).toBe('SPAN')
+      await avatar.trigger('click')
+      expect(profilePopoverState.open).toBe(false)
+    })
+
+    it('makes the avatar a button for an account holder, pointing at the author', async () => {
+      const { wrapper } = await mountWith({ authorId: 'u9', authorName: 'Ada Lovelace' })
+
+      const avatar = wrapper.find('.page-comments-avatar')
+      expect(avatar.element.tagName).toBe('BUTTON')
+      expect(avatar.classes()).toContain('cursor-pointer')
+      expect(avatar.attributes('title')).toBe('Ada Lovelace')
+      expect(avatar.attributes('aria-label')).toBe('Open the profile of Ada Lovelace')
+
+      await avatar.trigger('click')
+
+      expect(profilePopoverState).toMatchObject({ open: true, userId: 'u9', name: 'Ada Lovelace' })
+      expect(profilePopoverState.anchor).toBe(avatar.element)
+    })
+
+    it("makes a guest reader's avatar a button once the instance allows it", async () => {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+      const { wrapper, siteStore } = await mountComments({ authenticated: false })
+      siteStore.guestsMayViewProfiles = true
+      await flushPromises()
+
+      expect(wrapper.find('.page-comments-avatar').element.tagName).toBe('BUTTON')
+    })
+
+    it('never links a guest-authored comment, which has no account to show', async () => {
+      const { wrapper } = await mountWith({ authorId: null, authorName: 'anonymous visitor' })
+
+      const avatar = wrapper.find('.page-comments-avatar')
+      expect(avatar.element.tagName).toBe('SPAN')
+      expect(avatar.attributes('title')).toBe('anonymous visitor')
     })
   })
 })

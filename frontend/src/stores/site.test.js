@@ -82,6 +82,22 @@ describe('site store: applySiteInfo() pdfExportAvailable', () => {
   })
 })
 
+describe('site store: applySiteInfo() guestsMayViewProfiles', () => {
+  it('adopts guestsMayViewProfiles: true from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ guestsMayViewProfiles: true }))
+
+    expect(store.guestsMayViewProfiles).toBe(true)
+  })
+
+  it('defaults to false when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.guestsMayViewProfiles).toBe(false)
+  })
+})
+
 describe('site store: applySiteInfo() isReplicationEnabled', () => {
   it('adopts isReplicationEnabled: true from the site payload', () => {
     const store = useSiteStore()

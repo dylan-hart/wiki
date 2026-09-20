@@ -104,6 +104,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'editors',
     'features',
     'footerExtra',
+    'guestsMayViewProfiles',
     'hostname',
     'id',
     'isEnabled',
@@ -220,6 +221,35 @@ test('buildSitePayload reports isReplicationEnabled: false when replication conf
   assert.equal(payload.isReplicationEnabled, false)
 
   wikiHandle.restore()
+})
+
+test('buildSitePayload reports guestsMayViewProfiles from profileVisibility, false when absent', async () => {
+  for (const [profileVisibility, expected] of [
+    [{ forcedPublicFields: [], guestsMayView: true }, true],
+    [{ forcedPublicFields: [], guestsMayView: false }, false],
+    [undefined, false]
+  ] as const) {
+    const wikiHandle = installTestWiki({
+      config: { docsBase: '', profileVisibility },
+      models: {
+        renderQueue: { isAvailable: async () => false },
+        blocks: { getSiteBlocks: async () => [] },
+        navigation: { ensureSiteNav: async () => 'nav-id' },
+        commentProviders: { getActiveProvider: async () => null }
+      }
+    })
+
+    const payload = await buildSitePayload({
+      id: 'site-id',
+      hostname: 'example.test',
+      isEnabled: true,
+      config: {}
+    })
+
+    assert.equal(payload.guestsMayViewProfiles, expected)
+
+    wikiHandle.restore()
+  }
 })
 
 /**

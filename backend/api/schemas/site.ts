@@ -32,6 +32,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Whether this instance is configured as a scheduled-replication TARGET (`CARDINAL.config.replication.isEnabled`, from `base.yml`/`config.yml` — see Epic #2437). Instance-wide, not a per-site setting: a replication target periodically wipes and replaces its own data from a source instance, which is what this flag lets the frontend warn an admin about (header banner, Feature #2833).'
       },
+      guestsMayViewProfiles: {
+        type: 'boolean',
+        description:
+          "Whether an anonymous visitor may open a user profile (`CARDINAL.config.profileVisibility.guestsMayView`). Instance-wide, not a per-site setting. Carried here because `GET /users/profile-visibility` needs `read:users`, so a guest's browser has no other way to know whether to make avatars clickable."
+      },
       navigationId: {
         type: 'string',
         format: 'uuid',
