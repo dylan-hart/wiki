@@ -137,6 +137,9 @@
   /* -> `--color-slate-pale` is the tone Cardinal draws an OFF control in */
   --content-tick-edge: var(--color-slate-pale);
 
+  --content-step-bg: var(--color-accent-strong);
+  --content-step-fg: var(--color-white);
+
   /*
     Admonition hues, from the language's own status tones (`css/tailwind.css`). Each is the TEXT tone
     of its status, not the fill: they colour the bar, the icon and the alert's own title, and the
@@ -297,6 +300,9 @@
     */
     --content-tick: var(--color-accent-dark);
     --content-tick-edge: var(--color-disabled-dark);
+
+    --content-step-bg: var(--color-accent-dark);
+    --content-step-fg: var(--color-ink-dark);
 
     --content-info: #8ea6cf;
     --content-info-wash: rgba(142, 166, 207, 0.12);
@@ -963,6 +969,79 @@
 
     ol ol ol {
       list-style: lower-roman;
+    }
+  }
+
+  block-steps {
+    > ol {
+      list-style: none;
+      counter-reset: cardinal-step;
+      margin: 0 0 1.15em;
+      padding-inline-start: 2.4rem;
+    }
+
+    > ol > li {
+      position: relative;
+      list-style: none;
+      counter-increment: cardinal-step;
+      margin-top: 0;
+      padding-block-end: 1.25rem;
+
+      &:last-child {
+        padding-block-end: 0;
+      }
+
+      &::before {
+        content: counter(cardinal-step);
+        position: absolute;
+        inset-block-start: 0;
+        inset-inline-start: -2.4rem;
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: 50%;
+        background-color: var(--content-step-bg);
+        color: var(--content-step-fg);
+        font: 600 11px/1.5rem var(--font-mono);
+        text-align: center;
+      }
+
+      &:not(:last-child)::after {
+        content: '';
+        position: absolute;
+        inset-block: 1.75rem 0.25rem;
+        inset-inline-start: calc(-1.65rem - 1px);
+        width: 2px;
+        background-color: color-mix(in srgb, var(--content-step-bg) 30%, transparent);
+      }
+    }
+
+    > ol > li > p:first-child {
+      margin-block-start: 0;
+    }
+
+    > ol > li > p:last-child {
+      margin-block-end: 0;
+    }
+  }
+
+  body.body--cobalt & block-steps {
+    > ol,
+    > ol > li {
+      list-style: none;
+    }
+
+    > ol {
+      counter-reset: cardinal-step;
+      padding-inline-start: 2.4rem;
+    }
+
+    > ol > li {
+      counter-increment: cardinal-step;
+      margin-top: 0;
+    }
+
+    > ol > li::before {
+      content: counter(cardinal-step);
     }
   }
 
