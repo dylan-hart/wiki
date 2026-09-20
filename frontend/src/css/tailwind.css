@@ -990,6 +990,15 @@ body.body--cobalt {
   */
   --block-radius: var(--radius-card);
   --block-corner-marks: var(--corner-marks);
+  --block-border: var(--color-hairline);
+  --block-tile-radius: var(--radius-control);
+  --block-mark-color: var(--color-slate-soft);
+  --block-caption-fg: var(--color-text-secondary);
+  --block-eyebrow-fg: var(--color-text-caption);
+  --block-accent-fill: var(--color-accent-fill);
+  --block-link-fg: var(--color-accent-strong);
+  --block-error-border: 1px dashed var(--block-accent-fill);
+  --block-error-radius: var(--block-tile-radius);
 
   --tabs-border: #dfe5f5;
   --tabs-radius: 8px;
