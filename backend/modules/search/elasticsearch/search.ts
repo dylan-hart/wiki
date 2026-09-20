@@ -100,6 +100,7 @@ export function buildEsQuery(params: SearchPagesParams): Record<string, any> {
     locales = [],
     excludeLocales = [],
     tags = [],
+    tagsMatch = 'all',
     excludeTags = [],
     editor = [],
     excludeEditor = [],
@@ -146,8 +147,17 @@ export function buildEsQuery(params: SearchPagesParams): Record<string, any> {
   if (excludeLocales.length > 0) {
     mustNot.push({ terms: { locale: excludeLocales } })
   }
-  for (const tag of tags) {
-    filter.push({ match: { tags: tag } })
+  if (tagsMatch === 'any' && tags.length > 0) {
+    const alternatives = tags.map((tag) => ({ match: { tags: tag } }))
+    filter.push(
+      alternatives.length === 1
+        ? alternatives[0]!
+        : { bool: { should: alternatives, minimum_should_match: 1 } }
+    )
+  } else {
+    for (const tag of tags) {
+      filter.push({ match: { tags: tag } })
+    }
   }
   for (const tag of excludeTags) {
     mustNot.push({ match: { tags: tag } })

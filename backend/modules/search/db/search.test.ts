@@ -339,6 +339,17 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.deepEqual(pathsOf(result), ['en:wombat/alpha', 'en:wombat/beta'])
     })
 
+    test('tags are all-of by default and any-of with tagsMatch any', async () => {
+      const all = await searchModel.query({ ...base(), tags: ['red', 'blue'] })
+      assert.deepEqual(pathsOf(all), [])
+      const any = await searchModel.query({ ...base(), tags: ['old', 'blue'], tagsMatch: 'any' })
+      assert.deepEqual(pathsOf(any), [
+        'en:wombat/alpha',
+        'en:wombat/private/gamma',
+        'fr:wombat/delta'
+      ])
+    })
+
     test('excludeTags drops a page carrying any listed tag', async () => {
       const result = await searchModel.query({ ...base(), excludeTags: ['old', 'blue'] })
       assert.deepEqual(pathsOf(result), ['en:wombat/beta', 'en:wombat/epsilon'])

@@ -251,7 +251,13 @@ export function buildFilter(params: AzureSearchFilterParams): string {
     conditions.push(`not ${inFilter('locale', params.excludeLocales)}`)
   }
   if (params.tags && params.tags.length > 0) {
-    conditions.push(`tags/any(t: ${inFilter('t', params.tags)})`)
+    if (params.tagsMatch === 'any') {
+      conditions.push(`tags/any(t: ${inFilter('t', params.tags)})`)
+    } else {
+      for (const tag of params.tags) {
+        conditions.push(`tags/any(t: ${eqFilter('t', tag)})`)
+      }
+    }
   }
   if (params.excludeTags && params.excludeTags.length > 0) {
     conditions.push(`not tags/any(t: ${inFilter('t', params.excludeTags)})`)
@@ -491,6 +497,7 @@ export class AzureSearchModule extends ExternalSearchModule {
       locales,
       excludeLocales,
       tags,
+      tagsMatch,
       excludeTags,
       editor,
       excludeEditor,
@@ -514,6 +521,7 @@ export class AzureSearchModule extends ExternalSearchModule {
       locales,
       excludeLocales,
       tags,
+      tagsMatch,
       excludeTags,
       editor,
       excludeEditor,

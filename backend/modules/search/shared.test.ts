@@ -679,6 +679,23 @@ describe('buildSqlFilterConditions()', () => {
     assert.deepEqual(conditions[1]!.params, [['en', 'fr']])
   })
 
+  test('tagsMatch any turns the include tag condition into overlap', () => {
+    const conditions = render({ tags: ['a', 'b'], tagsMatch: 'any' })
+    assert.deepEqual(
+      conditions.map((c) => c.sql),
+      ['p.tags && $1::text[]']
+    )
+    assert.deepEqual(conditions[0]!.params, [['a', 'b']])
+  })
+
+  test('tagsMatch all keeps containment', () => {
+    const conditions = render({ tags: ['a', 'b'], tagsMatch: 'all' })
+    assert.deepEqual(
+      conditions.map((c) => c.sql),
+      ['p.tags @> $1::text[]']
+    )
+  })
+
   test('exclude lists drop a page matching any entry', () => {
     const conditions = render({
       excludePath: ['docs/private', 'legacy'],

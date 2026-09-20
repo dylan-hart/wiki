@@ -16,6 +16,7 @@ const NO_FILTERS = {
   excludePath: [],
   excludeLocales: [],
   tags: [],
+  tagsMatch: 'all',
   excludeTags: [],
   editor: [],
   excludeEditor: [],
@@ -38,6 +39,7 @@ let searchCalls: Array<{
     path?: string[]
     excludePath?: string[]
     tags?: string[]
+    tagsMatch?: string
     excludeTags?: string[]
     excludeLocales?: string[]
     editor?: string[]
@@ -67,6 +69,7 @@ async function search(
     path?: string[]
     excludePath?: string[]
     tags?: string[]
+    tagsMatch?: string
     excludeTags?: string[]
     excludeLocales?: string[]
     editor?: string[]
@@ -285,6 +288,7 @@ test('forwards repeated include and every exclude list to the model', async () =
     excludePath: ['docs/private'],
     excludeLocales: ['fr', 'de'],
     tags: [],
+    tagsMatch: 'all',
     excludeTags: ['old'],
     editor: ['markdown', 'wysiwyg'],
     excludeEditor: ['code'],
@@ -295,6 +299,25 @@ test('forwards repeated include and every exclude list to the model', async () =
     authorId: [],
     excludeAuthorId: []
   })
+})
+
+test('forwards tagsMatch=any to the model', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&tags=foo,bar&tagsMatch=any`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(searchCalls[0]!.options.tagsMatch, 'any')
+  assert.deepEqual(searchCalls[0]!.options.tags, ['foo', 'bar'])
+})
+
+test('rejects a tagsMatch other than all or any', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&tags=foo&tagsMatch=some`
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(searchCalls.length, 0)
 })
 
 test('forwards creator and author lists to the model', async () => {

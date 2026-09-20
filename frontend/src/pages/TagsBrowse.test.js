@@ -180,6 +180,68 @@ describe('TagsBrowse.vue (OpenProject #987)', () => {
     )
   })
 
+  function lastSearchParams() {
+    const calls = API_CLIENT.get.mock.calls.filter(([url]) => url === 'sites/site-1/pages/search')
+    return calls.at(-1)[1].searchParams
+  }
+
+  it('sends tagsMatch all by default and any when the route says so', async () => {
+    const { wrapper } = await mountTagsBrowse('/_tags?tags=equipment,procedure')
+    expect(wrapper.vm.state.tagsMatch).toBe('all')
+    expect(lastSearchParams().tagsMatch).toBe('all')
+
+    const { wrapper: anyWrapper } = await mountTagsBrowse(
+      '/_tags?tags=equipment,procedure&tagsMatch=any'
+    )
+    expect(anyWrapper.vm.state.tagsMatch).toBe('any')
+    expect(lastSearchParams().tagsMatch).toBe('any')
+  })
+
+  it('setTagsMatch writes tagsMatch=any to the route and re-searches; all drops it', async () => {
+    const { wrapper, router } = await mountTagsBrowse('/_tags?tags=equipment,procedure')
+    API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve(EMPTY_RESULTS) })
+
+    await wrapper.vm.setTagsMatch('any')
+    await flushPromises()
+    expect(router.currentRoute.value.query).toEqual({
+      tags: 'equipment,procedure',
+      tagsMatch: 'any'
+    })
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({ searchParams: expect.objectContaining({ tagsMatch: 'any' }) })
+    )
+
+    await wrapper.vm.setTagsMatch('all')
+    await flushPromises()
+    expect(router.currentRoute.value.query).toEqual({ tags: 'equipment,procedure' })
+  })
+
+  it('toggling a tag keeps the any match mode, and clearing the selection drops it', async () => {
+    const { wrapper, router } = await mountTagsBrowse('/_tags?tags=equipment&tagsMatch=any')
+    API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve(EMPTY_RESULTS) })
+
+    await wrapper.vm.toggleTag('procedure')
+    await flushPromises()
+    expect(router.currentRoute.value.query).toEqual({
+      tags: 'equipment,procedure',
+      tagsMatch: 'any'
+    })
+
+    await wrapper.vm.clearSelection()
+    await flushPromises()
+    expect(router.currentRoute.value.query).toEqual({})
+  })
+
+  it('shows the match toggle only once two tags are selected', async () => {
+    const { wrapper } = await mountTagsBrowse('/_tags?tags=equipment')
+    expect(wrapper.find('.tags-browse-match').exists()).toBe(false)
+
+    const { wrapper: two } = await mountTagsBrowse('/_tags?tags=equipment,procedure')
+    expect(two.find('.tags-browse-match').exists()).toBe(true)
+    expect(two.findAll('.tags-browse-match [role="radio"]')).toHaveLength(2)
+  })
+
   it('toggling an already-selected tag removes it from the selection', async () => {
     const { wrapper, router } = await mountTagsBrowse('/_tags?tags=equipment,procedure')
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(EMPTY_RESULTS) })

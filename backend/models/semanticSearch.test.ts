@@ -767,6 +767,39 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       )
     })
 
+    test('tagsMatch any: a page carrying one of the listed tags comes back', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      const one = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/any-one', title: 'Any One', tags: ['alpha'] }),
+        actor
+      )
+      const other = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/any-none', title: 'Any None', tags: ['gamma'] }),
+        actor
+      )
+      await insertChunk(one.id, basisVector(0))
+      await insertChunk(other.id, basisVector(0))
+
+      const results = await annSearch(basisVector(0), {
+        siteId: fixtures.siteId,
+        locales: ['en'],
+        tags: ['alpha', 'beta'],
+        tagsMatch: 'any'
+      })
+      const own = results.filter((r) => r.pageId === one.id || r.pageId === other.id)
+
+      assert.deepEqual(
+        own.map((r) => r.pageId),
+        [one.id]
+      )
+    })
+
     test('editor: only a page using the named editor comes back', async (t) => {
       if (!pgvectorAvailable) {
         t.skip('pgvector extension not installed on this Postgres')

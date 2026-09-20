@@ -68,6 +68,7 @@ export function buildFilters(params: SearchPagesParams): string {
     locales = [],
     excludeLocales = [],
     tags = [],
+    tagsMatch = 'all',
     excludeTags = [],
     editor = [],
     excludeEditor = [],
@@ -101,8 +102,12 @@ export function buildFilters(params: SearchPagesParams): string {
   if (locales.length > 0) {
     clauses.push(anyOf('locale', locales))
   }
-  for (const tag of tags) {
-    clauses.push(facet('tags', tag))
+  if (tagsMatch === 'any' && tags.length > 0) {
+    clauses.push(anyOf('tags', tags))
+  } else {
+    for (const tag of tags) {
+      clauses.push(facet('tags', tag))
+    }
   }
   if (editor.length > 0) {
     clauses.push(anyOf('editor', editor))
