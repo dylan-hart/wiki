@@ -187,6 +187,7 @@
                     :aria-label="t(`admin.groups.ruleMatch`)"
                     :options="[
                       { label: t('admin.groups.ruleMatchStart'), value: 'START' },
+                      { label: t('admin.groups.ruleMatchSubtree'), value: 'SUBTREE' },
                       { label: t('admin.groups.ruleMatchEnd'), value: 'END' },
                       { label: t('admin.groups.ruleMatchRegex'), value: 'REGEX' },
                       { label: t('admin.groups.ruleMatchTag'), value: 'TAG' },
@@ -259,7 +260,9 @@
                     :model-value="rule.path"
                     @update:model-value="onRulePathInput(rule, $event)"
                     dense
-                    :prefix="[`START`, `REGEX`, `EXACT`].includes(rule.match) ? `/` : null"
+                    :prefix="
+                      [`START`, `SUBTREE`, `REGEX`, `EXACT`].includes(rule.match) ? `/` : null
+                    "
                     :suffix="rule.match === `REGEX` ? `/` : null"
                     :aria-label="t(`admin.groups.rulePath`)" />
                 </w-card-section>
@@ -426,7 +429,9 @@ watch(
  * alone: its pattern may deliberately use a character class like `[A-Z]`.
  */
 function onRulePathInput(rule, value) {
-  rule.path = ['START', 'END', 'EXACT'].includes(rule.match) ? value.toLowerCase() : value
+  rule.path = ['START', 'SUBTREE', 'END', 'EXACT'].includes(rule.match)
+    ? value.toLowerCase()
+    : value
 }
 
 /**
@@ -577,9 +582,16 @@ async function importRules() {
           id: uuid(),
           name: r.name || t('admin.groups.ruleUntitled'),
           mode: ['ALLOW', 'DENY', 'FORCEALLOW'].includes(r.mode) ? r.mode : 'DENY',
-          match: ['START', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT', 'CLASSIFICATION'].includes(
-            r.match
-          )
+          match: [
+            'START',
+            'SUBTREE',
+            'END',
+            'REGEX',
+            'TAG',
+            'TAGALL',
+            'EXACT',
+            'CLASSIFICATION'
+          ].includes(r.match)
             ? r.match
             : 'START',
           roles: r.roles || [],

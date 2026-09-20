@@ -21,6 +21,7 @@ export const SYSTEM_PERMISSION = 'manage:system'
  */
 const GROUP_RULE_MATCH_KINDS = [
   'START',
+  'SUBTREE',
   'END',
   'REGEX',
   'TAG',
@@ -38,6 +39,7 @@ export type GroupRuleMatch = (typeof GROUP_RULE_MATCH_KINDS)[number]
  */
 const GROUP_RULE_MATCH_MEMBERS: Record<GroupRuleMatch, true> = {
   START: true,
+  SUBTREE: true,
   END: true,
   REGEX: true,
   TAG: true,
@@ -583,7 +585,10 @@ class Groups extends ClusterReloaded {
       ...patch,
       rules: patch.rules.map((rule) => {
         const withPath =
-          rule.match === 'START' || rule.match === 'END' || rule.match === 'EXACT'
+          rule.match === 'START' ||
+          rule.match === 'SUBTREE' ||
+          rule.match === 'END' ||
+          rule.match === 'EXACT'
             ? { ...rule, path: normalizePagePath(rule.path) }
             : rule
         return rule.tags ? { ...withPath, tags: normalizeRuleTags(rule.tags) } : withPath

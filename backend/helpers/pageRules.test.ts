@@ -33,6 +33,56 @@ describe('ruleMatchesPage', () => {
     })
   })
 
+  describe('SUBTREE', () => {
+    test('matches the page at the rule path itself', () => {
+      const rule = makeRule({ match: 'SUBTREE', path: 'foo/bar' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'foo/bar' })), true)
+    })
+
+    test('matches a descendant of the rule path', () => {
+      const rule = makeRule({ match: 'SUBTREE', path: 'foo/bar' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'foo/bar/baz/qux' })), true)
+    })
+
+    test('does not match a sibling that merely shares the string prefix', () => {
+      const rule = makeRule({ match: 'SUBTREE', path: 'foo/bar' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'foo/barometer' })), false)
+      assert.equal(ruleMatchesPage(rule, page({ path: 'foo/bar-private' })), false)
+    })
+
+    test('does not match an ancestor of the rule path', () => {
+      const rule = makeRule({ match: 'SUBTREE', path: 'foo/bar' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'foo' })), false)
+    })
+
+    test('ignores a leading slash on either side and folds case', () => {
+      const rule = makeRule({ match: 'SUBTREE', mode: 'DENY', path: '/HR/Salaries' })
+      assert.equal(ruleMatchesPage(rule, page({ path: '/hr/salaries/2026' })), true)
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), true)
+    })
+
+    test('tolerates a trailing slash on a rule path that skipped save-time normalization', () => {
+      const rule = makeRule({ match: 'SUBTREE', path: 'foo/bar/' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'foo/bar/baz' })), true)
+      assert.equal(ruleMatchesPage(rule, page({ path: 'foo/barometer' })), false)
+    })
+
+    test('an empty path addresses the whole site, like START', () => {
+      const rule = makeRule({ match: 'SUBTREE', path: '' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'anything/at/all' })), true)
+      assert.equal(ruleMatchesPage(rule, page({ path: '' })), true)
+    })
+  })
+
+  describe('START over-grant (regression)', () => {
+    test('a START rule saved from `foo/bar/` also matches foo/barometer', () => {
+      // -> Trailing slashes are stripped on save, so START cannot express a folder boundary;
+      //    SUBTREE is the kind that can.
+      const rule = makeRule({ match: 'START', path: 'foo/bar' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'foo/barometer' })), true)
+    })
+  })
+
   describe('END', () => {
     test('matches a page whose path ends with the rule path', () => {
       const rule = makeRule({ match: 'END', path: 'france' })
@@ -452,10 +502,10 @@ describe('resolvePageRule / rulesAllow', () => {
     }
   })
 
-  test('every pairwise comparison among the 6 match types respects the documented band order', () => {
+  test('every pairwise comparison among the 7 match types respects the documented band order', () => {
     // -> Every rule here is at zero specificity, so only band and the within-band match-type
     //    tie-break can decide -- and every pair, not just neighbours, proving a total order.
-    const order: GroupRuleMatch[] = ['START', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT']
+    const order: GroupRuleMatch[] = ['START', 'SUBTREE', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT']
     const ruleFor = (id: string, match: GroupRuleMatch): GroupRule =>
       makeRule({
         id,

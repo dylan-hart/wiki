@@ -62,6 +62,7 @@ export interface RulePageRef {
  */
 const MATCH_BAND: Record<GroupRuleMatch, number> = {
   START: 0,
+  SUBTREE: 0,
   END: 0,
   REGEX: 0,
   TAG: 1,
@@ -76,6 +77,7 @@ const MATCH_BAND: Record<GroupRuleMatch, number> = {
  */
 const MATCH_PRIORITY: GroupRuleMatch[] = [
   'START',
+  'SUBTREE',
   'END',
   'REGEX',
   'TAG',
@@ -176,6 +178,10 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
   switch (rule.match) {
     case 'START':
       return pagePathLower.startsWith(rulePathLower)
+    case 'SUBTREE': {
+      const root = rulePathLower.replace(/\/+$/, '')
+      return root === '' || pagePathLower === root || pagePathLower.startsWith(`${root}/`)
+    }
     case 'EXACT':
       return pagePathLower === rulePathLower
     case 'END':
