@@ -81,24 +81,6 @@
             icon="tabler:info-circle"
             :hint="t(`admin.flags.serverLogNotice`)" />
         </w-settings-card>
-        <w-settings-card class="mt-4" :title="t('admin.flags.advanced.label')">
-          <!-- No `label` on the row: the card's own strip already names this setting, and
-               repeating it immediately under would read as two different things -->
-          <w-settings-row control-width="auto" icon="tabler:tool">
-            <!-- TODO: the editor is unbuilt and nothing reads custom keys; the button stays
-                 disabled behind the notImplemented hint until it is -->
-            <template #hint>
-              <div>{{ t(`admin.flags.advanced.hint`) }}</div>
-              <div class="text-orange">{{ t(`admin.flags.advanced.notImplemented`) }}</div>
-            </template>
-            <w-btn
-              :label="t(`common.actions.edit`)"
-              icon="tabler:code"
-              color="primary"
-              text-color="white"
-              disabled />
-          </w-settings-row>
-        </w-settings-card>
       </div>
       <div class="col-span-12 max-lg:hidden lg:col-span-5">
         <div class="p-4 text-center">
