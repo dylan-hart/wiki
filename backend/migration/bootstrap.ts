@@ -177,6 +177,9 @@ export function createSchedulerStub(): CardinalGlobal['scheduler'] {
         }
         return undefined
       }
+      if (task === 'autoTagPage') {
+        return undefined
+      }
       if (!(task in USE_WORKER)) {
         CARDINAL.logger.warn(
           'migrate',
