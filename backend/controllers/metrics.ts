@@ -1,6 +1,11 @@
 import { groups as groupsTable, pages as pagesTable, users as usersTable } from '../db/schema.ts'
 import { getClusterNodes } from '../api/system/info.ts'
-import { formatPrometheusMetrics, type MetricsSnapshot } from '../helpers/metrics.ts'
+import {
+  createRuntimeSampler,
+  formatPrometheusMetrics,
+  formatRuntimeMetrics,
+  type MetricsSnapshot
+} from '../helpers/metrics.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -18,6 +23,12 @@ import type { FastifyInstance } from 'fastify'
  * `req.apiKey` here, so bearer verification and the `manage:system` check are repeated below.
  */
 async function routes(app: FastifyInstance) {
+  let runtimeSampler: ReturnType<typeof createRuntimeSampler> | null =
+    CARDINAL.config?.metrics?.isEnabled === true ? createRuntimeSampler() : null
+  app.addHook('onClose', async () => {
+    runtimeSampler?.stop()
+  })
+
   app.get('/', async (req, reply) => {
     // -> Checked first: while the feature is off, the endpoint does not exist as far as any caller —
     //    authenticated or not — can tell.
@@ -78,9 +89,12 @@ async function routes(app: FastifyInstance) {
       dbPoolWaiting: pool?.waitingCount ?? 0
     }
 
+    runtimeSampler ??= createRuntimeSampler()
+    const runtime = runtimeSampler.collect()
+
     return reply
       .type('text/plain; version=0.0.4; charset=utf-8')
-      .send(formatPrometheusMetrics(snapshot))
+      .send(formatPrometheusMetrics(snapshot) + formatRuntimeMetrics(runtime))
   })
 }
 
