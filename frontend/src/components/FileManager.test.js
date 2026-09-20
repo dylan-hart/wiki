@@ -52,6 +52,8 @@ const i18n = createTestI18n({
     moveItem: 'Move...',
     moveAssetSuccess: 'Asset moved successfully.',
     moveAssetFailed: 'Failed to move asset.',
+    moveFolderSuccess: 'Folder moved successfully.',
+    moveFolderFailed: 'Failed to move folder.',
     renameMovePage: 'Rename / Move Page...',
     pngFileType: 'PNG Image',
     markdownPageType: 'Markdown Page',
@@ -1416,6 +1418,142 @@ describe('FileManager asset Move action (OpenProject #3664)', () => {
     expect(notifyQueue.at(-1)).toMatchObject({
       type: 'negative',
       caption: 'You are not allowed to move this file.'
+    })
+
+    wrapper.unmount()
+  })
+})
+
+describe('FileManager folder Move action (OpenProject #3666)', () => {
+  const folder = {
+    id: 'f1',
+    type: 'folder',
+    title: 'Guides',
+    fileName: 'guides',
+    folderPath: 'docs'
+  }
+
+  async function mountWithItems(fileList) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, buildTestRouter([])],
+        stubs: {
+          Tree: { template: '<div />', methods: { resetLoaded() {} } },
+          NewMenu: true,
+          LocaleSelectorMenu: true,
+          WMenu: { template: '<div><slot /></div>' }
+        }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+    wrapper.vm.state.fileList = fileList
+    await flushPromises()
+    return { wrapper, siteStore }
+  }
+
+  beforeEach(() => {
+    notifyQueue.length = 0
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('renders "Move..." on a folder row', async () => {
+    const { wrapper } = await mountWithItems([folder])
+    expect(wrapper.text()).toContain('Move...')
+    wrapper.unmount()
+  })
+
+  it("opens the destination-only picker on the folder's current parent", async () => {
+    const { wrapper } = await mountWithItems([folder])
+
+    wrapper.vm.moveItem(folder)
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({ mode: 'moveItem', folderPath: 'docs' })
+
+    wrapper.unmount()
+  })
+
+  it('PUTs the picked destination to the folder parent route, then notifies', async () => {
+    const { wrapper, siteStore } = await mountWithItems([folder])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    wrapper.vm.moveItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'archive' })
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith(`sites/${siteStore.id}/tree/folders/f1/parent`, {
+      json: { folderId: 'f2', parentPath: 'archive' }
+    })
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Folder moved successfully.'
+    })
+
+    wrapper.unmount()
+  })
+
+  it('reloads the listing after a successful move and drops a stale selection', async () => {
+    const { wrapper } = await mountWithItems([folder])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    wrapper.vm.state.currentFileId = 'f1'
+    API_CLIENT.get.mockClear()
+
+    wrapper.vm.moveItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: null, parentPath: '' })
+    await flushPromises()
+
+    expect(wrapper.vm.state.currentFileId).toBeNull()
+    expect(API_CLIENT.get).toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
+  it('surfaces the 403 message and does not report success', async () => {
+    const { wrapper } = await mountWithItems([folder])
+    const err = Object.assign(new Error('Request failed with status code 403'), {
+      data: { message: 'You are not allowed to move a page inside this folder.' }
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(err) })
+
+    wrapper.vm.moveItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'archive' })
+    await flushPromises()
+
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to move folder.',
+      caption: 'You are not allowed to move a page inside this folder.'
+    })
+
+    wrapper.unmount()
+  })
+
+  it('surfaces the 409 name-collision message', async () => {
+    const { wrapper } = await mountWithItems([folder])
+    const err = Object.assign(new Error('Request failed with status code 409'), {
+      data: { message: 'A folder with that name already exists there.' }
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(err) })
+
+    wrapper.vm.moveItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'archive' })
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      caption: 'A folder with that name already exists there.'
     })
 
     wrapper.unmount()
