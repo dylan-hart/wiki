@@ -103,6 +103,19 @@ export interface IconPickerPrefs {
   set?: string
 }
 
+export const PROFILE_PUBLIC_FIELDS = ['location', 'jobTitle', 'pronouns'] as const
+
+export type ProfilePublicField = (typeof PROFILE_PUBLIC_FIELDS)[number]
+
+/** Mirrors the `UserPublicProfile` API schema. */
+export interface UserPublicProfile {
+  id: string
+  name: string
+  hasAvatar: boolean
+  avatarProviderUrl: string | null
+  fields: Partial<Record<ProfilePublicField, string>>
+}
+
 /** The `meta` and `prefs` blobs flattened out; mirrors the `UserProfile` API schema. */
 export interface UserProfile {
   id: string
@@ -131,6 +144,8 @@ export interface UserProfile {
   locale: string
   graph?: GraphPrefs
   iconPicker?: IconPickerPrefs
+  publicFields: ProfilePublicField[]
+  forcedPublicFields: ProfilePublicField[]
 }
 
 /** What a user may change on its own profile: notably not the email, nor any admin flag. */
@@ -151,6 +166,7 @@ export interface UserProfilePatch {
   locale?: string
   graph?: GraphPrefs
   iconPicker?: IconPickerPrefs
+  publicFields?: ProfilePublicField[]
 }
 
 /**
@@ -177,8 +193,57 @@ const profilePrefsKeys = [
   'cvd',
   'locale',
   'graph',
-  'iconPicker'
+  'iconPicker',
+  'publicFields'
 ] as const
+
+function knownPublicFields(value: unknown): ProfilePublicField[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return PROFILE_PUBLIC_FIELDS.filter((field) => value.includes(field))
+}
+
+export function forcedPublicFields(): ProfilePublicField[] {
+  return knownPublicFields(CARDINAL.config.profileVisibility?.forcedPublicFields)
+}
+
+export function effectivePublicFields(userFields: unknown): ProfilePublicField[] {
+  const chosen = new Set([...knownPublicFields(userFields), ...forcedPublicFields()])
+  return PROFILE_PUBLIC_FIELDS.filter((field) => chosen.has(field))
+}
+
+/** Null for an account nobody may look at: inactive, or a system account such as the guest. */
+export function toPublicProfile(user: {
+  id: string
+  name: string
+  hasAvatar: boolean
+  avatarProviderUrl: string | null
+  isActive: boolean
+  isSystem: boolean
+  meta: unknown
+  prefs: unknown
+}): UserPublicProfile | null {
+  if (!user.isActive || user.isSystem) {
+    return null
+  }
+  const meta = (user.meta ?? {}) as Record<string, any>
+  const prefs = (user.prefs ?? {}) as Record<string, any>
+  const fields: UserPublicProfile['fields'] = {}
+  for (const field of effectivePublicFields(prefs.publicFields)) {
+    const value = meta[field]
+    if (typeof value === 'string' && value.trim() !== '') {
+      fields[field] = value
+    }
+  }
+  return {
+    id: user.id,
+    name: user.name,
+    hasAvatar: user.hasAvatar,
+    avatarProviderUrl: user.avatarProviderUrl ?? null,
+    fields
+  }
+}
 
 /** Nothing displays an avatar larger than this. */
 const avatarSize = 180
@@ -792,8 +857,15 @@ class Users {
       //    what each control falls back to when unset, rather than it being duplicated here.
       graph: prefs.graph as GraphPrefs | undefined,
       // -> Same reasoning as `graph`: `IconPickerDialog.vue` owns the unset fallback.
-      iconPicker: prefs.iconPicker as IconPickerPrefs | undefined
+      iconPicker: prefs.iconPicker as IconPickerPrefs | undefined,
+      publicFields: knownPublicFields(prefs.publicFields),
+      forcedPublicFields: forcedPublicFields()
     }
+  }
+
+  async getPublicProfile(id: string): Promise<UserPublicProfile | null> {
+    const user = await this.getById(id)
+    return user ? toPublicProfile(user) : null
   }
 
   /**
@@ -980,6 +1052,9 @@ class Users {
       if (patch[key] !== undefined) {
         prefs[key] = patch[key]
       }
+    }
+    if (patch.publicFields !== undefined) {
+      prefs.publicFields = knownPublicFields(patch.publicFields)
     }
 
     // -> Name fields go to `updateUser` untouched: it is the one owner of the

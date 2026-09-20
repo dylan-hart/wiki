@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { HOOK_EVENTS } from '../../models/hooks.ts'
+import { PROFILE_PUBLIC_FIELDS } from '../../models/users.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   app.addSchema({
@@ -209,8 +210,59 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         properties: {
           set: { type: 'string' }
         }
+      },
+      publicFields: {
+        type: 'array',
+        description:
+          'The About Me fields this user chose to show other users. Does not include the ones an administrator forces public: those are in `forcedPublicFields`.',
+        items: { type: 'string', enum: [...PROFILE_PUBLIC_FIELDS] }
+      },
+      forcedPublicFields: {
+        type: 'array',
+        description:
+          'The About Me fields an administrator shows to other users on every profile, whatever `publicFields` says. Read-only here; a forced field is only visible once it is filled in.',
+        items: { type: 'string', enum: [...PROFILE_PUBLIC_FIELDS] }
       }
     }
+  })
+
+  app.addSchema({
+    $id: 'UserPublicProfile',
+    type: 'object',
+    description:
+      'What another user may see of an account. Never carries the email, and `fields` holds only the About Me fields that are both public and filled in.',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      name: { type: 'string' },
+      hasAvatar: { type: 'boolean' },
+      avatarProviderUrl: { type: 'string', nullable: true },
+      fields: {
+        type: 'object',
+        properties: Object.fromEntries(
+          PROFILE_PUBLIC_FIELDS.map((field) => [field, { type: 'string' }])
+        )
+      }
+    }
+  })
+
+  app.addSchema({
+    $id: 'ProfileVisibility',
+    type: 'object',
+    properties: {
+      forcedPublicFields: {
+        type: 'array',
+        description:
+          'About Me fields shown to other users on every profile. Forcing a field public does not require anybody to fill it in.',
+        items: { type: 'string', enum: [...PROFILE_PUBLIC_FIELDS] },
+        uniqueItems: true
+      },
+      guestsMayView: {
+        type: 'boolean',
+        description:
+          "Whether signed-out visitors may open another user's profile. Off by default: guests are answered 401."
+      }
+    },
+    additionalProperties: false
   })
 
   /**
@@ -310,6 +362,13 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           set: { type: 'string', maxLength: 255 }
         },
         additionalProperties: false
+      },
+      publicFields: {
+        type: 'array',
+        description:
+          'The About Me fields to show other users, replacing the stored list. An empty array hides them all (apart from any an administrator forces public).',
+        items: { type: 'string', enum: [...PROFILE_PUBLIC_FIELDS] },
+        uniqueItems: true
       }
     }
   })
