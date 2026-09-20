@@ -297,13 +297,26 @@ describe('DiscordAuthentication', () => {
       ])
     })
 
-    // -> Stock Discord reports no roles field on `/users/@me`, so this exercises the inherited
-    //    mapping mechanism, not a real Discord claim.
-    test('maps the configured groupsClaim onto profile.groups when mapGroups is on', async () => {
-      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+    const guildId = '222222222222222222'
+    const botConf = {
+      clientId: 'client-abc',
+      clientSecret: 'secret-xyz',
+      guildId,
+      mapGroups: true,
+      botToken: 'the-bot-token'
+    }
+
+    function mockWithBot(bot: (url: string, init: any) => Response) {
+      return mock.method(globalThis, 'fetch', async (input: any, init: any) => {
         const url = String(input)
+        if (url.startsWith('https://discord.com/api/v10/')) {
+          return bot(url, init)
+        }
         if (url === 'https://discord.com/api/oauth2/token') {
           return new Response(JSON.stringify({ access_token: 'the-access-token' }), { status: 200 })
+        }
+        if (url === 'https://discord.com/api/users/@me/guilds') {
+          return new Response(JSON.stringify([{ id: guildId }]), { status: 200 })
         }
         if (url === 'https://discord.com/api/users/@me') {
           return new Response(
@@ -311,21 +324,126 @@ describe('DiscordAuthentication', () => {
               id: '987654321098765432',
               username: 'octocat',
               email: 'octocat@example.com',
-              roles: ['moderator', 'editor']
+              verified: true,
+              groups: ['from-a-claim']
             }),
             { status: 200 }
           )
         }
         throw new Error(`unexpected fetch to ${url}`)
       })
-      const discord = new DiscordAuthentication('strategy-1', {
-        clientId: 'client-abc',
-        clientSecret: 'secret-xyz',
-        mapGroups: true,
-        groupsClaim: 'roles'
+    }
+
+    const memberUrl = `https://discord.com/api/v10/guilds/${guildId}/members/987654321098765432`
+    const rolesUrl = `https://discord.com/api/v10/guilds/${guildId}/roles`
+
+    test('maps the member role ids to role names via the bot token when mapGroups is on', async () => {
+      const botCalls: { url: string; auth: string }[] = []
+      fetchMock = mockWithBot((url, init) => {
+        botCalls.push({ url, auth: init.headers.Authorization })
+        if (url === memberUrl) {
+          return new Response(JSON.stringify({ roles: ['r2', 'r1', 'gone'] }), { status: 200 })
+        }
+        if (url === rolesUrl) {
+          return new Response(
+            JSON.stringify([
+              { id: 'r1', name: 'Editors' },
+              { id: 'r2', name: 'Moderators' },
+              { id: 'r3', name: 'Unused' }
+            ]),
+            { status: 200 }
+          )
+        }
+        throw new Error(`unexpected bot fetch to ${url}`)
       })
+      const discord = new DiscordAuthentication('strategy-1', botConf)
       const profile = await discord.profile({ ...flow, currentUrl: '', code: 'the-code' })
-      assert.deepEqual(profile.groups, ['moderator', 'editor'])
+      assert.deepEqual(profile.groups, ['Moderators', 'Editors'])
+      assert.deepEqual(
+        botCalls.map((c) => c.url),
+        [memberUrl, rolesUrl]
+      )
+      assert.ok(botCalls.every((c) => c.auth === 'Bot the-bot-token'))
+    })
+
+    test('yields no groups, not an error, for a user who is not in the guild (404)', async () => {
+      fetchMock = mockWithBot((url) => {
+        if (url === memberUrl) {
+          return new Response(JSON.stringify({ code: 10007 }), { status: 404 })
+        }
+        throw new Error(`unexpected bot fetch to ${url}`)
+      })
+      const discord = new DiscordAuthentication('strategy-1', botConf)
+      const profile = await discord.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.deepEqual(profile.groups, [])
+    })
+
+    test('a member with no roles yields an empty group list', async () => {
+      fetchMock = mockWithBot((url) =>
+        url === memberUrl
+          ? new Response(JSON.stringify({ roles: [] }), { status: 200 })
+          : new Response(JSON.stringify([{ id: 'r1', name: 'Editors' }]), { status: 200 })
+      )
+      const discord = new DiscordAuthentication('strategy-1', botConf)
+      const profile = await discord.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.deepEqual(profile.groups, [])
+    })
+
+    test('refuses as misconfigured, before any bot call, when the bot token or guild id is missing', async () => {
+      for (const missing of ['botToken', 'guildId']) {
+        fetchMock = mockWithBot(() => {
+          throw new Error('the bot API must not be called')
+        })
+        const conf: Record<string, any> = { ...botConf }
+        delete conf[missing]
+        const discord = new DiscordAuthentication('strategy-1', conf)
+        await assert.rejects(
+          discord.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+          /ERR_STRATEGY_MISCONFIGURED/,
+          missing
+        )
+        fetchMock.mock.restore()
+      }
+    })
+
+    test('throws, rather than returning [], when a lookup fails, so an outage cannot revoke mapped groups', async () => {
+      const failures: [string, (url: string) => Response][] = [
+        ['member 429', () => new Response('rate limited', { status: 429 })],
+        ['member 401', () => new Response('bad token', { status: 401 })],
+        [
+          'roles 500',
+          (url) =>
+            url === memberUrl
+              ? new Response(JSON.stringify({ roles: ['r1'] }), { status: 200 })
+              : new Response('boom', { status: 500 })
+        ],
+        [
+          'member not JSON',
+          (url) =>
+            url === memberUrl
+              ? new Response('<html>', { status: 200 })
+              : new Response('[]', { status: 200 })
+        ]
+      ]
+      for (const [label, bot] of failures) {
+        fetchMock = mockWithBot(bot)
+        const discord = new DiscordAuthentication('strategy-1', botConf)
+        await assert.rejects(
+          discord.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+          /ERR_GROUP_LOOKUP_FAILED/,
+          label
+        )
+        fetchMock.mock.restore()
+      }
+    })
+
+    test('never puts the bot token in an error', async () => {
+      fetchMock = mockWithBot(() => new Response('nope', { status: 500 }))
+      const discord = new DiscordAuthentication('strategy-1', botConf)
+      await assert.rejects(
+        discord.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+        (err: Error) => !err.message.includes('the-bot-token')
+      )
     })
 
     test('leaves profile.groups absent when mapGroups is off', async () => {
@@ -403,9 +521,13 @@ describe('discord/definition.yml', () => {
     }
   })
 
-  test('declares mapGroups/groupsClaim props for group-claim mapping (OpenProject #826), consistent with every other preset even though stock Discord reports no such field', () => {
-    assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
-    assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
+  test('declares mapGroups and a sensitive botToken shown only when mapGroups is on, and no groupsClaim', () => {
+    assert.equal(def.props.mapGroups.type, 'Boolean')
+    assert.equal(def.props.mapGroups.default, false)
+    assert.equal(def.props.botToken.type, 'String')
+    assert.equal(def.props.botToken.sensitive, true)
+    assert.deepEqual(def.props.botToken.if, [{ key: 'mapGroups', eq: true }])
+    assert.equal(def.props.groupsClaim, undefined)
   })
 
   test('the callback URL ref matches the {host}/_api/auth/{id}/callback convention every module uses', () => {
