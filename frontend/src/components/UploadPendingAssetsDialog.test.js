@@ -19,7 +19,7 @@ const MESSAGES = {
  * The component awaits a fixed 500ms delay before uploading anything; fake timers stand in for it
  * so no case actually waits half a second.
  */
-async function mountDialog({ path, pendingAssets }) {
+async function mountDialog({ path, pendingAssets, locale }) {
   setActivePinia(createPinia())
   const editorStore = useEditorStore()
   const pageStore = usePageStore()
@@ -27,6 +27,9 @@ async function mountDialog({ path, pendingAssets }) {
 
   siteStore.id = 'site-1'
   pageStore.path = path
+  if (locale) {
+    pageStore.locale = locale
+  }
   pageStore.content = pendingAssets.map((a) => a.blobUrl).join('\n')
   editorStore.pendingAssets = pendingAssets
 
@@ -76,7 +79,7 @@ describe('UploadPendingAssetsDialog: destination folder (OpenProject #879)', () 
     expect(API_CLIENT.post).toHaveBeenCalledWith(
       `sites/${siteStore.id}/assets`,
       expect.objectContaining({
-        searchParams: { fileName: 'photo.png', parentPath: 'guides/setup' }
+        searchParams: { fileName: 'photo.png', parentPath: 'guides/setup', locale: 'en' }
       })
     )
   })
@@ -97,7 +100,7 @@ describe('UploadPendingAssetsDialog: destination folder (OpenProject #879)', () 
     expect(API_CLIENT.post).toHaveBeenCalledWith(
       `sites/${siteStore.id}/assets`,
       expect.objectContaining({
-        searchParams: { fileName: 'photo.png', parentPath: '' }
+        searchParams: { fileName: 'photo.png', parentPath: '', locale: 'en' }
       })
     )
   })
@@ -117,6 +120,38 @@ describe('UploadPendingAssetsDialog: destination folder (OpenProject #879)', () 
 
     expect(pageStore.content).toBe('/guides/setup/photo-1.png')
     expect(wrapper.emitted('ok')).toBeTruthy()
+  })
+})
+
+describe('UploadPendingAssetsDialog: page locale (OpenProject #3554)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("files the asset under the page's locale, not the site's primary", async () => {
+    API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        asset: { folderPath: '', fileName: 'photo.png' }
+      })
+    })
+
+    const { siteStore } = await mountDialog({
+      path: 'home',
+      locale: 'fr',
+      pendingAssets: [pendingAsset('photo.png')]
+    })
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith(
+      `sites/${siteStore.id}/assets`,
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ locale: 'fr' })
+      })
+    )
   })
 })
 

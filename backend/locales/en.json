@@ -2647,6 +2647,7 @@
   "editor.pageScripts.title": "Page Scripts",
   "editor.pendingAssetsCancel": "Cancel Upload",
   "editor.pendingAssetsCancelled": "Upload cancelled.",
+  "editor.pendingAssetsSuggestRefused": "Files and images cannot be added to a suggestion. Suggest the text change, and ask an editor to add the file.",
   "editor.pendingAssetsUploading": "Uploading assets...",
   "editor.picker.title": "Choose an Editor",
   "editor.props.alias": "Alias",

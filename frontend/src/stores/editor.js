@@ -139,6 +139,12 @@ export const useEditorStore = defineStore('editor', {
       }
       return blobUrl
     },
+    clearPendingAssets() {
+      for (const asset of this.pendingAssets) {
+        URL.revokeObjectURL(asset.blobUrl)
+      }
+      this.pendingAssets = []
+    },
     async fetchConfigs() {
       const siteStore = useSiteStore()
       try {

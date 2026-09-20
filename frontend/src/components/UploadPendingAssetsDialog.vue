@@ -87,7 +87,8 @@ onMounted(async () => {
       const resp = await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
         searchParams: {
           fileName: item.fileName,
-          parentPath: pageStore.folderPath
+          parentPath: pageStore.folderPath,
+          locale: pageStore.locale
         },
         headers: {
           'content-type': item.file.type || 'application/octet-stream'

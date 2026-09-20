@@ -507,6 +507,17 @@ function insertAssetClb(opts) {
  * `generateUniqueName` is for the paste path only; see `addPendingAsset` for why a drop's own
  * filename is kept and a clipboard paste's is not.
  */
+function refuseFilesWhenSuggesting() {
+  if (editorStore.mode !== 'suggest') {
+    return false
+  }
+  notify({
+    type: 'warning',
+    message: t('editor.pendingAssetsSuggestRefused')
+  })
+  return true
+}
+
 function insertFilesAsAssets(files, { generateUniqueName = false, position = null } = {}) {
   if (position != null) {
     editor.value.chain().focus().setTextSelection(position).run()
@@ -539,6 +550,9 @@ function handlePaste(view, event) {
     return false
   }
   event.preventDefault()
+  if (refuseFilesWhenSuggesting()) {
+    return true
+  }
   insertFilesAsAssets(pastedFiles(event.clipboardData), { generateUniqueName: true })
   return true
 }
@@ -562,6 +576,9 @@ function handleDrop(view, event) {
     return false
   }
   event.preventDefault()
+  if (refuseFilesWhenSuggesting()) {
+    return true
+  }
   // -> `posAtCoords` returns `null` when the point is off the document (or, as under test, when
   //    nothing has laid out); `insertFilesAsAssets` falls back to the current selection.
   const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })

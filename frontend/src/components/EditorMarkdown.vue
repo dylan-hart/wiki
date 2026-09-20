@@ -1104,6 +1104,17 @@ function processContent(newContent) {
  * `generateUniqueName` is set only by the paste call site: every browser names a clipboard-pasted file
  * "image.png" regardless of source, where a dropped file's name is real user intent worth keeping.
  */
+function refuseFilesWhenSuggesting() {
+  if (editorStore.mode !== 'suggest') {
+    return false
+  }
+  notify({
+    type: 'warning',
+    message: t('editor.pendingAssetsSuggestRefused')
+  })
+  return true
+}
+
 function insertFilesAsAssets(files, { generateUniqueName = false } = {}) {
   const markup = files.map((file) => {
     const blobUrl = editorStore.addPendingAsset(file, { generateUniqueName })
@@ -1120,11 +1131,15 @@ function insertFilesAsAssets(files, { generateUniqueName = false } = {}) {
  * `src` that cannot be retrieved (cross-origin CORS, a `blob:` from a navigated-away tab) drops just
  * that one image.
  */
-async function resolvePendingImages(markdown, images) {
+async function resolvePendingImages(markdown, images, { refuse = false } = {}) {
   let content = markdown
   await Promise.all(
     images.map(async ({ token, src, alt }) => {
       const placeholder = `![${alt}](${token})`
+      if (refuse) {
+        content = content.split(placeholder).join('')
+        return
+      }
       let replacement = ''
       try {
         const response = await fetch(src)
@@ -1156,6 +1171,9 @@ async function onEditorPaste(event) {
   if (shouldClaimPaste(event.clipboardData)) {
     event.preventDefault()
     event.stopPropagation()
+    if (refuseFilesWhenSuggesting()) {
+      return
+    }
     insertFilesAsAssets(pastedFiles(event.clipboardData), { generateUniqueName: true })
     return
   }
@@ -1175,7 +1193,10 @@ async function onEditorPaste(event) {
   event.preventDefault()
   event.stopPropagation()
   const { markdown, images } = htmlToMarkdown(html)
-  const content = images.length > 0 ? await resolvePendingImages(markdown, images) : markdown
+  const content =
+    images.length > 0
+      ? await resolvePendingImages(markdown, images, { refuse: refuseFilesWhenSuggesting() })
+      : markdown
   insertAtCursor({ content })
 }
 
@@ -1196,6 +1217,9 @@ function onEditorDrop(event) {
     return
   }
   event.preventDefault()
+  if (refuseFilesWhenSuggesting()) {
+    return
+  }
   // -> Dropped text lands where it was dropped, and so should a file: the cursor moves to meet it
   const target = editor.getTargetAtClientPoint(event.clientX, event.clientY)
   if (target?.position) {

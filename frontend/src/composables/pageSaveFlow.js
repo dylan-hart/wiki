@@ -57,6 +57,7 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         */
         originPageId: ''
       })
+      editorStore.clearPendingAssets()
 
       if (
         (pageStore.path === '' || pageStore.path === 'home') &&
@@ -100,6 +101,7 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         // -> Reset, or the next editor opened inherits this one's mode
         mode: 'edit'
       })
+      editorStore.clearPendingAssets()
       if (hadPendingChanges) {
         notify({
           type: 'positive',
@@ -118,6 +120,7 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         mode: 'edit',
         originPageId: ''
       })
+      editorStore.clearPendingAssets()
       notify({
         type: 'negative',
         message: t('common.page.reloadFailed')
@@ -186,6 +189,7 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
           isActive: false,
           editor: ''
         })
+        editorStore.clearPendingAssets()
       }
     } catch (err) {
       // -> A 409 has already put the resolution dialog up via the `saveConflict` watch; a generic

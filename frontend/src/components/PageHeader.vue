@@ -466,6 +466,7 @@ async function createPage() {
       editorStore.$patch({
         isActive: false
       })
+      editorStore.clearPendingAssets()
       router.replace('/')
     } catch (err) {
       notify({
@@ -506,6 +507,7 @@ async function createPage() {
       editorStore.$patch({
         isActive: false
       })
+      editorStore.clearPendingAssets()
     } catch (err) {
       notify({
         type: 'negative',
@@ -582,6 +584,7 @@ async function submitSuggestionCommit(guest = {}) {
       editor: '',
       mode: 'edit'
     })
+    editorStore.clearPendingAssets()
     await pageStore.pageLoad({ id: pageStore.id })
     notify({
       type: 'positive',
