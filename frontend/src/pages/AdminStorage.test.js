@@ -11,7 +11,7 @@ import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 
 import { createTestI18n } from '../../test/i18n.js'
-import { buildTestRouter } from '../../test/router.js'
+import { buildTestRouter, createTestRouter } from '../../test/router.js'
 
 /**
  * The GitHub-setup assertions below read the page's source text rather than mounting it: they guard
@@ -137,5 +137,120 @@ describe('AdminStorage.vue - delivery-path diagram dark mode (OpenProject #2500)
     const label = graph.find('.storage-delivery-graph__label')
     expect(label.exists()).toBe(true)
     expect(label.attributes('fill')).toBe('#e8eaed')
+  })
+})
+
+function makeTarget(overrides = {}) {
+  const { assetDelivery, ...rest } = overrides
+  return {
+    id: 'tgt-1',
+    module: 's3',
+    title: 'Amazon S3',
+    description: '',
+    icon: 's3',
+    banner: '',
+    vendor: '',
+    website: '',
+    isEnabled: true,
+    contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' },
+    assetDelivery: {
+      isStreamingSupported: true,
+      isDirectAccessSupported: true,
+      isReadThroughSupported: true,
+      streaming: false,
+      directAccess: false,
+      readThrough: false,
+      ...assetDelivery
+    },
+    versioning: { isSupported: false, isForceEnabled: false, enabled: false },
+    props: {},
+    config: {},
+    actions: [],
+    ...rest
+  }
+}
+
+const dbTarget = () =>
+  makeTarget({
+    id: 'db-1',
+    module: 'db',
+    title: 'Database',
+    assetDelivery: {
+      isStreamingSupported: false,
+      isDirectAccessSupported: false,
+      isReadThroughSupported: false
+    }
+  })
+
+/** The page opens on the db target, so the wanted one is navigated to once the list has loaded. */
+async function mountWithTargets(targets, selectedId) {
+  const list = [dbTarget(), ...targets]
+  globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve(list) }))
+  globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({}) })
+
+  setActivePinia(createPinia())
+  useAdminStore().currentSiteId = 'site-1'
+  useUserStore().permissions = ['manage:system']
+
+  const router = await createTestRouter(['/_admin/:siteId/storage/:id?'], '/_admin/site-1/storage')
+  const wrapper = mount(AdminStorage, { global: { plugins: [router, createTestI18n()] } })
+  await flushPromises()
+  await router.push(`/_admin/site-1/storage/${selectedId}`)
+  await flushPromises()
+  return wrapper
+}
+
+const readThroughToggle = (wrapper) =>
+  wrapper.find('button[role="checkbox"][aria-label="admin.storage.assetReadThrough"]')
+
+describe('AdminStorage.vue - read-through toggle', () => {
+  it('renders the toggle enabled, without the not-supported caption, for a module that supports it', async () => {
+    const wrapper = await mountWithTargets([makeTarget()], 'tgt-1')
+
+    const toggle = readThroughToggle(wrapper)
+    expect(toggle.exists()).toBe(true)
+    expect(toggle.attributes('disabled')).toBeUndefined()
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(wrapper.text()).toContain('admin.storage.assetReadThroughHint')
+    expect(wrapper.text()).not.toContain('admin.storage.assetReadThroughNotSupported')
+  })
+
+  it('disables the toggle and shows the not-supported caption for the db module', async () => {
+    const wrapper = await mountWithTargets([], 'db-1')
+
+    const toggle = readThroughToggle(wrapper)
+    expect(toggle.exists()).toBe(true)
+    expect(toggle.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('admin.storage.assetReadThroughNotSupported')
+  })
+
+  it('treats a target from an API without the flag as unsupported rather than crashing', async () => {
+    const legacy = makeTarget()
+    delete legacy.assetDelivery.isReadThroughSupported
+    delete legacy.assetDelivery.readThrough
+    const wrapper = await mountWithTargets([legacy], 'tgt-1')
+
+    expect(readThroughToggle(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it('sends readThrough in the saved payload beside streaming and directAccess', async () => {
+    const wrapper = await mountWithTargets([makeTarget()], 'tgt-1')
+
+    await readThroughToggle(wrapper).trigger('click')
+    expect(readThroughToggle(wrapper).attributes('aria-checked')).toBe('true')
+
+    const apply = wrapper.findAll('button').find((b) => b.text() === 'common.actions.apply')
+    await apply.trigger('click')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    const [url, { json }] = globalThis.API_CLIENT.put.mock.calls[0]
+    expect(url).toBe('sites/site-1/storage/targets')
+    const saved = json.targets.find((tgt) => tgt.id === 'tgt-1')
+    expect(saved.assetDelivery).toEqual({
+      streaming: false,
+      directAccess: false,
+      readThrough: true
+    })
   })
 })
