@@ -4,17 +4,15 @@ import mdAttrs from 'markdown-it-attrs'
 import githubAlerts from './github-alerts.js'
 
 /*
-  A plain markdown-it instance with only this plugin registered -- github-alerts.js runs a core rule
-  over `blockquote_open`/`paragraph_open`/`inline` tokens that default markdown-it already produces,
-  so it needs nothing else installed to be exercised directly (unlike markdown.test.js, which tests
-  through the full app renderer).
+  The plugin is a core rule over `blockquote_open`/`paragraph_open`/`inline` tokens default
+  markdown-it already produces, so nothing else has to be installed to exercise it.
 */
 function render(src) {
   return new MarkdownIt().use(githubAlerts).render(src)
 }
 
-// -> Only the "already-classed blockquote" case needs markdown-it-attrs (the app's own renderer
-//    always has both installed) -- attrJoin has nothing to join onto without it.
+// -> `attrJoin` has nothing to join onto without markdown-it-attrs, so only the already-classed
+//    blockquote case needs it installed.
 function renderWithAttrs(src) {
   return new MarkdownIt().use(mdAttrs).use(githubAlerts).render(src)
 }
