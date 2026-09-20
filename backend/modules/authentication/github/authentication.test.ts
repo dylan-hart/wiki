@@ -2,16 +2,6 @@ import { describe, test, mock, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import GitHubAuthentication from './authentication.ts'
 
-/**
- * GitHub is written with bare `fetch` and no client library (see the module's own doc comment), so
- * this suite drives it by stubbing `globalThis.fetch` with a small fake of the three endpoints a
- * login actually touches: the token exchange, `/user` and `/user/emails`.
- *
- * It was added for the first/last name split (OpenProject #2641) — GitHub reports one free-text
- * `name` and no separated halves, so the split is the only source there is — and covers the
- * surrounding profile mapping alongside it, since there was no co-located test file here before.
- */
-
 const flow = {
   redirectUri: 'https://wiki.example/_api/auth/strategy-1/callback',
   state: 'the-state',
@@ -34,7 +24,6 @@ describe('GitHubAuthentication', () => {
     fetchMock = undefined
   })
 
-  /** The three endpoints a successful login walks, with one verified primary address. */
   function mockGitHub(account: FakeAccount, email = 'octocat@example.com') {
     fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
       const url = String(input)
@@ -78,7 +67,6 @@ describe('GitHubAuthentication', () => {
     mockGitHub({ id: 1, login: 'octocat', name: 'Ada Byron King' })
     const profile = await strategy().profile({ ...flow, currentUrl: '', code: 'the-code' })
     assert.equal(profile.firstName, 'Ada')
-    // -> the whole remainder, not just the next word
     assert.equal(profile.lastName, 'Byron King')
   })
 
@@ -90,8 +78,7 @@ describe('GitHubAuthentication', () => {
   })
 
   test('an account with no profile name falls back to the login, as a mononym', async () => {
-    // -> GitHub's `name` is optional and frequently null; `login` is a handle, not a name, so it
-    //    lands whole in `firstName` with nothing manufactured for `lastName`.
+    // -> GitHub's `name` is optional and frequently null; `login` is a handle, not a name.
     mockGitHub({ id: 1, login: 'octocat', name: null })
     const profile = await strategy().profile({ ...flow, currentUrl: '', code: 'the-code' })
     assert.equal(profile.name, 'octocat')
@@ -136,7 +123,6 @@ describe('GitHubAuthentication', () => {
     await assert.rejects(github.authorizationUrl(flow), /ERR_STRATEGY_MISCONFIGURED/)
   })
 
-  /* Feature #3208 — GitHub's `/user` reports `avatar_url`, read here with no config key of its own. */
   test('maps avatar_url into the profile picture', async () => {
     mockGitHub({
       id: 1,

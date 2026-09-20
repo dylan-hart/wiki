@@ -1,7 +1,6 @@
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 import { providerNameHalves } from '../../../models/authentication.ts'
 
-/** A userinfo field value as a plain OAuth2 provider reports it: one value, several, or neither. */
 function asStringArray(value: unknown): string[] {
   if (value === undefined || value === null) {
     return []
@@ -10,35 +9,17 @@ function asStringArray(value: unknown): string[] {
 }
 
 /**
- * Generic OAuth2
+ * The bare RFC 6749 authorization-code flow: no ID token, no discovery document, no signature to
+ * verify — little enough to write with `fetch` and no strategy dependency.
  *
- * The bare authorization-code flow, RFC 6749 and nothing more: no ID token, no discovery document,
- * no signature to verify — an authorization URL built from admin-configured endpoints, a code exchanged
- * for an access token, and a profile read from a configured user-info endpoint using that token. That
- * is little enough to write with `fetch` and no dependency, the same call it was for `github/authentication.ts`
- * rather than the `passport-oauth2` strategy 2.5.x used for this module.
+ * `state` is the only part of `AuthFlow` read here; it is generated and checked by the shared flow
+ * around it (`api/auth/provider.ts`). `nonce` and `codeVerifier` are ignored because a plain OAuth2
+ * provider has no ID token to bind a nonce to and no client-side secret PKCE would protect.
  *
- * `state` is the only part of `AuthFlow` this module reads: it is generated and checked by the shared
- * flow around it (`api/auth/provider.ts`), so there is nothing here to verify beyond passing it through
- * unchanged. `nonce` and `codeVerifier` exist for OIDC/PKCE providers and are simply ignored — a plain
- * OAuth2 provider has no ID token to bind a nonce to, and no client-side secret PKCE would protect.
- *
- * Where an OIDC provider's ID token would carry the subject's identity claims, this module is told
- * where to find the same information on whatever JSON the provider's user-info endpoint answers with:
- * `userIdClaim`, `emailClaim`, `displayNameClaim`. A provider with no verified-email concept (unlike
- * GitHub's `/user/emails`) is simply trusted to report a real address at `emailClaim` — but one that
- * does answer a verification flag can name it via `emailVerifiedClaim`, checked in `mapProfile()`
- * the same way `google/authentication.ts` honours OIDC's `email_verified`: a claim present and
- * `false` refuses the login, an absent claim (unconfigured, or the provider just didn't send it) is
- * accepted unchanged.
- *
- * `assertConfigured`/`exchangeCode`/`fetchUserInfo`/`mapProfile` are `protected` rather than folded
- * into `profile()` so a fixed-endpoint preset built on top of this module — `discord/authentication.ts`
- * is the reason this exists — can override `profile()` to slot in a provider-specific check (Discord's
- * optional guild-membership call) between the token exchange and the userinfo fetch, without
- * reimplementing either. A preset that needs no such hook, like the branded OIDC presets do via
- * `OidcPreset`, would just wrap an instance instead; Discord's guild check needs the raw access token
- * `profile()` would otherwise discard, so composition alone can't reach it — subclassing can.
+ * `assertConfigured`/`exchangeCode`/`fetchUserInfo`/`mapProfile` are `protected` so a fixed-endpoint
+ * preset can override `profile()` to slot a provider-specific step (Discord's guild-membership
+ * check) between the token exchange and the userinfo fetch. That step needs the raw access token
+ * `profile()` would otherwise discard, so wrapping an instance cannot reach it — subclassing can.
  */
 export default class OAuth2Authentication {
   strategyId: string
@@ -51,7 +32,6 @@ export default class OAuth2Authentication {
     this.conf = conf
   }
 
-  /** Every field a login actually needs; a preset built on top of this module still has to set them all. */
   protected assertConfigured(): void {
     if (
       !this.conf.clientId ||
@@ -80,12 +60,9 @@ export default class OAuth2Authentication {
   }
 
   /**
-   * The scope string actually requested: `conf.scope` (a fixed value for a preset like
-   * `discord/authentication.ts`, an admin-entered one for the bare module), plus — when `mapGroups` is
-   * on and `groupsScope` names one not already present — whatever scope the provider needs before a
-   * group/role field shows up in the userinfo response at all. Mirrors
-   * `oidc/authentication.ts`'s `effectiveScope()`; see its comment for why there is no universal
-   * default to assume here (OpenProject #826).
+   * `conf.scope` plus, when `mapGroups` is on, whatever extra scope this particular provider needs
+   * before a group/role field shows up in the userinfo response at all. There is no universal
+   * default to assume, so the scope is admin-named rather than hardcoded.
    */
   protected effectiveScope(): string | undefined {
     const base: string | undefined = this.conf.scope
@@ -99,7 +76,6 @@ export default class OAuth2Authentication {
     return requested.includes(this.conf.groupsScope) ? base : `${base} ${this.conf.groupsScope}`
   }
 
-  /** POST the authorization code to `tokenURL` and return the access token. */
   protected async exchangeCode(code: string | undefined, redirectUri: string): Promise<string> {
     if (!code) {
       throw new Error('ERR_NO_AUTHORIZATION_CODE')
@@ -108,9 +84,8 @@ export default class OAuth2Authentication {
     const tokenResp = await fetch(this.conf.tokenURL, {
       method: 'POST',
       headers: {
-        // -> Ask for JSON: a plain OAuth2 endpoint is free to answer form-encoded otherwise, GitHub's
-        //    among them, and a client_secret this module needs to keep off the browser belongs in the
-        //    body, not appended to the token URL as a query string.
+        // -> Ask for JSON: a plain OAuth2 endpoint is otherwise free to answer form-encoded, GitHub
+        //    among them. The secret goes in the body, never in the token URL's query string.
         Accept: 'application/json',
         'Content-Type': 'application/x-www-form-urlencoded'
       },
@@ -135,7 +110,6 @@ export default class OAuth2Authentication {
     return token.access_token
   }
 
-  /** GET `userInfoURL` bearing the access token, and return its raw JSON. */
   protected async fetchUserInfo(accessToken: string): Promise<Record<string, any>> {
     const infoResp = await fetch(this.conf.userInfoURL, {
       headers: {
@@ -150,12 +124,10 @@ export default class OAuth2Authentication {
   }
 
   /**
-   * Map raw userinfo JSON onto a `ProviderProfile` using the configured claim names.
-   *
-   * Unlike an OIDC provider there is no standard claim to read here -- `emailVerifiedClaim` names
-   * whichever field of the userinfo response answers the question, left unset by default because most
-   * plain OAuth2 providers have no such concept at all (see the class doc comment). Only a claim that is
-   * explicitly `false` refuses the login: an unconfigured or absent claim is not assumed unverified.
+   * Unlike OIDC there is no standard verified-email claim, so `emailVerifiedClaim` names whichever
+   * userinfo field answers the question and is unset by default -- most plain OAuth2 providers have
+   * no such concept. Only an explicitly `false` claim refuses the login: an unconfigured or absent
+   * one is not assumed unverified.
    */
   protected mapProfile(info: Record<string, any>): ProviderProfile {
     const id = info[this.conf.userIdClaim || 'id']
@@ -179,20 +151,17 @@ export default class OAuth2Authentication {
       id: String(id),
       email,
       name: (info[this.conf.displayNameClaim || 'displayName'] as string) || email,
-      // -> Read only; whether either half reaches the account, and what `name` derives to, is
-      //    `models/users.ts`'s decision (Feature #2608). A plain OAuth2 provider has no standard
-      //    claim for either -- hence the two configurable names, defaulted to the camelCase pair
-      //    `displayNameClaim` above already assumes rather than OIDC's snake_case. Deliberately not
-      //    done here: splitting the display name when the provider issues no halves. Every branded
-      //    preset built on this class inherits this method, so that fallback belongs in the preset
-      //    that needs it (Task #2641), not in the base.
+      // -> Read only; whether either half reaches the account is `models/users.ts`'s decision.
+      //    Splitting the display name when the provider issues no halves is deliberately not done
+      //    here: every branded preset inherits this method, so that fallback belongs in the preset
+      //    that needs it, not in the base.
       ...providerNameHalves(
         info[this.conf.firstNameClaim || 'firstName'],
         info[this.conf.lastNameClaim || 'lastName']
       ),
-      // -> `undefined` (module did not look) versus `[]` (looked, provider reported none) matters to
-      //    `syncProviderGroups()` — see `ProviderProfile.groups`'s own doc comment — so the key itself
-      //    is only ever present when `mapGroups` is on, never set to `undefined`.
+      // -> `undefined` (module did not look) and `[]` (looked, provider reported none) mean
+      //    different things to `syncProviderGroups()`, so the key is absent unless `mapGroups` is
+      //    on, never set to `undefined`.
       ...(this.conf.mapGroups
         ? { groups: asStringArray(info[this.conf.groupsClaim || 'groups']) }
         : {})
@@ -206,7 +175,6 @@ export default class OAuth2Authentication {
     return this.mapProfile(info)
   }
 
-  /** Where a logout should continue, so that the session at the provider ends too. */
   logoutUrl(): string | null {
     return this.conf.logoutURL || null
   }

@@ -4,42 +4,31 @@ import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../model
 import { providerNameHalves } from '../../../models/authentication.ts'
 
 /**
- * The two claim URIs a separated name is read from (Feature #2608).
- *
  * Fixed rather than exposed as mapping props the way `mappingUID`/`mappingEmail`/
- * `mappingDisplayName` are: these two are the standard WS-Federation/SAML claim types every identity
- * provider that issues a separated name at all emits (ADFS, Entra ID, Okta, Shibboleth). A provider
- * that issues neither simply leaves both halves empty, which is what a mononym or a
- * display-name-only directory already looks like to `models/users.ts`.
+ * `mappingDisplayName` are: these are the standard WS-Federation/SAML claim types every identity
+ * provider that issues a separated name at all emits. One that issues neither leaves both halves
+ * empty, which is what a mononym or a display-name-only directory already looks like.
  */
 const GIVEN_NAME_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname'
 const SURNAME_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname'
 
 /**
- * How long after its `IssueInstant` an assertion may still be accepted, capping the identity
- * provider's own `NotOnOrAfter` rather than trusting a compromised or misconfigured one
- * unconditionally — `@node-saml/node-saml` defaults `maxAssertionAgeMs` to `0`, i.e. no cap beyond
- * `NotOnOrAfter` itself (`saml.js`'s `calcMaxAgeAssertionTime`). Matches `AUTH_FLOW_MINUTES` in
- * `api/auth/provider.ts`: an assertion issued further in the past than a login flow is itself
- * allowed to take has no legitimate reason to still be circulating.
+ * Caps the identity provider's own `NotOnOrAfter` rather than trusting a compromised or
+ * misconfigured one unconditionally: `@node-saml/node-saml` defaults `maxAssertionAgeMs` to `0`, so
+ * `NotOnOrAfter` is otherwise the only bound. Matches `AUTH_FLOW_MINUTES` in `api/auth/provider.ts`
+ * — an assertion older than a login flow may itself take has no reason to still be circulating.
  */
 const MAX_ASSERTION_AGE_MS = 15 * 60 * 1000
 
 /**
- * `@node-saml/node-saml`'s cache-provider abstraction, standing in for the real replay cache
- * `validateInResponseTo` needs. The library's own default (`InMemoryCacheProvider`) says outright
- * that it is not sufficient across multiple server instances — and it could not work here regardless,
- * since `buildSaml()` constructs a fresh `SAML` instance per request (see the class doc comment): an
- * in-memory cache populated while building the outbound AuthnRequest would already be gone by the time
- * an unrelated later instance validates the callback, single-process deployment or not.
+ * `validateInResponseTo` wants a replay cache, but `buildSaml()` constructs a fresh `SAML` instance
+ * per request, so anything in-memory — the library's own `InMemoryCacheProvider` included — would
+ * already be gone by the time the callback is validated, single-process deployment or not.
  *
- * What actually ties the two requests together is `req.session.authFlow`, which is DB-backed
- * (`models/sessions.ts`) and therefore survives both of those. `authorizationUrl()` below pins the
- * AuthnRequest's own `ID` to a value generated ahead of time (`api/auth/provider.ts`'s
- * `/auth/:strategyId/authorize` route) rather than letting `node-saml` invent one nobody records, and
- * `profile()` is handed that same id back once the session flow is read. This provider does nothing
- * but compare against the one id it was bound to at construction time — it holds no state of its own
- * and answers about nothing else.
+ * What ties the two requests together instead is the DB-backed `req.session.authFlow`:
+ * `authorizationUrl()` pins the AuthnRequest's `ID` to an id generated ahead of it, and `profile()`
+ * is handed that same id back. So this provider holds no state of its own and answers about nothing
+ * but the one id it was bound to.
  */
 function singleRequestCacheProvider(expectedId: string | undefined): CacheProvider {
   return {
@@ -56,15 +45,12 @@ function singleRequestCacheProvider(expectedId: string | undefined): CacheProvid
 }
 
 /**
- * What `authorizationUrl()` hands back to the `/auth/:strategyId/authorize` route: a plain string for
- * the HTTP-Redirect binding (the browser is redirected straight to it), or a self-submitting HTML page
- * for the HTTP-POST binding — the AuthnRequest travels as a form POST to the identity provider instead
- * of a query string, which is what `authnRequestBinding` chooses between. Every other module answers
- * with a URL only; this is the one place the route branches on the shape of what came back.
+ * A plain URL for the HTTP-Redirect binding, or a self-submitting HTML page for HTTP-POST, where the
+ * AuthnRequest travels as a form POST rather than a query string. Every other module answers with a
+ * URL only, so `/auth/:strategyId/authorize` branches on the shape for this one alone.
  */
 export type SamlAuthorizationResult = string | { html: string }
 
-/** A SAML attribute value as `@node-saml/node-saml` hands it back: a bare value, or several of them. */
 function firstOf(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value
 }
@@ -77,25 +63,17 @@ function asStringArray(value: unknown): string[] {
 }
 
 /**
- * SAML 2.0
+ * Redirect-based like OAuth2/OIDC, but with no discovery and no token exchange: the identity
+ * provider's answer is a signed XML assertion delivered as a browser form POST rather than a code on
+ * a query string, and `RelayState` is where `state` travels for this protocol.
  *
- * A redirect-based module, like OAuth2/OIDC, but neither of `node-saml`'s two building blocks looks
- * like the `openid-client` ones: there is no discovery, no token exchange, and the identity provider's
- * answer is a signed XML assertion delivered as a browser form POST rather than a code on a query
- * string. `RelayState` is where `state` travels for this protocol — see `AuthFlow.state` in
- * `models/authentication.ts` for why, and the POST `/auth/:strategyId/callback` route in
- * `api/auth/provider.ts` for where it is read back.
- *
- * Every login builds a fresh `SAML` instance from the strategy's stored config rather than keeping one
- * around: unlike OIDC there is no discovery round trip to amortize, and a `NodeSAML` instance is cheap
- * — this way a config change (a rotated certificate, say) takes effect on the very next login with no
- * cache to invalidate. `buildSaml()`'s `singleRequestCacheProvider` is what lets that per-request
- * instance still enforce `validateInResponseTo` despite never persisting anything of its own.
+ * Every login builds a fresh `SAML` instance from the strategy's stored config rather than keeping
+ * one around: there is no discovery round trip to amortize, and this way a rotated certificate takes
+ * effect on the very next login with no cache to invalidate.
  *
  * `node-saml` never validates a `SubjectConfirmationData`'s `Recipient` against `callbackUrl` under
- * any setting (there is nothing in `saml.js` that reads it), so with `wantAuthnResponseSigned` pinned
- * `false` below, `audience` and `InResponseTo` are the only two things binding a given assertion to
- * this SP and this specific login — see `buildSaml()`'s `audience` and `validateInResponseTo` options.
+ * any setting, so with `wantAuthnResponseSigned` pinned `false` below, `audience` and `InResponseTo`
+ * are the only two things binding a given assertion to this SP and this specific login.
  */
 export default class SamlAuthentication {
   strategyId: string
@@ -109,10 +87,9 @@ export default class SamlAuthentication {
   }
 
   /**
-   * Split the "one or more certificates, pipe-separated" convention this field uses (2.5.x's own, kept
-   * for the same reason it existed there: a certificate rotation needs the old and new one both
-   * accepted for as long as the identity provider is mid-rollover) into what `node-saml` wants — a bare
-   * string for one certificate, an array for more than one.
+   * `cert` takes one or more certificates pipe-separated, so a rotation can have the old and the new
+   * one both accepted while the identity provider is mid-rollover. `node-saml` wants a bare string
+   * for one and an array for several.
    */
   private static certs(raw: string): string | string[] {
     const parts = raw
@@ -123,10 +100,9 @@ export default class SamlAuthentication {
   }
 
   /**
-   * @param authnRequestId The id `authorizationUrl()` generated for the outbound AuthnRequest this
-   *   login is tied to, round-tripped through `req.session.authFlow` — see
-   *   `singleRequestCacheProvider`. Absent when there is no flow to bind to yet, which only ever
-   *   happens for a strategy-validation call that never reaches the identity provider.
+   * @param authnRequestId Round-tripped through `req.session.authFlow` — see
+   *   `singleRequestCacheProvider`. Absent only for a strategy-validation call that never reaches the
+   *   identity provider.
    */
   private buildSaml(redirectUri: string, authnRequestId?: string): SAML {
     const {
@@ -159,12 +135,10 @@ export default class SamlAuthentication {
       issuer,
       idpCert: SamlAuthentication.certs(cert),
       /*
-        Falls back to this SP's own entity ID -- `node-saml`'s own default when unset
-        (`ctorOptions.audience ?? ctorOptions.issuer`, `saml.js:78`) -- rather than `false`, which
-        used to skip `AudienceRestriction` validation entirely: see the class doc comment on why
-        `audience` is the only assertion-scope binding this stack has at all, now that this no longer
-        goes silently unenforced by default. `issuer` is required above, so this is never itself
-        falsy.
+        Falls back to this SP's own entity ID -- `node-saml`'s own default when unset -- rather than
+        `false`, which skips `AudienceRestriction` validation entirely: see the class doc on why
+        `audience` is one of only two assertion-scope bindings this stack has. `issuer` is required
+        above, so this is never itself falsy.
       */
       audience: audience || issuer,
       privateKey: privateKey || undefined,
@@ -174,28 +148,24 @@ export default class SamlAuthentication {
       identifierFormat: identifierFormat || null,
       wantAssertionsSigned: wantAssertionsSigned ?? true,
       /*
-        Not a configurable field — `node-saml` defaults this to `true`, which would refuse any identity
-        provider that signs only the assertion and not the response envelope around it. That is the
-        common case (Okta and Auth0 both do this by default), and 2.5.x's own field set — the one this
-        module matches — never exposed a response-level signing requirement at all, only an
-        assertion-level one (`wantAssertionsSigned` above). Leaving this at the library default would be
-        a stricter, undocumented behavior change from what an administrator coming from 2.5.x expects.
+        Not a configurable field. `node-saml` defaults it to `true`, which refuses any identity
+        provider that signs only the assertion and not the response envelope around it -- the common
+        case, Okta and Auth0 both among them. Assertion-level signing is what `wantAssertionsSigned`
+        above requires instead.
       */
       wantAuthnResponseSigned: false,
       acceptedClockSkewMs: acceptedClockSkewMs ?? 0,
       /*
-        Not a configurable field, same reasoning as `wantAuthnResponseSigned` above: this needs a
-        real replay cache to be worth anything (see `singleRequestCacheProvider`) rather than an
-        administrator-facing knob, and there is no legitimate reason to ever turn it off.
+        Not a configurable field: there is no legitimate reason to turn replay protection off, and
+        what backs it is `singleRequestCacheProvider`, not an administrator-facing knob.
       */
       validateInResponseTo: ValidateInResponseTo.always,
       cacheProvider: singleRequestCacheProvider(authnRequestId),
       /*
-        Only consulted while building an outbound AuthnRequest (`generateAuthorizeRequestAsync`):
-        pins the request's `ID` to the value `authorizationUrl()`'s caller already generated and
-        recorded on the session, rather than letting `node-saml` invent one nobody has a record of.
-        `undefined` here just falls back to `node-saml`'s own generator, for the one caller
-        (`profile()`, validating a response) that has no request left to build and so no id to pin.
+        Consulted only while building an outbound AuthnRequest: pins the request's `ID` to the value
+        already generated and recorded on the session, rather than letting `node-saml` invent one
+        nobody has a record of. `undefined` falls back to the library's own generator, for
+        `profile()`, which has no request to build and so no id to pin.
       */
       generateUniqueId: authnRequestId ? () => authnRequestId : undefined,
       maxAssertionAgeMs: MAX_ASSERTION_AGE_MS,
@@ -217,12 +187,9 @@ export default class SamlAuthentication {
   }
 
   /**
-   * Build the AuthnRequest and hand back how to send the browser off with it.
-   *
-   * Which of `node-saml`'s two request builders gets called is `authnRequestBinding`, not anything
-   * `node-saml` itself decides from its own like-named option (that option only sets a default on the
-   * instance; nothing in the library actually reads it back) — so the choice has to be made here, the
-   * same way 2.5.x's `passport-saml` strategy made it.
+   * Which of `node-saml`'s two request builders runs has to be decided here: the library's own
+   * like-named `authnRequestBinding` option only sets a default on the instance, and nothing inside
+   * it reads that back.
    */
   async authorizationUrl({
     redirectUri,
@@ -237,22 +204,14 @@ export default class SamlAuthentication {
   }
 
   /**
-   * Validate the identity provider's answer and extract who signed in.
+   * The response always arrives as a form POST regardless of which binding sent the *request*: a
+   * signed assertion is essentially always too large for a redirect's URL length limits, which is why
+   * `node-saml` (like the SAML spec) offers redirect-bound validation for logout messages only.
+   * `authnRequestBinding` governs the outbound AuthnRequest alone.
    *
-   * The response always arrives as a form POST — `AuthFlowCallback.body`, read by the POST callback
-   * route — regardless of which binding sent the *request*: a signed assertion is essentially always
-   * too large for a redirect's URL length limits, which is why `node-saml` (like the SAML spec itself)
-   * only offers redirect-bound validation for logout messages, not login ones; `authnRequestBinding`
-   * governs the outbound AuthnRequest only. A callback with no `SAMLResponse` at all — the GET login
-   * callback route, which this module has no use for — is refused rather than silently accepted.
-   *
-   * `validatePostResponseAsync` is where the real checking happens: signature, `audience`, the
-   * clock-skew-bounded validity window (`acceptedClockSkewMs`), and — since `flowCallback.authnRequestId`
-   * is threaded into `buildSaml()` the same way `authorizationUrl()` threaded it in — the response's
-   * `InResponseTo` against the AuthnRequest this exact login sent, are all enforced inside `node-saml`
-   * itself before a profile is ever handed back — a tampered assertion, one whose signature does not
-   * chain to `cert`, or a `SAMLResponse` replayed against a different login than the one that requested
-   * it, all throw here rather than returning a profile to trust.
+   * `validatePostResponseAsync` is where the real checking happens — signature, `audience`, the
+   * clock-skew-bounded validity window, and `InResponseTo` against the AuthnRequest this exact login
+   * sent — all inside `node-saml`, which throws rather than handing back a profile to trust.
    */
   async profile(flowCallback: AuthFlowCallback): Promise<ProviderProfile> {
     if (!flowCallback.body?.SAMLResponse) {
@@ -268,13 +227,11 @@ export default class SamlAuthentication {
     }
 
     /*
-      Claims are URI-formatted attribute names, not plain keys — `mappingUID`/`mappingEmail`/
-      `mappingDisplayName`/`mappingGroups` all hold something like
-      `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress`, resolved out of the parsed
-      assertion's attribute statements. `node-saml` exposes those two ways: flattened onto `profile`
-      itself (skipped when the name collides with a profile field it already set, e.g. `email`) and,
-      always, under `profile.attributes` keyed by the same claim name — `attributes` is the reliable one
-      to read from since it has no such collision to worry about.
+      Claims are URI-formatted attribute names, not plain keys, so `mappingUID`/`mappingEmail`/
+      `mappingDisplayName`/`mappingGroups` each hold something like
+      `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress`. `node-saml` exposes them
+      flattened onto `profile` (skipped where the name collides with a field it already set, e.g.
+      `email`) and, always, under `profile.attributes` — the latter has no such collision, so it wins.
     */
     const attrs: Record<string, any> = profile.attributes || {}
     const claim = (name: string): unknown =>
@@ -290,16 +247,13 @@ export default class SamlAuthentication {
     }
 
     /*
-      `undefined` (not looking) versus `[]` (looked, found nothing) matters to `syncProviderGroups()` —
-      see `ProviderProfile.groups`'s own doc comment. A SAML claim reported more than once arrives from
-      `node-saml` as an array already (it repeats the `<Attribute>` element rather than comma-joining a
-      single value, unlike this framework's LDAP module), so no splitting convention is needed here.
+      A claim reported more than once arrives from `node-saml` as an array already — it repeats the
+      `<Attribute>` element rather than comma-joining a single value — so no splitting convention is
+      needed here. `undefined` versus `[]` is the distinction `syncProviderGroups()` reads.
     */
     const groups = this.conf.mapGroups ? asStringArray(claim(this.conf.mappingGroups)) : undefined
-    // -> Absent (not '') when unmapped or the assertion carries no value for it -- see
-    //    `ProviderProfile.picture`'s own doc comment for why "didn't say" must never become a
-    //    fabricated default. No `NameID` fallback, unlike `id`/`email` above: there is nothing on
-    //    the assertion itself that is ever a picture URL.
+    // -> No `NameID` fallback, unlike `id`/`email` above: nothing on the assertion itself is ever a
+    //    picture URL. Absent rather than '' when unmapped, per `ProviderProfile.picture`.
     const picture = this.conf.mappingPicture
       ? (firstOf(claim(this.conf.mappingPicture)) as string | undefined)
       : undefined

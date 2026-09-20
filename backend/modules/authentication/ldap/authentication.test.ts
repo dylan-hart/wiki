@@ -8,12 +8,9 @@ import { ProvisionableLoginError } from '../../../models/authentication.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 
 /**
- * `ldapts` talks to a real directory server, so this suite never touches the network: `authenticate()`
- * takes an injectable client factory (its only test-only seam), and every scenario here drives that
- * factory with a small fake standing in for a directory's promise-based bind/search behavior. What is
- * under test is this module's control flow and error mapping — search-then-bind, the zero/multiple-
- * entries and wrong-password edge cases, filter interpolation/escaping, group mapping, and TLS option
- * caching — not `ldapts` itself.
+ * No network: every scenario drives `authenticate()`'s injectable client factory — its only
+ * test-only seam — with a fake standing in for a directory's bind/search behavior. Under test is
+ * this module's control flow and error mapping, not `ldapts`.
  */
 
 const CONF = {
@@ -32,19 +29,17 @@ interface FakeEntry {
   attrs: Record<string, string | string[]>
 }
 
-/** Shapes a fake entry the way `ldapts`'s `Client.search()` returns one: attributes flattened onto the entry itself, alongside `dn`. */
+/** `ldapts` flattens attributes onto the entry itself, alongside `dn`. */
 function toSearchEntry(entry: FakeEntry): any {
   return { dn: entry.dn, ...entry.attrs }
 }
 
 interface FakeDirectoryHandlers {
-  /** Return `true` for a correct bind, or an `Error` for a rejected one. */
   bind: (dn: string, password: string) => true | Error
-  /** Return the matching entries, or an `Error` to simulate the search itself failing. */
   search: (base: string, options: any) => FakeEntry[] | Error
 }
 
-/** Every `bind`/`search` call made against any client this factory produced, across the whole test. */
+/** `calls` accumulates across every client this factory produces, not per client. */
 function makeClientFactory(handlers: FakeDirectoryHandlers) {
   const calls: {
     binds: Array<{ dn: string; password: string }>
@@ -129,8 +124,6 @@ test('an empty-string password rejects as ERR_LOGIN_FAILED without ever contacti
   const mod = new LdapAuthentication('strategy-1', CONF, countingFactory)
 
   await assert.rejects(mod.authenticate({ username: 'jdoe', password: '' }), /ERR_LOGIN_FAILED/)
-  // -> Not just "the verification bind never happened" -- no client (not even the admin one) was
-  //    ever created, and no bind of any kind was attempted with the resolved DN.
   assert.equal(clientFactoryCallCount, 0)
   assert.equal(calls.binds.length, 0)
 })
@@ -219,7 +212,6 @@ test('user found by search but the verification bind fails (wrong password) reje
       if (dn === CONF.bindDn) {
         return true
       }
-      // -> The verification bind: only the real password is accepted.
       return dn === userDn && password === 'correct-password'
         ? true
         : new Error('InvalidCredentialsError')
@@ -232,8 +224,8 @@ test('user found by search but the verification bind fails (wrong password) reje
     mod.authenticate({ username: 'jdoe', password: 'wrong-password' }),
     /ERR_LOGIN_FAILED/
   )
-  // -> The entry really was found — this must not be indistinguishable from "never even searched" at
-  //    the level of what got called, only in the error it produces.
+  // -> The entry really was found: the uniform error is the only place this is indistinguishable
+  //    from "never searched", not the calls actually made.
   assert.equal(
     calls.binds.some((b) => b.dn === userDn),
     true
@@ -284,12 +276,6 @@ test('a correct password verifies and hands back a ProvisionableLoginError carry
   )
 })
 
-/*
-  OpenProject #3237. `mappingPicture` mirrors `mappingUID`/`mappingEmail`/`mappingDisplayName`: an
-  optional attribute mapping, absent unless configured -- no such column existed in `CONF` before this
-  Task, so every earlier scenario above already covers "unconfigured" via its own deepEqual/absence
-  assertions.
-*/
 test('reads a mapped picture attribute into the profile', async () => {
   const userDn = 'uid=jdoe,ou=people,dc=example,dc=com'
   const { factory } = makeClientFactory({
@@ -344,10 +330,6 @@ test('an entry with no value for the mapped picture attribute leaves profile.pic
   )
 })
 
-/*
-  Feature #2608. `givenName`/`sn` are read from their standard RFC 4519 names with no mapping prop of
-  their own, unlike the unique-ID and email attributes -- see the comment at the read site.
-*/
 test('reads givenName/sn into the separated halves, independently of the display-name mapping', async () => {
   const userDn = 'uid=jdoe,ou=people,dc=example,dc=com'
   const { factory } = makeClientFactory({
@@ -358,8 +340,8 @@ test('reads givenName/sn into the separated halves, independently of the display
         attrs: {
           uid: 'jdoe',
           mail: 'jdoe@example.com',
-          // -> A directory whose display name is not simply "first last": the halves are still read
-          //    as the directory states them, and nothing here reconciles the two.
+          // -> A display name that is not simply "first last": the halves are read as the directory
+          //    states them, and nothing reconciles the two.
           displayName: 'Doe, Jane (Contractor)',
           givenName: 'Jane',
           sn: 'Doe'
@@ -447,7 +429,6 @@ test('an entry missing its unique ID or email mapping rejects as ERR_LOGIN_FAILE
   const userDn = 'uid=jdoe,ou=people,dc=example,dc=com'
   const { factory } = makeClientFactory({
     bind: () => true,
-    // -> No `mail` attribute on this entry.
     search: () => [{ dn: userDn, attrs: { uid: 'jdoe' } }]
   })
   const mod = new LdapAuthentication('strategy-1', CONF, factory)
@@ -633,7 +614,6 @@ test('mapGroups on with the search fields left blank rejects as ERR_STRATEGY_MIS
     mod.authenticate({ username: 'jdoe', password: 'correct-password' }),
     /ERR_STRATEGY_MISCONFIGURED/
   )
-  // -> Only the user search happened; no group search was attempted against an unset base.
   assert.equal(calls.searches.length, 1)
 })
 
@@ -651,8 +631,7 @@ test('mapGroups on with a groupDnProperty absent on the user entry rejects as ER
     bind: () => true,
     search: (base) => {
       if (base === conf.searchBase) {
-        // -> No `entryUUID` attribute on the entry: `groupDnProperty` names an attribute this
-        //    directory never returned.
+        // -> No `entryUUID`: `groupDnProperty` names an attribute this directory never returns.
         return [{ dn: userDn, attrs: { uid: 'jdoe', mail: 'jdoe@example.com' } }]
       }
       throw new Error(`unexpected search against ${base}`)

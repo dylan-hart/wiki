@@ -113,12 +113,10 @@ describe('DiscordAuthentication', () => {
         id: '987654321098765432',
         email: 'octocat@example.com',
         name: 'octocat',
-        // -> Discord issues one display string and no separated halves, so a single-word username is
-        //    a mononym: nothing is invented for the surname.
+        // -> One display string and no halves, so a single-word username stays a mononym.
         firstName: 'octocat',
         lastName: ''
       })
-      // -> no guildId configured, so /users/@me/guilds must never be called
       assert.equal(
         fetchMock.mock.calls.some(
           (c) => String(c.arguments[0]) === 'https://discord.com/api/users/@me/guilds'
@@ -128,10 +126,8 @@ describe('DiscordAuthentication', () => {
     })
 
     test('splits a multi-word display string into first and last name', async () => {
-      // -> A Discord `username` is normally one token, which the mononym case above already covers.
-      //    This drives the other side of the split through the module's real mapping rather than the
-      //    helper's own suite, since `displayNameClaim` is fixed to `username` by this preset and a
-      //    display string with a space in it is the only shape that exercises it here.
+      // -> A real Discord `username` is normally one token; a spaced one is the only fixture that
+      //    exercises the other side of the split through this preset's fixed `displayNameClaim`.
       fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
         const url = String(input)
         if (url === 'https://discord.com/api/oauth2/token') {
@@ -157,17 +153,13 @@ describe('DiscordAuthentication', () => {
       const profile = await discord.profile({ ...flow, currentUrl: '', code: 'the-code' })
       assert.equal(profile.firstName, 'Ada')
       assert.equal(profile.lastName, 'Lovelace')
-      // -> the display name itself is untouched by the split
       assert.equal(profile.name, 'Ada Lovelace')
     })
 
     test("the display-name fallback is this preset's own, not the generic OAuth2 module's", () => {
       /*
-        Blast-radius guard. `OAuth2Authentication` is the base class for any admin-configured plain
-        OAuth2 strategy, and a display-name split placed there would fire for every one of them —
-        including a provider that does report real name claims. The generic mapping is allowed to fill
-        the halves from claims it was configured to read; it must never manufacture them out of the
-        display string, which is what this asserts.
+        `OAuth2Authentication` backs every admin-configured plain OAuth2 strategy, so it may fill the
+        name halves from configured claims but must never manufacture them out of the display string.
       */
       const generic = new OAuth2Authentication('strategy-2', {
         clientId: 'client-abc',
@@ -305,13 +297,8 @@ describe('DiscordAuthentication', () => {
       ])
     })
 
-    /**
-     * Discord inherits group-claim mapping from the base `OAuth2Authentication.mapProfile()` rather
-     * than reimplementing it — this is the same consistency guarantee `oidc/preset.ts`'s branded
-     * presets get from `OidcAuthentication` (OpenProject #826), just for the OAuth2-only side of the
-     * module family. Stock Discord reports no such field on `/users/@me`, so this exercises the
-     * mapping mechanism itself, not a real Discord claim.
-     */
+    // -> Stock Discord reports no roles field on `/users/@me`, so this exercises the inherited
+    //    mapping mechanism, not a real Discord claim.
     test('maps the configured groupsClaim onto profile.groups when mapGroups is on', async () => {
       fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
         const url = String(input)
@@ -351,12 +338,6 @@ describe('DiscordAuthentication', () => {
       assert.equal('groups' in profile, false)
     })
 
-    /**
-     * Discord's user object carries its own sibling `verified` boolean alongside `email` -- previously
-     * fetched and silently discarded. `buildDiscordConfig()` now names it as `emailVerifiedClaim`, so
-     * this is the same check `oauth2/authentication.test.ts` exercises generically, proven here against
-     * Discord's actual field name.
-     */
     test('throws ERR_EMAIL_NOT_VERIFIED when Discord reports verified: false', async () => {
       fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
         const url = String(input)

@@ -3,13 +3,9 @@ import { describe, test } from 'node:test'
 import { mapGoogleProfile } from './authentication.ts'
 
 /**
- * `mapGoogleProfile` is the whole of what this module decides for itself — the flow around it is
- * `openid-client`'s discovery, code exchange and ID-token verification, already covered by that
- * package's own suite and not something a unit test here should be re-describing with a fake issuer.
- * So this suite asserts the claim reading directly, exactly as `oidc/authentication.test.ts` does
- * for `mapOidcProfile`.
- *
- * `definition.test.ts` alongside covers the module's `definition.yml`.
+ * Only the claim mapping is asserted: everything around it — discovery, the code exchange, ID-token
+ * verification — is `openid-client`'s own tested job, and faking an issuer here would re-describe it
+ * rather than verify anything.
  */
 describe('mapGoogleProfile', () => {
   const claims = {
@@ -70,12 +66,10 @@ describe('mapGoogleProfile', () => {
     assert.equal(profile.email, 'alice@example.com')
   })
 
-  /* Feature #2608 — Google issues the OIDC standard pair, read here with no config key of its own. */
   test('reads the fixed given_name/family_name claims into the separated halves', () => {
     const profile = mapGoogleProfile({}, claims)
     assert.equal(profile.firstName, 'Alice')
     assert.equal(profile.lastName, 'Example')
-    // -> `name` still comes from Google's own display-name claim; the model derives from the halves.
     assert.equal(profile.name, 'Alice Example')
   })
 
@@ -103,7 +97,6 @@ describe('mapGoogleProfile', () => {
     assert.equal(profile.name, 'Dr. Alice Example')
   })
 
-  /* Feature #3208 — Google issues the OIDC standard `picture` claim, read here with no config key. */
   test('reads the picture claim into the profile', () => {
     const profile = mapGoogleProfile(
       {},

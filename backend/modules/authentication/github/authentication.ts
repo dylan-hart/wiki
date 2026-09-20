@@ -2,19 +2,10 @@ import { splitDisplayName } from '../../../helpers/personName.ts'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
 /**
- * GitHub
- *
- * GitHub speaks OAuth 2.0 and not OpenID Connect: there is no ID token, and therefore nothing to
- * verify signatures on — the access token is exchanged over TLS and then spent against the API, which
- * answers who it belongs to. That is the whole protocol here, so this module is written with `fetch`
- * and no dependency. The parts a library would otherwise be trusted with — `state`, and keeping the
- * client secret off the browser — are done by the flow around it (`api/auth/provider.ts`).
- *
- * Two GitHub-specific things are worth the code:
- *
- *   - the address comes from `/user/emails` rather than `/user`, because a profile's public email is
- *     often empty and always unverified. Only a verified primary address is accepted;
- *   - an organization can be required, checked against the membership API with the user's own token.
+ * GitHub speaks OAuth 2.0, not OpenID Connect: there is no ID token and so nothing to verify
+ * signatures on — the access token is spent against the API, which answers who it belongs to. That
+ * is the whole protocol, hence bare `fetch` and no dependency. `state` and keeping the client secret
+ * off the browser are the surrounding flow's job (`api/auth/provider.ts`).
  */
 export default class GitHubAuthentication {
   strategyId: string
@@ -27,7 +18,7 @@ export default class GitHubAuthentication {
     this.conf = conf
   }
 
-  /** Where a user signs in, and where the API lives — the two differ on Enterprise Server. */
+  /** The sign-in host and the API host differ on Enterprise Server. */
   private get hosts(): { web: string; api: string } {
     const enterprise = (this.conf.enterpriseHost || '').trim().replace(/^https?:\/\//, '')
     return enterprise
@@ -35,7 +26,6 @@ export default class GitHubAuthentication {
       : { web: 'https://github.com', api: 'https://api.github.com' }
   }
 
-  /** A GitHub API call as this user, with the headers GitHub asks every client to send. */
   private async api(path: string, accessToken: string): Promise<any> {
     const resp = await fetch(`${this.hosts.api}${path}`, {
       headers: {
@@ -59,7 +49,7 @@ export default class GitHubAuthentication {
     url.searchParams.set('client_id', this.conf.clientId)
     url.searchParams.set('redirect_uri', redirectUri)
     /*
-      `user:email` is what makes the verified addresses readable; `read:org` is only asked for when an
+      `user:email` is what makes the verified addresses readable; `read:org` is asked for only when an
       organization is being enforced, since a scope nobody needs is a scope nobody should be granting.
     */
     url.searchParams.set(
@@ -101,8 +91,8 @@ export default class GitHubAuthentication {
     }
 
     /*
-      The primary verified address, which is the only one that says anything: `account.email` is
-      whatever the profile shows publicly, is frequently null, and is never checked by GitHub.
+      `/user/emails`, not `account.email`: the latter is only whatever the profile shows publicly, is
+      frequently null, and is never verified by GitHub.
     */
     const emails: any[] = await this.api('/user/emails', token.access_token)
     const email = emails?.find((entry) => entry.primary && entry.verified)?.email
@@ -130,11 +120,9 @@ export default class GitHubAuthentication {
     }
 
     /*
-      GitHub's profile carries one free-text `name` and no separated halves at all — there is no
-      `given_name`/`family_name` equivalent on the REST user object — so the two fields this instance
-      stores come from the naive split, the same one every other single-string provider gets. An
-      account with the `name` field left blank falls back to `login`, which is a handle rather than a
-      name and so lands as a mononym: `firstName = <login>`, no fabricated surname.
+      GitHub's REST user object carries one free-text `name` and no separated halves, so the split is
+      the only source there is. A blank `name` falls back to `login`, a handle rather than a name,
+      which therefore lands whole in `firstName` with no surname fabricated for it.
     */
     const name = account.name || account.login
     return {
@@ -142,9 +130,7 @@ export default class GitHubAuthentication {
       email,
       name,
       ...splitDisplayName(name),
-      // -> GitHub's `avatar_url` is always present on a real account (it defaults to an
-      //    identicon there is nothing wrong with syncing), but the check stays defensive rather
-      //    than assumed — absent means "did not say", never a fabricated URL.
+      // -> An absent `avatar_url` means "did not say": the key is left off rather than guessed at.
       ...(typeof account.avatar_url === 'string' && account.avatar_url.trim()
         ? { picture: account.avatar_url }
         : {})

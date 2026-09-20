@@ -98,8 +98,6 @@ describe('TwitchAuthentication', () => {
   })
 
   test('a Twitch handle is a mononym — no surname is invented out of it', async () => {
-    // -> Twitch issues no given_name/family_name at all; `preferred_username` is a handle, so the
-    //    split leaves `lastName` empty rather than manufacturing one.
     const profileMock = mock.method(OidcAuthentication.prototype, 'profile', async () => ({
       id: 'abc123',
       email: 'person@example.com',

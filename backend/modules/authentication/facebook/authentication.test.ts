@@ -81,8 +81,7 @@ describe('FacebookAuthentication', () => {
         id: '1234567890',
         email: 'octocat@example.com',
         name: 'octocat',
-        // -> Facebook issues one display string and no separated halves, so a single-word name is a
-        //    mononym: nothing is invented for the surname.
+        // -> One display string and no halves, so a single-word name stays a mononym.
         firstName: 'octocat',
         lastName: ''
       })
@@ -102,17 +101,13 @@ describe('FacebookAuthentication', () => {
       const profile = await facebook.profile({ ...flow, currentUrl: '', code: 'the-code' })
       assert.equal(profile.firstName, 'Ada')
       assert.equal(profile.lastName, 'Lovelace')
-      // -> the display name itself is untouched by the split
       assert.equal(profile.name, 'Ada Lovelace')
     })
 
     test("the display-name fallback is this preset's own, not the generic OAuth2 module's", () => {
       /*
-        Blast-radius guard. `OAuth2Authentication` is the base class for any admin-configured plain
-        OAuth2 strategy, and a display-name split placed there would fire for every one of them --
-        including a provider that does report real name claims. The generic mapping is allowed to
-        fill the halves from claims it was configured to read; it must never manufacture them out of
-        the display string, which is what this asserts.
+        `OAuth2Authentication` backs every admin-configured plain OAuth2 strategy, so it may fill the
+        name halves from configured claims but must never manufacture them out of the display string.
       */
       const generic = new OAuth2Authentication('strategy-2', {
         clientId: 'app-id-abc',
@@ -173,12 +168,8 @@ describe('FacebookAuthentication', () => {
       ])
     })
 
-    /**
-     * Facebook inherits group-claim mapping from the base `OAuth2Authentication.mapProfile()` rather
-     * than reimplementing it -- the same consistency guarantee `discord/authentication.ts` gets
-     * (OpenProject #826). Stock Facebook reports no such field on `/me`, so this exercises the
-     * mapping mechanism itself, not a real Facebook claim.
-     */
+    // -> Stock Facebook reports no roles field on `/me`, so this exercises the inherited mapping
+    //    mechanism, not a real Facebook claim.
     test('maps the configured groupsClaim onto profile.groups when mapGroups is on', async () => {
       fetchMock = mockTokenExchange({
         id: '1234567890',

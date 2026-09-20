@@ -4,10 +4,10 @@ import { Client } from 'ldapts'
 import type { Entry, SearchOptions, SearchResult } from 'ldapts'
 import { ProvisionableLoginError, providerNameHalves } from '../../../models/authentication.ts'
 
-/** Only what this module actually calls, kept narrow so a test double needs no more than this. */
+/** Narrow on purpose: a test double needs no more of `Client` than this. */
 type LdapClientFactory = (options: { url: string; tlsOptions: Record<string, any> }) => Client
 
-/** Attribute values as ldapts hands them back: a bare value for a single-value attribute, an array for multi-value. */
+/** ldapts hands back a bare value for a single-value attribute and an array for a multi-value one. */
 function attributesOf(entry: Entry): Record<string, string[]> {
   const result: Record<string, string[]> = {}
   for (const [key, value] of Object.entries(entry)) {
@@ -21,11 +21,9 @@ function attributesOf(entry: Entry): Record<string, string[]> {
 }
 
 /**
- * Escapes a value for safe interpolation into an LDAP search filter (RFC 4515 §3). Both of this
- * module's interpolated values — the typed username, and a group DN read back from the directory —
- * are attacker- or directory-controlled strings dropped straight into a filter, so unescaped either one
- * is an LDAP filter injection (e.g. a username of `*)(uid=*` widening `(uid={{username}})` into
- * matching every entry).
+ * RFC 4515 §3 escaping. Both interpolated values — the typed username and a group DN read back from
+ * the directory — are attacker- or directory-controlled, so either one unescaped is filter
+ * injection: a username of `*)(uid=*` widens `(uid={{username}})` into matching every entry.
  */
 function escapeFilterValue(value: string): string {
   return value.replace(/[\\*()\0]/g, (ch) => {
@@ -49,9 +47,9 @@ function interpolate(template: string, vars: Record<string, string>): string {
 }
 
 /**
- * OpenSSL verify-error codes Node's `tls` module reports for a certificate that fails to chain to a
- * trusted CA — as opposed to any other connection failure. `ldapts` does not normalize or wrap these;
- * they arrive here exactly as `tls` produced them on the socket error that failed the pending bind.
+ * OpenSSL verify-error codes Node's `tls` reports for a certificate that fails to chain to a trusted
+ * CA. `ldapts` neither normalizes nor wraps them: they arrive exactly as `tls` produced them, on the
+ * socket error that failed the pending bind.
  */
 const CERT_TRUST_ERROR_CODES = new Set([
   'DEPTH_ZERO_SELF_SIGNED_CERT',
@@ -65,13 +63,11 @@ const CERT_TRUST_ERROR_CODES = new Set([
 ])
 
 /**
- * True for a TLS handshake failure caused by an untrusted certificate, false for a genuine bind
- * rejection (wrong DN/password) or any other connection error. Distinguishing the two matters: an
- * administrative bind that fails because the directory's certificate is not trusted is not "not
- * authorized to login" — it is a server (or `tlsCertPath`) misconfiguration the person signing in can
- * do nothing about, and previously came back indistinguishable from a bad password (upstream issue
- * #1232 / discussion #6891). `ldapts`'s own `InvalidCredentialsError` carries none of these codes, so
- * this never misclassifies a real credential failure.
+ * An administrative bind that fails on an untrusted certificate is a server (or `tlsCertPath`)
+ * misconfiguration the person signing in can do nothing about, not "not authorized to login" — hence
+ * telling it apart from a genuine bind rejection (upstream issue #1232 / discussion #6891).
+ * `ldapts`'s `InvalidCredentialsError` carries none of these codes, so a real credential failure is
+ * never misclassified.
  */
 function isCertificateTrustError(err: any): boolean {
   if (typeof err?.code === 'string' && CERT_TRUST_ERROR_CODES.has(err.code)) {
@@ -84,40 +80,31 @@ function isCertificateTrustError(err: any): boolean {
   )
 }
 
-/** Best-effort: a connection that is already broken has nothing useful to report on unbind. */
 async function unbindQuietly(client: Client): Promise<void> {
   try {
     await client.unbind()
   } catch {
-    // Nothing to report on a connection that's already broken.
+    // An already-broken connection has nothing useful to report.
   }
 }
 
 /**
- * LDAP / Active Directory
+ * A form-based module (`useForm: true`): the wiki collects username/password itself and verifies
+ * them here rather than redirecting to a provider. Verification is search-then-bind, never
+ * bind-then-trust — binding straight in as whatever DN the typed username spells would make the
+ * check depend on how permissive the server is about unauthenticated or anonymous binds, so the
+ * account's real DN is found by an administrative search first and only that DN is bound with the
+ * supplied password.
  *
- * A form-based module (`useForm: true`): the wiki collects username/password itself and verifies them
- * here rather than redirecting to a provider. Verification is search-then-bind, never bind-then-trust —
- * binding straight in as whatever DN the typed username happens to spell would let that check depend on
- * how permissive the server is about unauthenticated or anonymous binds, so the account's real DN is
- * always found by an administrative search first, and only *that* DN is bound with the supplied
- * password to actually check it.
+ * `authenticate()` resolves no local user: once LDAP has verified the person it always throws
+ * `ProvisionableLoginError`, leaving find-or-create — and, under `mapGroups`, the group re-sync — to
+ * `models/users.ts`'s shared auto-provisioning path.
  *
- * `authenticate()` never resolves a local user itself. Like a redirect-based module handing back a
- * `ProviderProfile` for `loginWithProvider()` to resolve, it always throws `ProvisionableLoginError`
- * once LDAP has verified the person, and leaves finding-or-creating the account — and, when `mapGroups`
- * is on, re-syncing group membership — to `models/users.ts`'s shared auto-provisioning path (`login()`
- * and `findOrCreateProviderUser()`). See `ProvisionableLoginError`'s own doc comment.
- *
- * Every failure — a zero- or multi-entry search, a verification bind with the wrong password, a search
- * that errors outright — comes back as the same `ERR_LOGIN_FAILED`, deliberately: telling any of those
- * apart from the outside is an account-enumeration oracle. Two exceptions, neither of which is a login
- * mistake and so neither of which is folded into that oracle: the *administrative* bind
- * (`bindDn`/`bindCredentials`) failing outright means the strategy itself is misconfigured
- * (`ERR_STRATEGY_MISCONFIGURED`), and that same bind failing because the directory's TLS certificate
- * does not chain to a trusted CA — a `tlsCertPath` problem, not a credentials one — is reported as
- * `ERR_LDAP_CERTIFICATE_NOT_TRUSTED` instead (`isCertificateTrustError()`), so an administrator is not
- * sent chasing a bad password that was never the issue (upstream issue #1232 / discussion #6891).
+ * Every login failure — a zero- or multi-entry search, a wrong password, a search that errors
+ * outright — comes back as the same `ERR_LOGIN_FAILED`: telling them apart from the outside is an
+ * account-enumeration oracle. The *administrative* bind stays outside that oracle, neither of its
+ * failures being a login mistake: `ERR_STRATEGY_MISCONFIGURED`, or `ERR_LDAP_CERTIFICATE_NOT_TRUSTED`
+ * when the directory's certificate does not chain to a trusted CA.
  */
 export default class LdapAuthentication {
   strategyId: string
@@ -126,13 +113,9 @@ export default class LdapAuthentication {
   module?: string
 
   private readonly createLdapClient: LdapClientFactory
-  /** Read from disk once and reused — mirrors 2.5.x's `getTlsOptions()`. */
   private tlsOptionsCache: Record<string, any> | null = null
 
-  /**
-   * @param createLdapClient Defaults to a real `ldapts` client. Overridable only so a test can hand
-   *   in a double instead of talking to a real directory server.
-   */
+  /** `createLdapClient` is overridable only so a test can hand in a double. */
   constructor(
     strategyId: string,
     conf: Record<string, any>,
@@ -148,11 +131,10 @@ export default class LdapAuthentication {
     if (!url || !bindDn || !bindCredentials || !searchBase || !searchFilter) {
       throw new Error('ERR_STRATEGY_MISCONFIGURED')
     }
-    // -> Distinct from the misconfiguration guard above: this is a bad *credential*, not a bad
-    //    *strategy*. `ldapts`'s BindRequest defaults a missing password to `''` and sends it as a
-    //    simple-auth bind, which RFC 4513 defines as an unauthenticated bind that many directories
-    //    (Active Directory by default) answer with success against any DN that resolves — refuse it
-    //    here, before the verification bind is ever attempted.
+    // -> `ldapts`'s BindRequest defaults a missing password to `''` and sends it as a simple-auth
+    //    bind, which RFC 4513 defines as an unauthenticated bind that many directories (Active
+    //    Directory by default) answer with success against any DN that resolves — so an empty
+    //    password is refused before the verification bind is ever attempted.
     if (!password) {
       CARDINAL.models.flags.authDebug(
         `LDAP strategy ${this.strategyId}: refused an empty/missing password for "${username}"`
@@ -216,10 +198,8 @@ export default class LdapAuthentication {
         throw new Error('ERR_LOGIN_FAILED')
       }
 
-      // -> The actual credential check: bind as the DN the search found, with the password supplied.
-      //    A separate client/connection than the admin one — this bind's only job is to succeed or
-      //    fail, and doing it on its own connection keeps a failed attempt from ever touching the
-      //    connection still needed for the optional group search below.
+      // -> Its own connection rather than the admin one, so a failed verification bind never
+      //    disturbs the connection the optional group search below still needs.
       const userClient = this.createLdapClient({ url, tlsOptions })
       try {
         await userClient.bind(dn, password)
@@ -237,16 +217,15 @@ export default class LdapAuthentication {
       const email = attrs[this.conf.mappingEmail]?.[0]
       const name = attrs[this.conf.mappingDisplayName]?.[0]
       /*
-        `givenName` and `sn` are read from their standard LDAP names rather than through a mapping
-        prop of their own (Feature #2608): unlike the unique-ID and email attributes -- which really
-        do differ between directories, `uid` versus `sAMAccountName` -- both of these are defined by
-        RFC 4519 and are what every `person` entry uses. `sn` is schema-required for a `person`, but
-        a directory is still free to hand back an entry without a value for it, so an empty surname
-        is a supported answer, not an error: nothing is derived from `givenName` to fill it in.
+        `givenName` and `sn` are read from their RFC 4519 names rather than through mapping props of
+        their own: unlike the unique-ID and email attributes -- which really do differ between
+        directories, `uid` versus `sAMAccountName` -- every `person` entry uses these two. A
+        directory may still hand back an entry with no `sn` value, so a missing surname is a
+        supported answer, not an error: nothing is derived from `givenName` to fill it in.
       */
       const [firstName, lastName] = [attrs.givenName?.[0], attrs.sn?.[0]]
-      // -> Absent (not '') when unmapped or the entry has no value -- see `ProviderProfile.picture`'s
-      //    own doc comment for why "didn't say" must never become a fabricated default.
+      // -> Absent rather than '' when unmapped or unset: "didn't say" must not become a fabricated
+      //    default.
       const picture = this.conf.mappingPicture ? attrs[this.conf.mappingPicture]?.[0] : undefined
       if (!id || !email) {
         CARDINAL.models.flags.authDebug(
@@ -273,20 +252,15 @@ export default class LdapAuthentication {
   }
 
   /**
-   * Directory groups for the user just verified, by name — matched against wiki groups of the same
-   * name by `models/users.ts`'s `syncProviderGroups()`, not here.
-   *
    * `{{dn}}` is interpolated from `groupDnProperty`: "dn" (the default, and not a real attribute
    * ldapts would ever return) means the user entry's own distinguished name; anything else names an
    * attribute read off the user entry already fetched, e.g. a `memberOf`-style value.
    *
-   * Absent (`undefined`) and empty (`[]`) are different answers on `ProviderProfile.groups`'s own
-   * contract: `undefined` means "did not look" and leaves wiki-side membership untouched, `[]` means
-   * "looked, found nothing" and revokes every mappable group. A directory search that fails
-   * transiently — after the password bind has already verified the person — did not look, so it
-   * answers `undefined`, not `[]`; a misconfigured strategy (a missing search field, or a
-   * `groupDnProperty` absent on the entry) is not a transient condition and fails the strategy the
-   * same way the admin bind/search misconfiguration guards above do.
+   * `undefined` and `[]` are different answers on `ProviderProfile.groups`'s contract: `undefined`
+   * means "did not look" and leaves wiki-side membership untouched, `[]` means "looked, found
+   * nothing" and revokes every mappable group. A search that fails transiently — after the password
+   * bind has already verified the person — did not look, so it answers `undefined`; a misconfigured
+   * strategy is not transient and fails the strategy instead.
    */
   private async fetchGroups(
     client: Client,
@@ -326,9 +300,8 @@ export default class LdapAuthentication {
   }
 
   /**
-   * Mirrors 2.5.x's `getTlsOptions()`: no TLS cert path means "trust the system CA store (or don't
-   * verify at all)"; a cert path is read once and cached, and only actually read from disk when
-   * verification is on — reading an unused, possibly-empty path was 2.5.x's own bug (#2980).
+   * No cert path means "trust the system CA store (or don't verify at all)". A configured path is
+   * read from disk only when verification is actually on, since an unused one may not be readable.
    */
   private getTlsOptions(): Record<string, any> {
     if (this.tlsOptionsCache) {

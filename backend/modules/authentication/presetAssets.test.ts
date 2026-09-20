@@ -6,18 +6,9 @@ import { fileURLToPath } from 'node:url'
 import { load } from 'js-yaml'
 
 /**
- * Task 441: the admin "Add Strategy" picker renders each module's `icon` as an `<img>` (via
- * `w-icon :name="'img:' + str.icon"` in `frontend/src/pages/AdminAuth.vue`), and the configured-
- * strategy detail panel separately renders `logo`, `color` and `title`. None of that fails loudly --
- * a typo'd `icon` path just draws a blank avatar, not an error, which is exactly what the task asked
- * to guard against for every preset Feature 355 is adding (Auth0, Okta, Microsoft, Keycloak, GitLab,
- * Twitch, Discord, Slack, plus the generic `oidc` / `oauth2` presets).
- *
- * This reads every module's `definition.yml` off disk the same way `models/authentication.ts`'s
- * `refreshStrategiesFromDisk()` does, and asserts `icon` resolves to a real file under
- * `frontend/public` -- what `/_assets/icons/...` is served from -- plus that `logo` and `color` are
- * present and well-formed. A future preset with a typo'd path fails THIS test, rather than shipping
- * as a silently blank row in the picker.
+ * A typo'd `icon` path never fails loudly -- the admin "Add Strategy" picker just draws a blank
+ * avatar -- so a preset's assets are checked here instead: `icon` must resolve to a real file under
+ * `frontend/public`, which is what `/_assets/icons/...` is served from.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -61,7 +52,6 @@ describe('authentication module preset assets (icon/logo/color)', () => {
       definitions.length >= 12,
       `expected at least 12 available modules (the built-ins plus Feature 355's presets), found ${definitions.length}`
     )
-    // -> Every branded preset Task 437-440 were meant to deliver is actually on disk and available
     const keys = definitions.map((d) => d.key)
     for (const expectedKey of [
       'local',

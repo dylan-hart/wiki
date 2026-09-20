@@ -12,12 +12,9 @@ import { installTestWiki } from '../../../test/mocks.ts'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
- * CAS talks to a real server over HTTP, so — per the task's own "or a hand-rolled mock
- * `serviceValidate` endpoint" allowance — this suite stands up a real `http` server implementing just
- * enough of `p3/serviceValidate` to exercise this module's actual `fetch` calls and XML parsing, rather
- * than mocking `fetch` itself. It also enforces genuine single-use ticket semantics (each granted ticket
- * is consumed on its first successful validation), so the replay-attack scenario is exercising real
- * "already consumed" rejection, not an assumption about it.
+ * A real `http` server speaking just enough `p3/serviceValidate`, rather than a stubbed `fetch`, so the
+ * module's own request building and XML parsing are exercised. It consumes each ticket on its first
+ * successful validation, so the replay case meets a genuine rejection.
  */
 
 interface GrantedTicket {
@@ -166,9 +163,7 @@ test('CAS 3.0: a one-word display name stays a mononym — no surname is invente
 })
 
 test('CAS 3.0: a display name that fell back to the bare username splits as a mononym, the same restraint email gets', async () => {
-  // -> This ticket releases `uid`/`mail` and no `displayName`, so `name` falls back to the CAS
-  //    username. `email` is never fabricated out of a username (see the module's doc comment); a
-  //    surname is not either — the username lands whole in `firstName` and `lastName` stays empty.
+  // -> This ticket releases no `displayName`, so `name` falls back to the CAS username.
   const cas = new CasAuthentication('strategy1', CAS3_CONF())
   const profile = await cas.profile({
     redirectUri: REDIRECT,

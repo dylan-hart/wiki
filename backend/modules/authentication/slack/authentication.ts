@@ -3,23 +3,10 @@ import { fillNameHalves } from '../../../helpers/personName.ts'
 import type { AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
 /**
- * Slack
- *
- * "Sign in with Slack" is genuine OpenID Connect, not the plain OAuth2 flow 2.5.x's
- * `slack/authentication.js` used (`passport-slack-oauth2`, `identity.email` scope). Confirmed live
- * during this task rather than assumed: `https://slack.com/.well-known/openid-configuration` answers
- * with a full discovery document (authorization/token/userinfo endpoints, JWKS, RS256-signed ID
- * tokens), and Slack's own docs describe the flow as "built on top of OAuth 2.0" and interoperable
- * with any standard OIDC client — see docs/auth-provider-audit.md for the sourcing and the
- * reclassification this caused. Slack's issuer is fixed, like Twitch's, so there is no per-tenant
- * domain/org prop for the admin to fill in.
- *
- * The one thing a generic OIDC config can't express is Slack's optional workspace restriction: a
- * `team` parameter on the authorization request that, per Slack's docs, "restricts authentication to
- * a specific workspace" (and skips the consent screen for a user already signed into it). That is the
- * OIDC-flow analogue of Discord's guild check, but Slack's version needs no second authenticated API
- * call — Slack enforces it during the authorization step itself — so it is expressed entirely through
- * `extraAuthParams`, conditionally, via the function form `oidc/preset.ts` added for this reason.
+ * The one thing a generic OIDC config cannot express is Slack's optional workspace restriction: a
+ * `team` parameter on the authorization request that confines authentication to one workspace. Slack
+ * enforces it during the authorization step itself, so — unlike Discord's guild check — it needs no
+ * second authenticated API call and rides entirely on `extraAuthParams`' conditional function form.
  */
 export default class SlackAuthentication extends OidcPreset {
   constructor(strategyId: string, conf: Record<string, any>) {
@@ -31,16 +18,10 @@ export default class SlackAuthentication extends OidcPreset {
   }
 
   /**
-   * Slack's userinfo response is one display string as far as this fork reads it — the generic OIDC
-   * mapping takes `name` and nothing else — so the two name fields this instance stores come from the
-   * naive split, applied only where nothing better was established. `fillNameHalves` is what makes
-   * that conditional: if the shared OIDC mapping later reads Slack's own `given_name`/`family_name`
-   * claims (it publishes them under the `profile` scope this preset already requests), what the
-   * provider actually said wins and nothing is re-guessed here.
-   *
-   * This is an override on the preset rather than an edit to `oidc/preset.ts`, so it reaches Slack
-   * alone: a fallback on the shared base would fire for auth0/okta/microsoft/keycloak/gitlab too and
-   * silently pre-empt whatever those read from real claims.
+   * A naive split of the display name, for a userinfo response carrying no `given_name`/`family_name`
+   * — `fillNameHalves` fills only what the shared OIDC mapping left unset, so a real claim always
+   * wins. It stays on this preset rather than `oidc/preset.ts`, where it would pre-empt the real name
+   * claims every other preset reads.
    */
   override async profile(flow: AuthFlowCallback): Promise<ProviderProfile> {
     const profile = await super.profile(flow)

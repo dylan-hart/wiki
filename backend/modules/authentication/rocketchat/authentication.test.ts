@@ -190,10 +190,8 @@ describe('RocketChatAuthentication', () => {
     })
 
     /**
-     * Rocket.Chat inherits group-claim mapping from the base `OAuth2Authentication.mapProfile()`
-     * rather than reimplementing it — the same consistency guarantee `discord/authentication.test.ts`
-     * exercises for its own preset. Stock Rocket.Chat reports no such field on `/api/v1/me`, so this
-     * exercises the mapping mechanism itself, not a real Rocket.Chat claim.
+     * Stock Rocket.Chat reports no such field on `/api/v1/me`: the fixture is synthetic, and what is
+     * under test is the inherited `OAuth2Authentication.mapProfile()` mapping, not a real claim.
      */
     test('maps the configured groupsClaim onto profile.groups when mapGroups is on', async () => {
       fetchMock = mockTokenExchange({
@@ -224,9 +222,8 @@ describe('RocketChatAuthentication', () => {
 
     test("the display-name fallback is this preset's own, not the generic OAuth2 module's", () => {
       /*
-        Blast-radius guard, mirroring `discord/authentication.test.ts`'s: a fallback placed on
-        `OAuth2Authentication` itself would fire for every plain-OAuth2 strategy, including one whose
-        provider reports real name claims.
+        A fallback placed on `OAuth2Authentication` itself would fire for every plain-OAuth2
+        strategy, including one whose provider reports real name claims.
       */
       const generic = new OAuth2Authentication('strategy-2', {
         clientId: 'client-abc',

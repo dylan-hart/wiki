@@ -5,18 +5,14 @@ import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../model
 
 const xmlParser = new XMLParser({ removeNSPrefix: true })
 
-/** What `serviceValidate` reported, before it is mapped into a `ProviderProfile`. */
 interface CasValidation {
   username: string
   attrs: Record<string, unknown>
 }
 
 /**
- * A CAS attribute value, once parsed out of `<cas:attributes>`: a bare scalar for one value, an array
- * for more than one (a released attribute repeated as several like-named elements), or an empty object
- * for a self-closing element with no text. Only the first value is ever used here, same as every other
- * module's `firstOf()` — none of this module's three mapped attributes (unique ID, email, display name)
- * take more than one value.
+ * A parsed `<cas:attributes>` value is a bare scalar for one value, an array when the attribute is
+ * released as several like-named elements, or an empty object for a self-closing element with no text.
  */
 function firstOf(value: unknown): string | undefined {
   const v = Array.isArray(value) ? value[0] : value
@@ -24,29 +20,17 @@ function firstOf(value: unknown): string | undefined {
 }
 
 /**
- * CAS (Central Authentication Service)
+ * CAS is spoken directly: no npm client fits this fork's non-`passport` pattern the way
+ * `openid-client` and `@node-saml/node-saml` do for OIDC and SAML.
  *
- * A redirect-based module, like OAuth2/OIDC and SAML, but predating both and with no client library on
- * npm that fits this fork's non-`passport` pattern the way `openid-client` and `@node-saml/node-saml`
- * do for those two — so this module talks the protocol directly. It has exactly two moving parts:
- * `GET /login?service=` to send the browser off, and `GET /p3/serviceValidate` to redeem the `ticket`
- * CAS hands back for who authenticated.
+ * CAS defines no `state` parameter of its own, so `state` rides as a query parameter on the `service`
+ * URL — CAS preserves a `service`'s existing query string when it appends its own `?ticket=`, so the
+ * callback route reads `state` back exactly as it does for a plain OAuth2 provider.
  *
- * CAS defines no `state` parameter of its own — see `AuthFlow.state` in `models/authentication.ts` for
- * the full reasoning. In short: `state` is appended as a query parameter onto the `service` URL this
- * module registers, and CAS preserves whatever query string a `service` already had when it appends its
- * own `?ticket=` — so the GET `/auth/:strategyId/callback` route reads `state` back exactly the way it
- * does for a plain OAuth2 provider, with no framework changes needed beyond adding `ticket` alongside
- * `code` on that route's querystring. `authorizationUrl()` and `profile()` both rebuild that same
- * `service` string from `redirectUri` + `state`, since CAS requires `serviceValidate`'s own `service`
- * parameter to match, character for character, the one the ticket was actually issued against.
- *
- * `email` is never fabricated out of the bare CAS username: per `ProviderProfile`'s own doc comment in
- * `models/authentication.ts`, an account is matched or created by an address this module has
- * established belongs to the person, and an unverified username is not that. (CAS 1.0 support was
- * removed entirely for exactly this reason — it reports no attributes at all, so a CAS 1.0 strategy had
- * no way to provision or log in an account through this framework's email-keyed model. See OpenProject
- * #3184/#3207.)
+ * `email` is never fabricated out of the bare CAS username: an account is matched or created by an
+ * address this module has established belongs to the person (`ProviderProfile` in
+ * `models/authentication.ts`). Only CAS 3.0 is offered for the same reason — CAS 1.0 releases no
+ * attributes at all, so no address can be established.
  */
 export default class CasAuthentication {
   strategyId: string
@@ -60,10 +44,9 @@ export default class CasAuthentication {
   }
 
   /**
-   * The `service` this module registers with CAS, and later re-presents to `serviceValidate` to redeem
-   * a ticket against. `redirectUri` is the callback URL the framework already builds per-request (see
-   * `callbackUrl()` in `api/auth/provider.ts`) — there is no separate administrator-supplied base URL
-   * config field here, since the framework already computes an equivalent one dynamically.
+   * CAS requires `serviceValidate`'s `service` to match, character for character, the one the ticket
+   * was issued against, so both calls build it here. `redirectUri` comes from `callbackUrl()` in
+   * `api/auth/provider.ts`, which is why this module needs no administrator-supplied base URL.
    */
   private serviceUrl(redirectUri: string, state: string): string {
     return `${redirectUri}?state=${state}`
@@ -77,12 +60,7 @@ export default class CasAuthentication {
     return `${this.conf.casUrl}/login?service=${encodeURIComponent(service)}`
   }
 
-  /**
-   * Redeem the `ticket` CAS granted, and map who it belongs to.
-   *
-   * `ticket` (not `code`) is what carries the answer for this protocol — read off the callback's
-   * querystring by the GET `/auth/:strategyId/callback` route, same as `code` is for OAuth2/OIDC.
-   */
+  /** `ticket`, not `code`, is what the callback route carries back for this protocol. */
   async profile(flowCallback: AuthFlowCallback): Promise<ProviderProfile> {
     if (!this.conf.casUrl) {
       throw new Error('ERR_STRATEGY_MISCONFIGURED')
@@ -109,8 +87,6 @@ export default class CasAuthentication {
 
     const { username, attrs } = this.parseCas3Response(text)
 
-    // -> `id`/`name` fall back to the bare CAS username whenever the mapped attribute is either left
-    //    unconfigured or simply absent from what CAS reported.
     const id = firstOf(attrs[this.conf.uniqueIdAttribute]) || username
     const name = firstOf(attrs[this.conf.displayNameAttribute]) || username
     const email = firstOf(attrs[this.conf.emailAttribute])
@@ -119,12 +95,9 @@ export default class CasAuthentication {
     }
 
     /*
-      CAS has no standard released attribute for a separated first/last name the way OIDC has
-      `given_name`/`family_name` — every deployment releases whatever its own directory happens to be
-      configured for — so the two fields this instance stores come from the naive split of whatever
-      `name` resolved to, and no attribute is guessed at by convention. Where that was the bare CAS
-      username (the mapped attribute unset or absent) the split leaves a mononym: no surname is
-      invented out of a username, the same restraint `email` gets above.
+      CAS standardises no separated first/last name the way OIDC has `given_name`/`family_name`, and
+      every deployment releases something different, so the halves come from a naive split of `name`
+      rather than from an attribute guessed at by convention.
     */
     return { id, email, name, ...splitDisplayName(name) }
   }

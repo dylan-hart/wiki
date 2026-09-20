@@ -33,13 +33,6 @@ describe('MicrosoftAuthentication', () => {
     )
   })
 
-  /**
-   * No `common` fallback: `openid-client` special-cases `login.microsoftonline.com`, deriving the
-   * issuer it actually validates an ID token against from that token's own `tid` claim rather than
-   * the tenant this preset names -- so a `common` default would make issuer validation pass for a
-   * token from *any* Microsoft tenant. An empty issuer here is what makes a missing `tenantId` fail
-   * configuration build the same way a missing `issuer` already does in the generic module.
-   */
   test('builds an empty issuer -- not "common" -- when tenantId is left blank (OpenProject #2112)', () => {
     const ms = new MicrosoftAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
     const inner = (ms as unknown as { inner: OidcAuthentication }).inner
