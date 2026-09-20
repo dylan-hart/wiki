@@ -573,6 +573,7 @@ CREATE TABLE "users" (
 	"passkeys" jsonb DEFAULT '{}' NOT NULL,
 	"prefs" jsonb DEFAULT '{}' NOT NULL,
 	"hasAvatar" boolean DEFAULT false NOT NULL,
+	"handle" varchar(32),
 	"isActive" boolean DEFAULT false NOT NULL,
 	"isSystem" boolean DEFAULT false NOT NULL,
 	"isVerified" boolean DEFAULT false NOT NULL,
@@ -660,6 +661,7 @@ CREATE UNIQUE INDEX "groups_name_normalized_idx" ON "groups" (lower(trim("name")
 CREATE INDEX "userGroups_groupId_idx" ON "userGroups" ("groupId");--> statement-breakpoint
 CREATE INDEX "userKeys_userId_idx" ON "userKeys" ("userId");--> statement-breakpoint
 CREATE UNIQUE INDEX "userKeys_token_idx" ON "userKeys" ("token");--> statement-breakpoint
+CREATE UNIQUE INDEX "users_handle_lower_idx" ON "users" (lower("handle"));--> statement-breakpoint
 CREATE INDEX "users_lastLoginAt_idx" ON "users" ("lastLoginAt");--> statement-breakpoint
 ALTER TABLE "apiKeys" ADD CONSTRAINT "apiKeys_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
 ALTER TABLE "apiKeys" ADD CONSTRAINT "apiKeys_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint

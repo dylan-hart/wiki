@@ -5922,6 +5922,19 @@
       "table": "users"
     },
     {
+      "type": "varchar(32)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "handle",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "users"
+    },
+    {
       "type": "boolean",
       "typeSchema": null,
       "notNull": true,
@@ -7975,6 +7988,27 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "userKeys"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "lower(\"handle\")",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "users_handle_lower_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "users"
     },
     {
       "nameExplicit": true,

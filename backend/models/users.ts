@@ -14,7 +14,12 @@ import {
 import { and, count, desc, eq, ilike, inArray, isNotNull, notExists, or, sql } from 'drizzle-orm'
 import type { WikiDbOrTx } from '../core/db.ts'
 import { flatten, uniq } from 'es-toolkit/array'
-import { BCRYPT_ROUNDS, escapeLikePattern, isUniqueViolation } from '../helpers/common.ts'
+import {
+  BCRYPT_ROUNDS,
+  CustomError,
+  escapeLikePattern,
+  isUniqueViolation
+} from '../helpers/common.ts'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { paginate } from '../helpers/pagination.ts'
 import { HOOK_EVENTS, type HookEvent } from './hooks.ts'
@@ -77,6 +82,7 @@ export interface UserPatch {
    * mark the account as locally authored.
    */
   nameLocallyEdited?: boolean
+  handle?: string
   email?: string
   isActive?: boolean
   isVerified?: boolean
@@ -113,6 +119,7 @@ export interface UserProfile {
   hasAvatar: boolean
   /** Only a fallback: an uploaded avatar (`hasAvatar`) wins whenever both are set. */
   avatarProviderUrl: string | null
+  handle: string | null
   location: string
   jobTitle: string
   pronouns: string
@@ -138,6 +145,7 @@ export interface UserProfilePatch {
   name?: string
   firstName?: string
   lastName?: string
+  handle?: string
   location?: string
   jobTitle?: string
   pronouns?: string
@@ -179,6 +187,41 @@ const profilePrefsKeys = [
   'graph',
   'iconPicker'
 ] as const
+
+export const HANDLE_MAX_LENGTH = 32
+
+const HANDLE_PATTERN = /^[A-Za-z0-9._-]+$/
+
+const HANDLE_UNIQUE_INDEX = 'users_handle_lower_idx'
+
+export function normalizeHandle(input: string): string | null {
+  const handle = input.trim()
+  if (handle === '') {
+    return null
+  }
+  if (handle.length > HANDLE_MAX_LENGTH) {
+    throw new CustomError(
+      'userHandleInvalid',
+      `A handle may be at most ${HANDLE_MAX_LENGTH} characters long.`
+    )
+  }
+  if (!HANDLE_PATTERN.test(handle)) {
+    throw new CustomError(
+      'userHandleInvalid',
+      'A handle may contain only letters, digits, dots, underscores and hyphens.'
+    )
+  }
+  return handle
+}
+
+function isHandleCollision(err: unknown): boolean {
+  const candidate = err as { constraint?: unknown; cause?: { constraint?: unknown } } | null
+  return (
+    isUniqueViolation(err) &&
+    (candidate?.constraint === HANDLE_UNIQUE_INDEX ||
+      candidate?.cause?.constraint === HANDLE_UNIQUE_INDEX)
+  )
+}
 
 /** Nothing displays an avatar larger than this. */
 const avatarSize = 180
@@ -726,6 +769,9 @@ class Users {
    */
   async updateUser(id: string, patch: UserPatch, db: WikiDbOrTx = CARDINAL.db): Promise<boolean> {
     const values: Record<string, any> = { ...patch, updatedAt: sql`now()` }
+    if (patch.handle !== undefined) {
+      values.handle = normalizeHandle(patch.handle)
+    }
     if (typeof values.email === 'string') {
       values.email = values.email.toLowerCase()
     }
@@ -738,8 +784,15 @@ class Users {
     if (patch.name !== undefined || patch.firstName !== undefined || patch.lastName !== undefined) {
       await this.reconcileNameValues(id, patch, values, db)
     }
-    const result = await db.update(usersTable).set(values).where(eq(usersTable.id, id))
-    return (result.rowCount ?? 0) > 0
+    try {
+      const result = await db.update(usersTable).set(values).where(eq(usersTable.id, id))
+      return (result.rowCount ?? 0) > 0
+    } catch (err: any) {
+      if (isHandleCollision(err)) {
+        throw new CustomError('userHandleTaken', 'That handle is already taken.', 409)
+      }
+      throw err
+    }
   }
 
   /**
@@ -803,6 +856,7 @@ class Users {
       email: user.email,
       hasAvatar: user.hasAvatar,
       avatarProviderUrl: user.avatarProviderUrl ?? null,
+      handle: user.handle ?? null,
       location: meta.location ?? '',
       jobTitle: meta.jobTitle ?? '',
       pronouns: meta.pronouns ?? '',
@@ -1015,6 +1069,9 @@ class Users {
     //    derive-unless-authored rule, so this method neither derives nor decides what counts as
     //    authoring.
     const values: UserPatch = { meta, prefs }
+    if (patch.handle !== undefined) {
+      values.handle = patch.handle
+    }
     for (const key of profileNameKeys) {
       if (patch[key] !== undefined) {
         values[key] = patch[key]

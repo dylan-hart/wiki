@@ -150,7 +150,8 @@ async function routes(app: FastifyInstance) {
           },
           400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
-          403: { $ref: 'ApiError#' }
+          403: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#' }
         }
       }
     },
@@ -181,6 +182,7 @@ async function routes(app: FastifyInstance) {
         'name',
         'firstName',
         'lastName',
+        'handle',
         'location',
         'jobTitle',
         'pronouns',

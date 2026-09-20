@@ -1448,6 +1448,7 @@ export const users = pgTable(
     //    `hasAvatar` is false, and nothing in that path touches `hasAvatar`/`userAvatars` -- so a
     //    manual upload always wins, and `hasAvatar` keeps meaning "this user uploaded one themselves".
     avatarProviderUrl: text(),
+    handle: varchar({ length: 32 }),
     isActive: boolean().notNull().default(false),
     isSystem: boolean().notNull().default(false),
     isVerified: boolean().notNull().default(false),
@@ -1455,7 +1456,10 @@ export const users = pgTable(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
-  (table) => [index('users_lastLoginAt_idx').on(table.lastLoginAt)]
+  (table) => [
+    index('users_lastLoginAt_idx').on(table.lastLoginAt),
+    uniqueIndex('users_handle_lower_idx').on(sql`lower(${table.handle})`)
+  ]
 )
 
 export const userGroups = pgTable(
