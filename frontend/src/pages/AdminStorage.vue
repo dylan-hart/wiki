@@ -212,6 +212,25 @@
                   :aria-label="t(`admin.storage.assetDirectAccess`)"
                   :disabled="!state.target.assetDelivery.isDirectAccessSupported" />
               </w-settings-row>
+              <w-settings-row
+                :tag="state.target.assetDelivery.isReadThroughSupported ? `label` : `div`"
+                control-width="auto"
+                icon="tabler:cloud-download"
+                :label="t(`admin.storage.assetReadThrough`)">
+                <template #hint>
+                  <div>{{ t(`admin.storage.assetReadThroughHint`) }}</div>
+                  <div
+                    class="text-deep-orange"
+                    v-if="!state.target.assetDelivery.isReadThroughSupported">
+                    {{ t(`admin.storage.assetReadThroughNotSupported`) }}
+                  </div>
+                </template>
+                <w-checkbox
+                  v-model="state.target.assetDelivery.readThrough"
+                  :color="!state.target.assetDelivery.isReadThroughSupported ? `grey` : `primary`"
+                  :aria-label="t(`admin.storage.assetReadThrough`)"
+                  :disabled="!state.target.assetDelivery.isReadThroughSupported" />
+              </w-settings-row>
             </w-settings-card>
             <w-settings-card class="mt-4" :title="t('admin.storage.config')">
               <w-card-section>
@@ -696,7 +715,8 @@ function payloadFor(tgt) {
     },
     assetDelivery: {
       streaming: tgt.assetDelivery.streaming,
-      directAccess: tgt.assetDelivery.directAccess
+      directAccess: tgt.assetDelivery.directAccess,
+      readThrough: tgt.assetDelivery.readThrough
     },
     versioning: {
       enabled: tgt.versioning.enabled
