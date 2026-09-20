@@ -9,12 +9,10 @@ describe('WCheckbox', () => {
 
     expect(wrapper.attributes('aria-checked')).toBe('true')
     expect(wrapper.find('.w-checkbox__box--on').exists()).toBe(true)
-    // -> The check glyph itself, resolved through `w-icon` registered globally in test/setup.js
     expect(wrapper.find('[data-icon="tabler:check"]').exists()).toBe(true)
   })
 
   it("draws the box's corner off --radius-mark, not left unrounded", () => {
-    // -> `0` under Ledger (unchanged), a real value under Cobalt (OpenProject #2767/#2772)
     const wrapper = mount(WCheckbox, { props: { modelValue: false, ariaLabel: 'Enabled' } })
 
     expect(wrapper.find('.w-checkbox__box').classes()).toContain('rounded-mark')

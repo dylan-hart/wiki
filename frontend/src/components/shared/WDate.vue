@@ -30,10 +30,7 @@
         aria-hidden="true">
         {{ d }}
       </div>
-      <!--
-        A blank cell per leading weekday, so the first of the month lands under its own column.
-        `aria-hidden` because an empty grid cell announces as nothing useful.
-      -->
+      <!-- Blank cells so the 1st lands under its own column; `aria-hidden`, they announce nothing. -->
       <div v-for="n of leadingBlanks" :key="`b${n}`" aria-hidden="true" />
       <button
         v-for="day of daysInMonth"
@@ -57,18 +54,12 @@ import { useDictText } from '@/composables/i18nText'
 import { useCommonStore } from '@/stores/common'
 
 /**
- * Calendar for picking a single date, or a date range with `range`.
+ * A month grid with range selection and nothing else -- the months/years navigation views, multiple
+ * selection, event markers and min/max limits the calendar this replaces offered have no caller.
  *
- * The model is an ISO `YYYY-MM-DD` string, or for a range `{ from, to }` of them -- the same shape
- * the caller already stores, so nothing around it changes.
- *
- * Simplification: the calendar this replaces also did months/years navigation views, multiple
- * selection, event markers, min/max limits and its own title bar. The one caller picks a publishing
- * window, so this is a month grid with range selection and nothing else.
- *
- * Dates are handled as plain `YYYY-MM-DD` strings throughout. A calendar day is a civil date with
- * no time zone, and routing it through `Date` is what makes pickers hand back the previous day for
- * users west of UTC.
+ * Dates are plain `YYYY-MM-DD` strings throughout. A calendar day is a civil date with no time
+ * zone, and routing it through `Date` is what makes pickers hand back the previous day for users
+ * west of UTC.
  */
 const props = defineProps({
   /** `'YYYY-MM-DD'`, or `{ from, to }` when `range`. */
@@ -76,7 +67,6 @@ const props = defineProps({
     type: [String, Object],
     default: null
   },
-  /** Select a start and an end rather than a single day. */
   range: {
     type: Boolean,
     default: false
@@ -85,17 +75,14 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Falls back to the `common.date.chooseDate` dictionary entry when not given. */
   ariaLabel: {
     type: String,
     default: null
   },
-  /** Accessible name for the previous-month control. Falls back to `common.date.previousMonth`. */
   previousMonthLabel: {
     type: String,
     default: null
   },
-  /** Accessible name for the next-month control. Falls back to `common.date.nextMonth`. */
   nextMonthLabel: {
     type: String,
     default: null
@@ -117,7 +104,6 @@ const resolvedNextMonthLabel = computed(
 
 const commonStore = useCommonStore()
 
-/** `YYYY-MM-DD` for a year/month/day triple, zero-padded. */
 function iso(year, month, day) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
@@ -127,7 +113,7 @@ const selectedFrom = computed(() =>
 )
 const selectedTo = computed(() => (props.range ? (props.modelValue?.to ?? null) : null))
 
-/** The month on screen. Starts on the selection, or today when there is none. */
+/** The month on screen. */
 const anchor = ref(
   (() => {
     const start = selectedFrom.value
@@ -141,15 +127,12 @@ const anchor = ref(
 )
 
 /**
- * Re-sync the visible month whenever the selection's start date changes -- a `modelValue` set
- * after mount, or set programmatically by the parent, otherwise leaves the calendar showing
- * whatever month it opened on with the selection off-screen.
+ * Without this, a `modelValue` set after mount leaves the calendar on the month it opened with and
+ * the selection off-screen.
  *
- * Watches `selectedFrom` specifically rather than deep-watching `modelValue`: in range mode, a
- * `to`-only edit (the second click of the two-click cycle in `pick()`) leaves `from` untouched, so
- * this does not fire for it and the view stays put instead of yanking to the end date. It also
- * never reads or writes `anchor` except in reaction to `selectedFrom` itself, so `shiftMonth()`
- * remains free to navigate away afterwards without this watcher snapping the view back.
+ * `selectedFrom` specifically, not a deep watch on `modelValue`: a `to`-only edit leaves `from`
+ * untouched, so the view stays put instead of yanking to the end date. Reacting to nothing but
+ * `selectedFrom` is also what leaves `shiftMonth()` free to navigate away afterwards.
  */
 watch(selectedFrom, (start) => {
   if (!start) {
@@ -163,7 +146,7 @@ const monthStart = computed(() =>
   Temporal.PlainDate.from({ year: anchor.value.year, month: anchor.value.month, day: 1 })
 )
 const daysInMonth = computed(() => monthStart.value.daysInMonth)
-/** `dayOfWeek` is 1 (Monday) to 7 (Sunday), so this is how many blanks precede the 1st. */
+/** `dayOfWeek` is 1 (Monday) to 7 (Sunday), so the week starts on Monday here. */
 const leadingBlanks = computed(() => monthStart.value.dayOfWeek - 1)
 
 const monthLabel = computed(() =>
@@ -171,9 +154,8 @@ const monthLabel = computed(() =>
 )
 
 /**
- * 2024-01-01 was a Monday, so adding 0..6 days to it walks Monday through Sunday for whatever locale
- * is active -- a fixed reference week, unrelated to `anchor`/the month actually on screen, picked
- * purely so each of the 7 header cells has a real date to ask `toLocaleString` for a weekday name.
+ * A Monday, so adding 0..6 days walks a full week. Fixed and unrelated to the month on screen: it
+ * exists only to give each header cell a real date to ask for a localized weekday name.
  */
 const WEEKDAY_REFERENCE = Temporal.PlainDate.from('2024-01-01')
 
@@ -221,8 +203,8 @@ function dayClasses(day) {
 }
 
 /**
- * Range selection is the usual two-click cycle: the first click starts a new range, the second
- * closes it, and a second click before the first date reverses the pair rather than rejecting it.
+ * Two-click cycle: the first click starts a range, the second closes it, and a second click before
+ * the first date reverses the pair rather than rejecting it.
  */
 function pick(day) {
   const d = dateOf(day)

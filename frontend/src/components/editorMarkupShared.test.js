@@ -5,21 +5,12 @@ import WTooltip from '@/components/shared/WTooltip.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * The behaviour `EditorAsciidoc.vue` and `EditorCode.vue` share verbatim, as one `describe.each` over
- * the two components rather than four byte-identical `it()` blocks copied between their two suites
- * (TEST-F13.9). This is not a deduplication that drops coverage: both components are still exercised,
- * each assertion still reports under its own component's name, and a third markup editor built on the
- * same `EditorMarkdown`-derived boot pattern joins by adding one row to `EDITORS`.
+ * A `describe.each` over both markup editors rather than byte-identical `it()` blocks copied into
+ * each of their suites; a third editor on the same boot pattern joins by adding a row to `EDITORS`.
+ * What genuinely differs per editor stays in that component's own suite.
  *
- * What stays in each component's own suite is what actually differs: the Monaco language mode it
- * boots in, what it does with the source on change (AsciiDoc converts to HTML into `render`; the code
- * editor's raw source IS the render), and the insert syntax it writes for a picked asset.
- *
- * `monaco-editor` is mocked for the same reason both suites mock it: it needs real browser
- * layout/measurement APIs (`ResizeObserver`, text metrics, a genuine contenteditable surface) that
- * happy-dom does not provide, so mounting the real editor would test whether happy-dom can pretend to
- * be a browser rather than these components' own logic. One fake instance is shared by both, cleared
- * between tests.
+ * `monaco-editor` needs real browser layout/measurement APIs happy-dom does not provide, so
+ * mounting the real editor would test happy-dom rather than these components' own logic.
  */
 const fakeEditor = {
   getValue: vi.fn(() => ''),
@@ -86,12 +77,8 @@ describe.each(EDITORS)('%s (behaviour shared by both markup editors)', (_name, E
   })
 
   /**
-   * OpenProject #834 (discussion #1738's editor-toolbar-mirroring gap): the side toolbar's tooltip
-   * used to pop outward toward a hardcoded physical `right`, which is the reading-START edge of the
-   * `Insert Assets` button only under LTR -- under RTL that edge is the visual left, and a tooltip
-   * still anchored `right` pops away from the toolbar instead of back toward it. Same bug
-   * `EditorMarkdown.vue`'s own `sideToolbarTooltip` already covers; both editors were outside task
-   * 721/727's audit.
+   * A hardcoded physical `right` anchor is the reading-start edge only under LTR; under RTL it pops
+   * the tooltip away from the toolbar instead of back toward it.
    */
   describe('side toolbar tooltip mirroring', () => {
     it('anchors outward to the right under ltr (the default)', () => {

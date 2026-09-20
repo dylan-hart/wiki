@@ -7,17 +7,9 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * The message sets, mount helpers and teleported-menu lookups `PageActionsCol.vue`'s four suites
- * share, lifted out of the single 877-line `PageActionsCol.test.js` when it was split by concern
- * (TEST-F14).
- *
- * A sibling module rather than a `*.test.js`, matching `graphFixtures.js` and
- * `editorMarkdownHarness.js`: `vitest.config.js` only collects `*.test.js`, so this is imported,
- * never run as a suite of its own. Each mount helper exists because the rail gates a different
- * control on a different permission, so no one seed covers them all.
- *
- * `vi.mock('browser-fs-access', ...)` stays in each suite that needs `fileSave` -- `vi.mock` is
- * hoisted per file and cannot be moved here.
+ * Each mount helper exists because the rail gates a different control on a different permission, so
+ * no one seed covers them all. `vi.mock('browser-fs-access', ...)` stays in each suite that needs
+ * `fileSave`: `vi.mock` is hoisted per file and cannot be moved here.
  */
 export const HOMEPAGE_GUARD_MESSAGES = {
   en: {
@@ -36,10 +28,9 @@ export const HOMEPAGE_GUARD_MESSAGES = {
 }
 
 /**
- * WP #1610: the rail's aria-labels and tooltips now resolve through `t()` rather than carrying
- * hardcoded English literals, so every mount helper below needs the real `en.json` strings present
- * (not the empty `{ en: {} }` a pre-translation mount could get away with) for its `[aria-label="…"]`
- * selectors and `.w-item` label assertions to keep matching resolved output.
+ * The rail's aria-labels and tooltips resolve through `t()`, so a mount needs the real `en.json`
+ * strings present for its `[aria-label="…"]` selectors and `.w-item` label assertions to match
+ * resolved output rather than a key.
  */
 export const PAGE_ACTIONS_MESSAGES = {
   ...HOMEPAGE_GUARD_MESSAGES.en,
@@ -82,11 +73,6 @@ export const PAGE_ACTIONS_MESSAGES = {
   }
 }
 
-/**
- * WP #1149: extra confirmation before deleting or moving a site's homepage (the hardcoded `home` /
- * `''` path convention -- `pageStore.isHome`). Its own mount helper because it needs
- * `delete:pages`/`manage:pages`, which none of the other mount helpers below grant together.
- */
 export async function mountRailForGuard({
   path = 'home',
   permissions = ['delete:pages', 'manage:pages']
@@ -104,9 +90,8 @@ export async function mountRailForGuard({
         path,
         title: 'Welcome',
         editor: 'markdown',
-        // -> `initializeStore(router)` (stores/index.js) is what wires this up for real, at app
-        //    boot; a bare pinia never runs it, and `pageMove` dereferences it for the page it just
-        //    moved
+        // -> `initializeStore(router)` wires this up at app boot; a bare pinia never runs it, and
+        //    `pageMove` dereferences it for the page it just moved.
         router: { replace: vi.fn() }
       },
       site: { id: 'site-1' },
@@ -118,11 +103,9 @@ export async function mountRailForGuard({
 }
 
 /**
- * Task 502: the standalone "Page Source" rail button is retired in favour of a single "Export Page"
- * `w-menu` offering Markdown / HTML / PDF, matching the pattern the "..." Page Actions menu below it
- * already uses. `w-menu`'s panel is teleported to `document.body` (see `WMenu.vue`), so once the
- * trigger is clicked the panel has to be queried off `document`, not off `wrapper` -- `wrapper.find`
- * only ever searches the mounted root's own subtree.
+ * `w-menu`'s panel is teleported to `document.body`, so once the trigger is clicked the panel has to
+ * be queried off `document`, not off `wrapper` -- `wrapper.find` only ever searches the mounted
+ * root's own subtree.
  */
 export async function mountRail({ pdfExportAvailable = false } = {}) {
   const router = await createTestRouter(['/'])
@@ -149,11 +132,6 @@ export function menuItemLabels() {
   return [...document.querySelectorAll('.w-menu .w-item')].map((el) => el.textContent.trim())
 }
 
-/**
- * Opens the rail's "..." menu, which is where duplicate / rename-move / delete now live -- Cardinal
- * folded the three of them in from the rail itself (`PageActionsCol.vue`), so a test that used to
- * click one of the three buttons has to open the menu first and then `clickMenuItem` its label.
- */
 export async function openPageActionsMenu(wrapper) {
   await wrapper.get('[aria-label="common.header.pageActions"]').trigger('click')
   await flushPromises()
@@ -166,12 +144,6 @@ export function clickMenuItem(label) {
   item.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 }
 
-/**
- * OpenProject #811: an unsaved (never-saved) page has no `pageStore.id` yet, so clicking Page
- * History must not open the overlay -- there is nothing for it to fetch. Its own mount setup, since
- * the "Page History" button is gated on `read:history` (see PageActionsCol.vue), which `mountRail`
- * above never grants.
- */
 export async function mountRailWithHistory({ pageId = 'page-1', creating = false } = {}) {
   const router = await createTestRouter(['/'])
 
@@ -184,7 +156,6 @@ export async function mountRailWithHistory({ pageId = 'page-1', creating = false
       page: { id: pageId, path: 'docs/getting-started', editor: 'markdown' },
       site: { id: 'site-1' },
       user: { permissions: ['read:history'] },
-      // -> The ticket's actual scenario: a brand-new, never-saved page, still open in the editor
       editor: creating ? { isActive: true, mode: 'create' } : {}
     }
   })
@@ -192,12 +163,7 @@ export async function mountRailWithHistory({ pageId = 'page-1', creating = false
   return { wrapper, pageStore, siteStore, userStore }
 }
 
-/**
- * OpenProject #2795: "Copy Page Content" -- gated on `read:source`, the same permission the
- * `format=markdown` export endpoint checks, mirroring `mountRailWithHistory`'s `read:history` gate
- * above. `editor` defaults to `markdown`; pass `'redirect'` to prove the whole `!isRedirect` block
- * (this button included) is absent.
- */
+/** Pass `editor: 'redirect'` to prove the `!isRedirect` block, this button included, is absent. */
 export async function mountRailWithCopyContent({
   editor = 'markdown',
   permissions = ['read:source']
@@ -220,27 +186,15 @@ export async function mountRailWithCopyContent({
 }
 
 /**
- * OpenProject #1911: Page Data / Page Data Templates was decided OUT (#1890) rather than built out --
- * the rail's disabled "Page Data" button (behind `flagsStore.experimental`, with a hardcoded
- * `disable`) and its `togglePageData` handler are gone entirely, not just re-hidden.
- */
-
-/**
- * OpenProject #858: Rerender Page can't just check `write:pages` -- the backend also refuses the
- * request when Puppeteer isn't installed (503) or the page's editor isn't markdown
- * (`renderUnsupportedEditor`). Mirrors the PDF export item's own availability gate above. Since
- * OpenProject #1917, `canRerenderPage` no longer decides whether the "..." Page Actions menu shows
- * at all -- View Backlinks is unconditional, so the trigger always renders; what varies here is only
- * whether Rerender Page itself appears inside it.
+ * Rerender Page is not gated on `write:pages` alone -- the backend also refuses when Puppeteer is
+ * absent (which `siteStore.pdfExportAvailable` stands for) or the page's editor is not markdown.
  */
 export async function mountRailWithPageActions({
   pdfExportAvailable = true,
   editor = 'markdown',
   canWritePages = true,
-  // -> OpenProject #3399: which editors this site has active, for Convert Editor's own gate --
-  //    same shape `siteStore.editors` carries from `GET sites/:siteId`, and `EditorPickerDialog.vue`
-  //    already reads the same way. Both on by default, matching every other mount helper's default
-  //    `editor: 'markdown'` actually being convertible out of the box.
+  // -> Which editors the site has active, gating Convert Editor. Both on by default, so the
+  //    default `editor: 'markdown'` is convertible out of the box.
   editors = { markdown: true, wysiwyg: true }
 } = {}) {
   const router = await createTestRouter(['/'])
@@ -260,11 +214,6 @@ export async function mountRailWithPageActions({
   return { wrapper, pageStore, siteStore, userStore }
 }
 
-/**
- * OpenProject #878: renaming a pending (not-yet-uploaded) asset from the "Pending Asset Uploads"
- * pane. Its own mount setup -- `write:pages` (the whole pane is gated on it) plus an active,
- * non-redirect editor, which none of the mount helpers above grant together.
- */
 export async function mountRailWithPendingAssets({ pendingAssets = [] } = {}) {
   const router = await createTestRouter(['/'])
 

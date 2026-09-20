@@ -6,14 +6,10 @@
 
 <script setup>
 /**
- * Joins adjacent `WBtn`s into one control: the seam between two buttons is a single hairline rather
- * than two adjacent edges.
- *
- * There is no `unelevated` prop, and no corner-squaring rules either. Both existed to reconcile a
- * ROUNDED, SHADOWED button with the run it sits in -- the outer corners had to stay rounded while
- * the inner ones squared up, and the group had to be able to switch off a drop shadow that would
- * otherwise show through the seams. A Cardinal button is square and casts nothing, so a run of them
- * already reads as one control and the only thing left to say is where one ends and the next begins.
+ * No `unelevated` prop and no corner-squaring rules: both existed to reconcile a rounded, SHADOWED
+ * button with the run it sits in -- the group had to be able to switch off a drop shadow that would
+ * otherwise show through the seams. A Cardinal button casts nothing, so a run of them already reads
+ * as one control, and the only thing left to say is where one ends and the next begins.
  */
 </script>
 

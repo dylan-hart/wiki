@@ -60,8 +60,8 @@ describe('WBtn', () => {
   })
 
   it('takes its default corner from --radius-control, not a hardcoded value', () => {
-    // -> `0` under Ledger, a real value under Cobalt (OpenProject #2767/#2772) -- one class, no
-    //    aesthetic branch
+    // -> `--radius-control` is `0` under Ledger and a real value under Cobalt -- one class, no
+    //    aesthetic branch.
     const wrapper = mount(WBtn, { props: { label: 'Save' } })
 
     expect(wrapper.classes()).toContain('rounded-control')
@@ -82,14 +82,10 @@ describe('WBtn', () => {
 
 describe('WBtn solid-button foreground contrast', () => {
   /*
-   * The seven solid palette colors `WBtn` is themed with (`App.vue`'s `applyTheme`), keyed to the
-   * default hex each resolves to with no site customization -- `accent` is the seeded `#FF9800`
-   * (`models/sites.ts`), `positive`/`negative`/`info`/`warning` are the fixed non-themeable values
-   * (`css/tailwind.css`'s `:root` defaults; `App.vue` never calls `setCssVar` for `info`/`warning`).
-   * `--color-<name>` is what `WBtn`'s `styles` binds `background-color` to, so setting it directly
-   * on `documentElement` here is exactly what a themed site does (`helpers/cssVars.js#setCssVar`) --
-   * `tailwind.css` itself isn't loaded under Vitest (see `vitest.config.js`'s own header comment), so
-   * this is the only way these custom properties become resolvable in this test environment too.
+   * The solid palette colors `WBtn` is themed with, keyed to the default hex each resolves to with
+   * no site customization. `tailwind.css` is not loaded under Vitest, so setting `--color-<name>` on
+   * `documentElement` -- exactly what a themed site does -- is the only way these custom properties
+   * become resolvable here.
    */
   const PALETTE_COLORS = {
     primary: '#1976D2',
@@ -145,10 +141,6 @@ describe('WBtn solid-button foreground contrast', () => {
   })
 })
 
-// -> OpenProject #2813: `accent` is the decided "page's own primary action" color, so a solid
-//    `color="accent"` button bakes in `--shadow-primary` -- `none` under Ledger, the mockups' glow
-//    under Cobalt -- with no per-page CSS needed any more (see the deleted `.auth-cta` class this
-//    task retired).
 describe('WBtn --shadow-primary wiring', () => {
   it('applies --shadow-primary to a solid accent button', () => {
     const wrapper = mount(WBtn, { props: { label: 'Go', color: 'accent' } })
@@ -181,11 +173,8 @@ describe('WBtn --shadow-primary wiring', () => {
   })
 })
 
-// -> OpenProject #1805: title/tabindex are declared props (not left to $attrs fallthrough) so a
-//    call site's use of them is visible in the drift-check test, e.g. AdminGeneral.vue's inert
-//    logo preview button (`tabindex="-1"` alongside `aria-hidden="true"`, so it isn't a real link
-//    and shouldn't be reachable by tab) and HeaderSearch.vue's icon-only copy-link button
-//    (`:title` as the native tooltip, alongside a matching `:aria-label`).
+// -> `title` and `tabindex` are declared props rather than left to `$attrs` fallthrough, so a call
+//    site's use of either is visible on the component's own surface.
 describe('WBtn native attribute props', () => {
   it('renders a native title tooltip', () => {
     const wrapper = mount(WBtn, { props: { label: 'Copy link', title: 'Copy link to clipboard' } })

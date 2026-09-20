@@ -18,9 +18,6 @@ describe('WCardSection', () => {
     expect(wrapper.classes()).toEqual(expect.arrayContaining(['flex', 'items-center']))
   })
 
-  // -> OpenProject #1805: id is a declared prop (not left to $attrs fallthrough), e.g.
-  //    PagePropertiesDialog.vue's sections, each scrolled into view by id from its own sidebar nav
-  //    (`document.querySelector('#' + id).scrollIntoView(...)`).
   it('renders a native id for a caller to scroll a specific section into view by', () => {
     const wrapper = mount(WCardSection, { props: { id: 'refCardInfo' } })
 

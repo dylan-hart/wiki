@@ -37,23 +37,10 @@
 import { computed } from 'vue'
 
 /**
- * Segmented single-choice control.
+ * A run of hairline boxes sharing their edges, the selected one filled. There is no relief
+ * treatment and so no `push`/`glossy`/`noCaps` variant props.
  *
- * `options` is `[{ label, value, icon? }]`, the same shape the templates already build.
- *
- * Cardinal draws it as a run of hairline boxes sharing their edges, with the selected one filled in
- * the accent and the rest left as outline. Only the strip's own outer corners round (never each
- * segment), off `--radius-control` -- square under Ledger, a real radius under Cobalt (OpenProject
- * #2767/#2772). The engraved treatment this replaces -- a
- * bevelled seam between segments, a letterpress text shadow, an optional raised ledge and gloss --
- * is gone with the rest of the app's relief, and the `push`/`glossy`/`noCaps` props that selected
- * those variants went with it.
- *
- * Every segment carries a border, the selected one included (in its own fill colour, where it
- * disappears), rather than only the unselected ones. Otherwise selecting a segment would take a
- * pixel off its width and shuffle the whole row sideways.
- *
- * The four colour props are kept, because the admin toolbars flip all of them on the theme rather
+ * The four colour props all exist because the admin toolbars flip each of them on the theme rather
  * than relying on a `dark:` variant.
  */
 const props = defineProps({
@@ -67,19 +54,13 @@ const props = defineProps({
     default: () => []
   },
   /**
-   * Colour of the selected segment.
-   *
-   * Defaults to `segment-selected` rather than `primary`: the handoff's fill/text split puts every
-   * accent fill CARRYING WHITE TEXT on the accent tone, and a selected segment is named in that list
-   * explicitly. Ledger's `--color-segment-selected` is `var(--color-primary)`, exactly what this
-   * used to be, so nothing moves there; Cobalt's is `var(--color-accent)` (`#c8303c`), which is what
-   * `Aesthetic Setting 3x`'s own Cobalt card draws.
+   * Fill of the selected segment. The default token is not `primary`: an accent fill carrying white
+   * text resolves per theme, so each theme names its own selected-segment tone.
    */
   toggleColor: {
     type: String,
     default: 'segment-selected'
   },
-  /** Text colour of the selected segment. Defaults to white. */
   toggleTextColor: {
     type: String,
     default: null
@@ -115,13 +96,8 @@ function segmentStyle(opt) {
       // -> Matches the fill, so the border is invisible but still occupies its pixel
       borderColor: `var(--color-${props.toggleColor})`,
       /*
-        The selected segment's glow (`Aesthetic Setting 3x`'s Cobalt card draws it on the chosen
-        segment, `docs/cobalt-mockup-diff-signoff.md` row 10's second deferral). `none` under
-        Ledger, so this is a no-op there.
-
-        Only for the DEFAULT fill: a caller that names its own `toggle-color` -- `AdminStorage.vue`
-        and `AdminScheduler.vue` fill theirs with plain black or white -- is not drawing the page's
-        primary action, and a red-tinted glow under a white segment would read as a stray artefact.
+        Glow only under the DEFAULT fill: a caller naming its own `toggle-color` is not drawing the
+        page's primary action, and an accent-tinted glow under its fill reads as a stray artefact.
       */
       boxShadow: props.toggleColor === 'segment-selected' ? 'var(--shadow-primary)' : undefined,
       color: props.toggleTextColor ? `var(--color-${props.toggleTextColor})` : undefined
@@ -136,19 +112,18 @@ function segmentStyle(opt) {
 
 <style scoped>
 /*
-  An unselected segment is a control, not secondary text, so it takes Cardinal's chrome tone rather
-  than inheriting whatever the context dims to -- an item's `side` section drops its contents to 54%
-  black, which left these labels a washed-out grey. A `text-color` prop still wins, since that
-  arrives as an inline style.
-
-  Height is stated here rather than as a padding pair: the design's 30px band has to hold whether a
-  segment carries a label, an icon, or both, and `min-height` on the segment is the one measurement
-  that does not change with its contents.
+  Height as `min-height` rather than a padding pair: the 30px band has to hold whether a segment
+  carries a label, an icon, or both, and only `min-height` does not change with its contents.
 */
 .w-btn-toggle__segment {
   min-height: 30px;
 }
 
+/*
+  An unselected segment is a control, not secondary text, so it states its own tone rather than
+  inheriting -- an item's `side` section dims its contents, which left these labels a washed-out
+  grey. A `text-color` prop still wins, arriving as an inline style.
+*/
 .w-btn-toggle__segment[aria-checked='false'] {
   color: var(--color-slate);
 }
@@ -158,10 +133,8 @@ function segmentStyle(opt) {
 }
 
 /*
-  Cobalt dark (cobalt-typography.md §3, "Segmented control option") draws an unselected segment's
-  label in the same chrome tone the section-header kicker uses (`#c9d6ff`, `--color-dark-3-5-text`),
-  not the generic dark-mode body text `--color-text-dark` (`#e8ecff`) the rule above falls back to --
-  this selector's extra `.body--cobalt` outranks it by specificity, so Ledger dark is unaffected.
+  Cobalt dark draws an unselected label in the chrome tone, not the generic dark-mode body text the
+  rule above uses; the extra `.body--cobalt` outranks it by specificity, leaving Ledger dark alone.
 */
 :global(body.body--cobalt.body--dark .w-btn-toggle__segment[aria-checked='false']) {
   color: var(--color-dark-3-5-text);

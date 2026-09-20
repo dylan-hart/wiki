@@ -1,19 +1,13 @@
 <template>
   <!--
-    A count in Roboto Mono, which is what Cardinal sets every number in -- a notification count, a
-    version cursor, a row tally. At 9.5px/600 it matches the design's own badge (cobalt-typography.md
-    §3's "Badge (Draft, 1, 2)" role -- `.16em` tracking, uppercase, the same metrics as the
-    Draft/Published mark `PageHeader.vue` draws). The proportional 12px it replaced made two- and
-    three-digit counts jump about in width as they changed; the `.16em`/uppercase pair only matters
-    for a text label (`1`/`2`/`Draft` reads the same either way) but is stated unconditionally rather
-    than only for the label case, since a badge's whole point is drawing every one of its roles the
-    same way regardless of what happens to be inside it this time.
+    Mono, so two- and three-digit counts do not jump about in width as they change. The tracking and
+    uppercase matter only for a text label, but are stated unconditionally because a badge draws
+    every one of its roles the same way regardless of what is inside it.
 
     `min-h-3.5` is what makes a badge with no label a dot rather than a 14x4 sliver: the only child
-    here is often a tooltip, which renders nothing inline, so the box would otherwise be pure
-    padding -- 14px wide from `px-1.5` but only 4px tall. 14px matches the width, so it comes out
-    square (or, with `rounded`, circular). A badge that does carry a label is taller than this on
-    its own and is unaffected.
+    is often a tooltip, which renders nothing inline, so the box would otherwise be pure padding --
+    14px wide from `px-1.5` but only 4px tall. 14px matches the width, so it comes out square. A
+    badge that does carry a label is taller than this on its own and is unaffected.
   -->
   <div
     class="w-badge inline-flex min-h-3.5 items-center justify-center px-1.5 py-0.5 font-mono text-[9.5px] leading-none font-semibold tracking-[.16em] uppercase"
@@ -27,9 +21,6 @@
 <script setup>
 import { computed } from 'vue'
 
-/**
- * Small count or status marker.
- */
 const props = defineProps({
   label: {
     type: [String, Number],
@@ -43,22 +34,18 @@ const props = defineProps({
     type: String,
     default: null
   },
-  /** Border and text in `color`, with no fill. */
   outline: {
     type: Boolean,
     default: false
   },
-  /** Pill rather than the default slightly-rounded rectangle. */
   rounded: {
     type: Boolean,
     default: false
   },
-  /** Pins the badge to the top-right of the nearest positioned ancestor. */
   floating: {
     type: Boolean,
     default: false
   },
-  /** Native tooltip. */
   title: {
     type: String,
     default: null
@@ -66,16 +53,13 @@ const props = defineProps({
 })
 
 const classes = computed(() => [
-  // -> Pill when a caller explicitly asks; otherwise `--radius-mark` (0 under Ledger, a real value
-  //    under Cobalt -- OpenProject #2767/#2772), never a hardcoded corner
+  // -> `--radius-mark` (0 under Ledger, a real value under Cobalt), never a hardcoded corner.
   props.rounded ? 'rounded-full' : 'rounded-mark',
   props.outline ? 'border border-current bg-transparent' : '',
-  // -> `right-0` (not `end-0`) is deliberate, reviewed under OpenProject #1590's
-  //    physical-positioning triage: the straddle is `translate-x-1/2`, a physical transform that
-  //    never mirrors under RTL, so swapping only the `right` half to `end` would pull the badge
-  //    the wrong way off its corner under RTL rather than the right way -- correcting the pair
-  //    together (an `end-0` position plus a direction-aware straddle) is future work, not a
-  //    mechanical swap. See `frontend/src/physicalPositioning.test.js`.
+  // -> The physical `right-0` is deliberate: the straddle is `translate-x-1/2`, a physical
+  //    transform that never mirrors under RTL, so swapping only the position half to `end` would
+  //    pull the badge the wrong way off its corner. TODO: correct the pair together -- a logical
+  //    position plus a direction-aware straddle.
   props.floating ? 'absolute top-0 right-0 translate-x-1/2 -translate-y-1/3' : ''
 ])
 

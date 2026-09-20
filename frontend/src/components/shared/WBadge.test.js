@@ -11,7 +11,7 @@ describe('WBadge', () => {
   })
 
   it('draws its corner off --radius-mark unless rounded is set', () => {
-    // -> `0` under Ledger (unchanged), a real value under Cobalt (OpenProject #2767/#2772)
+    // -> `--radius-mark` is `0` under Ledger and a real value under Cobalt.
     const mark = mount(WBadge, { props: { label: 1 } })
     expect(mark.classes()).toContain('rounded-mark')
     expect(mark.classes()).not.toContain('rounded-none')
@@ -26,10 +26,8 @@ describe('WBadge', () => {
     expect(wrapper.classes()).not.toContain('absolute')
   })
 
-  // -> OpenProject #1590's physical-positioning triage: `floating` deliberately keeps the
-  //    physical `right-0` (paired with a physical `translate-x-1/2` straddle, which never mirrors
-  //    under RTL on its own) rather than converting only half the pair to `end-0` — see the
-  //    justification comment on WBadge.vue's `classes` computed.
+  // -> The physical position is deliberate, paired with a physical straddle transform that never
+  //    mirrors under RTL on its own — see the justification on WBadge.vue's `classes` computed.
   it('pins a floating badge to the physical top-right corner', () => {
     const wrapper = mount(WBadge, { props: { label: 1, floating: true } })
 
@@ -44,8 +42,6 @@ describe('WBadge', () => {
     )
   })
 
-  // -> OpenProject #1805: title is a declared prop (not left to $attrs fallthrough), e.g.
-  //    ProfileAuth.vue's 2FA-active badge, which pairs it with an icon-only label.
   it('renders a native title tooltip', () => {
     const wrapper = mount(WBadge, { props: { label: 1, title: '2FA is active' } })
 

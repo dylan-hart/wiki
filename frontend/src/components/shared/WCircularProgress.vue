@@ -31,11 +31,8 @@ import { computed } from 'vue'
 import { resolveSize } from './metrics'
 
 /**
- * Indeterminate circular progress ring.
- *
- * Simplification: the component this replaces could also show a determinate value, with a centre
- * fill and a numeric label. Only the indeterminate form is used (a "job is running" marker), so
- * that is all this draws.
+ * Indeterminate only: the determinate value, centre fill and numeric label the component this
+ * replaces also offered have no call site here.
  */
 const props = defineProps({
   /** A named size, or any CSS length. */
@@ -43,7 +40,7 @@ const props = defineProps({
     type: String,
     default: '32px'
   },
-  /** Ring thickness as a fraction of the radius, matching the value the call site passes. */
+  /** Ring thickness as a fraction of the radius. */
   thickness: {
     type: Number,
     default: 0.2
@@ -52,7 +49,7 @@ const props = defineProps({
     type: String,
     default: 'primary'
   },
-  /** Colour of the full ring behind the arc. Omit to leave it unpainted. */
+  /** Colour of the full ring behind the arc. Unpainted when omitted. */
   trackColor: {
     type: String,
     default: null

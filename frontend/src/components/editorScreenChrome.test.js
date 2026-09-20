@@ -7,12 +7,10 @@ import { describe, expect, it } from 'vitest'
 import { tokenValue } from '../../test/tokens.js'
 
 /*
-  These rules name a TOKEN now rather than the hex it resolves to -- the Cobalt aesthetic is a second
-  set of values for the same custom properties, so a rule that baked Ledger's literal in could not
-  follow it (`ui-redesign-cobalt/HANDOFF.md`, "Architecture"). Each assertion below therefore checks
-  both halves of what it used to check in one: that the rule still names the right token, and that
-  the token still carries the value the design draws. `test/tokens.js` reads the second half out of
-  `css/tailwind.css`, so neither can drift without this failing.
+  These rules name a TOKEN rather than the hex it resolves to -- an aesthetic is a second set of
+  values for the same custom properties, so a rule baking one aesthetic's literal in could not follow
+  it. Each assertion therefore checks both halves at once: that the rule names the right token, and
+  that the token still carries the value the design draws, read out of `css/tailwind.css`.
 */
 function token(name, expected) {
   expect(tokenValue(name), `${name} should still be ${expected} under Ledger`).toBe(expected)
@@ -20,32 +18,18 @@ function token(name, expected) {
 }
 
 /*
-  The editor screen's chrome, against `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` (OpenProject
-  #2624).
-
   Everything under test here is a ground, a hairline or a measurement -- which is exactly what
   neither `jsdom` nor `happy-dom` can answer for, since neither runs a layout engine or a real
   cascade, and mounting a Monaco editor in a real Chromium to read four background colours off it is
   out of all proportion to the claim. So the stylesheet itself is the artifact under test: each SFC's
-  own `<style>` block is read back exactly as the app ships it (no compile step -- it is already
-  plain, valid CSS since OpenProject #3254 dropped the Sass pipeline), and the emitted declarations
-  are read back. That catches the things a class-name assertion cannot -- a token resolving to the
-  wrong hex, a theme-scoped rule quietly out-specifying an unscoped override -- without pretending to
-  have measured a layout.
-
-  One suite across three components rather than three near-identical copies, following
-  `editorMarkupShared.test.js`: what they share is the design file, not an implementation.
+  own `<style>` block is read back exactly as the app ships it. That catches what a class-name
+  assertion cannot -- a token resolving to the wrong hex, a theme-scoped rule quietly out-specifying
+  an unscoped override -- without pretending to have measured a layout.
 */
 
 const componentsDir = dirname(fileURLToPath(import.meta.url))
 
-/**
- * One SFC's `<style>` block, read back exactly the way the app ships it -- no compile step needed,
- * since every SFC style block is already plain, valid CSS.
- *
- * @param {string} fileName an SFC in this directory
- * @returns {string} the style block's own text
- */
+/** Nothing is compiled, despite the name: an SFC's style block is already plain, valid CSS. */
 function compileStyles(fileName) {
   const source = readFileSync(join(componentsDir, fileName), 'utf8')
   const block = source.match(/<style[^>]*>([\s\S]*?)<\/style>/)
@@ -54,15 +38,11 @@ function compileStyles(fileName) {
 }
 
 /**
- * The declarations one selector carries, as a `property: value` map. Sass has already flattened its
- * nesting by this point, but it does NOT strip comments — and a `/* … *\/` left in front of a
- * declaration would otherwise be swallowed into that declaration's property name, so it is dropped
- * here before the split. Reading the map rather than substring-matching the whole sheet is what makes
- * a wrong value fail as a wrong value instead of as a missing one.
+ * A `/* … *\/` left in front of a declaration would be swallowed into that declaration's property
+ * name, so comments are dropped before the split. Reading a map rather than substring-matching the
+ * whole sheet is what makes a wrong value fail as a wrong value instead of as a missing one.
  *
- * @param {string} css
- * @param {string} selector the exact, whole selector as Sass emits it
- * @returns {Record<string, string>}
+ * @param {string} selector the exact, whole selector, as written in the style block
  */
 function declarations(css, selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -85,10 +65,8 @@ describe('the markdown editor’s own chrome', () => {
   const css = compileStyles('EditorMarkdown.vue')
 
   /*
-    The single largest disagreement this comparison turned up: the rail and the markup bar were a dark
-    slate block and a cardinal-red band, with a darker red stub bridging them across the top. Cardinal
-    is continuous light slate chrome with hairline borders, and the accent is reserved for the live
-    edge -- a permanent red bar over the surface an author spends the most time on is neither.
+    The accent is reserved for the live edge, so the rail and the markup bar are continuous light
+    slate chrome with hairline borders rather than a dark slate block and a cardinal-red band.
   */
   it('draws the insert rail as light slate chrome, ruled off from the source pane', () => {
     expect(declarations(css, '.editor-markdown-sidebar')).toMatchObject({
@@ -100,7 +78,7 @@ describe('the markdown editor’s own chrome', () => {
       'border-inline-end': `1px solid ${token('--color-hairline', '#dbe1ec')}`,
       color: token('--color-slate', '#38465f')
     })
-    // -> The red band that used to bridge the rail into the toolbar above it
+    // -> No red band bridging the rail into the toolbar above it.
     expect(css).not.toContain('border-top: 32px')
   })
 
@@ -117,9 +95,8 @@ describe('the markdown editor’s own chrome', () => {
   })
 
   /*
-    Both toolbars are 40px, and each pane below one subtracts that height to fill what is left. They
-    are driven off a single Sass variable precisely so this can be asserted as one claim: a band moved
-    without its pane is how Monaco ends up overflowing its column.
+    Each pane subtracts its toolbar's 40px to fill what is left: a band whose height moves without
+    its pane's is how Monaco ends up overflowing its column.
   */
   it('leaves each pane exactly the height its toolbar does not take', () => {
     expect(declarations(css, '.editor-markdown-editor').height).toBe('calc(100% - 40px)')
@@ -139,9 +116,9 @@ describe('the markdown editor’s own chrome', () => {
   })
 
   /*
-    The seam between the two panes is a `#dbe1ec` strip in the design. The 9px hit strip over it and
-    its accent highlight are deliberately kept: a mock cannot draw "while you are dragging this", and
-    the highlight only ever appears then.
+    The hit strip over the seam and its accent highlight are deliberately kept although the design
+    shows neither: a static mock cannot draw "while you are dragging this", which is the only time
+    the highlight appears.
   */
   it('rules the pane seam with a hairline, keeping the accent for the drag itself', () => {
     expect(declarations(css, '.editor-markdown-mid')['border-inline-end']).toBe(
@@ -153,14 +130,8 @@ describe('the markdown editor’s own chrome', () => {
   })
 
   /*
-    The group rule between the inline-markup buttons and the block-level ones. Its colour has to go
-    through `--w-hairline-color`, since `WSeparator` renders `.w-hairline`, which is transparent and
-    paints its line on an `::after` reading that property.
-  */
-  /*
-    OpenProject #2870 ("Cobalt polish: Editor"): the markup bar's buttons default to `WBtn`'s
-    `rounded-control` class, which under Cobalt resolves to a real radius (Task #2859's token) --
-    everywhere except this bar, which the design draws as a full-width square band.
+    The markup bar's buttons default to `WBtn`'s `rounded-control`, which under Cobalt resolves to a
+    real radius -- everywhere except this bar, which the design draws as a full-width square band.
   */
   it('keeps the markup bar’s buttons square under Cobalt, unlike --radius-control elsewhere', () => {
     expect(declarations(css, '.body--cobalt .editor-markdown-toolbar .w-btn')).toEqual({
@@ -168,6 +139,10 @@ describe('the markdown editor’s own chrome', () => {
     })
   })
 
+  /*
+    The rule's colour goes through `--w-hairline-color`: `WSeparator` renders `.w-hairline`, which is
+    transparent and paints its line on an `::after` reading that property.
+  */
   it('rules the markup bar’s two groups apart at the design’s 20px', () => {
     expect(declarations(css, '.editor-markdown-toolbar-rule')).toMatchObject({
       height: '20px',
@@ -188,22 +163,15 @@ describe('the markdown editor’s own chrome', () => {
   })
 
   /*
-    OpenProject #3252 (Sass removal, hand-converting the genuine `@at-root`-as-escape sites).
-    `.tabset-content`'s dark-mode tint used to read `@at-root .theme--dark & { ... }` -- `.theme--dark`
-    is a class nothing in this app (or upstream's `scarlett` branch) has ever applied to anything
-    (`composables/dark.js` is the single source of truth for dark mode, and it toggles `.body--dark`
-    on `<body>`), so the rule was permanently dead: this tint never painted in dark mode regardless of
-    theme. The hand-conversion corrects the class to `.body--dark`, the one every other dark-mode
-    override in this file actually reads, rather than silently carrying the dead selector forward.
+    `.theme--dark` is a class nothing in this app applies to anything -- `composables/dark.js` is the
+    single source of truth for dark mode and toggles `.body--dark` on `<body>` -- so any rule keyed
+    off it is permanently dead and never paints.
   */
   it('tints the tabset panel teal in dark mode via the app’s real .body--dark class, not the dead .theme--dark one', () => {
-    // -> `declarations()` throws if this exact selector isn't emitted -- were the rule still keyed
-    //    off `.theme--dark`, this selector would not exist in the compiled stylesheet at all.
+    // -> `declarations()` throws when the selector isn't emitted, which is the assertion here.
     expect(
       declarations(css, '.body--dark .editor-markdown-preview-content .tabset-content')
     ).toEqual({
-      // -> OpenProject #3247 converted this rule's value from `rgba($teal-5, 0.1)` to the
-      //    equivalent `color-mix()` form before this WP hand-converted the rule's selector.
       'background-color': `color-mix(in srgb, ${token('--color-teal-5', '#26a69a')} 10%, transparent)`
     })
   })
@@ -213,19 +181,16 @@ describe('the page actions rail while a page is being written', () => {
   const css = compileStyles('PageActionsCol.vue')
 
   /*
-    Every button on this rail already switched to `color="white"` while the editor was open, but the
-    rail itself stayed on the light tint with a 2px accent edge -- so an author was looking at white
-    glyphs on `#eef1f7`. Filling it is both what the design draws and what makes those glyphs legible;
-    the two halves of that were out of step, and this is the assertion that keeps them together.
+    Every button on this rail is `color="white"` while the editor is open, so the rail itself has to
+    be filled: white glyphs on the light tint are illegible. This keeps the two halves together.
   */
   it('fills the rail, in the tone a white glyph and a white overline can ride on', () => {
     const filled = declarations(css, '.body--light .page-actions.is-editor')
     /*
-      `--color-accent`, not the design's `#e4676b`: see `docs/cardinal-reskin-second-pass.md`'s
-      "One deliberate divergence" -- a fill carrying white text takes the darker tone. The token,
-      rather than `--color-primary` it once named, because the two are the same `#c14a52` in Ledger
-      and part company under Cobalt, where an accent SURFACE is `#c8303c` and `primary` is the
-      aesthetic's blue.
+      `--color-accent`, not the design's `#e4676b`: a fill carrying white text takes the darker tone.
+      Accent rather than `--color-primary` because the two are the same `#c14a52` in Ledger and part
+      company under Cobalt, where an accent SURFACE is `#c8303c` and `primary` is that aesthetic's
+      blue.
     */
     expect(filled['background-color']).toBe(token('--color-accent', '#c14a52'))
     expect(filled.color).toBe('#fff')
@@ -245,9 +210,9 @@ describe('the page actions rail while a page is being written', () => {
       })
     }
     /*
-      Through the custom property, not `background-color`: `.w-hairline` is transparent and paints its
-      line on an `::after` that reads `--w-hairline-color`, so a colour set on the element itself is a
-      rule that looks correct in the source and draws nothing on the screen.
+      Through the custom property, not `background-color`: `.w-hairline` is transparent and paints
+      its line on an `::after` that reads `--w-hairline-color`, so a colour set on the element itself
+      looks correct in the source and draws nothing on the screen.
     */
     expect(declarations(css, '.page-actions.is-editor .w-separator')).toEqual({
       '--w-hairline-color': 'rgb(255 255 255 / 0.3)'
@@ -255,9 +220,9 @@ describe('the page actions rail while a page is being written', () => {
   })
 
   /*
-    The filled rules are written under both `.body--light` and `.body--dark` rather than bare, because
-    the rail's resting ground is itself theme-scoped: a bare `.page-actions.is-editor` would be one
-    class short of `.body--light .page-actions` and lose the cascade to it outright.
+    The filled rules are scoped to both themes rather than written bare, because the rail's resting
+    ground is itself theme-scoped: a bare `.page-actions.is-editor` is one class short of
+    `.body--light .page-actions` and loses the cascade to it outright.
   */
   it('scopes the fill to both themes, so it out-specifies the rail’s resting ground', () => {
     expect(declarations(css, '.page-actions.is-editor')).not.toHaveProperty('background-color')
