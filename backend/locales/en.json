@@ -2082,6 +2082,7 @@
   "blocks.spoiler.props.hint.label": "Hint",
   "blocks.spoiler.props.label.hint": "Heading on the cover.",
   "blocks.spoiler.props.label.label": "Label",
+  "blocks.steps.description": "Draws a numbered list as a sequence of steps.",
   "blocks.tab.description": "One panel of a set of tabs.",
   "blocks.tab.props.header.hint": "From 1 to 6, lists the tab in the page contents under its label, and clicking it there opens the tab. Empty is an ordinary tab.",
   "blocks.tab.props.header.label": "Header Level",
