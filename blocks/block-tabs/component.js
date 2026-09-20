@@ -173,6 +173,48 @@ Content of the second tab.
       ::slotted(block-tab) {
         margin-bottom: 0;
       }
+
+      @media print {
+        :host {
+          --tabs-border: #999;
+          --tabs-radius: 0;
+          --tabs-shadow: none;
+          --tabs-corner-marks: none;
+          --tabs-panel-bg: #fff;
+        }
+
+        .tabs {
+          overflow: visible;
+        }
+
+        .strip,
+        .tabs-marks {
+          display: none;
+        }
+
+        .panel {
+          padding: 0;
+          background-color: #fff;
+        }
+
+        ::slotted(block-tab) {
+          display: block !important;
+          padding: 8px 12px;
+        }
+
+        ::slotted(block-tab:not(:last-child)) {
+          border-bottom: 1px solid #999;
+        }
+
+        ::slotted(block-tab)::before {
+          content: attr(data-print-label);
+          display: block;
+          margin-bottom: 8px;
+          color: #000;
+          font-weight: 600;
+          break-after: avoid;
+        }
+      }
     `
   }
 
@@ -210,9 +252,11 @@ Content of the second tab.
     const panels = [...this.querySelectorAll(':scope > block-tab')]
     this._tabs = panels.map((panel, index) => {
       this._trimEdgeMargins(panel)
+      const label = panel.getAttribute('label') || `Tab ${index + 1}`
+      panel.setAttribute('data-print-label', label)
       return {
         panel,
-        label: panel.getAttribute('label') || `Tab ${index + 1}`,
+        label,
         icon: panel.getAttribute('icon') || '',
         svg: ''
       }
