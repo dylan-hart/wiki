@@ -9,13 +9,6 @@ import { isolateOnLeftClick, setIsolateOnLeftClick } from '@/composables/navIsol
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * Feature #2574/#2578: a `generated` (auto/mixed tree-walk) item's label is a deliberate override
- * of the tree row's own title when the site's path-display setting is on -- see
- * `NavSidebarItem.vue#displayLabel`'s own doc comment. A hand-authored `static` link (never
- * `generated`) always keeps its label, whatever the setting is, since it may not correspond to a
- * real path at all.
- */
 async function mountItem(
   item,
   { pathDisplayCase, acronymMap, initialPath = '/', selectedPath } = {}
@@ -113,10 +106,8 @@ describe('NavSidebarItem: folder (expansion header) label', () => {
 })
 
 /**
- * OpenProject #2826: a childless leaf `iconFor()` used to draw whenever `item.children?.length` was
- * falsy, which is also true of an empty or boundary folder (`generateFromTree` gives neither any
- * `children`) -- so both drew the page icon instead of the folder one. `item.isFolder` is what the
- * backend now surfaces to tell the two apart.
+ * `generateFromTree` gives an empty or boundary folder no `children` at all, so `children?.length`
+ * cannot tell one from a page -- `item.isFolder` is the only thing that can.
  */
 describe('NavSidebarItem: folder vs. page icon', () => {
   function iconOf(wrapper) {
@@ -191,8 +182,8 @@ describe('NavSidebarItem: folder vs. page icon', () => {
 
     expect(iconOf(wrapper)).toBe('tabler:folder')
 
-    // -> Simulates `w-expansion-item`'s own toggle emitting `update:modelValue` while staying
-    //    uncontrolled -- see NavSidebarItem.vue's template comment on why this is never bound back.
+    // -> `w-expansion-item` is left uncontrolled here, so its open state only ever arrives as this
+    //    emit; there is nothing bound back to drive from the outside.
     await wrapper.findComponent({ name: 'WExpansionItem' }).vm.$emit('update:modelValue', true)
     await wrapper.vm.$nextTick()
 
@@ -201,12 +192,9 @@ describe('NavSidebarItem: folder vs. page icon', () => {
 })
 
 /**
- * OpenProject #2849: single-line ellipsis truncation + a tooltip shown ONLY when the label is
- * actually clipped -- `scrollWidth`/`clientWidth` reflect real CSS layout, which neither jsdom nor
- * happy-dom runs, so each case stubs both directly on the rendered label span (the same
- * `Object.defineProperty(el, 'offsetWidth', ...)` convention `anchoredFloat.test.js` uses) and
- * calls the exposed `checkTruncation()` in place of a `ResizeObserver` callback that would never
- * fire on its own here.
+ * `scrollWidth`/`clientWidth` reflect real CSS layout, which happy-dom does not run, so each case
+ * stubs both on the label span and calls `checkTruncation()` in place of a `ResizeObserver`
+ * callback that would never fire here.
  */
 describe('NavSidebarItem: label truncation tooltip', () => {
   function stubWidths(wrapper, { scrollWidth, clientWidth }) {
@@ -291,17 +279,13 @@ describe('NavSidebarItem: label truncation tooltip', () => {
 })
 
 /**
- * OpenProject #2848/#3062: shift+click (or, with the isolate-on-left-click toggle on, a bare
- * left-click) a folder's header to isolate it -- open it plus its ancestor chain, collapse every
- * other folder in the whole tree. Mounted through a `Host` that provides the shared expansion state
- * itself (`useProvideNavExpansionState`, mirroring `NavSidebar.vue`), since a standalone
- * `NavSidebarItem` mount falls back to a fresh, UNSHARED map per instance -- the isolate handler's
- * writes to a nested folder's state would otherwise never reach that folder's own, separate map.
- * `siteStore.nav.items` is seeded with the same tree so the handler's whole-tree walk has something
- * real to read.
+ * Mounted through a `Host` that provides the shared expansion state itself, mirroring
+ * `NavSidebar.vue`: a standalone `NavSidebarItem` mount falls back to a fresh, UNSHARED map per
+ * instance, so the isolate handler's writes would never reach a nested folder's own map.
+ * `siteStore.nav.items` carries the same tree because the handler walks it.
  *
- * `root` and `sibling` both start expanded (`expandByDefault: true`) so the test can observe
- * `sibling` actually closing and `root` staying open, rather than merely never having opened.
+ * `root` and `sibling` start expanded so the test can observe `sibling` actually closing and
+ * `root` staying open, rather than merely never having opened.
  */
 const ISOLATE_TREE = [
   {
@@ -346,38 +330,30 @@ async function mountIsolateTree() {
   return wrapper
 }
 
-/** The rendered `NavSidebarItem` instance for one id, found among every recursive instance. */
 function itemWrapper(wrapper, id) {
   return wrapper.findAllComponents(NavSidebarItem).find((w) => w.props('item').id === id)
 }
 
-/** Whether a folder's own arrow currently reads "open" -- `w-expansion-item`'s own tell, since its
- *  content is toggled by `v-show` rather than unmounted. */
+/** Read off the arrow, not the content's presence: `w-expansion-item` toggles with `v-show`. */
 function isExpanded(wrapper, id) {
   return itemWrapper(wrapper, id).find('.w-expansion-item__arrow').classes().includes('rotate-180')
 }
 
-/** Dispatches a real, bubbling middle-click (`auxclick`, button 1) on an element -- the same event a
- *  browser fires for a non-primary mouse button, never `click`. Returns `dispatchEvent`'s own
- *  boolean: `false` once something along the path called `preventDefault()`. Kept only for the
- *  regression test below proving middle-click no longer triggers isolation at all (OpenProject
- *  #3062) -- isolation itself now goes through `shiftClick`. */
+/** `auxclick` because a browser never fires `click` for a non-primary button. Like every dispatch
+ *  helper here, returns `dispatchEvent`'s boolean: `false` once something called `preventDefault`. */
 function middleClick(element) {
   return element.dispatchEvent(
     new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
   )
 }
 
-/** Dispatches a real, bubbling, shift-held left click -- what isolates a folder by default
- *  (OpenProject #3062), in place of the retired middle-click gesture. */
 function shiftClick(element) {
   return element.dispatchEvent(
     new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, shiftKey: true })
   )
 }
 
-// -> Every describe below that touches the toggle restores it to the documented OFF default
-//    afterwards, so test order never leaks one suite's toggle state into the next.
+// -> The toggle is persisted in localStorage, which outlives a test: reset it or suite order leaks.
 afterEach(() => {
   setIsolateOnLeftClick(false)
 })
@@ -397,10 +373,10 @@ describe('NavSidebarItem: shift+click isolate (OpenProject #2848/#3062), toggle 
     )
     await wrapper.vm.$nextTick()
 
-    expect(notPrevented).toBe(false) // -> preventDefault() was called
+    expect(notPrevented).toBe(false)
     expect(isExpanded(wrapper, 'target')).toBe(true)
     expect(isExpanded(wrapper, 'root')).toBe(true) // -> the clicked folder's own ancestor
-    expect(isExpanded(wrapper, 'sibling')).toBe(false) // -> every other folder collapses
+    expect(isExpanded(wrapper, 'sibling')).toBe(false)
   })
 
   it('does not fire on a plain click (only shift+click isolates)', async () => {
@@ -413,7 +389,7 @@ describe('NavSidebarItem: shift+click isolate (OpenProject #2848/#3062), toggle 
       )
     await wrapper.vm.$nextTick()
 
-    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> unaffected
+    expect(isExpanded(wrapper, 'sibling')).toBe(true)
   })
 
   it('no longer fires on a middle-click (OpenProject #3062: middle-click isolation was retired)', async () => {
@@ -424,9 +400,9 @@ describe('NavSidebarItem: shift+click isolate (OpenProject #2848/#3062), toggle 
     )
     await wrapper.vm.$nextTick()
 
-    expect(notPrevented).toBe(true) // -> nothing called preventDefault -- no listener reacts to it any more
-    expect(isExpanded(wrapper, 'target')).toBe(false) // -> unaffected
-    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> unaffected
+    expect(notPrevented).toBe(true)
+    expect(isExpanded(wrapper, 'target')).toBe(false)
+    expect(isExpanded(wrapper, 'sibling')).toBe(true)
   })
 
   it('is scoped to the header row -- a shift+click on a nested leaf link does not isolate its parent folder, and does not preventDefault', async () => {
@@ -435,10 +411,9 @@ describe('NavSidebarItem: shift+click isolate (OpenProject #2848/#3062), toggle 
     const notPrevented = shiftClick(itemWrapper(wrapper, 'sibling-leaf').element)
     await wrapper.vm.$nextTick()
 
-    // -> Nothing along the capture path (root's own listener, then sibling's) claimed this click as
-    //    its own header being clicked, so nothing prevented the browser's own native handling...
+    // -> No listener on the capture path (root's, then sibling's) claimed this click as its own
+    //    header, so native handling ran and no folder's state changed.
     expect(notPrevented).toBe(true)
-    // -> ...and no folder's open/closed state changed as a side effect.
     expect(isExpanded(wrapper, 'sibling')).toBe(true)
     expect(isExpanded(wrapper, 'target')).toBe(false)
     expect(isExpanded(wrapper, 'root')).toBe(true)
@@ -461,26 +436,21 @@ describe('NavSidebarItem: shift+click isolate (OpenProject #2848/#3062), toggle 
 
   it('shift-clicking an already-open folder just closes it, like a plain left click -- no isolation', async () => {
     const wrapper = await mountIsolateTree()
-    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> expandByDefault: true
-    expect(isExpanded(wrapper, 'root')).toBe(true) // -> untouched sibling, to prove it stays that way
+    expect(isExpanded(wrapper, 'sibling')).toBe(true)
+    expect(isExpanded(wrapper, 'root')).toBe(true)
 
     const notPrevented = shiftClick(
       itemWrapper(wrapper, 'sibling').find('.w-expansion-item__header').element
     )
     await wrapper.vm.$nextTick()
 
-    expect(notPrevented).toBe(false) // -> preventDefault() was still called
-    expect(isExpanded(wrapper, 'sibling')).toBe(false) // -> closed, exactly as a left click would
-    expect(isExpanded(wrapper, 'root')).toBe(true) // -> not isolated: no OTHER folder was touched
-    expect(isExpanded(wrapper, 'target')).toBe(false) // -> already closed, still closed
+    expect(notPrevented).toBe(false)
+    expect(isExpanded(wrapper, 'sibling')).toBe(false)
+    expect(isExpanded(wrapper, 'root')).toBe(true)
+    expect(isExpanded(wrapper, 'target')).toBe(false)
   })
 })
 
-/**
- * OpenProject #3062: the profile toggle swaps which gesture isolates. ON means a BARE left-click
- * isolates and shift+click instead falls back to the regular open/close toggle -- the exact mirror
- * image of the OFF-default suite above, over the same `ISOLATE_TREE`.
- */
 describe('NavSidebarItem: isolate-on-left-click toggle ON', () => {
   it('a bare left-click isolates the clicked folder and its ancestor chain', async () => {
     setIsolateOnLeftClick(true)
@@ -495,7 +465,7 @@ describe('NavSidebarItem: isolate-on-left-click toggle ON', () => {
       )
     await wrapper.vm.$nextTick()
 
-    expect(notPrevented).toBe(false) // -> preventDefault() was called
+    expect(notPrevented).toBe(false)
     expect(isExpanded(wrapper, 'target')).toBe(true)
     expect(isExpanded(wrapper, 'root')).toBe(true)
     expect(isExpanded(wrapper, 'sibling')).toBe(false)
@@ -510,23 +480,17 @@ describe('NavSidebarItem: isolate-on-left-click toggle ON', () => {
     )
     await wrapper.vm.$nextTick()
 
-    expect(notPrevented).toBe(true) // -> our handler never called preventDefault
-    expect(isExpanded(wrapper, 'target')).toBe(true) // -> the ordinary toggle still ran (was closed)
-    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> unaffected -- not isolated
+    expect(notPrevented).toBe(true)
+    expect(isExpanded(wrapper, 'target')).toBe(true)
+    expect(isExpanded(wrapper, 'sibling')).toBe(true)
   })
 })
 
-/**
- * OpenProject #3062's own risk note: shift+click must not fight the existing ctrl+click
- * expand-cycle handler on the same header. Ctrl+click always wins and always cycles, regardless of
- * shift or the toggle's value.
- */
 describe('NavSidebarItem: ctrl+click takes priority over shift+click isolate', () => {
   it('ctrl+shift+click on a folder cycles its descendants rather than isolating it', async () => {
     const wrapper = await mountIsolateTree()
-    // -> `target` has one leaf-only child (no nested folder), so a ctrl+click on it has nothing to
-    //    cycle below it but still force-opens `target` itself -- see OpenProject #2890. If shift had
-    //    won instead, `sibling` would have collapsed as part of isolation; it must not.
+    // -> `target` has only a leaf child, so the cycle has nothing to open below it and shows up
+    //    solely as `target` force-opening. Had shift won instead, `sibling` would have collapsed.
     const notPrevented = itemWrapper(wrapper, 'target')
       .find('.w-expansion-item__header')
       .element.dispatchEvent(
@@ -540,9 +504,9 @@ describe('NavSidebarItem: ctrl+click takes priority over shift+click isolate', (
       )
     await wrapper.vm.$nextTick()
 
-    expect(notPrevented).toBe(false) // -> preventDefault() was called
-    expect(isExpanded(wrapper, 'target')).toBe(true) // -> force-opened by the cycle, not isolation
-    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> untouched: isolation never ran
+    expect(notPrevented).toBe(false)
+    expect(isExpanded(wrapper, 'target')).toBe(true)
+    expect(isExpanded(wrapper, 'sibling')).toBe(true)
   })
 
   it('still cycles with the isolate-on-left-click toggle ON', async () => {
@@ -557,38 +521,27 @@ describe('NavSidebarItem: ctrl+click takes priority over shift+click isolate', (
     await wrapper.vm.$nextTick()
 
     expect(notPrevented).toBe(false)
-    expect(isExpanded(wrapper, 'target')).toBe(true) // -> force-opened by the cycle
-    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> untouched: isolation never ran even though ON
+    expect(isExpanded(wrapper, 'target')).toBe(true)
+    expect(isExpanded(wrapper, 'sibling')).toBe(true)
   })
 })
 
 /**
- * OpenProject #2847 (design), #2890 (fix): ctrl+click a folder's header cycles its own DESCENDANT
- * folders between fully expanded and fully collapsed, AND force-opens the clicked folder itself
- * (never toggled) as part of the same cycle, so the descendant-state change is always immediately
- * visible and a folder with no sub-folder descendants at all still does something rather than being
- * a hard no-op. Only `branch`/`midA`/`midB` below ever change from a ctrl+click on `branch`.
- *
- * `midA` starts closed and `midB` starts open (`expandByDefault: true`) so a ctrl+click on `branch`
- * has a genuine mix to resolve ("not every descendant is open" -> expand all) before a second
- * ctrl+click has all of them open ("every descendant is open" -> collapse all). `midB` carries a
- * leaf-only child (`leafB`, no nested folder) so ctrl+clicking `midB` directly exercises the
- * "nothing to cycle, but still force-open the clicked folder" case, and doing so must not disturb
- * `midA` -- which would only happen if an ANCESTOR's capture handler (here `branch`'s, or `root`'s)
- * wrongly treated the click as its own rather than letting it travel inward to `midB`'s own
- * instance.
+ * Shaped so each half of the cycle has something real to resolve: `midA` starts closed and `midB`
+ * open, so a first ctrl+click on `branch` sees a mix ("not all open" -> expand all) and a second
+ * sees them all open ("all open" -> collapse all). `midB`'s only child is a leaf, so ctrl+clicking
+ * `midB` itself exercises "nothing to cycle, still force-open the clicked folder" -- and must
+ * leave `midA` alone, which it only would not if an ancestor's capture handler wrongly claimed the
+ * click instead of letting it reach `midB`'s own instance.
  */
 const CYCLE_TREE = [
   {
     id: 'root',
     label: 'Root Folder',
     expandByDefault: true,
-    // -> `path` matters here, not just cosmetic: a folder item with neither `path` nor `target`
-    //    falls back to `destination()`'s own `'/'` default, which -- since the test router starts
-    //    at `/` -- would make `containsCurrent()` misread every such folder as "on the current
-    //    page" and default it open. Every folder below carries a real `path`, the way a generated
-    //    folder always does in production, so each one's initial open/closed state in these tests
-    //    comes only from `expandByDefault`, not this fallback quirk.
+    // -> Every folder needs a real `path`: with neither `path` nor `target`, `destination()`
+    //    falls back to `'/'`, and since the test router starts there `containsCurrent()` would
+    //    misread the folder as current and default it open, masking `expandByDefault`.
     path: 'root',
     children: [
       {
@@ -643,15 +596,12 @@ async function mountCycleTree() {
   return wrapper
 }
 
-/** Dispatches a real, bubbling, ctrl-held left click -- what a reader actually does to cycle a
- *  folder's subtree. */
 function ctrlClick(element) {
   return element.dispatchEvent(
     new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true })
   )
 }
 
-/** A plain, bubbling left click with no modifier -- the ordinary single-folder toggle. */
 function plainClick(element) {
   return element.dispatchEvent(
     new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
@@ -670,17 +620,16 @@ describe('NavSidebarItem: ctrl+click expand/collapse cycle (OpenProject #2847)',
     )
     await wrapper.vm.$nextTick()
 
-    expect(notPrevented).toBe(false) // -> preventDefault() was called
-    expect(isExpanded(wrapper, 'branch')).toBe(true) // -> force-opened so the cycle below it is visible
+    expect(notPrevented).toBe(false)
+    expect(isExpanded(wrapper, 'branch')).toBe(true)
     expect(isExpanded(wrapper, 'midA')).toBe(true)
     expect(isExpanded(wrapper, 'midB')).toBe(true)
-    expect(isExpanded(wrapper, 'flatFolder')).toBe(false) // -> outside the clicked subtree, unaffected
+    expect(isExpanded(wrapper, 'flatFolder')).toBe(false) // -> outside the clicked subtree
   })
 
   it('collapses every descendant folder once all of them are open, while the clicked folder itself stays open', async () => {
     const wrapper = await mountCycleTree()
 
-    // -> First cycle opens midA (midB already open) and force-opens branch -- see the test above.
     ctrlClick(itemWrapper(wrapper, 'branch').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
     expect(isExpanded(wrapper, 'midA')).toBe(true)
@@ -689,7 +638,7 @@ describe('NavSidebarItem: ctrl+click expand/collapse cycle (OpenProject #2847)',
     ctrlClick(itemWrapper(wrapper, 'branch').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
 
-    expect(isExpanded(wrapper, 'branch')).toBe(true) // -> force-opened every cycle, never toggled closed
+    expect(isExpanded(wrapper, 'branch')).toBe(true)
     expect(isExpanded(wrapper, 'midA')).toBe(false)
     expect(isExpanded(wrapper, 'midB')).toBe(false)
   })
@@ -702,10 +651,10 @@ describe('NavSidebarItem: ctrl+click expand/collapse cycle (OpenProject #2847)',
     )
     await wrapper.vm.$nextTick()
 
-    expect(notPrevented).toBe(true) // -> our handler never called preventDefault
-    expect(isExpanded(wrapper, 'branch')).toBe(true) // -> the ordinary toggle still ran
-    expect(isExpanded(wrapper, 'midA')).toBe(false) // -> untouched: this is a plain click, not a cycle
-    expect(isExpanded(wrapper, 'midB')).toBe(true) // -> untouched (already open by default)
+    expect(notPrevented).toBe(true)
+    expect(isExpanded(wrapper, 'branch')).toBe(true)
+    expect(isExpanded(wrapper, 'midA')).toBe(false)
+    expect(isExpanded(wrapper, 'midB')).toBe(true) // -> open by default, so unchanged either way
   })
 
   it('force-opens a folder with no nested folder descendants instead of being a no-op (OpenProject #2890)', async () => {
@@ -717,31 +666,27 @@ describe('NavSidebarItem: ctrl+click expand/collapse cycle (OpenProject #2847)',
     )
     await wrapper.vm.$nextTick()
 
-    expect(notPrevented).toBe(false) // -> preventDefault() was called
-    expect(isExpanded(wrapper, 'flatFolder')).toBe(true) // -> force-opened even with nothing to cycle below it
+    expect(notPrevented).toBe(false)
+    expect(isExpanded(wrapper, 'flatFolder')).toBe(true)
   })
 
   it('is scoped to the clicked folder alone -- ctrl+clicking a deeper folder does not let an ancestor react instead', async () => {
     const wrapper = await mountCycleTree()
 
-    // -> midB has only a leaf child, so its descendant cycle has nothing to do -- but if `branch`'s
-    //    (or `root`'s) capture handler wrongly claimed the click instead of letting it travel inward
-    //    to midB's own instance, it would cycle midA too, and/or force-open `branch`/`root` instead
-    //    of midB.
+    // -> midB's own cycle has nothing to do (leaf child only), so the only way any of these could
+    //    change is an ancestor's capture handler claiming the click instead of letting it reach it.
     ctrlClick(itemWrapper(wrapper, 'midB').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
 
     expect(isExpanded(wrapper, 'midA')).toBe(false)
-    expect(isExpanded(wrapper, 'midB')).toBe(true) // -> force-opened (already open, so no visible change)
-    expect(isExpanded(wrapper, 'branch')).toBe(false) // -> only midB's own instance is force-opened, not ancestors
+    expect(isExpanded(wrapper, 'midB')).toBe(true)
+    expect(isExpanded(wrapper, 'branch')).toBe(false)
   })
 })
 
 /**
- * OpenProject #2909: a chain six folders deep (well past the tree's real `MAX_DEPTH` ceiling of
- * 10 being reachable in one click), so ctrl+click's own 3-level-below-the-clicked-node cap has
- * something to actually cut off. Every folder here starts closed, and every one has at least one
- * folder child so `descendantFolders` would keep walking the whole chain with no cap at all.
+ * Six folders deep, so ctrl+click's 3-levels-below cap has something to cut off. Every folder
+ * starts closed and every one has a folder child, so an uncapped walk would open the whole chain.
  */
 const DEEP_CHAIN_TREE = [
   {
@@ -816,38 +761,34 @@ describe('NavSidebarItem: ctrl+click expand-all is capped to 3 levels below the 
     ctrlClick(itemWrapper(wrapper, 'deepRoot').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
 
-    expect(isExpanded(wrapper, 'deepRoot')).toBe(true) // -> the clicked node itself, force-opened
-    expect(isExpanded(wrapper, 'deepL1')).toBe(true) // -> 1 level below the clicked node
-    expect(isExpanded(wrapper, 'deepL2')).toBe(true) // -> 2 levels below
-    expect(isExpanded(wrapper, 'deepL3')).toBe(true) // -> 3 levels below -- still inside the cap
-    expect(isExpanded(wrapper, 'deepL4')).toBe(false) // -> 4 levels below -- past the cap, left untouched
-    expect(isExpanded(wrapper, 'deepL5')).toBe(false) // -> 5 levels below -- also left untouched
+    expect(isExpanded(wrapper, 'deepRoot')).toBe(true)
+    expect(isExpanded(wrapper, 'deepL1')).toBe(true)
+    expect(isExpanded(wrapper, 'deepL2')).toBe(true)
+    expect(isExpanded(wrapper, 'deepL3')).toBe(true)
+    expect(isExpanded(wrapper, 'deepL4')).toBe(false)
+    expect(isExpanded(wrapper, 'deepL5')).toBe(false)
   })
 
   it('caps relative to the CLICKED node, not the overall tree root -- clicking 1 level down still reaches 3 further levels', async () => {
     const wrapper = await mountDeepChainTree()
 
-    // -> deepL1 is itself 1 level below the tree root. If the cap were measured from the tree root
-    //    rather than from wherever the click happened, this click would only reach as far as deepL3
-    //    (root + 3). Measured from the CLICKED node instead, it must reach deepL4.
+    // -> deepL1 sits 1 level below the tree root, so a cap measured from the root would stop at
+    //    deepL3; measured from the clicked node it has to reach deepL4.
     ctrlClick(itemWrapper(wrapper, 'deepL1').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
 
-    expect(isExpanded(wrapper, 'deepL1')).toBe(true) // -> the clicked node itself
+    expect(isExpanded(wrapper, 'deepL1')).toBe(true)
     expect(isExpanded(wrapper, 'deepL2')).toBe(true) // -> 1 level below deepL1
     expect(isExpanded(wrapper, 'deepL3')).toBe(true) // -> 2 levels below deepL1
-    expect(isExpanded(wrapper, 'deepL4')).toBe(true) // -> 3 levels below deepL1 -- still inside the cap
-    expect(isExpanded(wrapper, 'deepL5')).toBe(false) // -> 4 levels below deepL1 -- past the cap
-    expect(isExpanded(wrapper, 'deepRoot')).toBe(false) // -> the clicked node's own ancestor, untouched
+    expect(isExpanded(wrapper, 'deepL4')).toBe(true) // -> 3 levels below deepL1, the last inside the cap
+    expect(isExpanded(wrapper, 'deepL5')).toBe(false) // -> 4 levels below deepL1, past it
+    expect(isExpanded(wrapper, 'deepRoot')).toBe(false) // -> the clicked node's own ancestor
   })
 })
 
 /**
- * OpenProject #3353: a plain click on a POPULATED folder's header, while `/_graph` is open, must
- * both keep its ordinary expand/collapse (unchanged) AND re-anchor the graph on that folder --
- * never navigate to the folder as if it were a page (this branch never binds a `to`/`href` at all).
- * Mounted with a real router at `/_graph?path=...` so `useNavSidebarDestination()`'s
- * `reanchorGraphOnFolder()` reads a genuine `/_graph` route.
+ * Mounted on a real router at `/_graph?path=...` so `reanchorGraphOnFolder()` reads a genuine
+ * `/_graph` route rather than a stub.
  */
 const GRAPH_TREE = [
   {
@@ -900,8 +841,8 @@ describe('NavSidebarItem: plain click on a populated folder re-anchors the graph
     plainClick(itemWrapper(wrapper, 'docs').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
 
-    expect(isExpanded(wrapper, 'docs')).toBe(true) // -> ordinary toggle still ran
-    expect(replaceSpy).not.toHaveBeenCalled() // -> already the active anchor, no spam
+    expect(isExpanded(wrapper, 'docs')).toBe(true)
+    expect(replaceSpy).not.toHaveBeenCalled()
   })
 
   it('does not touch the router outside /_graph -- plain click still only toggles', async () => {
@@ -919,7 +860,6 @@ describe('NavSidebarItem: plain click on a populated folder re-anchors the graph
     const { wrapper, router } = await mountGraphTree('/_graph?path=other/page')
     const replaceSpy = vi.spyOn(router, 'replace')
 
-    // -> ctrl+click cycles/expands, never re-anchors
     const header = itemWrapper(wrapper, 'docs').find('.w-expansion-item__header').element
     header.dispatchEvent(
       new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true })
@@ -931,13 +871,9 @@ describe('NavSidebarItem: plain click on a populated folder re-anchors the graph
 })
 
 /**
- * OpenProject #2932: nesting used to be a pure DOM side effect -- `NavSidebarItem.vue` took only an
- * `item` prop, with no numeric notion of how deep a row actually sat, which is why the nav-rail's
- * hover depth-cue dot (`NavSidebar.vue`'s own `<style>` block) could only ever draw exactly one dot
- * regardless of real nesting depth. This is the fast, jsdom-level companion to
- * `NavSidebar.test.js`'s real-Chromium depth-scaling test: it asserts the PROP threading and the
- * `--nav-depth` style it drives, not the rendered dot geometry itself (real background-image tiling
- * needs a real layout engine, which is exactly what that other test is for).
+ * Covers the prop threading and the `--nav-depth` style it drives, NOT the dot geometry that style
+ * feeds: real background-image tiling needs a layout engine, so `NavSidebar.test.js` asserts that
+ * half in Chromium.
  */
 describe('NavSidebarItem: depth prop (OpenProject #2932)', () => {
   it('starts at 0 for the row mounted directly (no depth passed), and increments by exactly 1 per recursive level', async () => {
@@ -949,36 +885,24 @@ describe('NavSidebarItem: depth prop (OpenProject #2932)', () => {
     expect(itemWrapper(wrapper, 'deepL3').props('depth')).toBe(3)
     expect(itemWrapper(wrapper, 'deepL4').props('depth')).toBe(4)
     expect(itemWrapper(wrapper, 'deepL5').props('depth')).toBe(5)
-    // -> `deepLeaf` is DEEP_CHAIN_TREE's own bottom-most node -- a leaf (no `children`), rendered
-    //    through the `v-else` `<w-item>` branch rather than `<w-expansion-item>`, so this also
-    //    covers the leaf branch's own `depth` prop reaching the same recursive increment.
+    // -> `deepLeaf` renders through the leaf `<w-item>` branch, not `<w-expansion-item>`, so the
+    //    increment is covered on both branches.
     expect(itemWrapper(wrapper, 'deepLeaf').props('depth')).toBe(6)
   })
 
   it("sets the depth it was passed as the row's own `--nav-depth` inline style, on both the folder and leaf branches", async () => {
     const wrapper = await mountDeepChainTree()
 
-    // -> Folder branch: the style binds to `<w-expansion-item>`, whose Vue attrs-fallthrough lands
-    //    it on that component's own single root element (`.w-expansion-item`) -- see
-    //    `NavSidebarItem.vue#depthStyle`'s own comment for why the CSS rule can still read it off
-    //    the header row nested inside, via ordinary custom-property inheritance.
+    // -> Folder branch: attrs-fallthrough lands the style on `.w-expansion-item`, not on the header
+    //    row nested inside it, which picks the custom property up by ordinary inheritance.
     const deepL2Style = itemWrapper(wrapper, 'deepL2').find('.w-expansion-item').attributes('style')
     expect(deepL2Style).toMatch(/--nav-depth:\s*2/)
 
-    // -> Leaf branch: the style binds directly to the rendered `<w-item>`.
     const leafStyle = itemWrapper(wrapper, 'deepLeaf').find('.w-item').attributes('style')
     expect(leafStyle).toMatch(/--nav-depth:\s*6/)
   })
 })
 
-/**
- * OpenProject #3362/#3365: the nav-tree row for the graph's current anchor (`route.query.path`)
- * carries an `is-graph-anchor` class -- bound off the shared `isAnchor(item)` predicate
- * (`composables/navSidebarDestination.js`, see that file's own suite for the predicate's direct
- * coverage) -- so `NavSidebar.vue`'s CSS can ring it to correlate with the graph canvas's own
- * yellow anchor ring. Both branches are covered: a leaf page item and a populated folder item can
- * each be the anchor, since `route.query.path` can name either kind of path.
- */
 describe('NavSidebarItem: graph anchor indicator (OpenProject #3362/#3365)', () => {
   it('marks a leaf item as the anchor when its path matches the graph anchor query', async () => {
     const wrapper = await mountItem(
@@ -1040,15 +964,6 @@ describe('NavSidebarItem: graph anchor indicator (OpenProject #3362/#3365)', () 
   })
 })
 
-/**
- * OpenProject #3364 (corrected scope): the nav-tree row for the graph's currently-SELECTED node
- * (`pages/Graph.vue#onCanvasClick`, mirrored into `stores/graph.js#selectedPath`) carries an
- * `is-graph-selected` class -- bound off the shared `isSelected(item)` predicate
- * (`composables/navSidebarDestination.js`, see that file's own suite for the predicate's direct
- * coverage) -- so `NavSidebar.vue`'s CSS can style it like the sidebar's own "current row", rather
- * than the graph canvas drawing anything of its own. Same leaf/folder coverage as the anchor
- * indicator above, since either kind of item can be selected.
- */
 describe('NavSidebarItem: graph selection indicator (OpenProject #3364)', () => {
   it('marks a leaf item as selected when its path matches the graph selection', async () => {
     const wrapper = await mountItem(
@@ -1078,13 +993,9 @@ describe('NavSidebarItem: graph selection indicator (OpenProject #3364)', () => 
   })
 
   /*
-   * A populated folder never gets `is-graph-selected` at all -- unlike `is-graph-anchor`, which
-   * folders legitimately carry, `NavSidebarItem.vue`'s expansion-item branch binds no
-   * `isSelected(item)` class in the first place (see that template's own comment): selection only
-   * ever applies to a leaf row, mirroring `.router-link-exact-active`'s own reach, which likewise
-   * never lands on a folder header. This also covers the "anchor trumps selected" product rule
-   * (a folder click anchors on itself and incidentally sets the same path as `selectedPath`) without
-   * needing the predicate's own guard exercised here -- the class is structurally absent either way.
+   * Structural, not conditional: the expansion-item branch binds no `isSelected` class at all, so
+   * selection reaches only leaf rows, the same reach `.router-link-exact-active` has. That also
+   * leaves "anchor trumps selected" unexercised here -- the class is absent either way.
    */
   it('never marks a populated folder as selected, even when its own path matches the graph selection', async () => {
     const wrapper = await mountItem(
