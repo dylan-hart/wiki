@@ -129,3 +129,31 @@ describe('AdminUsers empty state (OpenProject #2064)', () => {
     expect(wrapper.text()).not.toContain('No users have been created yet.')
   })
 })
+
+describe('AdminUsers profile visibility control', () => {
+  async function mountAs(permissions) {
+    API_CLIENT.get.mockImplementation(() => usersResponse())
+    const router = await createTestRouter(['/_admin/users'], '/_admin/users')
+    const { wrapper } = mountWithApp(AdminUsers, {
+      messages: { ...MESSAGES, 'admin.users.profileVisibility': 'Manage Profile Visibility' },
+      router,
+      stores: { user: { permissions, id: 'me' } }
+    })
+    await vi.waitUntil(() => API_CLIENT.get.mock.calls.length >= 1)
+    return wrapper
+  }
+
+  it('is offered to a user who can manage users', async () => {
+    const wrapper = await mountAs(['manage:users'])
+
+    expect(wrapper.find('[aria-label="Manage Profile Visibility"]').exists()).toBe(true)
+    expect(API_CLIENT.get).toHaveBeenCalledWith('users/profile-visibility')
+  })
+
+  it('is hidden from a read-only user, who could not save it', async () => {
+    const wrapper = await mountAs(['read:users'])
+
+    expect(wrapper.find('[aria-label="Manage Profile Visibility"]').exists()).toBe(false)
+    expect(API_CLIENT.get).not.toHaveBeenCalledWith('users/profile-visibility')
+  })
+})

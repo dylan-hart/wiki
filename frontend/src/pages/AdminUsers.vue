@@ -54,6 +54,15 @@
           <user-defaults-menu />
         </w-btn>
         <w-btn
+          class="me-2"
+          v-if="canManage"
+          icon="tabler:eye"
+          color="slate"
+          :aria-label="t(`admin.users.profileVisibility`)">
+          <w-tooltip>{{ t(`admin.users.profileVisibility`) }}</w-tooltip>
+          <user-profile-visibility-menu />
+        </w-btn>
+        <w-btn
           v-if="canManage"
           icon="tabler:plus"
           :label="t(`admin.users.create`)"
@@ -175,6 +184,7 @@ import { debounce } from 'es-toolkit/function'
 import UserCreateDialog from '../components/UserCreateDialog.vue'
 import UserDeleteDialog from '../components/UserDeleteDialog.vue'
 import UserDefaultsMenu from '@/components/UserDefaultsMenu.vue'
+import UserProfileVisibilityMenu from '@/components/UserProfileVisibilityMenu.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 const dark = useDark()
