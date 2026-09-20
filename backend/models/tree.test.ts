@@ -5,12 +5,18 @@ import { eq, inArray } from 'drizzle-orm'
 import {
   hasTestDatabase,
   seedLocale,
+  seedTreeEntry,
   setupTestDb,
   teardownTestDb,
   type TestFixtures
 } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
-import { pages as pagesTable, sites as sitesTable, tree as treeTable } from '../db/schema.ts'
+import {
+  navigation as navigationTable,
+  pages as pagesTable,
+  sites as sitesTable,
+  tree as treeTable
+} from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -1583,6 +1589,220 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         parentId: folder.id
       })
       assert.ok(items.some((item) => item.title === 'Draft By Default'))
+    })
+  })
+
+  describe('purgeEmptyFolders (OpenProject #3633)', () => {
+    async function freshSite(): Promise<string> {
+      const [site] = await CARDINAL.db
+        .insert(sitesTable)
+        .values({
+          hostname: `purge-${randomUUID()}.example.com`,
+          config: { locales: { primary: 'en', active: ['en', 'fr'] } }
+        })
+        .returning({ id: sitesTable.id })
+      return site!.id
+    }
+
+    async function folder(
+      siteId: string,
+      pathName: string,
+      opts: { parentId?: string; locale?: string } = {}
+    ) {
+      return treeModel.createFolder({
+        pathName,
+        title: pathName,
+        locale: opts.locale ?? 'en',
+        siteId,
+        parentId: opts.parentId
+      })
+    }
+
+    async function childCount(id: string): Promise<unknown> {
+      return ((await readTreeRow(id))!.meta as { children?: number }).children
+    }
+
+    async function exists(id: string): Promise<boolean> {
+      return (await readTreeRow(id)) !== null
+    }
+
+    test('a dry run reports the empty folders and deletes nothing', async () => {
+      const siteId = await freshSite()
+      const empty = await folder(siteId, 'empty')
+      const kept = await folder(siteId, 'kept')
+      await seedTreeEntry(CARDINAL.db, { siteId, path: 'kept/note', type: 'page' })
+
+      const result = await treeModel.purgeEmptyFolders(siteId, { dryRun: true })
+
+      assert.equal(result.dryRun, true)
+      assert.equal(result.count, 1)
+      assert.deepEqual(result.folders, [{ id: empty.id, path: 'empty', locale: 'en' }])
+      assert.ok(await exists(empty.id))
+      assert.ok(await exists(kept.id))
+    })
+
+    test('nested empty folders are all purged in one run, deepest first, and the parent counter follows', async () => {
+      const siteId = await freshSite()
+      const keeper = await folder(siteId, 'keeper')
+      await seedTreeEntry(CARDINAL.db, { siteId, path: 'keeper/page', type: 'page' })
+      const a = await folder(siteId, 'a', { parentId: keeper.id })
+      const b = await folder(siteId, 'b', { parentId: a.id })
+      const c = await folder(siteId, 'c', { parentId: b.id })
+      const sibling = await folder(siteId, 'sibling', { parentId: keeper.id })
+      assert.equal(await childCount(keeper.id), 2)
+
+      const result = await treeModel.purgeEmptyFolders(siteId)
+
+      assert.equal(result.dryRun, false)
+      assert.equal(result.count, 4)
+      assert.deepEqual(result.folders[0], { id: c.id, path: 'keeper/a/b/c', locale: 'en' })
+      assert.deepEqual(
+        new Set(result.folders.map((f) => f.id)),
+        new Set([a.id, b.id, c.id, sibling.id])
+      )
+      for (const gone of [a, b, c, sibling]) {
+        assert.equal(await exists(gone.id), false)
+      }
+      assert.ok(await exists(keeper.id))
+      assert.equal(await childCount(keeper.id), 0)
+
+      const again = await treeModel.purgeEmptyFolders(siteId)
+      assert.equal(again.count, 0)
+    })
+
+    test('a folder with a page or an asset anywhere under it survives, along with every ancestor', async () => {
+      const siteId = await freshSite()
+      const top = await folder(siteId, 'top')
+      const mid = await folder(siteId, 'mid', { parentId: top.id })
+      const deep = await folder(siteId, 'deep', { parentId: mid.id })
+      await seedTreeEntry(CARDINAL.db, { siteId, path: 'top/mid/deep/readme', type: 'page' })
+      const assetTop = await folder(siteId, 'assets-top')
+      const assetLeaf = await folder(siteId, 'leaf', { parentId: assetTop.id })
+      await seedTreeEntry(CARDINAL.db, { siteId, path: 'assets-top/leaf/logo.png', type: 'asset' })
+
+      const result = await treeModel.purgeEmptyFolders(siteId)
+
+      assert.equal(result.count, 0)
+      for (const kept of [top, mid, deep, assetTop, assetLeaf]) {
+        assert.ok(await exists(kept.id))
+      }
+    })
+
+    test('meta.children drift does not matter: an emptied folder reporting children is still purged, a populated one reporting none survives', async () => {
+      const siteId = await freshSite()
+      const stale = await folder(siteId, 'stale')
+      await CARDINAL.db
+        .update(treeTable)
+        .set({ meta: { children: 5 } })
+        .where(eq(treeTable.id, stale.id))
+      const populated = await folder(siteId, 'populated')
+      await seedTreeEntry(CARDINAL.db, { siteId, path: 'populated/page', type: 'page' })
+      await CARDINAL.db
+        .update(treeTable)
+        .set({ meta: { children: 0 } })
+        .where(eq(treeTable.id, populated.id))
+
+      const result = await treeModel.purgeEmptyFolders(siteId)
+
+      assert.deepEqual(
+        result.folders.map((f) => f.id),
+        [stale.id]
+      )
+      assert.ok(await exists(populated.id))
+    })
+
+    test('a folder with a navigation override survives, and so does its ancestor; an empty folder inside it is purged', async () => {
+      const siteId = await freshSite()
+      const outer = await folder(siteId, 'outer')
+      const overriding = await folder(siteId, 'overriding', { parentId: outer.id })
+      const inner = await folder(siteId, 'inner', { parentId: overriding.id })
+      await CARDINAL.db
+        .update(treeTable)
+        .set({ navigationMode: 'override' })
+        .where(eq(treeTable.id, overriding.id))
+      const hidden = await folder(siteId, 'hidden')
+      await CARDINAL.db
+        .update(treeTable)
+        .set({ navigationMode: 'hideExact' })
+        .where(eq(treeTable.id, hidden.id))
+
+      const result = await treeModel.purgeEmptyFolders(siteId)
+
+      assert.deepEqual(
+        result.folders.map((f) => f.id),
+        [inner.id]
+      )
+      for (const kept of [outer, overriding, hidden]) {
+        assert.ok(await exists(kept.id))
+      }
+      assert.equal(await childCount(overriding.id), 0)
+    })
+
+    test('a folder that owns a navigation row survives even in inherit mode', async () => {
+      const siteId = await freshSite()
+      const owner = await folder(siteId, 'owns-menu')
+      const plain = await folder(siteId, 'plain')
+      await CARDINAL.db.insert(navigationTable).values({ id: owner.id, siteId, items: [] })
+
+      const result = await treeModel.purgeEmptyFolders(siteId)
+
+      assert.deepEqual(
+        result.folders.map((f) => f.id),
+        [plain.id]
+      )
+      assert.ok(await exists(owner.id))
+    })
+
+    test('a folder referenced by a stored navigation item survives, by bare path, locale-prefixed path or folderId', async () => {
+      const siteId = await freshSite()
+      const bare = await folder(siteId, 'bare')
+      const prefixed = await folder(siteId, 'prefixed', { locale: 'fr' })
+      const byId = await folder(siteId, 'by-id')
+      const nested = await folder(siteId, 'nested', { parentId: byId.id })
+      const unreferenced = await folder(siteId, 'unreferenced')
+      await CARDINAL.db.insert(navigationTable).values({
+        siteId,
+        locale: 'en',
+        items: [
+          { id: '1', type: 'link', label: 'Bare', target: '/bare/?tab=1#top' },
+          {
+            id: '2',
+            type: 'header',
+            label: 'Group',
+            children: [{ id: '3', type: 'link', label: 'FR', target: '/fr/prefixed' }]
+          },
+          { id: '4', type: 'link', label: 'Id', folderId: byId.id },
+          { id: '5', type: 'link', label: 'External', target: 'https://example.com/unreferenced' }
+        ]
+      })
+
+      const result = await treeModel.purgeEmptyFolders(siteId)
+
+      assert.deepEqual(
+        result.folders.map((f) => f.id),
+        [nested.id, unreferenced.id].toSorted()
+      )
+      for (const kept of [bare, prefixed, byId]) {
+        assert.ok(await exists(kept.id))
+      }
+    })
+
+    test('a same-named folder in another locale or another site is untouched', async () => {
+      const siteId = await freshSite()
+      const otherSiteId = await freshSite()
+      const en = await folder(siteId, 'shared')
+      const fr = await folder(siteId, 'shared', { locale: 'fr' })
+      await seedTreeEntry(CARDINAL.db, { siteId, path: 'shared/page', type: 'page', locale: 'fr' })
+      const elsewhere = await folder(otherSiteId, 'shared')
+
+      const dry = await treeModel.purgeEmptyFolders(siteId, { dryRun: true })
+      assert.deepEqual(dry.folders, [{ id: en.id, path: 'shared', locale: 'en' }])
+
+      await treeModel.purgeEmptyFolders(siteId)
+
+      assert.equal(await exists(en.id), false)
+      assert.ok(await exists(fr.id))
+      assert.ok(await exists(elsewhere.id))
     })
   })
 })
