@@ -393,6 +393,7 @@
             </w-btn>
           </template>
         </div>
+        <!-- MONACO EDITOR (`EditorMarkdown.flushHover.test.js` slices the template on this marker) -->
         <div class="editor-markdown-editor"><div ref="monacoRef" /></div>
       </div>
       <div
@@ -441,9 +442,10 @@
             </w-btn>
           </div>
           <!--
-            The render goes straight into the element carrying `page-contents`, as the page view does
+            The render goes directly into the element carrying `page-contents`, as the page view does
             it: a wrapper in between would make the headings grandchildren, so content rules written
             against its direct children would apply on one surface and not the other.
+            (`EditorMarkdown.flushHover.test.js` anchors on this comment's opening words.)
           -->
           <div
             class="editor-markdown-preview-content page-contents"
