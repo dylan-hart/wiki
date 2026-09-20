@@ -158,6 +158,48 @@ describe('renderedContent clipboard localization', () => {
   })
 })
 
+describe('renderedContent code-fence start number (#3588)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn() } })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it.each([
+    ['30', '29'],
+    ['2', '1'],
+    ['1', '0'],
+    ['0', '0']
+  ])('turns data-line-start="%s" into --codeline-offset: %s', (start, offset) => {
+    const pre = codeBlock('a\nb')
+    pre.dataset.lineStart = start
+    enhanceRenderedContent(pre.parentNode, t)
+
+    expect(pre.style.getPropertyValue('--codeline-offset')).toBe(offset)
+  })
+
+  it.each(['abc', '-4', '3.5', '', '1234567890', '30; color: red'])(
+    'sets no offset for a data-line-start of %j',
+    (start) => {
+      const pre = codeBlock('a\nb')
+      pre.dataset.lineStart = start
+      enhanceRenderedContent(pre.parentNode, t)
+
+      expect(pre.style.getPropertyValue('--codeline-offset')).toBe('')
+    }
+  )
+
+  it('sets no offset, and no style attribute, on a block without data-line-start', () => {
+    const pre = codeBlock('a\nb')
+    enhanceRenderedContent(pre.parentNode, t)
+
+    expect(pre.hasAttribute('style')).toBe(false)
+  })
+})
+
 describe('renderedContent accessible-name/tooltip localization (#2357)', () => {
   beforeEach(() => {
     notifyQueue.length = 0
