@@ -2083,6 +2083,8 @@
   "blocks.spoiler.props.label.hint": "Heading on the cover.",
   "blocks.spoiler.props.label.label": "Label",
   "blocks.tab.description": "One panel of a set of tabs.",
+  "blocks.tab.props.header.hint": "From 1 to 6, lists the tab in the page contents under its label, and clicking it there opens the tab. Empty is an ordinary tab.",
+  "blocks.tab.props.header.label": "Header Level",
   "blocks.tab.props.icon.hint": "Iconify reference drawn to the left of the label, e.g. tabler:brand-python.",
   "blocks.tab.props.icon.label": "Icon",
   "blocks.tab.props.label.hint": "What the tab is called in the strip.",
