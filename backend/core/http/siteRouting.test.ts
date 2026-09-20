@@ -194,6 +194,56 @@ describe('registerAppShellFallback', () => {
     })
   })
 
+  describe('robots', () => {
+    function setRobots(config: Record<string, unknown>) {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = { '*': 'site-1' }
+      cardinal.sites = { 'site-1': { config } }
+    }
+
+    after(() => {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = {}
+      cardinal.sites = {}
+    })
+
+    const cases: Array<[boolean, boolean, string]> = [
+      [true, true, 'index, follow'],
+      [false, true, 'noindex, follow'],
+      [true, false, 'index, nofollow'],
+      [false, false, 'noindex, nofollow']
+    ]
+    for (const [index, follow, directive] of cases) {
+      test(`index=${index} follow=${follow} sends "${directive}" as header and meta`, async () => {
+        setRobots({ robots: { index, follow } })
+        const sent = await serve('GET', '/guides/x')
+        assert.equal(sent.headers['X-Robots-Tag'], directive)
+        const meta = `<meta name="robots" content="${directive}">`
+        assert.equal(sent.body!.split(meta).length - 1, 1)
+        assert.ok(sent.body!.indexOf(meta) < sent.body!.indexOf('</head>'))
+      })
+    }
+
+    test('a HEAD request and a not-found path carry the same header', async () => {
+      setRobots({ robots: { index: false, follow: false } })
+      const head = await serve('HEAD', '/no/such/page')
+      assert.equal(head.headers['X-Robots-Tag'], 'noindex, nofollow')
+    })
+
+    test('robots and theme injection share the one head', async () => {
+      setRobots({ robots: { index: false, follow: true }, theme: { injectHead: '<i>t</i>' } })
+      const { body } = await serve('GET', '/a')
+      assert.ok(body!.includes('<meta name="robots" content="noindex, follow"><i>t</i></head>'))
+    })
+
+    test('a site with no robots block gets neither header nor meta', async () => {
+      setRobots({})
+      const sent = await serve('GET', '/a')
+      assert.equal(sent.headers['X-Robots-Tag'], undefined)
+      assert.equal(sent.body!.includes('name="robots"'), false)
+    })
+  })
+
   test('repeated requests keep serving the same bytes', async () => {
     const first = await serve('GET', '/a')
     const second = await serve('HEAD', '/b?x=1')

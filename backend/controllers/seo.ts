@@ -46,7 +46,7 @@ function escapeXml(value: string): string {
  * either flag turned off answers `Disallow: /`.
  */
 export function buildRobotsTxt(config: RobotsConfig, sitemapUrl: string): string {
-  const allowed = config.robots?.index !== false && config.robots?.follow !== false
+  const allowed = config.robots?.index !== false
   const lines = ['User-agent: *', allowed ? 'Allow: /' : 'Disallow: /']
   if (config.sitemap) {
     lines.push('', `Sitemap: ${sitemapUrl}`)

@@ -20,9 +20,17 @@ describe('buildRobotsTxt', () => {
     assert.equal(txt, 'User-agent: *\nDisallow: /\n')
   })
 
-  test('disallows everything when follow is off, even with index on', () => {
+  test('still allows everything when only follow is off', () => {
     const txt = buildRobotsTxt(
       { robots: { index: true, follow: false }, sitemap: false },
+      'ignored'
+    )
+    assert.equal(txt, 'User-agent: *\nAllow: /\n')
+  })
+
+  test('disallows everything when index is off, whatever follow says', () => {
+    const txt = buildRobotsTxt(
+      { robots: { index: false, follow: false }, sitemap: false },
       'ignored'
     )
     assert.equal(txt, 'User-agent: *\nDisallow: /\n')
