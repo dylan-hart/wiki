@@ -3,6 +3,7 @@ import { recoveryCodeDisplayPattern } from '../../helpers/recoveryCodes.ts'
 import { sessionCookieName } from '../../helpers/security.ts'
 import type { FastifyInstance } from 'fastify'
 import { loginErrorUrl } from './provider.ts'
+import { passkeysAllowed } from '../../models/security.ts'
 
 async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string }; Querystring: { visibleOnly?: boolean } }>(
@@ -58,6 +59,11 @@ async function routes(app: FastifyInstance) {
                       type: 'boolean',
                       description:
                         'Whether this strategy offers a password reset from the login screen. False for a strategy whose module has no such setting.'
+                    },
+                    allowPasskeys: {
+                      type: 'boolean',
+                      description:
+                        'Whether passkey login is enabled instance-wide (`security.allowPasskeys`). The same value on every strategy.'
                     },
                     strategy: {
                       type: 'object',
@@ -122,6 +128,7 @@ async function routes(app: FastifyInstance) {
               // -> A module declaring no such prop reads as false: a strategy with no password of
               //    its own has none to reset
               allowForgotPassword: str.config?.allowForgotPassword === true,
+              allowPasskeys: passkeysAllowed(),
               strategy: {
                 key: authModule?.key ?? str.module,
                 title: authModule?.title ?? str.module,
@@ -677,6 +684,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      if (!passkeysAllowed()) {
+        return reply.badRequest('ERR_PASSKEYS_DISABLED')
+      }
       try {
         const { authOptions, pending } = await CARDINAL.models.passkeys.startLogin({
           hostname: req.hostname,
@@ -732,6 +742,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      if (!passkeysAllowed()) {
+        return reply.badRequest('ERR_PASSKEYS_DISABLED')
+      }
       try {
         const result = await CARDINAL.models.passkeys.verifyLogin(
           {

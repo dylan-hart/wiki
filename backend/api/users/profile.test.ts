@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, describe, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
@@ -71,5 +71,114 @@ describe('profile sub-plugin: requireSessionUser', () => {
     //    with the same body `requireSessionUser` would. The 403 above is what tells the two apart.
     const res = await app.inject({ method: 'GET', url: '/users/defaults' })
     assert.equal(res.statusCode, 401)
+  })
+})
+
+describe('profile passkeys: security.allowPasskeys', () => {
+  const USER_ID = '11111111-1111-4111-8111-111111111111'
+  const PASSKEY_ID = '22222222-2222-4222-8222-222222222222'
+  const session = {
+    'x-test-session': JSON.stringify({ authenticated: true, user: { id: USER_ID } })
+  }
+  const storedPasskeys = [{ id: PASSKEY_ID, name: 'Laptop' }]
+
+  let app: FastifyInstance
+  let startRegistration: ReturnType<typeof mock.fn>
+  let finalizeRegistration: ReturnType<typeof mock.fn>
+  let remove: ReturnType<typeof mock.fn>
+  let list: ReturnType<typeof mock.fn>
+  let security: Record<string, any>
+
+  before(async () => {
+    startRegistration = mock.fn(async () => ({
+      registrationOptions: { challenge: 'c' },
+      pending: 'p'
+    }))
+    finalizeRegistration = mock.fn(async () => ({ id: PASSKEY_ID, name: 'Laptop' }))
+    remove = mock.fn(async () => true)
+    list = mock.fn(async () => storedPasskeys)
+    security = {}
+    app = await buildTestApp({
+      routes: usersRoutes,
+      prefix: '/users',
+      session: 'header',
+      permissions: true,
+      ajv: true,
+      wiki: {
+        config: { security },
+        models: {
+          passkeys: { startRegistration, finalizeRegistration, remove, list },
+          userCredentials: { getProfileAuthMethods: async () => [] }
+        }
+      }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  beforeEach(() => {
+    for (const fn of [startRegistration, finalizeRegistration, remove, list]) {
+      fn.mock.resetCalls()
+    }
+  })
+
+  const registerBody = { name: 'Laptop', registrationResponse: { id: 'x' } }
+
+  for (const allowPasskeys of [true, undefined]) {
+    test(`registration proceeds when allowPasskeys is ${allowPasskeys ?? 'absent'}`, async () => {
+      security.allowPasskeys = allowPasskeys
+      const challenge = await app.inject({
+        method: 'POST',
+        url: '/users/profile/passkeys/challenge',
+        headers: session
+      })
+      assert.equal(challenge.statusCode, 200)
+      const register = await app.inject({
+        method: 'POST',
+        url: '/users/profile/passkeys',
+        headers: session,
+        payload: registerBody
+      })
+      assert.equal(register.statusCode, 200)
+      const auth = await app.inject({ method: 'GET', url: '/users/profile/auth', headers: session })
+      assert.equal(auth.json().passkeysEnabled, true)
+    })
+  }
+
+  test('off refuses both registration endpoints with ERR_PASSKEYS_DISABLED before touching the model', async () => {
+    security.allowPasskeys = false
+    const challenge = await app.inject({
+      method: 'POST',
+      url: '/users/profile/passkeys/challenge',
+      headers: session
+    })
+    assert.equal(challenge.statusCode, 400)
+    assert.equal(challenge.json().message, 'ERR_PASSKEYS_DISABLED')
+    const register = await app.inject({
+      method: 'POST',
+      url: '/users/profile/passkeys',
+      headers: session,
+      payload: registerBody
+    })
+    assert.equal(register.statusCode, 400)
+    assert.equal(register.json().message, 'ERR_PASSKEYS_DISABLED')
+    assert.equal(startRegistration.mock.calls.length, 0)
+    assert.equal(finalizeRegistration.mock.calls.length, 0)
+  })
+
+  test('off keeps stored passkeys listed, reports passkeysEnabled false, and still allows removal', async () => {
+    security.allowPasskeys = false
+    const auth = await app.inject({ method: 'GET', url: '/users/profile/auth', headers: session })
+    assert.equal(auth.statusCode, 200)
+    assert.equal(auth.json().passkeysEnabled, false)
+    assert.equal(auth.json().passkeys.length, 1)
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/users/profile/passkeys/${PASSKEY_ID}`,
+      headers: session
+    })
+    assert.equal(del.statusCode, 204)
+    assert.equal(remove.mock.calls.length, 1)
   })
 })

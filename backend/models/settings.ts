@@ -121,6 +121,7 @@ class Settings {
       {
         key: 'security',
         value: {
+          allowPasskeys: true,
           corsConfig: '',
           corsMode: 'OFF',
           ...securityCspSeed(CARDINAL.config, CARDINAL.data),

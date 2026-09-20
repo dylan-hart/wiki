@@ -1,6 +1,7 @@
 import { compileTrustProxyList, CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
 
 export const SECURITY_FIELDS = [
+  'allowPasskeys',
   'apiRateLimitBan',
   'apiRateLimitEnabled',
   'apiRateLimitMax',
@@ -24,6 +25,14 @@ export const SECURITY_FIELDS = [
   'uploadMaxFilesPerBatch',
   'uploadScanSVG'
 ] as const
+
+/**
+ * Read live rather than cached: `updateConfig` swaps `CARDINAL.config.security` in place. A blob
+ * saved before the field existed has no value and reads as allowed.
+ */
+export function passkeysAllowed(): boolean {
+  return CARDINAL.config.security?.allowPasskeys !== false
+}
 
 const DURATION_PATTERN = /^\d+[smhdwy]$/
 

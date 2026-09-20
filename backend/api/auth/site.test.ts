@@ -739,3 +739,117 @@ describe('PUT login: password is required by the route schema', () => {
     assert.equal(body.ok, false)
   })
 })
+
+describe('passkey login endpoints: security.allowPasskeys', () => {
+  const SITE_ID = 'c1111111-1111-1111-1111-111111111111'
+  const STRATEGY_ID = 'c2222222-2222-2222-2222-222222222222'
+
+  let app: FastifyInstance
+  let security: Record<string, any>
+  let startLogin: ReturnType<typeof mock.fn>
+  let verifyLogin: ReturnType<typeof mock.fn>
+  let session: Record<string, any>
+
+  before(async () => {
+    startLogin = mock.fn(async () => ({ authOptions: { challenge: 'c' }, pending: 'p' }))
+    verifyLogin = mock.fn(async () => ({ nextAction: 'redirect' }))
+    security = {}
+    wikiHandle = installTestWiki({
+      config: { security },
+      data: { authentication: [{ key: 'local', title: 'Local', useForm: true }] },
+      sites: {
+        [SITE_ID]: {
+          id: SITE_ID,
+          config: { authStrategies: [{ id: STRATEGY_ID, order: 0, isVisible: true }] }
+        }
+      },
+      models: {
+        passkeys: { startLogin, verifyLogin },
+        authentication: {
+          getActiveStrategies: async () => [
+            {
+              id: STRATEGY_ID,
+              module: 'local',
+              displayName: 'Local',
+              isEnabled: true,
+              selfRegistration: true,
+              config: {}
+            }
+          ]
+        },
+        flags: { authDebug: () => {} },
+        rateLimits: { consume: async () => ({ allowed: true, retryAfter: 0 }) }
+      }
+    })
+    app = await buildTestApp({ routes: authenticationRoutes, ajv: true, session: () => session })
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  beforeEach(() => {
+    session = {}
+    startLogin.mock.resetCalls()
+    verifyLogin.mock.resetCalls()
+  })
+
+  test('off refuses the challenge with ERR_PASSKEYS_DISABLED and writes no session challenge', async () => {
+    security.allowPasskeys = false
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/auth/passkey/challenge`
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().message, 'ERR_PASSKEYS_DISABLED')
+    assert.equal(startLogin.mock.calls.length, 0)
+    assert.equal(session.passkeyLogin, undefined)
+  })
+
+  test('off refuses the login with ERR_PASSKEYS_DISABLED without verifying the assertion', async () => {
+    security.allowPasskeys = false
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/auth/passkey/login`,
+      payload: { authResponse: { id: 'x' } }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().message, 'ERR_PASSKEYS_DISABLED')
+    assert.equal(verifyLogin.mock.calls.length, 0)
+  })
+
+  for (const allowPasskeys of [true, undefined]) {
+    test(`on (${allowPasskeys ?? 'absent'}) both endpoints reach the passkey model`, async () => {
+      security.allowPasskeys = allowPasskeys
+      const challenge = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/auth/passkey/challenge`
+      })
+      assert.equal(challenge.statusCode, 200)
+      assert.equal(session.passkeyLogin, 'p')
+      const login = await app.inject({
+        method: 'PUT',
+        url: `/sites/${SITE_ID}/auth/passkey/login`,
+        payload: { authResponse: { id: 'x' } }
+      })
+      assert.equal(login.statusCode, 200)
+      assert.equal(verifyLogin.mock.calls.length, 1)
+    })
+  }
+
+  test('the strategies response carries allowPasskeys on each strategy, following the live setting', async () => {
+    for (const [setting, expected] of [
+      [false, false],
+      [true, true],
+      [undefined, true]
+    ] as const) {
+      security.allowPasskeys = setting
+      const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/auth/strategies` })
+      assert.equal(res.statusCode, 200)
+      const body = res.json() as any[]
+      assert.equal(body.length, 1)
+      assert.equal(body[0].activeStrategy.allowPasskeys, expected)
+    }
+  })
+})

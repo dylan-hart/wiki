@@ -6,6 +6,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     $id: 'SecurityConfig',
     type: 'object',
     properties: {
+      allowPasskeys: {
+        type: 'boolean',
+        description:
+          'Whether passkeys may be registered and used to log in. When off, the passkey challenge and login endpoints and the profile passkey registration endpoints refuse with `ERR_PASSKEYS_DISABLED`; passkeys already registered stay stored (and can still be removed), and are ignored when deciding whether a user has another way in. Defaults to on when unset. Read live on each request, unlike most of this card — flipping it applies immediately, no restart needed.'
+      },
       corsMode: {
         type: 'string',
         enum: CORS_MODES,
