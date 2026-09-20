@@ -5,51 +5,34 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildAppCss, chromium, hasChromium, CHROMIUM_TIMEOUT } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #3135: `Index.pageScrollFooterClearance.test.js` (OpenProject #3055) used to assert
- * that `body.body--cobalt .page-container > .min-w-0.flex-1` carried a
- * `margin-bottom: calc(var(--footer-bar-height) + 16px)` rule, shrinking the article column's own
- * stretched box so its scrollbar stopped above Cobalt's fixed footer bar. OpenProject #3089 deleted
- * that rule outright, reasoning it was redundant with `--article-column-pad`'s own Cobalt bottom
- * bump -- but that padding lives INSIDE the scrollport and only clears the article's own content, not
- * where the scrollport (and its native scrollbar) itself ends, so the scrollbar went back to running
- * behind the fixed bar. #3135 restores the margin rule, as a literal `32.5px` rather than the old
- * `calc(var(--footer-bar-height) + 16px)` formula, and cuts `--article-column-pad`'s Cobalt bottom
- * value by the same 32.5px so the two changes net to zero -- this suite asserts the wrapper now
- * carries exactly `32.5px` of margin-bottom in Cobalt (still none in Ledger), and that the wrapper's
- * own bottom edge sits that same 32.5px above the row's bottom edge.
- *
- * Real browser, not `jsdom`/`happy-dom`, for the same reason as the suite this replaces: this is
- * genuine box geometry neither DOM emulator's non-existent layout engine can answer.
+ * Cobalt's footer bar is fixed, and `--article-column-pad`'s bottom padding sits INSIDE the
+ * scrollport: it clears the article's own content but not where the scrollport -- and its native
+ * scrollbar -- ends. Only a margin on the stretched wrapper does that, hence the geometry assertions
+ * here, in a real browser neither DOM emulator's absent layout engine could answer.
  */
 
 const frontendRoot = join(import.meta.dirname, '..', '..')
 
-// -> This WP's own literal margin-bottom value (`Index.vue`) -- kept as one constant so a future
-//    change to the number only has to happen once.
 const FOOTER_CLEARANCE_MARGIN = 32.5
 
 async function readSfcStyles(relativePath) {
   const source = await readFile(join(frontendRoot, relativePath), 'utf8')
-  // -> Anchored to the START of a line (Vue SFC convention: a top-level `<style>`/`</style>` tag is
-  //    never indented) rather than a bare `<style[^>]*>`, which a docstring merely MENTIONING
-  //    "<style>" would also match, swallowing everything up to the real closing tag into one
-  //    unparseable blob -- see `Index.tocFooterClearance.test.js` for the same guard.
+  // -> Anchored to the START of a line, since a top-level SFC `<style>` tag is never indented: a
+  //    bare `<style[^>]*>` would also match a docstring merely MENTIONING the tag, swallowing
+  //    everything up to the real closing tag into one unparseable blob.
   return [...source.matchAll(/^<style[^>]*>([\s\S]*?)^<\/style>/gm)].map((m) => m[1]).join('\n')
 }
 
 async function compileSfcStyles(relativePath) {
-  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
-  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
-  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  // -> No compile step: every SFC `<style>` block is plain CSS, native nesting included, which the
+  //    real Chromium below parses as-is.
   return await readSfcStyles(relativePath)
 }
 
 /*
- * `.page-container`'s row exactly as `Index.vue` renders it, matching the structure
- * `Index.pageScrollFooterClearance.test.js` used to build: the `.min-w-0.flex-1` wrapper (the
- * actual stretched flex item, with no explicit height of its own, matching the real template's
- * line 59) around the scrolling article column, beside an empty `.page-sidebar` column. A tall
- * filler stands in for real article content, tall enough to force real overflow.
+ * `.page-container`'s row as `Index.vue` renders it: the `.min-w-0.flex-1` wrapper -- the stretched
+ * flex item, with no explicit height of its own -- around the scrolling article column. The filler
+ * is tall enough to force real overflow.
  */
 function pageRowHtml() {
   return (
@@ -79,8 +62,8 @@ async function measureRow({ browser, css, bodyClasses, viewport }) {
       const scrl = document.querySelector('.page-container-scrl')
       const footer = document.querySelector('.w-footer')
       // -> `document.body`, not `document.documentElement`: the Cobalt override lives on
-      //    `body.body--cobalt` (`tailwind.css`), and a custom property inherits DOWN the tree, not
-      //    up -- reading it off `<html>` would only ever see the bare `:root` default (`0`).
+      //    `body.body--cobalt`, and a custom property inherits DOWN the tree, so `<html>` would only
+      //    ever see the bare `:root` default.
       const footerBarHeight = Number.parseFloat(
         getComputedStyle(document.body).getPropertyValue('--footer-bar-height')
       )
@@ -129,7 +112,6 @@ describe(
       })
 
       expect(ledger.wrapperMarginBottom).toBe('0px')
-      // -> Stretches the full row height, all the way to the row's own bottom edge.
       expect(ledger.wrapperBottom).toBeCloseTo(wideViewport.height, 0)
       expect(ledger.scrlBottom).toBeCloseTo(wideViewport.height, 0)
     })
@@ -145,10 +127,9 @@ describe(
       expect(cobalt.footerPosition).toBe('fixed')
       expect(cobalt.footerBarHeight).toBeGreaterThan(0)
       expect(cobalt.wrapperMarginBottom).toBe(`${FOOTER_CLEARANCE_MARGIN}px`)
-      // -> Shrunk by exactly the margin, so both the wrapper's own border box and the scrollport it
-      //    hands `.page-container-scrl` (a `height: 100%` child, unaffected by margins of its own)
-      //    stop that same distance above the row's bottom edge -- flush above the fixed footer bar
-      //    rather than running behind it.
+      // -> `.page-container-scrl` is a `height: 100%` child, unaffected by margins of its own, so
+      //    shrinking the wrapper's border box stops the scrollport above the fixed footer bar too
+      //    rather than running it behind.
       expect(cobalt.wrapperBottom).toBeCloseTo(wideViewport.height - FOOTER_CLEARANCE_MARGIN, 0)
       expect(cobalt.scrlBottom).toBeCloseTo(wideViewport.height - FOOTER_CLEARANCE_MARGIN, 0)
     })
@@ -169,10 +150,8 @@ describe(
 )
 
 /*
- * `--article-column-pad`'s bottom value plus the margin above net to the same total trailing space
- * below the article this WP started from (OpenProject #3055/#3089's `60px`) -- a regression in
- * either number alone would silently shift the page's fully-scrolled content position, which this
- * WP's own acceptance criterion says must stay exactly where it is today.
+ * Cobalt's `--article-column-pad` bottom value and the margin above have to keep summing to 60px:
+ * changing either one alone silently shifts where fully-scrolled content sits.
  */
 describe('Cobalt cuts its article-column-pad bottom value to match the new margin (OpenProject #3135)', () => {
   it('declares 27.5px of bottom padding, not the pre-#3135 60px', async () => {
@@ -186,10 +165,8 @@ describe('Cobalt cuts its article-column-pad bottom value to match the new margi
     ).not.toBeNull()
 
     const parts = match[1].trim().split(/\s+/)
-    // -> `top right bottom left` shorthand -- the third value is the bottom pad this WP relies on.
+    // -> `top right bottom left` shorthand: the third value is the bottom pad.
     expect(parts[2]).toBe('27.5px')
-    // -> 27.5 + 32.5 (the margin above) == 60, the pre-#3135 total -- the fully-scrolled content
-    //    position this net-zero swap is meant to leave unchanged.
     expect(Number.parseFloat(parts[2]) + FOOTER_CLEARANCE_MARGIN).toBe(60)
   })
 })

@@ -5,31 +5,21 @@ import { dirname, join } from 'node:path'
 import { chromium, hasChromium, buildAppCss } from '../../test/realGridLayout.js'
 
 /*
-  OpenProject #2613: the breadcrumb trail and the sidebar's action row are two bands at the same
-  vertical position, side by side, each ruled off with its own 1px hairline -- so their heights have
-  to agree, or the two rules do not line up and the grounds meet at a step. `.page-breadcrumbs`
-  (`Index.vue`) was 34px against `.sidebar-actions`' (`MainLayout.vue`) 38px. #2861 later raised
-  `.sidebar-actions` again, to 41px, for its three-cell locale|browse|top restructure -- `.page-
-  breadcrumbs` follows it here to keep the same invariant.
+  `.page-breadcrumbs` (`Index.vue`) and `.sidebar-actions` (`MainLayout.vue`) are two bands side by
+  side at the same vertical position, each ruled off with its own 1px hairline, so their heights
+  have to agree or the two rules miss each other and the grounds meet at a step.
 
-  Measured in a real headless Chromium rather than the suite's default `happy-dom`, for the reason
-  `test/realGridLayout.js` documents at length: no DOM emulator runs a layout engine, so every
-  `getBoundingClientRect()` there comes back zeroed no matter what the CSS says, and this project has
-  already been caught once (PR #43's overlay defect) trusting CSS reasoning over a real browser. The
-  measurement is written inline here rather than added to `realGridLayout.js` -- that module's
-  existing export is classification-grid-specific, and several sibling work packages are pointing at
-  it in the same round.
+  Measured in a real headless Chromium rather than the suite's default DOM emulator, which runs no
+  layout engine: every `getBoundingClientRect()` there comes back zeroed whatever the CSS says.
 */
 
 const selfDir = dirname(fileURLToPath(import.meta.url))
 const frontendRoot = dirname(dirname(selfDir))
 
 /*
-  The rules under test are read from the SFCs' own `<style>` text, not retyped as literals here: a
-  copy would keep passing after somebody moved `.page-breadcrumbs` back to 34px, which is precisely
-  the regression this guards. No compile step is needed -- both blocks are already plain, valid CSS
-  (OpenProject #3254 dropped the Sass pipeline they used to reach `$hairline`/`$surface`/`$slate`
-  through).
+  The rules under test are read from the SFCs' own `<style>` text rather than retyped here: a copy
+  would go on passing after somebody changed a band's height, which is the regression this guards.
+  No compile step -- both blocks are already plain, valid CSS.
 */
 async function compileStyleBlock(relativePath) {
   const source = await readFile(join(frontendRoot, relativePath), 'utf8')
@@ -51,11 +41,9 @@ describe(
       browser = await chromium.launch()
 
       /*
-        `buildAppCss()` is the app's real `tailwind.css` through the same pipeline the build uses --
-        needed here for Tailwind's preflight (`box-sizing: border-box`, which is what makes each
-        band's 1px `border-bottom` sit INSIDE its declared height rather than on top of it) as well
-        as for the `px-4 flex flex-wrap items-center` / `flex flex-nowrap items-stretch` utilities
-        both bands carry in their own markup.
+        The real `tailwind.css` is needed for its preflight as much as for the utilities the two
+        bands carry: `box-sizing: border-box` is what makes each band's 1px `border-bottom` sit
+        INSIDE its declared height rather than on top of it.
       */
       const [appCss, indexCss, layoutCss] = await Promise.all([
         buildAppCss(),
@@ -66,11 +54,9 @@ describe(
       const page = await browser.newPage()
       try {
         /*
-          The two bands as the app actually renders them: `.sidebar-actions` is the top strip of the
-          sidebar column and `.page-breadcrumbs` the top strip of the content column beside it, so
-          they share a top edge. `align-items: flex-start` keeps each box at its own natural height
-          instead of the row stretching both to the taller one, which would hide the very difference
-          being measured.
+          The two bands as the app renders them, sharing a top edge. `align-items: flex-start` keeps
+          each box at its own natural height: stretching both to the taller one would hide the very
+          difference being measured.
         */
         await page.setContent(
           '<!doctype html><html><head><style>' +

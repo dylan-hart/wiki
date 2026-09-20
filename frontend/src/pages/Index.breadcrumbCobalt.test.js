@@ -9,17 +9,12 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2975 (Cobalt typography role-table conformance, "Breadcrumb bar" row):
  * `WBreadcrumbs.vue` renders its `active-color`/`separator-color` props as literal inline `color`
- * styles (`activeStyle`/`separatorStyle`) -- Ledger greys, regardless of aesthetic -- which outrank
- * anything `Index.vue`'s `.page-breadcrumbs` stylesheet rule sets for every crumb but the last (an
- * inline style beats a stylesheet declaration of ordinary importance). This is the one geometry-free,
- * paint-only assertion for the four §3 roles: trail segment, current segment, separator, and the
- * "Last modified" note.
+ * styles -- Ledger greys, whatever the aesthetic -- and an inline style outranks the
+ * `.page-breadcrumbs` stylesheet rule for every crumb but the last.
  *
- * Real browser, same reasoning as `Index.pageHeaderCobalt.test.js` and `Index.breadcrumbBand.test.js`:
- * `getComputedStyle` resolving a CSS custom property through the cascade -- and an inline style vs. a
- * stylesheet rule's relative priority -- is exactly what neither `jsdom` nor `happy-dom` runs.
+ * A real browser, because resolving a custom property through the cascade, and inline-versus-
+ * stylesheet priority, is exactly what the DOM emulators do not do.
  */
 
 const frontendRoot = join(import.meta.dirname, '..', '..')
@@ -30,17 +25,14 @@ function sfcStyles(relativePath) {
 }
 
 function compileSfcStyles(relativePath) {
-  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
-  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
-  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  // -> Nothing to compile: every SFC `<style>` block is already plain, valid CSS, native nesting
+  //    included, which the real Chromium below parses as-is
   return sfcStyles(relativePath)
 }
 
 /**
- * The breadcrumb band as `Index.vue` actually renders it: `WBreadcrumbs` with the same
- * `active-color`/`separator-color`/separator-icon-slot props the page passes, plus the sibling
- * "Last modified" note div -- both live inside the same `.page-breadcrumbs` band and the note's
- * colour rule is unscoped (applies through both aesthetics), so it belongs in this same fixture.
+ * The band as `Index.vue` renders it, down to the props the page passes. The "Last modified" note
+ * sits in the same band under an unscoped colour rule, so it is measured from the same fixture.
  */
 async function mountBreadcrumbsHtml() {
   const router = await createTestRouter(['/', '/docs', '/docs/getting-started'])
@@ -70,7 +62,6 @@ async function mountBreadcrumbsHtml() {
   )
 }
 
-/** Every computed value the four role-table rows need, for one aesthetic/theme combination. */
 async function measureBreadcrumbs({ browser, css, html, bodyClasses }) {
   const page = await browser.newPage()
   try {

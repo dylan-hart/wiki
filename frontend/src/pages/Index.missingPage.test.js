@@ -8,22 +8,9 @@ import { useUserStore } from '@/stores/user'
 import { createTestI18n } from '../../test/i18n.js'
 import { buildTestRouter } from '../../test/router.js'
 
-/**
- * Regression coverage for task 633's wiring: `PageComments.vue` is mounted inside the article
- * column, gated on `siteStore.features.comments && pageStore.allowComments` -- the same
- * boolean-AND pattern the adjacent ratings block already uses. Everything else `Index.vue` renders
- * is stubbed out: this view pulls in the editor, header, TOC and actions column, none of which this
- * task touches, and giving each its own store/route/permission setup here would test THEIR
- * behaviour, not the gate this task added.
- */
-
 /*
- * `useMinWidth` (via `useScreen`) calls `window.matchMedia`, and the common store's `state()`
- * reads `localStorage.getItem('locale')` the moment it's instantiated. Neither has been needed by
- * any existing test -- mounting a full page view, which pulls in `useCommonStore`, is new here --
- * so both are stubbed locally rather than added to the shared `test/setup.js`, which would be a
- * bigger claim about every future test's needs than this one warrants. `localStorage` in particular
- * is a real (but non-functional, `--localstorage-file`-less) Node global in this runtime rather than
+ * `useScreen` calls `window.matchMedia`, and the common store reads `localStorage` the moment it is
+ * instantiated. `localStorage` is a real but non-functional Node global in this runtime rather than
  * simply absent, so it has to be overwritten, not merely filled in when missing.
  */
 beforeEach(() => {
@@ -46,11 +33,9 @@ beforeEach(() => {
 })
 
 /*
- * Torn down after every test, not left for the next mount to overwrite: `setActivePinia` in the
- * next test replaces the active pinia instance while this one's stores are still live, and an
- * un-unmounted component keeps its watchers/computeds running against them -- which then observe a
- * disposed reactive scope (`pagePermissions.includes` on a revoked proxy) as an unhandled rejection
- * on the next microtask, unrelated to whatever that next test is actually asserting.
+ * Torn down after every test: the next test's `setActivePinia` replaces the active instance while a
+ * still-mounted component's watchers run against the old one, which surfaces as an unhandled
+ * rejection over a disposed reactive scope inside whatever test comes next.
  */
 let activeWrapper = null
 
@@ -60,21 +45,12 @@ afterEach(() => {
 })
 
 /**
- * Regression test for task 515's entry point out of the missing-page screen.
- *
- * A path that 404s is also what a deleted page's own address does once nothing is left to answer for
- * it, so this is "wherever a reader currently lands when a page's path no longer resolves" — the
- * landing spot task 515 names as one acceptable place for a lightweight link into the new Recently
- * Deleted admin view. It is gated on TWO permissions rather than shown unconditionally: `read:history`
- * at this exact path is what a row for this path would need to appear on that list at all (see
- * `GET sites/:siteId/pages/deleted`'s per-row `mayOnPage` filter), and the global `access:admin` is
- * what `AdminLayout` itself checks on arrival -- without it the link would only bounce the reader to
- * the unauthorized screen. A group can grant either without the other, so both are asserted here.
+ * The Recently Deleted link is gated on two permissions a group can grant independently:
+ * `read:history` at this exact path is what a row for it needs to appear on that list at all (`GET
+ * sites/:siteId/pages/deleted` filters per row), and the global `access:admin` is what `AdminLayout`
+ * checks on arrival -- without it the link would only bounce the reader to the unauthorized screen.
  */
 async function mountAtMissingPath({ pagePermissions, permissions = [] }) {
-  // -> `stores/common.js` reads `localStorage` at store setup. Node's own experimental global
-  //    shadows happy-dom's in this sandbox and throws on `.getItem` with no backing file
-  //    configured; stubbed locally so this test does not depend on either implementation.
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
 
   setActivePinia(createPinia())
@@ -85,8 +61,8 @@ async function mountAtMissingPath({ pagePermissions, permissions = [] }) {
   const userStore = useUserStore()
   userStore.permissions = permissions
 
-  // -> `pageLoad`'s GET resolves to `undefined` by default (the stub's plain response), which is
-  //    exactly what makes it throw ERR_PAGE_NOT_FOUND and take the missing-page path below
+  // -> The GET stub is left at its default `undefined`, which is what makes `pageLoad` throw
+  //    ERR_PAGE_NOT_FOUND and land on the missing-page screen.
   globalThis.API_CLIENT.post.mockReturnValue({
     json: vi.fn().mockResolvedValue(pagePermissions)
   })
@@ -117,24 +93,6 @@ async function mountAtMissingPath({ pagePermissions, permissions = [] }) {
   return { wrapper, userStore }
 }
 
-/*
- * OpenProject #829, item 1: upstream issue #1839 ("Mermaid renders in the live edit preview but not
- * on the saved/reloaded page") and discussion #6446 (the identical pattern for KaTeX). This is the
- * frontend half of the render-then-reload regression test the item asks for -- `rendering.test.ts`
- * covers the save-time half (a diagram block and a resolved formula both survive `postProcess`
- * byte-for-byte); this covers what actually draws a diagram once that stored HTML comes back down.
- *
- * A diagram block is a Lit custom element that draws itself in its own `firstUpdated()` once its
- * component script has been imported and the tag upgrades -- it does not matter whether that
- * happened because the live editor preview loaded it moments ago or because this is a page loaded
- * fresh (a direct URL, a browser reload) that has never seen the editor at all. What matters is that
- * SOMETHING scans the page for an undefined block tag and imports it either way. This mounts
- * `Index.vue` exactly as a reader loading a saved page directly would -- `pageStore.pageLoad`
- * resolving real page data whose `render` is what `rendering.test.ts` proved a save writes to
- * storage -- and asserts the block-loading scan this view's route watcher runs (`{ immediate: true }`,
- * so it also covers the very first load of a page, not only navigating between two already-open
- * ones) picks the diagram up, with no live editor ever having been open in this test at all.
- */
 describe('Index missing-page screen: Recently Deleted entry link', () => {
   it('shows the link when both access:admin and read:history at this path are granted', async () => {
     const { wrapper } = await mountAtMissingPath({
@@ -168,14 +126,11 @@ describe('Index missing-page screen: Recently Deleted entry link', () => {
 })
 
 /**
- * OpenProject #2063: the `/` branch of the `ERR_PAGE_NOT_FOUND` handler used to decide between the
- * Welcome overlay and `/_error/unauthorized` off `userStore.can('write:pages')` alone -- `write:pages`
- * is a page-rule permission, never present in the global `permissions` list, so on a cold load (where
- * `pagePermissions` is still empty) that check could only ever pass for `manage:system`. Every
- * delegated editor holding `write:pages` through a page rule saw a factually-wrong 403 instead of the
- * page they were entitled to create. The fix fetches page permissions at `'home'` first, same as the
- * non-root branch already does for its own missing-page screen, and answers a "may not write" reader
- * with that same placeholder rather than an error route.
+ * `write:pages` is a page-rule permission, never present in the global `permissions` list, so the
+ * site-root branch of the `ERR_PAGE_NOT_FOUND` handler has to fetch page permissions at `'home'`
+ * before choosing between the Welcome overlay and the placeholder: deciding off
+ * `userStore.can('write:pages')` on a cold load could only ever pass for `manage:system`, 403-ing
+ * every delegated editor entitled to create the page.
  */
 describe('Index.vue: site-root missing-home-page screen (OpenProject #2063)', () => {
   async function mountAtRoot({ authenticated, pagePermissions = [] }) {
@@ -189,8 +144,8 @@ describe('Index.vue: site-root missing-home-page screen (OpenProject #2063)', ()
     const userStore = useUserStore()
     userStore.authenticated = authenticated
 
-    // -> `pageLoad`'s GET resolves to `undefined` by default (the stub's plain response), which is
-    //    exactly what makes it throw ERR_PAGE_NOT_FOUND and take the missing-home-page path below
+    // -> The GET stub is left at its default `undefined`, which is what makes `pageLoad` throw
+    //    ERR_PAGE_NOT_FOUND and take the missing-home-page path.
     globalThis.API_CLIENT.post.mockReturnValue({
       json: vi.fn().mockResolvedValue(pagePermissions)
     })
@@ -299,7 +254,6 @@ describe('Index.vue: site-root missing-home-page screen (OpenProject #2063)', ()
     await router.isReady()
     await flushPromises()
 
-    // -> The overlay must not have been set yet -- proof the decision waited on the fetch
     expect(siteStore.overlay).not.toBe('Welcome')
     expect(userStore.fetchPagePermissions).toHaveBeenCalledWith('home', 'en')
 

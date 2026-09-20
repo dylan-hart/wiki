@@ -1,18 +1,12 @@
 <template>
   <w-page>
     <!--
-      No page padding: the first band opens the panel flush against its top edge (and drops its top
-      rule as `:first-child`), which is the shape every other panel in the app opens with. Each
-      section's body carries its own inset instead, so a band always spans the panel rather than being
-      held 16px in from it on either side -- and at `px-4` that body's text finally starts at the same
-      inset as the heading above it, where `px-5` left the two 4px out of step.
+      No page padding: each section's body carries its own inset instead, so a band spans the whole
+      panel rather than being held 16px in from either edge, and the body's text starts at the same
+      inset as the heading above it.
 
-      Notifications first, Watching second: this is the tab `InboxOverlay`'s sidebar rail's first
-      entry ("Inbox") opens onto directly (OpenProject #2000 repointed it here once the dead
-      `/_inbox/messages` stub it used to point at was deleted; #2531 later converted the rail entry
-      itself from a route link to local tab state). What that entry is FOR is unread notifications —
-      the list of watched pages underneath is the source those notifications come from, not the more
-      urgent of the two.
+      Notifications first: this is what the rail's "Inbox" entry opens onto, and unread
+      notifications are what it is for. The watched pages below are only where they come from.
     -->
     <div class="w-section-header">{{ t('inbox.notificationsTitle') }}</div>
     <div class="px-4 pb-4">
@@ -31,22 +25,12 @@
           @click="openNotification(notification)">
           <w-item-section avatar>
             <!--
-              The design's 36px accent plate. Three things it is not, and each was a real
-              disagreement with `Cardinal Wiki - Inbox 3x.dc.html`:
+              `size` rather than the 40px `WItemSection` gives a flanking avatar everywhere else:
+              that 40px rule is a scoped `:deep()` selector, and only an inline style beats it.
 
-              - not 40px. `WItemSection` sizes a flanking avatar at 40px for every list in the app;
-                the framed lists in this overlay are drawn at 36. `size` is `WAvatar`'s documented
-                way to say so per call site, and is the only one that works -- that 40px rule is a
-                scoped `:deep()` selector, which only an inline style can beat.
-              - not `primary`. The plate carries a glyph, not a label, so it takes the bright fill
-                `#e4676b` rather than the darkened `#c14a52` a white LABEL would need (see the
-                "one deliberate divergence" section of `docs/cardinal-reskin-second-pass.md`).
-              - not `rounded`. Every plate in the language is a square, and saying so is better than
-                relying on the zeroed `--radius-*` scale to flatten a corner nobody meant to draw.
-
-              `dark.isActive` swaps the plate to `accent-dark` under dark mode: `--color-accent-fill`
-              carries no dark-mode override of its own (OpenProject #2807), so left alone this drew
-              the light-mode bright fill on a dark ground too.
+              `accent-fill`, the bright fill, because the plate carries a glyph rather than a white
+              label -- and resolved through `dark.isActive`, since `--color-accent-fill` has no
+              dark-mode override of its own and would otherwise draw light-mode on a dark ground.
             -->
             <w-avatar
               size="36px"
@@ -70,7 +54,6 @@
           </w-item-section>
           <w-item-section side>
             <!-- `@click.stop`, so marking read does not also follow the row to the page. -->
-            <!-- -> The design's hairline square; see `.inbox-square-btn` in `InboxOverlay.vue`. -->
             <w-btn
               class="inbox-square-btn"
               outline
@@ -91,8 +74,8 @@
     <div class="px-4 pb-4">
       <div class="text-body2">{{ t('inbox.watchingInfo') }}</div>
       <!--
-        The empty state carries the instruction with it: this screen is reached from the sidebar, quite
-        possibly before the reader has ever noticed the bell it is telling them about.
+        The empty state carries the instruction with it: this screen is reached from the sidebar,
+        quite possibly before the reader has ever noticed the bell it is telling them about.
       -->
       <w-banner
         v-if="state.pages.length < 1"
@@ -105,10 +88,9 @@
         <w-item v-for="page of state.pages" :key="page.pageId" clickable @click="openPage(page)">
           <w-item-section avatar>
             <!--
-              The page's own icon, which is what it is recognised by everywhere else. It is a reference
-              a USER picked, so it resolves through `/_icons` rather than the bundled set — see WIcon.
+              A user-picked icon reference, so it resolves through `/_icons` at runtime rather than
+              out of the build-time bundle.
             -->
-            <!-- -> The same 36px plate as a notification's, in the chrome tone; see there for why. -->
             <w-avatar size="36px" font-size="18px" color="slate" text-color="white" square>
               <w-icon :name="page.icon || DEFAULT_PAGE_ICON" />
             </w-avatar>
@@ -131,15 +113,7 @@
             </w-item-label>
           </w-item-section>
           <w-item-section side>
-            <!-- -> `gap-1.5`: the design pairs the two row actions 6px apart, not 4. -->
             <div class="flex items-center gap-1.5">
-              <!--
-                Task 1895: the PATCH this menu calls already existed (`resolvePreference` /
-                `setPreference` in `models/pageWatching.ts`) with nothing in the UI to reach it -- the
-                watch button only ever PUTs/DELETEs. `@click.stop` on the trigger for the same reason
-                as Stop Watching below: this row is itself clickable, and opening the menu must not
-                also follow it to the page.
-              -->
               <w-btn
                 class="inbox-square-btn"
                 outline
@@ -194,11 +168,6 @@
                   </w-card>
                 </w-menu>
               </w-btn>
-              <!--
-                `@click.stop`, so pressing Stop Watching does not also follow the row to the page it is
-                about — which would leave the reader on a page they just said they were done with.
-              -->
-              <!-- -> The struck bell, matching the one this is the undoing of; see the page header -->
               <w-btn
                 class="inbox-square-btn"
                 outline
@@ -234,46 +203,30 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
-// COMPOSABLES
-
 const dark = useDark()
 
-// ROUTER
-
 const router = useRouter()
-
-// STORES
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('inbox.watching')
 }))
 
-// DATA
-
 const state = reactive({
   pages: [],
-  /** The page whose Stop Watching is in flight, so its button cannot be pressed twice. */
   unwatching: null,
   notifications: [],
-  /** The notification whose Mark Read is in flight, so its button cannot be pressed twice. */
   markingRead: null,
-  /** A copy of the preference the open menu is editing, seeded fresh from the page's own on open. */
   editingPreference: null,
-  /** The page whose preference Save is in flight, so its button cannot be pressed twice. */
   savingPreferenceFor: null
 })
 
-/** One `<w-menu>` ref per watched page, keyed by pageId, so Save/Cancel can close the right one. */
+/** One `<w-menu>` ref per watched page, so Save and Cancel can close the right one. */
 const preferenceMenuRefs = new Map()
 
 function setPreferenceMenuRef(pageId, el) {
@@ -289,14 +242,9 @@ const notifyModeOptions = [
   { value: 'immediate', label: t('inbox.watchingPreferencesModeImmediate') }
 ]
 
-// MOUNTED
-
 onMounted(load)
 onMounted(loadNotifications)
 
-// METHODS
-
-/** The one-line summary of a notification, phrased by its action — see `inbox.notificationAction*`. */
 function notificationLine(notification) {
   return t(
     `inbox.notificationAction${notification.action[0].toUpperCase()}${notification.action.slice(1)}`,
@@ -317,11 +265,8 @@ async function load() {
 }
 
 /**
- * Load the caller's unread notifications (task 535).
- *
- * A separate request from `load()` above rather than one combined fetch: the two lists come from
- * different endpoints, and a slow watch list must not hold up notifications from showing (or the
- * other way around).
+ * A separate request from `load()` rather than one combined fetch: a slow watch list must not hold
+ * notifications back from showing, or the other way around.
  */
 async function loadNotifications() {
   try {
@@ -336,12 +281,8 @@ async function loadNotifications() {
 }
 
 /**
- * Follow a watched page from the list.
- *
- * The overlay is closed first (OpenProject #2531): this used to be a routed `/_inbox/*` page, so
- * navigating away from it closed the dialog as a side effect of leaving the route; now that it is
- * `InboxOverlay` content, leaving it to view a page has to close the overlay explicitly, or the
- * dialog would stay open on top of the page just navigated to.
+ * The overlay is closed first: this is `InboxOverlay` content rather than a route of its own, so
+ * navigating away closes nothing and the overlay would sit on top of the page just opened.
  */
 function openPage(page) {
   siteStore.$patch({ overlay: '' })
@@ -349,17 +290,12 @@ function openPage(page) {
 }
 
 /**
- * Mark a notification read from the list, then follow it to the page it is about — a click on the row
- * is "take me there," and reading it along the way is the natural side effect, not a separate step.
- *
- * The row is dropped from the list on the server's confirmation, the same "known exactly, so don't
- * refetch the whole list" reasoning `unwatch()` below already uses. `EVENT_BUS` tells the header badge
- * (`HeaderNav.vue`) to re-check its count rather than this component trying to keep it in sync itself —
- * the badge is reachable from layouts this page has no reference to.
+ * A click on the row is "take me there", so marking it read along the way is a side effect rather
+ * than a separate step. The header badge is reachable only from layouts this page has no reference
+ * to, which is why `markRead` announces itself over `EVENT_BUS` instead of updating it.
  */
 async function openNotification(notification) {
   await markRead(notification, { silent: true })
-  // -> See `openPage`'s comment above: closing the overlay is no longer implicit in leaving a route.
   siteStore.$patch({ overlay: '' })
   router.push(
     localizedPagePath(notification.pagePath, notification.pageLocale, siteStore.localeRouting)
@@ -388,14 +324,10 @@ async function markRead(notification, { silent = false } = {}) {
 }
 
 /**
- * Stop watching a page from the list.
- *
- * The row goes as soon as the server confirms, rather than the whole list being fetched again: what
- * changed is known exactly, and a reader unwatching three pages in a row should not watch the list
- * rebuild three times.
- *
- * The page store is kept in step for the one case where it is about the same page — the reader came
- * here from it, and going back must not find a bell still saying it is watched.
+ * The row goes as soon as the server confirms rather than the whole list being fetched again: what
+ * changed is known exactly, and unwatching three pages should not rebuild the list three times. The
+ * page store is patched for the case where the reader came here from that page, so going back does
+ * not find a bell still saying it is watched.
  */
 async function unwatch(page) {
   state.unwatching = page.pageId
@@ -420,11 +352,8 @@ async function unwatch(page) {
 }
 
 /**
- * Notification preferences for one watch (task 1895).
- *
- * Opened, edited and saved as a copy in `state.editingPreference` rather than mutating `page`
- * directly: Cancel has to be able to walk away from a half-edited select/checkboxes without leaving
- * the row showing a preference that was never actually saved.
+ * Edited as a copy rather than against `page` directly: Cancel has to walk away from half-edited
+ * controls without leaving the row showing a preference that was never saved.
  */
 function openPreferenceMenu(page) {
   state.editingPreference = { ...page.preference }

@@ -2,10 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 /*
-  `mountEditor()` reaches into the real `monaco-editor` package, which needs browser APIs jsdom does
-  not provide (a real layout engine, workers, ...). Stubbed here rather than skipped: this suite is
-  about what `approveSubmission()`'s catch path does with the diff, not about Monaco itself, and a
-  fake diff editor is enough to prove the models get rebuilt after a reload.
+  The real `monaco-editor` needs browser APIs jsdom does not provide (a layout engine, workers).
+  Stubbed rather than skipped: a fake diff editor is enough to prove the models get rebuilt.
 */
 vi.mock('monaco-editor', () => ({
   editor: {
@@ -15,10 +13,7 @@ vi.mock('monaco-editor', () => ({
   }
 }))
 
-/*
-  The real renderer pulls in the full markdown-it plugin chain, unrelated to what this suite covers.
-  Approving here only needs *some* HTML string to send along with the content.
-*/
+/* Approving only needs *some* HTML string; the real renderer would pull in the markdown-it chain. */
 vi.mock('@/renderers/markdown', () => ({
   MarkdownRenderer: class {
     render() {
@@ -27,8 +22,6 @@ vi.mock('@/renderers/markdown', () => ({
   }
 }))
 
-// -> The stub declared above, imported so the design-conformance describe can read what the
-//    component asked Monaco for -- the theme colours and the diff editor's own options
 import * as monaco from 'monaco-editor'
 
 import InboxReview from './InboxReview.vue'
@@ -54,15 +47,10 @@ function submissionDetail(overrides = {}) {
   }
 }
 
-/** The queue's own real message, so `<i18n-t>` actually interpolates the author slot under test. */
+/** Real message text, so `<i18n-t>` actually interpolates the author slot under test. */
 const I18N_MESSAGES = { 'inbox.reviewSubmittedBy': 'Suggested by {author} on {date}' }
 
-/**
- * `initialSubmissionId`/`fromPage` are `InboxOverlay.vue`'s own props to this component (OpenProject
- * #2531 dropped `route.params.submissionId`/`route.query.from` now that this is overlay content, not
- * a routed `/_inbox/review/:submissionId?` page). `routes` is only needed by the `fromPage` tests,
- * which spy on the router push that leaves the overlay for the underlying page.
- */
+/** `routes` is only needed by the `fromPage` tests, which spy on the push that leaves the overlay. */
 async function mountReview({ initialSubmissionId = SUBMISSION_ID, fromPage = false } = {}) {
   const result = mountWithApp(InboxReview, {
     props: { initialSubmissionId, fromPage },
@@ -70,10 +58,9 @@ async function mountReview({ initialSubmissionId = SUBMISSION_ID, fromPage = fal
     routes: ['/:pathMatch(.*)*'],
     stores: {
       site: { id: 'site-1' },
-      // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking.
-      //    `refreshGlossaryTerms()` is stubbed out too (OpenProject #2789): `ensureConfigs()` calls
-      //    it unconditionally now, even with `configIsLoaded` already true, and it would otherwise
-      //    show up as an unaccounted extra `API_CLIENT.get` call to every test in this file.
+      // -> Skips `editorStore.fetchConfigs()`. `refreshGlossaryTerms()` needs stubbing too:
+      //    `ensureConfigs()` calls it even with `configIsLoaded` true, and it would otherwise show
+      //    up as an unaccounted extra `API_CLIENT.get` in every test here.
       editor: (editorStore) => {
         editorStore.configIsLoaded = true
         vi.spyOn(editorStore, 'refreshGlossaryTerms').mockResolvedValue()
@@ -85,22 +72,18 @@ async function mountReview({ initialSubmissionId = SUBMISSION_ID, fromPage = fal
 }
 
 /**
- * The approve button, found by its accessible name rather than DOM position.
- *
- * `aria-label`, not visible text: the design draws the review toolbar's four controls as icon-only
- * 32px squares, so the label these were once found by is not rendered any more -- and the accessible
- * name is the thing a reviewer using a screen reader actually gets, which is worth asserting through.
+ * `aria-label`, not visible text: the review toolbar's controls are icon-only squares, so the
+ * accessible name is both the only handle and the thing a screen-reader reviewer actually gets.
  */
 function approveButton(wrapper) {
   return wrapper.find('button[aria-label="inbox.reviewApprove"]')
 }
 
-/** The decline button, found the same way. */
 function rejectButton(wrapper) {
   return wrapper.find('button[aria-label="inbox.reviewDecline"]')
 }
 
-/** A queue row, as `getReviewableSubmissions` returns it -- no `content`/`patch`, unlike the detail. */
+/** A queue row as the list route returns it -- no `content`/`patch`, unlike the detail. */
 function reviewableSubmission(overrides = {}) {
   return {
     id: 'sub-a',
@@ -121,8 +104,7 @@ describe('InboxReview approveSubmission staleness (409)', () => {
         return { json: () => Promise.resolve([]) }
       }
       getSubmissionCalls += 1
-      // -> The second GET stands in for the reviewer's diff being reloaded against the page as it
-      //    stands after the conflicting write -- stale, with the page's new content on the left
+      // -> The second GET is the diff reloaded against the page as the conflicting write left it
       const stale = getSubmissionCalls > 1
       return {
         json: () =>
@@ -147,42 +129,37 @@ describe('InboxReview approveSubmission staleness (409)', () => {
 
     const { wrapper } = await mountReview()
 
-    // Sanity: the initial GET has already populated the diff, not yet stale
     expect(getSubmissionCalls).toBe(1)
 
     const button = approveButton(wrapper)
     expect(button.exists()).toBe(true)
     await button.trigger('click')
 
-    // -> `approveSubmission()` opens a confirmation dialog rather than posting immediately; firing its
-    //    `ok` handler is what a reviewer clicking "Approve" in that dialog does
+    // -> The click only opens a confirmation dialog; firing its `ok` handler is what the reviewer
+    //    clicking "Approve" in that dialog does
     const confirmDialog = openDialogs.at(-1)
     expect(confirmDialog).toBeTruthy()
     closeDialog(confirmDialog.id, true)
     await flushPromises()
 
-    // The approve POST was attempted once and refused
     expect(API_CLIENT.post).toHaveBeenCalledTimes(1)
 
-    // The diff was reloaded against the now-current page -- not left showing what it did before
     expect(getSubmissionCalls).toBe(2)
 
-    // A warning distinct from the generic "approve failed" toast
     const lastNotification = notifyQueue.at(-1)
     expect(lastNotification.type).toBe('warning')
     expect(lastNotification.message).toBe('inbox.reviewApproveStale')
 
-    // The reconciliation prompt: the stale banner is now showing, driven by the reloaded submission
     expect(wrapper.text()).toContain('inbox.reviewStaleHint')
 
-    // Nothing was navigated away from -- this is still the same submission, open for reconciliation
+    // -> Still selected: the submission stays open for the reviewer to reconcile
     expect(wrapper.vm.selectedId).toBe(SUBMISSION_ID)
   })
 })
 
 describe('InboxReview approveSubmission / rejectSubmission not-found (404)', () => {
   /**
-   * @param {(wrapper) => Promise<import('@vue/test-utils').DOMWrapper<Element>>} findActionButton
+   * @param {(wrapper) => import('@vue/test-utils').DOMWrapper<Element>} findActionButton
    * @param {string} failureMessage the toast key the action's ordinary failure path shows
    */
   async function expectRecoveryFromGoneSubmission(findActionButton, failureMessage) {
@@ -196,8 +173,7 @@ describe('InboxReview approveSubmission / rejectSubmission not-found (404)', () 
     })
 
     // -> Somebody else -- another reviewer, or the author withdrawing it -- resolved this submission
-    //    between the reviewer opening it and acting on it, exactly the way `loadSubmission`'s own
-    //    catch handles a submission that 404s on open
+    //    between the reviewer opening it and acting on it
     const gone = Object.assign(new Error('Not Found'), {
       response: { status: 404 },
       data: { message: 'This edit suggestion does not exist.' }
@@ -224,12 +200,11 @@ describe('InboxReview approveSubmission / rejectSubmission not-found (404)', () 
     expect(lastNotification.type).toBe('negative')
     expect(lastNotification.message).toBe(failureMessage)
 
-    // The dead selection is dropped and the local state falls back to the bare queue, exactly like
-    // `loadSubmission`'s recovery -- not left pointed at a submission that can never resolve again
+    // -> Dropped rather than left pointed at a submission that can never resolve again
     expect(wrapper.vm.selectedId).toBeNull()
     expect(wrapper.text()).toContain('inbox.pendingReview')
 
-    // The queue behind it was refreshed, not just abandoned with the now-dead row still sitting there
+    // -> And the queue behind it refetched, so the dead row goes with it
     expect(submissionsCalls).toBe(2)
   }
 
@@ -243,12 +218,8 @@ describe('InboxReview approveSubmission / rejectSubmission not-found (404)', () 
 })
 
 /**
- * OpenProject #2137: the decline confirmation now carries a reason field, and what a reviewer types
- * into it must reach the reject route's body -- `models/approvals.ts#rejectSubmission`'s
- * `resolvedReason`, shown back to the submission's author. The dialog itself
- * (`InboxDeclineDialog.vue`) is never mounted here, the same way the plain confirm dialog wasn't
- * before it: `dialog()`'s `openDialogs` is a stub with no `<w-dialog-host>` rendering it, so its
- * `onOk` payload is simulated directly through `closeDialog`.
+ * `InboxDeclineDialog.vue` is never mounted here: `openDialogs` is a stub with no `<w-dialog-host>`
+ * rendering it, so its `onOk` payload is simulated directly through `closeDialog`.
  */
 describe('InboxReview decline reason (OpenProject #2137)', () => {
   function mockSubmissionEndpoints() {
@@ -273,7 +244,6 @@ describe('InboxReview decline reason (OpenProject #2137)', () => {
 
     const declineDialog = openDialogs.at(-1)
     expect(declineDialog).toBeTruthy()
-    // -> What typing a reason into the dialog and pressing Decline hands back to `onOk`
     closeDialog(declineDialog.id, true, { reason: 'Overlaps with an existing section' })
     await flushPromises()
 
@@ -306,8 +276,7 @@ describe('InboxReview multi-approver threshold (OpenProject #828)', () => {
       if (String(url).endsWith('/approvals/submissions')) {
         return { json: () => Promise.resolve([]) }
       }
-      // -> No `approvals` field at all, the shape an older server (or a fixture predating this
-      //    feature) would send -- the badge must stay hidden rather than throw on it
+      // -> No `approvals` field at all: the badge must stay hidden rather than throw on it
       return { json: () => Promise.resolve(submissionDetail()) }
     })
 
@@ -372,8 +341,7 @@ describe('InboxReview multi-approver threshold (OpenProject #828)', () => {
 
     const lastNotification = notifyQueue.at(-1)
     expect(lastNotification.type).toBe('positive')
-    // -> Not `inbox.reviewApproveSuccess`: the page was not written by this call, so that toast would
-    //    overclaim
+    // -> Not `inbox.reviewApproveSuccess`: the page was not written by this call
     expect(lastNotification.message).toBe('inbox.reviewApprovePending')
   })
 
@@ -427,9 +395,8 @@ describe('InboxReview queue distinguishes same-page guest submissions', () => {
     expect(rows).toHaveLength(2)
     const [first, second] = rows.map((row) => row.text())
 
-    // Two different suggestions on the same page no longer read as one row rendered twice...
     expect(first).not.toBe(second)
-    // ...disambiguated by a fragment of each submission's own id, the one thing guaranteed to differ
+    // -> Disambiguated by a fragment of each submission's id, the one thing guaranteed to differ
     expect(first).toContain('#suba')
     expect(second).toContain('#subb')
   })
@@ -504,12 +471,7 @@ describe('InboxReview queue distinguishes same-page guest submissions', () => {
   })
 })
 
-/**
- * OpenProject #2531: `fromPage` (the `overlayOpts.from === 'page'` `InboxOverlay.vue` forwards, set by
- * `PageHeader.vue`'s `reviewSubmission()`) replaces the old `route.query.from === 'page'` check --
- * leaving a review opened this way follows the reviewer back to the page itself and closes the
- * overlay, instead of the ordinary "back to the local queue" `selectedId = null`.
- */
+/** `fromPage` is the `overlayOpts.from === 'page'` that `InboxOverlay.vue` forwards. */
 describe('InboxReview leaveReview (fromPage, OpenProject #2531)', () => {
   it('returns to the local queue (not the page) when fromPage is false', async () => {
     API_CLIENT.get.mockImplementation((url) => {
@@ -553,9 +515,8 @@ describe('InboxReview leaveReview (fromPage, OpenProject #2531)', () => {
 })
 
 /*
-  OpenProject #2621 -- `Cardinal Wiki - Inbox Review 3x.dc.html`, which this screen had never been
-  compared against. Emitted attributes and options only: jsdom runs no layout engine, and Monaco is
-  stubbed at the top of this file, so anything claiming a rendered measurement here would be fiction.
+  Emitted attributes and options only: jsdom runs no layout engine and Monaco is stubbed above, so
+  anything claiming a rendered measurement here would be fiction.
 */
 describe('InboxReview against its design file (#2621)', () => {
   function stubSubmission() {
@@ -575,7 +536,7 @@ describe('InboxReview against its design file (#2621)', () => {
       return { json: () => Promise.resolve(submissionDetail()) }
     })
 
-    // -> No `initialSubmissionId`, so the queue is what renders rather than one submission's diff
+    // -> Without an `initialSubmissionId` the queue renders, not one submission's diff
     const { wrapper } = await mountReview({ initialSubmissionId: null })
 
     const plate = wrapper.find('.w-avatar')
@@ -599,12 +560,11 @@ describe('InboxReview against its design file (#2621)', () => {
       const control = wrapper.find(`[aria-label="${key}"]`)
       expect(control.exists()).toBe(true)
       expect(control.classes()).toContain('inbox-square-btn')
-      // -> Icon-only: the label the design drops must not still be rendered beside the glyph
       expect(control.text().trim()).toBe('')
       expect(control.classes()).not.toContain('rounded-full')
     }
 
-    // Approve is the one filled control on the row; the other three are hairline-edged
+    // -> Approve is the one filled control on the row; the other three are hairline-edged
     expect(wrapper.find('[aria-label="inbox.reviewApprove"]').attributes('style')).toContain(
       'var(--color-positive-fill)'
     )
@@ -644,7 +604,6 @@ describe('InboxReview against its design file (#2621)', () => {
     expect(heads.text()).toContain('inbox.reviewDiffReadOnly')
     expect(heads.text()).toContain('inbox.reviewDiffSuggestion')
     expect(heads.text()).toContain('inbox.reviewDiffEditable')
-    // -> The accent marks the live edge; only the editable half takes it
     expect(wrapper.findAll('.inbox-review-diff-state--editable')).toHaveLength(1)
   })
 
@@ -674,11 +633,11 @@ describe('InboxReview against its design file (#2621)', () => {
       derives the Cobalt twin from it) -- `[0]`, not `.at(-1)`, which is that derivation.
     */
     const theme = monaco.editor.defineTheme.mock.calls[0][1]
-    // -> The same five base tones every other `cardinaljs` definition in the app sets, since the theme
-    //    ID is shared and whichever call site defines it last wins for the whole process
+    // -> Base tones shared with every other `cardinaljs` definition: the ID is shared across
+    //    surfaces, so whichever call site defines it last wins for the whole process
     expect(theme.colors['editor.background']).toBe('#14171f')
     expect(theme.colors['editorLineNumber.foreground']).toBe('#3f4a63')
-    // -> Plus this screen's own four, which the other copies have no diff to colour
+    // -> Plus this screen's own, which the surfaces without a diff never name
     expect(theme.colors['editorCursor.foreground']).toBe('#e4676b')
     expect(theme.colors['diffEditor.insertedLineBackground']).toBe('#5f9c862e')
     expect(theme.colors['diffEditor.removedLineBackground']).toBe('#e4676b29')
@@ -687,9 +646,9 @@ describe('InboxReview against its design file (#2621)', () => {
     expect(options.fontSize).toBe(12.5)
     expect(options.lineHeight).toBe(24)
     expect(options.fontFamily).toContain('Roboto Mono')
-    // -> Fixed on, which is what lets the two pane headings line up with the halves they name
+    // -> Fixed on: the two pane headings only line up with the halves they name side by side
     expect(options.renderSideBySide).toBe(true)
-    // -> Still the one editable side: the reviewer adjusts the suggestion before approving it
+    // -> Only the suggestion is editable -- the reviewer adjusts it before approving
     expect(options.originalEditable).toBe(false)
     expect(options.readOnly).toBe(false)
   })

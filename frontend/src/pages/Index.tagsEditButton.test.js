@@ -9,10 +9,8 @@ import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 
 /**
- * OpenProject #3108: the page-tags edit toggle (`.tags-edit-btn`) used `color="deep-orange-9"`, a
- * genuine red-orange, for a plain non-destructive "enter tag edit mode" action -- the same mistake
- * `PageHeader.vue`'s own primary Edit button avoids by using `color="accent"`, the standard tone for
- * this kind of action. Fixed to `color="accent"`; this guards the regression.
+ * `accent` is the standard tone for a non-destructive action such as entering tag edit mode; a
+ * red-orange reads as a destructive one.
  */
 
 beforeEach(() => {
@@ -48,13 +46,11 @@ async function mountIndex() {
   const i18n = createTestI18n({})
 
   const userStore = useUserStore()
-  // -> `canEditPage` reads `pagePermissions`, not the global `permissions` list (see Index.vue's own
-  //    comment on that computed) -- `write:pages` is one of the two permissions it accepts.
+  // -> `canEditPage` reads `pagePermissions`, not the global `permissions` list.
   userStore.pagePermissions = ['write:pages']
 
   const pageStore = usePageStore()
-  // -> `showTags` (and therefore the tags-edit button's `v-if="canEditPage"` ancestor) only renders
-  //    when the page volunteered tags of its own -- see Index.vue's own comment on that computed.
+  // -> The button's ancestor only renders when the page volunteered tags of its own.
   pageStore.showTags = true
   pageStore.tags = ['example']
 

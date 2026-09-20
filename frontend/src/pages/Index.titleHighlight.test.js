@@ -9,13 +9,9 @@ import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 
 /**
- * OpenProject #2901: a `?highlight=` term forwarded from a graph-node click (OpenProject #2541,
- * Feature #2539) is applied to the article body via `helpers/renderedContent.js`'s
- * `applyKeywordHighlight`, but the page title -- a completely separate DOM subtree drawn by
- * `PageHeader.vue` -- was never scanned. This is the same suite `Index.highlight.test.js` covers,
- * deliberately split out because it needs `PageHeader` mounted for real (that file stubs it) --
- * `Index.pageHeaderCobalt.test.js` establishes that `PageHeader` mounts standalone with no extra
- * stubbing required.
+ * The page title is a separate DOM subtree drawn by `PageHeader.vue`, so highlighting it can only be
+ * observed with `PageHeader` mounted for real -- which is why this is split out from
+ * `Index.highlight.test.js`, whose own `STUBS` stubs it away.
  */
 
 const STUBS = {
@@ -47,8 +43,6 @@ beforeEach(() => {
     clear: () => store.clear()
   }
 
-  // -> jsdom does not implement `scrollIntoView` at all; `focusHighlightMatch` calls it on the
-  //    current match unconditionally, so it has to exist as *something* to observe.
   Element.prototype.scrollIntoView = vi.fn()
 })
 
@@ -88,10 +82,9 @@ async function mountAt(initialPath) {
 }
 
 /**
- * Mounts at `initialPath`, then puts a real page -- title included -- with `html` as its render on
- * screen. See `Index.highlight.test.js#mountWithContent`'s own header comment for why the loading
- * dance below (an unmocked `API_CLIENT.get` resolving into a doomed `pageNotFound` state first) is
- * necessary.
+ * The first `flushPromises()` lets the doomed default page load -- `API_CLIENT.get` resolving
+ * `undefined`, which reads as not-found -- finish, so it cannot stomp the patch that follows; the
+ * second lets the `nextTick`-deferred highlight pass run.
  */
 async function mountWithContent(initialPath, { title, html }) {
   const mounted = await mountAt(initialPath)
@@ -126,7 +119,6 @@ describe('Index.vue: keyword highlight includes the page title (OpenProject #290
 
     const marks = wrapper.findAll('mark.keyword-highlight')
     expect(marks).toHaveLength(2)
-    // -> Title-first ordering: the current match starts on the title's own mark.
     expect(marks[0].element.closest('.page-header-title')).not.toBeNull()
     expect(marks[0].classes()).toContain('is-current-match')
   })

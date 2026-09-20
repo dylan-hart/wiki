@@ -8,23 +8,12 @@ import { useSiteStore } from '@/stores/site'
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 
-/**
- * Regression coverage for task 633's wiring: `PageComments.vue` is mounted inside the article
- * column, gated on `siteStore.features.comments && pageStore.allowComments` -- the same
- * boolean-AND pattern the adjacent ratings block already uses. Everything else `Index.vue` renders
- * is stubbed out: this view pulls in the editor, header, TOC and actions column, none of which this
- * task touches, and giving each its own store/route/permission setup here would test THEIR
- * behaviour, not the gate this task added.
- */
-
 /*
- * `useMinWidth` (via `useScreen`) calls `window.matchMedia`, and the common store's `state()`
- * reads `localStorage.getItem('locale')` the moment it's instantiated. Neither has been needed by
- * any existing test -- mounting a full page view, which pulls in `useCommonStore`, is new here --
- * so both are stubbed locally rather than added to the shared `test/setup.js`, which would be a
- * bigger claim about every future test's needs than this one warrants. `localStorage` in particular
- * is a real (but non-functional, `--localstorage-file`-less) Node global in this runtime rather than
- * simply absent, so it has to be overwritten, not merely filled in when missing.
+ * `useScreen` calls `window.matchMedia` and the common store reads `localStorage` as it is
+ * instantiated, both of which mounting a whole page view needs. Stubbed here rather than in the
+ * shared `test/setup.js`, which would claim more about every other test than this one knows.
+ * `localStorage` is a real but non-functional Node global in this runtime rather than simply
+ * absent, so it has to be overwritten, not filled in when missing.
  */
 beforeEach(() => {
   window.matchMedia =
@@ -46,11 +35,10 @@ beforeEach(() => {
 })
 
 /*
- * Torn down after every test, not left for the next mount to overwrite: `setActivePinia` in the
- * next test replaces the active pinia instance while this one's stores are still live, and an
- * un-unmounted component keeps its watchers/computeds running against them -- which then observe a
- * disposed reactive scope (`pagePermissions.includes` on a revoked proxy) as an unhandled rejection
- * on the next microtask, unrelated to whatever that next test is actually asserting.
+ * Torn down after every test rather than left for the next mount: the next `setActivePinia`
+ * replaces the instance while this one's stores are still live, and an un-unmounted component keeps
+ * watchers running against them -- surfacing as an unhandled rejection on a disposed reactive scope
+ * in whatever test runs next.
  */
 let activeWrapper = null
 
@@ -60,22 +48,10 @@ afterEach(() => {
 })
 
 /*
- * OpenProject #829, item 1: upstream issue #1839 ("Mermaid renders in the live edit preview but not
- * on the saved/reloaded page") and discussion #6446 (the identical pattern for KaTeX). This is the
- * frontend half of the render-then-reload regression test the item asks for -- `rendering.test.ts`
- * covers the save-time half (a diagram block and a resolved formula both survive `postProcess`
- * byte-for-byte); this covers what actually draws a diagram once that stored HTML comes back down.
- *
- * A diagram block is a Lit custom element that draws itself in its own `firstUpdated()` once its
- * component script has been imported and the tag upgrades -- it does not matter whether that
- * happened because the live editor preview loaded it moments ago or because this is a page loaded
- * fresh (a direct URL, a browser reload) that has never seen the editor at all. What matters is that
- * SOMETHING scans the page for an undefined block tag and imports it either way. This mounts
- * `Index.vue` exactly as a reader loading a saved page directly would -- `pageStore.pageLoad`
- * resolving real page data whose `render` is what `rendering.test.ts` proved a save writes to
- * storage -- and asserts the block-loading scan this view's route watcher runs (`{ immediate: true }`,
- * so it also covers the very first load of a page, not only navigating between two already-open
- * ones) picks the diagram up, with no live editor ever having been open in this test at all.
+ * A block is a Lit element that only draws once its script has been imported and the tag upgrades,
+ * so a page loaded straight from storage has to be scanned for undefined block tags just as the
+ * live editor preview is. Upstream's requarks/wiki#1839 ("Mermaid renders in the live edit preview
+ * but not on the saved/reloaded page") is what a missing read-path scan looks like.
  */
 describe('Index.vue: read-path block loading for a directly-loaded/reloaded page (OpenProject #829 item 1)', () => {
   it('loads a block found only in the stored page render, never having gone through the live editor preview', async () => {
@@ -84,18 +60,14 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
     const commonStore = useCommonStore()
     const loadBlocksSpy = vi.spyOn(commonStore, 'loadBlocks').mockResolvedValue(undefined)
 
-    // -> The block-loading scan resolves `block-diagram` off `siteStore.blocksIndex` (a public
-    //    field on the site-info response every reader's browser already has -- see
-    //    `siteBlocksInfoFor` in `backend/api/sites.ts`, OpenProject #954) rather than a network
-    //    call. Set directly here rather than via `applySiteInfo`, since nothing else this test
-    //    checks needs a full site-info payload. A tag absent from this index is skipped entirely
-    //    since OpenProject #1729, so it has to be present for this test's block to load at all.
+    // -> The scan resolves a tag off `siteStore.blocksIndex` rather than over the network, and
+    //    skips any tag absent from it, so the block has to be present here to load at all. Set
+    //    directly rather than through `applySiteInfo`: nothing here needs a full site-info payload
     const siteStore = useSiteStore()
     siteStore.blocksIndex = { diagram: { id: null, isCustom: false } }
 
-    // -> The shape `rendering.postProcess` actually stores: the block element plus its fenced
-    //    mermaid source, exactly as a reload's GET would hand it back -- see
-    //    `rendering.test.ts`'s "render, save, reload" describe block for where this shape comes from.
+    // -> The shape `rendering.postProcess` stores -- the block element wrapping its fenced mermaid
+    //    source -- exactly as a reload's GET hands it back
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve({
@@ -145,13 +117,9 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
 })
 
 /**
- * OpenProject #1734: the block scan below used to call `commonStore.loadBlocks()` once PER
- * undefined element, rather than once for the whole page. `loadBlocks()`'s own `!blocksLoaded
- * .includes(...)` filter only screens out a tag that has ALREADY finished loading, so N concurrent
- * calls for the same not-yet-loaded tag all pass it -- a page with several elements of the same tag
- * (a `block-tabs` used three times, say) fired three identical `loadBlocks()` calls instead of one,
- * making `blocksLoaded` misleading to anyone debugging block loading. Collapsed into a single call
- * with one Map entry per tag, mirroring `EditorMarkdown.vue`'s own `pendingBlocks` Map.
+ * One call per page, one entry per tag: `loadBlocks()`'s own filter only screens out a tag that has
+ * ALREADY finished loading, so a per-element scan fires N concurrent calls for the same pending tag
+ * and leaves `blocksLoaded` misleading to anyone debugging block loading.
  */
 describe('Index.vue: collapses the block scan into one loadBlocks() call (OpenProject #1734)', () => {
   it('produces exactly one loadBlocks() call carrying one entry per tag, for a page with several elements sharing a tag', async () => {
@@ -203,8 +171,6 @@ describe('Index.vue: collapses the block scan into one loadBlocks() call (OpenPr
       }
     })
     await flushPromises()
-    // -> The block scan runs inside the route watcher's own `nextTick`, one tick behind `pageLoad`
-    //    resolving -- a second flush is what lets that nested callback actually run
     await flushPromises()
 
     expect(loadBlocksSpy).toHaveBeenCalledTimes(1)
@@ -217,16 +183,12 @@ describe('Index.vue: collapses the block scan into one loadBlocks() call (OpenPr
 })
 
 /**
- * OpenProject #1729: a `block-*` tag absent from `siteStore.blocksIndex` used to fall back to the
- * bare tag, which `loadBlocks()` resolves to the flat, unauthenticated `/_blocks/<tag>.js` URL --
- * so a block a site administrator had switched off still loaded for a reader whose stored page HTML
- * still embedded it. `blockAllowances()`/`siteBlocksInfoFor` document that a disabled block must
- * never reach a reader's browser, neither its config nor a URL to fetch its code from.
+ * A block a site administrator switched off must never reach a reader's browser, not even as a URL
+ * to fetch its code from -- and stored page HTML goes on embedding it long after it is disabled.
  *
- * `block-tab` is the one legitimate absent-from-`blocksIndex` case: a child block gets no row of
- * its own (`models/blocks.ts#syncSite`), so it never appears there even when its parent `block-tabs`
- * is enabled -- told apart from a disabled block by ancestry, the same way the server's own
- * `unwrapOrphanedChildBlocks` (`backend/models/rendering.ts`) does.
+ * A child block is the one legitimate absent-from-`blocksIndex` case: it gets no row of its own, so
+ * it is missing even when its parent is enabled, and is told apart from a disabled block by
+ * ancestry (the same test the server's own `unwrapOrphanedChildBlocks` applies).
  */
 describe('Index.vue: reader-view block scan skips a block absent from blocksIndex (OpenProject #1729)', () => {
   it('does not load a block-* tag absent from blocksIndex, but still loads a child block whose parent is present', async () => {
@@ -236,9 +198,8 @@ describe('Index.vue: reader-view block scan skips a block absent from blocksInde
     const loadBlocksSpy = vi.spyOn(commonStore, 'loadBlocks').mockResolvedValue(undefined)
 
     const siteStore = useSiteStore()
-    // -> `tabs` (the parent) is enabled; `tab` (the child) never gets a row of its own, so it is
-    //    never a key here even when its parent is. `widget` stands in for a block the site has
-    //    switched off -- absent from the index the same way, but with no enabled ancestor to save it.
+    // -> `tab` is absent because a child block never gets a row of its own; `widget` is absent
+    //    because the site switched it off -- alike here except for the enabled ancestor
     siteStore.blocksIndex = { tabs: { id: null, isCustom: false } }
 
     API_CLIENT.get.mockReturnValueOnce({
@@ -276,8 +237,6 @@ describe('Index.vue: reader-view block scan skips a block absent from blocksInde
       }
     })
     await flushPromises()
-    // -> The block scan runs inside the route watcher's own `nextTick`, one tick behind `pageLoad`
-    //    resolving -- a second flush is what lets that nested callback actually run
     await flushPromises()
 
     const loadedTags = loadBlocksSpy.mock.calls.flatMap((call) =>

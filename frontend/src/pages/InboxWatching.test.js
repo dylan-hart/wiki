@@ -8,12 +8,6 @@ import { buildTestRouter, createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
-/**
- * Task 535: the notifications section this page gained above the pre-existing watched-pages list.
- * `GET .../notifications` is asserted directly rather than through the (untouched, already-covered)
- * watching list beneath it.
- */
-
 const WATCHED_PAGE = {
   pageId: 'page-9',
   title: 'Watched Page',
@@ -74,9 +68,6 @@ const messages = {
   }
 }
 
-// -> `preference` is present here too (not just on `WATCHED_PAGE_WITH_PREFERENCE` below): every
-//    watched page carries one from the API, this fixture just isn't the one the preference-menu
-//    tests assert against.
 const WATCHED_PAGE_WITH_PREFERENCE = {
   pageId: 'watched-page-1',
   path: 'some/watched-page',
@@ -112,10 +103,8 @@ async function mountInboxWatching(sitePatch = {}) {
 }
 
 /**
- * Same mount, without the trailing `flushLoads()` — for asserting what the page shows on its very
- * first paint, before either `load()`/`loadNotifications()` fetch has resolved (task 2503: both
- * empty-state banners must already be showing at this point, not still flip in after the fetch
- * settles).
+ * Same mount without the trailing `flushLoads()`, for asserting what the page shows on its first
+ * paint, before either fetch has resolved.
  */
 function mountInboxWatchingUnsettled(sitePatch = {}) {
   const router = buildTestRouter(['/', '/:path(.*)'])
@@ -142,7 +131,7 @@ async function flushLoads() {
   await Promise.resolve()
 }
 
-/** A promise plus its own `resolve`, for holding a fetch open across assertions (task 2503). */
+/** A promise plus its own `resolve`, for holding a fetch open across assertions. */
 function deferred() {
   let resolve
   const promise = new Promise((res) => {
@@ -185,14 +174,11 @@ describe('InboxWatching notifications', () => {
     const { wrapper } = mountInboxWatchingUnsettled()
     await flushLoads()
 
-    // Still in flight: the banner must already be showing, not hidden behind a zero-item list
-    // while `state.notifications` is still empty and the fetch hasn't resolved yet.
     expect(wrapper.text()).toContain('You have no unread notifications.')
 
     notificationsFetch.resolve([])
     await flushLoads()
 
-    // Resolved, genuinely empty: still the banner, with no intervening flip to a list.
     expect(wrapper.text()).toContain('You have no unread notifications.')
   })
 
@@ -244,10 +230,8 @@ describe('InboxWatching notifications', () => {
   })
 
   /**
-   * OpenProject #2531: following a notification to its page used to leave `/_inbox/*` as a route,
-   * which closed the old bespoke dialog as a side effect of navigating away from it. Now that this is
-   * `InboxOverlay` content, closing the overlay has to happen explicitly, or the dialog would be left
-   * open on top of the page just navigated to.
+   * As `InboxOverlay` content this screen has no route of its own, so navigating away closes
+   * nothing: without the explicit close the overlay sits on top of the page just navigated to.
    */
   it('closes the Inbox overlay before following a notification to its page', async () => {
     stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
@@ -297,14 +281,11 @@ describe('InboxWatching watching', () => {
     const { wrapper } = mountInboxWatchingUnsettled()
     await flushLoads()
 
-    // Still in flight: the banner must already be showing, not hidden behind a zero-item list
-    // while `state.pages` is still empty and the fetch hasn't resolved yet.
     expect(wrapper.text()).toContain('You are not watching any page yet.')
 
     watchingFetch.resolve([])
     await flushLoads()
 
-    // Resolved, genuinely empty: still the banner, with no intervening flip to a list.
     expect(wrapper.text()).toContain('You are not watching any page yet.')
   })
 
@@ -326,11 +307,6 @@ describe('InboxWatching watching', () => {
     expect(notifyQueue[notifyQueue.length - 1].type).toBe('positive')
   })
 
-  /**
-   * OpenProject #2531: same reasoning as the notifications section's own version of this test --
-   * following a watched page used to leave the `/_inbox/*` route, closing the old dialog as a side
-   * effect; `InboxOverlay` content has to close the overlay explicitly instead.
-   */
   it('closes the Inbox overlay before following a watched page', async () => {
     mockWatchedPages()
 
@@ -346,11 +322,8 @@ describe('InboxWatching watching', () => {
   })
 
   /**
-   * OpenProject #2716: this "last updated" line used to go through `humanizeDate` (the long
-   * absolute form) like the tag/search results did, while the page view's own "Last modified" line
-   * already used the short recent form -- so the same fact about the same page read differently
-   * depending on where it was seen. `updatedAt` is computed relative to "now" rather than a fixed
-   * calendar string, since `formatRecent`'s abbreviated form only applies within the last 7 days.
+   * `updatedAt` is computed relative to "now" rather than a fixed calendar string: `formatRecent`'s
+   * abbreviated form only applies within the last 7 days.
    */
   it('shows "last updated" in the recent form, not the legacy absolute one', async () => {
     const recentUpdatedAt = Temporal.Now.instant().subtract({ hours: 26 }).toString()
@@ -393,22 +366,16 @@ describe('InboxWatching watching', () => {
 })
 
 /**
- * Task 1895 (WP 1895, Epic 1867): `PATCH .../watch` was caller-less -- the model layer
- * (`resolvePreference`/`setPreference` in `models/pageWatching.ts`) already existed, this page
- * already received `preference` on every watched page, and nothing in the UI ever sent the PATCH.
- * These cover the menu this task added, kept to the checkboxes rather than also driving WSelect's own
- * listbox open-and-pick sequence -- that mechanic already has its own dedicated suite
- * (`WSelect.test.js`) and re-exercising it here would only be testing WSelect again, not this page.
+ * Kept to the checkboxes rather than also driving WSelect's listbox open-and-pick sequence: that
+ * mechanic has its own suite, and re-exercising it here would test WSelect, not this page.
  */
 describe('InboxWatching notification preferences', () => {
   function mockWatchedPage(extraGetHandler) {
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'sites/site-1/watching') {
-        // -> A fresh deep copy per call, not the shared const: `page.preference = ...` in
-        //    `savePreference()` mutates through Vue's reactive proxy straight into the underlying
-        //    object, and `state.pages` is built directly from what this resolves -- reusing
-        //    `WATCHED_PAGE_WITH_PREFERENCE` itself here would let one test's successful save leak
-        //    into every test that runs after it in the same file.
+        // -> A fresh deep copy per call, not the shared const: `savePreference()` writes through
+        //    Vue's reactive proxy into the underlying object, so reusing the const would let one
+        //    test's successful save leak into every test after it
         return {
           json: () =>
             Promise.resolve([
@@ -484,9 +451,8 @@ describe('InboxWatching notification preferences', () => {
 
     expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
 
-    // -> The failed PATCH never touched `page.preference`, so closing (Cancel, since a failed save
-    //    leaves the menu open with the edited copy still showing) and reopening re-seeds the menu
-    //    from the untouched original -- proving the failure did not leak the discarded edit into it.
+    // -> A failed save leaves the menu open with the edited copy still showing, so Cancel and
+    //    reopen: the menu re-seeds from `page.preference`, which the failed PATCH never touched
     findButtonByText('Cancel').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushLoads()
     await trigger.trigger('click')
@@ -512,15 +478,13 @@ describe('InboxWatching notification preferences', () => {
 })
 
 /*
-  OpenProject #2621 -- `Cardinal Wiki - Inbox 3x.dc.html`. The design draws both framed lists' leading
-  plate at 36x36 with an 18px glyph, and every row action as a hairline 32px square rather than the
-  flat round tinted button they all used to be. These assert the emitted sizes and classes, not
-  computed geometry: jsdom runs no layout engine, so a rendered-height claim here would be fiction.
+  Emitted sizes and classes only, never computed geometry: jsdom runs no layout engine, so a
+  rendered-height claim here would be fiction.
 */
 describe('InboxWatching against its design file (#2621)', () => {
   /*
-    A `WAvatar` renders `.w-avatar` with its `size` as an inline style, which is what beats the
-    shared 40px flanking-avatar rule -- so the inline style IS the assertion.
+    `WAvatar` renders its `size` as an inline style, which is what beats the shared 40px
+    flanking-avatar rule -- so the inline style IS the assertion.
   */
   function plates(wrapper) {
     return wrapper.findAll('.w-avatar')
@@ -536,14 +500,12 @@ describe('InboxWatching against its design file (#2621)', () => {
     expect(plate.attributes('style')).toContain('height: 36px')
     expect(plate.attributes('style')).toContain('font-size: 18px')
     expect(plate.attributes('style')).toContain('var(--color-accent-fill)')
-    // -> Square, per the design; `rounded` would be a corner treatment the language never draws
     expect(plate.classes()).toContain('rounded-none')
   })
 
   /**
-   * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`,
-   * so this plate drew the same bright light-mode tone against a dark ground. Fixed by resolving
-   * `color` through `dark.isActive` instead of the static `accent-fill` prop.
+   * `--color-accent-fill` has no dark-mode override in `tailwind.css`, so the plate has to resolve
+   * its colour through `dark.isActive` rather than pass the static prop.
    */
   it('swaps the plate to accent-dark under dark mode (OpenProject #2807)', async () => {
     useDark().set(true)
@@ -591,7 +553,6 @@ describe('InboxWatching against its design file (#2621)', () => {
     for (const action of actions) {
       expect(action.exists()).toBe(true)
       expect(action.classes()).toContain('inbox-square-btn')
-      // -> `outline` is what draws the hairline; `rounded-full` is what `round` used to draw
       expect(action.classes()).toContain('border-hairline')
       expect(action.classes()).not.toContain('rounded-full')
       expect(action.classes()).not.toContain('acrylic-btn')
