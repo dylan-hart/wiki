@@ -1911,35 +1911,6 @@ onBeforeUnmount(() => {
 .editor-markdown-preview-content [data-block-disabled] > .block-disabled-notice + * {
   margin-top: 0.5rem;
 }
-.editor-markdown-preview-content .tabset {
-  background-color: var(--color-teal-7);
-  color: var(--color-teal-2) !important;
-  padding: 5px 12px;
-  font-size: 14px;
-  font-weight: 500;
-  font-style: italic;
-}
-.editor-markdown-preview-content .tabset::after {
-  display: none;
-}
-.editor-markdown-preview-content .tabset-header {
-  background-color: var(--color-teal-5);
-  color: #fff !important;
-  padding: 5px 12px;
-  font-size: 14px;
-  font-weight: 500;
-  margin-top: 0 !important;
-}
-.editor-markdown-preview-content .tabset-header::after {
-  display: none;
-}
-.editor-markdown-preview-content .tabset-content {
-  border-inline-start: 5px solid var(--color-teal-5);
-  background-color: var(--color-teal-1);
-  padding: 0 15px 15px;
-  overflow: hidden;
-  /* -> This panel's dark-mode tint is the unnested `.body--dark` rule at the foot of this block */
-}
 .editor-markdown {
   /*
     The markup bar is chrome, so it is the continuous light slate the rest of the app's chrome is --
@@ -2043,7 +2014,4 @@ onBeforeUnmount(() => {
   `.body--dark` sits in front of the whole selector. `composables/dark.js` is the one source of truth
   for dark mode and is what toggles that class on `<body>`.
 */
-.body--dark .editor-markdown-preview-content .tabset-content {
-  background-color: color-mix(in srgb, var(--color-teal-5) 10%, transparent);
-}
 </style>

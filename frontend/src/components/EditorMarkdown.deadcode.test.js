@@ -26,3 +26,19 @@ describe('EditorMarkdown.vue dead code', () => {
     expect(source).not.toMatch(/edInstance/)
   })
 })
+
+describe('EditorMarkdown.vue style block', () => {
+  const style = source.match(/<style[^>]*>([\s\S]*?)<\/style>/)[1]
+
+  it('has no .tabset, .tabset-header or .tabset-content rules -- nothing emits those classes', () => {
+    expect(style).not.toMatch(/\.tabset/)
+  })
+
+  it('reads no --color-teal-* ramp entry, which Cobalt does not override', () => {
+    expect(style).not.toMatch(/--color-teal-/)
+  })
+
+  it('has no literal #fff outside a token', () => {
+    expect(style).not.toMatch(/#fff\b/i)
+  })
+})
