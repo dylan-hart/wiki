@@ -44,6 +44,7 @@ const FIXTURE_SITE = {
   company: 'Acme Corp',
   contentLicense: 'ccby',
   footerExtra: 'footer text',
+  banner: { isEnabled: true, title: 'Heads up', content: 'Maintenance on Friday' },
   pageExtensions: ['md', 'html'],
   allowedUrlSchemes: ['discord'],
   logoText: true,
@@ -236,6 +237,7 @@ describe('AdminGeneral save() field round-trip', () => {
       company: FIXTURE_SITE.company,
       contentLicense: FIXTURE_SITE.contentLicense,
       footerExtra: FIXTURE_SITE.footerExtra,
+      banner: FIXTURE_SITE.banner,
       pageExtensions: FIXTURE_SITE.pageExtensions,
       allowedUrlSchemes: FIXTURE_SITE.allowedUrlSchemes,
       logoText: FIXTURE_SITE.logoText,
@@ -255,6 +257,64 @@ describe('AdminGeneral save() field round-trip', () => {
       discoverable: true,
       defaults: { tocDepth: { min: 2, max: 4 } }
     })
+  })
+
+  it('loads the stored banner values into the banner card', async () => {
+    const wrapper = await mountLoaded()
+
+    expect(wrapper.text()).toContain('admin.general.banner')
+    expect(wrapper.get('[aria-label="admin.general.bannerTitle"]').element.value).toBe('Heads up')
+    expect(wrapper.get('[aria-label="admin.general.bannerContent"]').element.value).toBe(
+      'Maintenance on Friday'
+    )
+  })
+
+  it('round-trips banner edits in the PUT payload', async () => {
+    const wrapper = await mountLoaded()
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([FIXTURE_SITE]) })
+
+    await wrapper.get('[aria-label="admin.general.bannerTitle"]').setValue('New title')
+    await wrapper.get('[aria-label="admin.general.bannerContent"]').setValue('New message')
+    await wrapper.get('[aria-label="admin.general.bannerEnabled"]').trigger('click')
+
+    const applyBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('common.actions.apply'))
+    await applyBtn.trigger('click')
+    await flushPromises()
+
+    const [, options] = API_CLIENT.put.mock.calls[0]
+    expect(options.json.banner).toEqual({
+      isEnabled: false,
+      title: 'New title',
+      content: 'New message'
+    })
+  })
+
+  it('falls back to the empty banner default when the site payload omits it', async () => {
+    const { banner: _omitted, ...withoutBanner } = FIXTURE_SITE
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(withoutBanner) })
+
+    const router = await createTestRouter(
+      ['/_admin/:siteid/general'],
+      `/_admin/${FIXTURE_SITE.id}/general`
+    )
+    const { wrapper } = mountWithApp(AdminGeneral, { router })
+    await flushPromises()
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([FIXTURE_SITE]) })
+
+    const applyBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('common.actions.apply'))
+    await applyBtn.trigger('click')
+    await flushPromises()
+
+    const [, options] = API_CLIENT.put.mock.calls[0]
+    expect(options.json.banner).toEqual({ isEnabled: false, title: '', content: '' })
   })
 
   // -> `api/schemas/site.ts` only accepts lowercase origins, so the page must normalise before PUT.

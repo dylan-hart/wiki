@@ -62,6 +62,11 @@ export const useSiteStore = defineStore('site', {
     company: '',
     contentLicense: '',
     footerExtra: '',
+    banner: {
+      isEnabled: false,
+      title: '',
+      content: ''
+    },
     title: '',
     description: '',
     logoText: true,
@@ -301,6 +306,11 @@ export const useSiteStore = defineStore('site', {
         company: siteInfo.company,
         contentLicense: siteInfo.contentLicense,
         footerExtra: siteInfo.footerExtra,
+        banner: {
+          isEnabled: siteInfo.banner?.isEnabled ?? false,
+          title: siteInfo.banner?.title ?? '',
+          content: siteInfo.banner?.content ?? ''
+        },
         features: {
           ...this.features,
           ...siteInfo.features
