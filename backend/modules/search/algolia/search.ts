@@ -73,6 +73,10 @@ export function buildFilters(params: SearchPagesParams): string {
     excludeEditor = [],
     publishState = [],
     excludePublishState = [],
+    creatorId = [],
+    excludeCreatorId = [],
+    authorId = [],
+    excludeAuthorId = [],
     publicOnly = false,
     includeDrafts = false
   } = params
@@ -103,12 +107,20 @@ export function buildFilters(params: SearchPagesParams): string {
   if (editor.length > 0) {
     clauses.push(anyOf('editor', editor))
   }
+  if (creatorId.length > 0) {
+    clauses.push(anyOf('creatorId', creatorId))
+  }
+  if (authorId.length > 0) {
+    clauses.push(anyOf('authorId', authorId))
+  }
   const excluded: [string, string[]][] = [
     ['publishState', excludePublishState],
     ['pathAncestors', excludePath],
     ['locale', excludeLocales],
     ['tags', excludeTags],
-    ['editor', excludeEditor]
+    ['editor', excludeEditor],
+    ['creatorId', excludeCreatorId],
+    ['authorId', excludeAuthorId]
   ]
   for (const [attribute, values] of excluded) {
     for (const value of values) {
@@ -195,6 +207,8 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
           'locale',
           'editor',
           'publishState',
+          'creatorId',
+          'authorId',
           'isSearchable',
           'pathAncestors',
           'siteId'

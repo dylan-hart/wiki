@@ -387,6 +387,20 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       assert.deepEqual(pathsOf(result), ['en:wombat/beta'])
     })
+
+    test('creatorId and authorId lists filter by the page owner', async () => {
+      const stranger = randomUUID()
+      const everyone = await searchModel.query({ ...base(), creatorId: [fixtures.userId] })
+      assert.equal(everyone.totalHits, 5)
+      const byAuthor = await searchModel.query({ ...base(), authorId: [stranger, fixtures.userId] })
+      assert.equal(byAuthor.totalHits, 5)
+      const nobody = await searchModel.query({ ...base(), creatorId: [stranger] })
+      assert.equal(nobody.totalHits, 0)
+      const dropped = await searchModel.query({ ...base(), excludeAuthorId: [fixtures.userId] })
+      assert.equal(dropped.totalHits, 0)
+      const kept = await searchModel.query({ ...base(), excludeCreatorId: [stranger] })
+      assert.equal(kept.totalHits, 5)
+    })
   })
 
   /** `suggestTitle()` is private; `query()`'s `suggestion` field is the only way in. */

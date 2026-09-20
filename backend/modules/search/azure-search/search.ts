@@ -131,6 +131,8 @@ export function buildIndexSchema(indexName: string): SearchIndex {
       { name: 'tags', type: 'Collection(Edm.String)', filterable: true, facetable: true },
       { name: 'editor', type: 'Edm.String', filterable: true },
       { name: 'publishState', type: 'Edm.String', filterable: true },
+      { name: 'creatorId', type: 'Edm.String', filterable: true },
+      { name: 'authorId', type: 'Edm.String', filterable: true },
       { name: 'updatedAt', type: 'Edm.DateTimeOffset', filterable: true, sortable: true },
       { name: 'icon', type: 'Edm.String', searchable: false, filterable: false },
       { name: 'hasPassword', type: 'Edm.Boolean', filterable: true },
@@ -158,6 +160,8 @@ export function toIndexDocument(page: SearchIndexablePage): Record<string, any> 
     tags: page.tags ?? [],
     editor: page.editor,
     publishState: page.publishState,
+    creatorId: page.creatorId,
+    authorId: page.authorId,
     icon: page.icon ?? '',
     hasPassword: page.password != null,
     classification: page.classification,
@@ -257,6 +261,18 @@ export function buildFilter(params: AzureSearchFilterParams): string {
   }
   if (params.excludeEditor && params.excludeEditor.length > 0) {
     conditions.push(`not ${inFilter('editor', params.excludeEditor)}`)
+  }
+  if (params.creatorId && params.creatorId.length > 0) {
+    conditions.push(anyFilter('creatorId', params.creatorId))
+  }
+  if (params.excludeCreatorId && params.excludeCreatorId.length > 0) {
+    conditions.push(`not ${inFilter('creatorId', params.excludeCreatorId)}`)
+  }
+  if (params.authorId && params.authorId.length > 0) {
+    conditions.push(anyFilter('authorId', params.authorId))
+  }
+  if (params.excludeAuthorId && params.excludeAuthorId.length > 0) {
+    conditions.push(`not ${inFilter('authorId', params.excludeAuthorId)}`)
   }
   conditions.push(
     ...publishStateFilters(
@@ -479,7 +495,11 @@ export class AzureSearchModule extends ExternalSearchModule {
       editor,
       excludeEditor,
       publishState,
-      excludePublishState
+      excludePublishState,
+      creatorId,
+      excludeCreatorId,
+      authorId,
+      excludeAuthorId
     } = params
 
     const terms = query.trim()
@@ -499,6 +519,10 @@ export class AzureSearchModule extends ExternalSearchModule {
       excludeEditor,
       publishState,
       excludePublishState,
+      creatorId,
+      excludeCreatorId,
+      authorId,
+      excludeAuthorId,
       publicOnly,
       includeDrafts
     }

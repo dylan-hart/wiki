@@ -6,6 +6,8 @@ import { siteEnabledPreHandler } from '../../helpers/siteResolution.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 
+const U1 = '11111111-1111-4111-8111-111111111111'
+const U2 = '22222222-2222-4222-8222-222222222222'
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const UNKNOWN_SITE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
@@ -18,7 +20,11 @@ const NO_FILTERS = {
   editor: [],
   excludeEditor: [],
   publishState: [],
-  excludePublishState: []
+  excludePublishState: [],
+  creatorId: [],
+  excludeCreatorId: [],
+  authorId: [],
+  excludeAuthorId: []
 }
 
 let searchCalls: Array<{
@@ -38,6 +44,10 @@ let searchCalls: Array<{
     excludeEditor?: string[]
     publishState?: string[]
     excludePublishState?: string[]
+    creatorId?: string[]
+    excludeCreatorId?: string[]
+    authorId?: string[]
+    excludeAuthorId?: string[]
   }
 }>
 let allPages: Array<{ id: string; path: string; visibleTo: string | null }>
@@ -63,6 +73,10 @@ async function search(
     excludeEditor?: string[]
     publishState?: string[]
     excludePublishState?: string[]
+    creatorId?: string[]
+    excludeCreatorId?: string[]
+    authorId?: string[]
+    excludeAuthorId?: string[]
   }
 ) {
   searchCalls.push({ query, actor, siteId, locales, options })
@@ -275,8 +289,35 @@ test('forwards repeated include and every exclude list to the model', async () =
     editor: ['markdown', 'wysiwyg'],
     excludeEditor: ['code'],
     publishState: [],
-    excludePublishState: ['draft', 'scheduled']
+    excludePublishState: ['draft', 'scheduled'],
+    creatorId: [],
+    excludeCreatorId: [],
+    authorId: [],
+    excludeAuthorId: []
   })
+})
+
+test('forwards creator and author lists to the model', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url:
+      `/sites/${SITE_ID}/pages/search/semantic?query=hello` +
+      `&creatorId=${U1}&excludeCreatorId=${U2}&authorId=${U1}&authorId=${U2}&excludeAuthorId=${U2}`
+  })
+  assert.equal(res.statusCode, 200)
+  const { options } = searchCalls[0]!
+  assert.deepEqual(options.creatorId, [U1])
+  assert.deepEqual(options.excludeCreatorId, [U2])
+  assert.deepEqual(options.authorId, [U1, U2])
+  assert.deepEqual(options.excludeAuthorId, [U2])
+})
+
+test('rejects a creatorId that is not a uuid on the semantic route', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&creatorId=nope`
+  })
+  assert.equal(res.statusCode, 400)
 })
 
 test('rejects a publishState outside the known states in either list', async () => {

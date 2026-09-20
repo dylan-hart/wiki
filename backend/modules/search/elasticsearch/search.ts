@@ -52,6 +52,8 @@ const INDEX_MAPPINGS = {
     locale: { type: 'keyword' },
     editor: { type: 'keyword' },
     publishState: { type: 'keyword' },
+    creatorId: { type: 'keyword' },
+    authorId: { type: 'keyword' },
     icon: { type: 'keyword' },
     isSearchable: { type: 'boolean' },
     classification: { type: 'keyword' },
@@ -103,6 +105,10 @@ export function buildEsQuery(params: SearchPagesParams): Record<string, any> {
     excludeEditor = [],
     publishState = [],
     excludePublishState = [],
+    creatorId = [],
+    excludeCreatorId = [],
+    authorId = [],
+    excludeAuthorId = [],
     publicOnly = false,
     includeDrafts = false
   } = params
@@ -151,6 +157,18 @@ export function buildEsQuery(params: SearchPagesParams): Record<string, any> {
   }
   if (excludeEditor.length > 0) {
     mustNot.push({ terms: { editor: excludeEditor } })
+  }
+  if (creatorId.length > 0) {
+    filter.push(oneOf('creatorId', creatorId))
+  }
+  if (excludeCreatorId.length > 0) {
+    mustNot.push({ terms: { creatorId: excludeCreatorId } })
+  }
+  if (authorId.length > 0) {
+    filter.push(oneOf('authorId', authorId))
+  }
+  if (excludeAuthorId.length > 0) {
+    mustNot.push({ terms: { authorId: excludeAuthorId } })
   }
 
   const must =
@@ -216,6 +234,13 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
   private async ensureIndex(client: Client, indexName: string, analyzer: string): Promise<void> {
     const exists = await client.indices.exists({ index: indexName })
     if (exists) {
+      await client.indices.putMapping({
+        index: indexName,
+        properties: {
+          creatorId: INDEX_MAPPINGS.properties.creatorId,
+          authorId: INDEX_MAPPINGS.properties.authorId
+        }
+      })
       return
     }
     CARDINAL.logger.info('search', 'creating the index', {

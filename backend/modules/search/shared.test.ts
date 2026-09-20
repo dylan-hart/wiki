@@ -157,6 +157,8 @@ describe('buildSearchDocument()', () => {
       tags: ['guide'],
       editor: 'markdown',
       publishState: 'published',
+      creatorId: 'user-1',
+      authorId: 'user-2',
       isSearchable: true,
       classification: 'classification-1',
       password: null,
@@ -177,6 +179,8 @@ describe('buildSearchDocument()', () => {
       tags: ['guide'],
       editor: 'markdown',
       publishState: 'published',
+      creatorId: 'user-1',
+      authorId: 'user-2',
       isSearchable: true,
       classification: 'classification-1',
       updatedAt: '2026-01-01T00:00:00.000Z',
@@ -696,6 +700,37 @@ describe('buildSqlFilterConditions()', () => {
     )
     assert.deepEqual(conditions[0]!.params, ['docs/private%'])
     assert.deepEqual(conditions[3]!.params, [['old', 'stale']])
+  })
+
+  test('creator and author lists compare against the uuid columns', () => {
+    const conditions = render({
+      creatorId: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'],
+      authorId: ['11111111-1111-4111-8111-111111111111'],
+      excludeCreatorId: ['22222222-2222-4222-8222-222222222222'],
+      excludeAuthorId: [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222'
+      ]
+    })
+    assert.deepEqual(
+      conditions.map((c) => c.sql),
+      [
+        'p."creatorId" = ANY($1::uuid[])',
+        'p."creatorId" <> ALL($1::uuid[])',
+        'p."authorId" = ANY($1::uuid[])',
+        'p."authorId" <> ALL($1::uuid[])'
+      ]
+    )
+    assert.deepEqual(conditions[0]!.params, [
+      ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
+    ])
+    assert.deepEqual(conditions[3]!.params, [
+      ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
+    ])
+  })
+
+  test('empty creator and author lists add no condition', () => {
+    assert.deepEqual(render({ creatorId: [], excludeCreatorId: [], authorId: [] }), [])
   })
 
   test('a path value is escaped so `%` and `_` stay literal', () => {

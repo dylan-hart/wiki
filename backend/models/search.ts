@@ -119,6 +119,10 @@ export interface SearchFilters {
   excludeEditor?: string[]
   publishState?: string[]
   excludePublishState?: string[]
+  creatorId?: string[]
+  excludeCreatorId?: string[]
+  authorId?: string[]
+  excludeAuthorId?: string[]
 }
 
 export interface SearchPagesParams extends SearchFilters {
