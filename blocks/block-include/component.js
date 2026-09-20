@@ -55,9 +55,8 @@ export class BlockIncludeElement extends LitElement {
       locale: { type: String },
 
       /**
-       * -> Explicit `attribute`: Lit's default lowercases the property name without inserting a
-       *    dash, so it would listen for `showtitle` while the block picker writes the literal
-       *    `static definition.props[].name` into the page.
+       * -> Explicit `attribute`: Lit's default lowercases without inserting a dash, so it would
+       *    listen for `showtitle` rather than the `props[].name` the block picker writes.
        */
       showTitle: { ...boolean, attribute: 'show-title' },
 
@@ -92,10 +91,9 @@ export class BlockIncludeElement extends LitElement {
   }
 
   /**
-   * Every page already on screen above this element, innermost first: a loop — a page including
-   * itself, or two pages including each other — would otherwise fetch and draw forever, since each
-   * copy arrives carrying the element that fetched it. The page being read counts as the outermost
-   * link, so a mutual pair is refused where the loop closes rather than one wasted lap later.
+   * A loop — a page including itself, or two pages including each other — would otherwise fetch and
+   * draw forever, since each copy arrives carrying the element that fetched it. The page being read
+   * counts as the outermost link, so a mutual pair is refused where the loop closes.
    */
   _ancestorPaths(currentPath) {
     const paths = []
@@ -110,9 +108,8 @@ export class BlockIncludeElement extends LitElement {
 
   /**
    * The page view scans for undefined elements once, when it loads a page, so a block arriving with
-   * transcluded content has to ask for itself. A custom block has no flat, tag-only file to fetch --
-   * its code lives at `/_blocks/custom/:siteId/:id.js` -- so the URL goes through
-   * `getBlockImportUrl()` rather than being guessed from the tag.
+   * transcluded content has to ask for itself. A custom block has no flat, tag-only file to fetch,
+   * so the URL goes through `getBlockImportUrl()` rather than being guessed from the tag.
    */
   async _loadNestedBlocks() {
     for (const el of this.querySelectorAll(':not(:defined)')) {
@@ -216,8 +213,7 @@ export class BlockIncludeElement extends LitElement {
     if (this._error) {
       // -> The shared error box as an inline `style`: this block renders into the light DOM, where
       //    Lit never adopts `static styles`, and a `<style>` tag of its own would put a rule for the
-      //    generic `.error` class on the whole page. Kept tight around the message, since the box
-      //    sets `white-space: pre-wrap`.
+      //    generic `.error` class on the whole page. Kept on one line: the box sets `pre-wrap`.
       return html`<div style="${errorBoxInline} margin-bottom: 16px;">${this._error}</div>`
     }
     return html`

@@ -38,9 +38,8 @@ function stubPage(overrides = {}) {
 }
 
 /**
- * Stubs both hops `connectedCallback` makes: the site lookup (`../shared/site.js`) and the tree
- * listing itself. The current page's locale is read off the address bar, so a test that wants a
- * non-primary reader sets `pathname` to the URL such a reader would be at.
+ * Both hops: the site lookup and the tree listing. The current page's locale is read off the
+ * address bar, so a test wanting a non-primary reader sets `pathname` to that reader's URL.
  */
 function stubFetch({
   locales = { primary: 'en', active: ['en'], forcePrefix: false },
@@ -134,10 +133,9 @@ describe('block-index', () => {
   })
 
   /*
-    Asserted off which icon reference was fetched rather than off rendered SVG: `stubFetch` answers
-    every hop with the same page-list JSON, which `fetchIcon` resolves to `''` and treats as "no
-    icon", leaving the request itself as the one observable signal. `settle: 2` for the third hop,
-    `_loadIcons()`'s own fetches.
+    Asserted off which icon was requested rather than off rendered SVG: `stubFetch` answers every
+    hop with the same page-list JSON, which `fetchIcon` treats as "no icon", leaving the request
+    itself as the one observable signal. `settle: 2` for the third hop, `_loadIcons()`'s fetches.
   */
   it('requests the book icon for a page with children and the file icon for a leaf (OpenProject #2462)', async () => {
     const fetchMock = stubFetch({

@@ -19,17 +19,10 @@ const CLOSE_SVG = svg`<svg viewBox="0 0 24 24" aria-hidden="true" data-icon="tab
 
 const FILES_PREFIX = '/_files/'
 
-/**
- * An address that already says where it points — including the wiki's own `/_` routes, `/_files/`
- * among them.
- */
+/** `/_` is in the alternation because the wiki's own routes, `/_files/` included, are absolute. */
 const ABSOLUTE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/_)/i
 
-/**
- * Everything else is a path into the file manager, so an author can paste the path the file manager
- * shows without remembering the prefix. `/_` routes are spared that — `/_files/` is one of them, so
- * a path already carrying the prefix is not given a second one.
- */
+/** Anything else is a file-manager path, so an author can paste what the file manager shows. */
 function resolveSource(value) {
   const address = value.trim()
   if (ABSOLUTE.test(address)) {
@@ -99,8 +92,6 @@ https://example.com/photo-2.jpg`
         }
 
         /*
-        The grid, and the gap below the block. On this element rather than :host: see block-index.
-
         -> min() rather than the thumbnail size on its own, so a gallery asked for at 300 on a phone
            is one column the width of the phone instead of pushing the page sideways.
       */
@@ -132,10 +123,8 @@ https://example.com/photo-2.jpg`
         }
 
         /*
-          Two opposite corner marks, shown on hover/focus only, Ledger only -- blocks.md: "Hover/focus:
-          Ledger inset ... + #e4676b corner marks". Same technique as the other board blocks; hidden
-          by default and revealed with the ring rather than sized off inset: -5px past the tile's own
-          edge, since a gallery tile (unlike a card) has nothing outside itself to draw into.
+          -> Drawn at inset 0, not the -5px the other board blocks use: a gallery tile has nothing
+             outside itself to draw into.
         */
         .marks {
           display: none;
@@ -158,12 +147,9 @@ https://example.com/photo-2.jpg`
         }
 
         /*
-        A gallery whose tiles take the shape of their images rather than being held square.
-
-        Dropping the ratio is not enough on its own: a grid item stretches to the height of its row,
-        which hands the image back a definite height to be cropped to -- the tallest photo of the row
-        deciding the shape of the rest, which is the thing being unlocked. So the row lets go of them
-        as well, and the image is left to its own height.
+        -> Dropping the ratio is not enough on its own: a grid item stretches to the height of its
+           row, which hands the image back a definite height to be cropped to -- the tallest photo
+           of the row deciding the shape of the rest. So the row lets go of them as well.
       */
         .gallery.is-unlocked {
           align-items: start;
@@ -185,10 +171,7 @@ https://example.com/photo-2.jpg`
           color: var(--block-caption-fg);
           transition: transform 200ms ease;
         }
-        /*
-          -> Ledger: no transform on hover, corner marks + ring are the affordance instead. Cobalt:
-             the existing zoom, --gallery-hover-scale is 1 in Ledger so this is a no-op there too.
-        */
+        /* -> --gallery-hover-scale is 1 in Ledger, where the marks and ring are the affordance */
         .tile:hover img {
           transform: scale(var(--gallery-hover-scale));
         }
@@ -201,13 +184,6 @@ https://example.com/photo-2.jpg`
           }
         }
 
-        /*
-        The lightbox's own dialog shell (the full-viewport <dialog>, its backdrop, its fade
-        transition, and the clickable .stage) is lightboxStyles, from ../shared/lightbox.js --
-        see LightboxController's own doc for why Escape/focus-return/inert-background all come free
-        with it, and for the scroll lock (the one thing that isn't). What's left here is this
-        block's own chrome drawn over that stage: the prev/next/close buttons and the counter.
-      */
         .chrome {
           position: absolute;
           display: flex;
@@ -273,15 +249,13 @@ https://example.com/photo-2.jpg`
   static get properties() {
     return {
       /**
-       * -> Explicit `attribute`: Lit's default lowercases the property name without inserting a
-       *    dash, so it would listen for `thumbnailsize` while the block picker writes the literal
-       *    `static definition.props[].name` into the page.
+       * -> Explicit `attribute`: Lit's default lowercases without inserting a dash, so it would
+       *    listen for `thumbnailsize` rather than the `props[].name` the block picker writes.
        */
       thumbnailSize: { type: Number, attribute: 'thumbnail-size' },
 
       fit: { type: String },
 
-      /** -> Explicit `attribute`, for the same reason as `thumbnailSize`. */
       unlockAspectRatio: { ...boolean, attribute: 'unlock-aspect-ratio' },
 
       _images: { state: true }
@@ -294,7 +268,6 @@ https://example.com/photo-2.jpg`
     this.fit = 'cover'
     this.unlockAspectRatio = false
     this._images = []
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
     this._lightbox = new LightboxController(this, {
       count: () => this._images.length,
@@ -308,10 +281,9 @@ https://example.com/photo-2.jpg`
   }
 
   /**
-   * Markdown has already run over the body, so the split is on whitespace rather than line endings:
-   * lines markdown joined into one paragraph still read as the list they were written as. Images
-   * markdown drew for itself are collected too, since `![](photo.jpg)` arrives as an `img` carrying
-   * no text at all — but not out of a fence, which markdown has not touched.
+   * Split on whitespace, not line endings: markdown has already joined the author's lines into one
+   * paragraph. Images markdown drew itself are collected too — `![](photo.jpg)` arrives as an `img`
+   * carrying no text — but not out of a fence, which markdown has not touched.
    */
   firstUpdated() {
     const { source, fenced } = readFencedSource(this)
@@ -333,9 +305,8 @@ https://example.com/photo-2.jpg`
   }
 
   /**
-   * The `<dialog>` is always in the shadow tree, since it is what `showModal` is called on, but its
-   * contents wait until it opens: otherwise every gallery on the page fetches a full-size photo the
-   * reader may never ask for.
+   * The `<dialog>` stays in the shadow tree — `showModal` is called on it — but its contents wait
+   * for it to open: otherwise every gallery on the page fetches a full-size photo nobody asked for.
    */
   _renderLightbox() {
     const address = this._images[this._lightbox.index]
@@ -377,7 +348,6 @@ https://example.com/photo-2.jpg`
                       `
                     : null
                 }
-                <!-- -> Focused on opening, so the lightbox is closable from the keyboard straight away -->
                 <button
                   class="chrome is-close"
                   type="button"

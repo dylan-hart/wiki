@@ -9,10 +9,9 @@ vi.mock('../shared/config.js', () => ({
 }))
 
 /*
- * Mocked for the same reason: this suite is about `connectedCallback`'s own branching, and a real
- * `t()` would land `_error` only after an actual (failing) network round trip, unlike every other
- * awaited step here. `vi.hoisted` so `i18nT` is assignable outside the hoisted `vi.mock` factory,
- * for the tests that assert on its calls.
+ * Mocked too: a real `t()` would land `_error` only after an actual (failing) network round trip,
+ * unlike every other awaited step here. `vi.hoisted` so `i18nT` is assignable outside the hoisted
+ * `vi.mock` factory.
  */
 const i18nT = vi.hoisted(() => vi.fn(async (_key, fallback) => fallback))
 vi.mock('../shared/i18n.js', () => ({ t: i18nT }))
@@ -32,8 +31,8 @@ function stubPage(overrides = {}) {
 }
 
 /**
- * Stubs both hops the block makes: the site lookup (`../shared/site.js`) and the include route
- * itself. `pathname` is what it reads its own path and locale off.
+ * Both hops: the site lookup and the include route. `pathname` is what the current page's own path
+ * and locale are read off.
  */
 function stubFetch({
   page = stubPage(),
@@ -120,9 +119,8 @@ describe('block-include', () => {
   })
 
   /*
-    The picker leaves the attribute literally present with the string "false" when an author toggles
-    Show Title on and back off, and Lit's stock Boolean converter reads any present attribute as
-    true.
+    The picker leaves the attribute present with the string "false" when an author toggles Show
+    Title on and back off, and Lit's stock Boolean converter reads any present attribute as true.
   */
   it('treats the literal attribute showTitle="false" as false', async () => {
     const el = await mountBlock('block-include', {
@@ -263,10 +261,7 @@ describe('block-include', () => {
     })
   })
 
-  /*
-   * A custom block has no flat `/_blocks/${tag}.js` file -- only a per-site
-   * `/_blocks/custom/:siteId/:id.js` route -- so a URL guessed from the tag 404s.
-   */
+  /* A custom block's code is served per-site, so a URL guessed from the tag 404s. */
   it("resolves a nested block's import URL through getBlockImportUrl(), not a hardcoded flat path", async () => {
     stubFetch({ page: stubPage({ render: '<p>Text</p><block-widget></block-widget>' }) })
 

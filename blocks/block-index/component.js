@@ -9,7 +9,6 @@ import { getSiteId, getSiteLocales, getCurrentPage } from '../shared/site.js'
 /** Mirrors the page store's own `DEFAULT_PAGE_ICON`, so a listing does not mix two defaults. */
 const DEFAULT_PAGE_ICON = 'tabler:file-text'
 
-/** For a page with another nested below its own path, which is what `hasChildren` signals. */
 const BOOK_PAGE_ICON = 'tabler:book-2'
 
 export class BlockIndexElement extends LitElement {
@@ -17,13 +16,8 @@ export class BlockIndexElement extends LitElement {
    * Read out of the source text at build time rather than by importing the module, so every value
    * must stay a plain literal.
    *
-   * `props` is what the editor's picker turns into a form, in the order they are asked for, and what
-   * survives a save: the renderer strips any attribute a block does not declare. It mirrors `static
-   * get properties()` below, so a property meant to be authored belongs in both lists.
-   *
-   * A `boolean` prop must default to false unless the block declares the shared converter: Lit's
-   * stock one reads any present attribute — `showThing="false"` included — as true, and what keeps
-   * false meaning false is the picker leaving out a prop that still holds its default.
+   * `props` mirrors `static get properties()` below — a property meant to be authored belongs in
+   * both lists, since the renderer strips any attribute a block does not declare.
    */
   static definition = {
     block: 'index',
@@ -107,12 +101,10 @@ export class BlockIndexElement extends LitElement {
         }
 
         /*
-        The gap below a block lives on this element, not on :host.
-
-        The app resets the margin on every element, and a rule in the page beats a :host rule in the
-        shadow tree whatever its specificity -- so a margin set on the host is simply dropped. Set
-        inside the shadow root it is out of that rule's reach, and collapses out through the host,
-        which carries no padding or border of its own.
+        -> The gap below the block lives here, not on :host: the app resets the margin on every
+           element, and a page rule beats a :host rule whatever its specificity. Set inside the
+           shadow root it is out of that rule's reach, and collapses out through the host, which
+           carries no padding or border of its own.
       */
         ul {
           padding: 0;
@@ -125,20 +117,15 @@ export class BlockIndexElement extends LitElement {
         }
 
         /*
-        The columns prop is a ceiling, not a count: the listing starts at one column and widens with
-        the window, stopping at whatever the author asked for. A phone gets one column whichever value
-        it carries, which is the whole reason the choice cannot simply be the number of columns -- a
-        three-column listing on a 400px screen is three unreadable slivers.
+        -> The columns prop is a ceiling, not a count: the listing starts at one column and widens
+           with the window, stopping at whatever the author asked for, because a three-column
+           listing on a 400px screen is three unreadable slivers. The second column arrives at the
+           app's md breakpoint; the third waits for 1600px, a width of this block's own, since at
+           1440 a third of the article column leaves a title and its description two lines each.
 
-        The second column arrives at the app's md breakpoint (--breakpoint-md in
-        frontend/src/css/tailwind.css), which is the width the listing has always widened at. The
-        third waits for 1600px, which is a width of this block's own rather than one of the shared
-        ones: at lg (1440) a third of the article column, minus the sidebar beside it, leaves a title
-        and its description with nowhere to go but two lines each.
-
-        Matched off the host's attribute rather than read from a custom property, because the ceiling
-        has to be applied per breakpoint -- and clamping one is math inside repeat(), which is not
-        something an engine can be relied on to take.
+        -> Matched off the host's attribute rather than read from a custom property: the ceiling has
+           to be applied per breakpoint, and clamping one is math inside repeat(), which an engine
+           cannot be relied on to take.
       */
         @media (min-width: 1024px) {
           :host(:not([columns='1'])) ul {
@@ -161,11 +148,10 @@ export class BlockIndexElement extends LitElement {
           align-items: stretch;
           justify-content: stretch;
           /*
-          -> Renders the tree nested/indented (OpenProject #2461): --depth is set inline per row
-             from the page's own depth (how many folders below the listed path it sits -- see
-             render()). Indentation rather than a real nested list, because the listing is ordered
-             by title/date/etc. across every depth at once -- a depth-2 page can sort ahead of its own
-             depth-0 ancestor, so there is no sibling order to build an actual parent/child tree from.
+          -> Indentation rather than a real nested list, because the listing is ordered by
+             title/date/etc. across every depth at once -- a depth-2 page can sort ahead of its own
+             depth-0 ancestor, so there is no sibling order to build a parent/child tree from.
+             render() sets --depth per row.
         */
           margin-left: calc(var(--depth, 0) * 1.5rem);
         }
@@ -174,15 +160,11 @@ export class BlockIndexElement extends LitElement {
           box-shadow: var(--index-hover-edge);
           cursor: pointer;
         }
-        /*
-        -> The row runs across rather than down, so an icon can sit beside the writing rather than
-           above it. The title and its description stack inside .text, which is the column the
-           anchor itself used to be.
-      */
+        /* -> Across, not down, so an icon can sit beside the writing rather than above it */
         li a {
           display: flex;
           color: var(--index-title-fg);
-          /* -> Vertical only: the horizontal inset is what the trailing glyph's own offset is set against */
+          /* -> The horizontal inset is what the trailing glyph's own right offset is set against */
           padding: 10px 14px;
           text-decoration: none;
           flex: 1;
@@ -197,8 +179,8 @@ export class BlockIndexElement extends LitElement {
           display: flex;
           flex-direction: column;
           justify-content: center;
-          /* -> The row less the icon. min-width is what lets a long title wrap inside the card
-              rather than pushing the row wider than it. */
+          /* -> min-width is what lets a long title wrap inside the card rather than push the row
+              wider than it. */
           flex: 1;
           min-width: 0;
         }
@@ -211,13 +193,10 @@ export class BlockIndexElement extends LitElement {
         }
 
         /*
-        The page's own icon. Sized in em so it keeps its place beside writing at whatever size the
-        article is set in, and left to take the anchor's colour: an Iconify SVG paints with
-        currentColor, which is the whole reason it is inlined rather than pointed at with an an <img>.
-      */
-        /*
-        -> The width is on the slot as well as on the drawing, so a row whose icon could not be had
-           keeps its place in the column rather than sliding its writing left of every other row's.
+        -> Inlined rather than pointed at with an img, because an Iconify SVG paints with
+           currentColor. The width sits on the slot as well as on the drawing, so a row whose icon
+           could not be had keeps its place in the column rather than sliding its writing left of
+           every other row's.
       */
         .icon {
           display: flex;
@@ -232,10 +211,8 @@ export class BlockIndexElement extends LitElement {
           height: 18px;
         }
         /*
-        The trailing glyph -- Tabler arrow-right (Ledger) or chevron-right (Cobalt), pasted verbatim
-        from frontend/src/assets/icons.generated.js, replacing the 48px Material arrow. Both sit in
-        the DOM; only one shows at a time, per aesthetic, via the --index-*-display tokens -- the same
-        display-toggle mechanism block-tabs' and block-infobox's corner marks use.
+        -> Both trailing glyphs sit in the DOM and the --index-*-display tokens show one at a time:
+           which one is the aesthetic's to choose, not something the block can read.
       */
         li a > svg {
           width: 16px;
@@ -256,10 +233,8 @@ export class BlockIndexElement extends LitElement {
         }
 
         /*
-        "Nothing here" is drawn in the shared error box (see ../shared/styles.js), which is what this
-        rule used to be a copy of -- hence the second class on the element itself. The name stays its
-        own: a listing that matched nothing is an outcome, not a failure, and noResultMsg is the
-        author's to word.
+        -> The element carries the shared error class too, for that box's look alone. The name stays
+           its own: a listing that matched nothing is an outcome, not a failure.
       */
         .no-links {
           margin-bottom: 16px;
@@ -277,28 +252,23 @@ export class BlockIndexElement extends LitElement {
       limit: { type: Number },
 
       /**
-       * -> Explicit `attribute`: Lit's default lowercases the property name without inserting a
-       *    dash, so it would listen for `orderby` while the block picker writes the literal
-       *    `static definition.props[].name` into the page.
+       * -> Explicit `attribute`, here and below: Lit's default lowercases without inserting a dash,
+       *    so it would listen for `orderby` rather than the `props[].name` the block picker writes.
        */
       orderBy: { type: String, attribute: 'order-by' },
 
-      /** -> Explicit `attribute`, for the same reason as `orderBy` above. */
       orderByDirection: { type: String, attribute: 'order-by-direction' },
 
       depth: { type: Number },
 
-      /** -> Explicit `attribute`, for the same reason as `orderBy` above. */
       noResultMsg: { type: String, attribute: 'no-result-msg' },
 
       /**
-       * Nothing in `render()` reads this: the layout is the styles' business, and they match
-       * `:host([columns])` on the page's own attribute. Declared so Lit knows the attribute at all,
-       * and because an authored prop belongs in both lists.
+       * Unread by `render()`: the layout is the styles' business, and they match `:host([columns])`
+       * on the page's own attribute. Declared so Lit knows the attribute at all.
        */
       columns: { type: String },
 
-      /** -> Explicit `attribute`, for the same reason as `orderBy` above. */
       showIcons: { ...boolean, attribute: 'show-icons' },
 
       _loading: { state: true },
@@ -319,7 +289,6 @@ export class BlockIndexElement extends LitElement {
     this.noResultMsg = 'No pages matching your query.'
     this.columns = '2'
     this.showIcons = false
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
   }
 
@@ -379,8 +348,7 @@ export class BlockIndexElement extends LitElement {
   /**
    * All at once rather than one after another, since the shared cache collapses the repeats: a
    * listing of pages that never had an icon chosen is one request for the default, however many rows
-   * there are. An `img:` icon is a file to point at and needs nothing fetched, and a failure is
-   * already an empty string, so a row whose icon could not be had is a row without one.
+   * there are. An `img:` icon is a file to point at and needs nothing fetched.
    */
   async _loadIcons() {
     await Promise.all(
@@ -395,10 +363,7 @@ export class BlockIndexElement extends LitElement {
     this.requestUpdate()
   }
 
-  /**
-   * Shared by `_loadIcons()` (what to prefetch) and `_icon()` (what to draw), so the two never
-   * disagree about which reference a row resolved to.
-   */
+  /** One resolver for both the prefetch and the draw, so the two cannot disagree about a row. */
   _iconReference(page) {
     return page.icon || (page.hasChildren ? BOOK_PAGE_ICON : DEFAULT_PAGE_ICON)
   }
@@ -411,9 +376,9 @@ export class BlockIndexElement extends LitElement {
   }
 
   render() {
-    // -> The moment any row is indented the listing drops to one column: an inline style beats the
-    //    grid rules, media queries included, and a deep row's `--depth` indent would otherwise be
-    //    read against the wrong column's width.
+    // -> The moment any row is indented the listing drops to one column, since a deep row's
+    //    `--depth` indent would otherwise be read against a narrow column's width. Inline, so it
+    //    beats the grid rules, media queries included.
     const nested = this._pages.some((p) => (p.depth || 0) > 0)
     return this._pages.length > 0 || this._loading
       ? html`
