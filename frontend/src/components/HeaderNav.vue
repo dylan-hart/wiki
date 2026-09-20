@@ -372,6 +372,7 @@ function onGraphNavClick() {
     return
   }
   if (route.meta.contentPage) {
+    graphStore.select(pageStore.path)
     router.push({ path: GRAPH_ROUTE_PATH, query: { path: pageStore.folderPath } })
     return
   }
