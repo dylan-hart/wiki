@@ -14,10 +14,6 @@ import { listSourceFiles } from '../test/sourceFiles.js'
 
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 
-// TODO: nothing emits 'Not implemented' any more -- PageHeader.vue's `notImplemented()` stub, which
-// this allow-listed, is gone. Drop the allow-list and its detector case.
-const ALLOWED_NOTIFY_MESSAGES = new Set(['Not implemented'])
-
 // DevQuickMenu.vue is mounted only by a dev server and stays hardcoded English: a dev-only locale
 // key would still ship to translators, for a screen no reader will ever see.
 const ALLOWED_ARIA_LABELS = new Set(['Developer tools'])
@@ -28,9 +24,7 @@ function findNotifyMessages(source) {
   const re = /message:\s*'([A-Z][a-z]+ [^']*)'/g
   const hits = []
   let m
-  while ((m = re.exec(source))) {
-    if (!ALLOWED_NOTIFY_MESSAGES.has(m[1])) hits.push(m[1])
-  }
+  while ((m = re.exec(source))) hits.push(m[1])
   return hits
 }
 
@@ -72,11 +66,6 @@ describe('detectors', () => {
 
     it('does not flag a SCREAMING_SNAKE_CASE code (no lowercase letter follows the first capital)', () => {
       const source = `notify({ message: 'ERR_PAGE_NOT_FOUND' })`
-      expect(findNotifyMessages(source)).toEqual([])
-    })
-
-    it('allow-lists PageHeader.vue’s deliberate "Not implemented" stub', () => {
-      const source = `notify({ type: 'negative', message: 'Not implemented' })`
       expect(findNotifyMessages(source)).toEqual([])
     })
   })

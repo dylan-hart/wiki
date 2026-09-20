@@ -233,7 +233,7 @@
               </div>
               <!-- A literal class, not `color`: that prop builds one at runtime, which Tailwind
                    never emits. -->
-              <w-icon class="text-grey-6 ml-auto" name="tabler:arrow-right" />
+              <w-icon class="text-grey-6 ms-auto" name="tabler:arrow-right" />
             </div>
             <div class="page-history-side">
               <span class="page-history-letter">B</span>
