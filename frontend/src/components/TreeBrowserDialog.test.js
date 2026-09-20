@@ -167,6 +167,138 @@ describe('TreeBrowserDialog Path Name rejects slashes', () => {
   })
 })
 
+describe('TreeBrowserDialog moveItem mode', () => {
+  const messages = {
+    'fileman.moveTitle': 'Move to…',
+    'fileman.moveConfirm': 'Move',
+    'pageSaveDialog.pageTitle': 'Page Title',
+    'pageSaveDialog.pathName': 'Path Name',
+    'common.actions.save': 'Save'
+  }
+
+  function mountMove(props = {}) {
+    globalThis.API_CLIENT.get.mockReturnValue({ json: vi.fn().mockResolvedValue([]) })
+
+    return mountWithApp(TreeBrowserDialog, {
+      props: { mode: 'moveItem', ...props },
+      messages,
+      stores: { site: { id: 'site-1' } },
+      stubs: {}
+    }).wrapper
+  }
+
+  const confirmButton = () => [...document.body.querySelectorAll('.card-actions button')].at(-1)
+
+  it('shows only the folder tree: no title or path field, no file list, no display options', async () => {
+    mountMove()
+    await flushPromises()
+
+    expect(document.body.querySelector('.page-save-dialog-tree')).not.toBeNull()
+    expect(document.body.querySelector('input[aria-label="Page Title"]')).toBeNull()
+    expect(document.body.querySelector('input[aria-label="Path Name"]')).toBeNull()
+    expect(document.body.querySelector('.page-save-dialog-fields')).toBeNull()
+    expect(document.body.querySelector('.page-save-dialog-filelist')).toBeNull()
+    expect(document.body.querySelector('.page-save-dialog-display-hint')).toBeNull()
+  })
+
+  it('browses folders only', async () => {
+    mountMove()
+    await flushPromises()
+
+    const [url, options] = globalThis.API_CLIENT.get.mock.calls[0]
+    expect(url).toBe('sites/site-1/tree')
+    expect(JSON.stringify(options)).toContain('folder')
+    expect(JSON.stringify(options)).not.toContain('page')
+  })
+
+  it('titles the dialog and labels the confirm button "Move to…" / "Move" by default', async () => {
+    const wrapper = mountMove()
+    await flushPromises()
+
+    expect(wrapper.vm.dialogTitle).toBe('Move to…')
+    expect(document.body.querySelector('.card-header').textContent).toContain('Move to…')
+    expect(confirmButton().textContent).toContain('Move')
+    expect(confirmButton().textContent).not.toContain('Save')
+  })
+
+  it('takes the title and confirm label from the caller', async () => {
+    const wrapper = mountMove({ title: 'Duplicate to…', confirmLabel: 'Duplicate' })
+    await flushPromises()
+
+    expect(wrapper.vm.dialogTitle).toBe('Duplicate to…')
+    expect(document.body.querySelector('.card-header').textContent).toContain('Duplicate to…')
+    expect(confirmButton().textContent).toContain('Duplicate')
+  })
+
+  it('emits the root as folderId null / empty parentPath', async () => {
+    const wrapper = mountMove()
+    await flushPromises()
+
+    confirmButton().click()
+    await flushPromises()
+
+    expect(wrapper.emitted('ok')).toHaveLength(1)
+    expect(wrapper.emitted('ok')[0][0]).toEqual({ folderId: null, parentPath: '' })
+  })
+
+  it('emits the chosen folder as folderId plus its slash-free parentPath', async () => {
+    const wrapper = mountMove()
+    await flushPromises()
+
+    wrapper.vm.state.treeNodes = {
+      'folder-1': { fileName: 'setup', folderPath: 'guides' },
+      'folder-2': { fileName: 'guides', folderPath: '' }
+    }
+    wrapper.vm.state.currentFolderId = 'folder-1'
+    await flushPromises()
+    confirmButton().click()
+    await flushPromises()
+
+    expect(wrapper.emitted('ok')[0][0]).toEqual({
+      folderId: 'folder-1',
+      parentPath: 'guides/setup'
+    })
+  })
+
+  it('emits a top-level folder as its bare fileName', async () => {
+    const wrapper = mountMove()
+    await flushPromises()
+
+    wrapper.vm.state.treeNodes = { 'folder-2': { fileName: 'guides', folderPath: '' } }
+    wrapper.vm.state.currentFolderId = 'folder-2'
+    await flushPromises()
+    confirmButton().click()
+    await flushPromises()
+
+    expect(wrapper.emitted('ok')[0][0]).toEqual({ folderId: 'folder-2', parentPath: 'guides' })
+  })
+
+  it('needs no title and emits no page fields', async () => {
+    const wrapper = mountMove()
+    await flushPromises()
+
+    await wrapper.vm.save()
+
+    expect(wrapper.emitted('ok')[0][0]).not.toHaveProperty('title')
+    expect(wrapper.emitted('ok')[0][0]).not.toHaveProperty('path')
+  })
+})
+
+describe.each(['savePage', 'duplicatePage', 'renamePage'])(
+  'TreeBrowserDialog keeps its page fields and file list (mode: %s)',
+  (mode) => {
+    it('still renders the title/path fields, the file list column and the display options', async () => {
+      const wrapper = mountDialog({ mode })
+      await flushPromises()
+
+      expect(document.body.querySelector('.page-save-dialog-fields')).not.toBeNull()
+      expect(document.body.querySelector('.page-save-dialog-filelist')).not.toBeNull()
+      expect(document.body.querySelector('.page-save-dialog-display-hint')).not.toBeNull()
+      expect(wrapper.vm.isMoveItem).toBe(false)
+    })
+  }
+)
+
 describe('TreeBrowserDialog includeTranslations (renamePage mode)', () => {
   /**
    * A dedicated mount helper rather than the shared `mountDialog` above, which resets
