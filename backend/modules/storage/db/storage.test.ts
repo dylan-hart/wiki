@@ -1,9 +1,11 @@
 import { test, before, after } from 'node:test'
+import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { Readable } from 'node:stream'
 import { eq } from 'drizzle-orm'
 import {
   sites as sitesTable,
@@ -13,11 +15,12 @@ import {
 import { assetServing } from '../../../models/assetServing.ts'
 import { assets } from '../../../models/assets.ts'
 import { tree } from '../../../models/tree.ts'
-import dbStorageModule, { purge } from './storage.ts'
+import dbStorageModule, { purge, verifyCopy } from './storage.ts'
 import { DB_MODULE } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
 import { ensureTemporal } from '../../../test/temporal.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 import {
   hasTestDatabase,
   setupTestDb,
@@ -141,6 +144,37 @@ function fullCoverageDirectAccessTarget(forSiteId: string): StorageTarget {
   })
 }
 
+function copyOf(bytes: string | Buffer): Record<string, any> {
+  const buf = Buffer.from(bytes)
+  return {
+    headAsset: async () => ({ size: buf.length }),
+    readAsset: async () => ({
+      body: Readable.from([buf.subarray(0, 2), buf.subarray(2)]),
+      size: buf.length
+    })
+  }
+}
+
+function stubModule(t: TestContext, handlers: Record<string, any>) {
+  t.mock.method(CARDINAL.models.storage, 'ensureModule', async () => handlers)
+}
+
+function readThroughOnlyTarget(forSiteId: string, overrides: Record<string, any> = {}) {
+  return makeStorageTarget('s3', {
+    siteId: forSiteId,
+    isEnabled: true,
+    assetDelivery: {
+      isStreamingSupported: true,
+      isDirectAccessSupported: true,
+      isReadThroughSupported: true,
+      streaming: false,
+      directAccess: false,
+      readThrough: true
+    },
+    ...overrides
+  })
+}
+
 test('dbStorageModule declares only the purge handler', () => {
   assert.deepEqual(Object.keys(dbStorageModule), ['purge'])
 })
@@ -152,6 +186,7 @@ test(
     t.mock.method(CARDINAL.models.storage, 'getSiteTargets', async () => [
       fullCoverageDirectAccessTarget(siteId)
     ])
+    stubModule(t, copyOf('data'))
 
     const purgedAsset = await makeAsset(siteId, `purge-me-${Date.now()}.png`)
     const untouchedAsset = await makeAsset(otherSiteId, `leave-me-${Date.now()}.png`)
@@ -165,7 +200,7 @@ test(
 
     const target = { siteId } as StorageTarget
     const result = await purge(target)
-    assert.deepEqual(result, { purged: 1, skipped: 0 })
+    assert.deepEqual(result, { purged: 1, skipped: 0, unverified: 0 })
 
     assert.equal(
       assetServing.pathCache.size,
@@ -212,7 +247,7 @@ test(
       const keptAsset = await makeAsset(testSiteId, `keep-me-${Date.now()}.png`)
 
       const result = await purge({ siteId: testSiteId } as StorageTarget)
-      assert.deepEqual(result, { purged: 0, skipped: 1 })
+      assert.deepEqual(result, { purged: 0, skipped: 1, unverified: 0 })
 
       const content = await assets.getContent(keptAsset.id)
       assert.ok(content, 'expected the asset bytes to survive a purge with no direct-access target')
@@ -240,6 +275,7 @@ test(
           contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
         })
       ])
+      stubModule(t, copyOf('data'))
 
       const coveredAsset = await makeAsset(testSiteId, `covered-${Date.now()}.png`, {
         kind: 'image'
@@ -249,7 +285,7 @@ test(
       })
 
       const result = await purge({ siteId: testSiteId } as StorageTarget)
-      assert.deepEqual(result, { purged: 1, skipped: 1 })
+      assert.deepEqual(result, { purged: 1, skipped: 1, unverified: 0 })
 
       assert.equal(
         await assets.getContent(coveredAsset.id),
@@ -270,8 +306,235 @@ test('purge is a no-op for a site with no assets', { skip }, async () => {
     .returning({ id: sitesTable.id })
   try {
     const result = await purge({ siteId: emptySite.id } as StorageTarget)
-    assert.deepEqual(result, { purged: 0, skipped: 0 })
+    assert.deepEqual(result, { purged: 0, skipped: 0, unverified: 0 })
   } finally {
     await CARDINAL.db.delete(sitesTable).where(eq(sitesTable.id, emptySite.id))
   }
+})
+
+async function purgeWithCopy(
+  t: TestContext,
+  handlers: Record<string, any>,
+  opts: {
+    targets?: (siteId: string) => StorageTarget[]
+    fileSize?: number
+    nullBytes?: boolean
+  } = {}
+) {
+  return withTestSite(async (testSiteId) => {
+    const targets = (opts.targets ?? ((id: string) => [fullCoverageDirectAccessTarget(id)]))(
+      testSiteId
+    )
+    t.mock.method(CARDINAL.models.storage, 'getSiteTargets', async () => targets)
+    stubModule(t, handlers)
+    const asset = await makeAsset(testSiteId, `verify-${randomUUID()}.png`, {
+      fileSize: opts.fileSize
+    })
+    if (opts.nullBytes) {
+      await CARDINAL.db.update(assetsTable).set({ data: null }).where(eq(assetsTable.id, asset.id))
+    }
+    const result = await purge({ siteId: testSiteId } as StorageTarget)
+    const [row] = await CARDINAL.db
+      .select({ data: assetsTable.data })
+      .from(assetsTable)
+      .where(eq(assetsTable.id, asset.id))
+    return { result, bytes: row?.data?.toString() ?? null }
+  })
+}
+
+test('purge nulls a verified asset and reports it as purged', { skip }, async (t) => {
+  const { result, bytes } = await purgeWithCopy(t, copyOf('data'))
+  assert.deepEqual(result, { purged: 1, skipped: 0, unverified: 0 })
+  assert.equal(bytes, null)
+})
+
+test('purge keeps bytes and counts unverified when the copy is missing', { skip }, async (t) => {
+  const { result, bytes } = await purgeWithCopy(t, {
+    headAsset: async () => null,
+    readAsset: async () => null
+  })
+  assert.deepEqual(result, { purged: 0, skipped: 0, unverified: 1 })
+  assert.equal(bytes, 'data')
+})
+
+test('purge keeps bytes when the copy has the wrong size', { skip }, async (t) => {
+  const { result, bytes } = await purgeWithCopy(t, copyOf('data-and-more'))
+  assert.deepEqual(result, { purged: 0, skipped: 0, unverified: 1 })
+  assert.equal(bytes, 'data')
+})
+
+test(
+  'purge keeps bytes when the copy has the right size but the wrong hash',
+  { skip },
+  async (t) => {
+    const { result, bytes } = await purgeWithCopy(t, copyOf('dat4'))
+    assert.deepEqual(result, { purged: 0, skipped: 0, unverified: 1 })
+    assert.equal(bytes, 'data')
+  }
+)
+
+test('purge keeps bytes when reading the copy throws', { skip }, async (t) => {
+  const { result, bytes } = await purgeWithCopy(t, {
+    headAsset: async () => ({ size: 4 }),
+    readAsset: async () => {
+      throw new Error('Failed to read "k": boom')
+    }
+  })
+  assert.deepEqual(result, { purged: 0, skipped: 0, unverified: 1 })
+  assert.equal(bytes, 'data')
+})
+
+test('purge keeps bytes when the module cannot read objects at all', { skip }, async (t) => {
+  const boom = async () => {
+    throw new Error('reading objects is not supported by Azure')
+  }
+  const { result, bytes } = await purgeWithCopy(t, { headAsset: boom, readAsset: boom })
+  assert.deepEqual(result, { purged: 0, skipped: 0, unverified: 1 })
+  assert.equal(bytes, 'data')
+})
+
+test('purge keeps bytes when assets.fileSize disagrees with the db bytes', { skip }, async (t) => {
+  const { result, bytes } = await purgeWithCopy(t, copyOf('data'), { fileSize: 9 })
+  assert.deepEqual(result, { purged: 0, skipped: 0, unverified: 1 })
+  assert.equal(bytes, 'data')
+})
+
+test(
+  'purge counts an enabled read-through target that covers the asset, with no direct access',
+  { skip },
+  async (t) => {
+    const { result, bytes } = await purgeWithCopy(t, copyOf('data'), {
+      targets: (id) => [readThroughOnlyTarget(id)]
+    })
+    assert.deepEqual(result, { purged: 1, skipped: 0, unverified: 0 })
+    assert.equal(bytes, null)
+  }
+)
+
+test(
+  'purge skips an asset when the only blob target is not nominated for read-through',
+  { skip },
+  async (t) => {
+    const { result, bytes } = await purgeWithCopy(t, copyOf('data'), {
+      targets: (id) => [
+        readThroughOnlyTarget(id, {
+          assetDelivery: {
+            isStreamingSupported: true,
+            isDirectAccessSupported: true,
+            isReadThroughSupported: true,
+            streaming: false,
+            directAccess: false,
+            readThrough: false
+          }
+        })
+      ]
+    })
+    assert.deepEqual(result, { purged: 0, skipped: 1, unverified: 0 })
+    assert.equal(bytes, 'data')
+  }
+)
+
+test(
+  'purge tries the next covering target when the first copy fails verification',
+  { skip },
+  async (t) => {
+    const good = copyOf('data')
+    const { result, bytes } = await withTestSite(async (testSiteId) => {
+      t.mock.method(CARDINAL.models.storage, 'getSiteTargets', async () => [
+        fullCoverageDirectAccessTarget(testSiteId),
+        readThroughOnlyTarget(testSiteId, { module: 'gcs' })
+      ])
+      t.mock.method(CARDINAL.models.storage, 'ensureModule', async (key: string): Promise<any> =>
+        key === 'gcs' ? good : { headAsset: async () => null, readAsset: async () => null }
+      )
+      const asset = await makeAsset(testSiteId, `second-${randomUUID()}.png`)
+      const outcome = await purge({ siteId: testSiteId } as StorageTarget)
+      const content = await assets.getContent(asset.id)
+      return { result: outcome, bytes: content }
+    })
+    assert.deepEqual(result, { purged: 1, skipped: 0, unverified: 0 })
+    assert.equal(bytes, null)
+  }
+)
+
+test(
+  'purge does not null bytes replaced by an upload while the copy was being verified',
+  { skip },
+  async (t) => {
+    const { result, bytes } = await purgeWithCopy(t, {
+      headAsset: async () => ({ size: 4 }),
+      readAsset: async (asset: { id: string }): Promise<{ body: Readable; size: number }> => {
+        await CARDINAL.db
+          .update(assetsTable)
+          .set({ data: Buffer.from('new!') })
+          .where(eq(assetsTable.id, asset.id))
+        return { body: Readable.from([Buffer.from('data')]), size: 4 }
+      }
+    })
+    assert.deepEqual(result, { purged: 0, skipped: 0, unverified: 1 })
+    assert.equal(bytes, 'new!')
+  }
+)
+
+test('purge skips an asset whose bytes are already gone', { skip }, async (t) => {
+  const { result } = await purgeWithCopy(t, copyOf('data'), { nullBytes: true })
+  assert.deepEqual(result, { purged: 0, skipped: 1, unverified: 0 })
+})
+
+const unitAsset = {
+  id: 'a1',
+  kind: 'image' as const,
+  folderPath: '',
+  fileName: 'a.png',
+  fileSize: 4
+}
+
+async function unitVerify(handlers: Record<string, any>) {
+  const wiki = installTestWiki({ models: { storage: { ensureModule: async () => handlers } } })
+  try {
+    const bytes = Buffer.from('data')
+    const digest = createHash('sha256').update(bytes).digest()
+    return await verifyCopy(makeStorageTarget('s3'), unitAsset, bytes, digest)
+  } finally {
+    wiki.restore()
+  }
+}
+
+test('verifyCopy accepts an identical multi-chunk copy', async () => {
+  assert.equal(await unitVerify(copyOf('data')), true)
+})
+
+test('verifyCopy rejects a missing, wrong-size, wrong-hash, truncated or unsupported copy', async () => {
+  assert.equal(
+    await unitVerify({ headAsset: async () => null, readAsset: async () => null }),
+    false
+  )
+  assert.equal(await unitVerify(copyOf('data!')), false)
+  assert.equal(await unitVerify(copyOf('dat4')), false)
+  assert.equal(
+    await unitVerify({
+      headAsset: async () => ({ size: 4 }),
+      readAsset: async () => ({ body: Readable.from([Buffer.from('da')]), size: 4 })
+    }),
+    false
+  )
+  assert.equal(await unitVerify({}), false)
+})
+
+test('verifyCopy treats a throwing module as unverified rather than failing the purge', async () => {
+  const boom = async () => {
+    throw new Error('Failed to inspect "k": reading objects is not supported by S3')
+  }
+  assert.equal(await unitVerify({ headAsset: boom, readAsset: boom }), false)
+})
+
+test('verifyCopy stops reading and closes a body that runs past the expected size', async () => {
+  const body = Readable.from([Buffer.from('data'), Buffer.from('extra')])
+  const closed = new Promise((resolve) => body.on('close', resolve))
+  const ok = await unitVerify({
+    headAsset: async () => ({ size: 4 }),
+    readAsset: async () => ({ body, size: 4 })
+  })
+  assert.equal(ok, false)
+  await closed
 })

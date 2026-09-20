@@ -23,6 +23,14 @@ only on disk. A `pg_dump` with no `<dataPath>` backup still restores every uploa
 bytes; it's `<dataPath>`'s _cache and working directories_ (below) that a DB-only backup does not
 cover.
 
+**That stops being true once you run the database target's "Purge All Assets" action.** Purge
+deletes `assets.data` and `assets.preview` for every asset an `s3`, `azure` or `gcs` target can serve
+on its own (Direct Access or Read-Through), after checking that the bucket's copy matches the
+database's in size and SHA-256. From then on the bytes live only in the bucket, so a `pg_dump` alone
+no longer holds them: back up the bucket (or rely on its own versioning and replication) alongside
+the database, and restore both together. An asset whose copy fails the check is left in the database
+and reported as `unverified` in the action's result.
+
 The database also holds two secrets an operator cannot regenerate from anything else:
 
 - **The API-key signing keypair** (`settings.auth.certs`, generated once at install by
