@@ -6,22 +6,11 @@ import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 import { createTestRouter } from '../../test/router.js'
 
-/**
- * OpenProject #2649 (Feature #2606): the Watching section of the page metadata rail.
- *
- * What the design draws is a run of at most three initial plates plus a `+N` remainder for everybody
- * past them; what the parent Feature settles is that the section is ABSENT -- heading and rule
- * included -- on a page nobody watches. Both are asserted here against the real `Index.vue`, mounted
- * through the shared harness with the watchers route stubbed, rather than against a stand-in: the
- * section's visibility is a computed off a fetch this view runs itself, and that fetch is the only
- * part of it worth faking.
- */
-
 /*
   `useMinWidth` (via `useScreen`) calls `window.matchMedia`, and the common store reads
-  `localStorage` the moment it is instantiated -- both needed by any full page-view mount, and both
-  stubbed locally here for the reason `Index.view.test.js` states rather than in the shared
-  `test/setup.js`, which would be a bigger claim about every future test than this one warrants.
+  `localStorage` the moment it is instantiated -- both needed by any full page-view mount. Stubbed
+  here rather than in the shared `test/setup.js`, which would be a bigger claim about every future
+  test than this one warrants.
 */
 beforeEach(() => {
   window.matchMedia =
@@ -59,7 +48,7 @@ async function settle(wrapper) {
   await wrapper.vm.$nextTick()
 }
 
-/** As many watchers as asked for, named so that no two draw the same two letters. */
+/** Names chosen so that no two watchers draw the same two letters. */
 function makeWatchers(count) {
   const names = [
     'Dylan Hart',
@@ -79,15 +68,10 @@ function makeWatchers(count) {
 }
 
 /**
- * Mounts the page view with the watchers route answering `payload`, then puts a page on screen.
- *
  * The page is seeded onto the store AFTER the mount has settled rather than through `mountWithApp`'s
  * own seeding, because this view's route watcher runs `pageLoad` immediately and that request is not
  * what these tests stub: left to race, its failure blanks the very page id they just seeded. Seeding
  * once it has already failed is what makes the watchers fetch the only request in flight.
- *
- * `sidebar: false` seeds a site with the rail switched off, for the one test that asserts nothing is
- * asked for at all in that case.
  */
 async function mountIndex({ payload, sidebar = true } = {}) {
   const api = stubApi({ [WATCHERS_URL]: payload })
@@ -162,8 +146,6 @@ describe('Index.vue: the rail Watching section (OpenProject #2649)', () => {
   it('renders no section when the watchers request fails, rather than an error in the rail', async () => {
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    // -> A refusal from the route itself (a page this reader may not read answers 404), which is
-    //    what a `stubApi` route whose value is a throwing function stands for.
     const { wrapper } = await mountIndex({
       payload: () => {
         throw new Error('refused')
@@ -210,11 +192,10 @@ describe('Index.vue: the rail Watching section (OpenProject #2649)', () => {
   })
 
   /**
-   * OpenProject #2722. `pageStore.isWatching` flips synchronously, well before the PUT it kicks off
-   * has resolved -- a re-fetch keyed on it (as this suite used to seed directly, bypassing the real
-   * write entirely) asks the server for the watcher list while that write is still in flight and gets
-   * back the state from before the click. Driving the real `pageStore.pageWatch()` with a deferred PUT
-   * is what actually exercises the ordering: no GET may fire until the write resolves.
+   * `pageStore.isWatching` flips synchronously, well before the PUT it kicks off has resolved, so a
+   * re-fetch keyed on it reads back the state from before the click. Driving the real
+   * `pageStore.pageWatch()` with a deferred PUT is what exercises the ordering: no GET until the
+   * write resolves.
    */
   it('re-fetches the watchers only after the write resolves, not on the optimistic isWatching flip', async () => {
     let answer = { watchers: [], total: 0 }
@@ -233,12 +214,10 @@ describe('Index.vue: the rail Watching section (OpenProject #2649)', () => {
     const pending = pageStore.pageWatch(true)
     await settle(wrapper)
 
-    // -> The bell has already flipped, but the write has not resolved -- no new GET must have fired.
     expect(pageStore.isWatching).toBe(true)
     expect(api.calls.length).toBe(callsBeforeToggle)
     expect(plates(wrapper)).toHaveLength(0)
 
-    // -> Only now does the server actually have the row, so only now may the fetch see it.
     answer = { watchers: makeWatchers(1), total: 1 }
     resolvePut({ ok: true, isWatching: true })
     await pending
@@ -249,11 +228,10 @@ describe('Index.vue: the rail Watching section (OpenProject #2649)', () => {
   })
 
   /**
-   * OpenProject #2722's second, independent cause: the route returns only the oldest
-   * `WATCHER_PLATE_CAP` watchers, so on a page that already has that many the reader's own,
-   * freshly-added row -- always the newest -- falls outside the slice entirely. The rail must show it
-   * anyway whenever the reader is watching, never a "watching" bell beside a plate row they are absent
-   * from.
+   * The route returns only the oldest `WATCHER_PLATE_CAP` watchers, so on a page that already has
+   * that many the reader's own, freshly-added row -- always the newest -- falls outside the slice
+   * entirely. The rail must show it anyway whenever the reader is watching, never a "watching" bell
+   * beside a plate row they are absent from.
    */
   it("pins the reader's own plate first even when the fetch's oldest-N slice would drop them", async () => {
     const { wrapper, pageStore, userStore } = await mountIndex({
@@ -270,8 +248,7 @@ describe('Index.vue: the rail Watching section (OpenProject #2649)', () => {
     const rows = plates(wrapper)
     expect(rows).toHaveLength(3)
     expect(rows[0].attributes('title')).toBe('Self Reader')
-    // -> Still 3 plates (self plus two of the three fetched) against a total of 4 -> a +1 remainder,
-    //    not +0: the reader being pinned in did not shrink how many watchers still go uncounted.
+    // -> +1, not +0: pinning the reader in did not shrink how many watchers still go uncounted.
     expect(wrapper.find('.page-watchers-remainder').text()).toBe('+1')
   })
 

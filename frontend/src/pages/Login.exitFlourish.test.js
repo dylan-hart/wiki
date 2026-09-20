@@ -5,11 +5,9 @@ import Login from './Login.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2747/#2750 ("Login exit flourish"): `AuthLoginPanel`'s `exit-flourish` emit (fired on
- * a successful login, before its own delayed `window.location.replace()`) flips `Login.vue`'s
- * `auth--exiting` class, which is what plays the `.auth-content`/`.auth-bg` exit animation. This is a
- * full round trip through the real `AuthLoginPanel`, not a stub emitting the event directly, so it
- * proves the two components' sides of the contract actually meet.
+ * A full round trip through the real `AuthLoginPanel` rather than a stub emitting `exit-flourish`
+ * directly, so both sides of that contract are exercised: the panel's emit and `Login.vue`'s
+ * `auth--exiting` class, which plays the exit animation before the delayed navigation.
  */
 
 const MESSAGES = {

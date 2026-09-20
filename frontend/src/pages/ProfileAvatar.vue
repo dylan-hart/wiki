@@ -3,9 +3,8 @@
     <h1 class="w-section-header">{{ t('profile.avatar') }}</h1>
     <div class="p-4">
       <!--
-        The same stacked shape AdminGeneral's logo and favicon rows use -- the pair of buttons at the
-        trailing edge and the image itself in the row's `preview` slot, which spans the full width
-        under both halves. Not a second stacked variant: this is the one WSettingsRow already draws.
+        The image goes in the row's own `preview` slot, which spans the full width under both
+        halves -- the stacked shape WSettingsRow already draws, not a second variant.
       -->
       <w-settings-card :title="t('profile.avatar')">
         <w-settings-row
@@ -45,9 +44,9 @@
                   :src="`/_user/current/avatar?` + state.assetTimestamp"
                   :alt="userStore.name" />
                 <!--
-                  -> A manual upload always wins; the provider-synced picture is only a fallback
-                     (Task #3264) -- there is no "clear" for it here since it isn't stored by this
-                     page's upload/clear routes, only cached at login.
+                  -> A manual upload always wins; the provider-synced picture is only a fallback,
+                     and has no "clear" of its own -- this page's routes never stored it, login
+                     merely cached it.
                 -->
                 <img
                   v-else-if="userStore.avatarProviderUrl"
@@ -77,36 +76,25 @@ import { computed, reactive } from 'vue'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-// STORES
-
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('profile.avatar')
 }))
-
-// DATA
 
 const state = reactive({
   loading: 0,
   assetTimestamp: new Date().toISOString()
 })
 
-/** What the upload endpoint accepts. */
+/** Mirrors what the upload endpoint accepts. */
 const acceptedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 
 const canEdit = computed(() => siteStore.features?.profile)
-/** Whichever avatar actually renders -- the manual upload, or its provider-synced fallback. */
 const showsImage = computed(() => userStore.hasAvatar || Boolean(userStore.avatarProviderUrl))
-
-// METHODS
 
 async function uploadImage() {
   const input = document.createElement('input')
@@ -118,8 +106,8 @@ async function uploadImage() {
     if (!file) {
       return
     }
-    // -> The file picker's filter is a suggestion the user can override, and the server checks the
-    //    bytes anyway; saying so here beats a 415 with nothing to explain it
+    // -> The picker's filter is a suggestion the user can override; saying so here beats the
+    //    server's own 415 with nothing to explain it.
     if (!acceptedTypes.includes(file.type)) {
       notify({
         type: 'negative',
@@ -129,11 +117,11 @@ async function uploadImage() {
       return
     }
     state.loading++
-    // -> OpenProject #3282: see ProfileInfo.vue's save() for why this is counted separately from
-    //    state.loading above (which is local and would be lost if the reader switches sections).
+    // -> Counted separately from `state.loading`, which is local to this section and lost the
+    //    moment the reader switches away from it.
     profileSaving.begin()
     try {
-      // -> The image is the request body itself: the endpoint takes the raw file, not a form
+      // -> The endpoint takes the raw file as the request body, not a form.
       await API_CLIENT.put('users/profile/avatar', {
         body: file,
         headers: {

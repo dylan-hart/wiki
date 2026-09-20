@@ -6,15 +6,10 @@
       <p class="auth-lead">{{ t('auth.loginToContinue') }}</p>
       <auth-login-panel @exit-flourish="exiting = true" />
       <!--
-        The colophon, inside the column rather than under the whole shell.
-
-        `Cardinal Wiki - Login 3x.dc.html` draws it as the last thing in the 500px column -- 26px
-        below the panel, centred, 11px mono, no band and no rule -- not as the page-wide footer bar
-        every other layout ends in. It used to be an `AuthLayout` `<w-footer>`, which put it beneath
-        a row that is already `100vh` tall: the right content (task 749 added it for exactly that
-        reason) in a place nobody could see without scrolling a screen that does not otherwise
-        scroll. `.auth-colophon` takes the bar's tint and rule back off; `FooterNav` itself is
-        untouched, since `MainLayout` and `AdminLayout` still want the band.
+        Inside the column, not under the whole shell: the row is already `100vh` tall, so a
+        page-wide footer bar below it is unreachable on a screen that does not otherwise scroll.
+        `.auth-colophon` takes the bar's tint and rule back off; `FooterNav` itself stays the band
+        `MainLayout` and `AdminLayout` want.
       -->
       <div class="auth-colophon"><footer-nav /></div>
     </div>
@@ -33,25 +28,16 @@ import { useSiteStore } from '@/stores/site'
 import AuthLoginPanel from '@/components/AuthLoginPanel.vue'
 import FooterNav from '@/components/FooterNav.vue'
 
-// STORES
-
 const siteStore = useSiteStore()
-
-// I18N
 
 const { t } = useI18n()
 
 /*
-  OpenProject #2747/#2750: `AuthLoginPanel`'s `exit-flourish` emit (fired on a successful login, once
-  the `cardinal:justLoggedIn` sessionStorage flag is set and unless `prefers-reduced-motion` is set)
-  flips this to play the `.auth-content`/`.auth-bg` exit animation below, immediately before the
-  panel's own delayed `window.location.replace()` tears the SPA down. Never reset back to `false` --
-  the whole page is about to be replaced by the hard navigation, so there is no "after" state to
-  return to.
+  Flipped by `AuthLoginPanel`'s `exit-flourish` emit to play the exit animation below, immediately
+  before the panel's own delayed `window.location.replace()` tears the SPA down. Never reset back to
+  `false`: the hard navigation replaces the whole page, so there is no "after" state to return to.
 */
 const exiting = ref(false)
-
-// META
 
 useMeta(() => ({
   title: t('auth.login.title')
@@ -59,44 +45,27 @@ useMeta(() => ({
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Selectors stay flat: `&-suffix` concatenation is a Sass idiom, not valid in native CSS nesting,
+   and a browser silently drops such a rule rather than reporting it. */
 /*
   The login screen, and with it the auth panel's shared visual language.
 
   Unscoped on purpose, and `.auth`-prefixed throughout: `AuthLoginPanel`, `AuthRegisterScreen` and
-  `AuthTfaScreens` only ever render inside this column, and the two design files draw them as one
-  continuous surface rather than three components that happen to be adjacent. Holding the tones, the
-  rhythm and the frames in one place is what stops the three from drifting apart the way the
-  `acrylic-btn` / `color="primary"` treatment they each carried already had. Anything that is a
-  MEASUREMENT of a control -- a button's own band height -- goes through `WBtn`'s `size`/`padding`
-  props at the call site instead, since its `min-height` is an inline style no stylesheet rule can
-  reach without `!important`.
-
-  Reference: `ui-redesign/Cardinal Wiki - Login 3x.dc.html` and `- Auth Screens 3x.dc.html`.
+  `AuthTfaScreens` only ever render inside this column and are drawn as one continuous surface, so
+  holding the tones, the rhythm and the frames in one place is what stops the three from drifting
+  apart. Anything that is a MEASUREMENT of a control -- a button's own band height -- goes through
+  `WBtn`'s `size`/`padding` props at the call site instead, since its `min-height` is an inline
+  style no stylesheet rule can reach without `!important`.
 */
 .auth {
-  /*
-    OpenProject #2779: every color below moved off the old Sass `_theme.scss`'s literal `$`-prefixed
-    variables onto the equivalent `var(--color-*)` custom property. The Ledger value each token
-    resolves to is unchanged (`_theme.scss` and `tailwind.css`'s `:root`/`@theme static` blocks were
-    the same palette in two faces before the former was deleted), so this is a no-op under Ledger --
-    the SCSS variables never followed `body.body--cobalt`'s token overrides, so under Cobalt this
-    whole screen used to render
-    with Ledger's white/ink/slate literals regardless of the site's aesthetic.
-  */
   background-color: var(--color-surface);
   color: var(--color-text-body);
   display: flex;
   align-items: stretch;
   /*
-    On the row, not on the background pane alone. The pane used to carry a fixed `height: 100vh`,
-    which made it the thing setting the screen's height -- so a column taller than the viewport (the
-    register form on a site with several strategies) overflowed it instead of growing it. A minimum
-    on the row lets either side be the taller one.
+    A minimum on the row, not a fixed height on the background pane: a column taller than the
+    viewport (the register form on a site with several strategies) must grow the screen, not
+    overflow a pane that is setting its height.
   */
   min-height: 100vh;
 }
@@ -108,7 +77,6 @@ useMeta(() => ({
   flex: 1 0 100%;
   width: 100%;
   max-width: 500px;
-  /* -> The design's `48px 56px`; this was `3rem 4rem`, 8px wider on each side */
   padding: 48px 56px;
   display: flex;
   flex-direction: column;
@@ -116,11 +84,8 @@ useMeta(() => ({
   align-items: stretch;
   box-sizing: border-box;
   /*
-    OpenProject #2747/#2750: the exit flourish -- `AuthLoginPanel`'s `exit-flourish` emit flips
-    `.auth--exiting` on, and this scales/fades the column out over the panel's own ~320ms navigation
-    budget (`AuthLoginPanel.vue`'s `EXIT_FLOURISH_MS`) so the hard reload doesn't cut a static screen
-    away with no transition at all. `transform-origin: center` keeps the scale-down concentric rather
-    than drifting toward a corner.
+    The exit flourish plays inside the panel's own navigation budget, so this duration must stay in
+    step with `AuthLoginPanel.vue`'s `EXIT_FLOURISH_MS`.
   */
   transition:
     transform 320ms ease-out,
@@ -140,11 +105,7 @@ useMeta(() => ({
   height: 192px;
 }
 .auth {
-  /*
-    The wordmark. Cardinal sets it in the display face, uppercase and letter-spaced -- the same
-    treatment the header band's own site title takes -- rather than in the body face at whatever
-    case the site happened to type its name in.
-  */
+  /* The wordmark, in the display face the header band's own site title takes. */
 }
 .auth-site-title {
   font-family: var(--font-display);
@@ -172,10 +133,7 @@ useMeta(() => ({
   color: var(--color-text-secondary-dark);
 }
 .auth {
-  /*
-    A screen's own subtitle, once the panel has switched away from the login form -- register, 2FA,
-    forgot, reset. The auth-screens sheet sets each at 13.5px with 14px beneath it.
-  */
+  /* A screen's own subtitle, once the panel has switched away from the login form. */
 }
 .auth-subtitle {
   font-size: 13.5px;
@@ -188,9 +146,8 @@ useMeta(() => ({
 }
 .auth {
   /*
-    A statement rather than a subtitle -- "check your emails to activate your account", "this site
-    requires two-factor authentication". The design sets these a tier darker than a subtitle, in the
-    chrome tone, because they are the whole content of the screen rather than a preamble to a form.
+    A statement rather than a subtitle -- "check your emails to activate your account". A tier
+    darker than a subtitle, because it is the whole content of the screen, not a preamble to a form.
   */
 }
 .auth-notice {
@@ -203,7 +160,7 @@ useMeta(() => ({
   color: var(--color-text-dark);
 }
 .auth {
-  /* -> The first line of the 2FA setup screen, which the design leads with in semibold */
+  /* -> The 2FA setup screen's lead line */
 }
 .auth-notice--lead {
   font-weight: 600;
@@ -230,11 +187,9 @@ useMeta(() => ({
 }
 .auth {
   /*
-    The fields. The design draws each as a bare hairline box with a leading glyph and no label above
-    it -- so the label is passed as a placeholder plus an `aria-label` instead (the conversion
-    `PagePropertiesDialog.vue` already made, for the same reason), and the box takes the design's own
-    height. `min-height` here is a utility CLASS on the control, not an inline style, so an unlayered
-    rule beats `min-h-[34px]` without `!important`.
+    Each field is a bare hairline box with no label above it, so its label is passed as a
+    placeholder plus an `aria-label`. `min-height` on the control is a utility CLASS rather than an
+    inline style, so an unlayered rule beats it without `!important`.
   */
 }
 .auth-field .w-input-control {
@@ -250,16 +205,10 @@ useMeta(() => ({
 }
 .auth {
   /*
-    The blueprint corner marks on a primary action: two 6px right-angles standing 3px outside the
-    top-left and bottom-right corners. The same mark the page header's icon plate draws, and for the
-    same reason -- this is the thing being pointed at. Two corners rather than four is what both auth
-    sheets draw. Drawn in the bright accent, which is what a mark is (ink, carrying no text); the
-    button's own fill carries a white label and therefore stays on the accent fill role (`WBtn`'s own
-    `--shadow-primary` glow for a solid `color="accent"` button, OpenProject #2813).
-
-    OpenProject #2779: `display: var(--corner-marks)` on each pseudo-element is `block` (a no-op)
-    under Ledger and `none` under Cobalt, matching `NavEditMenu.vue`/`NavItemEditor.vue`'s identical
-    construction -- Cobalt's cards and controls carry no registration marks at all.
+    The blueprint corner marks on a primary action: two right-angles standing outside the top-left
+    and bottom-right corners, drawn in the accent, which is what a mark carrying no text is.
+    `display: var(--corner-marks)` gates them per aesthetic -- `block` under Ledger, `none` under
+    Cobalt, whose cards and controls carry no registration marks at all.
   */
 }
 .auth-marks {
@@ -288,9 +237,8 @@ useMeta(() => ({
 }
 .auth {
   /*
-    Every glyph in an auth button. `WBtn` scales an icon to its own line height (1.715em), which at
-    these larger labels draws a 24px glyph where both sheets draw 15-16px. Stated as a ratio rather
-    than a length, so the one rule covers all five band sizes.
+    `WBtn` scales an icon to its own line height, which at these larger labels draws a glyph half
+    again too big. A ratio rather than a length, so the one rule covers every band size.
   */
 }
 .auth .w-btn .w-icon {
@@ -298,9 +246,8 @@ useMeta(() => ({
 }
 .auth {
   /*
-    The colophon. `FooterNav` draws itself as a tinted, ruled bar for the two layouts that end a
-    scrolling page in one; here it is a line of type at the foot of the column, which is what the
-    design draws. The mono face, the 11px and the caption tone are already the bar's own.
+    `FooterNav` draws itself as a tinted, ruled bar for the layouts that end a scrolling page in
+    one; at the foot of this column it is a line of type instead, so the band comes back off.
   */
 }
 .auth-colophon {
@@ -316,15 +263,13 @@ useMeta(() => ({
   flex-basis: 0;
   position: relative;
   /*
-    The design's own ground, and the answer to which of three grounds this pane has: the tint is
-    the LAYOUT's, and a site's uploaded login background sits on top of it. With nothing painted
-    here, a site that has never uploaded one showed a white pane beside a white column and the
-    split read as a rendering fault rather than as a screen.
+    A site's uploaded login background sits on top of this tint. Without it, a site that has never
+    uploaded one draws a white pane beside a white column, which reads as a rendering fault.
   */
   background-color: var(--color-tint);
   min-height: 100vh;
   overflow: hidden;
-  /* -> The exit flourish's fade, matching `.auth-content`'s own duration/easing */
+  /* -> Matches `.auth-content`'s own duration and easing */
   transition: opacity 320ms ease-out;
 }
 .body--dark .auth-bg {
@@ -344,10 +289,8 @@ useMeta(() => ({
 }
 .auth {
   /*
-    OpenProject #2747/#2750: the exit flourish's end state, toggled by `AuthLoginPanel`'s
-    `exit-flourish` emit (see `script setup`'s `exiting` ref). `.auth-content` scales down and fades
-    out together; `.auth-bg` only fades -- the design calls for the background pane to dim rather than
-    shrink with the column in front of it.
+    The exit flourish's end state. `.auth-bg` only fades -- the background pane dims rather than
+    shrinking with the column in front of it.
   */
 }
 .auth--exiting .auth-content {
@@ -359,9 +302,8 @@ useMeta(() => ({
 }
 @media (prefers-reduced-motion: reduce) {
   .auth {
-    /* -> Defence in depth: `AuthLoginPanel.vue` already skips emitting `exit-flourish` under reduced */
-    /*    motion, so `&--exiting` is never applied here, but a transition duration of zero means this */
-    /*    holds even if that class were ever toggled some other way. */
+    /* -> Defence in depth: `AuthLoginPanel.vue` already skips the `exit-flourish` emit under */
+    /*    reduced motion, so `.auth--exiting` never lands here however it were toggled. */
   }
   .auth-content,
   .auth-bg {

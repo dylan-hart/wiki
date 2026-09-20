@@ -48,7 +48,6 @@
       </w-item-section>
     </w-item>
     <w-separator inset />
-    <!-- -> Feature #3051 / Task #3068: per-user override of the site's `contentWidth` admin setting. -->
     <w-item>
       <blueprint-icon icon="tabler:arrows-horizontal" />
       <w-item-section>
@@ -73,9 +72,8 @@
       </w-item-section>
       <w-item-section>
         <!--
-          The virtual-scroll props the previous control took are gone: WSelect renders its options
-          directly. The timezone list is the longest in the app and the dropdown scrolls internally,
-          so this trades a few hundred DOM nodes for a much simpler component.
+          The longest option list in the app, rendered whole: `WSelect` does not virtualise, and the
+          dropdown scrolls internally -- a few hundred DOM nodes for a much simpler component.
         -->
         <w-select
           ref="timezoneField"
@@ -157,39 +155,25 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 /*
-  OpenProject #3315 (Feature #3314): split out of `ProfileInfo.vue`, which used to render THEME/TIME
-  (as one combined "Preferences" section)/ACCESSIBILITY alongside the identity fields. Both pages now
-  edit disjoint field subsets of the SAME `users/profile` record, so this page fetches and holds the
-  *whole* profile -- mirroring `ProfileInfo.vue`'s own `applyProfile()`/`state.config` shape -- and
-  `save()` PUTs the whole object back too. The identity fields below are carried through unmodified
-  (this page renders no control for them), which is what keeps this page's auto-save from clobbering
-  `ProfileInfo.vue`'s fields, and vice versa. Only one Profile section is ever mounted at a time
-  (`ProfileOverlay.vue`'s `<component :is>`), so the two pages are never actually editing
-  concurrently -- this shape guards the round-trip, not a live race between them.
+  This page and `ProfileInfo.vue` edit disjoint field subsets of the SAME `users/profile` record,
+  and a save PUTs the whole object, so each holds the whole profile and carries the other's fields
+  through unmodified. Only one Profile section is mounted at a time (`ProfileOverlay.vue`'s
+  `<component :is>`), so this guards the round-trip, not a live race between the two.
 */
-
-// STORES
 
 const commonStore = useCommonStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('profile.preferences')
 }))
 
-// DATA
-
 const state = reactive({
   config: {
-    // -> Carried through unmodified -- ProfileInfo.vue owns editing these, this page only round-trips
-    //    them so its own save() does not clobber them.
+    // -> Round-tripped only: `ProfileInfo.vue` owns editing these.
     name: '',
     firstName: '',
     lastName: '',
@@ -199,39 +183,32 @@ const state = reactive({
     timezone: '',
     dateFormat: '',
     timeFormat: '12h',
-    // -> `null` rather than a hardcoded default, same reasoning as `ProfileInfo.vue` (OpenProject
-    //    #3281): `WBtnToggle`'s selection check (`opt.value === modelValue`) is false for every
-    //    segment when this is `null`, so nothing renders pre-selected until `applyProfile()` sets the
-    //    real value. A failed fetch leaves these `null` on purpose -- the `profile.infoLoadingFailed`
-    //    toast below is the signal, no silent fallback value here.
+    // -> `null`, not a hardcoded default: `WBtnToggle`'s selection check (`opt.value ===
+    //    modelValue`) is false for every segment then, so nothing renders pre-selected and flashes
+    //    across when `applyProfile()` lands. A failed fetch leaves them `null`; the toast is the
+    //    signal, not a silent fallback value.
     aesthetic: null,
     appearance: null,
     contentWidth: null,
     cvd: null
   },
   loading: 0,
-  // -> The only server error code this page can pin to a specific control -- see `applyFieldErrors`.
   fieldErrors: {
     timezone: null
   }
 })
 
 /*
-  Task #3320 (Feature #3319): every field this page owns editing is a toggle or a select -- there is
-  no intermediate "typing" state the way there is for a text field, so each one saves immediately on
-  its own change event (`onFieldChange` below) rather than through a debounce. `ProfileInfo.vue`
-  keeps a debounce of its own for the text fields it still owns; nothing here needs one, which is why
-  this page carries no `debounce`/`AUTO_SAVE_DEBOUNCE_MS` of its own the way it used to before the
-  split (OpenProject #3315) put only toggle/select controls on this page.
+  Every field here is a toggle or a select, with no intermediate "typing" state to wait out, so each
+  saves immediately from its own change event and this page needs no debounce at all.
 */
 
 const timezoneField = ref(null)
 
 /*
-  `WSelect` only re-runs its own `rules` on its own `modelValue` change or blur (see
-  `fieldFrame.js`/`WInput.vue`) -- it does not fire just because `state.fieldErrors` changed out from
-  under it, so every place that mutates it also calls this to force the field to re-read it
-  immediately, rather than waiting for the reader to touch it again.
+  `WSelect` re-runs its `rules` only on its own `modelValue` change or blur, never because
+  `state.fieldErrors` changed under it, so every writer of that object calls this to make the field
+  re-read it instead of waiting for the reader to touch it again.
 */
 function revalidateFieldRefs() {
   timezoneField.value?.validate()
@@ -276,12 +253,6 @@ const timezones = Intl.supportedValuesOf('timeZone')
 
 const canEdit = computed(() => siteStore.features?.profile)
 
-// METHODS
-
-/*
-  Task #3320: every field on this page calls this directly from its own change event -- see the
-  module-level comment above `timezoneField`.
-*/
 function onFieldChange(field, value) {
   state.config[field] = value
   if (suppressAutoSave || !canEdit.value) {
@@ -291,9 +262,8 @@ function onFieldChange(field, value) {
 }
 
 /**
- * The profile is read from the server rather than from the user store, same reasoning as
- * `ProfileInfo.vue`'s own `fetchProfile()`: the store only holds what the session carries, while the
- * rest of the record lives in the user's metadata and is not part of it.
+ * Read from the server rather than from the user store: the store holds only what the session
+ * carries, while the rest of the record lives in the user's metadata.
  */
 async function fetchProfile() {
   state.loading++
@@ -311,10 +281,9 @@ async function fetchProfile() {
 }
 
 /*
-  Set for the duration of every programmatic rewrite of `state.config` -- the initial load below and
-  the post-save re-apply of the server's own echoed profile in `save()` -- and released only once Vue
-  has flushed the reactive effects those assignments scheduled (`nextTick`). Without it, loading the
-  profile (or a successful save re-syncing it) would itself look like an edit and queue another save.
+  Without this, a programmatic rewrite of `state.config` -- the initial load, or re-applying the
+  profile a save echoed back -- would look like an edit and fire another save. Released only after
+  `nextTick`, once the reactive effects those assignments scheduled have flushed.
 */
 let suppressAutoSave = true
 
@@ -326,7 +295,6 @@ function applyProfile(profile) {
   state.config.location = profile.location || ''
   state.config.jobTitle = profile.jobTitle || ''
   state.config.pronouns = profile.pronouns || ''
-  // -> No stored time zone means "whatever the browser resolves"
   state.config.timezone = profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || ''
   state.config.dateFormat = profile.dateFormat || ''
   state.config.timeFormat = profile.timeFormat || '12h'
@@ -340,9 +308,8 @@ function applyProfile(profile) {
 }
 
 /**
- * `userProfileInvalidTimezone` is the only server error code this page can pin to a specific
- * control -- `userProfileInvalidName` (the other one `ProfileInfo.vue` handles) can never fire from
- * a save originating here, since this page always carries the name fields through unmodified.
+ * `userProfileInvalidTimezone` is the only failure this page can pin to a control: the name fields
+ * it carries through unmodified cannot be rejected by a save originating here.
  */
 function applyFieldErrors(err) {
   const code = err?.data?.error
@@ -360,30 +327,24 @@ function clearFieldErrors() {
 }
 
 /*
-  OpenProject #3325/#3344: two rapid `onFieldChange` calls (see the module comment above it) each
-  send their own PUT built synchronously from `state.config`, but nothing sequences the two
-  RESPONSES -- whichever lands last would otherwise unconditionally overwrite `state.config` via
-  `applyProfile()` below, or pin a stale field error, even when it is the OLDER of the two in-flight
-  saves. `saveGeneration` is incremented at the start of every `save()` call; a response -- success OR
-  failure -- is applied only if no newer `save()` has started since, the same shape
-  `composables/adminSettings.js`'s `load()` already uses to drop a stale response (Task #3195).
-  `profileSaving.begin()`/`.end()` stay outside this guard (OpenProject #3282): they track requests in
-  flight, not which response wins, so every call runs them regardless of whether its own response
-  ends up applied or dropped as stale.
+  Two rapid `onFieldChange` calls each send their own PUT and nothing sequences the two responses,
+  so the older one could land last and overwrite `state.config` through `applyProfile()` or pin a
+  stale field error. A response -- success or failure -- is applied only while no newer `save()` has
+  started since. `profileSaving.begin()`/`.end()` stay outside the guard: they track requests in
+  flight, not which response wins.
 */
 let saveGeneration = 0
 
 async function save() {
   clearFieldErrors()
   const generation = ++saveGeneration
-  // -> OpenProject #3282: counted around the request so ProfileOverlay.vue's close button and
-  //    MainOverlayDialog.vue's dismiss guard both see this save while it's in flight, even if the
-  //    reader switches away from this section (which unmounts it) before it settles.
+  // -> Counted on the shared module singleton, not locally: `ProfileOverlay.vue`'s close button and
+  //    `MainOverlayDialog.vue`'s dismiss guard must still see this save if the reader switches away
+  //    from the section -- which unmounts it -- before it settles.
   profileSaving.begin()
   try {
     const resp = await API_CLIENT.put('users/profile', {
       json: {
-        // -> Identity fields carried through unmodified -- see the module-level comment above.
         name: state.config.name,
         firstName: state.config.firstName,
         lastName: state.config.lastName,
@@ -397,20 +358,18 @@ async function save() {
         appearance: state.config.appearance,
         contentWidth: state.config.contentWidth,
         cvd: state.config.cvd,
-        // -> No dedicated form control on either profile page: whatever `LocaleSelectorMenu`
-        //    currently has the interface set to, persisted here so downstream per-user mail can
-        //    address this user in it.
+        // -> No form control of its own: `LocaleSelectorMenu` owns picking the UI language, and
+        //    saving records whatever it is set to as this user's mail preference.
         locale: commonStore.locale
       }
     }).json()
-    // -> OpenProject #3325/#3344: this save has been superseded by a newer one since it was sent --
-    //    drop the response rather than let it clobber whatever the newer save already applied (or is
-    //    still applying). See the comment above `saveGeneration`.
+    // -> Dropped outright once a newer save has started, rather than clobbering what that one has
+    //    already applied.
     if (generation === saveGeneration) {
       if (resp.profile) {
         applyProfile(resp.profile)
       }
-      // -> Only the fields this page owns editing -- the identity fields are ProfileInfo.vue's to
+      // -> Only the fields this page owns editing; the identity fields are `ProfileInfo.vue`'s to
       //    patch onto the store.
       userStore.$patch({
         timezone: state.config.timezone,
@@ -421,12 +380,11 @@ async function save() {
         contentWidth: state.config.contentWidth,
         cvd: state.config.cvd
       })
-      // -> Task #3220/#3320: ambient auto-save -- no success toast.
+      // -> No success toast: the auto-save is ambient.
     }
   } catch (err) {
-    // -> OpenProject #3344: same stale-response guard as the success branch above -- a superseded
-    //    failure gets neither the field-error pin nor the toast, since a newer save has already
-    //    applied (or is about to apply) its own outcome over whatever this one would have shown.
+    // -> Same guard as the success branch: a superseded failure gets neither the field-error pin
+    //    nor the toast, since a newer save has already applied its own outcome.
     if (generation === saveGeneration) {
       applyFieldErrors(err)
       notify({
@@ -438,8 +396,6 @@ async function save() {
   }
   profileSaving.end()
 }
-
-// MOUNTED
 
 onMounted(() => {
   fetchProfile()

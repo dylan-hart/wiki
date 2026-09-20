@@ -4,9 +4,8 @@
     <div class="p-4">
       <div class="text-body2">{{ t('profile.authInfo') }}</div>
       <!--
-        The plate is the provider's OWN logo rather than a generic glyph -- `img:` for a strategy
-        icon served as a file, which is what identifies a row here; every other settings row in the
-        app names its subject with a Tabler reference, and none of them stands for a third party.
+        `img:` rather than a Tabler reference: what identifies a row here is the provider's own
+        logo, served as a file.
       -->
       <w-settings-card class="mt-4" :title="t('profile.auth')">
         <w-settings-row
@@ -29,11 +28,8 @@
               {{ t('profile.authPasswordLoginOnlyMethod') }}
             </div>
             <!--
-              Only rendered once the status fetch (fired from `fetchAuthMethods()`) resolves --
-              absent while loading or on a failed fetch, since this is a nudge on top of an
-              auth-methods list that already rendered, not something worth its own error state.
-              Under the label rather than under the control, now that the row has one hint column
-              for everything it has to say about itself.
+              Absent while the status fetch is in flight and on a failed one: a nudge on top of an
+              auth-methods list that already rendered does not earn an error state of its own.
             -->
             <template v-if="auth.config.isTfaSetup && state.recoveryCodesStatus[auth.authId]">
               <div :class="isRecoveryCodesLow(auth.authId) ? 'text-negative' : 'text-grey-7'">
@@ -50,15 +46,14 @@
             </template>
           </template>
           <!--
-            One trigger rather than a row of buttons: these are occasional actions on a row that also
-            has to stay readable, and the settings row keeps its whole control column on one line.
+            One trigger rather than a row of buttons: the settings row keeps its whole control
+            column on one line, and these are occasional actions.
           -->
           <template v-if="auth.strategyKey === `local`">
             <div class="flex items-center gap-3">
               <!--
-                Says at a glance that the account is protected, without opening the menu to find out.
-                Only shown when 2FA is on: the absence of a badge is not a warning, since 2FA is
-                optional unless an administrator requires it.
+                Shown only when 2FA is on: its absence is not a warning, since 2FA is optional
+                unless an administrator requires it.
               -->
               <w-badge
                 v-if="auth.config.isTfaSetup"
@@ -70,9 +65,8 @@
                 <span>{{ t('profile.authTfaBadge') }}</span>
               </w-badge>
               <!--
-                Shaped like the Delete button on a passkey row -- same acrylic tint, drawn in the
-                brand blue instead of the negative red, which `acrylic-btn` picks up on its own since
-                it mixes its background out of `currentcolor`.
+                `acrylic-btn` mixes its background out of `currentcolor`, so the tint follows the
+                button's own colour with nothing further to set.
               -->
               <w-btn
                 class="acrylic-btn"
@@ -82,23 +76,14 @@
                 :aria-label="t(`profile.authActions`)">
                 <w-menu class="translucent-menu" auto-close anchor="bottom right" self="top right">
                   <!--
-                  `!min-w-0 !pe-2` on each icon section: an avatar section is a 56px column with 16px
-                  of padding after it, which is the right metric for a 40px avatar in a list row and
-                  far too much air beside a 24px icon in a menu. Both rules are scoped styles in
-                  WItemSection, hence `!` -- a layered utility cannot outrank them.
+                  `!min-w-0 !pe-2`: an avatar section is sized for a 40px avatar in a list row, far
+                  too much air beside a menu icon. Both rules are WItemSection scoped styles, hence
+                  `!` -- a layered utility cannot outrank them.
 
-                  The colours are literal classes rather than WIcon's `color` prop: that prop builds
-                  `text-${color}` at runtime, and Tailwind only emits a utility it can see spelled out
-                  in the source, so `color="blue-7"` would compile to a class that does not exist.
-
-                  OpenProject #2741: each colour carries its own `dark:` counterpart for the same
-                  reason -- a literal `dark:text-blue-4` / `dark:text-accent-dark` string, not a
-                  `dark.isActive ? … : …` conditional on the `color` prop, which would hit the exact
-                  same scanning gap this comment already describes. `blue-4` is the lighter rung of
-                  the same Material ramp `blue-7` sits on (`HeaderActionsMenu.vue` uses the same
-                  pairing for its own menu icons); `accent-dark` is Cardinal's own "brand red
-                  lightened for an ink ground" token, already used by `PageHistoryOverlay.vue`'s
-                  header icon for exactly that reason.
+                  The colours are literal classes, `dark:` counterparts included, rather than
+                  WIcon's `color` prop or a `dark.isActive` conditional: that prop builds
+                  `text-${color}` at runtime, and Tailwind only emits a utility it can see spelled
+                  out in the source.
                 -->
                   <w-list dense padding style="min-width: 240px">
                     <w-item clickable @click="changePassword(auth.authId)">
@@ -162,9 +147,8 @@
 
       <div class="text-body2 mt-6">{{ t('profile.passkeysIntro') }}</div>
       <!--
-        The card is only drawn once there is a passkey to put in it: an empty settings card is a
-        header strip over nothing, where the intro above and the Add button below already say what
-        this section is and what to do about it.
+        Drawn only once there is a passkey to put in it: an empty settings card is a header strip
+        over nothing, and the intro above and the Add button below already say what to do.
       -->
       <w-settings-card
         v-if="state.passkeys?.length > 0"
@@ -221,29 +205,20 @@ import SetupTfaDialog from '@/components/SetupTfaDialog.vue'
 import RecoveryCodesDialog from '@/components/RecoveryCodesDialog.vue'
 import PasskeyCreateDialog from '@/components/PasskeyCreateDialog.vue'
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('profile.auth')
 }))
 
-// DATA
-
 const state = reactive({
   authMethods: [],
   passkeys: [],
-  // -> Keyed by authId. Populated lazily after `fetchAuthMethods()`, one entry per local strategy
-  //    with 2FA active. Absent entry means either not applicable or the status fetch failed --
-  //    both render the same way (no remaining-count line), since this is a nudge, not a blocker.
+  // -> Keyed by authId, one entry per local strategy with 2FA active. An absent entry means either
+  //    not applicable or a failed status fetch, and both render the same: no remaining-count line.
   recoveryCodesStatus: {},
   loading: 0
 })
-
-// METHODS
 
 async function fetchAuthMethods() {
   state.loading++
@@ -264,10 +239,8 @@ async function fetchAuthMethods() {
 }
 
 /**
- * Fills in `state.recoveryCodesStatus` for every local auth method with 2FA active. Kept separate
- * from `fetchAuthMethods()`'s own try/catch: a failure here is silent (no `notify()`) since the
- * remaining-count line is a nudge on top of an auth-methods list that already rendered
- * successfully, not something worth surfacing as its own error toast.
+ * Kept out of `fetchAuthMethods()`'s own try/catch: a failure here stays silent, since the
+ * remaining-count line is a nudge on top of a list that already rendered, not its own error toast.
  */
 async function fetchRecoveryCodesStatuses() {
   const tfaMethods = state.authMethods.filter(
@@ -283,13 +256,12 @@ async function fetchRecoveryCodesStatuses() {
           state.recoveryCodesStatus[auth.authId] = { total: resp.total, remaining: resp.remaining }
         }
       } catch {
-        // -> Silent by design, see function doc comment above.
+        // -> Silent by design: the count is a nudge, not a blocker.
       }
     })
   )
 }
 
-/** Whether `authId`'s recovery codes are running low enough to nudge the user to regenerate. */
 function isRecoveryCodesLow(authId) {
   const status = state.recoveryCodesStatus[authId]
   if (!status || status.total <= 0) {
@@ -435,11 +407,7 @@ async function setupPasskey() {
     }
     loading.show()
 
-    // -> Generate registration options
-
     const genResp = await API_CLIENT.post('users/profile/passkeys/challenge').json()
-
-    // -> Start registration on the authenticator
 
     let attResp
     try {
@@ -451,8 +419,6 @@ async function setupPasskey() {
         throw err
       }
     }
-
-    // -> Prompt for passkey name
 
     loading.hide()
     const passkeyName = await new Promise((resolve, reject) => {
@@ -467,8 +433,6 @@ async function setupPasskey() {
         })
     })
     loading.show()
-
-    // -> Verify the authenticator response
 
     await API_CLIENT.post('users/profile/passkeys', {
       json: {
@@ -520,8 +484,6 @@ async function deactivatePasskey(pkey) {
     profileSaving.end()
   })
 }
-
-// MOUNTED
 
 onMounted(() => {
   fetchAuthMethods()

@@ -56,10 +56,9 @@
     </w-item>
     <w-separator inset />
     <!--
-      The display name is derived from the two halves above on every save, and shown here rather
-      than hidden so the override Feature #2608 grants is actually reachable: typing something
-      else authors it, and the server then leaves it alone through later half edits. Typing back
-      exactly what the halves derive to hands it back to derivation.
+      Derived from the two halves above, but shown rather than hidden so the override is reachable:
+      typing anything else authors the display name for good, and typing back exactly what the
+      halves derive to hands it back to derivation.
     -->
     <w-item>
       <blueprint-icon icon="tabler:id" />
@@ -167,23 +166,15 @@ import { useCommonStore } from '@/stores/common'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-// STORES
-
 const commonStore = useCommonStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('profile.myInfo')
 }))
-
-// DATA
 
 const state = reactive({
   config: {
@@ -197,26 +188,15 @@ const state = reactive({
     timezone: '',
     dateFormat: '',
     timeFormat: '12h',
-    // -> `null` rather than a hardcoded default: `WBtnToggle`'s selection check (`opt.value ===
-    //    modelValue`) is simply false for every segment when this is `null`, so the control renders
-    //    with nothing selected until `applyProfile()` (fetchProfile's onMounted, below) sets the real
-    //    value -- rather than flashing a guessed default first and then snapping to the real one
-    //    (OpenProject #3281). A failed fetch leaves these `null` on purpose: fetchProfile()'s catch
-    //    already raises the `profile.infoLoadingFailed` toast, and per that WP's own direction the
-    //    toast is the signal -- no silent fallback value here.
+    // -> `null`, not a guessed default: this page renders no control for these four and only
+    //    carries them through, so an unfetched value must stay visibly unset. `fetchProfile()`'s
+    //    toast is the only signal a failed load gets.
     aesthetic: null,
     appearance: null,
     contentWidth: null,
     cvd: null
   },
   loading: 0,
-  /*
-    `userProfileInvalidName` is the only server error code this page can pin to a specific control --
-    see `applyFieldErrors` below. `userProfileInvalidTimezone` moved to `ProfilePreferences.vue`
-    (OpenProject #3315) alongside the timezone control it names, since this page always carries
-    `timezone` through unmodified. Every other failure is reported only by the toast in `save()`'s
-    catch.
-  */
   fieldErrors: {
     name: null,
     firstName: null,
@@ -224,13 +204,8 @@ const state = reactive({
   }
 })
 
-/*
-  OpenProject #3321: the text fields' last-saved snapshot, for Esc to revert to. `state.config` only
-  ever holds the in-progress edit -- there was previously nothing to revert TO -- so this is a
-  parallel, deliberately shallow record of what the server last confirmed for each of them.
-  `snapshotTextFields()` (below) is the only writer, called once a profile fetch or a save response
-  has actually landed in `state.config`.
-*/
+// -> What Esc reverts to: `state.config` only ever holds the in-progress edit, so this parallel
+//    record holds what the server last confirmed. Written only once a fetch or save response lands.
 const TEXT_FIELDS = ['firstName', 'lastName', 'name', 'location', 'jobTitle', 'pronouns']
 const lastSaved = reactive({
   firstName: '',
@@ -247,14 +222,8 @@ function snapshotTextFields() {
   }
 }
 
-/*
-  Task #3220: auto-save is ambient, so its debounce has to run per keystroke rather than per
-  explicit click -- 800ms gives a reader a real pause to keep typing before a request goes out,
-  longer than the ~350-400ms this codebase uses for a typeahead search (there is nothing to react to
-  as fast as a dropdown of results here). OpenProject #3321: the text fields below no longer go
-  through this debounce at all -- they commit on blur/Enter instead (see `commitTextField`) -- so
-  this now only backs the toggle/select fields' watch further down.
-*/
+// -> Deliberately longer than the ~350-400ms this codebase uses for a typeahead: there is no
+//    dropdown of results to react to, so a reader gets a real pause before a request goes out.
 const AUTO_SAVE_DEBOUNCE_MS = 800
 
 const firstNameField = ref(null)
@@ -262,10 +231,9 @@ const lastNameField = ref(null)
 const nameField = ref(null)
 
 /*
-  `WInput` only re-runs its own `rules` on its own `modelValue` change or blur (see
-  `fieldFrame.js`/`WInput.vue`) -- it does not fire just because `state.fieldErrors` changed out from
-  under it, so every place that mutates it also calls this to force the affected control to re-read
-  it immediately, rather than waiting for the reader to touch the field again.
+  `WInput` re-runs its `rules` only on its own `modelValue` change or blur, never because
+  `state.fieldErrors` changed under it, so every writer of that object calls this to make the
+  affected control re-read it instead of waiting for the reader to touch the field again.
 */
 function revalidateFieldRefs() {
   firstNameField.value?.validate()
@@ -279,19 +247,13 @@ const nameRule = () => state.fieldErrors.name ?? true
 
 const canEdit = computed(() => siteStore.features?.profile)
 
-/*
-  Keeps the display name in step with the two halves until the reader overrides it. Without it,
-  editing a half alone would leave a stale `name` in the payload -- which the server reads as a
-  deliberate override and would freeze the display name for good. See the composable's own doc.
-*/
+// -> Without this, editing a half alone leaves a stale `name` in the payload, which the server
+//    reads as a deliberate override and freezes the display name for good.
 const { syncFromStored: syncDisplayName } = useDerivedDisplayName(() => state.config)
 
-// METHODS
-
 /**
- * The profile is read from the server rather than from the user store: the store only holds what the
- * session carries (name, email, preferences), while the location / job title / pronouns live in the
- * user's metadata and are not part of it.
+ * Read from the server rather than from the user store: the store holds only what the session
+ * carries, while location / job title / pronouns live in the user's metadata.
  */
 async function fetchProfile() {
   state.loading++
@@ -309,11 +271,9 @@ async function fetchProfile() {
 }
 
 /*
-  Set for the duration of every programmatic rewrite of `state.config` -- the initial load below and
-  the post-save re-apply of the server's own echoed profile in `save()` -- and released only once
-  Vue has flushed the reactive effects those assignments scheduled (`nextTick`), which is also when
-  the auto-save watcher's own job for this same change would run. Without it, loading the profile
-  (or a successful save re-syncing it) would itself look like an edit and queue another save.
+  Without this, a programmatic rewrite of `state.config` -- the initial load, or re-applying the
+  profile a save echoed back -- would look like an edit and queue another save. Released only after
+  `nextTick`, which is when the watcher's own job for those same assignments would have run.
 */
 let suppressAutoSave = true
 
@@ -326,7 +286,6 @@ function applyProfile(profile) {
   state.config.location = profile.location || ''
   state.config.jobTitle = profile.jobTitle || ''
   state.config.pronouns = profile.pronouns || ''
-  // -> No stored time zone means "whatever the browser resolves"
   state.config.timezone = profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || ''
   state.config.dateFormat = profile.dateFormat || ''
   state.config.timeFormat = profile.timeFormat || '12h'
@@ -336,8 +295,7 @@ function applyProfile(profile) {
   state.config.cvd = profile.cvd || 'none'
   // -> After the whole record is in the fields, not per-field: the answer depends on all three.
   syncDisplayName()
-  // -> OpenProject #3321: re-baseline Esc's revert target to what the server just confirmed, after
-  //    derivation above has had its say on `name`.
+  // -> After derivation has had its say on `name`: this is what Esc reverts to.
   snapshotTextFields()
   nextTick(() => {
     suppressAutoSave = false
@@ -345,12 +303,9 @@ function applyProfile(profile) {
 }
 
 /**
- * Maps the one kind of failure the server can pin to a specific control onto `state.fieldErrors`,
- * so the affected field carries its own inline error alongside the toast `save()`'s catch always
- * raises. `userProfileInvalidName` covers all three name fields at once (the server validates them
- * together); everything else -- including a validation failure with no dedicated error code, and
- * `userProfileInvalidTimezone` (handled by `ProfilePreferences.vue` now, OpenProject #3315) -- is
- * reported by the toast alone.
+ * `userProfileInvalidName` is the one failure this page can pin to controls, and it covers all
+ * three name fields at once because the server validates them together. Every other failure is
+ * reported by `save()`'s toast alone.
  */
 function applyFieldErrors(err) {
   const code = err?.data?.error
@@ -372,21 +327,16 @@ function clearFieldErrors() {
 
 async function save() {
   clearFieldErrors()
-  // -> OpenProject #3282: counted around the request so ProfileOverlay.vue's close button and
-  //    MainOverlayDialog.vue's dismiss guard both see this save while it's in flight, even if the
-  //    reader switches away from this section (which unmounts it) before it settles.
+  // -> Counted on the shared module singleton, not locally: `ProfileOverlay.vue`'s close button and
+  //    `MainOverlayDialog.vue`'s dismiss guard must still see this save if the reader switches away
+  //    from the section -- which unmounts it -- before it settles.
   profileSaving.begin()
   try {
-    // -> The email is displayed read-only and cannot be changed here, so it is left out entirely.
-    //    `locale` has no field of its own on this screen -- it is whatever the app's own locale
-    //    switcher (`LocaleSelectorMenu`) currently has the interface set to, persisted here so
-    //    downstream per-user mail can address this user in it.
+    // -> No `email` in the payload: it is read-only on this screen.
     const resp = await API_CLIENT.put('users/profile', {
       json: {
-        // -> All three are sent every time. The server owns the derive-unless-authored rule
-        //    (`models/users.ts#updateUser`) and treats a `name` equal to what the halves derive to
-        //    as "keep deriving", so submitting the whole form does not silently author every
-        //    account it touches -- which is why nothing here tracks whether the field was typed in.
+        // -> Sent even when derived: the server reads a `name` equal to what the halves derive to
+        //    as "keep deriving", so submitting the form authors nobody's display name by itself.
         name: state.config.name,
         firstName: state.config.firstName,
         lastName: state.config.lastName,
@@ -400,21 +350,20 @@ async function save() {
         appearance: state.config.appearance,
         contentWidth: state.config.contentWidth,
         cvd: state.config.cvd,
-        // -> No dedicated form control: `LocaleSelectorMenu` already owns picking the UI language,
-        //    so saving the profile records whatever that's currently set to as the mail preference.
+        // -> No form control of its own: `LocaleSelectorMenu` owns picking the UI language, and
+        //    saving records whatever it is set to as this user's mail preference.
         locale: commonStore.locale
       }
     }).json()
     if (resp.profile) {
       applyProfile(resp.profile)
     }
-    // -> Only the field this page owns editing -- the theme/time/accessibility fields are
-    //    ProfilePreferences.vue's to patch onto the store now (OpenProject #3315).
+    // -> Only the field this page owns editing; the theme/time/accessibility fields are
+    //    `ProfilePreferences.vue`'s to patch onto the store.
     userStore.$patch({
       name: state.config.name
     })
-    // -> Task #3220: ambient auto-save -- no success toast. The point is removing the need to
-    //    think about saving at all; a failure below still surfaces one, so nothing is silently lost.
+    // -> No success toast: the auto-save is ambient. The failure path below still raises one.
   } catch (err) {
     applyFieldErrors(err)
     notify({
@@ -427,11 +376,9 @@ async function save() {
 }
 
 /**
- * OpenProject #3321: commits one text field on blur or Enter -- a discrete save, not a per-keystroke
- * one, and not the debounced auto-save the toggle/select fields still use below. Skips the request
- * entirely when the field is back to (or still at) its last-saved value, which is also what makes an
- * Esc-then-blur a no-op rather than a redundant round-trip: `revertTextField` writes the old value
- * back before blurring, so by the time this runs the two already match.
+ * A discrete commit on blur or Enter, not the debounced auto-save the toggle/select fields use.
+ * The unchanged-value skip is also what makes an Esc-then-blur a no-op rather than a redundant
+ * round-trip: `revertTextField` writes the old value back before blurring, so the two already match.
  */
 function commitTextField(field) {
   if (!canEdit.value) {
@@ -444,18 +391,14 @@ function commitTextField(field) {
 }
 
 /**
- * OpenProject #3321: Esc reverts the field to its last-saved value and blurs it, cancelling the
- * in-progress edit. The explicit `blur()` is what makes this a *cancel* rather than merely a revert
- * the reader could still type back over -- and it routes back through `commitTextField` via the
- * field's own `@blur` handler above, which no-ops once the values already match rather than this
- * function needing its own duplicate skip-save logic.
+ * The explicit `blur()` is what makes Esc a *cancel* rather than a revert the reader could type
+ * back over; it re-enters `commitTextField` through the field's own `@blur`, which no-ops now that
+ * the values match.
  *
- * OpenProject #3351: `stopPropagation()` keeps this first Escape from also closing the dialog. This
- * target-phase handler runs before the event ever bubbles to `document`, where
- * `composables/escapeStack.js`'s single bubble-phase listener would otherwise route it to
- * `WDialog.vue`'s `handleEscape` and close the (non-persistent) Profile overlay in the same
- * keypress that reverted the field. A second, separate Escape press -- the field already blurred,
- * so this handler no longer runs -- bubbles normally and closes the dialog as before.
+ * `stopPropagation()` keeps this first Escape from also closing the dialog: this target-phase
+ * handler runs before the event reaches `composables/escapeStack.js`'s bubble-phase listener on
+ * `document`, which would otherwise dismiss the Profile overlay in the same keypress. A second
+ * Escape -- the field now blurred, so this never runs -- bubbles normally and closes it.
  */
 function revertTextField(field, event) {
   state.config[field] = lastSaved[field]
@@ -466,14 +409,9 @@ function revertTextField(field, event) {
 const debouncedAutoSave = debounce(save, AUTO_SAVE_DEBOUNCE_MS)
 
 /*
-  OpenProject #3321: narrowed to the toggle/select fields alone -- the text fields above now save
-  through `commitTextField` on blur/Enter, not through this debounced whole-object watch, and
-  including them here would mean a debounced save alongside their own discrete one. Still an
-  explicit field list rather than a single object the way the old whole-`state.config` watch was
-  (see Task #3220/#3221's coordination note for that prior shape): `#3320` owns this remaining half
-  and is expected to remove the debounce here entirely, so this list -- not the array literal's
-  identity -- is what future field churn should update. `applyProfile()` is the only other writer of
-  `state.config`, and it guards itself with `suppressAutoSave`.
+  The toggle/select fields only: the text fields commit through `commitTextField` on blur/Enter, and
+  watching them here too would queue a debounced save alongside each discrete one. A new field of
+  either kind belongs in this list or in `TEXT_FIELDS`, not both.
 */
 watch(
   () => [
@@ -493,15 +431,11 @@ watch(
   }
 )
 
-// MOUNTED
-
 onMounted(() => {
   fetchProfile()
 })
 
-// -> A pending debounced auto-save left uncancelled would otherwise fire ~800ms after the reader
-//    has already navigated away from this page, same reasoning `EditorMarkdown.vue` cancels its own
-//    debounced writes on unmount for (OpenProject #808).
+// -> An uncancelled debounce would fire ~800ms after the reader has navigated away.
 onUnmounted(() => {
   debouncedAutoSave.cancel()
 })

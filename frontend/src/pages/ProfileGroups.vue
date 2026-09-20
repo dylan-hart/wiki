@@ -4,10 +4,9 @@
     <div class="p-4">
       <div class="text-body2">{{ t('profile.groupsInfo') }}</div>
       <!--
-        A settings row with nothing at the trailing edge: membership here is read-only, so every row
-        is a plate and a name and no control at all. `control-width="auto"` rather than the default
-        `grow` is what makes that read correctly -- an empty `grow` control still claims 200px of the
-        row, which leaves the name crammed into a fraction of a card it has all of.
+        Membership is read-only, so every row is a plate and a name with no control at all.
+        `control-width="auto"` rather than the default `grow` is what makes that read correctly: an
+        empty `grow` control still claims 200px, cramming the name into a fraction of the card.
       -->
       <w-settings-card class="mt-4" :title="t('profile.groupsMemberOf')">
         <w-settings-row
@@ -27,11 +26,8 @@
       </w-settings-card>
 
       <!--
-        Informational only -- these are groups the viewer does NOT belong to, so there is nothing here
-        for them to act on. Dimmed with opacity-60 rather than hidden or styled as a warning, the same
-        "still part of the page, just not actionable" treatment AdminApprovals.vue uses for a disabled
-        rule -- on the card now that a row is one component rather than the two sections that used to
-        carry the class each.
+        Groups the viewer does NOT belong to, so there is nothing here to act on. Dimmed rather
+        than hidden or drawn as a warning: still part of the page, just not actionable.
       -->
       <template v-if="state.otherGroups.length > 0">
         <div class="text-body2 mt-6">
@@ -62,21 +58,13 @@ import { onMounted, reactive } from 'vue'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// I18N
-
 const { t } = useI18n()
 
-// STORES
-
 const siteStore = useSiteStore()
-
-// META
 
 useMeta(() => ({
   title: t('profile.groups')
 }))
-
-// DATA
 
 const state = reactive({
   groups: [],
@@ -84,16 +72,13 @@ const state = reactive({
   loading: 0
 })
 
-// METHODS
-
 /**
- * The groups come from the session's own endpoint rather than from `users/:id`: reading an arbitrary
- * user requires `read:users`, which a regular user does not have.
+ * The session's own endpoint rather than `users/:id`: reading an arbitrary user requires
+ * `read:users`, which a regular user does not have.
  *
- * The response is a plain array of the groups the user belongs to, UNLESS the site has
- * `features.showOtherGroups` enabled, in which case it is `{ groups, otherGroups }` -- see
- * `backend/api/users/profile.ts`'s `/profile/groups` route for why the shape itself is what carries the
- * gating, rather than the frontend filtering a fetched-in-full list.
+ * The response is a plain array of the user's own groups, UNLESS the site has
+ * `features.showOtherGroups` enabled, in which case it is `{ groups, otherGroups }` -- the shape
+ * itself carries the gating, so the frontend never holds a list it must filter.
  */
 async function fetchGroups() {
   state.loading++
@@ -115,8 +100,6 @@ async function fetchGroups() {
   }
   state.loading--
 }
-
-// MOUNTED
 
 onMounted(() => {
   fetchGroups()

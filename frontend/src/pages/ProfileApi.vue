@@ -25,13 +25,11 @@
     <w-separator inset />
     <div class="p-4">
       <!--
-        Three branches, not two: while the initial fetch is in flight (`state.loading > 0` and no
-        keys yet), render neither card -- only the `w-inner-loading` overlay below. Without this
-        branch, the loading guard on the empty-state `v-if` fell through to the `v-else` tokens card
-        for that entire window, flashing its "Access Tokens" header before the real state (empty or
-        populated) was known (OpenProject #3283). A refresh of an already-populated list
-        (`state.loading` incrementing while `state.keys.length >= 1`) stays on the final branch
-        throughout, so it keeps rendering the tokens card with no flicker of its own.
+        Three branches, not two: with the initial fetch still in flight and no keys yet, neither
+        card renders -- only the `w-inner-loading` overlay below. A loading guard on the empty-state
+        `v-if` alone would fall through to the tokens card for that whole window, flashing its
+        header before the real state is known. A refresh of an already-populated list stays on the
+        final branch throughout, so it flickers nothing of its own.
       -->
       <div v-if="state.loading > 0 && state.keys.length < 1" />
       <div v-else-if="state.keys.length < 1">
@@ -48,13 +46,8 @@
       </div>
       <!--
         A list of tokens rather than a settings form, so what the settings pattern lends it is the
-        ROW -- the 34px plate, the name over everything the token says about itself, the one action
-        at the trailing edge. What used to be a separate `side` section for an unusable token's
-        warning is now the plate's own indicator dot plus a line in the hint: a token that cannot be
-        used says so where the eye already is rather than in a third column.
-
-        The broader question of what the pattern means for the app's other list and viewer pages is
-        Task #2702's, not this one's.
+        ROW alone. An unusable token says so on the plate's indicator dot and in its hint, where the
+        eye already is, rather than in a third column of its own.
       -->
       <w-settings-card v-else :title="t('profile.api.listTitle')">
         <w-settings-row
@@ -68,9 +61,9 @@
           <template #hint>
             <div>{{ t('profile.api.keyEndingIn', { suffix: key.keyShort }) }}</div>
             <!--
-              A personal token's reach is always the holder's own current permissions -- there is no
-              "permissions from group X" line the admin listing shows, only whether it has been
-              narrowed by a scope.
+              A personal token's reach is always the holder's own current permissions, so there is
+              no "permissions from group X" line here as in the admin listing -- only the scope it
+              has been narrowed by.
             -->
             <div>
               {{
@@ -140,41 +133,30 @@ import {
 } from '@/helpers/apiKeyState'
 import { humanizeDate } from '@/helpers/datetime'
 
-// COMPOSABLES
-
 const dark = useDark()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('profile.api.title')
 }))
-
-// DATA
 
 const state = reactive({
   loading: 0,
   keys: [],
   sites: [],
   classificationLevels: [],
-  /** When the signing keypair was generated -- what an invalidated token is invalidated by. */
+  /** What an invalidated token was invalidated by: the signing keypair's generation. */
   certificatesGeneratedAt: null
 })
 
-// METHODS
-
 /*
-  What a token's row says about itself is shared with the admin key list (`pages/AdminApi.vue`) --
-  see `helpers/apiKeyState.js`. Each of these is that helper bound to this screen's own vocabulary
-  (a personal token, not an admin's API key) and to the lists it managed to load.
+  `helpers/apiKeyState.js` holds what a token's row says about itself, shared with the admin key
+  list; each of these binds it to this screen's vocabulary and to the lists it managed to load.
 */
 function stateHint(key) {
-  // -> `certificatesGeneratedAt` is unavailable to a self-service reader (see `load()` below), so
-  //    the date in this one line falls back to `---` rather than the hint being withheld
+  // -> A self-service reader cannot read `certificatesGeneratedAt`, so this line's date falls back
+  //    to `---` rather than the hint being withheld.
   return keyStateHint(key, t, {
     i18nPrefix: 'profile.api',
     certificatesGeneratedAt: state.certificatesGeneratedAt
@@ -200,24 +182,16 @@ async function load() {
       caption: apiErrorMessage(err)
     })
   }
-  // -> Sites are fetched separately from the token list, on a best-effort basis: `GET /sites` needs
-  //    `read:sites`/`access:admin`, which an ordinary self-service user does not hold, so this call
-  //    fails for most of this page's actual audience. It's fetched only to *name* the site a token is
-  //    pinned to -- `siteName()` already falls back to the raw `siteId` when a site can't be found in
-  //    `state.sites`, so a failure here should degrade the display, not take down the token list
-  //    itself. See also `ProfileApiKeyCreateDialog.vue`'s `loadSites()`, which has the same shape.
-  //    Certificates: the endpoint the admin area uses (`system/certificates`) needs `manage:system`,
-  //    which a regular user does not hold -- `isInvalidated` (from the list response itself) is
-  //    enough to show the badge; only the exact regeneration date in the hint is unavailable here,
-  //    so `stateHint` falls back to `---` via `humanizeDate(t, null)` for that one line.
+  // -> Separately from the token list and best-effort: `GET /sites` needs `read:sites`/
+  //    `access:admin`, which most of this page's audience does not hold. It only *names* the site a
+  //    token is pinned to, and `siteName()` falls back to the raw `siteId`, so a failure here
+  //    degrades the display rather than taking the token list down with it.
   try {
     state.sites = (await API_CLIENT.get('sites').json()) ?? []
   } catch {
     state.sites = []
   }
-  // -> Public-access (needs no permission), so this one is not wrapped in the same "degrade
-  //    silently" reasoning as `sites` above -- it should always succeed, but still fails soft into
-  //    `classificationLevelName()`'s own id fallback rather than take down the token list.
+  // -> Needs no permission, so it should always succeed; still soft, falling back to bare ids.
   try {
     state.classificationLevels = (await API_CLIENT.get('classification-levels').json()) ?? []
   } catch {
@@ -254,8 +228,6 @@ function revoke(key) {
     load()
   })
 }
-
-// MOUNTED
 
 onMounted(load)
 </script>
