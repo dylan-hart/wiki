@@ -227,4 +227,32 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
       }
     )
   })
+
+  test('readAsset and headAsset read back real bytes and map an absent key to null', async () => {
+    CARDINAL.models.assets.getContent = async () => ({
+      data: Buffer.from('read me back'),
+      mimeType: 'text/plain',
+      fileName: 'readback.txt'
+    })
+    const target = makeTarget()
+    await storageModule.assetUploaded!(target, {
+      id: 'a1',
+      folderPath: 'docs',
+      fileName: 'readback.txt'
+    })
+    const asset = { folderPath: 'docs', fileName: 'readback.txt' }
+
+    const read = await storageModule.readAsset!(asset, target)
+    const chunks: Buffer[] = []
+    for await (const chunk of read!.body) {
+      chunks.push(chunk)
+    }
+    assert.equal(Buffer.concat(chunks).toString(), 'read me back')
+    assert.equal(read!.size, 12)
+    assert.deepEqual(await storageModule.headAsset!(asset, target), { size: 12 })
+
+    const missing = { folderPath: 'docs', fileName: 'never-uploaded.txt' }
+    assert.equal(await storageModule.readAsset!(missing, target), null)
+    assert.equal(await storageModule.headAsset!(missing, target), null)
+  })
 })

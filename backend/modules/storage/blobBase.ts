@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream'
 import { belongsInTarget, objectKeyFor } from '../../helpers/blobTarget.ts'
 import type { StorageModule, StorageTarget } from '../../models/storage.ts'
 
@@ -57,6 +58,8 @@ export interface BlobDriver<C> {
   ): Promise<void>
   /** A read-only URL for `key`, signed locally wherever the SDK allows it. */
   sign(client: C, key: string, ttlSeconds: number): Promise<string>
+  get?(client: C, key: string): Promise<{ body: Readable; size: number } | null>
+  head?(client: C, key: string): Promise<{ size: number } | null>
 }
 
 export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
@@ -190,12 +193,42 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
     )
   }
 
+  async function readAsset(
+    asset: { folderPath: string; fileName: string },
+    target: StorageTarget
+  ): Promise<{ body: Readable; size: number } | null> {
+    const client = await getClient(target)
+    const key = keyFor(target, asset.folderPath, asset.fileName)
+    return withErrors(`read "${key}"`, async () => {
+      if (!driver.get) {
+        throw new Error(`reading objects is not supported by ${driver.label}`)
+      }
+      return driver.get(client, key)
+    })
+  }
+
+  async function headAsset(
+    asset: { folderPath: string; fileName: string },
+    target: StorageTarget
+  ): Promise<{ size: number } | null> {
+    const client = await getClient(target)
+    const key = keyFor(target, asset.folderPath, asset.fileName)
+    return withErrors(`inspect "${key}"`, async () => {
+      if (!driver.head) {
+        throw new Error(`inspecting objects is not supported by ${driver.label}`)
+      }
+      return driver.head(client, key)
+    })
+  }
+
   return {
     assetUploaded,
     assetDeleted,
     assetRenamed,
     assetMoved,
     exportAll,
-    getDirectUrl
+    getDirectUrl,
+    readAsset,
+    headAsset
   }
 }

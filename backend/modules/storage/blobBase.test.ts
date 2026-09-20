@@ -1,6 +1,7 @@
 import { describe, test, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
+import { Readable } from 'node:stream'
 import {
   blobStorageModule,
   keyFor,
@@ -426,6 +427,105 @@ describe('blobBase / error wrapping', () => {
         )
         return true
       }
+    )
+  })
+})
+
+describe('blobBase / readAsset and headAsset', () => {
+  const asset = {
+    id: 'asset-1',
+    updatedAt: new Date('2024-01-01T00:00:00Z'),
+    folderPath: 'images',
+    fileName: 'pic.png'
+  }
+
+  function makeReadDriver() {
+    return {
+      ...makeDriver(),
+      get: mock.fn(
+        async (_client: FakeClient, _key: string) =>
+          ({ body: Readable.from([Buffer.from('bytes')]), size: 5 }) as {
+            body: Readable
+            size: number
+          } | null
+      ),
+      head: mock.fn(
+        async (_client: FakeClient, _key: string) => ({ size: 5 }) as { size: number } | null
+      )
+    }
+  }
+
+  test('readAsset returns the driver body and size, keyed by keyFor', async () => {
+    const driver = makeReadDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+
+    const result = await module.readAsset!(asset, target)
+
+    assert.equal(result!.size, 5)
+    const chunks: Buffer[] = []
+    for await (const chunk of result!.body) {
+      chunks.push(chunk)
+    }
+    assert.equal(Buffer.concat(chunks).toString(), 'bytes')
+    assert.equal(driver.get.mock.calls[0]!.arguments[1], `${target.siteId}/images/pic.png`)
+  })
+
+  test('headAsset returns the driver size, keyed by keyFor', async () => {
+    const driver = makeReadDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+
+    assert.deepEqual(await module.headAsset!(asset, target), { size: 5 })
+    assert.equal(driver.head.mock.calls[0]!.arguments[1], `${target.siteId}/images/pic.png`)
+  })
+
+  test('a not-found object is null from both handlers', async () => {
+    const driver = makeReadDriver()
+    driver.get.mock.mockImplementationOnce(async () => null)
+    driver.head.mock.mockImplementationOnce(async () => null)
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+
+    assert.equal(await module.readAsset!(asset, target), null)
+    assert.equal(await module.headAsset!(asset, target), null)
+  })
+
+  test('a driver failure is wrapped as Failed to ... naming the key', async () => {
+    const driver = makeReadDriver()
+    driver.get.mock.mockImplementationOnce(async () => {
+      throw new Error('500 boom')
+    })
+    driver.head.mock.mockImplementationOnce(async () => {
+      throw new Error('403 nope')
+    })
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+    const key = `${target.siteId}/images/pic.png`
+
+    await assert.rejects(
+      () => module.readAsset!(asset, target),
+      (err: any) => err.message === `Failed to read "${key}": 500 boom`
+    )
+    await assert.rejects(
+      () => module.headAsset!(asset, target),
+      (err: any) => err.message === `Failed to inspect "${key}": 403 nope`
+    )
+  })
+
+  test('a driver without get/head throws a not-supported error rather than returning null', async () => {
+    const module = blobStorageModule(makeDriver())
+    const target = makeTarget()
+    const key = `${target.siteId}/images/pic.png`
+
+    await assert.rejects(
+      () => module.readAsset!(asset, target),
+      (err: any) =>
+        /^Failed to read ".*": .*not supported/i.test(err.message) && err.message.includes(key)
+    )
+    await assert.rejects(
+      () => module.headAsset!(asset, target),
+      (err: any) => /^Failed to inspect ".*": .*not supported/i.test(err.message)
     )
   })
 })

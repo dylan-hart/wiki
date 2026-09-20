@@ -19,6 +19,7 @@ import {
 import { sites as sitesTable, storage as storageTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { HookEvent } from './hooks.ts'
+import type { Readable } from 'node:stream'
 
 export const CONTENT_TYPES = ['pages', 'images', 'documents', 'others', 'large'] as const
 
@@ -300,6 +301,14 @@ export interface StorageModule {
     asset: { id: string; updatedAt: Date; fileName: string; folderPath: string },
     target: StorageTarget
   ) => Promise<string | null | undefined>
+  readAsset?: (
+    asset: { folderPath: string; fileName: string },
+    target: StorageTarget
+  ) => Promise<{ body: Readable; size: number } | null>
+  headAsset?: (
+    asset: { folderPath: string; fileName: string },
+    target: StorageTarget
+  ) => Promise<{ size: number } | null>
   /** Handlers named by the definition's actions. */
   [handler: string]: any
 }
