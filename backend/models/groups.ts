@@ -3,7 +3,12 @@ import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { ClusterReloaded } from '../helpers/clusterCache.ts'
-import { CustomError, escapeLikePattern, normalizePagePath } from '../helpers/common.ts'
+import {
+  CustomError,
+  escapeLikePattern,
+  isUniqueViolation,
+  normalizePagePath
+} from '../helpers/common.ts'
 import { clearPageRuleRegexCache, resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { paginate } from '../helpers/pagination.ts'
 import { resolveSiteRule, ruleMatchesSite } from '../helpers/siteRules.ts'
@@ -16,6 +21,26 @@ import type { FastifyRequest } from 'fastify'
 export const SYSTEM_PERMISSION = 'manage:system'
 
 export const ELEVATED_PERMISSIONS = ['manage:users', 'manage:groups', SYSTEM_PERMISSION] as const
+
+const GROUP_NAME_MAX_LENGTH = 255
+const MAX_IMPORT_NAME_ATTEMPTS = 1000
+
+function groupNameTaken(name: string): CustomError {
+  return new CustomError(
+    'groupNameTaken',
+    `A group named "${name.trim()}" already exists. Group names are compared ignoring case and surrounding spaces.`,
+    409
+  )
+}
+
+function suffixedGroupName(name: string, attempt: number): string {
+  const suffix = ` (${attempt})`
+  const base = name
+    .trim()
+    .slice(0, GROUP_NAME_MAX_LENGTH - suffix.length)
+    .trimEnd()
+  return `${base}${suffix}`
+}
 
 /**
  * How a rule's `path` is compared against the page path. `CLASSIFICATION` does not read `path` at
@@ -473,28 +498,37 @@ class Groups extends ClusterReloaded {
    */
   async createGroup(name: string): Promise<string> {
     const startingPageRoles = ['read:pages', 'read:assets', 'read:comments']
-    const result = await CARDINAL.db
-      .insert(groupsTable)
-      .values({
-        name,
-        permissions: [],
-        rules: [
-          {
-            id: crypto.randomUUID(),
-            name: 'Default Rule',
-            roles: startingPageRoles,
-            match: 'START',
-            mode: 'ALLOW',
-            path: '',
-            locales: [],
-            sites: []
-          }
-        ],
-        isSystem: false
-      })
-      .returning({ id: groupsTable.id })
+    let result
+    try {
+      result = await CARDINAL.db
+        .insert(groupsTable)
+        .values({
+          name,
+          permissions: [],
+          rules: [
+            {
+              id: crypto.randomUUID(),
+              name: 'Default Rule',
+              roles: startingPageRoles,
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ],
+          isSystem: false
+        })
+        .returning({ id: groupsTable.id })
+    } catch (err: any) {
+      throw this.nameTakenError(err, name)
+    }
     await this.broadcastReload()
     return result[0].id
+  }
+
+  private nameTakenError(err: unknown, name: string): unknown {
+    return isUniqueViolation(err) ? groupNameTaken(name) : err
   }
 
   /**
@@ -507,17 +541,27 @@ class Groups extends ClusterReloaded {
     permissions: string[]
     rules: GroupRule[]
   }): Promise<string> {
-    const result = await CARDINAL.db
-      .insert(groupsTable)
-      .values({
-        name: input.name,
-        permissions: input.permissions,
-        rules: input.rules,
-        isSystem: false
-      })
-      .returning({ id: groupsTable.id })
-    await this.broadcastReload()
-    return result[0].id
+    for (let attempt = 1; attempt <= MAX_IMPORT_NAME_ATTEMPTS; attempt++) {
+      const name = attempt === 1 ? input.name : suffixedGroupName(input.name, attempt)
+      try {
+        const result = await CARDINAL.db
+          .insert(groupsTable)
+          .values({
+            name,
+            permissions: input.permissions,
+            rules: input.rules,
+            isSystem: false
+          })
+          .returning({ id: groupsTable.id })
+        await this.broadcastReload()
+        return result[0].id
+      } catch (err: any) {
+        if (!isUniqueViolation(err)) {
+          throw err
+        }
+      }
+    }
+    throw groupNameTaken(input.name)
   }
 
   async getAllGroups(): Promise<GroupWithUserCount[]> {
@@ -562,10 +606,15 @@ class Groups extends ClusterReloaded {
   }
 
   async updateGroup(id: string, patch: GroupPatch): Promise<boolean> {
-    const result = await CARDINAL.db
-      .update(groupsTable)
-      .set({ ...this.clampGuestPatch(id, this.normalizeRulePaths(patch)), updatedAt: sql`now()` })
-      .where(eq(groupsTable.id, id))
+    let result
+    try {
+      result = await CARDINAL.db
+        .update(groupsTable)
+        .set({ ...this.clampGuestPatch(id, this.normalizeRulePaths(patch)), updatedAt: sql`now()` })
+        .where(eq(groupsTable.id, id))
+    } catch (err: any) {
+      throw this.nameTakenError(err, patch.name ?? '')
+    }
     await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
   }

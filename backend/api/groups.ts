@@ -136,6 +136,10 @@ async function routes(app: FastifyInstance) {
           400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description: 'A group with the same name, ignoring case and surrounding spaces, exists.'
+          },
           500: { $ref: 'ApiError#', description: 'The group could not be created.' }
         }
       }
@@ -160,6 +164,9 @@ async function routes(app: FastifyInstance) {
           id
         }
       } catch (err: any) {
+        if (err instanceof CustomError) {
+          throw err
+        }
         CARDINAL.logger.error('http', 'creating a group failed', { error: err, reqId: req.id })
         return reply.internalServerError()
       }
@@ -281,6 +288,11 @@ async function routes(app: FastifyInstance) {
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description:
+              'Another group already has that name, ignoring case and surrounding spaces.'
+          },
           500: { $ref: 'ApiError#', description: 'The group could not be updated.' }
         }
       }
@@ -391,6 +403,9 @@ async function routes(app: FastifyInstance) {
           message: 'Group updated successfully.'
         }
       } catch (err: any) {
+        if (err instanceof CustomError) {
+          throw err
+        }
         CARDINAL.logger.error('http', 'updating a group failed', {
           group: group.id,
           error: err,

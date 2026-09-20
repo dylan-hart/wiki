@@ -144,6 +144,28 @@ describe(
       })
       assert.equal(res.statusCode, 200)
     })
+
+    test('POST / answers 409 for a name that differs only in case or spacing', async () => {
+      const created = await app.inject({ method: 'POST', url: '/', payload: { name: 'Curators' } })
+      assert.equal(created.statusCode, 200)
+
+      const res = await app.inject({ method: 'POST', url: '/', payload: { name: ' curators ' } })
+      assert.equal(res.statusCode, 409)
+      assert.equal(res.json().ok, false)
+    })
+
+    test('PUT /:groupId answers 409 for a rename onto another group name, and leaves the name alone', async () => {
+      const other = await app.inject({ method: 'POST', url: '/', payload: { name: 'Stewards' } })
+      const otherId = other.json().id as string
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/${otherId}`,
+        payload: { name: 'FIXTURE GROUP' }
+      })
+      assert.equal(res.statusCode, 409)
+      assert.equal((await groupsModel.getGroupById(otherId))?.name, 'Stewards')
+    })
   }
 )
 
