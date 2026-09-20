@@ -81,11 +81,13 @@
             <w-btn-toggle
               v-model="sizeCountMode"
               :aria-label="t('graph.controls.countAriaLabel')"
-              :options="sizeCountModeOptions" />
+              :options="sizeCountModeOptions"
+              :style="{ '--option-count': sizeCountModeOptions.length }" />
             <w-btn-toggle
               v-model="sizeBy"
               :aria-label="t('graph.controls.sizeByLabel')"
-              :options="sizeByOptions" />
+              :options="sizeByOptions"
+              :style="{ '--option-count': sizeByOptions.length }" />
           </div>
         </div>
         <GraphClientTypeFilter
@@ -1512,9 +1514,14 @@ onBeforeUnmount(() => {
 .graph-view-control-group {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 5px;
   width: 100%;
+
+  :deep(.w-btn-toggle__segment) {
+    flex: 1 1 0;
+    justify-content: center;
+  }
 }
 
 /*
@@ -1525,9 +1532,12 @@ onBeforeUnmount(() => {
 .graph-view-control-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: stretch;
   gap: 6px;
+
+  > .w-btn-toggle {
+    flex: var(--option-count, 1) 1 0;
+  }
 
   :deep(.w-btn-toggle__segment) {
     padding-inline: 6px;

@@ -9,7 +9,7 @@ import { mountGraph } from './graphFixtures.js'
  * tell whether this row wraps.
  */
 describe(
-  'Graph.vue SIZE BY control row — real layout (OpenProject #2892)',
+  'Graph.vue right-rail control rows: real layout (OpenProject #2892, #3527)',
   { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
   () => {
     let browser
@@ -22,20 +22,45 @@ describe(
       await browser?.close()
     })
 
-    it('keeps the Unique/Total and Edits/Visits toggles on one line at the real ~206px panel content width', async () => {
+    async function measure() {
       // -> Pageview tracking on so `sizeByOptions` offers BOTH 'edits' and 'visits': the default
       //    mount has only 'edits', which is far narrower and never reproduces the wrap.
       const wrapper = await mountGraph({ pageviewsEnabled: true })
       const html = wrapper.find('.graph-view-right-rail').html()
+      return measureGraphControlRow({ browser, html })
+    }
 
-      const result = await measureGraphControlRow({ browser, html })
+    it('fills the panel content width with the SIZE BY toggles on one line', async () => {
+      const result = await measure()
 
       expect(result.wrapped).toBe(false)
-      // -> Headroom, not a bare "didn't wrap": a pass by one pixel fails the first time a locale's
-      //    labels run a few characters longer than English's.
-      const availableWidth = 236 - 2 * 14 - 2 * 1 // panel width - padding - border, both sides
-      const combined = result.toggleWidths[0] + 6 /* row gap */ + result.toggleWidths[1]
-      expect(combined).toBeLessThan(availableWidth - 10)
+      const rowGap = 6
+      const combined = result.toggleWidths[0] + rowGap + result.toggleWidths[1]
+      expect(combined).toBeGreaterThan(result.contentWidth - 1)
+      expect(combined).toBeLessThan(result.contentWidth + 1)
+    })
+
+    it('gives every SIZE BY option the same width across both toggles', async () => {
+      const result = await measure()
+      const widths = result.groups[1].toggles.flatMap((toggle) => toggle.segmentWidths)
+
+      expect(widths).toHaveLength(4)
+      expect(Math.max(...widths) - Math.min(...widths)).toBeLessThan(3)
+    })
+
+    it('stretches a single toggle (GROUP BY) to the full content width', async () => {
+      const result = await measure()
+      const [groupBy] = result.groups[0].toggles
+
+      expect(groupBy.width).toBeGreaterThan(result.contentWidth - 1)
+    })
+
+    it('left-aligns every control caption', async () => {
+      const result = await measure()
+
+      for (const group of result.groups) {
+        expect(group.captionOffset).toBeLessThan(1)
+      }
     })
   }
 )

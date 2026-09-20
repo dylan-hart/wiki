@@ -41,7 +41,7 @@ defineEmits(['update:modelValue'])
 .graph-client-type-filter {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 4px;
 
   /*
@@ -86,7 +86,10 @@ defineEmits(['update:modelValue'])
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
   gap: 4px 12px;
+
+  :deep(.w-checkbox) {
+    flex: 1 1 0;
+  }
 }
 </style>

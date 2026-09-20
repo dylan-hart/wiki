@@ -80,10 +80,26 @@ export async function measureGraphControlRow({ browser, html }) {
       const toggles = [...row.querySelectorAll('.w-btn-toggle')]
       const tops = new Set(toggles.map((el) => Math.round(el.getBoundingClientRect().top)))
       const rowRect = row.getBoundingClientRect()
+      const controlsRect = document.querySelector('.graph-view-controls').getBoundingClientRect()
+      const groups = [...document.querySelectorAll('.graph-view-control-group')]
       return {
         wrapped: tops.size > 1,
         rowWidth: rowRect.width,
-        toggleWidths: toggles.map((el) => el.getBoundingClientRect().width)
+        toggleWidths: toggles.map((el) => el.getBoundingClientRect().width),
+        contentWidth: controlsRect.width,
+        groups: groups.map((group) => {
+          const groupRect = group.getBoundingClientRect()
+          const caption = group.querySelector('.graph-view-control-caption')
+          return {
+            captionOffset: caption.getBoundingClientRect().left - groupRect.left,
+            toggles: [...group.querySelectorAll('.w-btn-toggle')].map((toggle) => ({
+              width: toggle.getBoundingClientRect().width,
+              segmentWidths: [...toggle.querySelectorAll('.w-btn-toggle__segment')].map(
+                (segment) => segment.getBoundingClientRect().width
+              )
+            }))
+          }
+        })
       }
     })
   } finally {

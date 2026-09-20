@@ -123,6 +123,20 @@ describe('GraphClientTypeFilter', () => {
     expect(style.flexFlow).toBe('wrap')
   })
 
+  describe('row fill and caption alignment (OpenProject #3527)', () => {
+    it('left-aligns its caption and stretches to the panel width', () => {
+      const body = ruleBodyFor(componentSource, '.graph-client-type-filter')
+      expect(body).toMatch(/align-items:\s*stretch/)
+      expect(body).not.toMatch(/align-items:\s*flex-end/)
+    })
+
+    it('gives each checkbox an equal share of the row and no longer right-packs it', () => {
+      const body = ruleBodyFor(componentSource, '.graph-client-type-filter-options')
+      expect(body).toMatch(/:deep\(\.w-checkbox\)\s*\{\s*flex:\s*1 1 0;/)
+      expect(body).not.toMatch(/justify-content/)
+    })
+  })
+
   // Nothing above this component in the overlay supplies a dark-aware text color, and the checkbox
   // labels are colorless by design, so both themes must be declared here or both fall back to black.
   describe('dark mode text color (OpenProject #2522)', () => {
