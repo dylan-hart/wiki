@@ -62,7 +62,7 @@ async function routes(app: FastifyInstance) {
       //    a nested page downloads as `docs%2Fgetting-started.pdf`.
       reply.header(
         'Content-Disposition',
-        `attachment; filename="${encodeURIComponent(page.path || 'home')}.pdf"`
+        `attachment; filename="${exportFilenameStem(page.path)}.pdf"`
       )
       reply.header('X-Content-Type-Options', 'nosniff')
       reply.header('Content-Length', pdf.length)
