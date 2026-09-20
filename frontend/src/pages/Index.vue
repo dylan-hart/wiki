@@ -36,6 +36,16 @@
       </div>
     </div>
     <page-header v-if="!pageStore.notFound" ref="pageHeaderComp" />
+    <w-banner
+      v-if="siteBannerShown"
+      class="site-banner mx-4 mt-3 flex-none border border-hairline bg-tint text-slate dark:border-hairline-dark dark:bg-dark-2 dark:text-text-secondary-dark"
+      role="region"
+      :aria-label="siteBannerTitle || undefined">
+      <div v-if="siteBannerTitle" class="site-banner-title font-bold">{{ siteBannerTitle }}</div>
+      <div v-if="siteBannerContent" class="site-banner-content whitespace-pre-line">
+        {{ siteBannerContent }}
+      </div>
+    </w-banner>
     <div class="page-container flex min-h-0 flex-nowrap items-stretch" style="flex: 1 1 100%">
       <div
         class="min-w-0 flex-1"
@@ -523,6 +533,17 @@ const tocIsPanel = computed(() => !isAtLeast750.value)
 const tocPanelIsOpen = computed(() => tocIsPanel.value && showSidebar.value && state.tocPanelOpen)
 
 const showTocPanelBtn = computed(() => tocIsPanel.value && showSidebar.value && !state.tocPanelOpen)
+
+const siteBannerTitle = computed(() => (siteStore.banner?.title ?? '').trim())
+
+const siteBannerContent = computed(() => (siteStore.banner?.content ?? '').trim())
+
+const siteBannerShown = computed(
+  () =>
+    !editorStore.isActive &&
+    siteStore.banner?.isEnabled === true &&
+    (siteBannerTitle.value !== '' || siteBannerContent.value !== '')
+)
 
 const showSidebar = computed(() => {
   return (
