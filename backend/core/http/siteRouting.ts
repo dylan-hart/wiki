@@ -4,9 +4,11 @@ import type { FastifyInstance } from 'fastify'
 import {
   resolveAppShellLocale,
   getTemplatedAppShell,
-  insertIntoAppShell
+  insertIntoAppShell,
+  mergeShellFragments
 } from '../../helpers/appShell.ts'
 import { stripPageExtension } from '../../helpers/common.ts'
+import { analyticsShellFragments } from '../../helpers/analyticsSnippets.ts'
 import { themeShellFragments } from '../../helpers/shellTheme.ts'
 import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
 import {
@@ -197,7 +199,11 @@ export function registerAppShellFallback(app: FastifyInstance): void {
         const locales = await CARDINAL.models.locales.getLocales()
         return locales.find((l: any) => l.code === lang)?.isRTL ?? false
       })
-      const shell = insertIntoAppShell(template, themeShellFragments(siteConfig?.theme))
+      const analyticsFragments = analyticsShellFragments(siteConfig?.analytics)
+      const shell = insertIntoAppShell(
+        template,
+        mergeShellFragments(analyticsFragments, themeShellFragments(siteConfig?.theme))
+      )
       return reply.header('Cache-Control', 'no-store').type('text/html; charset=utf-8').send(shell)
     } catch (err: any) {
       // -> Nothing to serve means the frontend was never built, which is a setup step rather than a

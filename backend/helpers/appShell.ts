@@ -36,6 +36,19 @@ export interface AppShellFragments {
   bodyEnd?: string
 }
 
+export function mergeShellFragments(...parts: AppShellFragments[]): AppShellFragments {
+  let head = ''
+  let bodyEnd = ''
+  for (const part of parts) {
+    head += part.head ?? ''
+    bodyEnd += part.bodyEnd ?? ''
+  }
+  const merged: AppShellFragments = {}
+  if (head) merged.head = head
+  if (bodyEnd) merged.bodyEnd = bodyEnd
+  return merged
+}
+
 const HEAD_CLOSE_PATTERN = /<\/head\s*>/i
 const BODY_CLOSE_PATTERN = /<\/body\s*>/gi
 

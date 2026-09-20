@@ -194,6 +194,75 @@ describe('registerAppShellFallback', () => {
     })
   })
 
+  describe('#3660 analytics snippets', () => {
+    function setSite(config: Record<string, unknown>) {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = { '*': 'site-1' }
+      cardinal.sites = { 'site-1': { config } }
+    }
+
+    after(() => {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = {}
+      cardinal.sites = {}
+    })
+
+    test('an enabled provider is present in the raw HTML with its value escaped', async () => {
+      setSite({
+        analytics: {
+          providers: {
+            google: { isEnabled: true, config: { propertyTrackingId: 'G-ABC</script>' } },
+            gtm: { isEnabled: true, config: { containerTrackingId: 'GTM-1' } },
+            matomo: {
+              isEnabled: true,
+              config: { siteId: '3', serverHost: 'https://m.example.test/' }
+            }
+          }
+        }
+      })
+      const { body } = await serve('GET', '/guides/x')
+      assert.ok(body!.includes('data-analytics-provider="google"'))
+      assert.ok(body!.includes('data-analytics-provider="gtm"'))
+      assert.ok(body!.includes('data-analytics-provider="matomo"'))
+      assert.ok(body!.includes('"G-ABC\\u003c/script>"'))
+      assert.ok(body!.indexOf('data-analytics-provider') < body!.indexOf('</head>'))
+      assert.ok(body!.indexOf('<div id="app">') > body!.indexOf('</head>'))
+    })
+
+    test('a disabled provider adds nothing', async () => {
+      setSite({
+        analytics: {
+          providers: { google: { isEnabled: false, config: { propertyTrackingId: 'G-1' } } }
+        }
+      })
+      const { body } = await serve('GET', '/a')
+      assert.equal(body, shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">'))
+    })
+
+    test('analytics land before the theme head injection, in a single insertion', async () => {
+      setSite({
+        analytics: {
+          providers: { gtm: { isEnabled: true, config: { containerTrackingId: 'GTM-1' } } }
+        },
+        theme: { injectHead: '<i>$& </body></i>', injectBody: '<b>tail</b>' }
+      })
+      const { body } = await serve('GET', '/a')
+      assert.ok(body!.indexOf('provider="gtm"') < body!.indexOf('<i>$& </body></i>'))
+      assert.ok(body!.includes('<i>$& </body></i></head>'))
+      assert.ok(body!.includes('<b>tail</b></body>'))
+    })
+
+    test('the not-found fallback path carries the snippets too', async () => {
+      setSite({
+        analytics: {
+          providers: { gtm: { isEnabled: true, config: { containerTrackingId: 'GTM-1' } } }
+        }
+      })
+      const { body } = await serve('GET', '/no/such/page')
+      assert.ok(body!.includes('data-analytics-provider="gtm"'))
+    })
+  })
+
   test('repeated requests keep serving the same bytes', async () => {
     const first = await serve('GET', '/a')
     const second = await serve('HEAD', '/b?x=1')
