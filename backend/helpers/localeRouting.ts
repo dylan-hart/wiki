@@ -5,6 +5,7 @@ export interface LocaleRoutingConfig {
   primary: string
   active: string[]
   forcePrefix?: boolean
+  aliases?: Record<string, string>
 }
 
 export function defaultLocale(siteId: string): string {
@@ -56,6 +57,21 @@ export function matchLocaleCode(candidate: string, active?: string[] | null): st
   return active.find((code) => code.toLowerCase() === lower) ?? null
 }
 
+function matchLocaleAlias(candidate: string, locales: LocaleRoutingConfig): string | null {
+  if (!locales.aliases) {
+    return null
+  }
+  const lower = candidate.toLowerCase()
+  const entry = Object.entries(locales.aliases).find(
+    ([code, alias]) => alias.toLowerCase() === lower && locales.active.includes(code)
+  )
+  return entry?.[0] ?? null
+}
+
+export function localeUrlSegment(locale: string, locales?: LocaleRoutingConfig | null): string {
+  return locales?.aliases?.[locale] || locale
+}
+
 /**
  * A locale-prefixed URL (`/fr/some/page`) and an ordinary one (`/some/page`) are the same shape —
  * only the site's active locale codes tell them apart, which is why this takes the `locales` config
@@ -74,7 +90,8 @@ export function stripLocalePrefix(
   if (!firstSegment) {
     return null
   }
-  const match = matchLocaleCode(firstSegment, locales.active)
+  const match =
+    matchLocaleAlias(firstSegment, locales) ?? matchLocaleCode(firstSegment, locales.active)
   if (!match) {
     return null
   }
@@ -98,7 +115,7 @@ export function localePrefixRedirectTarget(
   if (stripLocalePrefix(urlPath, locales)) {
     return null
   }
-  return `/${locales.primary}${urlPath === '/' ? '' : urlPath}`
+  return `/${localeUrlSegment(locales.primary, locales)}${urlPath === '/' ? '' : urlPath}`
 }
 
 /**
@@ -118,7 +135,7 @@ export function localePrefixStripTarget(
     return null
   }
   if (shouldPrefixLocale(stripped.locale, locales)) {
-    const canonical = `/${stripped.locale}${stripped.path === '/' ? '' : stripped.path}`
+    const canonical = `/${localeUrlSegment(stripped.locale, locales)}${stripped.path === '/' ? '' : stripped.path}`
     return canonical === urlPath ? null : canonical
   }
   return stripped.path
@@ -148,5 +165,5 @@ export function localizedPagePath(
   locales?: LocaleRoutingConfig | null
 ): string {
   const bare = `/${path}`
-  return shouldPrefixLocale(locale, locales) ? `/${locale}${bare}` : bare
+  return shouldPrefixLocale(locale, locales) ? `/${localeUrlSegment(locale, locales)}${bare}` : bare
 }

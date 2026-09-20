@@ -7,6 +7,7 @@ import {
   defaultLocale,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
+  localeUrlSegment,
   localizedPagePath,
   matchLocaleCode,
   shouldPrefixLocale,
@@ -291,5 +292,144 @@ describe('localePrefixStripTarget', () => {
   })
   test('an unprefixed path is not a candidate', () => {
     assert.equal(localePrefixStripTarget('/guides/x', locales({ forcePrefix: false })), null)
+  })
+})
+
+describe('locale URL aliases', () => {
+  const aliased = (overrides: Partial<LocaleRoutingConfig> = {}) =>
+    locales({
+      primary: 'en',
+      active: ['en', 'zh-CN'],
+      aliases: { 'zh-CN': 'zh' },
+      forcePrefix: false,
+      ...overrides
+    })
+
+  describe('localeUrlSegment', () => {
+    test('is the alias when the locale has one', () => {
+      assert.equal(localeUrlSegment('zh-CN', aliased()), 'zh')
+    })
+    test('is the canonical code without an alias', () => {
+      assert.equal(localeUrlSegment('en', aliased()), 'en')
+      assert.equal(localeUrlSegment('zh-CN', locales({ active: ['en', 'zh-CN'] })), 'zh-CN')
+      assert.equal(localeUrlSegment('zh-CN', null), 'zh-CN')
+    })
+  })
+
+  describe('stripLocalePrefix', () => {
+    test('resolves an alias to its canonical code', () => {
+      assert.deepEqual(stripLocalePrefix('/zh/some/page', aliased()), {
+        locale: 'zh-CN',
+        path: '/some/page'
+      })
+    })
+    test('matches the alias case-insensitively', () => {
+      assert.deepEqual(stripLocalePrefix('/ZH/page', aliased()), {
+        locale: 'zh-CN',
+        path: '/page'
+      })
+    })
+    test('a bare alias-only path is the locale root', () => {
+      assert.deepEqual(stripLocalePrefix('/zh', aliased()), { locale: 'zh-CN', path: '/' })
+    })
+    test('still recognizes the canonical spelling', () => {
+      assert.deepEqual(stripLocalePrefix('/zh-cn/page', aliased()), {
+        locale: 'zh-CN',
+        path: '/page'
+      })
+    })
+    test('ignores an alias whose locale is not active', () => {
+      assert.equal(stripLocalePrefix('/zh/page', aliased({ active: ['en'] })), null)
+      assert.equal(
+        stripLocalePrefix('/d/page', aliased({ aliases: { de: 'd', 'zh-CN': 'zh' } })),
+        null
+      )
+    })
+    test('an alias the site does not define is not a locale', () => {
+      assert.equal(stripLocalePrefix('/zh/page', locales({ active: ['en', 'zh-CN'] })), null)
+    })
+    test('an empty alias map behaves as no aliases', () => {
+      assert.deepEqual(stripLocalePrefix('/fr/page', locales({ aliases: {} })), {
+        locale: 'fr',
+        path: '/page'
+      })
+    })
+  })
+
+  describe('localizedPagePath', () => {
+    test('emits the alias for a locale that has one', () => {
+      assert.equal(localizedPagePath('guides/x', 'zh-CN', aliased()), '/zh/guides/x')
+    })
+    test('emits the canonical code for a locale without one', () => {
+      assert.equal(
+        localizedPagePath('guides/x', 'fr', aliased({ active: ['en', 'zh-CN', 'fr'] })),
+        '/fr/guides/x'
+      )
+    })
+    test('emits the primary locale alias under forcePrefix', () => {
+      assert.equal(
+        localizedPagePath('guides/x', 'en', aliased({ forcePrefix: true, aliases: { en: 'e' } })),
+        '/e/guides/x'
+      )
+    })
+    test('leaves the primary locale bare without forcePrefix, alias or not', () => {
+      assert.equal(
+        localizedPagePath('guides/x', 'en', aliased({ aliases: { en: 'e' } })),
+        '/guides/x'
+      )
+    })
+    test('round-trips through stripLocalePrefix', () => {
+      const cfg = aliased()
+      const composed = localizedPagePath('guides/x', 'zh-CN', cfg)
+      assert.deepEqual(stripLocalePrefix(composed, cfg), { locale: 'zh-CN', path: '/guides/x' })
+    })
+  })
+
+  describe('localePrefixStripTarget', () => {
+    test('redirects the canonical spelling to the alias', () => {
+      assert.equal(localePrefixStripTarget('/zh-CN/page', aliased()), '/zh/page')
+      assert.equal(localePrefixStripTarget('/zh-CN', aliased()), '/zh')
+    })
+    test('leaves the alias spelling alone', () => {
+      assert.equal(localePrefixStripTarget('/zh/page', aliased()), null)
+    })
+    test('re-cases a mis-cased alias to the stored alias', () => {
+      assert.equal(localePrefixStripTarget('/ZH/page', aliased()), '/zh/page')
+    })
+    test('strips the primary locale prefix in either spelling when it is left bare', () => {
+      const cfg = aliased({ aliases: { en: 'e' } })
+      assert.equal(localePrefixStripTarget('/e/page', cfg), '/page')
+      assert.equal(localePrefixStripTarget('/en/page', cfg), '/page')
+    })
+    test('under forcePrefix, canonicalizes the primary locale to its alias and stops there', () => {
+      const cfg = aliased({ forcePrefix: true, aliases: { en: 'e' } })
+      assert.equal(localePrefixStripTarget('/en/page', cfg), '/e/page')
+      assert.equal(localePrefixStripTarget('/e/page', cfg), null)
+    })
+    test('with no aliases behaves exactly as before', () => {
+      const cfg = locales({ forcePrefix: false })
+      assert.equal(localePrefixStripTarget('/FR/guides/x', cfg), '/fr/guides/x')
+      assert.equal(localePrefixStripTarget('/en/guides/x', cfg), '/guides/x')
+    })
+  })
+
+  describe('localePrefixRedirectTarget', () => {
+    test('an aliased non-primary prefix is already prefixed, so no redirect', () => {
+      assert.equal(localePrefixRedirectTarget('/zh/page', aliased({ forcePrefix: true })), null)
+    })
+    test('forcePrefix redirects a bare path to the primary locale alias', () => {
+      const cfg = aliased({ forcePrefix: true, aliases: { en: 'e' } })
+      assert.equal(localePrefixRedirectTarget('/page', cfg), '/e/page')
+      assert.equal(localePrefixRedirectTarget('/', cfg), '/e')
+    })
+    test('the redirect target is a fixed point of both redirect helpers', () => {
+      const cfg = aliased({ forcePrefix: true, aliases: { en: 'e', 'zh-CN': 'zh' } })
+      const target = localePrefixRedirectTarget('/page', cfg)!
+      assert.equal(localePrefixRedirectTarget(target, cfg), null)
+      assert.equal(localePrefixStripTarget(target, cfg), null)
+    })
+    test('without an alias on the primary locale the target is the canonical code', () => {
+      assert.equal(localePrefixRedirectTarget('/page', aliased({ forcePrefix: true })), '/en/page')
+    })
   })
 })
