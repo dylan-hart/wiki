@@ -237,16 +237,17 @@ export function registerStaticAssets(app: FastifyInstance): void {
       cacheControl: ROOT_FAVICON_CACHE
     })
   )
+  const assetsRoot = path.join(CARDINAL.ROOTPATH, 'assets/_assets')
   app.register(fastifyStatic, {
     prefix: '/_assets/',
-    root: path.join(CARDINAL.ROOTPATH, 'assets/_assets'),
+    root: assetsRoot,
     index: false,
     maxAge: '7d',
     decorateReply: false,
     // -> A vite build output named `[name]-[hash].[ext]` can never change under a given URL, so it
     //    is immutable. The unhashed entries fall through to the `maxAge: '7d'` default above.
     setHeaders(reply, filePath) {
-      if (isHashedAssetFilename(path.basename(filePath))) {
+      if (isHashedAssetFilename(path.relative(assetsRoot, filePath))) {
         reply.header('Cache-Control', 'public, max-age=31536000, immutable')
       }
     }

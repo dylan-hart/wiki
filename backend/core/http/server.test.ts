@@ -425,6 +425,11 @@ describe('registerStaticAssets', () => {
     fs.writeFileSync(path.join(rootPath, ROOT_FAVICON_PATH), 'icon-bytes')
     fs.writeFileSync(path.join(rootPath, 'assets/_assets/index-CL_uwIZr.js'), 'hashed')
     fs.writeFileSync(path.join(rootPath, 'assets/_assets/renderer.js'), 'unhashed')
+    fs.writeFileSync(path.join(rootPath, 'assets/_assets/logo-cardinal.svg'), 'logo')
+    fs.mkdirSync(path.join(rootPath, 'assets/_assets/icons'), { recursive: true })
+    fs.writeFileSync(path.join(rootPath, 'assets/_assets/icons/color-document.svg'), 'icon')
+    fs.mkdirSync(path.join(rootPath, 'assets/_assets/fonts'), { recursive: true })
+    fs.writeFileSync(path.join(rootPath, 'assets/_assets/fonts/index-CL_uwIZr.woff2'), 'font')
     fs.writeFileSync(path.join(rootPath, 'blocks/compiled/block-map.js'), 'block')
 
     // -> `ROOTPATH` and `SERVERPATH` share one synthetic tree: the repo-root vs. `backend/` split
@@ -484,6 +489,18 @@ describe('registerStaticAssets', () => {
     assert.equal(res.statusCode, 200)
     assert.equal(res.headers['cache-control'], 'public, max-age=604800')
   })
+
+  for (const url of [
+    '/_assets/logo-cardinal.svg',
+    '/_assets/icons/color-document.svg',
+    '/_assets/fonts/index-CL_uwIZr.woff2'
+  ]) {
+    test(`serves hand-authored ${url} on the plain 7d default, never immutable`, async () => {
+      const res = await app.inject({ method: 'GET', url })
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.headers['cache-control'], 'public, max-age=604800')
+    })
+  }
 
   test('serves a compiled block under /_blocks/', async () => {
     const res = await app.inject({ method: 'GET', url: '/_blocks/block-map.js' })
