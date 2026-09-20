@@ -241,6 +241,35 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     })
   }
 
+  function moveAsset(item) {
+    dialog({
+      component: defineAsyncComponent(() => import('@/components/TreeBrowserDialog.vue')),
+      componentProps: {
+        mode: 'moveItem',
+        folderPath: item.folderPath,
+        locale: state.locale
+      }
+    }).onOk(async (destination) => {
+      try {
+        await API_CLIENT.put(`sites/${siteStore.id}/assets/${item.id}/folder`, {
+          json: { folderId: destination.folderId, parentPath: destination.parentPath }
+        }).json()
+        notify({
+          type: 'positive',
+          message: t('fileman.moveAssetSuccess')
+        })
+      } catch (err) {
+        notify({
+          type: 'negative',
+          message: t('fileman.moveAssetFailed'),
+          caption: apiErrorMessage(err, t('common.error.unexpected'))
+        })
+        return
+      }
+      await loadTree({ parentId: state.currentFolderId })
+    })
+  }
+
   function delAsset(assetId, assetName) {
     confirm({
       title: t('fileman.assetDelete'),
@@ -277,6 +306,7 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     renameMovePage,
     delPage,
     renameAsset,
+    moveAsset,
     delAsset
   }
 }
