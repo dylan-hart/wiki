@@ -35,7 +35,7 @@ initializers → mount. There is no UI framework: `src/components/shared/` is th
   (mirrors `backend/base.yml`'s `systemIds` — never retype the literal), `treeNodes.js`,
   `apiKeyState.js`, `markdownFences.js`, `markdownInsert.js`, `pointerDrag.js`, `blockScan.js`,
   `storageDeliveryGraph.js`, `wysiwygMenuBar.js`, `authValidation.js`, `moduleConfig.js`,
-  `passwordStrength.js`, `randomPassword.js`, `injectCss.js`, `accessibility.js`, `siteImages.js`.
+  `passwordStrength.js`, `randomPassword.js`, `headStyle.js`, `accessibility.js`, `siteImages.js`.
 - `src/renderers/` — page content rendering pipeline: `markdown.js` plus `modules/` (katex, kroki,
   plantuml, markdown-it plugins).
 - `src/css/` — `tailwind.css` (theme tokens, utilities and the shared component classes) plus a

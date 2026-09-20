@@ -17,8 +17,7 @@ import { bootstrapFailureRedirectFor } from '@/helpers/bootstrap'
 import { resolveAestheticColors } from '@/helpers/aestheticDefaults'
 import { setCssVar } from '@/helpers/cssVars'
 import { applyFonts } from '@/helpers/fonts'
-import { applyInjectCss, replaceHeadStyle } from '@/helpers/injectCss'
-import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
+import { replaceHeadStyle } from '@/helpers/headStyle'
 import { log } from '@/helpers/log'
 import { parseLocalePrefix, resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
 import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
@@ -201,11 +200,6 @@ async function applyTheme() {
   setCssVar('warning', userStore.getAccessibleColor('warning', brand.colorWarning))
 
   applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)
-
-  applyInjectCss(siteStore.theme.injectCSS)
-
-  applyInjectHead(siteStore.theme.injectHead)
-  applyInjectBody(siteStore.theme.injectBody)
 
   await applyCodeBlocksTheme()
 }
