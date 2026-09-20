@@ -23,9 +23,8 @@ export const pageHistoryActions = ['created', 'updated', 'moved', 'deleted'] as 
 export type PageHistoryAction = (typeof pageHistoryActions)[number]
 
 /**
- * What made a change: the standard editor (the REST API a browser saves through), or an MCP tool
- * call acting on someone's behalf. Kept alongside `action` rather than folded into it — what changed
- * and what wrote it are orthogonal, and every `action` value is possible either way.
+ * Kept alongside `action` rather than folded into it — what changed and what wrote it are
+ * orthogonal, and every `action` value is possible either way.
  */
 export const pageHistoryVia = ['editor', 'mcp'] as const
 
@@ -33,9 +32,8 @@ export type PageHistoryVia = (typeof pageHistoryVia)[number]
 
 /**
  * Postgres intervals rather than durations computed here, so the cutoff is measured against the same
- * clock the rows were written by — `versionDate` defaults to `now()`, and a timestamp column carries
- * no offset to reconcile a date computed in this process against. Calendar arithmetic comes free: a
- * month is a month, whichever one it lands in.
+ * clock the rows were written by — `versionDate` defaults to `now()`. Calendar arithmetic comes
+ * free: a month is a month, whichever one it lands in.
  */
 export const purgeTimeframes = {
   '24h': '24 hours',
@@ -74,8 +72,8 @@ const EXCLUDED_FROM_META = new Set([
 ])
 
 /**
- * Fields a change is never reported as having touched: either derived from the content (a render
- * moves whenever the source does) or bookkeeping that moves on every save regardless.
+ * Either derived from the content (a render moves whenever the source does) or bookkeeping that
+ * moves on every save regardless.
  */
 const NOT_REPORTED_AS_CHANGED = new Set([
   'render',
@@ -89,7 +87,7 @@ const NOT_REPORTED_AS_CHANGED = new Set([
   'isSearchableComputed'
 ])
 
-/** Who a version is attributed to. Null once that account is gone; the version stays. */
+/** `id` goes null once that account is gone; the version stays. */
 export type PageHistoryAuthor = {
   id: string | null
   name: string
@@ -111,7 +109,6 @@ export type PageHistoryEntry = {
   author: PageHistoryAuthor
 }
 
-/** A version in full, source included. */
 export type PageHistoryVersion = PageHistoryEntry & {
   content: string
   meta: Record<string, any>
@@ -121,7 +118,7 @@ export type PageHistoryVersion = PageHistoryEntry & {
  * Deliberately NOT `PageHistoryEntry`. `tags`/`classification` let the route narrow its per-row
  * `read:history` check with a TAG/TAGALL/CLASSIFICATION rule rather than a bare path/locale match,
  * and `author` carries no `email`: this listing is reachable by a caller who does NOT hold
- * `read:pages` at the deleted path, so an address on every row would leak PII.
+ * `read:pages` at the deleted path.
  */
 export type RecoverablePageEntry = Omit<PageHistoryEntry, 'author'> & {
   tags: string[]
@@ -130,9 +127,9 @@ export type RecoverablePageEntry = Omit<PageHistoryEntry, 'author'> & {
 }
 
 /**
- * A whole timeline is read through {@link PageHistory.list}, hundreds of rows at a time, and nothing
- * reads an author's address off it -- so the email a `getVersion()` or `listRecoverable()` row still
- * carries is left out of this projection entirely rather than fetched and thrown away.
+ * A whole timeline is hundreds of rows at a time and nothing reads an author's address off it, so
+ * the email a `getVersion()` row still carries is left out of this projection entirely rather than
+ * fetched and thrown away.
  */
 export type PageHistoryListAuthor = Omit<PageHistoryAuthor, 'email'>
 
@@ -143,7 +140,6 @@ export type PageHistoryListEntry = Omit<PageHistoryEntry, 'author'> & {
 export type PageHistoryPage = {
   /** Newest first. */
   items: PageHistoryListEntry[]
-  /** Pass back as `cursor` to fetch the next page. Null once there is nothing older left. */
   nextCursor: string | null
 }
 
@@ -167,20 +163,17 @@ type HistoryCursor = {
 }
 
 /**
- * Encodes `versionDate` at millisecond precision -- what postgres stores, so a round trip never
- * disagrees with the row it came from -- and `id` with it: several versions can share one
- * `versionDate` on a page saved twice in the same millisecond, and `id` is what keeps their relative
- * order stable across pages.
+ * Millisecond precision is what postgres stores, so a round trip never disagrees with the row it
+ * came from. `id` rides along because several versions can share one `versionDate`, and it is what
+ * keeps their relative order stable across pages.
  */
 function encodeHistoryCursor(cursor: HistoryCursor): string {
   return Buffer.from(`${cursor.versionDate.getTime()}|${cursor.id}`, 'utf8').toString('base64url')
 }
 
 /**
- * The inverse of {@link encodeHistoryCursor}.
- *
- * @throws {CustomError} `pageHistoryInvalidCursor` (400) for a value that does not decode -- tampered
- *         or truncated, not something normal paging can produce.
+ * A value that does not decode is tampered or truncated, not something normal paging can produce --
+ * hence a 400 rather than an empty page.
  */
 function decodeHistoryCursor(raw: string): HistoryCursor {
   const invalid = () =>
@@ -203,9 +196,6 @@ function decodeHistoryCursor(raw: string): HistoryCursor {
   return { versionDate: new Date(epochMs), id }
 }
 
-/**
- * The columns every history read starts from; each read spreads this and adds only what is its own.
- */
 const entrySelection = {
   id: pageHistoryTable.id,
   action: pageHistoryTable.action,
@@ -219,8 +209,8 @@ const entrySelection = {
 }
 
 /**
- * The defaulting is the part worth having in one place: a null `changedFields` reads as no fields
- * and a null `reason` as no reason, rather than either surfacing as `null` in an API response.
+ * A null `changedFields` reads as no fields and a null `reason` as no reason, rather than either
+ * surfacing as `null` in an API response.
  */
 function toEntry(row: any) {
   return {
@@ -241,8 +231,7 @@ function toEntry(row: any) {
 }
 
 /**
- * The keyset predicate for "strictly after this cursor" in the `(versionDate DESC, id DESC)` order
- * both paged reads scan in, or `undefined` for the first page.
+ * "Strictly after this cursor" in the `(versionDate DESC, id DESC)` order both paged reads scan in.
  *
  * Takes the columns rather than assuming `pageHistoryTable`: `listRecoverable` pages over its own
  * `DISTINCT ON` subquery, whose columns are the subquery's, not the table's.
@@ -262,17 +251,15 @@ function keysetAfter(
 }
 
 /**
- * Unique-contributor counts for one page, split by `via`. `all` is the union across both buckets,
- * precomputed rather than left for a caller to add `editor + mcp` together: a contributor who edited
- * through both is one person appearing in both buckets, not two.
+ * `all` is the union across both buckets, precomputed rather than left for a caller to add
+ * `editor + mcp` together: a contributor who edited through both is one person, not two.
  */
 export type PageHistoryContributorCounts = {
   editor: number
   mcp: number
   all: number
-  /** Raw history-row counts (not `distinct authorId`) for the same `via` split. Unlike the unique
-   *  counts, these are NOT filtered to `authorId IS NOT NULL`: a since-deleted account's edits are
-   *  still real rows against the page, just no longer attributable to a distinct person. */
+  /** Raw row counts, not `distinct authorId`, and NOT filtered to `authorId IS NOT NULL`: a
+   *  since-deleted account's edits are still real rows against the page. */
   total: {
     editor: number
     mcp: number
@@ -281,12 +268,10 @@ export type PageHistoryContributorCounts = {
 }
 
 /**
- * Where a page stands in its own history, for the metadata rail's `rev N · M changes`.
- *
  * `changeCount` is ABSENT rather than zero when there is nothing to compare against — a page whose
- * only version is its creation, or one with no history at all. The two render differently (`rev 1`
- * alone, versus a `· 0 changes` clause that can never legitimately occur), so absence has to stay
- * distinguishable from a real zero all the way out to the response.
+ * only version is its creation, or one with no history at all. The metadata rail renders those as
+ * `rev 1` alone, versus a `· 0 changes` clause that can never legitimately occur, so absence has to
+ * stay distinguishable from a real zero all the way out to the response.
  */
 export type PageRevisionSummary = {
   /** 1-based, and 1 rather than 0 for a page with no history rows at all. */
@@ -294,8 +279,8 @@ export type PageRevisionSummary = {
   /** Lines added plus lines removed between the newest version and the one before it. */
   changeCount?: number
   /**
-   * What made the newest version. Falls back to the column's default, `editor`, on a page whose
-   * history has been purged out from under it -- there is no row left to answer from.
+   * Falls back to the column's default, `editor`, on a page whose history has been purged out from
+   * under it -- there is no row left to answer from.
    */
   via: PageHistoryVia
 }
@@ -317,14 +302,8 @@ function countChangedLines(before: string, after: string): number {
   return changed
 }
 
-/**
- * Records a version of a page every time one changes, and reads those versions back for the history
- * view, for diffing two against each other, and for recovering a deleted page from one.
- */
 class PageHistory {
   /**
-   * Record what a page looks like now, as a new version.
-   *
    * The snapshot is read from the stored row rather than taken from the caller, so what is recorded
    * is what was actually saved — not what the caller believed it was saving. For a deletion that
    * means this has to be called BEFORE the row goes.
@@ -332,14 +311,9 @@ class PageHistory {
    * A failure here is logged and swallowed: losing a history entry is not a reason to fail the edit
    * that was the point of the request.
    *
-   * @param authorId Kept on the row until that account is deleted, at which point the version
-   *                 survives with no author rather than blocking the deletion.
    * @param changedFields Empty for a creation or a deletion, where the whole page is the change.
-   * @param versionDate When to date this version, in place of `now()`. Supplied only by
-   *                     `createPage()` for an input carrying an explicit `updatedAt` — an import,
-   *                     backdating to the source page's real last-modified time instead of stamping
-   *                     it with import time. See upstream requarks/wiki#4631, the bug this avoids.
-   * @returns The version's ID, or null when nothing was recorded
+   * @param versionDate Dates the version in place of `now()`, for an import backdating to the
+   *                     source page's real last-modified time (upstream requarks/wiki#4631).
    */
   async record({
     siteId,
@@ -416,8 +390,7 @@ class PageHistory {
   }
 
   /**
-   * A page's versions, newest first. No content: a list of forty versions has no business carrying
-   * forty copies of the page.
+   * No content: a list of forty versions has no business carrying forty copies of the page.
    *
    * Paginated by keyset on `(versionDate, id)` rather than `OFFSET` -- a page edited daily for a
    * couple of years carries hundreds of versions, and `OFFSET` does more work for every page further
@@ -465,16 +438,11 @@ class PageHistory {
   }
 
   /**
-   * Unique-contributor counts per page across a whole site, for the knowledge graph's edit-volume
-   * node sizing.
-   *
-   * A since-deleted account is not counted as a synthetic "deleted user" contributor: its edits
-   * still count toward rows existing, just not toward how many distinct people they came from.
+   * A since-deleted account is not counted as a synthetic "deleted user" contributor.
    * `COUNT(DISTINCT authorId)` excludes `NULL` by standard SQL aggregate semantics, so the unique
    * figures need no `WHERE` of their own, while `total.*` counts every row regardless.
    *
-   * @returns A map keyed by `pageId`. A page with no history at all is simply absent; callers
-   *          default a missing entry to all-zero.
+   * A page with no history at all is simply absent from the map.
    */
   async contributorCountsForGraph(
     siteId: string
@@ -512,15 +480,15 @@ class PageHistory {
    * Answered as part of a page read rather than as a request of its own.
    *
    * Two narrow reads rather than one windowed query, both served by `pageHistory_pageId_idx`: a
-   * single `count(*) over ()` would fold them into one statement, but a window is computed over
-   * every matching row before `LIMIT` applies — so a page with hundreds of versions would drag all
-   * of their bodies through the sort to answer a question about two of them.
+   * `count(*) over ()` would fold them into one statement, but a window is computed over every
+   * matching row before `LIMIT` applies — so a page with hundreds of versions would drag all of
+   * their bodies through the sort to answer a question about two of them.
    *
    * Ordered `(versionDate DESC, id DESC)`, the same tie-break {@link keysetAfter} pages in, so two
    * versions written inside the same millisecond still order deterministically.
    *
    * Not site-scoped, unlike the reads around it: `pageId` is a uuid primary key and every caller has
-   * already resolved the page within its site, so a `siteId` predicate could only narrow a set of one.
+   * already resolved the page within its site.
    */
   async revisionSummary(pageId: string): Promise<PageRevisionSummary> {
     const [totals, newest] = await Promise.all([
@@ -537,8 +505,6 @@ class PageHistory {
     ])
     // -> A page with no history at all is still on its first version, so the floor is 1, not 0
     const ordinal = Math.max(totals[0]?.total ?? 0, 1)
-    // -> No row to read a `via` off of (history purged out from under a still-existing page): the
-    //    column's own default, rather than leaving provenance unanswered
     const via = (newest[0]?.via ?? 'editor') as PageHistoryVia
     // -> Nothing before it to differ from: the clause is omitted, never sent as a zero
     if (newest.length < 2) {
@@ -552,8 +518,6 @@ class PageHistory {
     }
   }
 
-  /** One version, with the source it held — the side of a diff. Null when this page has no such
-   * version. */
   async getVersion(
     siteId: string,
     pageId: string,
@@ -595,8 +559,6 @@ class PageHistory {
   }
 
   /**
-   * Every deletion a site could still recover from — one row per path, newest first, paginated.
-   *
    * A path can be deleted more than once (deleted, recreated, deleted again), so this is not simply
    * "every `deleted` row": `DISTINCT ON (locale, path)` collapses that down to the most recent
    * deletion, and a live `pages` row at the same `(siteId, locale, path)` excludes it via
@@ -688,15 +650,11 @@ class PageHistory {
   }
 
   /**
-   * One deleted version by id, in full — the row {@link recoverDeletedPage} rebuilds a page from.
-   *
    * Exposed separately so a caller can inspect a version before deciding to recover it: the route
    * checks `read:pages`/`read:source` against the version's OWN path — recovering into a writable
    * destination is not the same as being allowed to read what is being recovered — and `write:pages`
    * against the target path. `tags`/`classification` are lifted out of `meta` as named fields so
    * that source-side check can be narrowed by a TAG/TAGALL/CLASSIFICATION rule like any other.
-   *
-   * @returns The version, or null when no `deleted` version exists at this id for this site.
    */
   async getDeletedVersion(
     siteId: string,
@@ -745,8 +703,6 @@ class PageHistory {
   }
 
   /**
-   * Bring a deleted page back, as a new page built from one specific deleted version.
-   *
    * Looked up by `id` rather than "the latest deletion at this path", so a caller acting on a
    * {@link listRecoverable} row recovers exactly the version it showed — not whatever happens to be
    * newest by the time the request lands.
@@ -760,9 +716,6 @@ class PageHistory {
    * fallback: a page classified `Restricted` and deleted must not come back `Public`. No `render` is
    * carried — a deleted version never stored the rendered HTML — so `createPage()` confirms up front
    * that this instance can render at all, then queues the re-render itself.
-   *
-   * @throws If no `deleted` version exists at this id for this site, or (via `createPage()`'s own
-   *   up-front check) if nothing here could ever render the recovered page.
    */
   async recoverDeletedPage(
     siteId: string,
@@ -782,10 +735,9 @@ class PageHistory {
     const meta = row.meta
     const config = (meta.config ?? {}) as Record<string, any>
 
-    // -> `meta.password` is already a `bcrypt` verifier, copied verbatim off the deleted row -- not a
-    //    plaintext to hash again, so it is kept out of `input` below. `createPage()` hashes its own
-    //    `password` field, and an already-hashed value would be hashed twice, silently locking the
-    //    recovered page behind a password nobody can type. It is written to the row afterwards.
+    // -> `meta.password` is already a `bcrypt` verifier, so it is kept out of `input` below and
+    //    written to the row afterwards: `createPage()` hashes its own `password` field, and hashing
+    //    the hash would silently lock the recovered page behind a password nobody can type.
     const input: PageInput = {
       path: overrides?.path ?? row.path,
       locale: overrides?.locale ?? row.locale,
@@ -814,9 +766,8 @@ class PageHistory {
       tocDepth: config.tocDepth
     }
 
-    // -> `origin: 'restore'` changes nothing about what is written -- it is the one bit of provenance
-    //    `createPage()` cannot infer, and only decides whether the lifecycle line reads `restored`
-    //    or `created`
+    // -> `origin` changes nothing about what is written -- it is the one bit of provenance
+    //    `createPage()` cannot infer, and only picks `restored` over `created` on the lifecycle line
     const page = await CARDINAL.models.pages.createPage(siteId, input, actor, { origin: 'restore' })
     if (meta.password) {
       await CARDINAL.db
@@ -832,8 +783,6 @@ class PageHistory {
   }
 
   /**
-   * Drop every version older than a timeframe, across every site.
-   *
    * A page's own row holds what it says now, so this changes nothing anybody reads — it shortens
    * timelines and takes away what a page can be rolled back to. A page whose every version predates
    * the cutoff keeps the page and loses its history entirely, `created` row included.
@@ -844,8 +793,6 @@ class PageHistory {
    *
    * Needs none of `core/maintenance.ts`'s HA handling: there is no per-instance copy of a history row
    * to fall out of step, so the next `SELECT` on any instance simply doesn't see the rows.
-   *
-   * @returns How many versions were dropped
    */
   async purge(olderThan: PurgeTimeframe): Promise<number> {
     const interval = purgeTimeframes[olderThan]
@@ -869,15 +816,9 @@ class PageHistory {
   }
 
   /**
-   * Which of a page's fields a patch actually changes.
-   *
    * Compared against the stored row rather than taken from the patch keys: the editor sends every
-   * field on every save, which would otherwise record every field as changed on every version.
-   *
-   * Fields derived from the content, and bookkeeping that moves on every save, are left out: a
-   * render changing alongside its source is not a second thing that happened.
-   *
-   * @param patch The fields being written, keyed as the page stores them
+   * field on every save, which would otherwise record every field as changed on every version. Both
+   * arguments are keyed as the page stores its columns.
    */
   changedFields(existing: Record<string, any>, patch: Record<string, any>): string[] {
     const changed: string[] = []

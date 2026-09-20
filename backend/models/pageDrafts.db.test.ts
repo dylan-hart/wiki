@@ -10,10 +10,9 @@ import {
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
 /**
- * `models/pageDrafts.ts` is a thin upsert/select/delete layer over one table, so it is exercised
- * against a real database rather than mocked. The behavioural promises around it (debounce,
- * attribution bookkeeping) belong to `core/collab.*.test.ts`; this file pins only the storage layer
- * those tests stub out, plus the Yjs decode `getContent()` does.
+ * A thin upsert/select/delete layer over one table, so it is exercised against a real database
+ * rather than mocked. The behaviour around it (debounce, attribution bookkeeping) belongs to
+ * `core/collab.*.test.ts`; this file pins only the storage layer those tests stub out.
  */
 describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -31,9 +30,8 @@ describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * A minimal, valid `pages` row for `pageDrafts.pageId`'s FK to reference — inserted directly rather
-   * than through `createPage()`, which would pull in locale seeding and a renderQueue stub this suite
-   * has no other use for. One fresh row per test, so no test sees another's leftover draft.
+   * Inserted directly rather than through `createPage()`, which would pull in locale seeding and a
+   * renderQueue stub this suite has no other use for.
    */
   async function seedPage(): Promise<string> {
     const [row] = await fixtures.db
@@ -55,7 +53,7 @@ describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
     return row!.id
   }
 
-  /** A real Yjs update shaped as `core/collab.ts` persists it: text `content` plus a `props` map. */
+  /** A real Yjs update, shaped as `core/collab.ts` persists it. */
   function buildState(fields: {
     content?: string
     title?: string

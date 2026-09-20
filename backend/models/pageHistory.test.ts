@@ -12,10 +12,9 @@ import { CustomError } from '../helpers/common.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
- * `list`, `listRecoverable` and `recoverDeletedPage` are SQL orchestration (a keyset-paginated
- * query, a `DISTINCT ON` + `NOT EXISTS` query, and a reconstruct-then-`createPage` write path)
- * rather than pure logic, so this suite runs them against a real database rather than mocking the
- * query builder.
+ * These are SQL orchestration (keyset pagination, a `DISTINCT ON` + `NOT EXISTS` query, a
+ * reconstruct-then-`createPage` write path) rather than pure logic, so the suite runs against a real
+ * database rather than mocking the query builder.
  */
 describe(
   'pageHistory list/listRecoverable/recoverDeletedPage (DB-backed)',
@@ -25,9 +24,8 @@ describe(
     let pagesModel: typeof import('./pages.ts').pages
     let pageHistoryModel: typeof import('./pageHistory.ts').pageHistory
     let actor: PageActor
-    /** The strictest configured level (highest `sortOrder`) -- deliberately NOT
-     *  `fixtures.classificationId`, which is the most-open one and therefore also what a silent
-     *  fallback to `defaultLevel()` would produce, hiding a recovery that lost the original level. */
+    /** Deliberately NOT `fixtures.classificationId`: that is the most-open level, which is also
+     *  what a silent fallback to `defaultLevel()` would produce, hiding a lost classification. */
     let restrictedLevelId: string
 
     before(async () => {
@@ -171,10 +169,7 @@ describe(
       )
     })
 
-    /**
-     * Backdates the `deleted` history row to a fixed `versionDate`, so a pagination test can control
-     * ordering (and force ties) instead of depending on wall-clock gaps between calls.
-     */
+    /** So a pagination test controls ordering and ties, not wall-clock gaps between calls. */
     async function deletePageAt(pageId: string, versionDate: Date) {
       await pagesModel.deletePage(fixtures.siteId, pageId, actor)
       await fixtures.db
@@ -304,9 +299,9 @@ describe(
     })
 
     /**
-     * `meta.password`, copied verbatim off the deleted row, is already a `bcrypt` verifier -- not a
-     * plaintext for `createPage()` to hash again. Passing it as an ordinary `PageInput.password`
-     * would hash the hash, and the original password would never unlock the page again.
+     * `meta.password`, copied verbatim off the deleted row, is already a `bcrypt` verifier. Passing
+     * it as an ordinary `PageInput.password` would hash the hash, and the original password would
+     * never unlock the page again.
      */
     test('recoverDeletedPage preserves a working password, without re-hashing the stored verifier', async () => {
       const page = await pagesModel.createPage(
@@ -355,8 +350,7 @@ describe(
         throw new CustomError('renderPuppeteerMissing', 'Puppeteer is not installed.', 503)
       })
 
-      // -> `createPage()` confirms `ensureCanRender()` *before* the write, so a recovery nothing
-      //    could ever render refuses outright rather than recreating a permanently blank page.
+      // -> Refusing outright beats recreating a permanently blank page nothing could ever render.
       await assert.rejects(
         () => pageHistoryModel.recoverDeletedPage(fixtures.siteId, entry!.id, actor),
         /Puppeteer is not installed\./
@@ -415,9 +409,8 @@ describe(
         pageInput({ path: 'docs/contributor-counts' }),
         actor
       )
-      // -> createPage's own `created` record already counts `actor.id` once via 'editor'. Layered
-      //    on below: the same author again (no new unique contributor), a second editor-via author,
-      //    and an mcp-via author.
+      // -> createPage's own `created` row already counts `actor.id` once via 'editor'; layered on
+      //    below: the same author again, a second editor-via author, and an mcp-via author.
       await pageHistoryModel.record({
         siteId: fixtures.siteId,
         pageId: page.id,
@@ -559,7 +552,6 @@ describe(
       const overlap = secondPage.items.filter((row) => firstIds.has(row.id))
       assert.deepEqual(overlap, [])
 
-      // -> The two pages concatenated must equal one unpaginated fetch: same order, no gap
       const whole = await pageHistoryModel.list(fixtures.siteId, page.id, { limit: 200 })
       assert.deepEqual(
         [...firstPage.items, ...secondPage.items].map((row) => row.id),

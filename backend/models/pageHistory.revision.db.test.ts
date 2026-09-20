@@ -9,8 +9,7 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
  * the statements rather than verify the ordering picks the right pair.
  *
  * `pageHistory.pageId` is deliberately not a foreign key (the history of a deleted page outlives the
- * page), so these rows are seeded against a random page id with no `pages` row behind it — a real,
- * supported state for this table, not a shortcut.
+ * page), so these rows are seeded against a random page id with no `pages` row behind it.
  */
 describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -25,10 +24,7 @@ describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }
     await teardownTestDb()
   })
 
-  /**
-   * One row per entry of `contents`, oldest first, each a minute after the last so the
-   * `(versionDate DESC, id DESC)` ordering has a real timeline to sort rather than a tie.
-   */
+  /** A minute between rows, so `(versionDate DESC, id DESC)` sorts a real timeline, not a tie. */
   async function seedHistory(
     contents: (string | null)[],
     { via }: { via?: (string | null)[] } = {}

@@ -5,16 +5,12 @@ import { paginate } from '../helpers/pagination.ts'
 import type { WikiDbOrTx } from '../core/db.ts'
 
 /**
- * A page's classification level and the one rule that governs it: a page may never be more open than
- * its immediate parent page (the floor invariant).
+ * The floor invariant: a page may never be more open than its immediate parent page.
  */
 class PageClassification {
   /**
-   * The batched form of `parentClassification`: one query over the distinct parent paths.
-   *
-   * @returns A Map keyed by `${locale}\0${path}` — the ORIGINAL pair passed in, not the derived
-   *          parent path, so a caller looks up its own targets without re-deriving anything. Every
-   *          input pair gets an entry; `null` means no floor, as in `parentClassification`.
+   * Keyed by the ORIGINAL pair passed in, not the derived parent path, so a caller looks up its own
+   * targets. Every input pair gets an entry; `null` means no floor.
    */
   async parentClassifications(
     siteId: string,
@@ -64,8 +60,8 @@ class PageClassification {
   }
 
   /**
-   * The immediate parent PAGE's classification, or null when there is none -- either because `path`
-   * is at the root, or because nothing is actually published at the parent path (an empty folder).
+   * Null when there is no parent PAGE -- `path` is at the root, or nothing is published at the
+   * parent path (an empty folder).
    *
    * Immediate parent only, not the whole ancestor chain: a real parent already satisfies the floor
    * against ITS OWN parent by induction.
@@ -94,10 +90,6 @@ class PageClassification {
     return rows[0]?.classification ?? null
   }
 
-  /**
-   * No parent page to inherit a floor from (root-level, or an empty folder) means no constraint: an
-   * explicit request is honored as given, and the default is the most-open configured level.
-   */
   async resolveCreateClassification(
     siteId: string,
     locale: string,
@@ -112,11 +104,6 @@ class PageClassification {
     return floorId ?? CARDINAL.models.classificationLevels.defaultLevel().id
   }
 
-  /**
-   * @param floorId The parent page's classification, or null when there is no parent to inherit a
-   *   floor from (root-level, or an empty folder) — in which case any existing level is allowed
-   * @throws CustomError `classificationInvalid` or `classificationBelowFloor`, both 400
-   */
   assertClassificationMeetsFloor(requested: string, floorId: string | null): void {
     if (!CARDINAL.models.classificationLevels.byId(requested)) {
       throw new CustomError(
@@ -135,9 +122,8 @@ class PageClassification {
   }
 
   /**
-   * Every published page under `parentPath` (any depth) whose classification sits below `floorId` --
-   * what a parent-classification raise surfaces for an admin to resolve explicitly rather than
-   * cascading silently.
+   * What a parent-classification raise surfaces for an admin to resolve explicitly, rather than
+   * cascading down the subtree silently.
    */
   async descendantsBelowFloor(
     siteId: string,
@@ -167,8 +153,8 @@ class PageClassification {
   }
 
   /**
-   * Bump a set of pages (by id, all on this site) to a classification. No floor or permission checks
-   * here: the API route decides who may call this and validates the target level.
+   * No floor or permission checks here: the API route decides who may call this and validates the
+   * target level.
    *
    * The search re-index is not optional -- an external engine decides `read:pages` visibility per-hit
    * off the indexed copy, so skipping it leaves raised pages searchable at their prior, more open
@@ -197,8 +183,8 @@ class PageClassification {
   }
 
   /**
-   * Every level is included even at zero, in level order (most-open first) -- a level nothing is
-   * classified as is itself worth an admin seeing, not a row silently missing from the report.
+   * Every level is included even at zero: a level nothing is classified as is itself worth an admin
+   * seeing, not a row silently missing from the report.
    */
   async classificationReport(
     siteId?: string
@@ -217,7 +203,7 @@ class PageClassification {
     }))
   }
 
-  /** The drill-down `classificationReport()`'s counts point into. Metadata only, never content. */
+  /** Metadata only, never content. */
   async listByClassification(
     levelId: string,
     { siteId, limit = 50, offset = 0 }: { siteId?: string; limit?: number; offset?: number } = {}
