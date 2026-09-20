@@ -66,7 +66,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "The caller's unread notification count",
         description:
-          "A single number, for a badge that needs no page permission check and no page's worth of rows to answer.",
+          "A single number, for a badge that needs no page's worth of rows to answer. Counts only notifications whose page the caller can still read, and saturates at 100: a count of 100 means 100 or more.",
         tags: ['Pages'],
         params: { $ref: 'SiteIdParams#' },
         response: {
