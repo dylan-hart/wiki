@@ -3005,6 +3005,8 @@
   "fileman.moveAssetFailed": "Failed to move asset.",
   "fileman.moveAssetSuccess": "Asset moved successfully.",
   "fileman.moveConfirm": "Move",
+  "fileman.moveFolderFailed": "Failed to move folder.",
+  "fileman.moveFolderSuccess": "Folder moved successfully.",
   "fileman.moveItem": "Move...",
   "fileman.moveTitle": "Move to…",
   "fileman.mp3FileType": "MP3 Audio File",
