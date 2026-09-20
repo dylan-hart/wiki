@@ -152,6 +152,13 @@ class Settings {
           dateFormat: 'YYYY-MM-DD',
           timeFormat: '12h'
         }
+      },
+      {
+        key: 'profileVisibility',
+        value: {
+          forcedPublicFields: [],
+          guestsMayView: false
+        }
       }
     ])
   }

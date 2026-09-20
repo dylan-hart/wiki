@@ -1,7 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { CustomError, rethrowAsBadRequest } from '../../helpers/common.ts'
 import { actorFromRequest } from '../../models/auditLog.ts'
-import { deriveDisplayName, type UserPatch } from '../../models/users.ts'
+import {
+  deriveDisplayName,
+  forcedPublicFields,
+  PROFILE_PUBLIC_FIELDS,
+  type ProfilePublicField,
+  type UserPatch
+} from '../../models/users.ts'
 import { sessionUserIdOrNull } from './profile.ts'
 
 interface UserUpdateBody {
@@ -376,6 +382,97 @@ async function routes(app: FastifyInstance) {
       return {
         ok: true,
         message: 'User defaults updated successfully.'
+      }
+    }
+  )
+
+  app.get(
+    '/profile-visibility',
+    {
+      config: {
+        permissions: ['read:users', 'manage:users']
+      },
+      schema: {
+        summary: 'Get the instance-wide profile visibility settings',
+        tags: ['Users'],
+        response: {
+          200: {
+            description: 'Profile visibility settings',
+            type: 'object',
+            $ref: 'ProfileVisibility#'
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async () => {
+      return {
+        forcedPublicFields: forcedPublicFields(),
+        guestsMayView: CARDINAL.config.profileVisibility?.guestsMayView === true
+      }
+    }
+  )
+
+  app.put<{ Body: { forcedPublicFields?: ProfilePublicField[]; guestsMayView?: boolean } }>(
+    '/profile-visibility',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: 'Update the instance-wide profile visibility settings',
+        description:
+          'These are instance-wide, not per-site, because the public profile endpoint is not site-scoped. Any subset may be sent; omitted ones are left unchanged.',
+        tags: ['Users'],
+        body: {
+          $ref: 'ProfileVisibility#'
+        },
+        response: {
+          200: {
+            description: 'Profile visibility settings updated successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The settings could not be saved.' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const patch: Record<string, any> = {}
+      if (req.body.forcedPublicFields !== undefined) {
+        patch.forcedPublicFields = PROFILE_PUBLIC_FIELDS.filter((field) =>
+          req.body.forcedPublicFields!.includes(field)
+        )
+      }
+      if (req.body.guestsMayView !== undefined) {
+        patch.guestsMayView = req.body.guestsMayView
+      }
+      if (Object.keys(patch).length < 1) {
+        throw new CustomError('profileVisibilityEmpty', 'No profile visibility settings provided.')
+      }
+
+      const previous = CARDINAL.config.profileVisibility
+      CARDINAL.config.profileVisibility = { ...previous, ...patch }
+
+      if (!(await CARDINAL.configSvc.saveToDb(['profileVisibility']))) {
+        CARDINAL.config.profileVisibility = previous
+        return reply.internalServerError('Failed to save profile visibility settings.')
+      }
+
+      return {
+        ok: true,
+        message: 'Profile visibility settings updated successfully.'
       }
     }
   )

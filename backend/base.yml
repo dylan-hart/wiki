@@ -175,6 +175,9 @@ defaults:
       timezone: 'America/New_York'
       dateFormat: 'YYYY-MM-DD'
       timeFormat: '12h'
+    profileVisibility:
+      forcedPublicFields: []
+      guestsMayView: false
     update:
       # Whether the daily updateLocales job may pull the latest strings from requarks/wiki-locales.
       locales: true

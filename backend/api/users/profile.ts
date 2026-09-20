@@ -207,6 +207,9 @@ async function routes(app: FastifyInstance) {
       if (req.body.iconPicker !== undefined) {
         patch.iconPicker = req.body.iconPicker
       }
+      if (req.body.publicFields !== undefined) {
+        patch.publicFields = req.body.publicFields
+      }
       if (Object.keys(patch).length < 1) {
         throw new CustomError('userProfileEmpty', 'No profile fields provided to update.')
       }
