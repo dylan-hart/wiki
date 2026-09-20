@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Index from './Index.vue'
+import { closeProfilePopover, profilePopoverState } from '@/composables/profilePopover'
 import { initials } from '@/helpers/initials'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
@@ -80,7 +81,10 @@ async function mountIndex({ payload, sidebar = true } = {}) {
 
   const { wrapper, pageStore, siteStore, userStore } = mountWithApp(Index, {
     router,
-    messages: { common: { page: { watching: 'Watching', watchingMore: '{count} more' } } },
+    messages: {
+      common: { page: { watching: 'Watching', watchingMore: '{count} more' } },
+      profilePopover: { avatarLabel: 'Open the profile of {name}' }
+    },
     global: {
       stubs: {
         PageHeader: true,
@@ -274,5 +278,64 @@ describe('Index.vue: the rail Watching section (OpenProject #2649)', () => {
     })
 
     expect(api.calls).not.toContain(WATCHERS_URL)
+  })
+})
+
+describe('Index.vue: the rail Watching plates open the profile popover', () => {
+  afterEach(() => {
+    closeProfilePopover()
+  })
+
+  it('leaves the plates as plain, non-interactive boxes for a guest', async () => {
+    const { wrapper } = await mountIndex({ payload: { watchers: makeWatchers(2), total: 2 } })
+
+    const plate = plates(wrapper)[0]
+    expect(plate.element.tagName).toBe('DIV')
+    expect(plate.classes()).not.toContain('page-watchers-plate--button')
+
+    await plate.trigger('click')
+    expect(profilePopoverState.open).toBe(false)
+  })
+
+  it('draws real buttons for an account holder, keeping the full-name tooltip', async () => {
+    const { wrapper, userStore } = await mountIndex({
+      payload: { watchers: makeWatchers(2), total: 2 }
+    })
+    userStore.authenticated = true
+    await settle(wrapper)
+
+    const plate = plates(wrapper)[0]
+    expect(plate.element.tagName).toBe('BUTTON')
+    expect(plate.attributes('type')).toBe('button')
+    expect(plate.attributes('title')).toBe('Dylan Hart')
+    expect(plate.attributes('aria-label')).toBe('Open the profile of Dylan Hart')
+    expect(plate.attributes('aria-haspopup')).toBe('dialog')
+  })
+
+  it('opens the popover for the clicked watcher, anchored to that plate', async () => {
+    const { wrapper, userStore } = await mountIndex({
+      payload: { watchers: makeWatchers(3), total: 3 }
+    })
+    userStore.authenticated = true
+    await settle(wrapper)
+
+    await plates(wrapper)[1].trigger('click')
+
+    expect(profilePopoverState).toMatchObject({
+      open: true,
+      userId: 'user-2',
+      name: 'Mira Rossi'
+    })
+    expect(profilePopoverState.anchor).toBe(plates(wrapper)[1].element)
+  })
+
+  it('makes the plates clickable for a guest once the instance allows it', async () => {
+    const { wrapper, siteStore } = await mountIndex({
+      payload: { watchers: makeWatchers(2), total: 2 }
+    })
+    siteStore.guestsMayViewProfiles = true
+    await settle(wrapper)
+
+    expect(plates(wrapper)[0].element.tagName).toBe('BUTTON')
   })
 })

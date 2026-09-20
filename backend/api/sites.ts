@@ -138,6 +138,7 @@ export async function buildSitePayload(
     pdfExportAvailable: await CARDINAL.models.renderQueue.isAvailable(),
     docsBase: CARDINAL.config.docsBase,
     isReplicationEnabled: CARDINAL.config.replication?.isEnabled === true,
+    guestsMayViewProfiles: CARDINAL.config.profileVisibility?.guestsMayView === true,
     navigationId: await CARDINAL.models.navigation.ensureSiteNav(site.id, defaultLocale(site.id)),
     // -> `req` is optional only so a test need not fabricate one; a real caller always passes it.
     commentsProvider:
