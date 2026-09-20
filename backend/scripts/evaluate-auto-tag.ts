@@ -3,6 +3,9 @@ import { readFileSync, writeFileSync } from 'node:fs'
 
 import { MODEL_NAME, EMBEDDING_DIMENSIONS, extractEmbedding } from '../helpers/embeddings.ts'
 import type { FeatureExtractor } from '../helpers/embeddings.ts'
+import { tagTokens, tokenize } from '../helpers/autoTag.ts'
+
+export { tagTokens, tokenize }
 
 export interface FixturePage {
   id: string
@@ -72,17 +75,6 @@ const FIXTURE_DIR = new URL('./evaluate-auto-tag-fixtures/', import.meta.url)
 const CORPUS_PATH = new URL('corpus.json', FIXTURE_DIR)
 const VECTORS_PATH = new URL('vectors.json', FIXTURE_DIR)
 
-const STOPWORDS = new Set(
-  (
-    'a about above after again all also an and any are as at be because been before being both but ' +
-    'by can could did do does each every for from had has have how if in into is it its just may ' +
-    'more most must no not of off on once only or other our out over own per same should so some ' +
-    'such than that the their them then there these they this those through to too under until up ' +
-    'us use used using was we were what when where which while who will with within without would ' +
-    'you your'
-  ).split(' ')
-)
-
 export function hashText(text: string): string {
   return createHash('sha256').update(text).digest('hex').slice(0, 16)
 }
@@ -116,28 +108,6 @@ export function meanVector(vectors: number[][]): number[] {
   }
   const length = norm(sum)
   return length === 0 ? sum : sum.map((value) => value / length)
-}
-
-function stem(token: string): string {
-  if (token.length > 4 && token.endsWith('ies')) {
-    return `${token.slice(0, -3)}y`
-  }
-  if (token.length > 3 && token.endsWith('s') && !token.endsWith('ss')) {
-    return token.slice(0, -1)
-  }
-  return token
-}
-
-export function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((token) => token.length >= 2 && !STOPWORDS.has(token))
-    .map(stem)
-}
-
-export function tagTokens(tag: string): string[] {
-  return tokenize(tag.replace(/[-_]/g, ' '))
 }
 
 export function documentFrequencies(pages: { tokens: string[] }[]): Map<string, number> {
