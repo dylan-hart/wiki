@@ -1,0 +1,59 @@
+key: giscus
+title: Giscus
+description: Comments backed by GitHub Discussions in a repository you own. Readers comment with their GitHub account.
+author: giscus
+website: https://giscus.app
+codeTemplate: true
+isAvailable: true
+props:
+  repo:
+    type: String
+    default: ''
+    title: Repository
+    hint: "Owner and name of the public GitHub repository that stores the discussions (e.g. octocat/hello-world). It must have Discussions enabled and the giscus app installed. When security.enforceCsp is on, allow https://giscus.app in script-src and frame-src, since the shipped script-src 'self' blocks it."
+    maxWidth: 650
+    order: 1
+  repoId:
+    type: String
+    default: ''
+    title: Repository ID
+    hint: 'The repository ID giscus.app generates for you, starting with R_.'
+    maxWidth: 450
+    order: 2
+  category:
+    type: String
+    default: 'Announcements'
+    title: Discussion Category
+    hint: 'Name of the discussion category new threads are created in.'
+    maxWidth: 450
+    order: 3
+  categoryId:
+    type: String
+    default: ''
+    title: Category ID
+    hint: 'The category ID giscus.app generates for you, starting with DIC_.'
+    maxWidth: 450
+    order: 4
+  theme:
+    type: String
+    default: 'preferred_color_scheme'
+    title: Theme
+    enum:
+      - 'preferred_color_scheme|Follow the reader'
+      - 'light|Light'
+      - 'dark|Dark'
+      - 'transparent_dark|Transparent dark'
+    order: 5
+  reactionsEnabled:
+    type: Boolean
+    default: true
+    title: Reactions
+    hint: 'Show the reaction buttons for the discussion above the comments.'
+    order: 6
+  lang:
+    type: String
+    default: 'en'
+    title: Language
+    hint: 'Language code giscus draws its own interface in.'
+    maxWidth: 200
+    order: 7
