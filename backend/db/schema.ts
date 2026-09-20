@@ -92,6 +92,7 @@ export const auditLog = pgTable(
     actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
     // -> Snapshotted at write time: a renamed or deleted account must not rewrite history.
     actorName: varchar({ length: 255 }).notNull().default(''),
+    actorEmail: varchar({ length: 255 }).notNull().default(''),
     actorIp: varchar({ length: 64 }).notNull().default(''),
     // -> What the event happened to, and its id/label at the time. Not a foreign key: a deleted
     //    target's history is exactly what this table keeps.
@@ -341,18 +342,22 @@ export const classificationLevels = pgTable(
   (table) => [uniqueIndex('classificationLevels_sortOrder_idx').on(table.sortOrder)]
 )
 
-export const groups = pgTable('groups', {
-  id: uuid().primaryKey().defaultRandom(),
-  name: varchar({ length: 255 }).notNull(),
-  permissions: jsonb().notNull(),
-  rules: jsonb().notNull(),
-  redirectOnLogin: varchar({ length: 255 }).notNull().default(''),
-  redirectOnFirstLogin: varchar({ length: 255 }).notNull().default(''),
-  redirectOnLogout: varchar({ length: 255 }).notNull().default(''),
-  isSystem: boolean().notNull().default(false),
-  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
-})
+export const groups = pgTable(
+  'groups',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: varchar({ length: 255 }).notNull(),
+    permissions: jsonb().notNull(),
+    rules: jsonb().notNull(),
+    redirectOnLogin: varchar({ length: 255 }).notNull().default(''),
+    redirectOnFirstLogin: varchar({ length: 255 }).notNull().default(''),
+    redirectOnLogout: varchar({ length: 255 }).notNull().default(''),
+    isSystem: boolean().notNull().default(false),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [uniqueIndex('groups_name_normalized_idx').on(sql`lower(trim(${table.name}))`)]
+)
 
 /** `value` is cased as the admin typed it; for an acronym alias that casing (e.g. "USS") is its
  *  canonical DISPLAY casing. */
@@ -645,6 +650,7 @@ export const pages = pgTable(
     contentType: varchar({ length: 255 }).notNull(),
     isBrowsable: boolean().notNull().default(true),
     isSearchable: boolean().notNull().default(true),
+    autoTagPending: boolean().notNull().default(false),
     // -> A `bcrypt` verifier, never the cleartext, and never handed back to a caller
     password: varchar({ length: 255 }),
     // -> `{ jsLoad, jsUnload, css }`, flattened to/from `scriptJsLoad`/`scriptJsUnload`/`scriptCss` in
@@ -1267,7 +1273,6 @@ export const storage = pgTable(
     // -> Values for the props the module declares in its `definition.yml`
     config: jsonb().notNull().default({}),
     // TODO: drop -- dead column, nothing reads or writes it. Held a removed setup wizard's state.
-    state: jsonb().notNull().default({}),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)
@@ -1445,6 +1450,7 @@ export const users = pgTable(
     //    `hasAvatar` is false, and nothing in that path touches `hasAvatar`/`userAvatars` -- so a
     //    manual upload always wins, and `hasAvatar` keeps meaning "this user uploaded one themselves".
     avatarProviderUrl: text(),
+    handle: varchar({ length: 32 }),
     isActive: boolean().notNull().default(false),
     isSystem: boolean().notNull().default(false),
     isVerified: boolean().notNull().default(false),
@@ -1452,7 +1458,10 @@ export const users = pgTable(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
-  (table) => [index('users_lastLoginAt_idx').on(table.lastLoginAt)]
+  (table) => [
+    index('users_lastLoginAt_idx').on(table.lastLoginAt),
+    uniqueIndex('users_handle_lower_idx').on(sql`lower(${table.handle})`)
+  ]
 )
 
 export const userGroups = pgTable(

@@ -879,12 +879,12 @@ onMounted(load)
 
   /* -> A rule between nav items is content here, not trim */
   .nav-edit-item-separator .w-separator {
-    --w-hairline-color: #{var(--color-rule)};
+    --w-hairline-color: var(--color-rule);
   }
 }
 
 :global(body.body--dark .nav-edit .nav-edit-item-separator .w-separator) {
-  --w-hairline-color: #{var(--color-border-dark)};
+  --w-hairline-color: var(--color-border-dark);
 }
 
 :global(body.body--cobalt .nav-edit .handle) {
@@ -1178,17 +1178,6 @@ onMounted(load)
   border: 1px solid var(--color-hairline);
   background-color: var(--color-surface);
 
-  &__icon {
-    flex: none;
-    width: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: var(--color-tint);
-    border-inline-end: 1px solid var(--color-hairline);
-    color: var(--color-text-secondary);
-  }
-
   p {
     margin: 0;
     padding: 12px 16px;
@@ -1196,6 +1185,17 @@ onMounted(load)
     line-height: 1.55;
     color: var(--color-slate);
   }
+}
+
+.nav-edit-callout__icon {
+  flex: none;
+  width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-tint);
+  border-inline-end: 1px solid var(--color-hairline);
+  color: var(--color-text-secondary);
 }
 
 :global(body.body--dark .nav-edit-callout) {

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, lte } from 'drizzle-orm'
+import { and, count, desc, eq, gte, lt, lte, or, sql } from 'drizzle-orm'
 import { auditLog as auditLogTable, users as usersTable } from '../db/schema.ts'
 import { paginate } from '../helpers/pagination.ts'
 import type { FastifyRequest } from 'fastify'
@@ -13,6 +13,14 @@ export const AUDIT_EVENTS = [
   'user.deleted',
   'user.passwordReset',
   'user.tfaDisabledByAdmin',
+  'user.registered',
+  'user.passwordResetRequested',
+  'user.passwordResetCompleted',
+  'user.tfaEnabled',
+  'user.tfaDisabled',
+  'user.passkeyEnrolled',
+  'user.passkeyRemoved',
+  'user.loggedOut',
   'group.created',
   'group.updated',
   'group.deleted',
@@ -58,6 +66,8 @@ export const AUDIT_EVENTS = [
   'system.contentExported',
   'system.contentImported',
   'system.wysiwygJsonConverted',
+  'system.sampleContentGenerated',
+  'system.sampleContentPurged',
   // -> The whole instance in the replication archive format, not `system.contentExported`'s
   //   per-site "Export content" utility.
   'system.replicationSnapshotExported',
@@ -68,7 +78,8 @@ export const AUDIT_EVENTS = [
    * `{ from, to }` (days); `purged`'s carries `{ count, cutoff }`.
    */
   'auditLog.retentionChanged',
-  'auditLog.purged'
+  'auditLog.purged',
+  'auditLog.exported'
 ] as const
 
 export type AuditEvent = (typeof AUDIT_EVENTS)[number]
@@ -110,6 +121,7 @@ export type AuditLogEntry = {
   actor: {
     id: string | null
     name: string
+    email: string
   }
   actorIp: string
   targetType: string
@@ -120,6 +132,15 @@ export type AuditLogEntry = {
   createdAt: Date
 }
 
+export type AuditLogFilters = {
+  actorId?: string
+  event?: AuditEvent
+  from?: Date
+  to?: Date
+}
+
+export const AUDIT_EXPORT_BATCH_SIZE = 500
+
 export type AuditLogPage = {
   total: number
   entries: AuditLogEntry[]
@@ -129,6 +150,7 @@ export type AuditLogPage = {
 export type AuditActor = {
   id: string | null
   name: string
+  email?: string
   ip?: string
 }
 
@@ -139,7 +161,8 @@ export type AuditActor = {
  */
 export function actorFromRequest(req: FastifyRequest): AuditActor {
   if (req.session?.user) {
-    return { id: req.session.user.id, name: req.session.user.name, ip: req.ip }
+    const { id, name, email } = req.session.user
+    return { id, name, ...(email ? { email } : {}), ip: req.ip }
   }
   if (req.apiKey) {
     return { id: null, name: `API Key ${req.apiKey.id}`, ip: req.ip }
@@ -155,6 +178,50 @@ export type RecordEntry = {
   targetLabel?: string
   detail?: Record<string, any>
   siteId?: string | null
+}
+
+const ENTRY_COLUMNS = {
+  id: auditLogTable.id,
+  event: auditLogTable.event,
+  actorId: auditLogTable.actorId,
+  actorName: auditLogTable.actorName,
+  actorEmail: auditLogTable.actorEmail,
+  actorIp: auditLogTable.actorIp,
+  targetType: auditLogTable.targetType,
+  targetId: auditLogTable.targetId,
+  targetLabel: auditLogTable.targetLabel,
+  detail: auditLogTable.detail,
+  siteId: auditLogTable.siteId,
+  createdAt: auditLogTable.createdAt
+}
+
+function filtersToWhere({ actorId, event, from, to }: AuditLogFilters) {
+  const conditions = [
+    actorId ? eq(auditLogTable.actorId, actorId) : undefined,
+    event ? eq(auditLogTable.event, event) : undefined,
+    from ? gte(auditLogTable.createdAt, from) : undefined,
+    to ? lte(auditLogTable.createdAt, to) : undefined
+  ].filter((c) => c !== undefined)
+  return conditions.length > 0 ? and(...conditions) : undefined
+}
+
+function rowToEntry(row: any): AuditLogEntry {
+  return {
+    id: row.id,
+    event: row.event,
+    actor: {
+      id: row.actorId,
+      name: row.actorName,
+      email: row.actorEmail
+    },
+    actorIp: row.actorIp,
+    targetType: row.targetType,
+    targetId: row.targetId,
+    targetLabel: row.targetLabel,
+    detail: (row.detail ?? {}) as Record<string, any>,
+    siteId: row.siteId,
+    createdAt: row.createdAt
+  }
 }
 
 /**
@@ -182,6 +249,7 @@ class AuditLog {
         event,
         actorId: actor.id,
         actorName: actor.name,
+        actorEmail: actor.email ?? '',
         actorIp: actor.ip ?? '',
         targetType,
         targetId,
@@ -209,6 +277,7 @@ class AuditLog {
           event: entry.event,
           actorId: entry.actor.id,
           actorName: entry.actor.name,
+          actorEmail: entry.actor.email ?? '',
           actorIp: entry.actor.ip ?? '',
           targetType: entry.targetType ?? '',
           targetId: entry.targetId ?? '',
@@ -240,30 +309,12 @@ class AuditLog {
     limit?: number
     offset?: number
   } = {}): Promise<AuditLogPage> {
-    const conditions = [
-      actorId ? eq(auditLogTable.actorId, actorId) : undefined,
-      event ? eq(auditLogTable.event, event) : undefined,
-      from ? gte(auditLogTable.createdAt, from) : undefined,
-      to ? lte(auditLogTable.createdAt, to) : undefined
-    ].filter((c) => c !== undefined)
-    const where = conditions.length > 0 ? and(...conditions) : undefined
+    const where = filtersToWhere({ actorId, event, from, to })
 
     const { total, rows } = await paginate({
       rows: () =>
         CARDINAL.db
-          .select({
-            id: auditLogTable.id,
-            event: auditLogTable.event,
-            actorId: auditLogTable.actorId,
-            actorName: auditLogTable.actorName,
-            actorIp: auditLogTable.actorIp,
-            targetType: auditLogTable.targetType,
-            targetId: auditLogTable.targetId,
-            targetLabel: auditLogTable.targetLabel,
-            detail: auditLogTable.detail,
-            siteId: auditLogTable.siteId,
-            createdAt: auditLogTable.createdAt
-          })
+          .select(ENTRY_COLUMNS)
           .from(auditLogTable)
           .where(where)
           .orderBy(desc(auditLogTable.createdAt))
@@ -272,23 +323,43 @@ class AuditLog {
       total: () => CARDINAL.db.select({ total: count() }).from(auditLogTable).where(where)
     })
 
-    return {
-      total,
-      entries: rows.map((row: any) => ({
-        id: row.id,
-        event: row.event,
-        actor: {
-          id: row.actorId,
-          name: row.actorName
-        },
-        actorIp: row.actorIp,
-        targetType: row.targetType,
-        targetId: row.targetId,
-        targetLabel: row.targetLabel,
-        detail: (row.detail ?? {}) as Record<string, any>,
-        siteId: row.siteId,
-        createdAt: row.createdAt
-      }))
+    return { total, entries: rows.map(rowToEntry) }
+  }
+
+  async *exportBatches(
+    filters: AuditLogFilters = {},
+    batchSize: number = AUDIT_EXPORT_BATCH_SIZE
+  ): AsyncGenerator<AuditLogEntry[]> {
+    const base = filtersToWhere(filters)
+    let cursor: { createdAt: string; id: string } | undefined
+    while (true) {
+      const after = cursor
+        ? or(
+            sql`${auditLogTable.createdAt} < ${cursor.createdAt}::timestamptz`,
+            and(
+              sql`${auditLogTable.createdAt} = ${cursor.createdAt}::timestamptz`,
+              lt(auditLogTable.id, cursor.id)
+            )
+          )
+        : undefined
+      const rows = await CARDINAL.db
+        .select({
+          ...ENTRY_COLUMNS,
+          cursorCreatedAt: sql<string>`${auditLogTable.createdAt}::text`
+        })
+        .from(auditLogTable)
+        .where(base && after ? and(base, after) : (base ?? after))
+        .orderBy(desc(auditLogTable.createdAt), desc(auditLogTable.id))
+        .limit(batchSize)
+      if (rows.length < 1) {
+        return
+      }
+      yield rows.map(rowToEntry)
+      if (rows.length < batchSize) {
+        return
+      }
+      const last = rows[rows.length - 1]!
+      cursor = { createdAt: last.cursorCreatedAt, id: last.id }
     }
   }
 

@@ -16,6 +16,8 @@ export const API_KEY_SCOPES = [
   'manage:theme',
   'manage:sites',
   'manage:glossary',
+  'read:audit',
+  'read:metrics',
   'manage:system',
   'read:pages',
   'write:pages',

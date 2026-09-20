@@ -25,21 +25,21 @@ props:
     title: Host
     default: ''
     hint: Hostname or IP of the remote SSH server.
-    icon: dns
+    icon: tabler:world-www
     order: 1
   port:
     type: Number
     title: Port
     default: 22
     hint: SSH port of the remote server.
-    icon: ethernet-off
+    icon: tabler:plug
     order: 2
   authMode:
     type: String
     title: Authentication Method
     default: 'privateKey'
     hint: Whether to use Private Key or Password-based authentication. A private key is highly recommended for best security.
-    icon: grand-master-key
+    icon: tabler:shield-lock
     enum:
       - privateKey|Private Key
       - password|Password
@@ -50,14 +50,14 @@ props:
     title: Username
     default: ''
     hint: Username for authentication.
-    icon: test-account
+    icon: tabler:user-circle
     order: 4
   privateKey:
     type: String
     title: Private Key Contents
     default: ''
     hint: Contents of the private key
-    icon: key
+    icon: tabler:key
     multiline: true
     sensitive: true
     order: 5
@@ -68,7 +68,7 @@ props:
     title: Private Key Passphrase
     default: ''
     hint: Passphrase if the private key is encrypted, leave empty otherwise
-    icon: password
+    icon: tabler:password
     sensitive: true
     order: 6
     if:
@@ -78,7 +78,7 @@ props:
     title: Password
     default: ''
     hint: Password for authentication
-    icon: password
+    icon: tabler:password
     sensitive: true
     order: 6
     if:
@@ -88,9 +88,9 @@ props:
     title: Base Directory Path
     default: '/root/wiki'
     hint: Base directory where files will be transferred to. The path must already exists and be writable by the user.
-    icon: symlink-directory
+    icon: tabler:folder
 actions:
   exportAll:
     label: Export All DB Assets to Remote
     hint: Output all content from the DB to the remote SSH server, overwriting any existing data. If you enabled SFTP after content was created or you temporarily disabled it, you'll want to execute this action to add the missing content.
-    icon: this-way-up
+    icon: tabler:upload

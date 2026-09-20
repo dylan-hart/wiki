@@ -182,6 +182,32 @@ describe('migration bootstrap', () => {
       wikiHandle.restore()
     }
   })
+
+  test('createSchedulerStub() drops autoTagPage silently: no warning, no info, no job row', async () => {
+    const logged: unknown[] = []
+    const wikiHandle = installTestWiki({
+      logger: {
+        info: (...args: unknown[]) => logged.push(args),
+        warn: (...args: unknown[]) => logged.push(args)
+      },
+      db: {
+        insert: () => {
+          throw new Error('should not be called for autoTagPage')
+        }
+      }
+    })
+    try {
+      const scheduler = createSchedulerStub()
+      const result = await scheduler.addJob({
+        task: 'autoTagPage',
+        payload: { pageId: 'page-1' }
+      } as any)
+      assert.equal(result, undefined)
+      assert.equal(logged.length, 0)
+    } finally {
+      wikiHandle.restore()
+    }
+  })
 })
 
 describe('resolveUsersImportContext (Task 14 review fix)', () => {

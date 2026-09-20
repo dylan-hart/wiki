@@ -13,6 +13,7 @@ import {
 import storageModule from './storage.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
+import { CONTENT_TYPES } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
@@ -160,7 +161,11 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
 
   test('exportAll writes only the assets the target contentTypes cover, at the real computed keys', async () => {
     const target = makeTarget()
-    target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
+    target.contentTypes = {
+      activeTypes: ['images'],
+      supportedTypes: [...CONTENT_TYPES],
+      largeThreshold: '1MB'
+    }
     CARDINAL.models.assets.streamAll = async function* () {
       yield {
         id: 'a1',
@@ -221,5 +226,33 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
         return true
       }
     )
+  })
+
+  test('readAsset and headAsset read back real bytes and map an absent key to null', async () => {
+    CARDINAL.models.assets.getContent = async () => ({
+      data: Buffer.from('read me back'),
+      mimeType: 'text/plain',
+      fileName: 'readback.txt'
+    })
+    const target = makeTarget()
+    await storageModule.assetUploaded!(target, {
+      id: 'a1',
+      folderPath: 'docs',
+      fileName: 'readback.txt'
+    })
+    const asset = { folderPath: 'docs', fileName: 'readback.txt' }
+
+    const read = await storageModule.readAsset!(asset, target)
+    const chunks: Buffer[] = []
+    for await (const chunk of read!.body) {
+      chunks.push(chunk)
+    }
+    assert.equal(Buffer.concat(chunks).toString(), 'read me back')
+    assert.equal(read!.size, 12)
+    assert.deepEqual(await storageModule.headAsset!(asset, target), { size: 12 })
+
+    const missing = { folderPath: 'docs', fileName: 'never-uploaded.txt' }
+    assert.equal(await storageModule.readAsset!(missing, target), null)
+    assert.equal(await storageModule.headAsset!(missing, target), null)
   })
 })

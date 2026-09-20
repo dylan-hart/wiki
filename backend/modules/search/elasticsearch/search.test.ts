@@ -31,6 +31,7 @@ function fakeElasticsearchClient() {
   const calls: Record<string, any[]> = {
     indicesExists: [],
     indicesCreate: [],
+    indicesPutMapping: [],
     index: [],
     delete: [],
     search: [],
@@ -47,6 +48,10 @@ function fakeElasticsearchClient() {
       }),
       create: mock.fn(async (args: any) => {
         calls.indicesCreate!.push(args)
+        return {}
+      }),
+      putMapping: mock.fn(async (args: any) => {
+        calls.indicesPutMapping!.push(args)
         return {}
       })
     },
@@ -216,7 +221,7 @@ describe('buildEsQuery()', () => {
   })
 
   test('an explicit publishState filters in addition to, not instead of, the draft exclusion', () => {
-    const q = buildEsQuery(params({ publishState: 'published' }))
+    const q = buildEsQuery(params({ publishState: ['published'] }))
     assert.ok(
       q.bool.filter.some((f: any) => f.term?.publishState === 'published'),
       'missing explicit publishState filter'
@@ -228,7 +233,7 @@ describe('buildEsQuery()', () => {
   })
 
   test('path becomes a match_phrase_prefix filter', () => {
-    const q = buildEsQuery(params({ path: 'docs/guide' }))
+    const q = buildEsQuery(params({ path: ['docs/guide'] }))
     assert.ok(
       q.bool.filter.some((f: any) => f.match_phrase_prefix?.path === 'docs/guide'),
       'missing path prefix filter'
@@ -252,9 +257,96 @@ describe('buildEsQuery()', () => {
     )
   })
 
+  test('tagsMatch any wraps the tags in a should group needing one match', () => {
+    const q = buildEsQuery(params({ tags: ['guide', 'howto'], tagsMatch: 'any' }))
+    assert.deepEqual(
+      q.bool.filter.filter((f: any) => f.bool?.should),
+      [
+        {
+          bool: {
+            should: [{ match: { tags: 'guide' } }, { match: { tags: 'howto' } }],
+            minimum_should_match: 1
+          }
+        }
+      ]
+    )
+    assert.equal(q.bool.filter.filter((f: any) => f.match?.tags).length, 0)
+  })
+
   test('editor becomes a term filter', () => {
-    const q = buildEsQuery(params({ editor: 'markdown' }))
+    const q = buildEsQuery(params({ editor: ['markdown'] }))
     assert.ok(q.bool.filter.some((f: any) => f.term?.editor === 'markdown'))
+  })
+
+  test('several include values become any-of clauses', () => {
+    const q = buildEsQuery(
+      params({
+        path: ['docs', 'guides'],
+        editor: ['markdown', 'code'],
+        publishState: ['published', 'scheduled']
+      })
+    )
+    assert.ok(
+      q.bool.filter.some(
+        (f: any) =>
+          f.bool?.minimum_should_match === 1 &&
+          f.bool.should.length === 2 &&
+          f.bool.should[0].match_phrase_prefix.path === 'docs'
+      ),
+      'missing any-of path prefixes'
+    )
+    assert.ok(q.bool.filter.some((f: any) => f.terms?.editor?.length === 2))
+    assert.ok(q.bool.filter.some((f: any) => f.terms?.publishState?.length === 2))
+  })
+
+  test('no exclusion leaves the query without a must_not clause', () => {
+    assert.equal('must_not' in buildEsQuery(params()).bool, false)
+  })
+
+  test('every exclude list becomes a native must_not clause, never a post-filter', () => {
+    const q = buildEsQuery(
+      params({
+        excludePath: ['docs/private', 'drafts'],
+        excludeLocales: ['fr', 'de'],
+        excludeTags: ['old', 'stale'],
+        excludeEditor: ['code'],
+        excludePublishState: ['scheduled']
+      })
+    )
+    assert.deepEqual(q.bool.must_not, [
+      { terms: { publishState: ['scheduled'] } },
+      { match_phrase_prefix: { path: 'docs/private' } },
+      { match_phrase_prefix: { path: 'drafts' } },
+      { terms: { locale: ['fr', 'de'] } },
+      { match: { tags: 'old' } },
+      { match: { tags: 'stale' } },
+      { terms: { editor: ['code'] } }
+    ])
+  })
+
+  test('creator and author lists are native term filters and must_not clauses', () => {
+    const q = buildEsQuery(
+      params({
+        creatorId: ['11111111-1111-4111-8111-111111111111'],
+        authorId: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'],
+        excludeCreatorId: ['22222222-2222-4222-8222-222222222222'],
+        excludeAuthorId: ['11111111-1111-4111-8111-111111111111']
+      })
+    )
+    assert.ok(
+      q.bool.filter.some((f: any) => f.term?.creatorId === '11111111-1111-4111-8111-111111111111')
+    )
+    assert.ok(q.bool.filter.some((f: any) => f.terms?.authorId?.length === 2))
+    assert.deepEqual(q.bool.must_not, [
+      { terms: { creatorId: ['22222222-2222-4222-8222-222222222222'] } },
+      { terms: { authorId: ['11111111-1111-4111-8111-111111111111'] } }
+    ])
+  })
+
+  test('an exclusion sits beside, not in place of, the always-on draft exclusion', () => {
+    const q = buildEsQuery(params({ excludeEditor: ['code'] }))
+    assert.ok(q.bool.filter.some((f: any) => f.bool?.must_not?.[0]?.term?.publishState === 'draft'))
+    assert.deepEqual(q.bool.must_not, [{ terms: { editor: ['code'] } }])
   })
 })
 
@@ -329,6 +421,8 @@ describe('ElasticsearchSearchModule', () => {
     assert.deepEqual(mappings.properties.locale, { type: 'keyword' })
     assert.deepEqual(mappings.properties.editor, { type: 'keyword' })
     assert.deepEqual(mappings.properties.publishState, { type: 'keyword' })
+    assert.deepEqual(mappings.properties.creatorId, { type: 'keyword' })
+    assert.deepEqual(mappings.properties.authorId, { type: 'keyword' })
     assert.deepEqual(mappings.properties.path, { type: 'text' })
   })
 
@@ -351,6 +445,19 @@ describe('ElasticsearchSearchModule', () => {
     await mod.init(siteId, { hosts: 'http://localhost:9200', indexName: 'wiki-test' })
 
     assert.equal(calls.indicesCreate!.length, 0)
+  })
+
+  test('init() adds the creator and author mappings to an index created before they existed', async () => {
+    const { mod, calls, setIndexExists } = moduleWithFakeClient()
+    setIndexExists(true)
+    await mod.init(siteId, { hosts: 'http://localhost:9200', indexName: 'wiki-test' })
+
+    assert.deepEqual(calls.indicesPutMapping, [
+      {
+        index: 'wiki-test',
+        properties: { creatorId: { type: 'keyword' }, authorId: { type: 'keyword' } }
+      }
+    ])
   })
 
   describe('rebuild()', () => {

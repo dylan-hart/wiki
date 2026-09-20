@@ -1,10 +1,17 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProfileOverlay from './ProfileOverlay.vue'
 import { mountWithApp } from '../../test/mount.js'
+import { openProfilePopover } from '@/composables/profilePopover'
 import { isSavingVisible, pendingProfileSaves } from '@/composables/profileSaving'
+
+vi.mock('@/composables/profilePopover', () => ({
+  openProfilePopover: vi.fn(),
+  closeProfilePopover: vi.fn()
+}))
 
 /**
  * `window.matchMedia` is stubbed matching wide throughout, so the section rail renders as a column
@@ -36,7 +43,7 @@ const MESSAGES = {
     api: { title: 'API Keys' },
     notifications: 'Notifications',
     activity: 'Activity',
-    viewPublicProfile: 'View public profile',
+    previewPublicProfile: 'Preview public profile',
     closeDisabledLabel: 'Saving...'
   }
 }
@@ -157,18 +164,74 @@ describe('ProfileOverlay section rail', () => {
     expect(activityItem.attributes('aria-disabled')).toBe('true')
   })
 
-  it('hides "view public profile" unless flagsStore.experimental, closing the overlay when clicked', async () => {
-    const hidden = mountOverlay(undefined, { experimental: false })
-    expect(hidden.wrapper.text()).not.toContain('View public profile')
+  describe('preview public profile', () => {
+    const findItem = (wrapper) =>
+      wrapper
+        .findAll('.layout-profile-sd .w-item')
+        .find((item) => item.text().includes('Preview public profile'))
 
-    const { wrapper, siteStore } = mountOverlay(undefined, { experimental: true })
-    siteStore.overlay = 'Profile'
-    const viewProfileItem = wrapper
-      .findAll('.layout-profile-sd .w-item')
-      .find((item) => item.text().includes('View public profile'))
-    await viewProfileItem.trigger('click')
+    beforeEach(() => {
+      vi.mocked(openProfilePopover).mockClear()
+      pendingProfileSaves.value = 0
+    })
 
-    expect(siteStore.overlay).toBe('')
+    afterEach(() => {
+      document.body.innerHTML = ''
+    })
+
+    it('is hidden unless flagsStore.experimental', () => {
+      const { wrapper } = mountOverlay(undefined, { experimental: false })
+
+      expect(wrapper.text()).not.toContain('Preview public profile')
+    })
+
+    it('is a button rather than a link to a /_user/ route', () => {
+      const { wrapper } = mountOverlay(undefined, { experimental: true })
+
+      const item = findItem(wrapper)
+      expect(item.exists()).toBe(true)
+      expect(item.attributes('href')).toBeUndefined()
+      expect(wrapper.html()).not.toContain('/_user/user-1')
+    })
+
+    it('closes the overlay, then opens the popover for the current user at the header account button', async () => {
+      const accountButton = document.createElement('button')
+      accountButton.className = 'account-avbtn'
+      document.body.append(accountButton)
+      const { wrapper, siteStore } = mountOverlay(undefined, { experimental: true })
+      siteStore.overlay = 'Profile'
+
+      await findItem(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(siteStore.overlay).toBe('')
+      expect(openProfilePopover).toHaveBeenCalledTimes(1)
+      expect(openProfilePopover).toHaveBeenCalledWith({ userId: 'user-1', anchor: accountButton })
+    })
+
+    it('falls back to document.body when there is no header account button', async () => {
+      const { wrapper } = mountOverlay(undefined, { experimental: true })
+
+      await findItem(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(openProfilePopover).toHaveBeenCalledWith({ userId: 'user-1', anchor: document.body })
+    })
+
+    it('is disabled while a profile save is pending, so the preview cannot show stale visibility', async () => {
+      const { wrapper, siteStore } = mountOverlay(undefined, { experimental: true })
+      siteStore.overlay = 'Profile'
+      pendingProfileSaves.value = 1
+      await wrapper.vm.$nextTick()
+
+      const item = findItem(wrapper)
+      expect(item.attributes('aria-disabled')).toBe('true')
+      await item.trigger('click')
+      await flushPromises()
+
+      expect(siteStore.overlay).toBe('Profile')
+      expect(openProfilePopover).not.toHaveBeenCalled()
+    })
   })
 })
 

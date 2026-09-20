@@ -5,6 +5,7 @@ import infoRoutes from './info.ts'
 import maintenanceRoutes from './maintenance.ts'
 import replicationExportRoutes from './replicationExport.ts'
 import replicationRoutes from './replication.ts'
+import sampleContentRoutes from './sampleContent.ts'
 import settingsRoutes from './settings.ts'
 import transferRoutes from './transfer.ts'
 
@@ -20,6 +21,7 @@ async function routes(app: FastifyInstance) {
   await app.register(extensionsRoutes)
   await app.register(maintenanceRoutes)
   await app.register(transferRoutes)
+  await app.register(sampleContentRoutes)
   await app.register(replicationExportRoutes)
   await app.register(replicationRoutes)
 }

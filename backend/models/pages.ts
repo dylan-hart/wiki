@@ -227,6 +227,11 @@ export interface PageInput {
   updatedAt?: string
 }
 
+export interface CreatedPageRows {
+  page: typeof pagesTable.$inferSelect
+  hasRenderInput: boolean
+}
+
 export interface GraphPageRow {
   /** Not surfaced on a `GraphNode` itself -- the join key for `pageHistory.pageId`'s edit-volume
    *  node-sizing counts. */
@@ -786,12 +791,22 @@ class Pages {
     actor: PageActor,
     { origin }: { origin?: PageWriteOrigin } = {}
   ): Promise<Page> {
+    const created = await this.insertPageRows(siteId, input, actor)
+    return this.completePageCreate(siteId, created, input, actor, { origin })
+  }
+
+  async insertPageRows(
+    siteId: string,
+    input: PageInput,
+    actor: PageActor,
+    { tx, passwordHash }: { tx?: WikiTx; passwordHash?: string | null } = {}
+  ): Promise<CreatedPageRows> {
     if (!CARDINAL.sites[siteId]) {
       throw new CustomError('pageInvalidSite', 'This site does not exist.', 404)
     }
 
     const path = normalizePath(input.path)
-    await assertPathNotReservedLocale(path)
+    await assertPathNotReservedLocale(path, siteId)
     const locale = input.locale || defaultLocale(siteId)
     // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
     //    including one recreated by the deletion-recovery flow into a locale that no longer exists
@@ -846,7 +861,7 @@ class Pages {
     const pathParts = path.split('/')
     let inserted
     try {
-      inserted = await CARDINAL.db
+      inserted = await (tx ?? CARDINAL.db)
         .insert(pagesTable)
         .values({
           alias,
@@ -861,12 +876,15 @@ class Pages {
           editor,
           hash,
           icon: input.icon ?? '',
+          autoTagPending: (input.tags ?? []).length < 1,
           isBrowsable: input.isBrowsable ?? true,
           // -> A redirection has nothing to find: it is a doorway to the page the reader actually
           //    wanted, which is the one search should offer
           isSearchable: isRedirect ? false : (input.isSearchable ?? true),
           locale,
-          password: input.password ? await bcrypt.hash(input.password, BCRYPT_ROUNDS) : null,
+          password:
+            passwordHash ??
+            (input.password ? await bcrypt.hash(input.password, BCRYPT_ROUNDS) : null),
           path,
           publishState: input.publishState ?? 'published',
           publishStartDate: input.publishStartDate ? new Date(input.publishStartDate) : null,
@@ -904,14 +922,29 @@ class Pages {
         locale,
         siteId,
         tags: input.tags ?? [],
-        meta: this.treeMeta(page)
+        meta: this.treeMeta(page),
+        ...(tx ? { db: tx } : {})
       })
     } catch (err) {
       // -> A page with no tree entry is invisible to navigation and to the file manager, which is
       //    worse than not having saved it at all
-      await CARDINAL.db.delete(pagesTable).where(eq(pagesTable.id, page.id))
+      if (!tx) {
+        await CARDINAL.db.delete(pagesTable).where(eq(pagesTable.id, page.id))
+      }
       throw err
     }
+
+    return { page, hasRenderInput }
+  }
+
+  async completePageCreate(
+    siteId: string,
+    { page, hasRenderInput }: CreatedPageRows,
+    input: Pick<PageInput, 'updatedAt' | 'reasonForChange'>,
+    actor: PageActor,
+    { origin }: { origin?: PageWriteOrigin } = {}
+  ): Promise<Page> {
+    const { locale } = page
 
     await CARDINAL.models.pageHistory.record({
       siteId,
@@ -929,12 +962,15 @@ class Pages {
       // -> Only on this branch: when a render is queued instead, `storeRender()` is what queues the
       //    embed job, once the real content actually lands
       await this.enqueueEmbedJob(page.id)
+      if (page.autoTagPending) {
+        await this.enqueueAutoTagJob(page.id)
+      }
     }
     await announce(
       'page:create',
       siteId,
       { id: page.id, path: page.path, locale, siteId, authorId: actor.id },
-      { metadata: { title: page.title, description: page.description, editor } }
+      { metadata: { title: page.title, description: page.description, editor: page.editor } }
     )
     // -> A new page defaults to published and browsable, so the cached sitemap list and graph bundle
     //    both have to see it on the very next request.
@@ -1739,7 +1775,7 @@ class Pages {
     //    a title-only (or locale-only) move of an already-grandfathered page — one whose path
     //    predates this rule — isn't itself blocked by a shadowing first segment it never touches.
     if (newPath !== page.path) {
-      await assertPathNotReservedLocale(newPath)
+      await assertPathNotReservedLocale(newPath, siteId)
     }
     const destLocale = locale ?? page.locale
     // -> Same rule as `createPage`: a disabled locale is not a place a page may end up
@@ -2135,7 +2171,14 @@ class Pages {
       // -> Where a render-queued save's real content lands, so this is the only embed-job enqueue
       //    the queued path needs
       await this.enqueueEmbedJob(id)
+      if (updated[0].autoTagPending) {
+        await this.enqueueAutoTagJob(id)
+      }
     }
+  }
+
+  private async enqueueAutoTagJob(pageId: string): Promise<void> {
+    await CARDINAL.scheduler.addJob({ task: 'autoTagPage', payload: { pageId } })
   }
 
   /**

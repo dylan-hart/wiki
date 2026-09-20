@@ -137,6 +137,9 @@
   /* -> `--color-slate-pale` is the tone Cardinal draws an OFF control in */
   --content-tick-edge: var(--color-slate-pale);
 
+  --content-step-bg: var(--color-accent-strong);
+  --content-step-fg: var(--color-white);
+
   /*
     Admonition hues, from the language's own status tones (`css/tailwind.css`). Each is the TEXT tone
     of its status, not the fill: they colour the bar, the icon and the alert's own title, and the
@@ -197,6 +200,7 @@
   */
   --content-code-comment: var(--color-text-caption-dark);
   --content-code-keyword: var(--color-accent-dark);
+  --content-code-highlight: color-mix(in srgb, var(--content-code-keyword) 18%, transparent);
   --content-code-string: #7fc4a8;
   --content-code-number: #e0b86a;
   --content-code-title: var(--color-slate-light);
@@ -297,6 +301,9 @@
     */
     --content-tick: var(--color-accent-dark);
     --content-tick-edge: var(--color-disabled-dark);
+
+    --content-step-bg: var(--color-accent-dark);
+    --content-step-fg: var(--color-ink-dark);
 
     --content-info: #8ea6cf;
     --content-info-wash: rgba(142, 166, 207, 0.12);
@@ -752,6 +759,14 @@
     outline-offset: 1px;
   }
 
+  .comment-mention {
+    padding: 0.05em 0.3em;
+    border-radius: var(--radius-mark);
+    background-color: color-mix(in srgb, var(--content-link) 12%, transparent);
+    color: var(--content-link);
+    font-weight: 600;
+  }
+
   del {
     color: var(--content-ink-muted);
   }
@@ -966,6 +981,79 @@
     }
   }
 
+  block-steps {
+    > ol {
+      list-style: none;
+      counter-reset: cardinal-step;
+      margin: 0 0 1.15em;
+      padding-inline-start: 2.4rem;
+    }
+
+    > ol > li {
+      position: relative;
+      list-style: none;
+      counter-increment: cardinal-step;
+      margin-top: 0;
+      padding-block-end: 1.25rem;
+
+      &:last-child {
+        padding-block-end: 0;
+      }
+
+      &::before {
+        content: counter(cardinal-step);
+        position: absolute;
+        inset-block-start: 0;
+        inset-inline-start: -2.4rem;
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: 50%;
+        background-color: var(--content-step-bg);
+        color: var(--content-step-fg);
+        font: 600 11px/1.5rem var(--font-mono);
+        text-align: center;
+      }
+
+      &:not(:last-child)::after {
+        content: '';
+        position: absolute;
+        inset-block: 1.75rem 0.25rem;
+        inset-inline-start: calc(-1.65rem - 1px);
+        width: 2px;
+        background-color: color-mix(in srgb, var(--content-step-bg) 30%, transparent);
+      }
+    }
+
+    > ol > li > p:first-child {
+      margin-block-start: 0;
+    }
+
+    > ol > li > p:last-child {
+      margin-block-end: 0;
+    }
+  }
+
+  body.body--cobalt & block-steps {
+    > ol,
+    > ol > li {
+      list-style: none;
+    }
+
+    > ol {
+      counter-reset: cardinal-step;
+      padding-inline-start: 2.4rem;
+    }
+
+    > ol > li {
+      counter-increment: cardinal-step;
+      margin-top: 0;
+    }
+
+    > ol > li::before {
+      content: counter(cardinal-step);
+    }
+  }
+
   li {
     /* -> `rem`, not `em`: 15px/1.6 regardless of `.page-contents`'s own base */
     font-size: 0.9375rem;
@@ -986,6 +1074,41 @@
       Markdown produces either shape depending on whether the list is "loose": a one-paragraph item is
       tight against its marker, a multi-paragraph item spaces its own paragraphs.
     */
+    > p {
+      margin: 0;
+
+      + p {
+        margin-top: 0.6em;
+      }
+    }
+  }
+
+  dl {
+    margin: 0 0 1.15em;
+  }
+
+  dt {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.6;
+    margin-top: 0.9em;
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+  dd {
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    margin: 0.25em 0 0;
+    margin-inline-start: 1.6em;
+
+    > ul,
+    > ol {
+      margin: 0.35em 0 0;
+    }
+
     > p {
       margin: 0;
 
@@ -1671,7 +1794,7 @@
   pre.codeblock.line-numbers {
     position: relative;
     padding-inline-start: 3.6rem;
-    counter-reset: codeline;
+    counter-reset: codeline var(--codeline-offset, 0);
 
     > code {
       position: relative;
@@ -1698,6 +1821,96 @@
           text-align: end;
         }
       }
+    }
+  }
+
+  pre.codeblock {
+    isolation: isolate;
+
+    > code > .line-numbers-rows {
+      z-index: -1;
+    }
+
+    &:not(.line-numbers) > code:has(> .line-numbers-rows) {
+      position: relative;
+    }
+
+    &:not(.line-numbers) > code > .line-numbers-rows {
+      position: absolute;
+      top: 0;
+      inset-inline: 0;
+      user-select: none;
+      pointer-events: none;
+
+      > span {
+        display: block;
+        height: 1lh;
+      }
+    }
+
+    .line-numbers-rows > span.is-highlighted {
+      position: relative;
+      background-color: var(--content-code-highlight);
+      box-shadow: 0 0 0 100vmax var(--content-code-highlight);
+      clip-path: inset(0 -100vmax);
+
+      &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        inset-inline-start: -1.1rem;
+        width: 2px;
+        background-color: var(--content-code-keyword);
+      }
+    }
+
+    &:not(.line-numbers) .line-numbers-rows > span.is-highlighted::after {
+      inset-inline-start: -1.125rem;
+    }
+  }
+
+  .codeblock-titled {
+    margin: 1.25em 0;
+    border-radius: var(--radius-card);
+    background-color: var(--content-surface-code);
+    color: var(--content-code-block-ink);
+
+    body.body--cobalt & {
+      background-color: var(--content-surface-code);
+    }
+
+    > pre {
+      margin: 0;
+      border-top-width: 0;
+      border-start-start-radius: 0;
+      border-start-end-radius: 0;
+    }
+  }
+
+  .codeblock-title {
+    padding: 0.5rem 1.125rem;
+    border: 1px solid var(--content-code-frame);
+    border-inline-start: 2px solid var(--content-code-edge);
+    border-bottom-color: color-mix(in srgb, currentColor 18%, transparent);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    background-color: inherit;
+    background-image: linear-gradient(
+      color-mix(in srgb, currentColor 7%, transparent),
+      color-mix(in srgb, currentColor 7%, transparent)
+    );
+    color: inherit;
+    direction: ltr;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.5;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    body.body--cobalt & {
+      border-inline-start-width: 0;
     }
   }
 
@@ -2406,6 +2619,7 @@
     line-height: 1.55;
 
     pre.codeblock,
+    .codeblock-titled,
     table,
     img,
     blockquote,

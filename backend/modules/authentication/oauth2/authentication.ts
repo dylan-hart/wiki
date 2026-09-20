@@ -1,3 +1,4 @@
+import { buildEndSessionUrl } from '../../../helpers/endSessionUrl.ts'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 import { providerNameHalves } from '../../../models/authentication.ts'
 
@@ -175,7 +176,7 @@ export default class OAuth2Authentication {
     return this.mapProfile(info)
   }
 
-  logoutUrl(): string | null {
-    return this.conf.logoutURL || null
+  logoutUrl({ postLogoutRedirectUri }: { postLogoutRedirectUri?: string } = {}): string | null {
+    return buildEndSessionUrl(this.conf.logoutURL, { postLogoutRedirectUri })
   }
 }

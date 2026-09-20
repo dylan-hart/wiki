@@ -141,4 +141,18 @@ describe('collectRefs', () => {
       sources.some((file) => file === path.join('..', 'blocks/block-kroki/component.js'))
     ).toBe(true)
   })
+
+  test('finds a nested icon in a backend module definition, and not its module-level asset path', () => {
+    const refs = collectRefs()
+
+    expect(refs.has('tabler:fingerprint')).toBe(true)
+    expect(
+      refs
+        .get('tabler:fingerprint')
+        .some(
+          (file) => file === path.join('..', 'backend/modules/authentication/ldap/definition.yml')
+        )
+    ).toBe(true)
+    expect([...refs.keys()].some((ref) => ref.includes('ultraviolet'))).toBe(false)
+  })
 })

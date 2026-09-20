@@ -62,6 +62,11 @@ export const useSiteStore = defineStore('site', {
     company: '',
     contentLicense: '',
     footerExtra: '',
+    banner: {
+      isEnabled: false,
+      title: '',
+      content: ''
+    },
     title: '',
     description: '',
     logoText: true,
@@ -216,6 +221,11 @@ export const useSiteStore = defineStore('site', {
     /** Instance-wide, not per-site; same always-server-provided shape as `docsBase` above. */
     isReplicationEnabled: false,
     /**
+     * Instance-wide, and the only way a guest's browser learns it: `GET users/profile-visibility`
+     * needs `read:users`. Decides whether a guest's avatars are clickable at all.
+     */
+    guestsMayViewProfiles: false,
+    /**
      * This site's default menu id for its default locale -- always server-provided, same as
      * `docsBase` above. What a route with no page-inherited `navigationId` of its own (the knowledge
      * graph, tags browse) falls back to, instead of leaving the sidebar with nothing to load.
@@ -244,7 +254,8 @@ export const useSiteStore = defineStore('site', {
       return {
         useLocales: this.useLocales,
         primary: this.locales.primary,
-        forcePrefix: this.locales.forcePrefix
+        forcePrefix: this.locales.forcePrefix,
+        aliases: this.locales.aliases ?? {}
       }
     }
   },
@@ -293,6 +304,7 @@ export const useSiteStore = defineStore('site', {
         pdfExportAvailable: siteInfo.pdfExportAvailable ?? false,
         docsBase: siteInfo.docsBase,
         isReplicationEnabled: siteInfo.isReplicationEnabled ?? false,
+        guestsMayViewProfiles: siteInfo.guestsMayViewProfiles ?? false,
         navigationId: siteInfo.navigationId ?? null,
         blocksIndex: siteInfo.blocksIndex ?? {},
         commentsProvider: siteInfo.commentsProvider ?? null,
@@ -301,6 +313,11 @@ export const useSiteStore = defineStore('site', {
         company: siteInfo.company,
         contentLicense: siteInfo.contentLicense,
         footerExtra: siteInfo.footerExtra,
+        banner: {
+          isEnabled: siteInfo.banner?.isEnabled ?? false,
+          title: siteInfo.banner?.title ?? '',
+          content: siteInfo.banner?.content ?? ''
+        },
         features: {
           ...this.features,
           ...siteInfo.features

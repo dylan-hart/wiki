@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   findTemporalPolyfillChunkFileName,
   TEMPORAL_POLYFILL_PLACEHOLDER,
@@ -155,5 +157,25 @@ describe('temporalPolyfillChunkPlugin', () => {
 
     const html = '<head><title>Some other page</title></head>'
     expect(plugin.transformIndexHtml(html)).toBe(html)
+  })
+
+  test('a build of the real index.html leaves no __TEMPORAL_POLYFILL_HREF__ and defines the URL before the preload script', () => {
+    const plugin = temporalPolyfillChunkPlugin()
+    plugin.configResolved({ base: '/' })
+    plugin.generateBundle({}, buildBundle())
+
+    const html = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8')
+    const result = plugin.transformIndexHtml(html)
+
+    const markup = result.replace(/<!--[\s\S]*?-->/g, '')
+    expect(markup).not.toContain('__TEMPORAL_POLYFILL_HREF__')
+    expect(result).not.toContain(TEMPORAL_POLYFILL_PLACEHOLDER)
+    const assignAt = result.indexOf(
+      'window.__wikiTemporalPolyfillUrl = "/_assets/global.esm-y7gbP13e.js"'
+    )
+    expect(assignAt).toBeGreaterThan(-1)
+    expect(assignAt).toBeLessThan(
+      result.indexOf('temporalPolyfillPreload.href = window.__wikiTemporalPolyfillUrl')
+    )
   })
 })

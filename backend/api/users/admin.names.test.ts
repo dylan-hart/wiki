@@ -42,6 +42,7 @@ before(async () => {
       groups: {
         hasUnknownGroupIds: async (ids: string[]) => ids.length > 0,
         holdsSystemPermission: () => false,
+        assertMembershipChangeAllowed: async () => {},
         userHoldsSystemPermission: async () => false
       },
       mail: { isConfigured: () => true, sendWelcomeEmail: async () => {} },

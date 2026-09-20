@@ -969,3 +969,55 @@ describe('ProfilePreferences guards against stale, out-of-order save() responses
     expect(userStore.aesthetic).toBe('ledger')
   })
 })
+
+describe('ProfilePreferences on a site with profile editing locked', () => {
+  function mountLocked(profile) {
+    globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve(profile) })
+    return mountWithApp(ProfilePreferences, {
+      messages: { common: { actions: { saveChanges: 'Save Changes' } } },
+      stores: {
+        site: (store) => {
+          store.features.profile = false
+        }
+      }
+    }).wrapper
+  }
+
+  it('renders every preference control enabled and no locked notice', async () => {
+    const wrapper = mountLocked(FULL_PROFILE)
+    await flushPromises()
+
+    for (const label of [
+      'profile.appearance',
+      'profile.aesthetic',
+      'profile.contentWidth',
+      'profile.timeFormat',
+      'profile.cvd'
+    ]) {
+      const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
+      expect(toggle.exists()).toBe(true)
+      expect(toggle.findAll('button').every((btn) => !btn.attributes('disabled'))).toBe(true)
+    }
+    expect(wrapper.text()).not.toContain('profile.editDisabledTitle')
+  })
+
+  it('saves a preference change without sending any identity field', async () => {
+    const wrapper = mountLocked({ ...FULL_PROFILE, name: 'Jane Doe', location: 'Paris' })
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const cvd = wrapper.find('[role="radiogroup"][aria-label="profile.cvd"]')
+    await cvd
+      .findAll('button')
+      .find((btn) => btn.text().includes('profile.cvdDeuteranopia'))
+      .trigger('click')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    const body = globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json
+    expect(body).toMatchObject({ cvd: 'deuteranopia' })
+    for (const key of ['name', 'firstName', 'lastName', 'location', 'jobTitle', 'pronouns']) {
+      expect(body).not.toHaveProperty(key)
+    }
+  })
+})

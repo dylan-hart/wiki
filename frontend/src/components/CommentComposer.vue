@@ -26,17 +26,56 @@
         autocomplete="email" />
     </div>
 
-    <w-input
-      ref="contentIpt"
-      v-model="content"
-      type="textarea"
-      dense
-      :rows="replyTo ? 2 : 3"
-      :placeholder="t(`common.comments.newPlaceholder`)"
-      :hint="t(`common.comments.markdownFormat`)"
-      :rules="contentRules"
-      lazy-rules="ondemand"
-      :aria-label="t(`common.comments.fieldContent`)" />
+    <div class="comment-composer-field relative">
+      <w-input
+        ref="contentIpt"
+        v-model="content"
+        type="textarea"
+        dense
+        :rows="replyTo ? 2 : 3"
+        :placeholder="t(`common.comments.newPlaceholder`)"
+        :hint="t(`common.comments.markdownFormat`)"
+        :rules="contentRules"
+        lazy-rules="ondemand"
+        :aria-label="t(`common.comments.fieldContent`)"
+        role="combobox"
+        aria-autocomplete="list"
+        :aria-expanded="mentionsOpen"
+        :aria-controls="mentionsOpen ? mentionListId : undefined"
+        :aria-activedescendant="mentionsOpen ? optionId(activeIndex) : undefined"
+        @input="onCaretMove"
+        @click="onCaretMove"
+        @keyup="onCaretMove"
+        @keydown="onKeydown"
+        @blur="closeSuggestions" />
+
+      <w-list
+        v-if="mentionsOpen"
+        :id="mentionListId"
+        role="listbox"
+        dense
+        class="comment-mention-list absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded bg-white text-black shadow-menu dark:bg-dark-3 dark:text-white"
+        :aria-label="t(`common.comments.mentionListLabel`)"
+        @mousedown.prevent>
+        <w-item
+          v-for="(suggestion, index) in suggestions"
+          :id="optionId(index)"
+          :key="suggestion.handle"
+          clickable
+          dense
+          role="option"
+          tabindex="-1"
+          :active="index === activeIndex"
+          active-class="bg-black/8 dark:bg-white/14"
+          :aria-selected="index === activeIndex"
+          @click="choose(suggestion)">
+          <w-item-section>
+            <w-item-label>@{{ suggestion.handle }}</w-item-label>
+            <w-item-label caption>{{ suggestion.name }}</w-item-label>
+          </w-item-section>
+        </w-item>
+      </w-list>
+    </div>
 
     <div class="comment-composer-actions flex flex-wrap items-center gap-3">
       <w-btn
@@ -62,12 +101,13 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { guestEmailRules, guestNameRules } from '@/helpers/guestIdentity'
+import { findMentionTrigger } from '@/helpers/mentionTrigger'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -105,6 +145,115 @@ const submitting = ref(false)
 
 const composerForm = ref(null)
 const contentIpt = ref(null)
+
+const MENTION_DEBOUNCE_MS = 150
+
+const mentionListId = useId()
+const suggestions = ref([])
+const activeIndex = ref(0)
+const trigger = ref(null)
+const mentionsOpen = computed(() => suggestions.value.length > 0)
+let lookupTimer = null
+let lookupSeq = 0
+
+function optionId(index) {
+  return `${mentionListId}-${index}`
+}
+
+function textareaEl() {
+  return contentIpt.value?.$el?.querySelector('textarea') ?? null
+}
+
+function closeSuggestions() {
+  clearTimeout(lookupTimer)
+  lookupSeq += 1
+  suggestions.value = []
+  activeIndex.value = 0
+  trigger.value = null
+}
+
+async function lookup(query) {
+  lookupSeq += 1
+  const seq = lookupSeq
+  try {
+    const found = await API_CLIENT.get(`sites/${siteStore.id}/comments/mentions`, {
+      searchParams: { q: query }
+    }).json()
+    if (seq !== lookupSeq) {
+      return
+    }
+    suggestions.value = Array.isArray(found) ? found : []
+    activeIndex.value = 0
+  } catch {
+    if (seq === lookupSeq) {
+      suggestions.value = []
+    }
+  }
+}
+
+function onCaretMove() {
+  if (!userStore.authenticated) {
+    return
+  }
+  const el = textareaEl()
+  const found = el ? findMentionTrigger(el.value, el.selectionStart) : null
+  if (!found) {
+    closeSuggestions()
+    return
+  }
+  const previous = trigger.value
+  if (previous && previous.start === found.start && previous.query === found.query) {
+    return
+  }
+  trigger.value = found
+  clearTimeout(lookupTimer)
+  lookupTimer = setTimeout(() => lookup(found.query), MENTION_DEBOUNCE_MS)
+}
+
+function choose(suggestion) {
+  const el = textareaEl()
+  const found = el ? findMentionTrigger(el.value, el.selectionStart) : null
+  if (!found) {
+    closeSuggestions()
+    return
+  }
+  const insert = `@${suggestion.handle} `
+  content.value = content.value.slice(0, found.start) + insert + content.value.slice(found.end)
+  closeSuggestions()
+  const caret = found.start + insert.length
+  nextTick(() => {
+    el.focus()
+    el.setSelectionRange(caret, caret)
+  })
+}
+
+function onKeydown(ev) {
+  if (!mentionsOpen.value || ev.isComposing) {
+    return
+  }
+  const count = suggestions.value.length
+  if (ev.key === 'ArrowDown') {
+    ev.preventDefault()
+    activeIndex.value = (activeIndex.value + 1) % count
+  } else if (ev.key === 'ArrowUp') {
+    ev.preventDefault()
+    activeIndex.value = (activeIndex.value - 1 + count) % count
+  } else if (ev.key === 'Enter' || ev.key === 'Tab') {
+    ev.preventDefault()
+    choose(suggestions.value[activeIndex.value])
+  } else if (ev.key === 'Escape') {
+    ev.preventDefault()
+    ev.stopPropagation()
+    clearTimeout(lookupTimer)
+    lookupSeq += 1
+    suggestions.value = []
+  }
+}
+
+onBeforeUnmount(() => {
+  clearTimeout(lookupTimer)
+  lookupSeq += 1
+})
 
 /*
   Only a reply composer steals focus: it is mounted fresh the instant `PageComments.vue` toggles its

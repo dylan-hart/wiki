@@ -1,8 +1,13 @@
 import { after, before, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { Readable } from 'node:stream'
 import { assetServing } from './assetServing.ts'
 import { assets } from './assets.ts'
 import { installTestWiki } from '../test/mocks.ts'
+import { CONTENT_TYPES } from './storage.ts'
 import type { StorageTarget } from './storage.ts'
 
 /**
@@ -45,12 +50,14 @@ function makeDbTarget(
     banner: '',
     vendor: '',
     website: '',
-    contentTypes: { activeTypes: [], largeThreshold: '5MB' },
+    contentTypes: { activeTypes: [], supportedTypes: [...CONTENT_TYPES], largeThreshold: '5MB' },
     assetDelivery: {
       isStreamingSupported: true,
       isDirectAccessSupported: true,
+      isReadThroughSupported: false,
       streaming: true,
       directAccess: false,
+      readThrough: false,
       ...assetDelivery
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
@@ -133,7 +140,11 @@ test('governingTarget prefers an enabled direct-access target that covers the as
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [dbTarget, s3Target] })
@@ -148,7 +159,11 @@ test('governingTarget falls back to db when the direct-access target does not co
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['documents'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['documents'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [dbTarget, s3Target] })
@@ -164,7 +179,11 @@ test('governingTarget falls back to db when the direct-access target is disabled
       id: 'target-s3',
       module: 's3',
       isEnabled: false,
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [dbTarget, s3Target] })
@@ -179,7 +198,11 @@ test('governingTarget falls back to db when the direct-access target has directA
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [dbTarget, s3Target] })
@@ -194,7 +217,11 @@ test('governingTarget ignores content-type matching entirely when called with no
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [dbTarget, s3Target] })
@@ -209,7 +236,11 @@ test('governingTargetFrom is a pure function of the targets it is handed — no 
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({ targets: [], ensureModule: unreachable('ensureModule') })
@@ -401,7 +432,11 @@ test('readContent redirects through a non-db direct-access target (e.g. s3) that
     {
       id: 'target-s3',
       module: 's3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     }
   )
   stubStorage({
@@ -440,4 +475,347 @@ test('readContent returns null when the asset row is gone, whichever path was ta
   stubStorage({ targets: [target] })
   stubDb(undefined)
   assert.equal(await assetServing.readContent(testAsset, 'site-1'), null)
+})
+
+function makeBlobTarget(id: string, overrides: Partial<StorageTarget> = {}): StorageTarget {
+  return makeDbTarget(
+    { isReadThroughSupported: true, readThrough: true },
+    {
+      id,
+      module: id,
+      contentTypes: { activeTypes: ['images'], supportedTypes: [], largeThreshold: '5MB' },
+      ...overrides
+    }
+  )
+}
+
+async function collect(body: Readable | Buffer): Promise<Buffer> {
+  if (Buffer.isBuffer(body)) {
+    return body
+  }
+  const chunks: Buffer[] = []
+  for await (const chunk of body) {
+    chunks.push(chunk as Buffer)
+  }
+  return Buffer.concat(chunks)
+}
+
+function bodyOf(text: string, chunkSize = 2): Readable {
+  const buf = Buffer.from(text)
+  const parts: Buffer[] = []
+  for (let i = 0; i < buf.length; i += chunkSize) {
+    parts.push(buf.subarray(i, i + chunkSize))
+  }
+  return Readable.from(parts, { objectMode: false })
+}
+
+function warnSpy() {
+  const warn = (globalThis as any).CARDINAL.logger.warn as ReturnType<typeof mock.fn>
+  warn.mock.resetCalls()
+  return warn
+}
+
+test('readSourcesFrom keeps enabled, supported, nominated targets that cover the asset, in list order', () => {
+  const first = makeBlobTarget('s3')
+  const second = makeBlobTarget('gcs')
+  const off = makeBlobTarget('azure', {
+    assetDelivery: { ...makeBlobTarget('azure').assetDelivery, readThrough: false }
+  })
+  const unsupported = makeBlobTarget('other', {
+    assetDelivery: { ...makeBlobTarget('other').assetDelivery, isReadThroughSupported: false }
+  })
+  const disabled = makeBlobTarget('disabled', { isEnabled: false })
+  const wrongKind = makeBlobTarget('docs', {
+    contentTypes: { activeTypes: ['documents'], supportedTypes: [], largeThreshold: '5MB' }
+  })
+  const sources = assetServing.readSourcesFrom(
+    [makeDbTarget(), first, off, unsupported, disabled, wrongKind, second],
+    { kind: 'image', fileSize: 1000 }
+  )
+  assert.deepEqual(
+    sources.map((t) => t.id),
+    ['s3', 'gcs']
+  )
+})
+
+test('readSources reads the site target list itself', async () => {
+  stubStorage({ targets: [makeDbTarget(), makeBlobTarget('s3')] })
+  const sources = await assetServing.readSources('site-1', { kind: 'image', fileSize: 1 })
+  assert.deepEqual(
+    sources.map((t) => t.id),
+    ['s3']
+  )
+})
+
+test('readContent serves a read-through target hit, streaming off, without the cache or the db', async () => {
+  const dbTarget = makeDbTarget({ streaming: false })
+  const s3 = makeBlobTarget('s3')
+  const readAsset = mock.fn(async (_asset: any, _target: any) => ({
+    body: bodyOf('from-s3'),
+    size: 7
+  }))
+  stubStorage({ targets: [dbTarget, s3], ensureModule: async () => ({ readAsset }) })
+  const originalReadCache = assetServing.readContentCache
+  const originalGetContent = CARDINAL.models.assets.getContent
+  assetServing.readContentCache = unreachable('readContentCache') as any
+  CARDINAL.models.assets.getContent = unreachable('getContent') as any
+  try {
+    const result = (await assetServing.readContent(testAsset, 'site-1')) as any
+    assert.equal(result.size, 7)
+    assert.equal((await collect(result.body)).toString(), 'from-s3')
+    assert.equal(readAsset.mock.callCount(), 1)
+    const [assetArg, targetArg] = readAsset.mock.calls[0]!.arguments
+    assert.equal(assetArg.id, 'asset-1')
+    assert.equal(targetArg.id, 's3')
+  } finally {
+    assetServing.readContentCache = originalReadCache
+    CARDINAL.models.assets.getContent = originalGetContent
+  }
+})
+
+test('readContent tries read-through targets in list order and stops at the first hit', async () => {
+  const dbTarget = makeDbTarget({ streaming: false })
+  const calls: string[] = []
+  stubStorage({
+    targets: [dbTarget, makeBlobTarget('s3'), makeBlobTarget('gcs')],
+    ensureModule: async (key: string) => ({
+      readAsset: async () => {
+        calls.push(key)
+        return key === 's3' ? null : { body: bodyOf('gcs-bytes'), size: 9 }
+      }
+    })
+  })
+  stubDb(undefined)
+  const result = (await assetServing.readContent(testAsset, 'site-1')) as any
+  assert.equal((await collect(result.body)).toString(), 'gcs-bytes')
+  assert.deepEqual(calls, ['s3', 'gcs'])
+})
+
+test('readContent falls to the db when a read-through target does not hold the asset, and logs it', async () => {
+  const warn = warnSpy()
+  stubStorage({
+    targets: [makeDbTarget({ streaming: false }), makeBlobTarget('s3')],
+    ensureModule: async () => ({ readAsset: async () => null })
+  })
+  stubDb({ data: Buffer.from('db-bytes'), mimeType: 'image/png', fileName: 'x.png' })
+  const result = await assetServing.readContent(testAsset, 'site-1')
+  assert.deepEqual(result, { body: Buffer.from('db-bytes'), size: 8 })
+  assert.equal(warn.mock.callCount(), 1)
+  const [scope, , fields] = warn.mock.calls[0]!.arguments
+  assert.equal(scope, 'storage')
+  assert.equal((fields as any).target, 's3')
+  assert.equal((fields as any).asset, 'asset-1')
+})
+
+test('readContent falls to the db when a read-through target throws, including "not supported", and logs it', async () => {
+  const warn = warnSpy()
+  stubStorage({
+    targets: [makeDbTarget({ streaming: false }), makeBlobTarget('azure')],
+    ensureModule: async () => ({
+      readAsset: async () => {
+        throw new Error('Failed to read "site-1/x.png": reading objects is not supported by Azure')
+      }
+    })
+  })
+  stubDb({ data: Buffer.from('db-bytes'), mimeType: 'image/png', fileName: 'x.png' })
+  const result = await assetServing.readContent(testAsset, 'site-1')
+  assert.deepEqual(result, { body: Buffer.from('db-bytes'), size: 8 })
+  assert.equal(warn.mock.callCount(), 1)
+  assert.match((warn.mock.calls[0]!.arguments[2] as any).error.message, /not supported/)
+})
+
+test('readContent falls to the db when the module cannot be activated', async () => {
+  const warn = warnSpy()
+  stubStorage({
+    targets: [makeDbTarget({ streaming: false }), makeBlobTarget('s3')],
+    ensureModule: async () => {
+      throw new Error('bad credentials')
+    }
+  })
+  stubDb({ data: Buffer.from('db-bytes'), mimeType: 'image/png', fileName: 'x.png' })
+  const result = await assetServing.readContent(testAsset, 'site-1')
+  assert.deepEqual(result, { body: Buffer.from('db-bytes'), size: 8 })
+  assert.equal(warn.mock.callCount(), 1)
+})
+
+test('readContent falls to the db when the module has no readAsset', async () => {
+  stubStorage({
+    targets: [makeDbTarget({ streaming: false }), makeBlobTarget('s3')],
+    ensureModule: async () => ({})
+  })
+  stubDb({ data: Buffer.from('db-bytes'), mimeType: 'image/png', fileName: 'x.png' })
+  const result = await assetServing.readContent(testAsset, 'site-1')
+  assert.deepEqual(result, { body: Buffer.from('db-bytes'), size: 8 })
+})
+
+test('readContent serves an asset whose db bytes were offloaded from a read-through target', async () => {
+  stubStorage({
+    targets: [makeDbTarget({ streaming: false }), makeBlobTarget('s3')],
+    ensureModule: async () => ({ readAsset: async () => ({ body: bodyOf('offloaded'), size: 9 }) })
+  })
+  stubDb({ data: null as any, mimeType: 'image/png', fileName: 'x.png' })
+  const result = (await assetServing.readContent(testAsset, 'site-1')) as any
+  assert.equal((await collect(result.body)).toString(), 'offloaded')
+})
+
+test('readContent returns null when the db row is offloaded and no target holds the asset', async () => {
+  stubStorage({
+    targets: [makeDbTarget({ streaming: false }), makeBlobTarget('s3')],
+    ensureModule: async () => ({ readAsset: async () => null })
+  })
+  stubDb({ data: null as any, mimeType: 'image/png', fileName: 'x.png' })
+  assert.equal(await assetServing.readContent(testAsset, 'site-1'), null)
+})
+
+test('readContent never consults a target that is not nominated for read-through', async () => {
+  const notNominated = makeBlobTarget('s3', {
+    assetDelivery: { ...makeBlobTarget('s3').assetDelivery, readThrough: false }
+  })
+  stubStorage({
+    targets: [makeDbTarget({ streaming: false }), notNominated],
+    ensureModule: unreachable('ensureModule')
+  })
+  stubDb({ data: Buffer.from('db-bytes'), mimeType: 'image/png', fileName: 'x.png' })
+  const result = await assetServing.readContent(testAsset, 'site-1')
+  assert.deepEqual(result, { body: Buffer.from('db-bytes'), size: 8 })
+})
+
+test('readContent serves the disk cache before any read-through target', async () => {
+  stubStorage({
+    targets: [makeDbTarget({ streaming: true }), makeBlobTarget('s3')],
+    ensureModule: unreachable('ensureModule')
+  })
+  const originalReadCache = assetServing.readContentCache
+  assetServing.readContentCache = async () => ({ body: 'cached' as any, size: 6 })
+  try {
+    assert.deepEqual(await assetServing.readContent(testAsset, 'site-1'), {
+      body: 'cached',
+      size: 6
+    })
+  } finally {
+    assetServing.readContentCache = originalReadCache
+  }
+})
+
+test('readContent redirects to a direct-access target before trying any read-through target', async () => {
+  const direct = makeDbTarget(
+    {
+      directAccess: true,
+      isDirectAccessSupported: true,
+      isReadThroughSupported: true,
+      readThrough: true
+    },
+    {
+      id: 's3',
+      module: 's3',
+      contentTypes: { activeTypes: ['images'], supportedTypes: [], largeThreshold: '5MB' }
+    }
+  )
+  stubStorage({
+    targets: [makeDbTarget(), direct],
+    ensureModule: async () => ({
+      getDirectUrl: async () => 'https://bucket.example.com/asset-1',
+      readAsset: unreachable('readAsset')
+    })
+  })
+  assert.deepEqual(await assetServing.readContent(testAsset, 'site-1'), {
+    redirectUrl: 'https://bucket.example.com/asset-1'
+  })
+})
+
+async function withCacheDir<T>(
+  fn: (dir: string) => Promise<T>,
+  cacheMaxSize = 1024 * 1024
+): Promise<T> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'asset-serving-'))
+  const original = CARDINAL.config
+  CARDINAL.config = { ...original, dataPath: dir, files: { cacheMaxSize } } as any
+  try {
+    return await fn(dir)
+  } finally {
+    CARDINAL.config = original
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+}
+
+test('readContent fills the disk cache from a read-through hit while streaming it, and the next read is served from disk', async () => {
+  await withCacheDir(async () => {
+    const readAsset = mock.fn(async () => ({ body: bodyOf('target-bytes'), size: 12 }))
+    stubStorage({
+      targets: [makeDbTarget({ streaming: true }), makeBlobTarget('s3')],
+      ensureModule: async () => ({ readAsset })
+    })
+    stubDb(undefined)
+    const first = (await assetServing.readContent(testAsset, 'site-1')) as any
+    assert.equal(first.size, 12)
+    assert.equal((await collect(first.body)).toString(), 'target-bytes')
+
+    const cachePath = assetServing.contentCachePath(testAsset)
+    assert.equal((await fs.readFile(cachePath)).toString(), 'target-bytes')
+    const leftovers = (await fs.readdir(path.dirname(cachePath))).filter((name) =>
+      name.endsWith('.tmp')
+    )
+    assert.deepEqual(leftovers, [])
+
+    const second = (await assetServing.readContent(testAsset, 'site-1')) as any
+    assert.equal((await collect(second.body)).toString(), 'target-bytes')
+    assert.equal(readAsset.mock.callCount(), 1)
+  })
+})
+
+test('a read-through hit is not cached when the target stream ends short of its declared size', async () => {
+  await withCacheDir(async () => {
+    stubStorage({
+      targets: [makeDbTarget({ streaming: true }), makeBlobTarget('s3')],
+      ensureModule: async () => ({ readAsset: async () => ({ body: bodyOf('short'), size: 50 }) })
+    })
+    const result = (await assetServing.readContent(testAsset, 'site-1')) as any
+    await collect(result.body)
+    const dir = path.dirname(assetServing.contentCachePath(testAsset))
+    assert.deepEqual(await fs.readdir(dir), [])
+  })
+})
+
+test('a client that abandons a read-through response leaves no cache entry or temporary file', async () => {
+  await withCacheDir(async () => {
+    stubStorage({
+      targets: [makeDbTarget({ streaming: true }), makeBlobTarget('s3')],
+      ensureModule: async () => ({
+        readAsset: async () => ({ body: bodyOf('abandoned-bytes', 3), size: 15 })
+      })
+    })
+    const result = (await assetServing.readContent(testAsset, 'site-1')) as any
+    for await (const _chunk of result.body) {
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const dir = path.dirname(assetServing.contentCachePath(testAsset))
+    assert.deepEqual(await fs.readdir(dir), [])
+  })
+})
+
+test('a read-through hit larger than the cache is streamed without being cached', async () => {
+  await withCacheDir(async (dir) => {
+    stubStorage({
+      targets: [makeDbTarget({ streaming: true }), makeBlobTarget('s3')],
+      ensureModule: async () => ({
+        readAsset: async () => ({ body: bodyOf('0123456789'), size: 10 })
+      })
+    })
+    const result = (await assetServing.readContent(testAsset, 'site-1')) as any
+    assert.equal((await collect(result.body)).toString(), '0123456789')
+    await assert.rejects(fs.readdir(path.join(dir, 'cache/files')))
+  }, 5)
+})
+
+test('a read-through hit is never written to disk when streaming is off', async () => {
+  await withCacheDir(async (dir) => {
+    stubStorage({
+      targets: [makeDbTarget({ streaming: false }), makeBlobTarget('s3')],
+      ensureModule: async () => ({ readAsset: async () => ({ body: bodyOf('no-disk'), size: 7 }) })
+    })
+    const result = (await assetServing.readContent(testAsset, 'site-1')) as any
+    assert.equal((await collect(result.body)).toString(), 'no-disk')
+    await assert.rejects(fs.readdir(path.join(dir, 'cache/files')))
+  })
 })

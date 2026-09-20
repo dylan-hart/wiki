@@ -10,8 +10,7 @@ initializers → mount. There is no UI framework: `src/components/shared/` is th
 (every component is `W*`, used in templates as `<w-btn>`, `<w-input>`, …), registered globally by
 `boot/components.js` and styled with Tailwind.
 
-- `src/boot/` — one-time app initializers: `analytics.js` (injects each enabled analytics provider's
-  tracking snippet into `document.head` once the site store has loaded), `api.js` (creates the `ky`
+- `src/boot/` — one-time app initializers: `api.js` (creates the `ky`
   client, exposed as the `API_CLIENT` global), `components.js` (global components), `eventbus.js`
   (`EVENT_BUS` global, mitt), `externals.js`, `i18n.js`, `iconify.js` (points Iconify at this
   instance's `/_icons`), `monaco.js`, `temporal.js` (conditionally polyfills `Temporal`, awaited
@@ -35,7 +34,7 @@ initializers → mount. There is no UI framework: `src/components/shared/` is th
   (mirrors `backend/base.yml`'s `systemIds` — never retype the literal), `treeNodes.js`,
   `apiKeyState.js`, `markdownFences.js`, `markdownInsert.js`, `pointerDrag.js`, `blockScan.js`,
   `storageDeliveryGraph.js`, `wysiwygMenuBar.js`, `authValidation.js`, `moduleConfig.js`,
-  `passwordStrength.js`, `randomPassword.js`, `injectCss.js`, `accessibility.js`, `siteImages.js`.
+  `passwordStrength.js`, `randomPassword.js`, `headStyle.js`, `accessibility.js`, `siteImages.js`.
 - `src/renderers/` — page content rendering pipeline: `markdown.js` plus `modules/` (katex, kroki,
   plantuml, markdown-it plugins).
 - `src/css/` — `tailwind.css` (theme tokens, utilities and the shared component classes) plus a

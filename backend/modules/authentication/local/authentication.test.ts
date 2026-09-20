@@ -1,4 +1,4 @@
-import { afterEach, describe, test } from 'node:test'
+import { afterEach, beforeEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import bcrypt from 'bcryptjs'
 import LocalAuthentication from './authentication.ts'
@@ -25,9 +25,20 @@ function makeUser(overrides: Partial<any> = {}) {
   }
 }
 
+let debugLines: string[] = []
+
+beforeEach(() => {
+  debugLines = []
+})
+
 function stubGetByEmail(user: any) {
   wikiHandle = installTestWiki({
     models: {
+      flags: {
+        authDebug: (message: string) => {
+          debugLines.push(message)
+        }
+      },
       users: {
         getByEmail: async (email: string) => {
           assert.equal(email, email.toLowerCase(), 'authenticate must lowercase before lookup')
@@ -108,6 +119,88 @@ describe('LocalAuthentication.authenticate', () => {
       local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
       /ERR_LOGIN_RESTRICTED/
     )
+  })
+
+  describe('refusal reason (debug-only)', () => {
+    async function refusal(user: any, password: string) {
+      stubGetByEmail(user)
+      const local = new LocalAuthentication('local', {})
+      const error = await local
+        .authenticate({ username: 'ada@example.com', password })
+        .catch((err: any) => err)
+      wikiHandle.restore()
+      return error
+    }
+
+    test('logs a distinct reason per refusal branch', async () => {
+      await refusal(null, 'anything')
+      await refusal(makeUser({ auth: { google: {} } }), 'anything')
+      await refusal(makeUser(), 'wrong-password')
+
+      assert.equal(debugLines.length, 3)
+      assert.match(debugLines[0], /no account/)
+      assert.match(debugLines[1], /not linked to strategy local/)
+      assert.match(debugLines[2], /wrong password/)
+      assert.equal(new Set(debugLines).size, 3)
+    })
+
+    test('names the strategy but never the password or the address', async () => {
+      await refusal(makeUser(), 'hunter2-secret')
+      await refusal(null, 'hunter2-secret')
+
+      for (const line of debugLines) {
+        assert.match(line, /local/)
+        assert.doesNotMatch(line, /hunter2-secret/)
+        assert.doesNotMatch(line, /ada@example\.com/)
+      }
+    })
+
+    test('logs nothing on success or on a restricted login', async () => {
+      stubGetByEmail(makeUser())
+      await new LocalAuthentication('local', {}).authenticate({
+        username: 'ada@example.com',
+        password: 'correct-horse'
+      })
+      wikiHandle.restore()
+      await refusal(
+        makeUser({ auth: { local: makeAuthStrategyData({ restrictLogin: true }) } }),
+        'correct-horse'
+      )
+      assert.deepEqual(debugLines, [])
+    })
+
+    test('no account, not linked and wrong password are indistinguishable to the caller', async () => {
+      const errors = [
+        await refusal(null, 'anything'),
+        await refusal(makeUser({ auth: { google: {} } }), 'anything'),
+        await refusal(makeUser(), 'wrong-password')
+      ]
+
+      const shape = (err: any) =>
+        JSON.stringify({
+          ctor: err.constructor.name,
+          name: err.name,
+          message: err.message,
+          own: Object.getOwnPropertyNames(err).filter((k) => k !== 'stack'),
+          cause: err.cause ?? null,
+          ownEnumerable: { ...err }
+        })
+
+      for (const err of errors) {
+        assert.ok(err instanceof Error)
+        assert.equal(err.message, 'ERR_LOGIN_FAILED')
+      }
+      assert.equal(shape(errors[1]), shape(errors[0]))
+      assert.equal(shape(errors[2]), shape(errors[0]))
+    })
+
+    test('runs exactly one bcrypt.compare on every refusal branch', async (t) => {
+      const compare = t.mock.method(bcrypt, 'compare')
+      await refusal(null, 'anything')
+      await refusal(makeUser({ auth: { google: {} } }), 'anything')
+      await refusal(makeUser(), 'wrong-password')
+      assert.equal(compare.mock.callCount(), 3)
+    })
   })
 
   /*

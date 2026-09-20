@@ -907,6 +907,71 @@ describe('mail template senders', () => {
     assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/fr\/docs\/getting-started/)
   })
 
+  describe('a site whose non-primary locale has a URL alias', () => {
+    const ALIAS_SITES = {
+      'alias-site': {
+        hostname: 'de.wiki.example.com',
+        config: {
+          locales: { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+        }
+      }
+    }
+
+    beforeEach(() => {
+      setMailConfig(
+        {
+          host: 'smtp.example.com',
+          senderEmail: 'wiki@example.com',
+          defaultBaseURL: 'https://wiki.example.com'
+        },
+        ALIAS_SITES
+      )
+      mail.send = (async (msg: any) => {
+        sendCalls.push(msg)
+      }) as any
+    })
+
+    test('sendPageWatchNotification links the aliased locale through its alias, not the canonical code', async () => {
+      await mail.sendPageWatchNotification({
+        to: 'ada@example.com',
+        siteId: 'alias-site',
+        page: { title: 'Guide', path: 'docs/guide', locale: 'zh-CN' },
+        action: 'updated',
+        changedFields: ['title'],
+        actorName: 'Bob'
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/zh\/docs\/guide/)
+      assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/zh\/docs\/guide/)
+      assert.doesNotMatch(msg.html, /zh-CN\/docs\/guide/)
+    })
+
+    test('sendPageWatchDigest links each item by its own locale spelling', async () => {
+      await mail.sendPageWatchDigest({
+        to: 'ada@example.com',
+        siteId: 'alias-site',
+        items: [
+          {
+            page: { title: 'Guide', path: 'docs/guide', locale: 'en' },
+            action: 'updated',
+            changedFields: ['title'],
+            actorName: 'Bob'
+          },
+          {
+            page: { title: 'Guide', path: 'docs/guide', locale: 'zh-CN' },
+            action: 'updated',
+            changedFields: ['title'],
+            actorName: 'Bob'
+          }
+        ]
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/docs\/guide/)
+      assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/zh\/docs\/guide/)
+      assert.doesNotMatch(msg.html, /zh-CN\/docs\/guide/)
+    })
+  })
+
   test('sendPageWatchNotification falls back to defaultBaseURL when the site has no hostname on record', async () => {
     await mail.sendPageWatchNotification({
       to: 'ada@example.com',
@@ -1571,6 +1636,11 @@ describe('mail send wrappers set their own kind', () => {
       'sendTfaDisabled',
       'tfaDisabled',
       () => mail.sendTfaDisabled({ to: 'a@example.com', name: 'A', userId: 'u1' })
+    ],
+    [
+      'sendTfaNewDeviceLogin',
+      'tfaNewDeviceLogin',
+      () => mail.sendTfaNewDeviceLogin({ to: 'a@example.com', name: 'A', userId: 'u1' })
     ]
   ]
 
@@ -1589,20 +1659,22 @@ describe('mail send wrappers set their own kind', () => {
     // FIXME: `tfaNewDeviceLogin` has a wrapper (`sendTfaNewDeviceLogin`) yet appears in neither
     //        `cases` nor this list, so the claim above holds only by omission. Add it to both, and
     //        pin the list with a `Record<MailKind, true>` literal so a new member cannot be missed.
-    const all: MailKind[] = [
-      'verify',
-      'forgotPassword',
-      'welcome',
-      'passwordChanged',
-      'registrationAttempt',
-      'test',
-      'watch',
-      'digest',
-      'notificationEvent',
-      'tfaEnabled',
-      'tfaDisabled',
-      'tfaRecoveryCodesGenerated'
-    ]
+    const allKinds: Record<Exclude<MailKind, 'approval' | 'commentMention'>, true> = {
+      verify: true,
+      forgotPassword: true,
+      welcome: true,
+      passwordChanged: true,
+      registrationAttempt: true,
+      test: true,
+      watch: true,
+      digest: true,
+      notificationEvent: true,
+      tfaEnabled: true,
+      tfaDisabled: true,
+      tfaRecoveryCodesGenerated: true,
+      tfaNewDeviceLogin: true
+    }
+    const all = Object.keys(allKinds) as MailKind[]
     for (const kind of all) {
       assert.ok(covered.has(kind), `MailKind "${kind}" has no wrapper case above`)
     }

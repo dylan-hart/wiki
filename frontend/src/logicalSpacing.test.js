@@ -58,7 +58,7 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
 
   // TODO: `ml-auto`/`mr-auto` (and `-px`) escape this pattern, which requires a numeric or
   // bracketed size, so a physical `ml-auto` is never flagged.
-  const UTILITY_PATTERN = /\b(ml|mr|pl|pr)-(?:\[[^\]]+\]|\d+(?:\.\d+)?)\b/
+  const UTILITY_PATTERN = /\b(ml|mr|pl|pr)-(?:(?:auto|px|\d+(?:\.\d+)?)\b|\[[^\]]+\])/
 
   // -> The leading `[\s;{]` anchors on the property itself rather than the tail of a longer name
   const DECLARATION_PATTERN =
@@ -93,6 +93,20 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
       ).not.toMatch(DECLARATION_PATTERN)
     }
   })
+
+  it.each(['ml-auto', 'mr-auto', 'pl-px', 'pr-px', '-ml-px', 'ml-2', 'pr-[3px]'])(
+    'flags the physical utility %s',
+    (utility) => {
+      expect(`<div class="flex ${utility}">`).toMatch(UTILITY_PATTERN)
+    }
+  )
+
+  it.each(['ms-auto', 'me-auto', 'ps-px', 'pe-px', 'ml-autofill', 'pl-pxl'])(
+    'does not flag %s',
+    (utility) => {
+      expect(`<div class="flex ${utility}">`).not.toMatch(UTILITY_PATTERN)
+    }
+  )
 
   it('keeps the allowlist free of files that no longer exist', () => {
     const relFiles = new Set(files)

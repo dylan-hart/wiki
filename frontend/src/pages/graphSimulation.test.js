@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { chargeStrengthFor, computeClusters, linkDistanceFor } from './graphSimulation.js'
+import {
+  LINK_CHILD_COUNT_CAP,
+  chargeStrengthFor,
+  childCountsFor,
+  computeClusters,
+  linkDistanceFor
+} from './graphSimulation.js'
 
 /** Pure math only -- `startSimulation()`'s d3-force wiring is driven by `Graph.layout.test.js`. */
 describe('linkDistanceFor (OpenProject #2562)', () => {
@@ -42,6 +48,79 @@ describe('linkDistanceFor (OpenProject #2562)', () => {
     )
     expect(atOldCeiling).toBeGreaterThan(60)
     expect(atOldCeiling).toBeLessThan(120)
+  })
+})
+
+describe('childCountsFor (OpenProject #3643)', () => {
+  it('counts outgoing edges per source id', () => {
+    const counts = childCountsFor([
+      { source: 'en:a', target: 'en:a/x', type: 'path' },
+      { source: 'en:a', target: 'en:a/y', type: 'path' },
+      { source: 'en:b', target: 'en:b/z', type: 'path' }
+    ])
+    expect(counts.get('en:a')).toBe(2)
+    expect(counts.get('en:b')).toBe(1)
+    expect(counts.get('en:a/x')).toBeUndefined()
+  })
+
+  it('keys a resolved node-object source the same as its id string', () => {
+    const counts = childCountsFor([
+      { source: { locale: 'en', path: 'a' }, target: { locale: 'en', path: 'a/x' } },
+      { source: 'en:a', target: 'en:a/y' }
+    ])
+    expect(counts.get('en:a')).toBe(2)
+  })
+
+  it('is empty for no edges', () => {
+    expect(childCountsFor([]).size).toBe(0)
+  })
+})
+
+describe('linkDistanceFor child-count term (OpenProject #3643)', () => {
+  const collideRadiusFor = (node) => node.radius + 2
+  const link = { source: { radius: 22 }, target: { radius: 22 } }
+  const distanceAt = (n) => linkDistanceFor(link, collideRadiusFor, () => n)
+
+  it('is unchanged at 0 children, and when no childCountFor is passed', () => {
+    expect(distanceAt(0)).toBe(linkDistanceFor(link, collideRadiusFor))
+    expect(distanceAt(0)).toBe(40 + 24 + 24)
+  })
+
+  it('asks childCountFor about the source (parent) node only', () => {
+    const asked = []
+    linkDistanceFor(link, collideRadiusFor, (node) => {
+      asked.push(node)
+      return 0
+    })
+    expect(asked).toEqual([link.source])
+  })
+
+  it('is monotone non-decreasing in child count', () => {
+    let previous = distanceAt(0)
+    for (let n = 1; n <= 500; n++) {
+      const current = distanceAt(n)
+      expect(current).toBeGreaterThanOrEqual(previous)
+      previous = current
+    }
+  })
+
+  it('is sub-linear before the cap: doubling children less than doubles the added distance', () => {
+    const base = distanceAt(0)
+    expect(distanceAt(1) - base).toBeGreaterThan(0)
+    expect(distanceAt(8) - base).toBeLessThan(2 * (distanceAt(4) - base))
+    expect(distanceAt(16) - base).toBeLessThan(2 * (distanceAt(8) - base))
+  })
+
+  it('never adds more than the cap, however many children', () => {
+    const base = distanceAt(0)
+    for (const n of [50, 200, 1000, 100000, Number.MAX_SAFE_INTEGER]) {
+      expect(distanceAt(n) - base).toBeLessThanOrEqual(LINK_CHILD_COUNT_CAP)
+    }
+    expect(distanceAt(100000) - base).toBe(LINK_CHILD_COUNT_CAP)
+  })
+
+  it('treats a negative count as 0', () => {
+    expect(distanceAt(-3)).toBe(distanceAt(0))
   })
 })
 

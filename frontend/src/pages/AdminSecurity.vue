@@ -182,6 +182,19 @@
             </w-settings-row>
           </template>
         </w-settings-card>
+        <w-settings-card class="mt-4" :title="t('admin.security.passkeys')">
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:key"
+            :label="t(`admin.security.allowPasskeys`)"
+            :hint="t(`admin.security.allowPasskeysHint`)">
+            <w-toggle
+              v-model="state.config.allowPasskeys"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.allowPasskeys`)" />
+          </w-settings-row>
+        </w-settings-card>
         <w-settings-card class="mt-4" :title="t('admin.security.rateLimit')">
           <div class="p-3">
             <w-card class="bg-negative text-white rounded">
@@ -468,6 +481,7 @@ function defaultConfig() {
     hstsDuration: 0,
     trustProxy: false,
     insecureCookieRiskAt: null,
+    allowPasskeys: true,
     authRateLimitEnabled: true,
     authRateLimitMax: 10,
     authRateLimitWindow: '5m',

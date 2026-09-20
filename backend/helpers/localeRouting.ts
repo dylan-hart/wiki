@@ -5,6 +5,7 @@ export interface LocaleRoutingConfig {
   primary: string
   active: string[]
   forcePrefix?: boolean
+  aliases?: Record<string, string>
 }
 
 export function defaultLocale(siteId: string): string {
@@ -33,12 +34,30 @@ export function assertLocaleActive(siteId: string, locale: string): void {
  * at `fr/guide` would be unreachable — every request for it would be read as `/guide` in French.
  * Only the first segment can collide; `guide/fr` is fine.
  */
-export async function assertPathNotReservedLocale(path: string): Promise<void> {
+export function isConfiguredLocaleAlias(siteId: string | undefined, segment: string): boolean {
+  if (!siteId || !segment) {
+    return false
+  }
+  const aliases = CARDINAL.sites[siteId]?.config?.locales?.aliases
+  if (!aliases || typeof aliases !== 'object') {
+    return false
+  }
+  const lower = segment.toLowerCase()
+  return Object.values(aliases).some(
+    (alias) => typeof alias === 'string' && alias.toLowerCase() === lower
+  )
+}
+
+export function reservedLocaleSegmentLabel(siteId: string | undefined, segment: string): string {
+  return isConfiguredLocaleAlias(siteId, segment) ? 'a locale alias' : 'an installed locale code'
+}
+
+export async function assertPathNotReservedLocale(path: string, siteId?: string): Promise<void> {
   const firstSegment = path.split('/')[0] ?? ''
-  if (await CARDINAL.models.locales.isReservedLocaleCode(firstSegment)) {
+  if (await CARDINAL.models.locales.isReservedLocaleCode(firstSegment, siteId)) {
     throw new CustomError(
       'pageReservedLocaleSegment',
-      `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
+      `"${firstSegment}" is ${reservedLocaleSegmentLabel(siteId, firstSegment)} and cannot begin a page path.`,
       400
     )
   }
@@ -54,6 +73,21 @@ export function matchLocaleCode(candidate: string, active?: string[] | null): st
   }
   const lower = candidate.toLowerCase()
   return active.find((code) => code.toLowerCase() === lower) ?? null
+}
+
+function matchLocaleAlias(candidate: string, locales: LocaleRoutingConfig): string | null {
+  if (!locales.aliases) {
+    return null
+  }
+  const lower = candidate.toLowerCase()
+  const entry = Object.entries(locales.aliases).find(
+    ([code, alias]) => alias.toLowerCase() === lower && locales.active.includes(code)
+  )
+  return entry?.[0] ?? null
+}
+
+export function localeUrlSegment(locale: string, locales?: LocaleRoutingConfig | null): string {
+  return locales?.aliases?.[locale] || locale
 }
 
 /**
@@ -74,7 +108,8 @@ export function stripLocalePrefix(
   if (!firstSegment) {
     return null
   }
-  const match = matchLocaleCode(firstSegment, locales.active)
+  const match =
+    matchLocaleAlias(firstSegment, locales) ?? matchLocaleCode(firstSegment, locales.active)
   if (!match) {
     return null
   }
@@ -98,7 +133,7 @@ export function localePrefixRedirectTarget(
   if (stripLocalePrefix(urlPath, locales)) {
     return null
   }
-  return `/${locales.primary}${urlPath === '/' ? '' : urlPath}`
+  return `/${localeUrlSegment(locales.primary, locales)}${urlPath === '/' ? '' : urlPath}`
 }
 
 /**
@@ -118,7 +153,7 @@ export function localePrefixStripTarget(
     return null
   }
   if (shouldPrefixLocale(stripped.locale, locales)) {
-    const canonical = `/${stripped.locale}${stripped.path === '/' ? '' : stripped.path}`
+    const canonical = `/${localeUrlSegment(stripped.locale, locales)}${stripped.path === '/' ? '' : stripped.path}`
     return canonical === urlPath ? null : canonical
   }
   return stripped.path
@@ -148,5 +183,5 @@ export function localizedPagePath(
   locales?: LocaleRoutingConfig | null
 ): string {
   const bare = `/${path}`
-  return shouldPrefixLocale(locale, locales) ? `/${locale}${bare}` : bare
+  return shouldPrefixLocale(locale, locales) ? `/${localeUrlSegment(locale, locales)}${bare}` : bare
 }

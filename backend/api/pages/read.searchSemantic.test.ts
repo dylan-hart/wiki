@@ -6,8 +6,27 @@ import { siteEnabledPreHandler } from '../../helpers/siteResolution.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 
+const U1 = '11111111-1111-4111-8111-111111111111'
+const U2 = '22222222-2222-4222-8222-222222222222'
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const UNKNOWN_SITE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+
+const NO_FILTERS = {
+  path: [],
+  excludePath: [],
+  excludeLocales: [],
+  tags: [],
+  tagsMatch: 'all',
+  excludeTags: [],
+  editor: [],
+  excludeEditor: [],
+  publishState: [],
+  excludePublishState: [],
+  creatorId: [],
+  excludeCreatorId: [],
+  authorId: [],
+  excludeAuthorId: []
+}
 
 let searchCalls: Array<{
   query: string
@@ -17,10 +36,20 @@ let searchCalls: Array<{
   options: {
     limit: number
     offset: number
-    path?: string
+    path?: string[]
+    excludePath?: string[]
     tags?: string[]
-    editor?: string
-    publishState?: string
+    tagsMatch?: string
+    excludeTags?: string[]
+    excludeLocales?: string[]
+    editor?: string[]
+    excludeEditor?: string[]
+    publishState?: string[]
+    excludePublishState?: string[]
+    creatorId?: string[]
+    excludeCreatorId?: string[]
+    authorId?: string[]
+    excludeAuthorId?: string[]
   }
 }>
 let allPages: Array<{ id: string; path: string; visibleTo: string | null }>
@@ -37,10 +66,20 @@ async function search(
   options: {
     limit: number
     offset: number
-    path?: string
+    path?: string[]
+    excludePath?: string[]
     tags?: string[]
-    editor?: string
-    publishState?: string
+    tagsMatch?: string
+    excludeTags?: string[]
+    excludeLocales?: string[]
+    editor?: string[]
+    excludeEditor?: string[]
+    publishState?: string[]
+    excludePublishState?: string[]
+    creatorId?: string[]
+    excludeCreatorId?: string[]
+    authorId?: string[]
+    excludeAuthorId?: string[]
   }
 ) {
   searchCalls.push({ query, actor, siteId, locales, options })
@@ -169,12 +208,9 @@ test('calls the model with query/locales/limit/offset and returns its results wh
   assert.equal(call.siteId, SITE_ID)
   assert.deepEqual(call.locales, ['fr'])
   assert.deepEqual(call.options, {
+    ...NO_FILTERS,
     limit: 10,
-    offset: 5,
-    path: undefined,
-    tags: [],
-    editor: undefined,
-    publishState: undefined
+    offset: 5
   })
 
   const body = res.json()
@@ -208,12 +244,9 @@ test('defaults locales, limit and offset when omitted', async () => {
   const call = searchCalls[0]!
   assert.deepEqual(call.locales, ['en'])
   assert.deepEqual(call.options, {
+    ...NO_FILTERS,
     limit: 25,
-    offset: 0,
-    path: undefined,
-    tags: [],
-    editor: undefined,
-    publishState: undefined
+    offset: 0
   })
 })
 
@@ -228,13 +261,99 @@ test('forwards path/tags/editor/publishState to the model (OpenProject #3328)', 
   assert.equal(searchCalls.length, 1)
   const call = searchCalls[0]!
   assert.deepEqual(call.options, {
+    ...NO_FILTERS,
     limit: 25,
     offset: 0,
-    path: 'docs/guides',
+    path: ['docs/guides'],
     tags: ['foo', 'bar'],
-    editor: 'markdown',
-    publishState: 'published'
+    editor: ['markdown'],
+    publishState: ['published']
   })
+})
+
+test('forwards repeated include and every exclude list to the model', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url:
+      `/sites/${SITE_ID}/pages/search/semantic?query=hello` +
+      '&path=docs&path=guides&excludePath=docs%2Fprivate&excludeLocales=fr,de' +
+      '&excludeTags=old&excludeEditor=code&editor=markdown&editor=wysiwyg' +
+      '&excludePublishState=draft&excludePublishState=scheduled'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(searchCalls[0]!.options, {
+    limit: 25,
+    offset: 0,
+    path: ['docs', 'guides'],
+    excludePath: ['docs/private'],
+    excludeLocales: ['fr', 'de'],
+    tags: [],
+    tagsMatch: 'all',
+    excludeTags: ['old'],
+    editor: ['markdown', 'wysiwyg'],
+    excludeEditor: ['code'],
+    publishState: [],
+    excludePublishState: ['draft', 'scheduled'],
+    creatorId: [],
+    excludeCreatorId: [],
+    authorId: [],
+    excludeAuthorId: []
+  })
+})
+
+test('forwards tagsMatch=any to the model', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&tags=foo,bar&tagsMatch=any`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(searchCalls[0]!.options.tagsMatch, 'any')
+  assert.deepEqual(searchCalls[0]!.options.tags, ['foo', 'bar'])
+})
+
+test('rejects a tagsMatch other than all or any', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&tags=foo&tagsMatch=some`
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(searchCalls.length, 0)
+})
+
+test('forwards creator and author lists to the model', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url:
+      `/sites/${SITE_ID}/pages/search/semantic?query=hello` +
+      `&creatorId=${U1}&excludeCreatorId=${U2}&authorId=${U1}&authorId=${U2}&excludeAuthorId=${U2}`
+  })
+  assert.equal(res.statusCode, 200)
+  const { options } = searchCalls[0]!
+  assert.deepEqual(options.creatorId, [U1])
+  assert.deepEqual(options.excludeCreatorId, [U2])
+  assert.deepEqual(options.authorId, [U1, U2])
+  assert.deepEqual(options.excludeAuthorId, [U2])
+})
+
+test('rejects a creatorId that is not a uuid on the semantic route', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&creatorId=nope`
+  })
+  assert.equal(res.statusCode, 400)
+})
+
+test('rejects a publishState outside the known states in either list', async () => {
+  const include = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&publishState=bogus`
+  })
+  assert.equal(include.statusCode, 400)
+  const exclude = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&excludePublishState=bogus`
+  })
+  assert.equal(exclude.statusCode, 400)
 })
 
 test('accepts several comma-separated locales', async () => {

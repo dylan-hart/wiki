@@ -22,6 +22,7 @@ import {
 import { ensureRepo } from './repo.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
+import { CONTENT_TYPES } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 const SITE_ID = 'site-1'
@@ -32,17 +33,19 @@ function installWiki(
   {
     pages = {},
     assets = {},
-    users = {}
+    users = {},
+    locales = { primary: PRIMARY_LOCALE }
   }: {
     pages?: Record<string, any>
     assets?: Record<string, any>
     users?: Record<string, any>
+    locales?: Record<string, any>
   } = {}
 ): void {
   installTestWiki({
     ROOTPATH: rootPath,
     sites: {
-      [SITE_ID]: { config: { locales: { primary: PRIMARY_LOCALE } } }
+      [SITE_ID]: { config: { locales } }
     },
     models: {
       extensions: {
@@ -205,13 +208,30 @@ describe('git storage content handlers', () => {
       assert.equal(await fs.readFile(path.join(repoPath, 'fr/foo.md'), 'utf8'), 'bonjour')
     })
 
+    test('writes an aliased locale under its canonical code folder, never the URL alias', async () => {
+      installWiki(rootPath, {
+        pages: { p1: { id: 'p1', path: 'foo', contentType: 'markdown', content: 'ni hao' } },
+        locales: { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+      })
+      const { repoPath } = await ensureRepo(target)
+
+      await created(target, { id: 'p1', path: 'foo', locale: 'zh-CN', siteId: SITE_ID })
+
+      assert.equal(await fs.readFile(path.join(repoPath, 'zh-CN/foo.md'), 'utf8'), 'ni hao')
+      await assert.rejects(fs.access(path.join(repoPath, 'zh')))
+    })
+
     test('does nothing when the target does not have pages in its active content types', async () => {
       installWiki(rootPath, {
         pages: { p1: { id: 'p1', path: 'foo', contentType: 'markdown', content: 'hi' } }
       })
       const noPagesTarget = makeTarget({
         config: { ...target.config },
-        contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+        contentTypes: {
+          activeTypes: ['images'],
+          supportedTypes: [...CONTENT_TYPES],
+          largeThreshold: '5MB'
+        }
       })
       const { repoPath } = await ensureRepo(noPagesTarget)
 
@@ -388,6 +408,21 @@ describe('git storage content handlers', () => {
       assert.equal(commit?.message, 'docs: delete foo')
     })
 
+    test('deleting an aliased-locale page removes it from the canonical code folder', async () => {
+      const locales = { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+      installWiki(rootPath, {
+        pages: { p1: { id: 'p1', path: 'foo', contentType: 'markdown', content: 'ni hao' } },
+        locales
+      })
+      const { repoPath } = await ensureRepo(target)
+      await created(target, { id: 'p1', path: 'foo', locale: 'zh-CN', siteId: SITE_ID })
+
+      installWiki(rootPath, { locales })
+      await deleted(target, { id: 'p1', path: 'foo', locale: 'zh-CN', siteId: SITE_ID })
+
+      await assert.rejects(fs.access(path.join(repoPath, 'zh-CN/foo.md')))
+    })
+
     test('does nothing when no file for this page exists under any known extension', async () => {
       installWiki(rootPath, {})
       const { repoPath } = await ensureRepo(target)
@@ -441,7 +476,11 @@ describe('git storage content handlers', () => {
       })
       const documentsOnlyTarget = makeTarget({
         config: { ...target.config },
-        contentTypes: { activeTypes: ['documents'], largeThreshold: '5MB' }
+        contentTypes: {
+          activeTypes: ['documents'],
+          supportedTypes: [...CONTENT_TYPES],
+          largeThreshold: '5MB'
+        }
       })
       const { repoPath } = await ensureRepo(documentsOnlyTarget)
 

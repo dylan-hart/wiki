@@ -133,10 +133,6 @@ export async function importAll(target: StorageTarget): Promise<void> {
   const { repoPath } = await ensureRepo(target)
 
   const actor = await resolveImportActor(target)
-  if (!actor) {
-    log.warn('no user matches the configured default author email, skipping the import')
-    return
-  }
 
   log.info('importing all content from the local repo')
   const relPaths = await walkFiles(repoPath)
@@ -178,6 +174,21 @@ export async function purge(target: StorageTarget): Promise<void> {
 
   log.debug('purging the local repository', { path: repoPath })
   await fs.rm(repoPath, { recursive: true, force: true })
-  await ensureRepo(target)
+  const { git } = await ensureRepo(target)
+
+  if (target.config?.repoUrl) {
+    const branch = target.config?.branch || 'main'
+    const heads = await git.listRemote(['--heads', 'origin', branch])
+    const onRemote = heads
+      .split('\n')
+      .some((line) => line.trim().endsWith(`\trefs/heads/${branch}`))
+    if (onRemote) {
+      log.debug('re-cloning the local repository from origin', { branch })
+      await git.pull('origin', branch)
+      log.info('local repository purged and re-cloned from origin', { path: repoPath, branch })
+      return
+    }
+    log.warn('the remote has no such branch to re-clone, leaving an empty repository', { branch })
+  }
   log.info('local repository purged and reinitialized', { path: repoPath })
 }

@@ -10,7 +10,10 @@ assetDelivery:
   isDirectAccessSupported: true
   defaultStreamingEnabled: true
   defaultDirectAccessEnabled: true
+  isReadThroughSupported: true
+  defaultReadThroughEnabled: false
 contentTypes:
+  supportedTypes: ['images', 'documents', 'others', 'large']
   defaultTypesEnabled: ['images', 'documents', 'others', 'large']
   defaultLargeThreshold: '5MB'
 versioning:
@@ -24,14 +27,14 @@ props:
     type: String
     title: Project ID
     hint: The project ID from the Google Developer's Console (e.g. grape-spaceship-123).
-    icon: 3d-touch
+    icon: tabler:id
     default: ''
     order: 1
   credentialsJSON:
     type: String
     title: JSON Credentials
     hint: Contents of the JSON credentials file for the service account having Cloud Storage permissions.
-    icon: key
+    icon: tabler:key
     default: ''
     multiline: true
     sensitive: true
@@ -40,14 +43,21 @@ props:
     type: String
     title: Unique bucket name
     hint: The unique bucket name to create (e.g. wiki-johndoe).
-    icon: open-box
+    icon: tabler:box
     order: 3
+  pathPrefix:
+    type: String
+    title: Path Prefix
+    hint: Optional folder inside the bucket under which everything is stored, so keys become `<prefix>/<siteId>/...` (e.g. wiki/prod). It lets several instances or apps share one bucket, and lets an IAM policy be scoped to just this sub-path. Changing it on an existing target orphans objects already uploaded under the old prefix; they are not moved or deleted.
+    icon: tabler:folder
+    default: ''
+    order: 4
   storageTier:
     type: String
     title: Storage Tier
     hint: Select the storage class to use when uploading new assets.
-    icon: scan-stock
-    order: 4
+    icon: tabler:stack-2
+    order: 5
     default: STANDARD
     enum:
       - STANDARD|Standard
@@ -58,11 +68,11 @@ props:
     type: String
     title: API Endpoint
     hint: The API endpoint of the service used to make requests.
-    icon: api
+    icon: tabler:api
     default: storage.google.com
-    order: 5
+    order: 6
 actions:
   exportAll:
     label: Export All DB Assets to GCS
     hint: Output all content from the DB to Google Cloud Storage, overwriting any existing data. If you enabled Google Cloud Storage after content was created or you temporarily disabled it, you'll want to execute this action to add the missing content.
-    icon: this-way-up
+    icon: tabler:upload

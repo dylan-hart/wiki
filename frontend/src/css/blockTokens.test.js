@@ -99,24 +99,52 @@ describe('--block-* Cobalt-light overrides', () => {
     expect(declaredValue(cobaltLightSource, 'block-corner-marks')).toBe('var(--corner-marks)')
   })
 
-  it('does not restate the rest', () => {
-    for (const name of [
-      'border',
-      'tile-radius',
-      'mark-color',
-      'bg',
-      'caption-fg',
-      'eyebrow-fg',
-      'accent-fill',
-      'accent-fg',
-      'link-fg',
-      'error-border',
-      'error-radius'
-    ]) {
+  it('restates --block-border, aliasing the Cobalt hairline', () => {
+    expect(declaredValue(cobaltLightSource, 'block-border')).toBe('var(--color-hairline)')
+  })
+
+  it('restates every composite --block-* token whose alias target Cobalt light redefines', () => {
+    const genericCobaltStart = source.indexOf('body.body--cobalt {')
+    const genericCobaltEnd = source.indexOf('body.body--cobalt.body--dark {')
+    const genericCobaltSource = source.slice(genericCobaltStart, genericCobaltEnd)
+
+    const rootEnd = ledgerLightSource.indexOf('\n}')
+    const rootSource = ledgerLightSource.slice(ledgerLightSource.indexOf(':root {'), rootEnd)
+    const composites = [...rootSource.matchAll(/--(block-[\w-]+):\s*([^;]*var\(--[^;]*);/g)].map(
+      ([, name, value]) => ({
+        name,
+        targets: [...value.matchAll(/var\(--([\w-]+)\)/g)].map((m) => m[1])
+      })
+    )
+
+    const affected = new Set()
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const { name, targets } of composites) {
+        const hit = targets.some(
+          (t) => affected.has(t) || new RegExp(`--${t}:`).test(genericCobaltSource)
+        )
+        if (hit && !affected.has(name)) {
+          affected.add(name)
+          grew = true
+        }
+      }
+    }
+
+    expect(affected).toContain('block-border')
+    expect(affected.size).toBeGreaterThanOrEqual(3)
+    for (const name of affected) {
       expect(
-        cobaltLightSource,
-        `--block-${name} should not be restated for Cobalt light`
-      ).not.toMatch(new RegExp(`--block-${name}:`))
+        declaredValue(cobaltLightSource, name),
+        `--${name} aliases a token Cobalt light redefines, so must be restated`
+      ).toBeDefined()
+    }
+  })
+
+  it('leaves --block-bg and --block-accent-fg undeclared: their alias targets do not change', () => {
+    for (const name of ['bg', 'accent-fg']) {
+      expect(cobaltLightSource, `--block-${name}`).not.toMatch(new RegExp(`--block-${name}:`))
     }
   })
 })

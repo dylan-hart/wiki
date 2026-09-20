@@ -17,6 +17,7 @@ const fakeEditor = {
   getPosition: vi.fn(() => ({ lineNumber: 3, column: 5 })),
   executeEdits: vi.fn(),
   onDidChangeModelContent: vi.fn(),
+  addAction: vi.fn(),
   focus: vi.fn(),
   dispose: vi.fn()
 }
@@ -29,6 +30,8 @@ vi.mock('monaco-editor', () => ({
       return fakeEditor
     })
   },
+  KeyMod: { CtrlCmd: 1 },
+  KeyCode: { KeyS: 3 },
   Range: class Range {
     constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
       this.startLineNumber = startLineNumber
@@ -99,6 +102,21 @@ describe('EditorCode', () => {
     expect(pageStore.content).toBe('<h1>Typed</h1>')
     expect(pageStore.render).toBe('<h1>Typed</h1>')
     expect(pageStore.contentLoaded).toBe(true)
+  })
+
+  it('binds Ctrl/Cmd+S to a header save request, flushing a still-debounced edit first', () => {
+    const { pageStore } = mountEditor('')
+    const requested = vi.fn()
+    EVENT_BUS.on('saveShortcut', requested)
+    fakeEditor.getValue.mockReturnValue('<p>Just typed</p>')
+    changeHandler()()
+
+    const action = fakeEditor.addAction.mock.calls[0][0]
+    expect(action.keybindings).toEqual([1 | 3])
+    action.run()
+
+    expect(pageStore.content).toBe('<p>Just typed</p>')
+    expect(requested).toHaveBeenCalledTimes(1)
   })
 
   it('inserts an <img> tag at the cursor for an image asset picked from the file manager', () => {

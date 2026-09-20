@@ -275,7 +275,8 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
       strategyId: '11111111-1111-1111-1111-111111111111',
       email: 'ada@example.com',
       // -> So the mailed link can point at the requesting site's own hostname
-      siteId: '22222222-2222-2222-2222-222222222222'
+      siteId: '22222222-2222-2222-2222-222222222222',
+      ip: '127.0.0.1'
     })
   })
 
@@ -497,6 +498,257 @@ describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
     assert.match(header, /Path=\//)
     assert.match(header, /SameSite=Lax/i)
     assert.ok(!header.includes('Secure'), 'plain-HTTP mode must not mark the cookie Secure')
+  })
+})
+
+describe('POST /sites/:siteId/auth/logout — audit log', () => {
+  let app: FastifyInstance
+  let record: ReturnType<typeof mock.fn>
+
+  async function buildApp(session: Record<string, any>) {
+    record = mock.fn(async () => {})
+    wikiHandle = installTestWiki({
+      config: { security: { cookieSecure: true } },
+      models: {
+        flags: { authDebug: () => {} },
+        login: { getLogoutRedirect: async () => '/' },
+        hooks: { emit: async () => 0 },
+        auditLog: { record }
+      }
+    })
+    return buildTestApp({
+      routes: withCookies,
+      session: () => ({ ...session, destroy: async () => {} })
+    })
+  }
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  test('a logged-in session records user.loggedOut for the account, with its email snapshot', async () => {
+    app = await buildApp({
+      authenticated: true,
+      user: { id: 'user-1', name: 'Ada Lovelace', email: 'ada@example.com' }
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sites/11111111-1111-1111-1111-111111111111/auth/logout'
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(record.mock.calls.length, 1)
+    const entry = record.mock.calls[0]!.arguments[0] as any
+    assert.equal(entry.event, 'user.loggedOut')
+    assert.deepEqual(entry.actor, {
+      id: 'user-1',
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      ip: '127.0.0.1'
+    })
+    assert.equal(entry.targetId, 'user-1')
+  })
+
+  test('a request with no session records nothing', async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+    app = await buildApp({ authenticated: false })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sites/11111111-1111-1111-1111-111111111111/auth/logout'
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(record.mock.calls.length, 0)
+  })
+})
+
+describe('POST /sites/:siteId/auth/logout — identity provider end-session', () => {
+  const STRATEGY_ID = 'c1111111-1111-1111-1111-111111111111'
+  const ID_TOKEN = 'header.payload.signature'
+  const URL_PATH = '/sites/11111111-1111-1111-1111-111111111111/auth/logout'
+
+  let app: FastifyInstance
+  let destroyMock: ReturnType<typeof mock.fn>
+  let logoutUrlMock: ReturnType<typeof mock.fn>
+  let authDebugMock: ReturnType<typeof mock.fn>
+  let emitMock: ReturnType<typeof mock.fn>
+  let auditRecordMock: ReturnType<typeof mock.fn>
+  let warnMock: ReturnType<typeof mock.fn>
+  let strategy: { id: string; isEnabled: boolean } | null
+  let localRedirect: string
+  let sessionShape: Record<string, any>
+
+  before(async () => {
+    wikiHandle = installTestWiki({
+      config: {},
+      auth: { strategies: {} },
+      models: {
+        flags: { authDebug: (...args: any[]) => authDebugMock(...args) },
+        authentication: { getStrategyById: async () => strategy },
+        login: { getLogoutRedirect: async () => localRedirect },
+        hooks: { emit: (...args: any[]) => emitMock(...args) },
+        auditLog: { record: (...args: any[]) => auditRecordMock(...args) }
+      }
+    })
+    CARDINAL.logger.warn = (...args: any[]) => warnMock(...args)
+    app = await buildTestApp({
+      routes: withCookies,
+      session: () => sessionShape
+    })
+  })
+
+  beforeEach(() => {
+    destroyMock = mock.fn(async () => {})
+    logoutUrlMock = mock.fn(
+      ({ idTokenHint, postLogoutRedirectUri }: any) =>
+        `https://idp.example.com/logout?id_token_hint=${idTokenHint}&post_logout_redirect_uri=${encodeURIComponent(postLogoutRedirectUri)}`
+    )
+    authDebugMock = mock.fn()
+    emitMock = mock.fn(async () => 0)
+    auditRecordMock = mock.fn(async () => {})
+    warnMock = mock.fn()
+    strategy = { id: STRATEGY_ID, isEnabled: true }
+    localRedirect = '/'
+    CARDINAL.auth.strategies[STRATEGY_ID] = {
+      logoutUrl: (...args: any[]) => logoutUrlMock(...args)
+    }
+    sessionShape = {
+      authenticated: true,
+      user: { id: 'u1', name: 'Ada', email: 'ada@example.com' },
+      idpSession: { strategyId: STRATEGY_ID, idToken: ID_TOKEN },
+      destroy: (...args: any[]) => destroyMock(...args)
+    }
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  async function logout() {
+    const res = await app.inject({
+      method: 'POST',
+      url: URL_PATH,
+      headers: { host: 'wiki.example.com' }
+    })
+    assert.equal(res.statusCode, 200)
+    return res.json()
+  }
+
+  test('an IdP session answers with the end-session URL carrying id_token_hint and post_logout_redirect_uri', async () => {
+    const body = await logout()
+
+    const url = new URL(body.redirect)
+    assert.equal(url.origin, 'https://idp.example.com')
+    assert.equal(url.searchParams.get('id_token_hint'), ID_TOKEN)
+    assert.equal(url.searchParams.get('post_logout_redirect_uri'), 'http://wiki.example.com/')
+    assert.equal(logoutUrlMock.mock.callCount(), 1)
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('a rooted local redirect is joined to the request origin', async () => {
+    localRedirect = '/goodbye'
+
+    const body = await logout()
+
+    assert.equal(
+      new URL(body.redirect).searchParams.get('post_logout_redirect_uri'),
+      'http://wiki.example.com/goodbye'
+    )
+  })
+
+  test('an already absolute local redirect is passed as is', async () => {
+    localRedirect = 'https://elsewhere.example.org/bye'
+
+    const body = await logout()
+
+    assert.equal(
+      new URL(body.redirect).searchParams.get('post_logout_redirect_uri'),
+      'https://elsewhere.example.org/bye'
+    )
+  })
+
+  test('the id token reaches neither the debug log nor the audit event', async () => {
+    await logout()
+
+    const logged = JSON.stringify([
+      authDebugMock.mock.calls,
+      emitMock.mock.calls,
+      auditRecordMock.mock.calls,
+      warnMock.mock.calls
+    ])
+    assert.ok(!logged.includes(ID_TOKEN))
+    assert.equal(emitMock.mock.callCount(), 1)
+  })
+
+  test('no idpSession keeps the local redirect', async () => {
+    delete sessionShape.idpSession
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(logoutUrlMock.mock.callCount(), 0)
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('a disabled strategy keeps the local redirect', async () => {
+    strategy = { id: STRATEGY_ID, isEnabled: false }
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(logoutUrlMock.mock.callCount(), 0)
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('a deleted strategy keeps the local redirect', async () => {
+    strategy = null
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('an empty logoutURL (logoutUrl() returns null) keeps the local redirect', async () => {
+    logoutUrlMock = mock.fn(() => null)
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(logoutUrlMock.mock.callCount(), 1)
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('a strategy instance without logoutUrl keeps the local redirect', async () => {
+    CARDINAL.auth.strategies[STRATEGY_ID] = {}
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('a throwing logoutUrl() falls back to the local redirect and still destroys the session', async () => {
+    logoutUrlMock = mock.fn(() => {
+      throw new Error(`boom ${ID_TOKEN}`)
+    })
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(destroyMock.mock.callCount(), 1)
+    assert.equal(warnMock.mock.callCount(), 1)
   })
 })
 
@@ -737,5 +989,119 @@ describe('PUT login: password is required by the route schema', () => {
     assert.equal(res.headers['retry-after'], '55')
     const body = JSON.parse(res.body)
     assert.equal(body.ok, false)
+  })
+})
+
+describe('passkey login endpoints: security.allowPasskeys', () => {
+  const SITE_ID = 'c1111111-1111-1111-1111-111111111111'
+  const STRATEGY_ID = 'c2222222-2222-2222-2222-222222222222'
+
+  let app: FastifyInstance
+  let security: Record<string, any>
+  let startLogin: ReturnType<typeof mock.fn>
+  let verifyLogin: ReturnType<typeof mock.fn>
+  let session: Record<string, any>
+
+  before(async () => {
+    startLogin = mock.fn(async () => ({ authOptions: { challenge: 'c' }, pending: 'p' }))
+    verifyLogin = mock.fn(async () => ({ nextAction: 'redirect' }))
+    security = {}
+    wikiHandle = installTestWiki({
+      config: { security },
+      data: { authentication: [{ key: 'local', title: 'Local', useForm: true }] },
+      sites: {
+        [SITE_ID]: {
+          id: SITE_ID,
+          config: { authStrategies: [{ id: STRATEGY_ID, order: 0, isVisible: true }] }
+        }
+      },
+      models: {
+        passkeys: { startLogin, verifyLogin },
+        authentication: {
+          getActiveStrategies: async () => [
+            {
+              id: STRATEGY_ID,
+              module: 'local',
+              displayName: 'Local',
+              isEnabled: true,
+              selfRegistration: true,
+              config: {}
+            }
+          ]
+        },
+        flags: { authDebug: () => {} },
+        rateLimits: { consume: async () => ({ allowed: true, retryAfter: 0 }) }
+      }
+    })
+    app = await buildTestApp({ routes: authenticationRoutes, ajv: true, session: () => session })
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  beforeEach(() => {
+    session = {}
+    startLogin.mock.resetCalls()
+    verifyLogin.mock.resetCalls()
+  })
+
+  test('off refuses the challenge with ERR_PASSKEYS_DISABLED and writes no session challenge', async () => {
+    security.allowPasskeys = false
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/auth/passkey/challenge`
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().message, 'ERR_PASSKEYS_DISABLED')
+    assert.equal(startLogin.mock.calls.length, 0)
+    assert.equal(session.passkeyLogin, undefined)
+  })
+
+  test('off refuses the login with ERR_PASSKEYS_DISABLED without verifying the assertion', async () => {
+    security.allowPasskeys = false
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/auth/passkey/login`,
+      payload: { authResponse: { id: 'x' } }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().message, 'ERR_PASSKEYS_DISABLED')
+    assert.equal(verifyLogin.mock.calls.length, 0)
+  })
+
+  for (const allowPasskeys of [true, undefined]) {
+    test(`on (${allowPasskeys ?? 'absent'}) both endpoints reach the passkey model`, async () => {
+      security.allowPasskeys = allowPasskeys
+      const challenge = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/auth/passkey/challenge`
+      })
+      assert.equal(challenge.statusCode, 200)
+      assert.equal(session.passkeyLogin, 'p')
+      const login = await app.inject({
+        method: 'PUT',
+        url: `/sites/${SITE_ID}/auth/passkey/login`,
+        payload: { authResponse: { id: 'x' } }
+      })
+      assert.equal(login.statusCode, 200)
+      assert.equal(verifyLogin.mock.calls.length, 1)
+    })
+  }
+
+  test('the strategies response carries allowPasskeys on each strategy, following the live setting', async () => {
+    for (const [setting, expected] of [
+      [false, false],
+      [true, true],
+      [undefined, true]
+    ] as const) {
+      security.allowPasskeys = setting
+      const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/auth/strategies` })
+      assert.equal(res.statusCode, 200)
+      const body = res.json() as any[]
+      assert.equal(body.length, 1)
+      assert.equal(body[0].activeStrategy.allowPasskeys, expected)
+    }
   })
 })

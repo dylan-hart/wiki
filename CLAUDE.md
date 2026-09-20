@@ -233,7 +233,7 @@ any permission you touch.
 
 **Global permissions** are held site-wide, bound to no path: `access:admin`, `read:users`,
 `manage:users`, `read:groups`, `manage:groups`, `manage:navigation`, `manage:theme`, `manage:sites`,
-`manage:glossary`, `manage:system`. That list is the whole of it — the one offered by the group
+`manage:glossary`, `read:audit`, `read:metrics`, `manage:system`. That list is the whole of it — the one offered by the group
 editor (`GroupEditOverlay.vue`). They live on a group's `permissions` column, are flattened onto
 `req.session.permissions` at login (`models/users.ts` → `updateSession`), and are what the per-route
 `config.permissions` hook checks. `manage:system` bypasses every check everywhere.
@@ -307,6 +307,13 @@ not exist.'`, then the route's own second permission → 403 with its own messag
   mismatched `siteId` is refused, not answered with the wrong site's grant. Gate a control over the
   page (or site) in front of the reader on `pagePermissions` (or `canOnSite`) — that is what the
   endpoint behind the button will actually check.
+- **Group permissions are not `manage:system`-only.** `PUT /groups/:groupId` needs `manage:groups`
+  and refuses only toggling `manage:system` and editing the root administrators group, so
+  `manage:groups` is effectively everything short of `manage:system`. To stop `manage:users` from
+  reaching it, `POST /users` and `PUT /users/:userId` refuse adding or removing membership of a group
+  carrying `manage:users`, `manage:groups` or `manage:system` unless the caller holds `manage:groups`
+  or `manage:system` (`Groups.assertMembershipChangeAllowed`;
+  `docs/decisions/2026-09-20-elevated-group-membership-guard.md`).
 - **An anonymous request is the guests group**, not an absence of groups: that is how a wiki opens
   reading, and suggesting edits, to the public. Deny guests explicitly where an account is genuinely
   required (`reviewerFor` in `api/approvals.ts` is the worked example).

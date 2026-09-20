@@ -725,7 +725,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const results = await annSearch(basisVector(0), {
         siteId: fixtures.siteId,
         locales: ['en'],
-        path: 'docs/guides'
+        path: ['docs/guides']
       })
       const own = results.filter((r) => r.pageId === inside.id || r.pageId === outside.id)
 
@@ -767,6 +767,39 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       )
     })
 
+    test('tagsMatch any: a page carrying one of the listed tags comes back', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      const one = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/any-one', title: 'Any One', tags: ['alpha'] }),
+        actor
+      )
+      const other = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/any-none', title: 'Any None', tags: ['gamma'] }),
+        actor
+      )
+      await insertChunk(one.id, basisVector(0))
+      await insertChunk(other.id, basisVector(0))
+
+      const results = await annSearch(basisVector(0), {
+        siteId: fixtures.siteId,
+        locales: ['en'],
+        tags: ['alpha', 'beta'],
+        tagsMatch: 'any'
+      })
+      const own = results.filter((r) => r.pageId === one.id || r.pageId === other.id)
+
+      assert.deepEqual(
+        own.map((r) => r.pageId),
+        [one.id]
+      )
+    })
+
     test('editor: only a page using the named editor comes back', async (t) => {
       if (!pgvectorAvailable) {
         t.skip('pgvector extension not installed on this Postgres')
@@ -793,7 +826,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const results = await annSearch(basisVector(0), {
         siteId: fixtures.siteId,
         locales: ['en'],
-        editor: 'code'
+        editor: ['code']
       })
       const own = results.filter((r) => r.pageId === markdownPage.id || r.pageId === codePage.id)
 
@@ -833,7 +866,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const results = await annSearch(basisVector(0), {
         siteId: fixtures.siteId,
         locales: ['en'],
-        publishState: 'published'
+        publishState: ['published']
       })
       const own = results.filter((r) => r.pageId === published.id || r.pageId === draft.id)
 
@@ -841,6 +874,69 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
         own.map((r) => r.pageId),
         [published.id]
       )
+    })
+
+    test('exclude lists drop a page for every filter type', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      const keep = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/excl/keep',
+          title: 'Excl Keep',
+          tags: ['fresh'],
+          editor: 'markdown',
+          publishState: 'published'
+        }),
+        actor
+      )
+      const byPath = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/excl/private/one', title: 'Excl Path', tags: ['fresh'] }),
+        actor
+      )
+      const byTag = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/excl/tag', title: 'Excl Tag', tags: ['fresh', 'old'] }),
+        actor
+      )
+      const byEditor = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/excl/editor', title: 'Excl Editor', editor: 'code' }),
+        actor
+      )
+      const byState = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/excl/state', title: 'Excl State', publishState: 'draft' }),
+        actor
+      )
+      const all = [keep, byPath, byTag, byEditor, byState]
+      for (const page of all) {
+        await insertChunk(page.id, basisVector(0))
+      }
+      const ids = new Set(all.map((p) => p.id))
+      const found = async (filters: Record<string, string[]>) =>
+        (
+          await annSearch(basisVector(0), {
+            siteId: fixtures.siteId,
+            locales: ['en'],
+            path: ['docs/excl'],
+            ...filters
+          })
+        )
+          .filter((r) => ids.has(r.pageId))
+          .map((r) => r.pageId)
+
+      const withoutPath = await found({ excludePath: ['docs/excl/private'] })
+      assert.equal(withoutPath.includes(byPath.id), false)
+      assert.equal(withoutPath.includes(keep.id), true)
+      assert.equal((await found({ excludeTags: ['old'] })).includes(byTag.id), false)
+      assert.equal((await found({ excludeEditor: ['code'] })).includes(byEditor.id), false)
+      assert.equal((await found({ excludePublishState: ['draft'] })).includes(byState.id), false)
+      assert.equal((await found({ excludeLocales: ['en'] })).length, 0)
     })
 
     test("SEMANTIC_SCAN_CAP is a named constant, matching shared.ts's SCAN_CAP naming convention", () => {
@@ -1034,7 +1130,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId: fixtures.siteId,
         locales: ['en'],
         actor: readerActor,
-        editor: 'markdown'
+        editor: ['markdown']
       })
 
       assert.equal(

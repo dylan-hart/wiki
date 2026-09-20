@@ -43,6 +43,18 @@ describe('EditorPickerDialog', () => {
     wrapper.unmount()
   })
 
+  it('draws each editor with the Iconify glyph AdminEditors.vue uses, not an empty plate', async () => {
+    const { wrapper } = mountDialog({ asciidoc: true, code: true, markdown: true, wysiwyg: true })
+    await flushPromises()
+
+    const drawn = [...document.body.querySelectorAll('.w-item .blueprint-icon [data-icon]')].map(
+      (el) => el.getAttribute('data-icon')
+    )
+    expect(drawn).toEqual(['tabler:file-text', 'tabler:code', 'tabler:markdown', 'tabler:forms'])
+
+    wrapper.unmount()
+  })
+
   it('emits ok with the chosen editor id when a row is clicked', async () => {
     const { wrapper } = mountDialog({ markdown: true, wysiwyg: true })
     await flushPromises()

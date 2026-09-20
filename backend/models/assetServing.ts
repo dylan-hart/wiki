@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { Readable } from 'node:stream'
 import { belongsInTarget } from '../helpers/blobTarget.ts'
 import { DB_MODULE } from './storage.ts'
-import type { Readable } from 'node:stream'
 import type { Asset, AssetKind } from './assets.ts'
 import type { StorageTarget } from './storage.ts'
 
@@ -129,6 +130,71 @@ class AssetServing {
   }
 
   /**
+   * Split from `readSources` for the same reason `governingTargetFrom` is split from
+   * `governingTarget`. The order of `targets` is the order they are tried in.
+   */
+  readSourcesFrom(
+    targets: StorageTarget[],
+    asset: { kind: AssetKind; fileSize: number }
+  ): StorageTarget[] {
+    return targets.filter(
+      (t) =>
+        t.isEnabled &&
+        t.assetDelivery.isReadThroughSupported &&
+        t.assetDelivery.readThrough &&
+        belongsInTarget(asset, t.contentTypes)
+    )
+  }
+
+  async readSources(
+    siteId: string,
+    asset: { kind: AssetKind; fileSize: number }
+  ): Promise<StorageTarget[]> {
+    return this.readSourcesFrom(await CARDINAL.models.storage.getSiteTargets(siteId), asset)
+  }
+
+  /**
+   * Every failure here, including a driver that cannot read at all, is a reason to try the next
+   * source rather than a reason to answer 404: only the database, tried last, can say an asset has
+   * no bytes anywhere.
+   */
+  async readFromTargets(
+    asset: { id: string; updatedAt: Date; fileName: string; folderPath: string },
+    targets: StorageTarget[]
+  ): Promise<{ body: Readable; size: number } | null> {
+    for (const target of targets) {
+      try {
+        const mod = await CARDINAL.models.storage.ensureModule(target.module)
+        if (!mod?.readAsset) {
+          CARDINAL.logger.warn('storage', 'target cannot be read from, trying the next source', {
+            target: target.id,
+            module: target.module,
+            asset: asset.id
+          })
+          continue
+        }
+        const hit = await mod.readAsset(asset, target)
+        if (hit) {
+          return hit
+        }
+        CARDINAL.logger.warn('storage', 'target does not hold the asset, trying the next source', {
+          target: target.id,
+          module: target.module,
+          asset: asset.id
+        })
+      } catch (err: any) {
+        CARDINAL.logger.warn('storage', 'reading from a target failed, trying the next source', {
+          target: target.id,
+          module: target.module,
+          asset: asset.id,
+          error: err
+        })
+      }
+    }
+    return null
+  }
+
+  /**
    * A blob target's signing can fail before it ever reaches the SDK's `sign()` call — activation
    * itself throws on a bad credential or an unreachable bucket, and that throw would otherwise reach
    * `readContent` unguarded and turn every asset request into a 500. The bytes always live in the
@@ -180,7 +246,8 @@ class AssetServing {
     },
     siteId: string
   ): Promise<{ body: Readable | Buffer; size: number } | { redirectUrl: string } | null> {
-    const target = await this.governingTarget(siteId, {
+    const targets = await CARDINAL.models.storage.getSiteTargets(siteId)
+    const target = this.governingTargetFrom(targets, {
       kind: asset.kind,
       fileSize: asset.fileSize
     })
@@ -200,6 +267,14 @@ class AssetServing {
       if (cached) {
         return cached
       }
+    }
+
+    const hit = await this.readFromTargets(asset, this.readSourcesFrom(targets, asset))
+    if (hit) {
+      if (streaming && this.isCacheable(hit.size)) {
+        return { body: this.teeIntoCache(asset, hit.body, hit.size), size: hit.size }
+      }
+      return hit
     }
 
     const content = await CARDINAL.models.assets.getContent(asset.id)
@@ -274,10 +349,95 @@ class AssetServing {
       return
     }
 
-    this.writtenSinceSweep += data.length
+    this.noteCacheWrite(data.length)
+  }
+
+  isCacheable(size: number): boolean {
+    return this.cacheMaxSize >= 1 && size <= this.cacheMaxSize
+  }
+
+  noteCacheWrite(bytes: number): void {
+    this.writtenSinceSweep += bytes
     if (this.writtenSinceSweep >= this.cacheMaxSize * SWEEP_TRIGGER_RATIO) {
       // -> Not awaited: the request that filled the cache should not pay for measuring it
       void this.sweepCache()
+    }
+  }
+
+  /**
+   * The cache entry is written as the response is, so a large object is never held in memory whole.
+   * It is renamed into place only once every byte has arrived and the count matches `size`, so a
+   * dropped connection or a short read leaves nothing behind. Each call writes its own temporary
+   * file, since a page's images are commonly requested together.
+   */
+  teeIntoCache(asset: { id: string; updatedAt: Date }, source: Readable, size: number): Readable {
+    return Readable.from(this.teeChunks(asset, source, size), { objectMode: false })
+  }
+
+  async *teeChunks(
+    asset: { id: string; updatedAt: Date },
+    source: Readable,
+    size: number
+  ): AsyncGenerator<Buffer> {
+    const filePath = this.contentCachePath(asset)
+    const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`
+    let handle: fs.FileHandle | null = null
+    let written = 0
+    let complete = false
+
+    const abandon = async () => {
+      await handle?.close().catch(() => {})
+      handle = null
+      await fs.rm(tempPath, { force: true }).catch(() => {})
+    }
+
+    try {
+      try {
+        await fs.mkdir(path.dirname(filePath), { recursive: true })
+        handle = await fs.open(tempPath, 'w')
+      } catch (err: any) {
+        CARDINAL.logger.warn('assets', 'writing to the file cache failed', {
+          path: filePath,
+          error: err
+        })
+        await abandon()
+      }
+
+      for await (const chunk of source) {
+        if (handle) {
+          try {
+            await handle.writeFile(chunk)
+            written += chunk.length
+          } catch (err: any) {
+            CARDINAL.logger.warn('assets', 'writing to the file cache failed', {
+              path: filePath,
+              error: err
+            })
+            await abandon()
+          }
+        }
+        yield chunk
+      }
+      complete = true
+    } finally {
+      if (handle) {
+        if (complete && written === size) {
+          try {
+            await handle.close()
+            handle = null
+            await fs.rename(tempPath, filePath)
+            this.noteCacheWrite(size)
+          } catch (err: any) {
+            CARDINAL.logger.warn('assets', 'writing to the file cache failed', {
+              path: filePath,
+              error: err
+            })
+            await abandon()
+          }
+        } else {
+          await abandon()
+        }
+      }
     }
   }
 

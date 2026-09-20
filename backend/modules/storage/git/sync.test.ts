@@ -20,6 +20,7 @@ import type { StorageTarget } from '../../../models/storage.ts'
 const SITE_ID = 'site-1'
 const PRIMARY_LOCALE = 'en'
 const ADMIN_EMAIL = 'admin@example.com'
+const SYSTEM_USER_ID = 'system-user-1'
 
 async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix))
@@ -60,7 +61,8 @@ function installWiki(
       users: {
         getByEmail: mock.fn(async (email: string) =>
           email === ADMIN_EMAIL ? { id: 'admin-1', email } : null
-        )
+        ),
+        ensureSystemUser: mock.fn(async () => SYSTEM_USER_ID)
       },
       pages: {
         getPage: mock.fn(async ({ hash, locale }: { hash: string; locale: string }) => {
@@ -352,6 +354,36 @@ describe('git storage: parseLocaleAndPath', () => {
   })
 })
 
+describe('git storage: parseLocaleAndPath with a locale URL alias', () => {
+  beforeEach(() => {
+    installTestWiki({
+      sites: {
+        [SITE_ID]: {
+          config: {
+            locales: { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+          }
+        }
+      }
+    })
+  })
+
+  test('a repo folder named by the alias parses to the canonical locale', () => {
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'zh/intro'), { locale: 'zh-CN', path: 'intro' })
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'ZH/intro'), { locale: 'zh-CN', path: 'intro' })
+  })
+
+  test('a repo folder named by the canonical code still parses, so an existing layout keeps importing', () => {
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'zh-CN/intro'), {
+      locale: 'zh-CN',
+      path: 'intro'
+    })
+  })
+
+  test('a file named after the alias at the root is a primary-locale page, not an empty path', () => {
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'zh'), { locale: 'en', path: 'zh' })
+  })
+})
+
 describe('git storage: sync', () => {
   let originPath: string
   let localPath: string
@@ -391,6 +423,46 @@ describe('git storage: sync', () => {
     assert.equal(calls.createPage[0].input.content, '# Hello there')
     assert.equal(calls.createPage[0].input.editor, 'markdown')
     assert.equal(calls.createPage[0].actor.id, 'admin-1')
+  })
+
+  test('attributes a pulled page to the system user when no user matches the default author email', async () => {
+    installWiki(localPath, { pages: [] })
+    const { git: localGit } = await ensureRepo(target)
+    await localGit.pull('origin', 'main')
+
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'welcome.md'), '# Hello there')
+    await peer.add('welcome.md')
+    await peer.commit('docs: create welcome')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, { pages: [] })
+    const noMatch = makeTarget({
+      config: { ...target.config, defaultEmail: 'nobody@example.com' }
+    })
+    await sync(noMatch)
+
+    assert.equal(calls.createPage.length, 1)
+    assert.equal(calls.createPage[0].actor.id, SYSTEM_USER_ID)
+    assert.deepEqual(calls.createPage[0].actor.permissions, ['manage:system'])
+  })
+
+  test('attributes a pulled page to the system user when no default author email is configured', async () => {
+    installWiki(localPath, { pages: [] })
+    const { git: localGit } = await ensureRepo(target)
+    await localGit.pull('origin', 'main')
+
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'welcome.md'), '# Hello there')
+    await peer.add('welcome.md')
+    await peer.commit('docs: create welcome')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, { pages: [] })
+    await sync(makeTarget({ config: { ...target.config, defaultEmail: undefined } }))
+
+    assert.equal(calls.createPage.length, 1)
+    assert.equal(calls.createPage[0].actor.id, SYSTEM_USER_ID)
   })
 
   test('pulls an update to a page already tracked in the DB', async () => {
@@ -902,5 +974,135 @@ describe('git storage: sync', () => {
 
     installWiki(localPath, { pages: [] })
     await assert.rejects(sync(target))
+  })
+
+  describe('self-heal (OpenProject #3567)', () => {
+    async function leaveConflictedRebase() {
+      const { peer, peerPath } = await makePeer(originPath)
+      await fs.writeFile(path.join(peerPath, 'shared.md'), 'line one')
+      await peer.add('shared.md')
+      await peer.commit('docs: create shared')
+      await peer.push('origin', 'main')
+
+      installWiki(localPath, { pages: [] })
+      const { git, repoPath } = await ensureRepo(target)
+      await git.pull('origin', 'main')
+      await fs.writeFile(path.join(repoPath, 'shared.md'), 'local edit')
+      await git.add('shared.md')
+      await git.commit('docs: local edit')
+
+      await fs.writeFile(path.join(peerPath, 'shared.md'), 'peer edit')
+      await peer.add('shared.md')
+      await peer.commit('docs: peer edit')
+      await peer.push('origin', 'main')
+
+      await assert.rejects(sync(target))
+      const gitDir = path.join(repoPath, '.git')
+      await assert.doesNotReject(fs.access(path.join(gitDir, 'rebase-merge')))
+      return { git, repoPath, gitDir, peer, peerPath }
+    }
+
+    test('a stale rebase left by an earlier sync is aborted before the next pull', async () => {
+      const { git, repoPath, gitDir, peer, peerPath } = await leaveConflictedRebase()
+
+      // -> The peer settles on the local edit, so a clean retry exists only if the stale rebase
+      //    state was cleared first.
+      await peer.pull('origin', 'main')
+      await fs.writeFile(path.join(peerPath, 'shared.md'), 'local edit')
+      await peer.add('shared.md')
+      await peer.commit('docs: settle on local edit')
+      await peer.push('origin', 'main')
+
+      installWiki(localPath, { pages: [] })
+      await sync(target)
+
+      await assert.rejects(fs.access(path.join(gitDir, 'rebase-merge')))
+      await assert.rejects(fs.access(path.join(gitDir, 'rebase-apply')))
+      assert.equal(await headBranch(git), 'main')
+      assert.equal(await fs.readFile(path.join(repoPath, 'shared.md'), 'utf8'), 'local edit')
+    })
+
+    test('the abort restores the branch with the local commit intact', async () => {
+      const { git, gitDir } = await leaveConflictedRebase()
+
+      installWiki(localPath, { pages: [] })
+      await assert.rejects(sync(target))
+
+      await assert.doesNotReject(fs.access(path.join(gitDir, 'rebase-merge')))
+      await git.raw(['rebase', '--abort'])
+      const log = await git.log()
+      assert.ok(log.all.some((entry) => entry.message === 'docs: local edit'))
+    })
+
+    test('a working copy with no history in common with origin is reattached, keeping its files', async () => {
+      const { peer, peerPath } = await makePeer(originPath)
+      await fs.writeFile(path.join(peerPath, 'remote-only.md'), 'from the remote')
+      await peer.add('remote-only.md')
+      await peer.commit('docs: create remote-only')
+      await peer.push('origin', 'main')
+
+      // -> What a container recreated without a `data/repo` volume leaves behind: a fresh root
+      //    commit that shares nothing with the remote.
+      installWiki(localPath, { pages: [] })
+      const { git, repoPath } = await ensureRepo(target)
+      await fs.writeFile(path.join(repoPath, 'local-only.md'), 'from the wiki')
+      await git.add('local-only.md')
+      await git.commit('docs: create local-only')
+
+      const calls = installWiki(localPath, { pages: [] })
+      await sync(target)
+
+      assert.equal(await fs.readFile(path.join(repoPath, 'local-only.md'), 'utf8'), 'from the wiki')
+      assert.equal(
+        await fs.readFile(path.join(repoPath, 'remote-only.md'), 'utf8'),
+        'from the remote'
+      )
+      // -> Every file the remote holds arrived at once, so importing the diff would rewrite the
+      //    whole wiki from a copy of itself.
+      assert.equal(calls.createPage.length, 0)
+      assert.equal(calls.updatePage.length, 0)
+
+      const { peer: verify } = await makePeer(originPath)
+      const remoteLog = await verify.log()
+      assert.ok(remoteLog.all.some((entry) => entry.message === 'docs: create local-only'))
+      assert.ok(remoteLog.all.some((entry) => entry.message === 'docs: create remote-only'))
+
+      await sync(target)
+    })
+
+    test('a reattach that conflicts fails loudly, leaves no merge in progress and takes neither side', async () => {
+      const { peer, peerPath } = await makePeer(originPath)
+      await fs.writeFile(path.join(peerPath, 'shared.md'), 'remote version')
+      await peer.add('shared.md')
+      await peer.commit('docs: create shared remotely')
+      await peer.push('origin', 'main')
+
+      installWiki(localPath, { pages: [] })
+      const { git, repoPath } = await ensureRepo(target)
+      await fs.writeFile(path.join(repoPath, 'shared.md'), 'local version')
+      await git.add('shared.md')
+      await git.commit('docs: create shared locally')
+
+      await assert.rejects(sync(target), /no history in common/)
+
+      await assert.rejects(fs.access(path.join(repoPath, '.git', 'MERGE_HEAD')))
+      assert.equal(await fs.readFile(path.join(repoPath, 'shared.md'), 'utf8'), 'local version')
+      const log = await git.log()
+      assert.ok(log.all.some((entry) => entry.message === 'docs: create shared locally'))
+      const { peer: verify } = await makePeer(originPath)
+      assert.equal((await verify.log()).latest?.message, 'docs: create shared remotely')
+    })
+
+    test('a push-only target does not reattach', async () => {
+      installWiki(localPath, { pages: [] })
+      const { git, repoPath } = await ensureRepo(target)
+      await fs.writeFile(path.join(repoPath, 'local-only.md'), 'from the wiki')
+      await git.add('local-only.md')
+      await git.commit('docs: create local-only')
+
+      await assert.rejects(sync({ ...target, sync: { ...target.sync, mode: 'push' } }))
+      const log = await git.log()
+      assert.ok(!log.all.some((entry) => /Merge/i.test(entry.message)))
+    })
   })
 })

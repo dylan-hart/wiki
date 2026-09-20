@@ -3,7 +3,7 @@
     <canvas
       ref="canvasRef"
       class="graph-view-canvas"
-      :class="{ 'graph-view-canvas--hover': hoveredNode }"
+      :class="{ 'graph-view-canvas--hover': showsPointerCursor }"
       role="img"
       :aria-label="graphAccessibleName"
       @click="onCanvasClick"
@@ -81,11 +81,13 @@
             <w-btn-toggle
               v-model="sizeCountMode"
               :aria-label="t('graph.controls.countAriaLabel')"
-              :options="sizeCountModeOptions" />
+              :options="sizeCountModeOptions"
+              :style="{ '--option-count': sizeCountModeOptions.length }" />
             <w-btn-toggle
               v-model="sizeBy"
               :aria-label="t('graph.controls.sizeByLabel')"
-              :options="sizeByOptions" />
+              :options="sizeByOptions"
+              :style="{ '--option-count': sizeByOptions.length }" />
           </div>
         </div>
         <GraphClientTypeFilter
@@ -216,6 +218,7 @@ import { lerpRadius, sqrtRangeOf } from './graphNodeSize.js'
 import { applyHoverPushImpulse } from './graphForces.js'
 import {
   attachZoom as attachGraphZoom,
+  childCountsFor,
   computeClusters as buildClusters,
   linkDistanceFor,
   startSimulation as runSimulation
@@ -719,6 +722,10 @@ let nodeQuadtree = null
  *  Reset in `loadGraph()` -- a fresh fetch must not carry positions forward from another graph. */
 let syntheticNodeCache = new Map()
 const hoveredNode = ref(null)
+const showsPointerCursor = computed(() =>
+  Boolean(hoveredNode.value && !hoveredNode.value.synthetic)
+)
+let lastPointer = null
 /** Relative to `containerRef`, not the viewport. */
 const tooltipPos = reactive({ x: 0, y: 0 })
 
@@ -845,6 +852,7 @@ function relayout() {
   )
 
   recomputeClusters()
+  refreshHoverFromPointer()
 }
 
 /** Safe to call on every zoom/pan frame: it recomputes no layout. */
@@ -916,11 +924,7 @@ function findNodeAt(clientX, clientY) {
  *  in-page find for it. This is the ONE place that decides whether the param is added, so the real
  *  `<a href>` and `navigateToNode()`'s `router.push()` target cannot disagree. */
 function fallbackHref(node) {
-  const path = localizedPagePath(node.path, node.locale, {
-    useLocales: siteStore.useLocales,
-    primary: siteStore.locales.primary,
-    forcePrefix: siteStore.locales.forcePrefix
-  })
+  const path = localizedPagePath(node.path, node.locale, siteStore.localeRouting)
   const keyword = keywordQuery.value.trim()
   return keyword ? `${path}?highlight=${encodeURIComponent(keyword)}` : path
 }
@@ -957,31 +961,53 @@ function releaseHoveredNode() {
 }
 
 function onCanvasMouseLeave() {
+  lastPointer = null
   if (releaseHoveredNode()) {
     repaint()
   }
 }
 
-function onCanvasMouseMove(event) {
-  const nextHovered = findNodeAt(event.clientX, event.clientY)
-  if (nextHovered !== hoveredNode.value) {
-    // -> Must run before the pin below: the helper reads `hoveredNode.value`, which is reassigned
-    //    at the end of this branch.
+function setHoveredNode(nextHovered) {
+  if (nextHovered === hoveredNode.value) {
+    return false
+  }
+  // -> Must run before the pin below: the helper reads `hoveredNode.value`, which is reassigned
+  //    at the end of this function.
+  releaseHoveredNode()
+  if (nextHovered) {
+    // -> A defined fx/fy freezes a d3-force node against every force each tick, holding the
+    //    hovered node still while the rest of the layout keeps moving.
+    nextHovered.fx = nextHovered.x
+    nextHovered.fy = nextHovered.y
+    applyHoverPushImpulse(nodes.value, nextHovered)
+    simulation?.alpha(HOVER_PUSH_ALPHA).restart()
+  }
+  hoveredNode.value = nextHovered
+  return true
+}
+
+function refreshHoverFromPointer() {
+  if (hoveredNode.value && !nodes.value.includes(hoveredNode.value)) {
     releaseHoveredNode()
-    if (nextHovered) {
-      // -> A defined fx/fy freezes a d3-force node against every force each tick, holding the
-      //    hovered node still while the rest of the layout keeps moving.
-      nextHovered.fx = nextHovered.x
-      nextHovered.fy = nextHovered.y
-      applyHoverPushImpulse(nodes.value, nextHovered)
-      simulation?.alpha(HOVER_PUSH_ALPHA).restart()
-    }
-    hoveredNode.value = nextHovered
+  }
+  if (lastPointer) {
+    setHoveredNode(findNodeAt(lastPointer.clientX, lastPointer.clientY))
+  }
+}
+
+function onCanvasMouseMove(event) {
+  lastPointer = { clientX: event.clientX, clientY: event.clientY }
+  if (setHoveredNode(findNodeAt(event.clientX, event.clientY))) {
     repaint()
   }
   const containerRect = containerRef.value.getBoundingClientRect()
   tooltipPos.x = event.clientX - containerRect.left
   tooltipPos.y = event.clientY - containerRect.top
+}
+
+function childCountAccessor() {
+  const counts = childCountsFor(edges.value)
+  return (node) => counts.get(nodeId(node)) ?? 0
 }
 
 function startSimulation() {
@@ -999,7 +1025,8 @@ function startSimulation() {
         relayout()
         repaint()
       },
-      clusterLevels: CLUSTER_LEVELS
+      clusterLevels: CLUSTER_LEVELS,
+      childCountFor: childCountAccessor()
     }
   )
 }
@@ -1026,6 +1053,7 @@ function attachZoom() {
   attachGraphZoom(canvasRef.value, (transform) => {
     zoomTransform.value = transform
     // -> Only the canvas transform changed, no node moved -- repaint, never relayout.
+    refreshHoverFromPointer()
     repaint()
   })
   zoomTransform.value = zoomIdentity
@@ -1297,7 +1325,10 @@ watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientT
   //    metric just became active. `relayout()`'s own refresh below runs too late for that moment.
   refreshMetricRange()
   simulation?.force('collide', forceCollide(collideRadiusFor))
-  simulation?.force('link')?.distance((link) => linkDistanceFor(link, collideRadiusFor))
+  const childCountFor = childCountAccessor()
+  simulation
+    ?.force('link')
+    ?.distance((link) => linkDistanceFor(link, collideRadiusFor, childCountFor))
   simulation?.alpha(0.3).restart()
   relayout()
   repaint()
@@ -1351,7 +1382,11 @@ function syncSimulationToVisibleSet() {
     return
   }
   simulation.nodes(nodes.value)
-  simulation.force('link')?.links(edges.value)
+  const childCountFor = childCountAccessor()
+  simulation
+    .force('link')
+    ?.links(edges.value)
+    .distance((link) => linkDistanceFor(link, collideRadiusFor, childCountFor))
   recomputeClusters()
   simulation.alpha(0.5).restart()
 }
@@ -1428,10 +1463,10 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   cursor: default;
+}
 
-  &--hover {
-    cursor: pointer;
-  }
+.graph-view-canvas--hover {
+  cursor: pointer;
 }
 
 /*
@@ -1489,9 +1524,14 @@ onBeforeUnmount(() => {
 .graph-view-control-group {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 5px;
   width: 100%;
+
+  :deep(.w-btn-toggle__segment) {
+    flex: 1 1 0;
+    justify-content: center;
+  }
 }
 
 /*
@@ -1502,9 +1542,12 @@ onBeforeUnmount(() => {
 .graph-view-control-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: stretch;
   gap: 6px;
+
+  > .w-btn-toggle {
+    flex: var(--option-count, 1) 1 0;
+  }
 
   :deep(.w-btn-toggle__segment) {
     padding-inline: 6px;

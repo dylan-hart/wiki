@@ -811,6 +811,15 @@ class Login {
     CARDINAL.models.flags.authDebug(
       `Registered user ${userId} <${normalizedEmail}> via ${strategy.module} strategy ${strategy.id}, verification ${requiresVerification ? 'required' : 'not required'}`
     )
+    await CARDINAL.models.auditLog.record({
+      event: 'user.registered',
+      actor: { id: userId, name: displayName, email: normalizedEmail, ip },
+      targetType: 'user',
+      targetId: userId,
+      targetLabel: normalizedEmail,
+      detail: { strategyId: strategy.id, verificationRequired: requiresVerification },
+      siteId
+    })
 
     if (requiresVerification) {
       const token = await CARDINAL.models.userCredentials.generateToken({ kind: 'verify', userId })
@@ -1215,7 +1224,7 @@ class Login {
 
     let recoveryCodes: string[] | undefined
     if (setup) {
-      recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(user, strategyId, siteId)
+      recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(user, strategyId, siteId, ip)
     }
 
     // -> The remaining checks still apply: a user who owed a password change before 2FA still owes it
@@ -1283,12 +1292,14 @@ class Login {
     userId,
     strategyId,
     continuationToken,
-    securityCode
+    securityCode,
+    ip
   }: {
     userId: string
     strategyId: string
     continuationToken: string
     securityCode: string
+    ip?: string
   }): Promise<{ recoveryCodes: string[] }> {
     if (!continuationToken || !/^[0-9]{6}$/.test(securityCode)) {
       throw new Error('ERR_TFA_INVALID_REQUEST')
@@ -1313,7 +1324,12 @@ class Login {
     }
 
     await CARDINAL.models.userCredentials.destroyToken({ token: continuationToken })
-    const recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(user, strategyId)
+    const recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(
+      user,
+      strategyId,
+      undefined,
+      ip
+    )
     return { recoveryCodes }
   }
 
@@ -1413,11 +1429,13 @@ class Login {
   async forgotPassword({
     strategyId,
     email,
-    siteId
+    siteId,
+    ip
   }: {
     strategyId: string
     email: string
     siteId?: string
+    ip?: string
   }): Promise<void> {
     const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
     if (!strategy?.isEnabled || strategy.config?.allowForgotPassword !== true) {
@@ -1440,6 +1458,15 @@ class Login {
       kind: 'resetPwd',
       userId: user.id,
       meta: { strategyId }
+    })
+    await CARDINAL.models.auditLog.record({
+      event: 'user.passwordResetRequested',
+      actor: { id: user.id, name: user.name, email: user.email, ip },
+      targetType: 'user',
+      targetId: user.id,
+      targetLabel: user.email,
+      detail: { strategyId },
+      siteId: siteId ?? null
     })
     await CARDINAL.models.mail.sendForgotPassword({
       to: user.email,
@@ -1505,6 +1532,15 @@ class Login {
       () => ({ password: passwordHash, mustChangePwd: false }),
       { mirrorInto: user }
     )
+    await CARDINAL.models.auditLog.record({
+      event: 'user.passwordResetCompleted',
+      actor: { id: user.id, name: user.name, email: user.email, ip },
+      targetType: 'user',
+      targetId: user.id,
+      targetLabel: user.email,
+      detail: { strategyId },
+      siteId
+    })
 
     try {
       await CARDINAL.models.mail.sendPasswordResetConfirmed({

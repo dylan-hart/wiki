@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import PageComments from './PageComments.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+import { closeProfilePopover, profilePopoverState } from '@/composables/profilePopover'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -46,6 +47,9 @@ const MESSAGES = {
       }
     }
   },
+  profilePopover: {
+    avatarLabel: 'Open the profile of {name}'
+  },
   auth: {
     errors: {
       missingName: 'Name is missing.',
@@ -75,6 +79,8 @@ function comment(overrides = {}) {
     render: '<p>Hello there</p>',
     createdAt: '2026-08-01T12:00:00.000Z',
     updatedAt: '2026-08-01T12:00:00.000Z',
+    canEdit: true,
+    canDelete: true,
     replies: [],
     ...overrides
   }
@@ -84,7 +90,6 @@ async function mountComments({
   pageId = 'p1',
   commentsCount = 0,
   canWrite = false,
-  canModerate = false,
   authenticated = true
 } = {}) {
   setActivePinia(createPinia())
@@ -100,9 +105,6 @@ async function mountComments({
   const pagePermissions = []
   if (canWrite) {
     pagePermissions.push('write:comments')
-  }
-  if (canModerate) {
-    pagePermissions.push('manage:comments')
   }
   userStore.pagePermissions = pagePermissions
   userStore.authenticated = authenticated
@@ -385,23 +387,43 @@ describe('PageComments', () => {
     expect(pageStore.commentsCount).toBe(2)
   })
 
-  it('shows edit/delete controls only for a viewer who holds manage:comments', async () => {
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
-    const { wrapper: withModerate } = await mountComments({ canModerate: true })
-    expect(withModerate.find('.page-comments-edit-toggle').exists()).toBe(true)
-    expect(withModerate.find('.page-comments-delete-toggle').exists()).toBe(true)
+  it('gates edit/delete controls per comment on the server-resolved canEdit/canDelete flags', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve([
+          comment({ id: 'mine', canEdit: true, canDelete: true }),
+          comment({ id: 'theirs', canEdit: false, canDelete: false, authorId: 'u2' })
+        ])
+    })
+    const { wrapper } = await mountComments()
+    expect(wrapper.findAll('.page-comments-edit-toggle')).toHaveLength(1)
+    expect(wrapper.findAll('.page-comments-delete-toggle')).toHaveLength(1)
+  })
 
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
-    const { wrapper: withoutModerate } = await mountComments({ canModerate: false })
-    expect(withoutModerate.find('.page-comments-edit-toggle').exists()).toBe(false)
-    expect(withoutModerate.find('.page-comments-delete-toggle').exists()).toBe(false)
+  it('draws each control from its own flag', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([comment({ canEdit: true, canDelete: false })])
+    })
+    const { wrapper } = await mountComments()
+    expect(wrapper.find('.page-comments-edit-toggle').exists()).toBe(true)
+    expect(wrapper.find('.page-comments-delete-toggle').exists()).toBe(false)
+  })
+
+  it('ignores the global manage:comments permission: only the server flags decide', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([comment({ canEdit: false, canDelete: false })])
+    })
+    const { wrapper, userStore } = await mountComments()
+    userStore.pagePermissions = ['manage:comments']
+    await flushPromises()
+    expect(wrapper.find('.page-comments-actions').exists()).toBe(false)
   })
 
   it('edits a comment: swaps the body for a textarea pre-filled with raw content, saves via PATCH, and shows success', async () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve([comment({ content: 'raw markdown, never rendered' })])
     })
-    const { wrapper } = await mountComments({ canModerate: true })
+    const { wrapper } = await mountComments()
 
     await wrapper.find('.page-comments-edit-toggle').trigger('click')
 
@@ -436,7 +458,7 @@ describe('PageComments', () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve([comment({ content: 'raw markdown, never rendered' })])
     })
-    const { wrapper } = await mountComments({ canModerate: true })
+    const { wrapper } = await mountComments()
 
     await wrapper.find('.page-comments-edit-toggle').trigger('click')
     const textarea = wrapper.find('textarea')
@@ -465,7 +487,7 @@ describe('PageComments', () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve([comment({ id: 'root', authorName: 'Root Author' })])
     })
-    const { wrapper, pageStore } = await mountComments({ canModerate: true, commentsCount: 1 })
+    const { wrapper, pageStore } = await mountComments({ commentsCount: 1 })
 
     await wrapper.find('.page-comments-delete-toggle').trigger('click')
     API_CLIENT.delete.mockReturnValueOnce({
@@ -487,7 +509,7 @@ describe('PageComments', () => {
 
   it('cancels an edit without saving', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
-    const { wrapper } = await mountComments({ canModerate: true })
+    const { wrapper } = await mountComments()
 
     await wrapper.find('.page-comments-edit-toggle').trigger('click')
     expect(wrapper.find('textarea').exists()).toBe(true)
@@ -502,7 +524,7 @@ describe('PageComments', () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve([comment({ id: 'root', authorName: 'Root Author' })])
     })
-    const { wrapper, pageStore } = await mountComments({ canModerate: true, commentsCount: 1 })
+    const { wrapper, pageStore } = await mountComments({ commentsCount: 1 })
 
     notifyQueue.splice(0, notifyQueue.length)
     await wrapper.find('.page-comments-delete-toggle').trigger('click')
@@ -542,7 +564,7 @@ describe('PageComments', () => {
           })
         ])
     })
-    const { wrapper, pageStore } = await mountComments({ canModerate: true, commentsCount: 3 })
+    const { wrapper, pageStore } = await mountComments({ commentsCount: 3 })
     expect(wrapper.findAll('.page-comments-item')).toHaveLength(3)
 
     await wrapper.find('.page-comments-delete-toggle').trigger('click')
@@ -556,7 +578,7 @@ describe('PageComments', () => {
 
   it('does not delete when the confirm dialog is cancelled', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
-    const { wrapper, pageStore } = await mountComments({ canModerate: true, commentsCount: 1 })
+    const { wrapper, pageStore } = await mountComments({ commentsCount: 1 })
 
     await wrapper.find('.page-comments-delete-toggle').trigger('click')
     closeDialog(openDialogs[0].id, false)
@@ -574,7 +596,7 @@ describe('PageComments', () => {
    */
   it('focuses the edit textarea once it appears', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
-    const { wrapper } = await mountComments({ canModerate: true })
+    const { wrapper } = await mountComments()
 
     await wrapper.find('.page-comments-edit-toggle').trigger('click')
     await flushPromises()
@@ -621,6 +643,64 @@ describe('PageComments', () => {
       expect(avatar.attributes('style')).toContain('font-size: 11px')
       // -> The fill is the shared class's `--color-account-avatar-bg`, not an inline primary
       expect(avatar.attributes('style')).not.toContain('background-color')
+    })
+  })
+
+  describe('avatar profile popover', () => {
+    afterEach(() => {
+      closeProfilePopover()
+    })
+
+    async function mountWith(overrides, options) {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment(overrides)]) })
+      return mountComments(options)
+    }
+
+    it('names the author on the avatar with a tooltip, for anyone', async () => {
+      const { wrapper } = await mountWith({}, { authenticated: false })
+
+      expect(wrapper.find('.page-comments-avatar').attributes('title')).toBe('Jane Doe')
+    })
+
+    it('leaves a guest with no way to open a profile while the setting is off', async () => {
+      const { wrapper } = await mountWith({}, { authenticated: false })
+
+      const avatar = wrapper.find('.page-comments-avatar')
+      expect(avatar.element.tagName).toBe('SPAN')
+      await avatar.trigger('click')
+      expect(profilePopoverState.open).toBe(false)
+    })
+
+    it('makes the avatar a button for an account holder, pointing at the author', async () => {
+      const { wrapper } = await mountWith({ authorId: 'u9', authorName: 'Ada Lovelace' })
+
+      const avatar = wrapper.find('.page-comments-avatar')
+      expect(avatar.element.tagName).toBe('BUTTON')
+      expect(avatar.classes()).toContain('cursor-pointer')
+      expect(avatar.attributes('title')).toBe('Ada Lovelace')
+      expect(avatar.attributes('aria-label')).toBe('Open the profile of Ada Lovelace')
+
+      await avatar.trigger('click')
+
+      expect(profilePopoverState).toMatchObject({ open: true, userId: 'u9', name: 'Ada Lovelace' })
+      expect(profilePopoverState.anchor).toBe(avatar.element)
+    })
+
+    it("makes a guest reader's avatar a button once the instance allows it", async () => {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+      const { wrapper, siteStore } = await mountComments({ authenticated: false })
+      siteStore.guestsMayViewProfiles = true
+      await flushPromises()
+
+      expect(wrapper.find('.page-comments-avatar').element.tagName).toBe('BUTTON')
+    })
+
+    it('never links a guest-authored comment, which has no account to show', async () => {
+      const { wrapper } = await mountWith({ authorId: null, authorName: 'anonymous visitor' })
+
+      const avatar = wrapper.find('.page-comments-avatar')
+      expect(avatar.element.tagName).toBe('SPAN')
+      expect(avatar.attributes('title')).toBe('anonymous visitor')
     })
   })
 })

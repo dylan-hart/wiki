@@ -34,7 +34,8 @@ const MESSAGES = {
       missingVerifyPassword: 'Please confirm the password.',
       passwordsNotMatch: 'Passwords do not match.'
     }
-  }
+  },
+  error: { ERR_REGISTRATION_FAILED: 'Registration failed.' }
 }
 
 function mountScreen() {
@@ -142,8 +143,95 @@ describe('AuthRegisterScreen first/last name fields', () => {
     await flushPromises()
 
     expect(API_CLIENT.post).not.toHaveBeenCalled()
-    expect(notifyQueue.at(-1)?.type).toBe('negative')
+    expect(wrapper.find('[role="alert"]').text()).toContain('Some fields are missing or invalid.')
+    expect(notifyQueue.some((n) => n.type === 'negative')).toBe(false)
     expect(wrapper.emitted('registered')).toBeUndefined()
+  })
+})
+
+/**
+ * A failed registration is a persistent `role="alert"` block above the fields, not a toast: it
+ * stays until the next submit or the next edit to any field.
+ */
+describe('AuthRegisterScreen inline registration errors', () => {
+  function alertOf(wrapper) {
+    return wrapper.find('[role="alert"]')
+  }
+
+  function failNextRegistration(message) {
+    const err = Object.assign(new Error('Request failed with status code 409'), {
+      data: { message }
+    })
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.reject(err) })
+  }
+
+  async function submitFailingRegistration(wrapper, message = 'That email is already in use.') {
+    await fillValidForm(wrapper)
+    failNextRegistration(message)
+    notifyQueue.splice(0, notifyQueue.length)
+    await wrapper.vm.register()
+    await flushPromises()
+  }
+
+  it('renders the server message as an alert and pushes no negative toast', async () => {
+    const wrapper = mountScreen()
+    await submitFailingRegistration(wrapper)
+
+    expect(wrapper.findAll('[role="alert"]')).toHaveLength(1)
+    expect(alertOf(wrapper).text()).toContain('That email is already in use.')
+    expect(notifyQueue.some((n) => n.type === 'negative')).toBe(false)
+    expect(wrapper.emitted('registered')).toBeUndefined()
+  })
+
+  it('localizes an ERR_ code from the server', async () => {
+    const wrapper = mountScreen()
+    await submitFailingRegistration(wrapper, 'ERR_REGISTRATION_FAILED')
+
+    expect(alertOf(wrapper).text()).toContain('Registration failed.')
+  })
+
+  it('draws the alert above the fields', async () => {
+    const wrapper = mountScreen()
+    await submitFailingRegistration(wrapper)
+
+    const html = wrapper.html()
+    expect(html.indexOf('role="alert"')).toBeGreaterThan(-1)
+    expect(html.indexOf('role="alert"')).toBeLessThan(html.indexOf('<form'))
+  })
+
+  it('stays put until a field is edited, then clears', async () => {
+    const wrapper = mountScreen()
+    await submitFailingRegistration(wrapper)
+    await flushPromises()
+    expect(alertOf(wrapper).exists()).toBe(true)
+
+    await inputLabelled(wrapper, 'Email Address').setValue('jane2@example.com')
+    await flushPromises()
+
+    expect(alertOf(wrapper).exists()).toBe(false)
+  })
+
+  it('clears when the form is resubmitted', async () => {
+    const wrapper = mountScreen()
+    await submitFailingRegistration(wrapper)
+    expect(alertOf(wrapper).exists()).toBe(true)
+
+    let resolvePost
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        new Promise((resolve) => {
+          resolvePost = resolve
+        })
+    })
+    const pending = wrapper.vm.register()
+    await flushPromises()
+    expect(alertOf(wrapper).exists()).toBe(false)
+
+    resolvePost({ ok: true, nextAction: 'verify' })
+    await pending
+    await flushPromises()
+    expect(wrapper.emitted('registered')).toBeTruthy()
+    expect(alertOf(wrapper).exists()).toBe(false)
   })
 })
 

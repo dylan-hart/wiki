@@ -1,5 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { SEARCH_ORDER_BY, type SearchOrderBy, type SearchResult } from '../../models/search.ts'
+import {
+  SEARCH_ORDER_BY,
+  TAGS_MATCH,
+  type SearchFilters,
+  type TagsMatch,
+  type SearchOrderBy,
+  type SearchResult
+} from '../../models/search.ts'
 import {
   CustomError,
   generatePathHash,
@@ -8,6 +15,7 @@ import {
 } from '../../helpers/common.ts'
 import { defaultLocale } from '../../helpers/localeRouting.ts'
 import { limitAuthAttempts } from '../../helpers/rateLimit.ts'
+import { semanticSearchEnabledFor } from '../../helpers/semanticSearch.ts'
 import {
   computeTranslationStatus,
   computeTranslationStatuses,
@@ -82,30 +90,108 @@ async function attachLocaleStatus(siteId: string, results: SearchResult[]): Prom
   }
 }
 
+const stringList = (description: string) => ({
+  type: 'array',
+  items: { type: 'string', maxLength: 2048 },
+  maxItems: 50,
+  description
+})
+
+const enumList = (values: string[], description: string) => ({
+  type: 'array',
+  items: { type: 'string', enum: values },
+  maxItems: values.length,
+  description
+})
+
+const uuidList = (description: string) => ({
+  type: 'array',
+  items: { type: 'string', format: 'uuid' },
+  maxItems: 50,
+  description
+})
+
+const PUBLISH_STATES = ['draft', 'published', 'scheduled']
+
 /**
- * Both the boot-time pgvector capability flag and the site's own `semanticEnabled` setting: the
- * capability flag alone would bypass a site admin's off-switch.
- *
- * TODO: `api/sites.ts#semanticSearchAvailable` is a second copy of this AND. Hoist one into
- * `helpers/` (a route file may not import another) and drop the `as any`:
- * `CardinalGlobal.capabilities` is typed.
+ * Both search routes take the same include/exclude filter lists. Each name is repeatable
+ * (`?path=a&path=b`); `locales`/`tags` (and their exclusions) also accept a comma-separated value.
  */
-function semanticSearchEnabledFor(siteId: string): boolean {
-  const capabilityEnabled = Boolean((CARDINAL as any).capabilities?.semanticSearch)
-  const siteEnabled = Boolean(CARDINAL.sites[siteId]?.config?.search?.config?.semanticEnabled)
-  return capabilityEnabled && siteEnabled
+function filterQueryProperties(localesDescription: string) {
+  return {
+    path: stringList('Only pages whose path starts with any of these.'),
+    excludePath: stringList('Drop pages whose path starts with any of these.'),
+    locales: stringList(localesDescription),
+    excludeLocales: stringList('Drop pages in any of these locales (comma-separated allowed).'),
+    tags: stringList(
+      'Tags a page must carry (comma-separated allowed): all of them, or any one of them per `tagsMatch`.'
+    ),
+    tagsMatch: {
+      type: 'string',
+      enum: TAGS_MATCH,
+      default: 'all',
+      description:
+        'Whether a page must carry every tag in `tags` (`all`) or at least one (`any`). Exclusions are always any-of.'
+    },
+    excludeTags: stringList('Drop pages carrying any of these tags (comma-separated allowed).'),
+    editor: stringList('Only pages using any of these editors.'),
+    excludeEditor: stringList('Drop pages using any of these editors.'),
+    publishState: enumList(PUBLISH_STATES, 'Only pages in any of these publish states.'),
+    excludePublishState: enumList(PUBLISH_STATES, 'Drop pages in any of these publish states.'),
+    creatorId: uuidList('Only pages first created by any of these users (user IDs).'),
+    excludeCreatorId: uuidList('Drop pages first created by any of these users (user IDs).'),
+    authorId: uuidList('Only pages last edited by any of these users (user IDs).'),
+    excludeAuthorId: uuidList('Drop pages last edited by any of these users (user IDs).')
+  }
+}
+
+interface FilterQuery {
+  path?: string[]
+  excludePath?: string[]
+  locales?: string[]
+  excludeLocales?: string[]
+  tags?: string[]
+  tagsMatch?: TagsMatch
+  excludeTags?: string[]
+  editor?: string[]
+  excludeEditor?: string[]
+  publishState?: string[]
+  excludePublishState?: string[]
+  creatorId?: string[]
+  excludeCreatorId?: string[]
+  authorId?: string[]
+  excludeAuthorId?: string[]
+}
+
+function commaList(values?: string[]): string[] {
+  return (values ?? []).flatMap((value) => splitList(value))
+}
+
+function searchFiltersFrom(query: FilterQuery): SearchFilters {
+  return {
+    path: query.path ?? [],
+    excludePath: query.excludePath ?? [],
+    locales: commaList(query.locales),
+    excludeLocales: commaList(query.excludeLocales),
+    tags: commaList(query.tags),
+    tagsMatch: query.tagsMatch ?? 'all',
+    excludeTags: commaList(query.excludeTags),
+    editor: query.editor ?? [],
+    excludeEditor: query.excludeEditor ?? [],
+    publishState: query.publishState ?? [],
+    excludePublishState: query.excludePublishState ?? [],
+    creatorId: query.creatorId ?? [],
+    excludeCreatorId: query.excludeCreatorId ?? [],
+    authorId: query.authorId ?? [],
+    excludeAuthorId: query.excludeAuthorId ?? []
+  }
 }
 
 async function routes(app: FastifyInstance) {
   app.get<{
     Params: { siteId: string }
-    Querystring: {
+    Querystring: FilterQuery & {
       query?: string
-      path?: string
-      locales?: string
-      tags?: string
-      editor?: string
-      publishState?: string
       orderBy?: SearchOrderBy
       orderByDirection?: 'asc' | 'desc'
       offset?: number
@@ -129,29 +215,9 @@ async function routes(app: FastifyInstance) {
               maxLength: 2048,
               description: 'Free text. Understands quoted phrases, `or` and `-exclusions`.'
             },
-            path: {
-              type: 'string',
-              maxLength: 2048,
-              description: 'Only pages whose path starts with this.'
-            },
-            locales: {
-              type: 'string',
-              maxLength: 255,
-              description: 'Comma-separated locale codes. Every locale when absent.'
-            },
-            tags: {
-              type: 'string',
-              maxLength: 2048,
-              description: 'Comma-separated tags a page must carry all of.'
-            },
-            editor: {
-              type: 'string',
-              maxLength: 255
-            },
-            publishState: {
-              type: 'string',
-              enum: ['draft', 'published', 'scheduled']
-            },
+            ...filterQueryProperties(
+              'Locale codes (comma-separated allowed). Every locale when absent.'
+            ),
             orderBy: {
               type: 'string',
               enum: SEARCH_ORDER_BY,
@@ -256,11 +322,7 @@ async function routes(app: FastifyInstance) {
       const result = await CARDINAL.models.search.query({
         siteId: req.params.siteId,
         query: req.query.query,
-        path: req.query.path,
-        locales: splitList(req.query.locales),
-        tags: splitList(req.query.tags),
-        editor: req.query.editor,
-        publishState: req.query.publishState,
+        ...searchFiltersFrom(req.query),
         orderBy: req.query.orderBy,
         orderByDirection: req.query.orderByDirection,
         offset: req.query.offset,
@@ -279,13 +341,8 @@ async function routes(app: FastifyInstance) {
 
   app.get<{
     Params: { siteId: string }
-    Querystring: {
+    Querystring: FilterQuery & {
       query: string
-      path?: string
-      locales?: string
-      tags?: string
-      editor?: string
-      publishState?: string
       offset?: number
       limit?: number
     }
@@ -299,7 +356,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Semantic search pages',
         description:
-          "Multi-hop vector similarity search over the site's page content (Epic #3050): embeds `query`, finds the pages whose stored chunks sit closest to it, then hops one step further from the best of those to surface pages that are topically related without sharing the query's own wording. Each result carries `hop` — `1` for a direct match (including one that was ALSO reached via the second hop, which always keeps its real, unpenalized hop-1 distance), `2` only for a page found solely by following another result's own embedding.\n\nReadable without a session, exactly like `pages/search`: `filterVisible` decides what an anonymous — or any other — caller may see, and a page the caller cannot read never appears, however close its embedding.\n\n`path`/`tags`/`locales`/`editor`/`publishState` (OpenProject #3328) are the same filters and names `pages/search` takes, applied identically at both hops so a filtered-out page cannot reappear via the second hop's expansion. There is no `orderBy`/`orderByDirection` — Sort By is explicitly out of scope for semantic search.\n\nAnswers `503` when semantic search is not available on this site — this instance has no working vector index, or a site administrator has not turned it on — rather than a silent empty result, matching `helpers/puppeteer.ts#assertPuppeteerAvailable`'s convention for a missing optional capability.",
+          "Multi-hop vector similarity search over the site's page content (Epic #3050): embeds `query`, finds the pages whose stored chunks sit closest to it, then hops one step further from the best of those to surface pages that are topically related without sharing the query's own wording. Each result carries `hop` — `1` for a direct match (including one that was ALSO reached via the second hop, which always keeps its real, unpenalized hop-1 distance), `2` only for a page found solely by following another result's own embedding.\n\nReadable without a session, exactly like `pages/search`: `filterVisible` decides what an anonymous — or any other — caller may see, and a page the caller cannot read never appears, however close its embedding.\n\n`path`/`tags`/`locales`/`editor`/`publishState`/`creatorId`/`authorId` (OpenProject #3328, #3558), and their `exclude*` counterparts, are the same filters and names `pages/search` takes, applied identically at both hops so a filtered-out page cannot reappear via the second hop's expansion. There is no `orderBy`/`orderByDirection` — Sort By is explicitly out of scope for semantic search.\n\nAnswers `503` when semantic search is not available on this site — this instance has no working vector index, or a site administrator has not turned it on — rather than a silent empty result, matching `helpers/puppeteer.ts#assertPuppeteerAvailable`'s convention for a missing optional capability.",
         tags: ['Pages'],
         params: { $ref: 'SiteIdParams#' },
         querystring: {
@@ -312,29 +369,9 @@ async function routes(app: FastifyInstance) {
               maxLength: 2048,
               description: 'The question or phrase to search for. Embedded once, server-side.'
             },
-            path: {
-              type: 'string',
-              maxLength: 2048,
-              description: 'Only pages whose path starts with this.'
-            },
-            locales: {
-              type: 'string',
-              maxLength: 255,
-              description: "Comma-separated locale codes. The site's primary locale when absent."
-            },
-            tags: {
-              type: 'string',
-              maxLength: 2048,
-              description: 'Comma-separated tags a page must carry all of.'
-            },
-            editor: {
-              type: 'string',
-              maxLength: 255
-            },
-            publishState: {
-              type: 'string',
-              enum: ['draft', 'published', 'scheduled']
-            },
+            ...filterQueryProperties(
+              "Locale codes (comma-separated allowed). The site's primary locale when absent."
+            ),
             offset: {
               type: 'integer',
               minimum: 0,
@@ -364,19 +401,16 @@ async function routes(app: FastifyInstance) {
         )
       }
       const accessActor = CARDINAL.models.groups.actorForRequest(req)
-      const locales = splitList(req.query.locales)
+      const { locales, ...filters } = searchFiltersFrom(req.query)
       return CARDINAL.models.semanticSearch.search(
         req.query.query,
         accessActor,
         siteId,
-        locales.length > 0 ? locales : [defaultLocale(siteId)],
+        locales && locales.length > 0 ? locales : [defaultLocale(siteId)],
         {
+          ...filters,
           limit: req.query.limit ?? 25,
-          offset: req.query.offset ?? 0,
-          path: req.query.path,
-          tags: splitList(req.query.tags),
-          editor: req.query.editor,
-          publishState: req.query.publishState
+          offset: req.query.offset ?? 0
         }
       )
     }

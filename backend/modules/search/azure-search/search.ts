@@ -18,6 +18,7 @@ import type { SearchIndex } from '@azure/search-documents'
 import type { RebuildPageSource } from '../shared.ts'
 import type {
   RebuildResult,
+  SearchFilters,
   SearchIndexablePage,
   SearchOrderBy,
   SearchPagesParams,
@@ -130,6 +131,8 @@ export function buildIndexSchema(indexName: string): SearchIndex {
       { name: 'tags', type: 'Collection(Edm.String)', filterable: true, facetable: true },
       { name: 'editor', type: 'Edm.String', filterable: true },
       { name: 'publishState', type: 'Edm.String', filterable: true },
+      { name: 'creatorId', type: 'Edm.String', filterable: true },
+      { name: 'authorId', type: 'Edm.String', filterable: true },
       { name: 'updatedAt', type: 'Edm.DateTimeOffset', filterable: true, sortable: true },
       { name: 'icon', type: 'Edm.String', searchable: false, filterable: false },
       { name: 'hasPassword', type: 'Edm.Boolean', filterable: true },
@@ -157,6 +160,8 @@ export function toIndexDocument(page: SearchIndexablePage): Record<string, any> 
     tags: page.tags ?? [],
     editor: page.editor,
     publishState: page.publishState,
+    creatorId: page.creatorId,
+    authorId: page.authorId,
     icon: page.icon ?? '',
     hasPassword: page.password != null,
     classification: page.classification,
@@ -181,6 +186,10 @@ function inFilter(field: string, values: string[]): string {
   return `search.in(${field}, '${list}', '${IN_DELIMITER}')`
 }
 
+function anyFilter(field: string, values: string[]): string {
+  return values.length === 1 ? eqFilter(field, values[0]!) : inFilter(field, values)
+}
+
 /**
  * A plain prefix uses OData's own `startswith`; a pattern containing `*` needs `search.ismatch`,
  * the only filter function that understands Lucene wildcard syntax.
@@ -192,8 +201,14 @@ function pathFilter(path: string): string {
     : `startswith(path, '${escaped}')`
 }
 
+function anyPathFilter(paths: string[]): string {
+  const filters = paths.map(pathFilter)
+  return filters.length === 1 ? filters[0]! : `(${filters.join(' or ')})`
+}
+
 function publishStateFilters(
-  publishState: string,
+  publishState: string[],
+  excludePublishState: string[],
   publicOnly: boolean,
   includeDrafts: boolean
 ): string[] {
@@ -204,19 +219,17 @@ function publishStateFilters(
   } else if (!includeDrafts) {
     clauses.push(`publishState ne 'draft'`)
   }
-  if (publishState) {
-    clauses.push(eqFilter('publishState', publishState))
+  if (publishState.length > 0) {
+    clauses.push(anyFilter('publishState', publishState))
+  }
+  if (excludePublishState.length > 0) {
+    clauses.push(`not ${inFilter('publishState', excludePublishState)}`)
   }
   return clauses
 }
 
-export interface AzureSearchFilterParams {
+export interface AzureSearchFilterParams extends SearchFilters {
   siteId: string
-  path?: string
-  locales?: string[]
-  tags?: string[]
-  editor?: string
-  publishState?: string
   publicOnly?: boolean
   includeDrafts?: boolean
   hasPassword?: boolean
@@ -225,21 +238,52 @@ export interface AzureSearchFilterParams {
 /** `tags` matches any-of, not all-of: a document qualifies if any of its tags is in the set. */
 export function buildFilter(params: AzureSearchFilterParams): string {
   const conditions = [eqFilter('siteId', params.siteId)]
-  if (params.path) {
-    conditions.push(pathFilter(params.path))
+  if (params.path && params.path.length > 0) {
+    conditions.push(anyPathFilter(params.path))
+  }
+  for (const value of params.excludePath ?? []) {
+    conditions.push(`not ${pathFilter(value)}`)
   }
   if (params.locales && params.locales.length > 0) {
     conditions.push(inFilter('locale', params.locales))
   }
-  if (params.tags && params.tags.length > 0) {
-    conditions.push(`tags/any(t: ${inFilter('t', params.tags)})`)
+  if (params.excludeLocales && params.excludeLocales.length > 0) {
+    conditions.push(`not ${inFilter('locale', params.excludeLocales)}`)
   }
-  if (params.editor) {
-    conditions.push(eqFilter('editor', params.editor))
+  if (params.tags && params.tags.length > 0) {
+    if (params.tagsMatch === 'any') {
+      conditions.push(`tags/any(t: ${inFilter('t', params.tags)})`)
+    } else {
+      for (const tag of params.tags) {
+        conditions.push(`tags/any(t: ${eqFilter('t', tag)})`)
+      }
+    }
+  }
+  if (params.excludeTags && params.excludeTags.length > 0) {
+    conditions.push(`not tags/any(t: ${inFilter('t', params.excludeTags)})`)
+  }
+  if (params.editor && params.editor.length > 0) {
+    conditions.push(anyFilter('editor', params.editor))
+  }
+  if (params.excludeEditor && params.excludeEditor.length > 0) {
+    conditions.push(`not ${inFilter('editor', params.excludeEditor)}`)
+  }
+  if (params.creatorId && params.creatorId.length > 0) {
+    conditions.push(anyFilter('creatorId', params.creatorId))
+  }
+  if (params.excludeCreatorId && params.excludeCreatorId.length > 0) {
+    conditions.push(`not ${inFilter('creatorId', params.excludeCreatorId)}`)
+  }
+  if (params.authorId && params.authorId.length > 0) {
+    conditions.push(anyFilter('authorId', params.authorId))
+  }
+  if (params.excludeAuthorId && params.excludeAuthorId.length > 0) {
+    conditions.push(`not ${inFilter('authorId', params.excludeAuthorId)}`)
   }
   conditions.push(
     ...publishStateFilters(
-      params.publishState ?? '',
+      params.publishState ?? [],
+      params.excludePublishState ?? [],
       params.publicOnly ?? false,
       params.includeDrafts ?? false
     )
@@ -440,11 +484,6 @@ export class AzureSearchModule extends ExternalSearchModule {
     const {
       siteId,
       query = '',
-      path = '',
-      locales = [],
-      tags = [],
-      editor = '',
-      publishState = '',
       orderBy = 'relevancy',
       orderByDirection = 'desc',
       offset = 0,
@@ -452,7 +491,22 @@ export class AzureSearchModule extends ExternalSearchModule {
       publicOnly = false,
       includeDrafts = false,
       hideProtectedContent = true,
-      actor
+      actor,
+      path,
+      excludePath,
+      locales,
+      excludeLocales,
+      tags,
+      tagsMatch,
+      excludeTags,
+      editor,
+      excludeEditor,
+      publishState,
+      excludePublishState,
+      creatorId,
+      excludeCreatorId,
+      authorId,
+      excludeAuthorId
     } = params
 
     const terms = query.trim()
@@ -463,10 +517,20 @@ export class AzureSearchModule extends ExternalSearchModule {
     const filterParams: AzureSearchFilterParams = {
       siteId,
       path,
+      excludePath,
       locales,
+      excludeLocales,
       tags,
+      tagsMatch,
+      excludeTags,
       editor,
+      excludeEditor,
       publishState,
+      excludePublishState,
+      creatorId,
+      excludeCreatorId,
+      authorId,
+      excludeAuthorId,
       publicOnly,
       includeDrafts
     }

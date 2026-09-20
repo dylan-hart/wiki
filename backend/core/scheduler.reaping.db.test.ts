@@ -227,19 +227,24 @@ describe(
         lastErrorMessage: null
       })
       historyIds.push(row.id)
-      const query = mock.fn(async (_sql: string, _params?: any[]) => ({}) as any)
+      let settled = 0
+      const query = mock.fn(async (_sql: string, _params?: any[]) => {
+        await new Promise((resolve) => setTimeout(resolve, 25))
+        settled++
+        return {} as any
+      })
       CARDINAL.scheduler.pubsubClient = { query } as any
 
       try {
         await scheduler.reapStaleJobs()
         // TODO: drop this wait -- `reapStaleJobs()` awaits `notifier.drained()` before returning,
         // so the queued `query()` has already run.
-        await new Promise((resolve) => setTimeout(resolve, 50))
       } finally {
         CARDINAL.scheduler.pubsubClient = null
       }
 
       assert.equal(query.mock.callCount(), 1)
+      assert.equal(settled, 1, 'the sweep returned before its NOTIFY finished')
       const [sql, params] = query.mock.calls[0]!.arguments
       assert.match(sql as string, /pg_notify/)
       const [channel, payload] = params as [string, string]
@@ -434,7 +439,16 @@ describe(
         // FIXME: backdate `jobs.waitUntil` first, as the `lastErrorMessage` test does -- if this
         // claim misses the requeued row, `secondReap` is 0 for the wrong reason and the test
         // passes vacuously.
+        await fixtures.db
+          .update(jobsTable)
+          .set({ waitUntil: pastDate(1) })
+          .where(eq(jobsTable.id, job!.id))
         await scheduler.processJob()
+        const [reclaimed] = await fixtures.db
+          .select()
+          .from(jobHistoryTable)
+          .where(eq(jobHistoryTable.id, job!.id))
+        assert.equal(reclaimed!.state, 'active', 'the retry must have reclaimed the requeued row')
         await fixtures.db
           .update(jobHistoryTable)
           .set({ startedAt: pastDate(120) })

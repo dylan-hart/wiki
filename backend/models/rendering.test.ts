@@ -1,9 +1,10 @@
-import { after, describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { rendering } from './rendering.ts'
+import { readFile } from 'node:fs/promises'
+import { rendering, tabHeadingLevel } from './rendering.ts'
 import { installTestWiki } from '../test/mocks.ts'
 import { makeSite } from '../test/builders.ts'
-import type { BlockDefinition } from './blocks.ts'
+import type { BlockDefinition, BlockProp } from './blocks.ts'
 
 /*
  * The "block-vs-fence handoff" these suites lock down: `firstUpdated()` in each of `block-diagram`,
@@ -77,6 +78,23 @@ const CAMEL_PROP_BLOCKS: BlockDefinition[] = [
   }
 ]
 
+const TAB_BLOCK: BlockDefinition = {
+  block: 'tab',
+  name: 'Tab',
+  description: 'One panel of a set of tabs.',
+  icon: 'tabler:layout-navbar',
+  isChild: true,
+  props: []
+}
+
+const TABS_BLOCK: BlockDefinition = {
+  block: 'tabs',
+  name: 'Tabs',
+  description: 'Groups content into tabbed panels.',
+  icon: 'tabler:layout-navbar',
+  props: []
+}
+
 let enabledBlocks = new Set<string>()
 
 let customBlocks: { block: string; props: { name: string }[] }[] = []
@@ -84,7 +102,7 @@ let customBlocks: { block: string; props: { name: string }[] }[] = []
 const wiki = installTestWiki({
   models: {
     blocks: {
-      definitions: [...DIAGRAM_BLOCKS, ...CAMEL_PROP_BLOCKS],
+      definitions: [...DIAGRAM_BLOCKS, ...CAMEL_PROP_BLOCKS, TAB_BLOCK, TABS_BLOCK],
       async getEnabledKeys(_siteId: string) {
         return enabledBlocks
       },
@@ -204,6 +222,44 @@ describe('rendering.postProcess: custom blocks admitted to blockAllowances (Open
 
     assert.doesNotMatch(result.render, /block-gallery-custom/)
     assert.match(result.render, /content/)
+  })
+})
+
+describe('rendering.postProcess: block-tab header attribute (OpenProject #3579)', () => {
+  test('keeps header on a block-tab whose definition is the one shipped in blocks/block-tab', async () => {
+    const source = await readFile(
+      new URL('../../blocks/block-tab/component.js', import.meta.url),
+      'utf8'
+    )
+    const propsSource = source.slice(source.indexOf('props: ['))
+    const props: BlockProp[] = [...propsSource.matchAll(/name: '([\w-]+)'/g)].map((m) => ({
+      name: m[1],
+      type: 'string'
+    }))
+    assert.ok(
+      props.some((p) => p.name === 'header'),
+      'block-tab declares a header prop'
+    )
+    TAB_BLOCK.props = props
+    enabledBlocks = new Set(['tabs'])
+    const html =
+      '<block-tabs><block-tab label="Foo" header="2"><p>body</p></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-tab label="Foo" header="2"( id="foo")?>/)
+  })
+
+  test('strips header from a block-tab whose definition does not declare it', async () => {
+    TAB_BLOCK.props = [{ name: 'label', type: 'string' }]
+    enabledBlocks = new Set(['tabs'])
+    const html =
+      '<block-tabs><block-tab label="Foo" header="2"><p>body</p></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-tab label="Foo">/)
+    assert.doesNotMatch(result.render, /header/)
   })
 })
 
@@ -332,6 +388,45 @@ describe('rendering.postProcess: internal link extraction strips a locale prefix
     assert.deepEqual(result.links, ['de/guide'])
   })
 
+  test('resolves an aliased locale prefix (/zh/guide) to the bare page path, and still the canonical spelling', async () => {
+    CARDINAL.sites['site-locale-alias'] = makeSite({
+      id: 'site-locale-alias',
+      config: {
+        locales: { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+      }
+    })
+    const html =
+      '<p><a href="/zh/guide">Alias</a> <a href="/ZH/manual">Mis-cased</a> <a href="/zh-CN/faq">Canonical</a></p>'
+
+    const result = await rendering.postProcess(
+      'site-locale-alias',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+
+    assert.deepEqual(result.links, ['guide', 'manual', 'faq'])
+  })
+
+  test('an alias of an inactive locale is not a prefix, so the link keeps its first segment', async () => {
+    CARDINAL.sites['site-locale-alias-inactive'] = makeSite({
+      id: 'site-locale-alias-inactive',
+      config: {
+        locales: { primary: 'en', active: ['en'], aliases: { 'zh-CN': 'zh' } }
+      }
+    })
+    const html = '<p><a href="/zh/guide">Guide</a></p>'
+
+    const result = await rendering.postProcess(
+      'site-locale-alias-inactive',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+
+    assert.deepEqual(result.links, ['zh/guide'])
+  })
+
   test('a site with no locales config leaves a link untouched, unchanged from before', async () => {
     const html = '<p><a href="/fr/guide">Guide</a></p>'
 
@@ -452,6 +547,64 @@ describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #21
  * what belongs here is that `postProcess` wires it in ahead of the real `sanitizeHtml()` pass, so a
  * tag stripped for a missing permission leaves a visible callout rather than silently vanishing.
  */
+describe('rendering.postProcess: fence line rows survive sanitization (OpenProject #3578)', () => {
+  const fence =
+    '<pre class="codeblock hljs line-numbers" data-line-start="30"><code class="language-yaml">a\nb\nc\n' +
+    '<span aria-hidden="true" class="line-numbers-rows"><span></span><span class="is-highlighted"></span><span></span></span></code></pre>'
+
+  test('keeps is-highlighted rows, the line-numbers class and data-line-start without write:styles', async () => {
+    const result = await rendering.postProcess('site-1', fence, { scripts: false, styles: false })
+
+    assert.match(result.render, /<pre class="codeblock hljs line-numbers" data-line-start="30">/)
+    assert.match(result.render, /<span aria-hidden="true" class="line-numbers-rows">/)
+    assert.match(
+      result.render,
+      /<span><\/span><span class="is-highlighted"><\/span><span><\/span><\/span><\/code><\/pre>/
+    )
+  })
+
+  test('strips the inline custom property that data-line-start replaces, so the pin is not a tautology', async () => {
+    const result = await rendering.postProcess(
+      'site-1',
+      '<pre class="codeblock hljs line-numbers" style="--code-line-start: 29"><code>a</code></pre>',
+      { scripts: false, styles: false }
+    )
+
+    assert.doesNotMatch(result.render, /--code-line-start/)
+  })
+})
+
+describe('rendering.postProcess: fence title bar survives sanitization (OpenProject #3583)', () => {
+  const titled =
+    '<div class="codeblock-titled hljs"><div class="codeblock-title">config.yml</div>' +
+    '<pre class="codeblock hljs line-numbers" data-line-start="3"><code class="language-yaml">a\nb\nc\n' +
+    '<span aria-hidden="true" class="line-numbers-rows"><span></span><span class="is-highlighted"></span><span></span></span></code></pre></div>'
+
+  test('keeps .codeblock-titled, .codeblock-title and the sibling pre without write:styles or write:scripts', async () => {
+    const result = await rendering.postProcess('site-1', titled, { scripts: false, styles: false })
+
+    assert.match(
+      result.render,
+      /<div class="codeblock-titled hljs"><div class="codeblock-title">config\.yml<\/div><pre class="codeblock hljs line-numbers" data-line-start="3">/
+    )
+    assert.match(result.render, /<\/code><\/pre><\/div>/)
+  })
+
+  test('keeps an escaped title inert', async () => {
+    const result = await rendering.postProcess(
+      'site-1',
+      '<div class="codeblock-titled hljs"><div class="codeblock-title">&lt;script&gt;alert(1)&lt;/script&gt;</div><pre class="codeblock hljs"><code class="language-yaml">a</code></pre></div>',
+      { scripts: false, styles: false }
+    )
+
+    assert.doesNotMatch(result.render, /<script/)
+    assert.match(
+      result.render,
+      /<div class="codeblock-title">&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/div>/
+    )
+  })
+})
+
 describe('rendering.postProcess: visible callout for a permission-gated tag (OpenProject #2911)', () => {
   test('replaces an <iframe> with a "write:scripts" callout when the actor lacks the permission', async () => {
     const html = '<p>before</p><iframe src="https://example.com"></iframe><p>after</p>'
@@ -539,5 +692,133 @@ describe('rendering.postProcess: site-configured allowedUrlSchemes (OpenProject 
 
     assert.doesNotMatch(result.render, /href="discord:/)
     assert.match(result.render, /href="https:\/\/example\.com"/)
+  })
+})
+
+describe('rendering.postProcess: a block-tab with a header lists in the table of contents (OpenProject #3584)', () => {
+  const TAB_BLOCKS: BlockDefinition[] = [
+    {
+      block: 'tabs',
+      name: 'Tabs',
+      description: 'A set of tabs.',
+      icon: 'layout-navbar',
+      props: []
+    },
+    {
+      block: 'tab',
+      name: 'Tab',
+      description: 'One panel of a set of tabs.',
+      icon: 'layout-navbar',
+      isChild: true,
+      props: [
+        { name: 'label', type: 'string' },
+        { name: 'icon', type: 'string' },
+        { name: 'header', type: 'string' }
+      ]
+    }
+  ]
+  const permissions = { scripts: false, styles: false }
+  const definitions = CARDINAL.models.blocks.definitions as BlockDefinition[]
+
+  before(() => {
+    definitions.push(...TAB_BLOCKS)
+    enabledBlocks = new Set(['tabs'])
+  })
+  after(() => {
+    for (const block of TAB_BLOCKS) {
+      definitions.splice(definitions.indexOf(block), 1)
+    }
+    enabledBlocks = new Set()
+  })
+
+  test('a header="2" tab is a level-2 entry carrying its label, with the id on the element', async () => {
+    const html =
+      '<block-tabs><block-tab label="Install" header="2"><p>Steps</p></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, permissions)
+
+    assert.deepEqual(result.toc, [{ key: '#install', label: 'Install', level: 2, children: [] }])
+    assert.match(result.render, /<block-tab [^>]*\bid="install"/)
+  })
+
+  test('a heading inside the panel nests under its tab, in document order', async () => {
+    const html =
+      '<h1>Guide</h1>' +
+      '<block-tabs><block-tab label="Install" header="2"><h3>Linux</h3></block-tab>' +
+      '<block-tab label="Configure" header="2"><h3>Files</h3></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, permissions)
+
+    assert.deepEqual(result.toc, [
+      {
+        key: '#guide',
+        label: 'Guide',
+        level: 1,
+        children: [
+          {
+            key: '#install',
+            label: 'Install',
+            level: 2,
+            children: [{ key: '#linux', label: 'Linux', level: 3, children: [] }]
+          },
+          {
+            key: '#configure',
+            label: 'Configure',
+            level: 2,
+            children: [{ key: '#files', label: 'Files', level: 3, children: [] }]
+          }
+        ]
+      }
+    ])
+  })
+
+  for (const header of ['0', '7', '2px', '', ' 2', '02']) {
+    test(`header="${header}" leaves an ordinary tab: no entry, no id`, async () => {
+      const html = `<block-tabs><block-tab label="Plain" header="${header}"><p>x</p></block-tab></block-tabs>`
+
+      const result = await rendering.postProcess('site-1', html, permissions)
+
+      assert.deepEqual(result.toc, [])
+      assert.doesNotMatch(result.render, /<block-tab [^>]*\bid=/)
+    })
+  }
+
+  test('a tab without a header, or with an empty label, is left alone', async () => {
+    const html =
+      '<block-tabs><block-tab label="No header"><p>x</p></block-tab>' +
+      '<block-tab label="  " header="2"><p>y</p></block-tab>' +
+      '<block-tab header="2"><p>z</p></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, permissions)
+
+    assert.deepEqual(result.toc, [])
+    assert.doesNotMatch(result.render, /<block-tab [^>]*\bid=/)
+  })
+
+  test('two tabs and a heading sharing one slug get -N suffixes, each on its own element', async () => {
+    const html =
+      '<h2>Setup</h2>' +
+      '<block-tabs><block-tab label="Setup" header="2"><p>a</p></block-tab>' +
+      '<block-tab label="Setup" header="3"><p>b</p></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, permissions)
+
+    assert.deepEqual(
+      result.toc.map((node) => [node.key, node.children.map((child) => child.key)]),
+      [
+        ['#setup', []],
+        ['#setup-1', ['#setup-2']]
+      ]
+    )
+    assert.match(result.render, /<block-tab [^>]*\bid="setup-1"/)
+    assert.match(result.render, /<block-tab [^>]*\bid="setup-2"/)
+  })
+
+  test('tabHeadingLevel accepts only a bare digit 1 to 6', () => {
+    assert.equal(tabHeadingLevel('1'), 1)
+    assert.equal(tabHeadingLevel('6'), 6)
+    for (const bad of [undefined, '', '0', '7', '2px', ' 2', '-1', '1.5', 'h2']) {
+      assert.equal(tabHeadingLevel(bad), null, String(bad))
+    }
   })
 })

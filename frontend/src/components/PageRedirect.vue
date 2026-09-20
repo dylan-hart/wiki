@@ -196,7 +196,7 @@ function clear() {
  * composed target above, so an absent prefix names the site's primary locale rather than "unknown".
  */
 function isSelf(target) {
-  const parsed = parseLocalePrefix(target, activeLocaleCodes.value)
+  const parsed = parseLocalePrefix(target, activeLocaleCodes.value, siteStore.locales.aliases)
   const targetLocale = parsed?.locale ?? siteStore.locales.primary
   if (targetLocale !== pageStore.locale) {
     return false

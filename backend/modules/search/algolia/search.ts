@@ -51,14 +51,33 @@ function escapeFilterValue(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 }
 
+function facet(attribute: string, value: string): string {
+  return `${attribute}:"${escapeFilterValue(value)}"`
+}
+
+function anyOf(attribute: string, values: string[]): string {
+  const terms = values.map((value) => facet(attribute, value))
+  return terms.length === 1 ? terms[0]! : `(${terms.join(' OR ')})`
+}
+
 export function buildFilters(params: SearchPagesParams): string {
   const {
     siteId,
-    path = '',
+    path = [],
+    excludePath = [],
     locales = [],
+    excludeLocales = [],
     tags = [],
-    editor = '',
-    publishState = '',
+    tagsMatch = 'all',
+    excludeTags = [],
+    editor = [],
+    excludeEditor = [],
+    publishState = [],
+    excludePublishState = [],
+    creatorId = [],
+    excludeCreatorId = [],
+    authorId = [],
+    excludeAuthorId = [],
     publicOnly = false,
     includeDrafts = false
   } = params
@@ -74,24 +93,44 @@ export function buildFilters(params: SearchPagesParams): string {
     clauses.push('NOT publishState:"draft"')
   }
   // -> Additional to the branch above, not a replacement for it: both are `AND`ed.
-  if (publishState) {
-    clauses.push(`publishState:"${escapeFilterValue(publishState)}"`)
+  if (publishState.length > 0) {
+    clauses.push(anyOf('publishState', publishState))
   }
-  if (path) {
-    clauses.push(`pathAncestors:"${escapeFilterValue(path)}"`)
+  if (path.length > 0) {
+    clauses.push(anyOf('pathAncestors', path))
   }
   if (locales.length > 0) {
-    clauses.push(
-      `(${locales.map((locale) => `locale:"${escapeFilterValue(locale)}"`).join(' OR ')})`
-    )
+    clauses.push(anyOf('locale', locales))
   }
-  // -> `AND`ed, not an OR group: every named tag must be present, matching `db/search.ts`'s
-  //    `p.tags @> tags` containment check.
-  for (const tag of tags) {
-    clauses.push(`tags:"${escapeFilterValue(tag)}"`)
+  if (tagsMatch === 'any' && tags.length > 0) {
+    clauses.push(anyOf('tags', tags))
+  } else {
+    for (const tag of tags) {
+      clauses.push(facet('tags', tag))
+    }
   }
-  if (editor) {
-    clauses.push(`editor:"${escapeFilterValue(editor)}"`)
+  if (editor.length > 0) {
+    clauses.push(anyOf('editor', editor))
+  }
+  if (creatorId.length > 0) {
+    clauses.push(anyOf('creatorId', creatorId))
+  }
+  if (authorId.length > 0) {
+    clauses.push(anyOf('authorId', authorId))
+  }
+  const excluded: [string, string[]][] = [
+    ['publishState', excludePublishState],
+    ['pathAncestors', excludePath],
+    ['locale', excludeLocales],
+    ['tags', excludeTags],
+    ['editor', excludeEditor],
+    ['creatorId', excludeCreatorId],
+    ['authorId', excludeAuthorId]
+  ]
+  for (const [attribute, values] of excluded) {
+    for (const value of values) {
+      clauses.push(`NOT ${facet(attribute, value)}`)
+    }
   }
 
   return clauses.join(' AND ')
@@ -173,6 +212,8 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
           'locale',
           'editor',
           'publishState',
+          'creatorId',
+          'authorId',
           'isSearchable',
           'pathAncestors',
           'siteId'

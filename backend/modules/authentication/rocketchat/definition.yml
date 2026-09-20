@@ -15,33 +15,33 @@ props:
     type: String
     title: Server URL
     hint: This is self-hosted — point it at your own Rocket.Chat workspace's base URL, e.g. https://chat.example.com. No hosted default is offered because there isn't one.
-    icon: internet
+    icon: tabler:world
     order: 1
   clientId:
     type: String
     title: Client ID
     hint: From the OAuth App registered under Administration > OAuth Apps on the Rocket.Chat workspace.
-    icon: key
+    icon: tabler:key
     order: 2
   clientSecret:
     type: String
     title: Client Secret
     hint: From the same OAuth App.
-    icon: password
+    icon: tabler:password
     sensitive: true
     order: 3
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all). Rocket.Chat's `/api/v1/me` reports no group/role claim of its own, so leave this off unless a custom OAuth2 proxy in front of Rocket.Chat is adding one.
-    icon: user-groups
+    icon: tabler:users
     default: false
     order: 4
   groupsClaim:
     type: String
     title: Groups Claim
     hint: Which field of the user info response carries the user's group/role memberships.
-    icon: user-groups
+    icon: tabler:users
     default: 'groups'
     order: 5
     if:
@@ -50,12 +50,12 @@ props:
     type: Boolean
     title: Accept Unverified Addresses
     hint: Off by default. A Rocket.Chat account whose address is unverified proves nothing about the mailbox, and an account here is matched on the address.
-    icon: received
+    icon: tabler:mail-check
     default: false
     order: 6
 refs:
   callbackUrl:
     title: OAuth2 Redirect URL
     hint: Add this to the OAuth App's Redirect URI.
-    icon: back
+    icon: tabler:arrow-back
     value: '{host}/_api/auth/{id}/callback'

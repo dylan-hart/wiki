@@ -299,6 +299,9 @@ async function routes(app: FastifyInstance) {
               latestDate: {
                 type: 'string',
                 format: 'date-time'
+              },
+              offline: {
+                type: 'boolean'
               }
             }
           },
@@ -318,7 +321,8 @@ async function routes(app: FastifyInstance) {
       return {
         current: CARDINAL.version,
         latest: CARDINAL.config.update.version,
-        latestDate: CARDINAL.config.update.versionDate
+        latestDate: CARDINAL.config.update.versionDate,
+        offline: CARDINAL.config.offline === true
       }
     }
   )

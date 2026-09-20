@@ -27,7 +27,7 @@
       class="mt-4"
       v-if="props.edit"
       v-model="pageStore.tags"
-      :options="state.tags"
+      :options="sortedTags"
       dense
       options-dense
       use-input
@@ -42,7 +42,7 @@
 </template>
 
 <script setup>
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -72,6 +72,8 @@ const state = reactive({
   tags: [],
   loading: false
 })
+
+const sortedTags = computed(() => [...state.tags].sort((a, b) => a.localeCompare(b)))
 
 pageStore.$subscribe(() => {
   if (props.edit) {

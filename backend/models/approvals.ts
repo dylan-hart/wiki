@@ -7,7 +7,7 @@ import {
   pages as pagesTable,
   users as usersTable
 } from '../db/schema.ts'
-import { actorFrom } from '../helpers/pageAccess.ts'
+import { actorFrom, mayReadSourceAs } from '../helpers/pageAccess.ts'
 import type { AccessActor } from './groups.ts'
 import { hasPermission } from './pages.ts'
 import type { ApprovalPageMatch, ApprovalPageRef, ApprovalRule } from './approvalRules.ts'
@@ -609,9 +609,8 @@ class Approvals {
       return null
     }
 
-    const maySeeSource = CARDINAL.models.groups.checkAccess(actor, 'read:source', {
+    const maySeeSource = mayReadSourceAs(actor, siteId, {
       path: detail.pagePath,
-      siteId,
       locale: detail.pageLocale,
       tags: detail.pageTags ?? [],
       classification: detail.pageClassification ?? null

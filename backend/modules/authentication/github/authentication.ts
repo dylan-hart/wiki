@@ -1,6 +1,8 @@
 import { splitDisplayName } from '../../../helpers/personName.ts'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
+const MAX_TEAM_PAGES = 50
+
 /**
  * GitHub speaks OAuth 2.0, not OpenID Connect: there is no ID token and so nothing to verify
  * signatures on — the access token is spent against the API, which answers who it belongs to. That
@@ -26,8 +28,8 @@ export default class GitHubAuthentication {
       : { web: 'https://github.com', api: 'https://api.github.com' }
   }
 
-  private async api(path: string, accessToken: string): Promise<any> {
-    const resp = await fetch(`${this.hosts.api}${path}`, {
+  private async apiRequest(url: string, accessToken: string): Promise<Response> {
+    const resp = await fetch(url, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/vnd.github+json',
@@ -38,7 +40,42 @@ export default class GitHubAuthentication {
     if (!resp.ok) {
       throw new Error(`ERR_PROVIDER_REQUEST_FAILED`)
     }
-    return resp.json()
+    return resp
+  }
+
+  private async api(path: string, accessToken: string): Promise<any> {
+    return (await this.apiRequest(`${this.hosts.api}${path}`, accessToken)).json()
+  }
+
+  private async teams(accessToken: string): Promise<string[]> {
+    const only = (this.conf.allowedOrganization || '').trim().toLowerCase()
+    const names: string[] = []
+    let next: string | null = `${this.hosts.api}/user/teams?per_page=100`
+    for (let page = 0; next; page++) {
+      if (page >= MAX_TEAM_PAGES) {
+        throw new Error('ERR_PROVIDER_REQUEST_FAILED')
+      }
+      const resp = await this.apiRequest(next, accessToken)
+      const entries = await resp.json()
+      if (!Array.isArray(entries)) {
+        throw new Error('ERR_PROVIDER_REQUEST_FAILED')
+      }
+      for (const entry of entries) {
+        const org = entry?.organization?.login
+        if (typeof org !== 'string' || typeof entry?.slug !== 'string') {
+          continue
+        }
+        if (only && org.toLowerCase() !== only) {
+          continue
+        }
+        names.push(`${org}/${entry.slug}`)
+      }
+      next = /<([^>]+)>\s*;\s*rel="next"/.exec(resp.headers.get('link') || '')?.[1] ?? null
+      if (next && !next.startsWith(`${this.hosts.api}/`)) {
+        throw new Error('ERR_PROVIDER_REQUEST_FAILED')
+      }
+    }
+    return names
   }
 
   async authorizationUrl({ redirectUri, state }: AuthFlow): Promise<string> {
@@ -54,7 +91,9 @@ export default class GitHubAuthentication {
     */
     url.searchParams.set(
       'scope',
-      this.conf.allowedOrganization ? 'read:user user:email read:org' : 'read:user user:email'
+      this.conf.allowedOrganization || this.conf.mapGroups
+        ? 'read:user user:email read:org'
+        : 'read:user user:email'
     )
     url.searchParams.set('state', state)
     return url.toString()
@@ -125,6 +164,7 @@ export default class GitHubAuthentication {
       which therefore lands whole in `firstName` with no surname fabricated for it.
     */
     const name = account.name || account.login
+    const groups = this.conf.mapGroups ? await this.teams(token.access_token) : undefined
     return {
       id: String(account.id),
       email,
@@ -133,7 +173,8 @@ export default class GitHubAuthentication {
       // -> An absent `avatar_url` means "did not say": the key is left off rather than guessed at.
       ...(typeof account.avatar_url === 'string' && account.avatar_url.trim()
         ? { picture: account.avatar_url }
-        : {})
+        : {}),
+      ...(groups ? { groups } : {})
     }
   }
 }

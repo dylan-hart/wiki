@@ -20,21 +20,21 @@ props:
     type: String
     title: LDAP URL
     hint: (e.g. ldap://serverhost:389 or ldaps://serverhost:636)
-    icon: internet
+    icon: tabler:world
     default: 'ldap://serverhost:389'
     order: 1
   bindDn:
     type: String
     title: Admin Bind DN
     hint: The distinguished name (DN) of the account used to search the directory.
-    icon: key
+    icon: tabler:key
     default: ''
     order: 2
   bindCredentials:
     type: String
     title: Admin Bind Credentials
     hint: The password of the account used above for binding.
-    icon: password
+    icon: tabler:password
     sensitive: true
     default: ''
     order: 3
@@ -42,28 +42,28 @@ props:
     type: String
     title: Search Base
     hint: The base DN from which to search for users.
-    icon: dns
+    icon: tabler:world-www
     default: 'o=users,o=example.com'
     order: 4
   searchFilter:
     type: String
     title: Search Filter
     hint: The query used to match a username. `{{username}}` must be present and is interpolated with what the person typed when signing in.
-    icon: search
+    icon: tabler:search
     default: '(uid={{username}})'
     order: 5
   tlsEnabled:
     type: Boolean
     title: Use TLS
     hint: Connect over TLS. Required for `ldaps://` URLs; optional for a StartTLS-capable `ldap://` server.
-    icon: secure
+    icon: tabler:lock-check
     default: false
     order: 6
   verifyTLSCertificate:
     type: Boolean
     title: Verify TLS Certificate
     hint: Turn off only for a server whose certificate cannot be validated against a trusted CA — doing so accepts any certificate the server presents.
-    icon: security-ssl
+    icon: tabler:certificate
     default: true
     order: 7
     if:
@@ -72,7 +72,7 @@ props:
     type: String
     title: TLS Certificate Path
     hint: (optional) Absolute path on the server to a CA certificate to trust, in addition to the system's own trust store.
-    icon: symlink-directory
+    icon: tabler:folder
     default: ''
     order: 8
     if:
@@ -81,42 +81,42 @@ props:
     type: String
     title: Unique ID Field Mapping
     hint: The attribute holding the user's unique identifier. Usually "uid" or "sAMAccountName".
-    icon: fingerprint-scan
+    icon: tabler:fingerprint
     default: 'uid'
     order: 20
   mappingEmail:
     type: String
     title: Email Field Mapping
     hint: The attribute holding the user's email address. Usually "mail".
-    icon: envelope
+    icon: tabler:mail
     default: 'mail'
     order: 21
   mappingDisplayName:
     type: String
     title: Display Name Field Mapping
     hint: The attribute holding the user's display name. Usually "displayName" or "cn".
-    icon: person
+    icon: tabler:user
     default: 'displayName'
     order: 22
   mappingPicture:
     type: String
     title: Picture Field Mapping
     hint: (optional) The attribute holding a URL to the user's avatar/picture. Leave empty to not sync an avatar from this directory. A manually-uploaded avatar is never overwritten.
-    icon: image
+    icon: tabler:photo
     default: ''
     order: 23
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the directory groups reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all).
-    icon: user-groups
+    icon: tabler:users
     default: false
     order: 24
   groupSearchBase:
     type: String
     title: Group Search Base
     hint: The base DN from which to search for groups.
-    icon: dns
+    icon: tabler:world-www
     default: ''
     order: 25
     if:
@@ -125,7 +125,7 @@ props:
     type: String
     title: Group Search Filter
     hint: The query used to match a user's groups. `{{dn}}` is interpolated with the value named by Group DN Property below. `(member={{dn}})` works for most directories.
-    icon: search
+    icon: tabler:search
     default: '(member={{dn}})'
     order: 26
     if:
@@ -134,7 +134,7 @@ props:
     type: String
     title: Group Search Scope
     hint: How far from the Group Search Base to search. Subtree searches every level beneath it; Base searches only the base DN itself; One Level searches the base DN and the level directly beneath it.
-    icon: filtration
+    icon: tabler:filter
     enum:
       - sub|Subtree
       - base|Base
@@ -147,7 +147,7 @@ props:
     type: String
     title: Group DN Property
     hint: The user attribute whose value fills in `{{dn}}` above. "dn" (the default) uses the user entry's own distinguished name.
-    icon: rename
+    icon: tabler:tag
     default: 'dn'
     order: 28
     if:
@@ -156,7 +156,7 @@ props:
     type: String
     title: Group Name Field
     hint: The attribute on a matched group entry holding its name, matched against a wiki group of the same name. Usually "cn".
-    icon: rename
+    icon: tabler:tag
     default: 'cn'
     order: 29
     if:

@@ -7,6 +7,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import PageTags from './PageTags.vue'
 import { usePageStore } from '@/stores/page'
+import { useSiteStore } from '@/stores/site'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
@@ -127,5 +128,61 @@ describe('PageTags.vue Cobalt typography (OpenProject #2979)', () => {
     expect(getComputedStyle(cobaltHash).display).toBe('none')
 
     cobalt.wrapper.unmount()
+  })
+})
+
+describe('PageTags.vue tag suggestions', () => {
+  async function mountEditWithSiteTags(siteTags) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.tags = siteTags.map((tag, i) => ({ tag, usageCount: 100 - i }))
+    siteStore.tagsLoaded = true
+    const router = await createTestRouter(['/', '/_tags'])
+    const wrapper = mount(PageTags, {
+      props: { edit: true },
+      global: { plugins: [router, createTestI18n()] }
+    })
+    await flushPromises()
+    return { wrapper, siteStore }
+  }
+
+  it('offers suggestions alphabetically rather than in usage order', async () => {
+    const { wrapper } = await mountEditWithSiteTags(['zebra', 'apple', 'mango'])
+
+    expect(wrapper.findComponent({ name: 'WSelect' }).props('options')).toEqual([
+      'apple',
+      'mango',
+      'zebra'
+    ])
+  })
+
+  it('places non-ASCII tags by locale order rather than after every ASCII tag', async () => {
+    const { wrapper } = await mountEditWithSiteTags(['zoo', 'écrit', 'ecole', 'apple'])
+
+    expect(wrapper.findComponent({ name: 'WSelect' }).props('options')).toEqual([
+      'apple',
+      'ecole',
+      'écrit',
+      'zoo'
+    ])
+  })
+
+  it('leaves the site store in its most-used-first order', async () => {
+    const { siteStore } = await mountEditWithSiteTags(['zebra', 'apple', 'mango'])
+
+    expect(siteStore.tags.map((t) => t.tag)).toEqual(['zebra', 'apple', 'mango'])
+  })
+
+  it('slots a newly created tag into its alphabetical position', async () => {
+    const { wrapper } = await mountEditWithSiteTags(['zebra', 'apple'])
+
+    wrapper.vm.createTag('mango')
+    await flushPromises()
+
+    expect(wrapper.findComponent({ name: 'WSelect' }).props('options')).toEqual([
+      'apple',
+      'mango',
+      'zebra'
+    ])
   })
 })

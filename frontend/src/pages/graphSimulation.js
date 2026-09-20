@@ -3,7 +3,15 @@ import { select } from 'd3-selection'
 import { zoom as d3zoom } from 'd3-zoom'
 
 import { nodeId } from './graphFilters.js'
-import { clusterForce, parentFanForce } from './graphForces.js'
+import {
+  LINK_CHILD_COUNT_CAP,
+  LINK_CHILD_COUNT_SCALE,
+  childCountTermFor,
+  clusterForce,
+  parentFanForce
+} from './graphForces.js'
+
+export { LINK_CHILD_COUNT_CAP, LINK_CHILD_COUNT_SCALE, childCountTermFor }
 
 /**
  * Everything the page decides -- how a node is grouped, how large it draws, what colour its group
@@ -12,10 +20,24 @@ import { clusterForce, parentFanForce } from './graphForces.js'
 
 const LINK_BASE_DISTANCE = 40
 
+export function childCountsFor(edges) {
+  const counts = new Map()
+  for (const edge of edges) {
+    const key = typeof edge.source === 'string' ? edge.source : nodeId(edge.source)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return counts
+}
+
 /** Evaluated once at attach time, not per tick -- by then d3-force has resolved
  *  `link.source`/`link.target` from ids to the node objects `collideRadiusFor` needs. */
-export function linkDistanceFor(link, collideRadiusFor) {
-  return LINK_BASE_DISTANCE + collideRadiusFor(link.source) + collideRadiusFor(link.target)
+export function linkDistanceFor(link, collideRadiusFor, childCountFor = () => 0) {
+  return (
+    LINK_BASE_DISTANCE +
+    collideRadiusFor(link.source) +
+    collideRadiusFor(link.target) +
+    childCountTermFor(childCountFor(link.source))
+  )
 }
 
 const CHARGE_BASE_STRENGTH = 30
@@ -32,7 +54,7 @@ export function startSimulation(
   nodes,
   edges,
   { width, height },
-  { groupKeyFor, collideRadiusFor, radiusFor, onTick, clusterLevels = [1] }
+  { groupKeyFor, collideRadiusFor, radiusFor, onTick, clusterLevels = [1], childCountFor = () => 0 }
 ) {
   return forceSimulation(nodes)
     .force(
@@ -43,7 +65,7 @@ export function startSimulation(
         //    collapse them onto whichever node it kept last. `graphFilters.js`'s edge builders key
         //    `source`/`target` on the same `nodeId()`, which keeps every edge resolvable.
         .id((d) => nodeId(d))
-        .distance((link) => linkDistanceFor(link, collideRadiusFor))
+        .distance((link) => linkDistanceFor(link, collideRadiusFor, childCountFor))
     )
     .force(
       'charge',

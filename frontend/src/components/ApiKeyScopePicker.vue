@@ -22,7 +22,7 @@
           <w-icon
             name="tabler:chevron-down"
             size="1em"
-            class="api-key-scope-picker__arrow ml-auto"
+            class="api-key-scope-picker__arrow ms-auto"
             :class="isExpanded(group.verb) ? 'rotate-180' : ''" />
         </button>
       </div>

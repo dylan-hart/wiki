@@ -14,6 +14,7 @@ export const EVICTION_TOKEN = 'token-evict'
 interface HarnessOptions {
   sessionIdleTtlMs: number
   sessionCap: number
+  clock?: { now: () => number }
 }
 
 /**
@@ -21,7 +22,11 @@ interface HarnessOptions {
  * given moment, which a shared store would make order- and timing-dependent. The caller owns
  * `close()`, which shuts the app down and restores the `CARDINAL` global.
  */
-export async function createMcpSessionHarness({ sessionIdleTtlMs, sessionCap }: HarnessOptions) {
+export async function createMcpSessionHarness({
+  sessionIdleTtlMs,
+  sessionCap,
+  clock
+}: HarnessOptions) {
   const wikiHandle = installTestWiki({
     version: '3.0.0-test',
     models: {
@@ -45,7 +50,7 @@ export async function createMcpSessionHarness({ sessionIdleTtlMs, sessionCap }: 
 
   const app = fastify()
   await app.register(fastifySensible)
-  await app.register(httpRoutes, { sessionIdleTtlMs, sessionCap })
+  await app.register(httpRoutes, { sessionIdleTtlMs, sessionCap, clock })
   await app.ready()
 
   function initializeRequest(id: number) {

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { ensureTemporal } from '../test/temporal.ts'
-import { getFileExtension, storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
+import { getFileExtension, isIsoDuration, storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
 import { sites as sitesTable } from '../db/schema.ts'
 import type { StorageTarget } from './storage.ts'
 
@@ -73,12 +73,18 @@ function makeTarget(moduleKey: string): StorageTarget {
     banner: definition.banner,
     vendor: definition.vendor,
     website: definition.website,
-    contentTypes: { activeTypes: [], largeThreshold: '5MB' },
+    contentTypes: {
+      activeTypes: [],
+      supportedTypes: definition.contentTypes.supportedTypes,
+      largeThreshold: '5MB'
+    },
     assetDelivery: {
       isStreamingSupported: false,
       isDirectAccessSupported: false,
+      isReadThroughSupported: false,
       streaming: false,
-      directAccess: false
+      directAccess: false,
+      readThrough: false
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
     sync: {
@@ -171,6 +177,43 @@ test('validateTarget rejects a scheduleOverride that is neither a duration nor a
   assert.match(invalid ?? '', /not a valid ISO-8601 duration or cron expression/)
 })
 
+test('validateTarget rejects a calendar-length or otherwise inexact duration scheduleOverride', async () => {
+  const target = makeTarget('git')
+  for (const scheduleOverride of ['P1Y', 'P1M', 'P1Y2M', 'P1M1D', 'P1W', '-PT5M', 'P1.5D']) {
+    const invalid = await storage.validateTarget(target, {
+      id: target.id,
+      sync: { scheduleOverride }
+    })
+    assert.match(
+      invalid ?? '',
+      /not a valid ISO-8601 duration or cron expression/,
+      scheduleOverride
+    )
+  }
+})
+
+test('validateTarget still accepts every exact-length duration shape', async () => {
+  const target = makeTarget('git')
+  for (const scheduleOverride of ['PT5M', 'P1D', 'P1DT12H', 'PT0.5S', 'PT1H30M']) {
+    const invalid = await storage.validateTarget(target, {
+      id: target.id,
+      sync: { scheduleOverride }
+    })
+    assert.equal(invalid, null, scheduleOverride)
+  }
+})
+
+test('isIsoDuration accepts only durations with an exact length', () => {
+  assert.equal(isIsoDuration('PT5M'), true)
+  assert.equal(isIsoDuration('P1DT12H'), true)
+  assert.equal(isIsoDuration('P1M'), false)
+  assert.equal(isIsoDuration('P1Y'), false)
+  assert.equal(isIsoDuration('P1W'), false)
+  assert.equal(isIsoDuration('P'), false)
+  assert.equal(isIsoDuration('PT'), false)
+  assert.equal(isIsoDuration('30 9 * * 1'), false)
+})
+
 test('validateTarget rejects enabling the disk target with a relative path', async () => {
   const target = makeTarget('disk')
   const invalid = await storage.validateTarget(target, {
@@ -259,8 +302,7 @@ function makeRow(
     versioning: { enabled: false },
     syncMode: overrides.syncMode ?? storage.getDefinition(moduleKey)!.defaultMode,
     scheduleOverride: null,
-    config: {},
-    state: {}
+    config: {}
   }
 }
 
@@ -482,6 +524,60 @@ test('getSiteTargets reports supportsContentSync per module', async () => {
   // -> git implements the content handlers; disk implements none of them
   assert.equal(git?.sync.supportsContentSync, true)
   assert.equal(disk?.sync.supportsContentSync, false)
+})
+
+test('the blob modules declare no supported page type; the others keep every type', () => {
+  for (const key of ['s3', 'gcs', 'azure']) {
+    assert.deepEqual(
+      storage.getDefinition(key)!.contentTypes.supportedTypes,
+      ['images', 'documents', 'others', 'large'],
+      key
+    )
+  }
+  for (const key of ['db', 'disk', 'sftp', 'git']) {
+    assert.ok(storage.getDefinition(key)!.contentTypes.supportedTypes.includes('pages'), key)
+  }
+})
+
+test('a module with asset write handlers but no page handlers never lists pages as supported', async () => {
+  for (const definition of storage.definitions) {
+    const mod = await storage.ensureModule(definition.key)
+    if (!mod) {
+      continue
+    }
+    const handlesAssets = typeof mod.assetUploaded === 'function'
+    const handlesPages = typeof mod.created === 'function' || typeof mod.updated === 'function'
+    if (handlesAssets && !handlesPages) {
+      assert.equal(
+        definition.contentTypes.supportedTypes.includes('pages'),
+        false,
+        `${definition.key} claims pages but only implements asset handlers`
+      )
+    }
+  }
+})
+
+test('getSiteTargets exposes supportedTypes and drops an unsupported stored type', async () => {
+  fakeDispatchDeps([makeRow('s3', { activeTypes: ['pages', 'images'] })])
+  const [s3] = await storage.getSiteTargets('site-1')
+  assert.deepEqual(s3.contentTypes.supportedTypes, ['images', 'documents', 'others', 'large'])
+  assert.deepEqual(s3.contentTypes.activeTypes, ['images'])
+})
+
+test('dispatch does not queue a page job for an object-store target holding a stale pages type', async () => {
+  const jobs = fakeDispatchDeps([makeRow('s3', { activeTypes: ['pages', 'images'] })])
+  const queued = await storage.dispatch('page:create', { id: 'p1', siteId: 'site-1' })
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 0)
+})
+
+test('validateTarget refuses a content type the module does not support', async () => {
+  const target = makeTarget('s3')
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    contentTypes: { activeTypes: ['pages'] }
+  })
+  assert.match(invalid ?? '', /does not store "pages"/)
 })
 
 function makeTickRow(
@@ -869,8 +965,7 @@ function makeDiskRow(
     versioning: { enabled: false },
     syncMode: storage.getDefinition('disk')!.defaultMode,
     scheduleOverride: null,
-    config: { path: '/tmp/whatever', createDailyBackups: overrides.createDailyBackups ?? false },
-    state: {}
+    config: { path: '/tmp/whatever', createDailyBackups: overrides.createDailyBackups ?? false }
   }
 }
 
@@ -1001,8 +1096,7 @@ test('runDailyBackups skips a module with no dailyBackup handler (e.g. db)', asy
           scheduleOverride: null,
           // -> `db` has no `createDailyBackups` prop at all, but even if a config blob somehow had
           //    one set, the db module declares no `dailyBackup` handler -- nothing to call
-          config: { createDailyBackups: true },
-          state: {}
+          config: { createDailyBackups: true }
         }
       ]
     ]
@@ -1033,8 +1127,7 @@ test('runDailyBackups skips a git target — the module declares no dailyBackup 
           versioning: { enabled: true },
           syncMode: storage.getDefinition('git')!.defaultMode,
           scheduleOverride: null,
-          config: {},
-          state: {}
+          config: {}
         }
       ]
     ]
@@ -1077,4 +1170,105 @@ test('runDailyBackups logs and continues past a target whose dailyBackup throws,
   assert.equal(warnings.length, 1)
   assert.equal(warnings[0]!.fields?.site, 'site-1')
   assert.match(warnings[0]!.fields?.error?.message ?? '', /disk full/)
+})
+
+describe('storage / assetDelivery.readThrough', () => {
+  const BLOB_MODULES = ['s3', 'azure', 'gcs']
+  const NON_BLOB_MODULES = ['db', 'disk', 'sftp', 'git']
+
+  function fakeUpdateDb() {
+    const written: Record<string, any>[] = []
+    global.CARDINAL = {
+      ...global.CARDINAL,
+      db: {
+        update: () => ({
+          set: (values: Record<string, any>) => {
+            written.push(values)
+            return { where: () => Promise.resolve({ rowCount: 1 }) }
+          }
+        })
+      }
+    } as unknown as CardinalGlobal
+    return written
+  }
+
+  test('only the blob modules declare read-through support, and none of them default it on', () => {
+    for (const key of BLOB_MODULES) {
+      const delivery = storage.getDefinition(key)!.assetDelivery
+      assert.equal(delivery.isReadThroughSupported, true, key)
+      assert.equal(delivery.defaultReadThroughEnabled, false, key)
+    }
+    for (const key of NON_BLOB_MODULES) {
+      assert.notEqual(storage.getDefinition(key)!.assetDelivery.isReadThroughSupported, true, key)
+    }
+  })
+
+  test('getSiteTargets reports support from the module and reads a stored readThrough back', async () => {
+    fakeDispatchDeps([
+      {
+        ...makeRow('s3'),
+        assetDelivery: { streaming: false, directAccess: false, readThrough: true }
+      },
+      makeRow('disk')
+    ])
+    const targets = await storage.getSiteTargets('site-1')
+    const s3 = targets.find((t) => t.module === 's3')!
+    assert.equal(s3.assetDelivery.isReadThroughSupported, true)
+    assert.equal(s3.assetDelivery.readThrough, true)
+    const disk = targets.find((t) => t.module === 'disk')!
+    assert.equal(disk.assetDelivery.isReadThroughSupported, false)
+    assert.equal(disk.assetDelivery.readThrough, false)
+  })
+
+  test('a row stored before the setting existed reads back as off', async () => {
+    fakeDispatchDeps([makeRow('s3')])
+    const [s3] = await storage.getSiteTargets('site-1')
+    assert.equal(s3!.assetDelivery.readThrough, false)
+  })
+
+  test('updateTarget stores readThrough on for a module that supports it', async () => {
+    const written = fakeUpdateDb()
+    const target = makeTarget('s3')
+    const changed = await storage.updateTarget('site-1', target, {
+      id: target.id,
+      assetDelivery: { readThrough: true }
+    })
+    assert.equal(changed, true)
+    assert.equal(written[0]!.assetDelivery.readThrough, true)
+  })
+
+  test('updateTarget keeps the current readThrough when the patch omits it', async () => {
+    const written = fakeUpdateDb()
+    const target = makeTarget('s3')
+    target.assetDelivery.readThrough = true
+    await storage.updateTarget('site-1', target, {
+      id: target.id,
+      assetDelivery: { streaming: false }
+    })
+    assert.equal(written[0]!.assetDelivery.readThrough, true)
+  })
+
+  test('updateTarget lets a supporting module turn readThrough off again', async () => {
+    const written = fakeUpdateDb()
+    const target = makeTarget('s3')
+    target.assetDelivery.readThrough = true
+    await storage.updateTarget('site-1', target, {
+      id: target.id,
+      assetDelivery: { readThrough: false }
+    })
+    assert.equal(written[0]!.assetDelivery.readThrough, false)
+  })
+
+  for (const key of NON_BLOB_MODULES) {
+    test(`updateTarget stores readThrough as off for ${key}, which does not support it`, async () => {
+      const written = fakeUpdateDb()
+      const target = makeTarget(key)
+      target.assetDelivery.readThrough = true
+      await storage.updateTarget('site-1', target, {
+        id: target.id,
+        assetDelivery: { readThrough: true }
+      })
+      assert.equal(written[0]!.assetDelivery.readThrough, false)
+    })
+  }
 })

@@ -168,6 +168,7 @@ class Sites extends ClusterReloaded {
             company: '',
             contentLicense: '',
             footerExtra: '',
+            banner: { isEnabled: false, title: '', content: '' },
             pageExtensions: ['md', 'html', 'txt'],
             // -> Additive to `helpers/htmlSanitizePolicy.ts`'s hardcoded `ALLOWED_SCHEMES`, so an
             //    empty list permits exactly those. `javascript:`/`vbscript:`/`data:`-on-non-img stay
@@ -313,7 +314,9 @@ class Sites extends ClusterReloaded {
         current[0].config as Record<string, any>,
         patch.config,
         (_targetValue, sourceValue, key) =>
-          Array.isArray(sourceValue) || key === 'dictOverrides' ? sourceValue : undefined
+          Array.isArray(sourceValue) || key === 'dictOverrides' || key === 'aliases'
+            ? sourceValue
+            : undefined
       )
     }
     if (Object.keys(values).length < 1) {
@@ -481,6 +484,7 @@ class Sites extends ClusterReloaded {
         company: '',
         contentLicense: '',
         footerExtra: '',
+        banner: { isEnabled: false, title: '', content: '' },
         pageExtensions: ['md', 'html', 'txt'],
         allowedUrlSchemes: [],
         discoverable: false,

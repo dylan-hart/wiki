@@ -1010,6 +1010,197 @@ describe('MarkdownRenderer -- codeblock class attribute (OpenProject #946)', () 
   })
 })
 
+describe('MarkdownRenderer -- fence info-string attributes (OpenProject #3578)', () => {
+  const render = (info, body = 'a\nb\nc\nd\ne\nf\ng\nh\ni\nj') =>
+    new MarkdownRenderer({}).render('```' + info + '\n' + body + '\n```')
+  const highlightedRows = (html) => {
+    const rows = html.match(
+      /<span aria-hidden="true" class="line-numbers-rows">(.*?)<\/span><\/code>/s
+    )
+    if (!rows) {
+      return []
+    }
+    return [...rows[1].matchAll(/<span( class="is-highlighted")?><\/span>/g)]
+      .map((m, i) => (m[1] ? i + 1 : null))
+      .filter(Boolean)
+  }
+
+  it('renders a fence with no attributes exactly as before', () => {
+    const html = render('js', 'const x = 1\nconst y = 2')
+    expect(html).toBe(
+      '<pre class="codeblock hljs line-numbers"><code class="language-js"><span class="hljs-keyword">const</span> x = <span class="hljs-number">1</span>\n<span class="hljs-keyword">const</span> y = <span class="hljs-number">2</span>\n<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span></span></code></pre>\n'
+    )
+    expect(html).not.toContain('data-line-start')
+    expect(html).not.toContain('is-highlighted')
+  })
+
+  it('renders a fence with extra words but no key=value exactly as before', () => {
+    const plain = render('js', 'a\nb')
+    expect(render('js {1,3} some words', 'a\nb')).toBe(plain)
+    expect(render('js title', 'a\nb')).toBe(plain)
+  })
+
+  it('emits data-line-start, never an inline style, for linesStart', () => {
+    const html = render('yaml linesStart="30"')
+    expect(html).toContain('<pre class="codeblock hljs line-numbers" data-line-start="30">')
+    expect(html).not.toContain('style=')
+    expect(html).not.toContain('--code-line-start')
+  })
+
+  it('omits data-line-start at the default of 1 and for junk values', () => {
+    for (const value of ['1', 'abc', '-3', '2.5', '', '99999999999999999999']) {
+      expect(render(`yaml linesStart="${value}"`)).not.toContain('data-line-start')
+    }
+    expect(render('yaml linesStart=0')).toContain('data-line-start="0"')
+  })
+
+  it('accepts bare, double-quoted and single-quoted values', () => {
+    expect(render('yaml linesStart=5')).toContain('data-line-start="5"')
+    expect(render('yaml linesStart="5"')).toContain('data-line-start="5"')
+    expect(render("yaml linesStart='5'")).toContain('data-line-start="5"')
+  })
+
+  it('folds attribute keys to lower case', () => {
+    expect(render('yaml LINESSTART=5')).toContain('data-line-start="5"')
+    expect(highlightedRows(render('yaml LINESHIGHLIGHT=2'))).toEqual([2])
+  })
+
+  it('marks the rows in linesHighlight, singles and ranges', () => {
+    expect(highlightedRows(render('yaml linesHighlight="1,3,5-7"'))).toEqual([1, 3, 5, 6, 7])
+  })
+
+  it('reads a backwards range as the range it means', () => {
+    expect(highlightedRows(render('yaml linesHighlight="7-5"'))).toEqual([5, 6, 7])
+  })
+
+  it('drops malformed highlight entries instead of failing', () => {
+    expect(highlightedRows(render('yaml linesHighlight="2,x,3-,-4,a-b,,5"'))).toEqual([2, 5])
+  })
+
+  it('does not expand a huge range', () => {
+    expect(highlightedRows(render('yaml linesHighlight="1-40000000"'))).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+    ])
+  })
+
+  it('compares highlights against the renumbered gutter', () => {
+    expect(highlightedRows(render('yaml linesStart="30" linesHighlight="31-32"'))).toEqual([2, 3])
+  })
+
+  it('draws a row layer for a highlighted single-line block, but not the gutter class', () => {
+    const html = render('yaml linesHighlight="1"', 'only: one')
+    expect(html).toContain('<span class="is-highlighted"></span>')
+    expect(html).toContain('class="codeblock hljs"')
+  })
+
+  it('keeps an escaped quote inside a quoted value from ending it', () => {
+    const html = render('yaml title="Say \\"hi\\"" linesStart=4')
+    expect(html).toContain('data-line-start="4"')
+  })
+
+  it('never lets an attribute value into the markup', () => {
+    const html = render('yaml linesStart="3\\" onclick=\\"x" linesHighlight="1\\"><img src=x>"')
+    expect(html).not.toContain('onclick')
+    expect(html).not.toContain('<img')
+  })
+
+  it('still escapes the language name', () => {
+    const html = render('"><img linesStart=3')
+    expect(html).not.toContain('<img')
+  })
+
+  it('does not throw on an unknown language that carries attributes', () => {
+    const html = render('nosuchlang linesStart=3 linesHighlight=1')
+    expect(html).toContain('class="language-nosuchlang"')
+    expect(html).toContain('data-line-start="3"')
+  })
+
+  it.each(['drawio', 'kroki', 'mermaid', 'plantuml'])(
+    'ignores every attribute on a %s diagram fence',
+    (lang) => {
+      const html = render(`${lang} title="T" linesStart=5 linesHighlight=1`, 'A --> B')
+      expect(html).toBe(`<pre class="codeblock-${lang}"><code>A --&gt; B\n</code></pre>\n`)
+    }
+  )
+})
+
+describe('MarkdownRenderer -- fence title bar (OpenProject #3583)', () => {
+  const render = (info, body = 'a\nb\nc') =>
+    new MarkdownRenderer({}).render('```' + info + '\n' + body + '\n```')
+  const plain = render('yaml')
+
+  it('wraps the block in a titled hljs container with the bar as a sibling of the pre', () => {
+    const html = render('yaml title="Some title"')
+    expect(html).toMatch(
+      /^<div class="codeblock-titled hljs"><div class="codeblock-title">Some title<\/div><pre class="codeblock hljs line-numbers"><code class="language-yaml">/
+    )
+    expect(html).toMatch(/<\/code><\/pre><\/div>\n$/)
+    expect(html.match(/<pre/g)).toHaveLength(1)
+  })
+
+  it('accepts a bare or single-quoted title', () => {
+    expect(render('yaml title=config.yml')).toContain(
+      '<div class="codeblock-title">config.yml</div>'
+    )
+    expect(render("yaml title='a b'")).toContain('<div class="codeblock-title">a b</div>')
+  })
+
+  it('trims the title', () => {
+    expect(render('yaml title="  padded  "')).toContain('<div class="codeblock-title">padded</div>')
+  })
+
+  it('HTML-escapes the title and renders a script in it inert', () => {
+    const html = render('yaml title="<script>alert(1)</script> & \\"q\\""')
+    expect(html).not.toContain('<script>')
+    expect(html).toContain(
+      '<div class="codeblock-title">&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;q&quot;</div>'
+    )
+  })
+
+  it('renders an empty title exactly as no title', () => {
+    expect(render('yaml title=""')).toBe(plain)
+  })
+
+  it('renders a whitespace-only title exactly as no title', () => {
+    expect(render('yaml title="   "')).toBe(plain)
+    expect(render("yaml title='\t '")).toBe(plain)
+  })
+
+  it('renders a fence without a title with no wrapper', () => {
+    expect(plain).not.toContain('codeblock-titled')
+    expect(plain).not.toContain('codeblock-title')
+  })
+
+  it.each(['drawio', 'kroki', 'mermaid', 'plantuml'])(
+    'never draws a bar on a %s diagram',
+    (lang) => {
+      const html = render(`${lang} title="Ignored"`, 'A --> B')
+      expect(html).not.toContain('Ignored')
+      expect(html).not.toContain('codeblock-title')
+      expect(html).toBe(`<pre class="codeblock-${lang}"><code>A --&gt; B\n</code></pre>\n`)
+    }
+  )
+
+  it('combines with linesHighlight and linesStart on the pre inside the wrapper', () => {
+    const html = render('yaml title="T" linesStart=10 linesHighlight="11"')
+    expect(html).toContain(
+      '<div class="codeblock-titled hljs"><div class="codeblock-title">T</div><pre class="codeblock hljs line-numbers" data-line-start="10">'
+    )
+    expect(html).toContain('<span></span><span class="is-highlighted"></span><span></span>')
+  })
+
+  it('titles a single-line block with no gutter', () => {
+    const html = render('yaml title="One"', 'only: one')
+    expect(html).toContain('<div class="codeblock-title">One</div><pre class="codeblock hljs">')
+  })
+
+  it('titles a block whose language is unknown', () => {
+    const html = render('nosuchlang title="T"')
+    expect(html).toContain('<div class="codeblock-title">T</div>')
+    expect(html).toContain('class="language-nosuchlang"')
+  })
+})
+
 /**
  * `isExternalHref` judges a link's origin against `siteOrigin` when the render context supplies one,
  * rather than only `globalThis.location` -- what lets the headless re-render
@@ -1263,5 +1454,46 @@ describe('sanitizeForPreview', () => {
 
     expect(globalThis.__markdownTestSanitizeForPreviewRan).toBe(false)
     delete globalThis.__markdownTestSanitizeForPreviewRan
+  })
+})
+
+describe('MarkdownRenderer definition lists', () => {
+  it('renders a term with one definition as dl/dt/dd', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('Apple\n: A red fruit')
+
+    expect(html).toContain('<dl>')
+    expect(html).toContain('<dt>Apple</dt>')
+    expect(html).toContain('<dd>')
+    expect(html).toContain('A red fruit')
+    expect(html).toContain('</dl>')
+  })
+
+  it('renders a term with two definitions as one dt followed by two dd', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('Apple\n: A red fruit\n: A technology company')
+
+    expect(html.match(/<dt>/g)).toHaveLength(1)
+    expect(html.match(/<dd>/g)).toHaveLength(2)
+    expect(html).toContain('A red fruit')
+    expect(html).toContain('A technology company')
+  })
+
+  it('renders a multi-paragraph definition as paragraphs inside one dd', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('Apple\n\n: First paragraph\n\n    Second paragraph')
+
+    expect(html.match(/<dd>/g)).toHaveLength(1)
+    expect(html).toMatch(
+      /<dd>\s*<p[^>]*>First paragraph<\/p>\s*<p[^>]*>Second paragraph<\/p>\s*<\/dd>/
+    )
+  })
+
+  it('leaves a plain `a: b` paragraph alone', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('a: b')
+
+    expect(html).toMatch(/<p[^>]*>a: b<\/p>/)
+    expect(html).not.toMatch(/<(dl|dt|dd)[\s>]/)
   })
 })

@@ -71,6 +71,8 @@ const INBOX_LIST_LIMIT = 50
  */
 export const DIGEST_PENDING_LIMIT = 1000
 
+export const UNREAD_COUNT_SCAN_LIMIT = 100
+
 /**
  * The delivery queue behind page watching: one row per watcher per change, `deliveredAt` null until
  * something sends it. Written by the `notifyPageWatchers` job, except for a `deleted` event, where
@@ -272,14 +274,24 @@ class PageWatchEvents {
    * lost `read:pages` on a page sees a badge its own list cannot account for.
    */
   async unreadCount(userId: string, siteId: string): Promise<number> {
-    return CARDINAL.db.$count(
-      pageWatchEventsTable,
-      and(
-        eq(pageWatchEventsTable.userId, userId),
-        eq(pageWatchEventsTable.siteId, siteId),
-        isNull(pageWatchEventsTable.readAt)
+    const rows = await CARDINAL.db
+      .select({
+        pageId: pageWatchEventsTable.pageId,
+        pagePath: pageWatchEventsTable.pagePath,
+        pageLocale: pageWatchEventsTable.pageLocale,
+        siteId: pageWatchEventsTable.siteId
+      })
+      .from(pageWatchEventsTable)
+      .where(
+        and(
+          eq(pageWatchEventsTable.userId, userId),
+          eq(pageWatchEventsTable.siteId, siteId),
+          isNull(pageWatchEventsTable.readAt)
+        )
       )
-    )
+      .orderBy(desc(pageWatchEventsTable.createdAt))
+      .limit(UNREAD_COUNT_SCAN_LIMIT)
+    return (await this.filterReadable(userId, rows)).length
   }
 }
 

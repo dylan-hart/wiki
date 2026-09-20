@@ -1,3 +1,5 @@
+import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks'
+
 export interface MetricsSnapshot {
   activeWorkers: number
   pagesTotal: number
@@ -80,4 +82,147 @@ export function formatPrometheusMetrics(snapshot: MetricsSnapshot): string {
     lines.push(`${name} ${snapshot[key]}`)
   }
   return lines.join('\n') + '\n'
+}
+
+export interface RuntimeSnapshot {
+  residentMemoryBytes: number
+  heapUsedBytes: number
+  heapTotalBytes: number
+  externalMemoryBytes: number
+  uptimeSeconds: number
+  cpuUserSeconds: number
+  cpuSystemSeconds: number
+  eventLoopDelayMinSeconds: number
+  eventLoopDelayMeanSeconds: number
+  eventLoopDelayMaxSeconds: number
+  eventLoopDelayP50Seconds: number
+  eventLoopDelayP99Seconds: number
+}
+
+const EVENT_LOOP_WINDOW_HELP =
+  ' Sampled every 10 ms and includes that sampling interval, over the window since the previous scrape.'
+
+const RUNTIME_METRIC_DEFS: { key: keyof RuntimeSnapshot; name: string; help: string }[] = [
+  {
+    key: 'residentMemoryBytes',
+    name: 'cardinaljs_process_resident_memory_bytes',
+    help: 'Resident set size of the Node process, in bytes.'
+  },
+  {
+    key: 'heapUsedBytes',
+    name: 'cardinaljs_process_heap_used_bytes',
+    help: 'V8 heap in use, in bytes.'
+  },
+  {
+    key: 'heapTotalBytes',
+    name: 'cardinaljs_process_heap_total_bytes',
+    help: 'V8 heap allocated, in bytes.'
+  },
+  {
+    key: 'externalMemoryBytes',
+    name: 'cardinaljs_process_external_memory_bytes',
+    help: 'Memory used by C++ objects bound to JavaScript objects managed by V8, in bytes.'
+  },
+  {
+    key: 'uptimeSeconds',
+    name: 'cardinaljs_process_uptime_seconds',
+    help: 'Seconds the Node process has been running.'
+  },
+  {
+    key: 'cpuUserSeconds',
+    name: 'cardinaljs_process_cpu_user_seconds_total',
+    help: 'Cumulative user CPU time of the Node process, in seconds.'
+  },
+  {
+    key: 'cpuSystemSeconds',
+    name: 'cardinaljs_process_cpu_system_seconds_total',
+    help: 'Cumulative system CPU time of the Node process, in seconds.'
+  },
+  {
+    key: 'eventLoopDelayMinSeconds',
+    name: 'cardinaljs_nodejs_eventloop_delay_min_seconds',
+    help: 'Minimum event loop delay, in seconds.' + EVENT_LOOP_WINDOW_HELP
+  },
+  {
+    key: 'eventLoopDelayMeanSeconds',
+    name: 'cardinaljs_nodejs_eventloop_delay_mean_seconds',
+    help: 'Mean event loop delay, in seconds.' + EVENT_LOOP_WINDOW_HELP
+  },
+  {
+    key: 'eventLoopDelayMaxSeconds',
+    name: 'cardinaljs_nodejs_eventloop_delay_max_seconds',
+    help: 'Maximum event loop delay, in seconds.' + EVENT_LOOP_WINDOW_HELP
+  },
+  {
+    key: 'eventLoopDelayP50Seconds',
+    name: 'cardinaljs_nodejs_eventloop_delay_p50_seconds',
+    help: 'Median event loop delay, in seconds.' + EVENT_LOOP_WINDOW_HELP
+  },
+  {
+    key: 'eventLoopDelayP99Seconds',
+    name: 'cardinaljs_nodejs_eventloop_delay_p99_seconds',
+    help: '99th percentile event loop delay, in seconds.' + EVENT_LOOP_WINDOW_HELP
+  }
+]
+
+export function formatRuntimeMetrics(snapshot: RuntimeSnapshot): string {
+  const lines: string[] = []
+  for (const { key, name, help } of RUNTIME_METRIC_DEFS) {
+    lines.push(`# HELP ${name} ${help}`)
+    lines.push(`# TYPE ${name} gauge`)
+    lines.push(`${name} ${snapshot[key]}`)
+  }
+  return lines.join('\n') + '\n'
+}
+
+export interface RuntimeSamplerDeps {
+  memoryUsage: () => Pick<NodeJS.MemoryUsage, 'rss' | 'heapTotal' | 'heapUsed' | 'external'>
+  cpuUsage: () => NodeJS.CpuUsage
+  uptime: () => number
+  histogram: Pick<
+    IntervalHistogram,
+    'enable' | 'disable' | 'reset' | 'count' | 'min' | 'mean' | 'max' | 'percentile'
+  >
+}
+
+const NANOSECONDS_PER_SECOND = 1e9
+const MICROSECONDS_PER_SECOND = 1e6
+
+export function createRuntimeSampler(deps?: Partial<RuntimeSamplerDeps>) {
+  const memoryUsage = deps?.memoryUsage ?? (() => process.memoryUsage())
+  const cpuUsage = deps?.cpuUsage ?? (() => process.cpuUsage())
+  const uptime = deps?.uptime ?? (() => process.uptime())
+  const histogram = deps?.histogram ?? monitorEventLoopDelay({ resolution: 10 })
+  let running = true
+  histogram.enable()
+
+  return {
+    collect(): RuntimeSnapshot {
+      const memory = memoryUsage()
+      const cpu = cpuUsage()
+      const sampled = histogram.count > 0
+      const seconds = (nanoseconds: number) => (sampled ? nanoseconds / NANOSECONDS_PER_SECOND : 0)
+      const snapshot: RuntimeSnapshot = {
+        residentMemoryBytes: memory.rss,
+        heapUsedBytes: memory.heapUsed,
+        heapTotalBytes: memory.heapTotal,
+        externalMemoryBytes: memory.external,
+        uptimeSeconds: uptime(),
+        cpuUserSeconds: cpu.user / MICROSECONDS_PER_SECOND,
+        cpuSystemSeconds: cpu.system / MICROSECONDS_PER_SECOND,
+        eventLoopDelayMinSeconds: seconds(histogram.min),
+        eventLoopDelayMeanSeconds: seconds(histogram.mean),
+        eventLoopDelayMaxSeconds: seconds(histogram.max),
+        eventLoopDelayP50Seconds: seconds(histogram.percentile(50)),
+        eventLoopDelayP99Seconds: seconds(histogram.percentile(99))
+      }
+      histogram.reset()
+      return snapshot
+    },
+    stop(): void {
+      if (!running) return
+      running = false
+      histogram.disable()
+    }
+  }
 }

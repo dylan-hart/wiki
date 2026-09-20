@@ -81,6 +81,21 @@ describe('GroupRulesEditor.vue rule tags (OpenProject #3408)', () => {
     expect(wrapper.find('input[aria-label="admin.groups.ruleTags"]').exists()).toBe(false)
   })
 
+  it('offers Path Is, Or Is Under and folds a SUBTREE rule path to lowercase', async () => {
+    stubApi({ 'sites/site-1/tags': [] })
+
+    const { wrapper } = mountWithApp(GroupRulesEditor, {
+      props: { rules: [pathRule({ match: 'SUBTREE', path: 'foo/bar' })], canManage: true },
+      stores: { admin: { currentSiteId: 'site-1' } }
+    })
+    await flushPromises()
+
+    expect(wrapper.find('input[aria-label="admin.groups.rulePath"]').exists()).toBe(true)
+    const rule = wrapper.vm.groupRules[0]
+    wrapper.vm.onRulePathInput(rule, 'Foo/Bar')
+    expect(rule.path).toBe('foo/bar')
+  })
+
   it('newRule() seeds an empty tags array', async () => {
     stubApi({ 'sites/site-1/tags': [] })
 

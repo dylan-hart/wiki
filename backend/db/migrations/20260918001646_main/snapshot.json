@@ -930,6 +930,19 @@
       "table": "auditLog"
     },
     {
+      "type": "varchar(255)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "actorEmail",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "auditLog"
+    },
+    {
       "type": "varchar(64)",
       "typeSchema": null,
       "notNull": true,
@@ -4648,6 +4661,19 @@
       "table": "pages"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "autoTagPending",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pages"
+    },
+    {
       "type": "varchar(255)",
       "typeSchema": null,
       "notNull": false,
@@ -5254,19 +5280,6 @@
       "generated": null,
       "identity": null,
       "name": "config",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "storage"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'{}'",
-      "generated": null,
-      "identity": null,
-      "name": "state",
       "entityType": "columns",
       "schema": "public",
       "table": "storage"
@@ -5930,6 +5943,19 @@
       "generated": null,
       "identity": null,
       "name": "avatarProviderUrl",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "users"
+    },
+    {
+      "type": "varchar(32)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "handle",
       "entityType": "columns",
       "schema": "public",
       "table": "users"
@@ -6634,6 +6660,27 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "glossaryVersions"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "lower(trim(\"name\"))",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "groups_name_normalized_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "groups"
     },
     {
       "nameExplicit": true,
@@ -7967,6 +8014,27 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "userKeys"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "lower(\"handle\")",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "users_handle_lower_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "users"
     },
     {
       "nameExplicit": true,

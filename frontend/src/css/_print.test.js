@@ -91,3 +91,26 @@ describe('print stylesheet leaves attribution alone', () => {
     expect(pageActionsColIndex).toBeGreaterThan(scrollAreaEnd)
   })
 })
+
+describe('print stylesheet page-level rules', () => {
+  it('sets a page margin with a top-level @page rule', () => {
+    expect(printScss).toMatch(/^@page\s*\{[^}]*\bmargin:\s*[^;]+;/m)
+  })
+
+  it('keeps orphans and widows on prose blocks inside @media print', () => {
+    const printBlock = printScss.slice(printScss.indexOf('@media print'))
+    expect(printBlock).toMatch(/orphans:\s*[2-9]/)
+    expect(printBlock).toMatch(/widows:\s*[2-9]/)
+  })
+
+  it('wraps code and frees its horizontal scroll inside @media print', () => {
+    const printBlock = printScss.slice(printScss.indexOf('@media print'))
+    expect(printBlock).toMatch(/pre,\s*pre > code\s*\{[^}]*white-space:\s*pre-wrap/)
+    expect(printBlock).toMatch(/pre\s*\{\s*overflow:\s*visible/)
+  })
+
+  it('drops the line-number gutter, whose rows misalign once a line wraps', () => {
+    const printBlock = printScss.slice(printScss.indexOf('@media print'))
+    expect(printBlock).toMatch(/\.line-numbers-rows\s*\{\s*display:\s*none/)
+  })
+})

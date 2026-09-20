@@ -136,6 +136,48 @@ describe('block-tabs', () => {
     expect(el.active).toBe(1)
   })
 
+  describe('scroll margin', () => {
+    const stubStripHeight = (el, height) => {
+      Object.defineProperty(el.shadowRoot.querySelector('.strip'), 'offsetHeight', {
+        configurable: true,
+        get: () => height
+      })
+    }
+
+    it('gives each panel element the same scroll-margin-top as its children after render', async () => {
+      const el = await mountTabs([
+        { label: 'First', content: 'One' },
+        { label: 'Second', content: 'Two' }
+      ])
+      stubStripHeight(el, 40)
+      el.requestUpdate()
+      await el.updateComplete
+
+      for (const panel of el.querySelectorAll('block-tab')) {
+        expect(panel.style.getPropertyValue('scroll-margin-top')).toBe('60px')
+        expect(panel.firstElementChild.style.getPropertyValue('scroll-margin-top')).toBe('60px')
+      }
+    })
+
+    it('re-applies the margin to the panel element after the strip re-wraps', async () => {
+      const el = await mountTabs([
+        { label: 'First', content: 'One' },
+        { label: 'Second', content: 'Two' }
+      ])
+      stubStripHeight(el, 40)
+      el.requestUpdate()
+      await el.updateComplete
+
+      stubStripHeight(el, 80)
+      el.requestUpdate()
+      await el.updateComplete
+
+      const panel = el.querySelector('block-tab')
+      expect(panel.style.getPropertyValue('scroll-margin-top')).toBe('100px')
+      expect(panel.firstElementChild.style.getPropertyValue('scroll-margin-top')).toBe('100px')
+    })
+  })
+
   it('fetches every tab icon concurrently and triggers a single update', async () => {
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true, text: async () => '<svg>icon</svg>' })
     vi.stubGlobal('fetch', fetchSpy)
@@ -178,6 +220,39 @@ describe('block-tabs', () => {
   })
 
   describeDarkMode(() => mountTabs([{ label: 'First', content: 'One' }]))
+
+  describe('print', () => {
+    const cssText = BlockTabsElement.styles.cssText
+    const printStart = cssText.indexOf('@media print')
+    const printBlock = printStart === -1 ? '' : cssText.slice(printStart)
+
+    it('stamps each panel with the label a printed page draws above it, falling back to "Tab N"', async () => {
+      const el = await mountTabs([
+        { label: 'First', content: 'One' },
+        { label: '', content: 'Two' }
+      ])
+      const panels = [...el.querySelectorAll('block-tab')]
+      expect(panels.map((p) => p.getAttribute('data-print-label'))).toEqual(['First', 'Tab 2'])
+    })
+
+    it('has an @media print section', () => {
+      expect(printStart).toBeGreaterThan(-1)
+    })
+
+    it('shows every panel with !important, which is what beats the inline display: none', () => {
+      expect(printBlock).toMatch(/::slotted\(block-tab\)\s*\{[^}]*display:\s*block\s*!important/)
+    })
+
+    it('draws each panel’s label from data-print-label and hides the strip', () => {
+      expect(printBlock).toMatch(/::slotted\(block-tab\)::before\s*\{[^}]*attr\(data-print-label\)/)
+      expect(printBlock).toMatch(/\.strip,\s*\.tabs-marks\s*\{\s*display:\s*none/)
+    })
+
+    it('resets the theme tokens the printed frame still reads to paper-safe values', () => {
+      expect(printBlock).toMatch(/:host\s*\{[^}]*--tabs-panel-bg:\s*#fff/)
+      expect(printBlock).toMatch(/:host\s*\{[^}]*--tabs-border:\s*#999/)
+    })
+  })
 
   /**
    * Asserted against the source text rather than the mounted shadow root: jsdom runs no
@@ -235,7 +310,8 @@ describe('block-tabs', () => {
 
     it('declares no local --tabs-* fallback values of its own any more', () => {
       // -> The whole property set is inherited from <body>, declared in tailwind.css
-      const hostBlocks = [...source.matchAll(/:host\s*{([^}]*)}/g)].map((m) => m[1])
+      const screenSource = source.replace(/@media print[\s\S]*?\n {6}\}\n/, '')
+      const hostBlocks = [...screenSource.matchAll(/:host\s*{([^}]*)}/g)].map((m) => m[1])
       expect(hostBlocks.length).toBeGreaterThan(0)
       for (const block of hostBlocks) {
         expect(block).not.toMatch(/--tabs-/)

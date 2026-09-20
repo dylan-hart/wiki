@@ -49,12 +49,12 @@ function pageRowHtml({ isOverlay }) {
   )
 }
 
-async function measureRow({ browser, css, isOverlay, bodyClasses, viewport }) {
+async function measureRow({ browser, css, isOverlay, bodyClasses, bodyStyle = '', viewport }) {
   const page = await browser.newPage({ viewport })
   try {
     await page.setContent(
       `<!doctype html><html><head><style>${css}</style></head>` +
-        `<body class="${bodyClasses}" style="margin:0">` +
+        `<body class="${bodyClasses}" style="margin:0;${bodyStyle}">` +
         `<div style="height:${viewport.height}px; overflow:hidden">${pageRowHtml({ isOverlay })}</div>` +
         '</body></html>'
     )
@@ -162,6 +162,20 @@ describe(
       expect(cobalt.footerBarHeight).toBeGreaterThan(0)
       expect(cobalt.sidebarBottom).toBeCloseTo(narrowViewport.height - cobalt.footerBarHeight, 0)
       expect(cobalt.sidebarBottom).toBeLessThanOrEqual(cobalt.footerTop + 0.5)
+    })
+
+    it('follows a live footer height written inline on body over the stylesheet fallback, in Cobalt', async () => {
+      const cobalt = await measureRow({
+        browser,
+        css,
+        isOverlay: false,
+        bodyClasses: 'body--light body--cobalt',
+        bodyStyle: '--footer-bar-height: 140px',
+        viewport: wideViewport
+      })
+
+      expect(cobalt.footerBarHeight).toBe(140)
+      expect(cobalt.sidebarBottom).toBeCloseTo(wideViewport.height - 140, 0)
     })
   }
 )

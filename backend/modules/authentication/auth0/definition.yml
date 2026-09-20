@@ -15,33 +15,33 @@ props:
     type: String
     title: Domain
     hint: The tenant domain, e.g. something.auth0.com. The issuer and every endpoint are discovered from it.
-    icon: internet
+    icon: tabler:world
     order: 1
   clientId:
     type: String
     title: Client ID
     hint: From the Auth0 application's settings.
-    icon: key
+    icon: tabler:key
     order: 2
   clientSecret:
     type: String
     title: Client Secret
     hint: From the same Auth0 application.
-    icon: password
+    icon: tabler:password
     sensitive: true
     order: 3
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all).
-    icon: user-groups
+    icon: tabler:users
     default: false
     order: 4
   groupsClaim:
     type: String
     title: Groups Claim
     hint: Which claim carries the user's group memberships. Auth0 reports no such claim by default — add an Action on the Login flow that sets a custom claim (e.g. `https://yourapp.example/groups`) from `event.authorization.roles` or the user's `app_metadata`, and name it here.
-    icon: user-groups
+    icon: tabler:users
     default: 'groups'
     order: 5
     if:
@@ -50,7 +50,7 @@ props:
     type: String
     title: Groups Scope
     hint: (optional) A scope to request in addition to the fixed ones this preset already sends, if the Action above gates the claim behind one. Auth0's own claim-injecting Actions typically need none.
-    icon: rules
+    icon: tabler:list-check
     default: ''
     order: 6
     if:
@@ -59,5 +59,5 @@ refs:
   callbackUrl:
     title: Allowed Callback URL
     hint: Add this to the Auth0 application's Allowed Callback URLs.
-    icon: back
+    icon: tabler:arrow-back
     value: '{host}/_api/auth/{id}/callback'

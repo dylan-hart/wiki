@@ -25,6 +25,8 @@ afterEach(() => {
   delete window.commento
   delete window.Artalk
   delete window.artalkInstance
+  delete window.remark_config
+  delete window.REMARK42
 })
 
 describe('COMMENT_EMBED_PROVIDERS.disqus', () => {
@@ -182,5 +184,191 @@ describe('COMMENT_EMBED_PROVIDERS.artalk', () => {
     await COMMENT_EMBED_PROVIDERS.artalk.mount(container, {}, 'https://wiki.example.com/en/page')
 
     expect(container.children).toHaveLength(0)
+  })
+})
+
+describe('COMMENT_EMBED_PROVIDERS.giscus', () => {
+  const config = {
+    repo: 'octocat/hello-world',
+    repoId: 'R_abc123',
+    category: 'Announcements',
+    categoryId: 'DIC_def456',
+    theme: 'dark',
+    reactionsEnabled: false,
+    lang: 'fr'
+  }
+
+  it('appends a .giscus host and loads client.js once with data attributes from config', async () => {
+    const container = makeContainer()
+    await COMMENT_EMBED_PROVIDERS.giscus.mount(
+      container,
+      config,
+      'https://wiki.example.com/en/getting-started'
+    )
+    await COMMENT_EMBED_PROVIDERS.giscus.mount(
+      makeContainer(),
+      config,
+      'https://wiki.example.com/en/second-page'
+    )
+
+    expect(container.querySelector('.giscus')).not.toBeNull()
+    const scripts = document.head.querySelectorAll('script[src="https://giscus.app/client.js"]')
+    expect(scripts).toHaveLength(1)
+    const script = scripts[0]
+    expect(script.getAttribute('data-repo')).toBe('octocat/hello-world')
+    expect(script.getAttribute('data-repo-id')).toBe('R_abc123')
+    expect(script.getAttribute('data-category')).toBe('Announcements')
+    expect(script.getAttribute('data-category-id')).toBe('DIC_def456')
+    expect(script.getAttribute('data-mapping')).toBe('specific')
+    expect(script.getAttribute('data-term')).toBe('https://wiki.example.com/en/getting-started')
+    expect(script.getAttribute('data-theme')).toBe('dark')
+    expect(script.getAttribute('data-reactions-enabled')).toBe('0')
+    expect(script.getAttribute('data-lang')).toBe('fr')
+  })
+
+  it('moves the existing iframe into the new container and re-targets it without a second script', async () => {
+    const first = makeContainer()
+    await COMMENT_EMBED_PROVIDERS.giscus.mount(first, config, 'https://wiki.example.com/en/one')
+    const frame = document.createElement('iframe')
+    frame.className = 'giscus-frame'
+    const messages = []
+    Object.defineProperty(frame, 'contentWindow', {
+      value: { postMessage: (...args) => messages.push(args) }
+    })
+    first.querySelector('.giscus').appendChild(frame)
+    first.remove()
+
+    const second = makeContainer()
+    await COMMENT_EMBED_PROVIDERS.giscus.mount(second, config, 'https://wiki.example.com/en/two')
+
+    expect(second.querySelector('.giscus > iframe.giscus-frame')).toBe(frame)
+    expect(document.head.querySelector('script[src*="giscus.app"]')).toBeNull()
+    frame.dispatchEvent(new Event('load'))
+    expect(messages).toEqual([
+      [{ giscus: { setConfig: { term: 'https://wiki.example.com/en/two' } } }, 'https://giscus.app']
+    ])
+  })
+
+  it('mounts nothing without a repo, repo ID and category ID', async () => {
+    for (const partial of [
+      {},
+      { repo: 'octocat/hello-world', repoId: 'R_abc123' },
+      { repo: 'octocat/hello-world', categoryId: 'DIC_def456' },
+      { repoId: 'R_abc123', categoryId: 'DIC_def456' }
+    ]) {
+      const container = makeContainer()
+      await COMMENT_EMBED_PROVIDERS.giscus.mount(
+        container,
+        partial,
+        'https://wiki.example.com/en/page'
+      )
+      expect(container.children).toHaveLength(0)
+    }
+  })
+})
+
+describe('COMMENT_EMBED_PROVIDERS.remark42', () => {
+  const config = {
+    host: 'https://remark.example.com/',
+    siteId: 'my-site',
+    theme: 'dark',
+    maxShownComments: 30
+  }
+
+  it('appends a #remark42 node and loads the host embed.js with the trailing slash stripped', async () => {
+    const container = makeContainer()
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      container,
+      config,
+      'https://wiki.example.com/en/getting-started'
+    )
+
+    expect(container.querySelector('#remark42')).not.toBeNull()
+    expect(
+      document.head.querySelectorAll('script[src="https://remark.example.com/web/embed.js"]')
+    ).toHaveLength(1)
+  })
+
+  it('sets remark_config from the config and the canonical pageUrl', async () => {
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      makeContainer(),
+      { ...config, host: 'https://config-values.example.com' },
+      'https://wiki.example.com/en/some-page'
+    )
+
+    expect(window.remark_config).toEqual({
+      host: 'https://config-values.example.com',
+      site_id: 'my-site',
+      url: 'https://wiki.example.com/en/some-page',
+      components: ['embed'],
+      theme: 'dark',
+      max_shown_comments: 30
+    })
+  })
+
+  it('falls back to the default site ID, light theme and 15 shown comments', async () => {
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      makeContainer(),
+      { host: 'https://defaults.example.com' },
+      'https://wiki.example.com/en/page'
+    )
+
+    expect(window.remark_config).toMatchObject({
+      site_id: 'remark',
+      theme: 'light',
+      max_shown_comments: 15
+    })
+  })
+
+  it('destroys and re-creates the instance instead of appending a second script once REMARK42 is present', async () => {
+    const calls = []
+    window.REMARK42 = {
+      destroy: () => calls.push(['destroy']),
+      createInstance: (cfg) => calls.push(['createInstance', cfg])
+    }
+    const container = makeContainer()
+
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      container,
+      { ...config, host: 'https://remount.example.com' },
+      'https://wiki.example.com/en/two'
+    )
+
+    expect(container.querySelector('#remark42')).not.toBeNull()
+    expect(calls).toEqual([['destroy'], ['createInstance', window.remark_config]])
+    expect(window.remark_config.url).toBe('https://wiki.example.com/en/two')
+    expect(document.head.querySelector('script[src*="remount.example.com"]')).toBeNull()
+  })
+
+  it('does not append a second script when mounted twice before REMARK42 exists', async () => {
+    const remounted = { ...config, host: 'https://twice.example.com' }
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      makeContainer(),
+      remounted,
+      'https://wiki.example.com/en/one'
+    )
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      makeContainer(),
+      remounted,
+      'https://wiki.example.com/en/two'
+    )
+
+    expect(
+      document.head.querySelectorAll('script[src="https://twice.example.com/web/embed.js"]')
+    ).toHaveLength(1)
+  })
+
+  it('mounts nothing and sets no config without a host', async () => {
+    for (const partial of [{}, { host: '' }, { host: '///' }]) {
+      const container = makeContainer()
+      await COMMENT_EMBED_PROVIDERS.remark42.mount(
+        container,
+        partial,
+        'https://wiki.example.com/en/page'
+      )
+      expect(container.children).toHaveLength(0)
+    }
+    expect(window.remark_config).toBeUndefined()
+    expect(document.head.querySelector('script')).toBeNull()
   })
 })

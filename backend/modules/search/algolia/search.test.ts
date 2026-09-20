@@ -121,14 +121,14 @@ describe('buildFilters()', () => {
 
   test('an explicit publishState ANDs onto the publicOnly/includeDrafts branch, not replaces it', () => {
     assert.equal(
-      buildFilters(params({ includeDrafts: true, publishState: 'published' })),
+      buildFilters(params({ includeDrafts: true, publishState: ['published'] })),
       'siteId:"site-1" AND isSearchable:true AND publishState:"published"'
     )
   })
 
   test('path becomes a pathAncestors equality filter', () => {
     assert.equal(
-      buildFilters(params({ includeDrafts: true, path: 'docs/guide' })),
+      buildFilters(params({ includeDrafts: true, path: ['docs/guide'] })),
       'siteId:"site-1" AND isSearchable:true AND pathAncestors:"docs/guide"'
     )
   })
@@ -147,17 +147,88 @@ describe('buildFilters()', () => {
     )
   })
 
+  test('tagsMatch any ORs the tags into one group', () => {
+    assert.equal(
+      buildFilters(params({ includeDrafts: true, tags: ['a', 'b'], tagsMatch: 'any' })),
+      'siteId:"site-1" AND isSearchable:true AND (tags:"a" OR tags:"b")'
+    )
+    assert.equal(
+      buildFilters(params({ includeDrafts: true, tags: ['a'], tagsMatch: 'any' })),
+      'siteId:"site-1" AND isSearchable:true AND tags:"a"'
+    )
+  })
+
   test('editor becomes an equality filter', () => {
     assert.equal(
-      buildFilters(params({ includeDrafts: true, editor: 'markdown' })),
+      buildFilters(params({ includeDrafts: true, editor: ['markdown'] })),
       'siteId:"site-1" AND isSearchable:true AND editor:"markdown"'
     )
   })
 
   test('escapes a quote embedded in a filter value', () => {
     assert.equal(
-      buildFilters(params({ includeDrafts: true, editor: 'weird"editor' })),
+      buildFilters(params({ includeDrafts: true, editor: ['weird"editor'] })),
       'siteId:"site-1" AND isSearchable:true AND editor:"weird\\"editor"'
+    )
+  })
+
+  test('several include values become an OR group', () => {
+    assert.equal(
+      buildFilters(
+        params({
+          includeDrafts: true,
+          path: ['docs', 'guides'],
+          editor: ['markdown', 'code'],
+          publishState: ['published', 'scheduled']
+        })
+      ),
+      'siteId:"site-1" AND isSearchable:true AND (publishState:"published" OR publishState:"scheduled")' +
+        ' AND (pathAncestors:"docs" OR pathAncestors:"guides") AND (editor:"markdown" OR editor:"code")'
+    )
+  })
+
+  test('every exclude list becomes native NOT facet clauses', () => {
+    assert.equal(
+      buildFilters(
+        params({
+          includeDrafts: true,
+          excludePath: ['docs/private', 'drafts'],
+          excludeLocales: ['fr'],
+          excludeTags: ['old', 'stale'],
+          excludeEditor: ['code'],
+          excludePublishState: ['scheduled']
+        })
+      ),
+      'siteId:"site-1" AND isSearchable:true AND NOT publishState:"scheduled"' +
+        ' AND NOT pathAncestors:"docs/private" AND NOT pathAncestors:"drafts"' +
+        ' AND NOT locale:"fr" AND NOT tags:"old" AND NOT tags:"stale" AND NOT editor:"code"'
+    )
+  })
+
+  test('creator and author lists become facet clauses, include and exclude', () => {
+    assert.equal(
+      buildFilters(
+        params({
+          includeDrafts: true,
+          creatorId: ['11111111-1111-4111-8111-111111111111'],
+          authorId: [
+            '11111111-1111-4111-8111-111111111111',
+            '22222222-2222-4222-8222-222222222222'
+          ],
+          excludeCreatorId: ['22222222-2222-4222-8222-222222222222'],
+          excludeAuthorId: ['11111111-1111-4111-8111-111111111111']
+        })
+      ),
+      'siteId:"site-1" AND isSearchable:true AND creatorId:"11111111-1111-4111-8111-111111111111"' +
+        ' AND (authorId:"11111111-1111-4111-8111-111111111111" OR authorId:"22222222-2222-4222-8222-222222222222")' +
+        ' AND NOT creatorId:"22222222-2222-4222-8222-222222222222" AND NOT authorId:"11111111-1111-4111-8111-111111111111"'
+    )
+  })
+
+  test('an exclusion value is escaped like an inclusion', () => {
+    assert.equal(
+      buildFilters(params({ includeDrafts: true, excludeEditor: ['weird"editor'] })),
+      'siteId:"site-1" AND isSearchable:true AND NOT editor:"weird\\"editor"'
     )
   })
 
@@ -211,6 +282,8 @@ describe('batchDocuments()', () => {
       tags: [],
       editor: 'markdown',
       publishState: 'published',
+      creatorId: 'u1',
+      authorId: 'u1',
       isSearchable: true,
       classification: 'classification-1',
       updatedAt: '2026-01-01T00:00:00.000Z',

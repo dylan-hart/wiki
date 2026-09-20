@@ -1,4 +1,4 @@
-import { Storage, type Bucket, type StorageOptions } from '@google-cloud/storage'
+import { Storage, type Bucket, type File, type StorageOptions } from '@google-cloud/storage'
 import { blobStorageModule } from '../blobBase.ts'
 
 /**
@@ -31,6 +31,10 @@ export function buildClient(config: Record<string, any>): Storage {
   return new Storage(options)
 }
 
+export function isObjectNotFound(err: any): boolean {
+  return err?.code === 404 && !/bucket does not exist/i.test(String(err?.message ?? ''))
+}
+
 /**
  * Unlike `s3`/`azure`, a missing bucket is a hard failure rather than one this creates: GCS bucket
  * creation needs a location and storage class this target's config does not collect.
@@ -50,6 +54,18 @@ export async function ensureBucket(bucket: Bucket): Promise<void> {
     throw new Error(
       `The "${bucket.name}" bucket does not exist or is not reachable with the given credentials.`
     )
+  }
+}
+
+async function sizeOf(file: File): Promise<number | null> {
+  try {
+    const [metadata] = await file.getMetadata()
+    return Number(metadata.size ?? 0)
+  } catch (err: any) {
+    if (isObjectNotFound(err)) {
+      return null
+    }
+    throw err
   }
 }
 
@@ -82,6 +98,18 @@ const gcsStorage = blobStorageModule<Bucket>({
       expires: Date.now() + ttlSeconds * 1000
     })
     return url
+  },
+  async get(bucket, key) {
+    const file = bucket.file(key)
+    const size = await sizeOf(file)
+    if (size === null) {
+      return null
+    }
+    return { body: file.createReadStream(), size }
+  },
+  async head(bucket, key) {
+    const size = await sizeOf(bucket.file(key))
+    return size === null ? null : { size }
   }
 })
 

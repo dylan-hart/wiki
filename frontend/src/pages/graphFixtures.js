@@ -163,7 +163,8 @@ export async function mountGraph({
   graphPrefs = null,
   delayProfileResolution = false,
   initialPath = '/',
-  pageLocale
+  pageLocale,
+  graphSelectedPath = null
 } = {}) {
   const router = await createTestRouter(['/:pathMatch(.*)*'], initialPath)
 
@@ -190,7 +191,8 @@ export async function mountGraph({
     stores: {
       site: { id: 'site-1' },
       user: { authenticated },
-      ...(pageLocale !== undefined ? { page: { locale: pageLocale } } : {})
+      ...(pageLocale !== undefined ? { page: { locale: pageLocale } } : {}),
+      ...(graphSelectedPath !== null ? { graph: { selectedPath: graphSelectedPath } } : {})
     },
     messages: { ...GRAPH_MESSAGES, ...messageOverrides }
   })

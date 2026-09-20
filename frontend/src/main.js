@@ -1,7 +1,6 @@
 import { createApp } from 'vue'
 import { initializeRouter } from './router'
 import { initializeStore } from './stores'
-import { initializeAnalytics } from './boot/analytics'
 import { initializeApi } from './boot/api'
 import { initializeComponents } from './boot/components'
 import { initializeErrors } from './boot/errors'
@@ -29,7 +28,6 @@ app.use(store)
 app.use(router)
 
 initializeHairlines()
-initializeAnalytics(store)
 initializeApi(router)
 initializeComponents(app)
 initializeEventBus()

@@ -9,4 +9,5 @@ props:
     type: String
     title: Container Tracking ID
     hint: GTM-XXXXXXX
+    icon: tabler:chart-line
     order: 1

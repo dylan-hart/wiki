@@ -1,4 +1,4 @@
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq, sql } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
@@ -93,6 +93,66 @@ describe('glossary.invalidateCache() / subscribeToEvents() (pure, OpenProject #2
  * mock of the query builder would mostly be re-describing the code under test rather than verifying
  * it.
  */
+/**
+ * The raw term cache is stubbed so this asserts only how `getCachedTerms` composes a link from the
+ * site's whole locale config, which needs no database.
+ */
+describe('glossary.getCachedTerms() composes links through a locale URL alias (pure)', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).CARDINAL
+  })
+
+  beforeEach(() => {
+    ;(globalThis as any).CARDINAL = {
+      sites: {
+        'site-alias': {
+          config: {
+            locales: { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+          }
+        }
+      },
+      models: { groups: { checkAccess: () => true } }
+    }
+    mock.method(glossary as any, 'getRawCachedTerms', async () => [
+      {
+        term: 'Zh',
+        definition: '',
+        aliases: [],
+        isAcronym: false,
+        pagePath: 'docs/zh-page',
+        pageLocale: 'zh-CN',
+        pageClassification: null,
+        pageTags: []
+      },
+      {
+        term: 'En',
+        definition: '',
+        aliases: [],
+        isAcronym: false,
+        pagePath: 'docs/en-page',
+        pageLocale: 'en',
+        pageClassification: null,
+        pageTags: []
+      }
+    ])
+  })
+
+  after(() => {
+    mock.restoreAll()
+    ;(globalThis as any).CARDINAL = previousWiki
+  })
+
+  test('an aliased locale links under its alias, the primary stays bare', async () => {
+    const cached = await glossary.getCachedTerms('site-alias', { groupIds: [], permissions: [] })
+    const byTerm = Object.fromEntries(cached.map((t) => [t.term, t]))
+
+    assert.equal(byTerm.Zh!.link, '/zh/docs/zh-page')
+    assert.equal(byTerm.En!.link, '/docs/en-page')
+  })
+})
+
 describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let glossaryModel: typeof import('./glossary.ts').glossary

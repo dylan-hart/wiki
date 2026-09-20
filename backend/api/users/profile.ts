@@ -5,6 +5,7 @@ import { detectImageMime, imageMimeTypes } from '../../helpers/images.ts'
 import { issueKey, validateApiKeyInput } from '../../models/apiKeys.ts'
 import type { KeyExpiration } from '../../models/apiKeys.ts'
 import { actorFromRequest } from '../../models/auditLog.ts'
+import { passkeysAllowed } from '../../models/security.ts'
 import type {
   NotificationSubscriptions,
   UserProfile,
@@ -44,6 +45,15 @@ async function requireSessionUser(req: FastifyRequest, reply: FastifyReply) {
 function sessionUserId(req: FastifyRequest): string {
   return sessionUserIdOrNull(req)!
 }
+
+const PROFILE_IDENTITY_FIELDS = [
+  'name',
+  'firstName',
+  'lastName',
+  'location',
+  'jobTitle',
+  'pronouns'
+] as const
 
 /**
  * A per-site feature, turned off where user data comes from an external identity provider. An
@@ -117,7 +127,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Update the logged in user's own profile",
         description:
-          'Updates any subset of the profile fields; omitted ones are left unchanged. Requires the current site to have the `profile` feature enabled. The email cannot be changed here, and neither can any field an administrator owns.',
+          'Updates any subset of the profile fields; omitted ones are left unchanged. Where the current site has the `profile` feature disabled, the identity fields (`name`, `firstName`, `lastName`, `location`, `jobTitle`, `pronouns`) are refused with a 403 while the display preferences stay writable. The email cannot be changed here, and neither can any field an administrator owns.',
         tags: ['Users'],
         body: {
           $ref: 'UserProfileUpdate#'
@@ -140,13 +150,17 @@ async function routes(app: FastifyInstance) {
           },
           400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
-          403: { $ref: 'ApiError#' }
+          403: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#' }
         }
       }
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      if (!(await isProfileEditable(req))) {
+      if (
+        !(await isProfileEditable(req)) &&
+        PROFILE_IDENTITY_FIELDS.some((key) => req.body[key] !== undefined)
+      ) {
         return reply.forbidden('Profile editing is disabled on this site.')
       }
 
@@ -168,6 +182,7 @@ async function routes(app: FastifyInstance) {
         'name',
         'firstName',
         'lastName',
+        'handle',
         'location',
         'jobTitle',
         'pronouns',
@@ -191,6 +206,12 @@ async function routes(app: FastifyInstance) {
       }
       if (req.body.iconPicker !== undefined) {
         patch.iconPicker = req.body.iconPicker
+      }
+      if (req.body.publicFields !== undefined) {
+        patch.publicFields = req.body.publicFields
+      }
+      if (req.body.searchFilters !== undefined) {
+        patch.searchFilters = req.body.searchFilters
       }
       if (Object.keys(patch).length < 1) {
         throw new CustomError('userProfileEmpty', 'No profile fields provided to update.')
@@ -229,7 +250,8 @@ async function routes(app: FastifyInstance) {
         cvd: profile.cvd,
         locale: profile.locale,
         graph: profile.graph,
-        iconPicker: profile.iconPicker
+        iconPicker: profile.iconPicker,
+        searchFilters: profile.searchFilters
       }
 
       return {
@@ -759,6 +781,11 @@ async function routes(app: FastifyInstance) {
                           description:
                             'False once password login has been turned off, by the user or by an administrator.'
                         },
+                        canChangePassword: {
+                          type: 'boolean',
+                          description:
+                            "False when the strategy's `allowPasswordChange` setting is off: changing the password from the profile is then refused."
+                        },
                         canDisablePasswordLogin: {
                           type: 'boolean',
                           description:
@@ -777,6 +804,11 @@ async function routes(app: FastifyInstance) {
               passkeys: {
                 type: 'array',
                 items: { $ref: 'Passkey#' }
+              },
+              passkeysEnabled: {
+                type: 'boolean',
+                description:
+                  'Whether passkeys are enabled instance-wide (`security.allowPasskeys`). When false, registering one is refused and the listed passkeys are ignored for login.'
               }
             }
           },
@@ -789,7 +821,8 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
       return {
         authMethods: await CARDINAL.models.userCredentials.getProfileAuthMethods(userId),
-        passkeys: await CARDINAL.models.passkeys.list(userId)
+        passkeys: await CARDINAL.models.passkeys.list(userId),
+        passkeysEnabled: passkeysAllowed()
       }
     }
   )
@@ -1018,7 +1051,8 @@ async function routes(app: FastifyInstance) {
           userId,
           strategyId: req.body.strategyId,
           continuationToken: req.body.continuationToken,
-          securityCode: req.body.securityCode
+          securityCode: req.body.securityCode,
+          ip: req.ip
         })
         return {
           ok: true,
@@ -1059,7 +1093,7 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
 
       try {
-        await CARDINAL.models.userCredentials.disableTfa(userId, req.params.strategyId)
+        await CARDINAL.models.userCredentials.disableTfa(userId, req.params.strategyId, req.ip)
       } catch (err: any) {
         rethrowAsBadRequest(err)
       }
@@ -1190,6 +1224,9 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const userId = sessionUserId(req)
+      if (!passkeysAllowed()) {
+        throw new CustomError('Bad Request', 'ERR_PASSKEYS_DISABLED')
+      }
 
       try {
         const { registrationOptions, pending } = await CARDINAL.models.passkeys.startRegistration({
@@ -1249,6 +1286,9 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const userId = sessionUserId(req)
+      if (!passkeysAllowed()) {
+        throw new CustomError('Bad Request', 'ERR_PASSKEYS_DISABLED')
+      }
 
       try {
         const passkey = await CARDINAL.models.passkeys.finalizeRegistration({
@@ -1256,6 +1296,14 @@ async function routes(app: FastifyInstance) {
           name: req.body.name,
           registrationResponse: req.body.registrationResponse as any,
           pending: req.session.passkeyRegistration
+        })
+        await CARDINAL.models.auditLog.record({
+          event: 'user.passkeyEnrolled',
+          actor: actorFromRequest(req),
+          targetType: 'user',
+          targetId: userId,
+          targetLabel: passkey.name.slice(0, 255),
+          detail: { passkeyId: passkey.id }
         })
         return {
           ok: true,
@@ -1299,9 +1347,20 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
+      const removed = (await CARDINAL.models.passkeys.list(userId)).find(
+        (pk) => pk.id === req.params.passkeyId
+      )
       if (!(await CARDINAL.models.passkeys.remove(userId, req.params.passkeyId))) {
         return reply.notFound('You have no passkey with this ID.')
       }
+      await CARDINAL.models.auditLog.record({
+        event: 'user.passkeyRemoved',
+        actor: actorFromRequest(req),
+        targetType: 'user',
+        targetId: userId,
+        targetLabel: (removed?.name ?? '').slice(0, 255),
+        detail: { passkeyId: req.params.passkeyId }
+      })
       return reply.code(204).send()
     }
   )

@@ -51,6 +51,12 @@ describe('backend/locales/en.json — dead key clusters stay removed', () => {
     assert.deepEqual(tagsKeys, [])
   })
 
+  test('no admin.flags.advanced.* keys (the Custom Configuration card was removed)', async () => {
+    const parsed = await loadParsed()
+    const advancedKeys = Object.keys(parsed).filter((k) => k.startsWith('admin.flags.advanced.'))
+    assert.deepEqual(advancedKeys, [])
+  })
+
   test('surviving admin.dev.* and admin.utilities.* namespaces are untouched', async () => {
     const parsed = await loadParsed()
     assert.equal(Object.hasOwn(parsed, 'admin.dev.flags.title'), true)

@@ -1,7 +1,7 @@
-import { describe, test } from 'node:test'
+import { afterEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import bcrypt from 'bcryptjs'
-import { matchRecoveryCode } from './userCredentials.ts'
+import { countAlternativeLogins, matchRecoveryCode } from './userCredentials.ts'
 import type { RecoveryCodeEntry } from './userCredentials.ts'
 
 /**
@@ -43,5 +43,42 @@ describe('userCredentials.matchRecoveryCode', () => {
 
   test('an empty set never matches', async () => {
     assert.equal(await matchRecoveryCode([], 'AAAA1111'), -1)
+  })
+})
+
+describe('userCredentials.countAlternativeLogins', () => {
+  const STRATEGY = 'strategy-a'
+  const user = {
+    auth: { [STRATEGY]: {}, 'strategy-b': { restrictLogin: true } },
+    passkeys: { authenticators: [{ id: 'k1' }] }
+  }
+
+  function withSecurity(security: Record<string, any> | undefined) {
+    ;(globalThis as any).CARDINAL = { config: { security } }
+  }
+
+  afterEach(() => {
+    delete (globalThis as any).CARDINAL
+  })
+
+  test('counts a registered passkey while passkeys are allowed', () => {
+    withSecurity({ allowPasskeys: true })
+    assert.equal(countAlternativeLogins(user, STRATEGY), 1)
+  })
+
+  test('an absent switch counts as allowed', () => {
+    withSecurity(undefined)
+    assert.equal(countAlternativeLogins(user, STRATEGY), 1)
+  })
+
+  test('ignores passkeys while the switch is off, so password login cannot rest on one', () => {
+    withSecurity({ allowPasskeys: false })
+    assert.equal(countAlternativeLogins(user, STRATEGY), 0)
+  })
+
+  test('still counts another unrestricted provider while the switch is off', () => {
+    withSecurity({ allowPasskeys: false })
+    const linked = { ...user, auth: { ...user.auth, 'strategy-c': {} } }
+    assert.equal(countAlternativeLogins(linked, STRATEGY), 1)
   })
 })

@@ -15,106 +15,106 @@ props:
     type: String
     title: Client ID
     hint: Application Client ID, as the provider issued it.
-    icon: key
+    icon: tabler:key
     order: 1
   clientSecret:
     type: String
     title: Client Secret
     hint: Application Client Secret, as the provider issued it.
-    icon: password
+    icon: tabler:password
     sensitive: true
     order: 2
   authorizationURL:
     type: String
     title: Authorization Endpoint URL
     hint: Where to send the browser to sign in and grant access.
-    icon: enter
+    icon: tabler:login
     order: 3
   tokenURL:
     type: String
     title: Token Endpoint URL
     hint: Where the authorization code is exchanged for an access token.
-    icon: exit
+    icon: tabler:logout
     order: 4
   userInfoURL:
     type: String
     title: User Info Endpoint URL
     hint: Fetched with the access token to learn who signed in.
-    icon: contact
+    icon: tabler:address-book
     order: 5
   scope:
     type: String
     title: Scope
     hint: (optional) Space-separated permission scopes to request.
-    icon: rules
+    icon: tabler:list-check
     order: 6
   userIdClaim:
     type: String
     title: User ID Claim
     hint: Which field of the user info response carries the account's unique ID.
-    icon: fingerprint-scan
+    icon: tabler:fingerprint
     default: id
     order: 7
   emailClaim:
     type: String
     title: Email Claim
     hint: Which field of the user info response carries the email address.
-    icon: envelope
+    icon: tabler:mail
     default: email
     order: 8
   displayNameClaim:
     type: String
     title: Display Name Claim
     hint: Which field of the user info response carries the name to show. Falls back to the email address when the claim is absent.
-    icon: person
+    icon: tabler:user
     default: displayName
     order: 9
   firstNameClaim:
     type: String
     title: First Name Claim
     hint: Which field of the user info response carries the user's first name. Plain OAuth2 has no standard for this, so set it to whatever the provider actually calls it.
-    icon: person
+    icon: tabler:user
     default: firstName
     order: 10
   lastNameClaim:
     type: String
     title: Last Name Claim
     hint: Which field of the user info response carries the user's last name. A provider that issues no surname simply leaves it empty — nothing is invented from the first name.
-    icon: person
+    icon: tabler:user
     default: lastName
     order: 11
   logoutURL:
     type: String
     title: Logout URL
-    hint: (optional) Where to send a user after logging out, so that the session at the provider ends too.
-    icon: exit
+    hint: (optional) The provider's end-session endpoint, where a user is sent after logging out so the session at the provider ends too. The wiki appends the post_logout_redirect_uri parameter itself, keeping any query string already here.
+    icon: tabler:logout
     order: 12
   emailVerifiedClaim:
     type: String
     title: Email Verified Claim
     hint: (optional) Which field of the user info response says whether the address is verified. A plain OAuth2 provider has no standard field for this -- leave empty for one that reports none, so nothing is refused for a claim that was never going to be present.
-    icon: validation
+    icon: tabler:circle-check
     default: ''
     order: 13
   allowUnverifiedEmail:
     type: Boolean
     title: Accept Unverified Addresses
     hint: Off by default. Only applies when Email Verified Claim above is set. An address the provider reports as unverified proves nothing about the mailbox, and an account here is matched on the address.
-    icon: received
+    icon: tabler:mail-check
     default: false
     order: 14
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the field reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all).
-    icon: user-groups
+    icon: tabler:users
     default: false
     order: 15
   groupsClaim:
     type: String
     title: Groups Claim
     hint: Which field of the user info response carries the user's group/role memberships.
-    icon: user-groups
+    icon: tabler:users
     default: 'groups'
     order: 16
     if:
@@ -123,7 +123,7 @@ props:
     type: String
     title: Groups Scope
     hint: (optional) A scope to add to Scope above if it isn't already there, for a provider that only includes group/role membership when it is explicitly requested. Leave empty if the provider needs none.
-    icon: rules
+    icon: tabler:list-check
     default: ''
     order: 17
     if:
@@ -132,5 +132,5 @@ refs:
   callbackUrl:
     title: Authorization Callback URL
     hint: Register this as the redirect URI at the provider. It is the same for every provider.
-    icon: back
+    icon: tabler:arrow-back
     value: '{host}/_api/auth/{id}/callback'

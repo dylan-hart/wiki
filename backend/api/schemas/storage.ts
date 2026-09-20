@@ -51,6 +51,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
               enum: [...CONTENT_TYPES]
             }
           },
+          supportedTypes: {
+            type: 'array',
+            description:
+              'The content types the module can act on, read-only. An object-store module lists no `pages`, and `activeTypes` never holds a type it does not support.',
+            items: {
+              type: 'string',
+              enum: [...CONTENT_TYPES]
+            }
+          },
           largeThreshold: {
             type: 'string',
             description: 'Size above which an asset counts as a large file, e.g. `5MB`.'
@@ -68,10 +77,16 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           isDirectAccessSupported: {
             type: 'boolean'
           },
+          isReadThroughSupported: {
+            type: 'boolean'
+          },
           streaming: {
             type: 'boolean'
           },
           directAccess: {
+            type: 'boolean'
+          },
+          readThrough: {
             type: 'boolean'
           }
         }
@@ -227,6 +242,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             type: 'boolean'
           },
           directAccess: {
+            type: 'boolean'
+          },
+          readThrough: {
             type: 'boolean'
           }
         }

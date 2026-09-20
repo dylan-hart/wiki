@@ -46,6 +46,7 @@ const DEFAULT_SESSION_CAP = 1000
 interface HttpRoutesOptions {
   sessionIdleTtlMs?: number
   sessionCap?: number
+  clock?: { now: () => number }
 }
 
 function sessionIdOf(req: {
@@ -60,6 +61,7 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
   const sessions = new LRUCache<string, McpSession>({
     max: opts.sessionCap ?? DEFAULT_SESSION_CAP,
     ttl: opts.sessionIdleTtlMs ?? DEFAULT_SESSION_IDLE_TTL_MS,
+    ...(opts.clock ? { perf: opts.clock, ttlResolution: 0 } : {}),
     // -> Idle-based, not absolute-lifetime: every handler below `.get()`s a session before acting on
     //    it, which restarts the ttl.
     updateAgeOnGet: true,

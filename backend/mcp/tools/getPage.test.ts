@@ -121,6 +121,16 @@ test('handleGetPage: includeSource with read:source returns the source', async (
   assert.equal(page.sourceOmitted, false)
 })
 
+for (const implying of ['write:pages', 'manage:pages']) {
+  test(`handleGetPage: ${implying} alone implies read:source`, async () => {
+    install({ access: ['read:pages', implying] })
+    const result = await handleGetPage(CTX, { path: BASE_PAGE.path, includeSource: true })
+    const page = textOf(result)
+    assert.equal(page.content, BASE_PAGE.content)
+    assert.equal(page.sourceOmitted, false)
+  })
+}
+
 test('handleGetPage: includeSource without read:source is withheld, not refused', async () => {
   install({ access: ['read:pages'] })
   const result = await handleGetPage(CTX, { path: BASE_PAGE.path, includeSource: true })

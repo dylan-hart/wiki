@@ -1,9 +1,12 @@
-import { actorFrom, mayOnPage, requireReadablePage } from '../helpers/pageAccess.ts'
+import { actorFrom, mayOnPage, requireActorId, requireReadablePage } from '../helpers/pageAccess.ts'
 import { enforceCommentCooldown, limitGuestComments } from '../helpers/rateLimit.ts'
 import { requestOrigin } from '../helpers/common.ts'
+import { HANDLE_MAX_LENGTH } from '../models/users.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { AccessActor } from '../models/groups.ts'
 import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
+
+const MENTION_SUGGESTION_LIMIT = 5
 
 const commentIdParam = {
   type: 'object',
@@ -55,24 +58,6 @@ async function resolveAuthorName(comment: {
   return comment.guestName ?? ''
 }
 
-/** `authorEmail` is always null: a page's comment list may be read anonymously. */
-function toPublicComment(comment: ThreadedComment): Record<string, unknown> {
-  return {
-    id: comment.id,
-    siteId: comment.siteId,
-    pageId: comment.pageId,
-    authorId: comment.authorId,
-    authorName: comment.authorName,
-    authorEmail: null,
-    replyTo: comment.replyTo,
-    content: comment.content,
-    render: comment.render,
-    createdAt: comment.createdAt,
-    updatedAt: comment.updatedAt,
-    replies: comment.replies.map((reply) => toPublicComment(reply))
-  }
-}
-
 function flattenIds(thread: ThreadedComment[]): Set<string> {
   const ids = new Set<string>()
   const visit = (nodes: ThreadedComment[]) => {
@@ -85,6 +70,8 @@ function flattenIds(thread: ThreadedComment[]): Set<string> {
   return ids
 }
 
+type PageRef = { path: string; locale: string | null; tags?: string[] }
+
 /**
  * A comment's own author may edit or delete it without `manage:comments` — a deliberate divergence
  * from Wiki.js 2.5.x, which requires it for every edit and delete. A guest comment (`authorId`
@@ -93,7 +80,7 @@ function flattenIds(thread: ThreadedComment[]): Set<string> {
 function maySelfModerate(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] },
+  page: PageRef,
   comment: { authorId: string | null },
   actor: { id: string } | null
 ): boolean {
@@ -101,6 +88,46 @@ function maySelfModerate(
     return true
   }
   return Boolean(actor && comment.authorId !== null && comment.authorId === actor.id)
+}
+
+/**
+ * What this requester may do to `comment`, resolved server-side so the client gates its controls on
+ * the rule the PATCH/DELETE routes will actually apply. Edit and delete share `maySelfModerate`, so
+ * the two flags always agree today; they stay separate on the wire so the rules can diverge.
+ */
+function moderationFlags(
+  req: FastifyRequest,
+  siteId: string,
+  page: PageRef,
+  comment: { authorId: string | null },
+  actor: { id: string } | null
+): { canEdit: boolean; canDelete: boolean } {
+  const allowed = maySelfModerate(req, siteId, page, comment, actor)
+  return { canEdit: allowed, canDelete: allowed }
+}
+
+/** `authorEmail` is always null: a page's comment list may be read anonymously. */
+function toPublicComment(
+  req: FastifyRequest,
+  page: PageRef,
+  actor: { id: string } | null,
+  comment: ThreadedComment
+): Record<string, unknown> {
+  return {
+    id: comment.id,
+    siteId: comment.siteId,
+    pageId: comment.pageId,
+    authorId: comment.authorId,
+    authorName: comment.authorName,
+    authorEmail: null,
+    replyTo: comment.replyTo,
+    content: comment.content,
+    render: comment.render,
+    createdAt: comment.createdAt,
+    updatedAt: comment.updatedAt,
+    ...moderationFlags(req, comment.siteId, page, comment, actor),
+    replies: comment.replies.map((reply) => toPublicComment(req, page, actor, reply))
+  }
 }
 
 async function routes(app: FastifyInstance) {
@@ -265,6 +292,68 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  app.get<{ Params: { siteId: string }; Querystring: { q: string } }>(
+    '/sites/:siteId/comments/mentions',
+    {
+      schema: {
+        summary: 'Suggest handles to mention in a comment',
+        description:
+          'Up to five active accounts whose handle starts with `q`, compared case-insensitively, for the comment composer’s `@` autocomplete. Each entry carries the canonical stored `handle` and the display `name`, and nothing else — no email, no id.\n\nRefused with 401 without a session (a guest can type `@handle` but is offered no suggestions), and with 403 when the site has comments turned off or the requester holds `write:comments` on no page of the site. `write:comments` is a page-rule permission, so this is the coarse "could post a comment somewhere here" check rather than a per-page one.',
+        tags: ['Comments'],
+        params: { $ref: 'SiteIdParams#' },
+        querystring: {
+          type: 'object',
+          properties: {
+            q: {
+              type: 'string',
+              minLength: 1,
+              maxLength: HANDLE_MAX_LENGTH,
+              pattern: '^[A-Za-z0-9._-]+$',
+              description: 'The handle prefix typed after the `@`.'
+            }
+          },
+          required: ['q']
+        },
+        response: {
+          200: {
+            description: 'Matching accounts, at most five',
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                handle: { type: 'string' },
+                name: { type: 'string' }
+              },
+              required: ['handle', 'name'],
+              additionalProperties: false
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!requireActorId(req, reply)) {
+        return reply
+      }
+      if (!CARDINAL.sites[req.params.siteId]?.config?.features?.comments) {
+        return reply.forbidden('Comments are disabled for this site.')
+      }
+      const actor = CARDINAL.models.groups.actorForRequest(req)
+      if (
+        !CARDINAL.models.groups.mayHoldPermissionSomewhere(
+          actor,
+          ['write:comments'],
+          req.params.siteId
+        )
+      ) {
+        return reply.forbidden('You are not allowed to comment on this site.')
+      }
+      return CARDINAL.models.users.searchHandles(req.query.q, MENTION_SUGGESTION_LIMIT)
+    }
+  )
+
   app.delete<{ Params: { siteId: string; commentId: string } }>(
     '/sites/:siteId/comments/:commentId',
     {
@@ -336,8 +425,9 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
+      const actor = actorFrom(req)
       const thread = await CARDINAL.models.comments.listForPage(page.id)
-      return thread.map((comment) => toPublicComment(comment))
+      return thread.map((comment) => toPublicComment(req, page, actor, comment))
     }
   )
 
@@ -509,6 +599,7 @@ async function routes(app: FastifyInstance) {
         render: comment.render,
         createdAt: comment.createdAt,
         updatedAt: comment.updatedAt,
+        ...moderationFlags(req, req.params.siteId, page, comment, actor),
         replies: []
       }
     }
@@ -583,6 +674,7 @@ async function routes(app: FastifyInstance) {
         render: updated.render,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
+        ...moderationFlags(req, req.params.siteId, page, updated, actor),
         replies: []
       }
     }

@@ -26,6 +26,7 @@ export type MailKind =
   | 'digest'
   | 'notificationEvent'
   | 'approval'
+  | 'commentMention'
   | 'tfaEnabled'
   | 'tfaDisabled'
   | 'tfaRecoveryCodesGenerated'

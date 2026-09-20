@@ -55,6 +55,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
         company: 'Acme',
         contentLicense: 'CC-BY',
         footerExtra: '',
+        banner: { isEnabled: false, title: '', content: '' },
         pageExtensions: ['md'],
         allowedUrlSchemes: ['discord'],
         discoverable: false,
@@ -90,6 +91,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'assets',
     'auth',
     'authStrategies',
+    'banner',
     'blocksConfig',
     'blocksIndex',
     'commentsProvider',
@@ -102,6 +104,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'editors',
     'features',
     'footerExtra',
+    'guestsMayViewProfiles',
     'hostname',
     'id',
     'isEnabled',
@@ -125,6 +128,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     true,
     'isReplicationEnabled should reflect CARDINAL.config.replication.isEnabled'
   )
+  assert.deepEqual(payload.banner, { isEnabled: false, title: '', content: '' })
   assert.deepEqual(payload.security, { embedAllowedOrigins: ['https://intranet.example.com'] })
   assert.equal(
     payload.commentsProvider,
@@ -217,6 +221,35 @@ test('buildSitePayload reports isReplicationEnabled: false when replication conf
   assert.equal(payload.isReplicationEnabled, false)
 
   wikiHandle.restore()
+})
+
+test('buildSitePayload reports guestsMayViewProfiles from profileVisibility, false when absent', async () => {
+  for (const [profileVisibility, expected] of [
+    [{ forcedPublicFields: [], guestsMayView: true }, true],
+    [{ forcedPublicFields: [], guestsMayView: false }, false],
+    [undefined, false]
+  ] as const) {
+    const wikiHandle = installTestWiki({
+      config: { docsBase: '', profileVisibility },
+      models: {
+        renderQueue: { isAvailable: async () => false },
+        blocks: { getSiteBlocks: async () => [] },
+        navigation: { ensureSiteNav: async () => 'nav-id' },
+        commentProviders: { getActiveProvider: async () => null }
+      }
+    })
+
+    const payload = await buildSitePayload({
+      id: 'site-id',
+      hostname: 'example.test',
+      isEnabled: true,
+      config: {}
+    })
+
+    assert.equal(payload.guestsMayViewProfiles, expected)
+
+    wikiHandle.restore()
+  }
 })
 
 /**
@@ -312,4 +345,20 @@ test('buildSitePayload reports features.semanticSearch: false when the setting i
   assert.equal(payload.features.semanticSearch, false)
 
   wikiHandle.restore()
+})
+
+test('the Site schema declares banner with bounded plain-text title and content', async () => {
+  const app = fastify()
+  await registerSchemas(app)
+  await app.ready()
+
+  const banner = (app.getSchema('Site') as any).properties.banner.properties
+
+  assert.equal(banner.isEnabled.type, 'boolean')
+  assert.equal(banner.title.type, 'string')
+  assert.equal(banner.title.maxLength, 255)
+  assert.equal(banner.content.type, 'string')
+  assert.equal(banner.content.maxLength, 2000)
+
+  await app.close()
 })

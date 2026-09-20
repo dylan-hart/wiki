@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify'
-import { TREE_ORDER_BY, type TreeItemType, type TreeOrderBy } from '../models/tree.ts'
-import { decodeTreePath, normalizePagePath } from '../helpers/common.ts'
+import {
+  TREE_ORDER_BY,
+  type PurgedFolder,
+  type TreeItemType,
+  type TreeOrderBy
+} from '../models/tree.ts'
+import { CustomError, decodeTreePath, normalizePagePath } from '../helpers/common.ts'
 import { defaultLocale } from '../helpers/localeRouting.ts'
 import {
   actorFrom,
@@ -8,6 +13,7 @@ import {
   mayOnFolder,
   mayOnPage,
   splitList,
+  unlockedFor,
   visibleTreeItems
 } from '../helpers/pageAccess.ts'
 
@@ -32,6 +38,17 @@ interface FolderBody {
   pathName: string
   title: string
   locale?: string
+}
+
+interface FolderDuplicateBody {
+  folderId?: string | null
+  parentPath?: string | null
+  pathName?: string
+  title?: string
+}
+
+interface PurgeEmptyBody {
+  dryRun?: boolean
 }
 
 function folderPathOf(folder: { folderPath?: string | null; fileName: string }): string {
@@ -345,6 +362,91 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  app.post<{ Params: { siteId: string }; Body?: PurgeEmptyBody }>(
+    '/sites/:siteId/tree/folders/purge-empty',
+    {
+      preValidation: async (req) => {
+        req.body ??= {}
+      },
+      schema: {
+        summary: 'Purge empty folders',
+        description:
+          "Removes the folders that hold nothing: no page, no asset, and no folder that itself holds something. A folder holding only empty folders is purged along with them, deepest first. A folder that owns a navigation override, or that a navigation item points at, is kept.\n\n`dryRun` defaults to `true`, so a bare call only reports what a real run would remove. Only folders the caller holds `manage:pages` on, judged on each folder's own path, are reported or removed; a folder whose empty child the caller may not manage is left alone as well, since it is not empty from where the caller stands. The rest are skipped rather than refusing the request. A folder that gains content between listing and deleting is skipped, never cascaded.",
+        tags: ['Tree'],
+        params: { $ref: 'SiteIdParams#' },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            dryRun: {
+              type: 'boolean',
+              default: true,
+              description: 'Only report the folders, deleting nothing.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'The folders found (dry run) or removed',
+            type: 'object',
+            properties: {
+              dryRun: { type: 'boolean' },
+              count: { type: 'integer' },
+              folders: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    path: { type: 'string' },
+                    locale: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Purging empty folders requires a logged in user.')
+      }
+      const dryRun = req.body?.dryRun ?? true
+      const { siteId } = req.params
+      const candidates = (await CARDINAL.models.tree.purgeEmptyFolders(siteId, { dryRun: true }))
+        .folders
+      const refused = candidates.filter(
+        (folder) => !mayOnFolder(req, 'manage:pages', siteId, folder.path, folder.locale)
+      )
+      const purgeable = candidates.filter(
+        (folder) =>
+          !refused.some(
+            (other) =>
+              other.locale === folder.locale &&
+              (other.path === folder.path || other.path.startsWith(`${folder.path}/`))
+          )
+      )
+      if (dryRun) {
+        return reply.send({ dryRun, count: purgeable.length, folders: purgeable })
+      }
+      const removed: PurgedFolder[] = []
+      for (const folder of purgeable) {
+        const held = await CARDINAL.models.tree.listDescendants(folder.id, siteId)
+        if (held.pages.length > 0 || held.assets.length > 0) {
+          continue
+        }
+        await CARDINAL.models.tree.deleteFolder(folder.id, siteId)
+        removed.push(folder)
+      }
+      return reply.send({ dryRun, count: removed.length, folders: removed })
+    }
+  )
+
   app.get<{ Params: { siteId: string; folderId: string } }>(
     '/sites/:siteId/tree/folders/:folderId',
     {
@@ -583,6 +685,165 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  app.put<{
+    Params: { siteId: string; folderId: string }
+    Body: { folderId?: string; parentPath?: string }
+  }>(
+    '/sites/:siteId/tree/folders/:folderId/parent',
+    {
+      // -> No route-level `permissions`: page permissions are path-bound, checked in the handler
+      schema: {
+        summary: 'Move a folder to another parent folder',
+        description:
+          "Reparents the folder and everything under it -- its name, title and locale are untouched, every descendant's path follows. `folderId` wins over `parentPath` when both are sent; neither given moves it to the site root. `parentPath` is created, along with any missing ancestor, if it does not exist yet. Moving a folder into itself or into one of its own subfolders answers 400, and so does a destination in another locale.\n\nAll-or-nothing, the same shape the rename and delete routes use: the caller needs `manage:pages` on the folder's current path AND `write:pages` on its new one, `manage:pages` at the current and `write:pages` at the new path of every descendant page (judged on its own tags and classification), and `manage:assets` at the current and `write:assets` at the new path of every descendant asset. A single unauthorized descendant refuses the whole request (403) and moves nothing. A folder or file already holding the name at the destination answers 409.",
+        tags: ['Tree'],
+        params: { $ref: 'SiteFolderParams#' },
+        body: {
+          type: 'object',
+          properties: {
+            folderId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'The destination folder. Wins over `parentPath`.'
+            },
+            parentPath: {
+              type: 'string',
+              maxLength: 2048,
+              description:
+                'Slash-separated path of the destination folder, created (with any missing ancestor) if it does not exist yet. The site root when both are absent, same as an empty string.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Folder moved successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              folder: { $ref: 'Folder#' }
+            }
+          },
+          400: {
+            $ref: 'ApiError#',
+            description:
+              'The destination is the folder itself or one of its own subfolders, is in another locale, or would put a locale-code-named folder at the site root.'
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description: 'A folder or file already holds this name at the destination.'
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const existing = await CARDINAL.models.tree.getFolderById(
+        req.params.folderId,
+        req.params.siteId
+      )
+      if (!existing) {
+        return reply.notFound('This folder does not exist.')
+      }
+      const currentPath = folderPathOf(existing)
+      if (!mayOnFolder(req, 'manage:pages', req.params.siteId, currentPath, existing.locale)) {
+        return reply.forbidden('You are not allowed to move this folder.')
+      }
+
+      // -> A destination id that does not resolve in this site is refused, never read as the
+      //    request's own `parentPath`, which would authorize against the wrong place
+      let destinationPath = req.body?.parentPath ? normalizePagePath(req.body.parentPath) : ''
+      if (req.body?.folderId) {
+        const destination = await CARDINAL.models.tree.getFolderById(
+          req.body.folderId,
+          req.params.siteId
+        )
+        if (!destination) {
+          return reply.notFound('The destination folder does not exist.')
+        }
+        destinationPath = folderPathOf(destination)
+      }
+
+      // -> Nothing below can authorize a move the model is going to refuse anyway, and the refusal
+      //    should not depend on which permissions the caller holds
+      if (destinationPath === currentPath || destinationPath.startsWith(`${currentPath}/`)) {
+        return reply.badRequest(
+          'A folder cannot be moved into itself or one of its own subfolders.'
+        )
+      }
+
+      const newPath = destinationPath
+        ? `${destinationPath}/${existing.fileName}`
+        : existing.fileName
+      if (!mayOnFolder(req, 'write:pages', req.params.siteId, newPath, existing.locale)) {
+        return reply.forbidden('You are not allowed to move a folder here.')
+      }
+
+      // -> Everything under the folder moves too, so each page and asset needs the same two-sided
+      //    check the single-entry move routes make, on its own path, tags and classification
+      const descendants = await CARDINAL.models.tree.listDescendants(
+        req.params.folderId,
+        req.params.siteId
+      )
+      for (const descendant of descendants.pages) {
+        const sourceRef = {
+          path: descendant.path,
+          locale: existing.locale,
+          tags: descendant.tags,
+          classification: descendant.classification
+        }
+        const destRef = {
+          ...sourceRef,
+          path: newPath + descendant.path.slice(currentPath.length)
+        }
+        if (
+          !mayOnPage(req, 'manage:pages', req.params.siteId, sourceRef) ||
+          !mayOnPage(req, 'write:pages', req.params.siteId, destRef)
+        ) {
+          return reply.forbidden(
+            `You are not allowed to move this folder: it would move the page at "${descendant.path}" (${existing.locale}).`
+          )
+        }
+      }
+      for (const asset of descendants.assets) {
+        const destAsset = {
+          folderPath: newPath + asset.folderPath.slice(currentPath.length),
+          fileName: asset.fileName,
+          locale: asset.locale
+        }
+        if (
+          !mayOnAsset(req, 'manage:assets', req.params.siteId, asset) ||
+          !mayOnAsset(req, 'write:assets', req.params.siteId, destAsset)
+        ) {
+          return reply.forbidden(
+            `You are not allowed to move this folder: it would move the asset at "${asset.path}" (${asset.locale}).`
+          )
+        }
+      }
+
+      const folder = await CARDINAL.models.tree.moveFolder({
+        siteId: req.params.siteId,
+        folderId: req.params.folderId,
+        destinationId: req.body?.folderId,
+        parentPath: req.body?.folderId ? undefined : destinationPath
+      })
+      return {
+        ok: true,
+        message: 'Folder moved successfully.',
+        folder: {
+          ...folder,
+          folderPath: decodeTreePath(folder.folderPath ?? '') ?? '',
+          childrenCount: folder.meta?.children ?? 0
+        }
+      }
+    }
+  )
+
   app.delete<{ Params: { siteId: string; folderId: string } }>(
     '/sites/:siteId/tree/folders/:folderId',
     {
@@ -661,6 +922,219 @@ async function routes(app: FastifyInstance) {
         authorId: actor.id
       })
       return reply.code(204).send()
+    }
+  )
+
+  app.post<{ Params: { siteId: string; folderId: string }; Body: FolderDuplicateBody }>(
+    '/sites/:siteId/tree/folders/:folderId/duplicate',
+    {
+      schema: {
+        summary: 'Duplicate a folder',
+        description:
+          "Copies the folder and everything under it: sub-folders, pages and assets. `folderId` and `parentPath` both address the folder to put the copy in, the ID winning when both are given; neither means the site root. A `parentPath` that does not exist yet is created along with the copy. `pathName` and `title` rename the copy itself, which is how a folder is duplicated into the folder it already sits in: without one the copy keeps the source's name and collides (409).\n\nAll-or-nothing: the caller needs `read:pages` on the folder's own path, `read:pages` on every descendant page (and, for a password-protected one, to have unlocked it or hold `write:pages`/`manage:pages` on it), `read:assets` on every descendant asset, `manage:pages` on the copy's own path and on any destination folder that has to be created, and `write:pages` / `write:assets` on the path each copied page / asset will land at, judged on that path and on the page's own tags and classification. A single unauthorized descendant refuses the whole request (403) and copies nothing. A destination inside the folder being copied is refused (400).",
+        tags: ['Tree'],
+        params: { $ref: 'SiteFolderParams#' },
+        body: {
+          allOf: [
+            { $ref: 'FolderInput#' },
+            {
+              type: 'object',
+              properties: {
+                folderId: {
+                  type: ['string', 'null'],
+                  format: 'uuid',
+                  description: 'The folder to put the copy in. Wins over `parentPath`.'
+                },
+                parentPath: {
+                  type: ['string', 'null'],
+                  maxLength: 2048,
+                  description: 'Slash-separated path of the folder to put the copy in.'
+                }
+              }
+            }
+          ]
+        },
+        response: {
+          200: {
+            description: 'Folder duplicated successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              folder: { $ref: 'Folder#' },
+              folders: {
+                type: 'integer',
+                description: 'How many folders were created, the copy itself included.'
+              },
+              pages: {
+                type: 'integer',
+                description: 'How many pages were copied.'
+              },
+              assets: {
+                type: 'integer',
+                description: 'How many assets were copied.'
+              }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const siteId = req.params.siteId
+      const body = req.body ?? {}
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Duplicating a folder requires a logged in user.')
+      }
+      const source = await CARDINAL.models.tree.getFolderById(req.params.folderId, siteId)
+      const sourcePath = source ? folderPathOf(source) : ''
+      if (!source || !mayOnFolder(req, 'read:pages', siteId, sourcePath, source.locale)) {
+        return reply.notFound('This folder does not exist.')
+      }
+
+      let destParent: string
+      let destLocale = source.locale
+      if (body.folderId) {
+        const destination = await CARDINAL.models.tree.getFolderById(body.folderId, siteId)
+        if (!destination) {
+          return reply.notFound('The destination folder does not exist.')
+        }
+        destParent = folderPathOf(destination)
+        destLocale = destination.locale
+      } else {
+        destParent = (body.parentPath ?? '')
+          .split('/')
+          .map((segment) => normalizePagePath(segment))
+          .filter(Boolean)
+          .join('/')
+      }
+      const destRoot = [destParent, body.pathName ?? source.fileName].filter(Boolean).join('/')
+
+      // -> Compared on whole segments, so copying `a` into `ab` is not copying it into itself
+      if (
+        destLocale === source.locale &&
+        (destParent === sourcePath || destParent.startsWith(`${sourcePath}/`))
+      ) {
+        return reply.badRequest('A folder cannot be duplicated into itself or a folder inside it.')
+      }
+
+      // -> The model creates whatever part of `parentPath` is missing, and a rule matches on path, so
+      //    each folder it would create is a write of its own
+      if (!body.folderId && destParent) {
+        const parts = destParent.split('/')
+        for (let depth = 1; depth <= parts.length; depth++) {
+          const ancestorPath = parts.slice(0, depth).join('/')
+          let exists = true
+          try {
+            await CARDINAL.models.tree.getFolder({ path: ancestorPath, locale: destLocale, siteId })
+          } catch (err: any) {
+            if (!(err instanceof CustomError) || err.name !== 'treeInvalidFolder') {
+              throw err
+            }
+            exists = false
+          }
+          if (!exists && !mayOnFolder(req, 'manage:pages', siteId, ancestorPath, destLocale)) {
+            return reply.forbidden(`You are not allowed to create the folder "${ancestorPath}".`)
+          }
+        }
+      }
+      if (!mayOnFolder(req, 'manage:pages', siteId, destRoot, destLocale)) {
+        return reply.forbidden('You are not allowed to duplicate this folder here.')
+      }
+
+      // -> Everything is judged before the one model call: it does no permission check of its own
+      //    and copies in a single transaction, so nothing partial is left behind
+      const descendants = await CARDINAL.models.tree.listDescendants(source.id, siteId)
+      for (const page of descendants.pages) {
+        const sourceRef = {
+          id: page.id,
+          path: page.path,
+          locale: source.locale,
+          tags: page.tags,
+          classification: page.classification
+        }
+        if (!mayOnPage(req, 'read:pages', siteId, sourceRef)) {
+          return reply.forbidden(
+            `You are not allowed to duplicate this folder: you may not read the page at "${page.path}".`
+          )
+        }
+        // -> A locked page's body is withheld from anyone who has not entered its password, and the
+        //    copy would hand it over
+        if (!unlockedFor(req, siteId, sourceRef)) {
+          const locked = await CARDINAL.models.pages.getPage({
+            siteId,
+            id: page.id,
+            unlocked: false,
+            withPassword: false
+          })
+          if (locked?.isLocked) {
+            return reply.forbidden(
+              `You are not allowed to duplicate this folder: the page at "${page.path}" is password protected.`
+            )
+          }
+        }
+        const destPath = destRoot + page.path.slice(sourcePath.length)
+        if (
+          !mayOnPage(req, 'write:pages', siteId, {
+            path: destPath,
+            locale: destLocale,
+            tags: page.tags,
+            classification: page.classification
+          })
+        ) {
+          return reply.forbidden(
+            `You are not allowed to duplicate this folder: you may not write a page at "${destPath}".`
+          )
+        }
+      }
+      for (const asset of descendants.assets) {
+        if (!mayOnAsset(req, 'read:assets', siteId, asset)) {
+          return reply.forbidden(
+            `You are not allowed to duplicate this folder: you may not read the asset at "${asset.path}".`
+          )
+        }
+        const destAsset = {
+          folderPath: destRoot + asset.folderPath.slice(sourcePath.length),
+          fileName: asset.fileName,
+          locale: destLocale
+        }
+        if (!mayOnAsset(req, 'write:assets', siteId, destAsset)) {
+          return reply.forbidden(
+            `You are not allowed to duplicate this folder: you may not write an asset at "${[destAsset.folderPath, destAsset.fileName].filter(Boolean).join('/')}".`
+          )
+        }
+      }
+
+      const result = await CARDINAL.models.tree.duplicateFolder({
+        id: source.id,
+        siteId,
+        folderId: body.folderId,
+        parentPath: body.folderId ? undefined : destParent,
+        pathName: body.pathName,
+        title: body.title,
+        actor
+      })
+      return {
+        ok: true,
+        message: 'Folder duplicated successfully.',
+        folder: {
+          ...result.folder,
+          folderPath: decodeTreePath(result.folder.folderPath ?? '') ?? '',
+          childrenCount: result.folder.meta?.children ?? 0
+        },
+        folders: result.folders,
+        pages: result.pages,
+        assets: result.assets
+      }
     }
   )
 }

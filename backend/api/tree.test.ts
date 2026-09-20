@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import treeRoutes from './tree.ts'
+import { CustomError } from '../helpers/common.ts'
 import { mayOnFolder, visibleTreeItems } from '../helpers/pageAccess.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
@@ -534,5 +535,1004 @@ test('LIST PAGES AS A READER route: threads each page’s tags into the read:pag
   } finally {
     ;(globalThis as any).CARDINAL.models.tree.listPages = originalListPages
     ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
+  }
+})
+
+const DEST_ID = '66666666-6666-4666-8666-666666666666'
+
+function withMoveFolderMocks(overrides: {
+  getFolderById?: (id: string) => any
+  listDescendants?: () => any
+  moveFolder?: (input: any) => any
+  checkAccess?: (actor: any, permission: string, page: any) => boolean
+}) {
+  const tree = (globalThis as any).CARDINAL.models.tree
+  const groups = (globalThis as any).CARDINAL.models.groups
+  const saved = {
+    getFolderById: tree.getFolderById,
+    listDescendants: tree.listDescendants,
+    moveFolder: tree.moveFolder,
+    checkAccess: groups.checkAccess
+  }
+  tree.getFolderById = async (id: string) =>
+    overrides.getFolderById
+      ? overrides.getFolderById(id)
+      : id === DEST_ID
+        ? { id, siteId: ENABLED_SITE_ID, fileName: 'dest', folderPath: '', locale: 'en', meta: {} }
+        : { id, siteId: ENABLED_SITE_ID, fileName: 'sub', folderPath: '', locale: 'en', meta: {} }
+  tree.listDescendants = overrides.listDescendants ?? (async () => ({ pages: [], assets: [] }))
+  tree.moveFolder =
+    overrides.moveFolder ??
+    (async (input: any) => ({
+      id: input.folderId,
+      siteId: ENABLED_SITE_ID,
+      fileName: 'sub',
+      folderPath: 'dest',
+      locale: 'en',
+      meta: {}
+    }))
+  groups.checkAccess = overrides.checkAccess ?? (() => true)
+  return () => {
+    tree.getFolderById = saved.getFolderById
+    tree.listDescendants = saved.listDescendants
+    tree.moveFolder = saved.moveFolder
+    groups.checkAccess = saved.checkAccess
+  }
+}
+
+test('MOVE FOLDER route: moves into a destination folder, passing the resolved destination to moveFolder', async () => {
+  const calls: any[] = []
+  const restore = withMoveFolderMocks({
+    moveFolder: async (input: any) => {
+      calls.push(input)
+      return {
+        id: input.folderId,
+        siteId: ENABLED_SITE_ID,
+        fileName: 'sub',
+        folderPath: 'dest',
+        locale: 'en',
+        meta: { children: 2 }
+      }
+    }
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].siteId, ENABLED_SITE_ID)
+    assert.equal(calls[0].folderId, FOLDER_ID)
+    assert.equal(calls[0].destinationId, DEST_ID)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.folder.folderPath, 'dest')
+    assert.equal(body.folder.childrenCount, 2)
+  } finally {
+    restore()
+  }
+})
+
+test('MOVE FOLDER route: a parentPath destination is normalized, and no body moves to the site root', async () => {
+  const calls: any[] = []
+  const restore = withMoveFolderMocks({
+    getFolderById: (id: string) => ({
+      id,
+      siteId: ENABLED_SITE_ID,
+      fileName: 'sub',
+      folderPath: 'elsewhere',
+      locale: 'en',
+      meta: {}
+    }),
+    moveFolder: async (input: any) => {
+      calls.push(input)
+      return { id: input.folderId, fileName: 'sub', folderPath: '', locale: 'en', meta: {} }
+    }
+  })
+  try {
+    const withPath = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { parentPath: '/Guides/Intro/' }
+    })
+    assert.equal(withPath.statusCode, 200)
+    assert.equal(calls[0].parentPath, 'guides/intro')
+    assert.equal(calls[0].destinationId, undefined)
+
+    const toRoot = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: {}
+    })
+    assert.equal(toRoot.statusCode, 200)
+    assert.equal(calls[1].parentPath, '')
+  } finally {
+    restore()
+  }
+})
+
+test('MOVE FOLDER route: an unknown folder is a 404, and an unresolvable destination id is a 404 that moves nothing', async () => {
+  let moveCalled = false
+  let restore = withMoveFolderMocks({
+    getFolderById: () => null,
+    moveFolder: async () => {
+      moveCalled = true
+      return {}
+    }
+  })
+  try {
+    const missing = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(missing.statusCode, 404)
+  } finally {
+    restore()
+  }
+  restore = withMoveFolderMocks({
+    getFolderById: (id: string) =>
+      id === FOLDER_ID
+        ? { id, siteId: ENABLED_SITE_ID, fileName: 'sub', folderPath: '', locale: 'en', meta: {} }
+        : null,
+    moveFolder: async () => {
+      moveCalled = true
+      return {}
+    }
+  })
+  try {
+    const noDest = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID, parentPath: 'fallback' }
+    })
+    assert.equal(noDest.statusCode, 404)
+    assert.equal(noDest.json().message, 'The destination folder does not exist.')
+  } finally {
+    restore()
+  }
+  assert.equal(moveCalled, false)
+})
+
+test('MOVE FOLDER route: refuses a move into the folder itself or its own subtree, by segment boundary', async () => {
+  const moves: any[] = []
+  const restore = withMoveFolderMocks({
+    moveFolder: async (input: any) => {
+      moves.push(input)
+      return { id: input.folderId, fileName: 'sub', folderPath: '', locale: 'en', meta: {} }
+    }
+  })
+  try {
+    for (const parentPath of ['sub', 'sub/inner/deeper']) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+        payload: { parentPath }
+      })
+      assert.equal(res.statusCode, 400, parentPath)
+    }
+    assert.equal(moves.length, 0)
+
+    const sibling = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { parentPath: 'sub-archive' }
+    })
+    assert.equal(
+      sibling.statusCode,
+      200,
+      'a name that merely starts with the folder name is not inside it'
+    )
+    assert.equal(moves.length, 1)
+  } finally {
+    restore()
+  }
+})
+
+test('MOVE FOLDER route: refuses without manage:pages at the source or write:pages at the destination, and moves nothing', async () => {
+  let moveCalled = false
+  const moveFolder = async () => {
+    moveCalled = true
+    return {}
+  }
+  let restore = withMoveFolderMocks({
+    moveFolder,
+    checkAccess: (_actor, permission) => permission !== 'manage:pages'
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 403)
+  } finally {
+    restore()
+  }
+  restore = withMoveFolderMocks({
+    moveFolder,
+    checkAccess: (_actor, permission, page) =>
+      !(permission === 'write:pages' && page.path === 'dest/sub')
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 403)
+  } finally {
+    restore()
+  }
+  assert.equal(moveCalled, false)
+})
+
+test('MOVE FOLDER route: one unauthorized descendant page refuses the whole move', async () => {
+  let moveCalled = false
+  const checked: { permission: string; path: string }[] = []
+  const restore = withMoveFolderMocks({
+    listDescendants: async () => ({
+      pages: [
+        { path: 'sub/ok', locale: 'en', tags: [], classification: null },
+        { path: 'sub/inner/secret', locale: 'en', tags: ['x'], classification: null }
+      ],
+      assets: []
+    }),
+    moveFolder: async () => {
+      moveCalled = true
+      return {}
+    },
+    checkAccess: (_actor, permission, page) => {
+      checked.push({ permission, path: page.path })
+      return !(permission === 'write:pages' && page.path === 'dest/sub/inner/secret')
+    }
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.ok(checked.some((c) => c.permission === 'manage:pages' && c.path === 'sub/ok'))
+    assert.ok(checked.some((c) => c.permission === 'write:pages' && c.path === 'dest/sub/ok'))
+    assert.equal(moveCalled, false)
+  } finally {
+    restore()
+  }
+})
+
+test('MOVE FOLDER route: descendant assets need manage:assets at the source and write:assets at the destination', async () => {
+  let moveCalled = false
+  const checked: { permission: string; path: string }[] = []
+  const asset = {
+    id: 'a1',
+    path: 'sub/inner/file.png',
+    folderPath: 'sub/inner',
+    fileName: 'file.png',
+    locale: 'en'
+  }
+  for (const denied of ['manage:assets', 'write:assets']) {
+    const restore = withMoveFolderMocks({
+      listDescendants: async () => ({ pages: [], assets: [asset] }),
+      moveFolder: async () => {
+        moveCalled = true
+        return {}
+      },
+      checkAccess: (_actor, permission, page) => {
+        checked.push({ permission, path: page.path })
+        return permission !== denied
+      }
+    })
+    try {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+        payload: { folderId: DEST_ID }
+      })
+      assert.equal(res.statusCode, 403, denied)
+    } finally {
+      restore()
+    }
+  }
+  assert.equal(moveCalled, false)
+  assert.ok(
+    checked.some((c) => c.permission === 'manage:assets' && c.path === 'sub/inner/file.png')
+  )
+  assert.ok(
+    checked.some((c) => c.permission === 'write:assets' && c.path === 'dest/sub/inner/file.png')
+  )
+})
+
+test('MOVE FOLDER route: a fully authorized folder with pages and assets moves', async () => {
+  const calls: any[] = []
+  const restore = withMoveFolderMocks({
+    listDescendants: async () => ({
+      pages: [{ path: 'sub/page', locale: 'en', tags: [], classification: null }],
+      assets: [{ id: 'a1', path: 'sub/f.png', folderPath: 'sub', fileName: 'f.png', locale: 'en' }]
+    }),
+    moveFolder: async (input: any) => {
+      calls.push(input)
+      return { id: input.folderId, fileName: 'sub', folderPath: 'dest', locale: 'en', meta: {} }
+    }
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.length, 1)
+  } finally {
+    restore()
+  }
+})
+
+test('MOVE FOLDER route: a 409 name collision from the model surfaces as 409', async () => {
+  const restore = withMoveFolderMocks({
+    moveFolder: async () => {
+      throw new CustomError(
+        'treeFolderDuplicate',
+        'A folder with this path name already exists.',
+        409
+      )
+    }
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 409)
+  } finally {
+    restore()
+  }
+})
+
+const DUPLICATE_DEST_ID = '66666666-6666-4666-8666-666666666666'
+const DUPLICATE_SESSION = JSON.stringify({ authenticated: true, user: { id: 'user-1' } })
+
+interface DuplicateScenario {
+  folders?: Record<string, any>
+  existingFolders?: string[]
+  pages?: any[]
+  assets?: any[]
+  allow?: (permission: string, ref: any) => boolean
+  lockedPages?: string[]
+  duplicate?: (args: any) => any
+}
+
+async function withDuplicateMocks(
+  scenario: DuplicateScenario,
+  fn: (calls: { access: any[]; duplicate: any[]; getPage: any[] }) => Promise<void>
+) {
+  const models = (globalThis as any).CARDINAL.models
+  const saved = {
+    tree: { ...models.tree },
+    groups: { ...models.groups },
+    pages: { ...models.pages }
+  }
+  const calls = { access: [] as any[], duplicate: [] as any[], getPage: [] as any[] }
+  const folders: Record<string, any> = {
+    [FOLDER_ID]: {
+      id: FOLDER_ID,
+      siteId: ENABLED_SITE_ID,
+      fileName: 'sub',
+      folderPath: '',
+      locale: 'en',
+      meta: {}
+    },
+    ...scenario.folders
+  }
+  models.tree.getFolderById = async (id: string) => folders[id] ?? null
+  models.tree.getFolder = async ({ path }: { path: string }) => {
+    if (scenario.existingFolders?.includes(path)) {
+      return { id: path }
+    }
+    throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+  }
+  models.tree.listDescendants = async () => ({
+    pages: scenario.pages ?? [],
+    assets: scenario.assets ?? []
+  })
+  models.tree.duplicateFolder =
+    scenario.duplicate ??
+    (async (args: any) => {
+      calls.duplicate.push(args)
+      return {
+        folder: {
+          id: DUPLICATE_DEST_ID,
+          fileName: args.pathName ?? 'sub',
+          folderPath: args.parentPath ?? '',
+          locale: 'en',
+          meta: { children: 2 }
+        },
+        folders: 2,
+        pages: scenario.pages?.length ?? 0,
+        assets: scenario.assets?.length ?? 0
+      }
+    })
+  models.groups.checkAccess = (_actor: any, permission: string, ref: any) => {
+    calls.access.push({ permission, ref })
+    return scenario.allow ? scenario.allow(permission, ref) : true
+  }
+  models.pages.getPage = async (args: any) => {
+    calls.getPage.push(args)
+    return { id: args.id, isLocked: scenario.lockedPages?.includes(args.id) ?? false }
+  }
+  try {
+    await fn(calls)
+  } finally {
+    Object.assign(models.tree, saved.tree)
+    Object.assign(models.groups, saved.groups)
+    Object.assign(models.pages, saved.pages)
+  }
+}
+
+function duplicate(payload: Record<string, any>, session: string | null = DUPLICATE_SESSION) {
+  return app.inject({
+    method: 'POST',
+    url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/duplicate`,
+    headers: session ? { 'x-test-session': session } : {},
+    payload
+  })
+}
+
+const DUP_PAGE_A = {
+  id: 'page-a',
+  path: 'sub/a',
+  locale: 'en',
+  tags: ['x'],
+  classification: 'internal'
+}
+const DUP_PAGE_B = {
+  id: 'page-b',
+  path: 'sub/deep/b',
+  locale: 'en',
+  tags: [],
+  classification: null
+}
+const DUP_ASSET = {
+  id: 'asset-a',
+  path: 'sub/deep/pic.png',
+  folderPath: 'sub/deep',
+  fileName: 'pic.png',
+  locale: 'en'
+}
+
+test('DUPLICATE FOLDER route: an authorized request makes exactly one model call and returns its result', async () => {
+  await withDuplicateMocks(
+    { pages: [DUP_PAGE_A, DUP_PAGE_B], assets: [DUP_ASSET] },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy', title: 'Sub copy' })
+      assert.equal(res.statusCode, 200)
+      assert.equal(calls.duplicate.length, 1)
+      assert.equal(calls.duplicate[0].id, FOLDER_ID)
+      assert.equal(calls.duplicate[0].siteId, ENABLED_SITE_ID)
+      assert.equal(calls.duplicate[0].parentPath, 'other')
+      assert.equal(calls.duplicate[0].folderId, undefined)
+      assert.equal(calls.duplicate[0].pathName, 'sub-copy')
+      assert.equal(calls.duplicate[0].title, 'Sub copy')
+      assert.equal(calls.duplicate[0].actor.id, 'user-1')
+      const body = res.json()
+      assert.equal(body.ok, true)
+      assert.equal(body.folder.id, DUPLICATE_DEST_ID)
+      assert.equal(body.folder.childrenCount, 2)
+      assert.equal(body.folders, 2)
+      assert.equal(body.pages, 2)
+      assert.equal(body.assets, 1)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: judges every source read and every destination write on the path each copy lands at', async () => {
+  await withDuplicateMocks(
+    { pages: [DUP_PAGE_A, DUP_PAGE_B], assets: [DUP_ASSET] },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 200)
+      const asked = calls.access.map((entry) => `${entry.permission} ${entry.ref.path}`)
+      assert.ok(asked.includes('read:pages sub'))
+      assert.ok(asked.includes('manage:pages other/sub-copy'))
+      assert.ok(asked.includes('read:pages sub/a'))
+      assert.ok(asked.includes('write:pages other/sub-copy/a'))
+      assert.ok(asked.includes('write:pages other/sub-copy/deep/b'))
+      assert.ok(asked.includes('read:assets sub/deep/pic.png'))
+      assert.ok(asked.includes('write:assets other/sub-copy/deep/pic.png'))
+      const write = calls.access.find(
+        (entry) => entry.permission === 'write:pages' && entry.ref.path === 'other/sub-copy/a'
+      )
+      assert.deepEqual(write.ref.tags, ['x'])
+      assert.equal(write.ref.classification, 'internal')
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: refuses an anonymous request and copies nothing', async () => {
+  await withDuplicateMocks({}, async (calls) => {
+    const res = await duplicate({}, null)
+    assert.equal(res.statusCode, 401)
+    assert.equal(calls.duplicate.length, 0)
+  })
+})
+
+test('DUPLICATE FOLDER route: a source the caller cannot read answers 404', async () => {
+  await withDuplicateMocks(
+    { allow: (permission) => permission !== 'read:pages' },
+    async (calls) => {
+      const res = await duplicate({ pathName: 'x' })
+      assert.equal(res.statusCode, 404)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: one page the caller cannot read refuses the whole request', async () => {
+  await withDuplicateMocks(
+    {
+      pages: [DUP_PAGE_A, DUP_PAGE_B],
+      allow: (permission, ref) => !(permission === 'read:pages' && ref.path === 'sub/deep/b')
+    },
+    async (calls) => {
+      const res = await duplicate({ pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.match(res.json().message, /sub\/deep\/b/)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: one page the caller cannot write at its destination refuses the whole request', async () => {
+  await withDuplicateMocks(
+    {
+      pages: [DUP_PAGE_A, DUP_PAGE_B],
+      allow: (permission, ref) =>
+        !(permission === 'write:pages' && ref.path === 'other/sub-copy/deep/b')
+    },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.match(res.json().message, /other\/sub-copy\/deep\/b/)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: one asset the caller cannot read refuses the whole request', async () => {
+  await withDuplicateMocks(
+    {
+      pages: [DUP_PAGE_A],
+      assets: [DUP_ASSET],
+      allow: (permission) => permission !== 'read:assets'
+    },
+    async (calls) => {
+      const res = await duplicate({ pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: one asset the caller cannot write at its destination refuses the whole request', async () => {
+  await withDuplicateMocks(
+    {
+      pages: [DUP_PAGE_A],
+      assets: [DUP_ASSET],
+      allow: (permission) => permission !== 'write:assets'
+    },
+    async (calls) => {
+      const res = await duplicate({ pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.match(res.json().message, /sub-copy\/deep\/pic\.png/)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: refuses when the caller cannot manage the copy’s own path', async () => {
+  await withDuplicateMocks(
+    { allow: (permission, ref) => !(permission === 'manage:pages' && ref.path === 'sub-copy') },
+    async (calls) => {
+      const res = await duplicate({ pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: a missing destination ancestor the caller may not create refuses the request', async () => {
+  await withDuplicateMocks(
+    {
+      existingFolders: ['area'],
+      allow: (permission, ref) => !(permission === 'manage:pages' && ref.path === 'area/new')
+    },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'area/new/deeper', pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.match(res.json().message, /area\/new/)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: an existing destination ancestor needs no create permission of its own', async () => {
+  await withDuplicateMocks(
+    {
+      existingFolders: ['area', 'area/new'],
+      allow: (permission, ref) => !(permission === 'manage:pages' && ref.path === 'area/new')
+    },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'area/new', pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 200)
+      assert.equal(calls.duplicate.length, 1)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: a destination folderId is resolved for its path and locale', async () => {
+  await withDuplicateMocks(
+    {
+      folders: {
+        [DUPLICATE_DEST_ID]: {
+          id: DUPLICATE_DEST_ID,
+          fileName: 'dest',
+          folderPath: 'top',
+          locale: 'fr'
+        }
+      },
+      pages: [DUP_PAGE_A]
+    },
+    async (calls) => {
+      const res = await duplicate({ folderId: DUPLICATE_DEST_ID, parentPath: 'ignored' })
+      assert.equal(res.statusCode, 200)
+      assert.equal(calls.duplicate[0].folderId, DUPLICATE_DEST_ID)
+      assert.equal(calls.duplicate[0].parentPath, undefined)
+      const write = calls.access.find(
+        (entry) => entry.permission === 'write:pages' && entry.ref.locale === 'fr'
+      )
+      assert.equal(write.ref.path, 'top/dest/sub/a')
+      assert.equal(write.ref.locale, 'fr')
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: a destination folderId that does not resolve in this site answers 404', async () => {
+  await withDuplicateMocks({}, async (calls) => {
+    const res = await duplicate({ folderId: DUPLICATE_DEST_ID })
+    assert.equal(res.statusCode, 404)
+    assert.equal(res.json().message, 'The destination folder does not exist.')
+    assert.equal(calls.duplicate.length, 0)
+  })
+})
+
+test('DUPLICATE FOLDER route: refuses a copy into the folder itself', async () => {
+  await withDuplicateMocks({}, async (calls) => {
+    const res = await duplicate({ parentPath: 'sub', pathName: 'sub-copy' })
+    assert.equal(res.statusCode, 400)
+    assert.equal(calls.duplicate.length, 0)
+  })
+})
+
+test('DUPLICATE FOLDER route: refuses a copy into a folder inside it, by path or by id', async () => {
+  await withDuplicateMocks(
+    {
+      folders: {
+        [DUPLICATE_DEST_ID]: {
+          id: DUPLICATE_DEST_ID,
+          fileName: 'deep',
+          folderPath: 'sub',
+          locale: 'en'
+        }
+      }
+    },
+    async (calls) => {
+      const byPath = await duplicate({ parentPath: 'Sub/Deep/Deeper', pathName: 'sub-copy' })
+      assert.equal(byPath.statusCode, 400)
+      const byId = await duplicate({ folderId: DUPLICATE_DEST_ID, pathName: 'sub-copy' })
+      assert.equal(byId.statusCode, 400)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: a sibling whose name merely starts with the source’s name is not inside it', async () => {
+  await withDuplicateMocks({ existingFolders: ['sub-two'] }, async (calls) => {
+    const res = await duplicate({ parentPath: 'sub-two' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.duplicate.length, 1)
+  })
+})
+
+test('DUPLICATE FOLDER route: the same path in another locale is not inside the source', async () => {
+  await withDuplicateMocks(
+    {
+      folders: {
+        [DUPLICATE_DEST_ID]: {
+          id: DUPLICATE_DEST_ID,
+          fileName: 'sub',
+          folderPath: '',
+          locale: 'fr'
+        }
+      }
+    },
+    async (calls) => {
+      const res = await duplicate({ folderId: DUPLICATE_DEST_ID })
+      assert.equal(res.statusCode, 200)
+      assert.equal(calls.duplicate.length, 1)
+    }
+  )
+})
+
+const NO_SOURCE_BYPASS = (permission: string, ref: any) =>
+  permission === 'read:pages' || String(ref.path).startsWith('other')
+
+test('DUPLICATE FOLDER route: a password-protected page the caller has not unlocked refuses the whole request', async () => {
+  await withDuplicateMocks(
+    { pages: [DUP_PAGE_A, DUP_PAGE_B], lockedPages: ['page-b'], allow: NO_SOURCE_BYPASS },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.match(res.json().message, /password protected/)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: an unlocked page without a password copies as normal', async () => {
+  await withDuplicateMocks({ pages: [DUP_PAGE_A], allow: NO_SOURCE_BYPASS }, async (calls) => {
+    const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.getPage.length, 1)
+    assert.equal(calls.duplicate.length, 1)
+  })
+})
+
+test('DUPLICATE FOLDER route: a caller who may write the locked page needs no password, as everywhere else', async () => {
+  await withDuplicateMocks({ pages: [DUP_PAGE_A], lockedPages: ['page-a'] }, async (calls) => {
+    const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.getPage.length, 0)
+    assert.equal(calls.duplicate.length, 1)
+  })
+})
+
+test('DUPLICATE FOLDER route: a name collision from the model answers 409', async () => {
+  await withDuplicateMocks(
+    {
+      duplicate: async () => {
+        throw new CustomError('treeFolderDuplicate', 'A folder with that name exists.', 409)
+      }
+    },
+    async () => {
+      const res = await duplicate({ parentPath: '' })
+      assert.equal(res.statusCode, 409)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: rejects a pathName that is not a valid segment', async () => {
+  await withDuplicateMocks({}, async (calls) => {
+    const res = await duplicate({ pathName: 'Not Valid' })
+    assert.equal(res.statusCode, 400)
+    assert.equal(calls.duplicate.length, 0)
+  })
+})
+
+const PURGE_URL = `/sites/${ENABLED_SITE_ID}/tree/folders/purge-empty`
+const SIGNED_IN = JSON.stringify({ authenticated: true, user: { id: 'user-1' } })
+
+function stubPurge(candidates: { id: string; path: string; locale: string }[]) {
+  const cardinal = (globalThis as any).CARDINAL
+  const originals = {
+    purgeEmptyFolders: cardinal.models.tree.purgeEmptyFolders,
+    listDescendants: cardinal.models.tree.listDescendants,
+    deleteFolder: cardinal.models.tree.deleteFolder,
+    checkAccess: cardinal.models.groups.checkAccess
+  }
+  const purgeCalls: any[] = []
+  const deleted: string[] = []
+  cardinal.models.tree.purgeEmptyFolders = async (siteId: string, options: any) => {
+    purgeCalls.push({ siteId, options })
+    return { folders: candidates, count: candidates.length, dryRun: options.dryRun }
+  }
+  cardinal.models.tree.listDescendants = async () => ({ pages: [], assets: [] })
+  cardinal.models.tree.deleteFolder = async (folderId: string) => {
+    deleted.push(folderId)
+    return { pages: [], assets: [] }
+  }
+  cardinal.models.groups.checkAccess = () => true
+  return {
+    purgeCalls,
+    deleted,
+    restore() {
+      cardinal.models.tree.purgeEmptyFolders = originals.purgeEmptyFolders
+      cardinal.models.tree.listDescendants = originals.listDescendants
+      cardinal.models.tree.deleteFolder = originals.deleteFolder
+      cardinal.models.groups.checkAccess = originals.checkAccess
+    }
+  }
+}
+
+const NESTED_CANDIDATES = [
+  { id: 'c-deep', path: 'a/b', locale: 'en' },
+  { id: 'c-top', path: 'a', locale: 'en' },
+  { id: 'c-other', path: 'z', locale: 'en' }
+]
+
+test('PURGE EMPTY FOLDERS route: an unauthenticated request is refused 401 and reads nothing', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  try {
+    const res = await app.inject({ method: 'POST', url: PURGE_URL, payload: { dryRun: false } })
+    assert.equal(res.statusCode, 401)
+    assert.equal(stub.purgeCalls.length, 0)
+    assert.equal(stub.deleted.length, 0)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: a bare call is a dry run, reporting the count and deleting nothing', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), { dryRun: true, count: 3, folders: NESTED_CANDIDATES })
+    assert.deepEqual(stub.purgeCalls, [{ siteId: ENABLED_SITE_ID, options: { dryRun: true } }])
+    assert.deepEqual(stub.deleted, [])
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: an explicit dryRun true deletes nothing either', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: true }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().dryRun, true)
+    assert.equal(res.json().count, 3)
+    assert.deepEqual(stub.deleted, [])
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: dryRun false removes exactly the reported folders, deepest first', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: false }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), { dryRun: false, count: 3, folders: NESTED_CANDIDATES })
+    assert.deepEqual(stub.deleted, ['c-deep', 'c-top', 'c-other'])
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: a folder the caller cannot manage is neither reported nor purged', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  const permissionsChecked: string[] = []
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    permission: string,
+    page: any
+  ) => {
+    permissionsChecked.push(permission)
+    return page.path !== 'z'
+  }
+  try {
+    const dry = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN }
+    })
+    assert.equal(dry.statusCode, 200)
+    assert.deepEqual(
+      dry.json().folders.map((f: any) => f.id),
+      ['c-deep', 'c-top']
+    )
+    assert.equal(dry.json().count, 2)
+    const real = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: false }
+    })
+    assert.equal(real.statusCode, 200)
+    assert.equal(real.json().count, 2)
+    assert.deepEqual(stub.deleted, ['c-deep', 'c-top'])
+    assert.ok(permissionsChecked.every((permission) => permission === 'manage:pages'))
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: a folder whose empty child the caller cannot manage is left alone', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    _permission: string,
+    page: any
+  ) => page.path !== 'a/b'
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: false }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(stub.deleted, ['c-other'])
+    assert.deepEqual(
+      res.json().folders.map((f: any) => f.id),
+      ['c-other']
+    )
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: a same-named folder in another locale does not stand in for the caller’s own', async () => {
+  const stub = stubPurge([
+    { id: 'fr-child', path: 'a/b', locale: 'fr' },
+    { id: 'en-top', path: 'a', locale: 'en' }
+  ])
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    _permission: string,
+    page: any
+  ) => page.locale === 'en'
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: false }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(stub.deleted, ['en-top'])
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: a folder that gained a page since it was listed is skipped, not cascaded', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  ;(globalThis as any).CARDINAL.models.tree.listDescendants = async (folderId: string) => ({
+    pages: ['c-deep', 'c-top'].includes(folderId)
+      ? [{ id: 'p', path: 'a/b/new', locale: 'en', tags: [], classification: null }]
+      : [],
+    assets: []
+  })
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: false }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(stub.deleted, ['c-other'])
+    assert.equal(res.json().count, 1)
+  } finally {
+    stub.restore()
   }
 })

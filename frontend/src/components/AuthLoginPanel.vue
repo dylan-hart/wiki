@@ -1,5 +1,10 @@
 <template>
   <div>
+    <auth-inline-error
+      v-if="state.error"
+      class="mb-3"
+      :message="state.error.message"
+      :caption="state.error.caption" />
     <template v-if="state.screen === `login`">
       <template v-if="formStrategies.length > 1">
         <p class="auth-hint">{{ t('auth.selectAuthProvider') }}</p>
@@ -25,6 +30,7 @@
           class="auth-field"
           ref="loginEmailIpt"
           v-model="state.username"
+          @update:model-value="clearError"
           :placeholder="usernameFieldLabel"
           :aria-label="usernameFieldLabel"
           :rules="
@@ -40,6 +46,7 @@
         <w-input
           class="auth-field mt-2"
           v-model="state.password"
+          @update:model-value="clearError"
           :placeholder="t(`auth.fields.password`)"
           :aria-label="t(`auth.fields.password`)"
           :rules="loginPasswordValidation"
@@ -128,6 +135,7 @@
           class="auth-field auth-field--sm"
           ref="forgotEmailIpt"
           v-model="state.forgotEmail"
+          @update:model-value="clearError"
           :rules="userEmailValidation"
           lazy-rules="ondemand"
           hide-bottom-space
@@ -163,6 +171,7 @@
           class="auth-field auth-field--sm"
           ref="resetNewPwdIpt"
           v-model="state.newPassword"
+          @update:model-value="clearError"
           :placeholder="t(`auth.fields.password`)"
           :aria-label="t(`auth.fields.password`)"
           type="password"
@@ -181,6 +190,7 @@
         <w-input
           class="auth-field auth-field--sm mt-2"
           v-model="state.newPasswordVerify"
+          @update:model-value="clearError"
           :placeholder="t(`auth.fields.verifyPassword`)"
           :aria-label="t(`auth.fields.verifyPassword`)"
           type="password"
@@ -226,6 +236,7 @@
           v-if="!state.continuationToken"
           ref="changePwdCurrentIpt"
           v-model="state.password"
+          @update:model-value="clearError"
           type="password"
           :rules="loginPasswordValidation"
           lazy-rules="ondemand"
@@ -239,6 +250,7 @@
           class="auth-field auth-field--sm mt-2"
           ref="changePwdNewPwdIpt"
           v-model="state.newPassword"
+          @update:model-value="clearError"
           :placeholder="t(`auth.changePwd.newPassword`)"
           :aria-label="t(`auth.changePwd.newPassword`)"
           type="password"
@@ -257,6 +269,7 @@
         <w-input
           class="auth-field auth-field--sm mt-2"
           v-model="state.newPasswordVerify"
+          @update:model-value="clearError"
           :placeholder="t(`auth.changePwd.newPasswordVerify`)"
           :aria-label="t(`auth.changePwd.newPasswordVerify`)"
           type="password"
@@ -308,6 +321,7 @@ import { useUserStore } from '@/stores/user'
 import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
 import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser'
 
+import AuthInlineError from '@/components/AuthInlineError.vue'
 import AuthRegisterScreen from '@/components/AuthRegisterScreen.vue'
 import AuthTfaScreens from '@/components/AuthTfaScreens.vue'
 
@@ -334,7 +348,8 @@ const state = reactive({
   resetToken: '',
   isTFAShown: false,
   isTFASetupShown: false,
-  tfaQRImage: ''
+  tfaQRImage: '',
+  error: null
 })
 
 const loginEmailIpt = ref(null)
@@ -381,7 +396,10 @@ const usernameFieldLabel = computed(() =>
 )
 
 const canUsePasskeys = computed(() => {
-  return browserSupportsWebAuthn()
+  return (
+    browserSupportsWebAuthn() &&
+    !state.strategies.some((str) => str.activeStrategy?.allowPasskeys === false)
+  )
 })
 
 const loginUsernameValidation = [(val) => val.length > 0 || t('auth.errors.missingUsername')]
@@ -394,7 +412,16 @@ const userPasswordValidation = passwordRules(t)
 
 const userPasswordVerifyValidation = passwordVerifyRules(t, () => state.newPassword)
 
+function setError(message, caption = null) {
+  state.error = { message, caption }
+}
+
+function clearError() {
+  state.error = null
+}
+
 function switchTo(screen) {
+  clearError()
   switch (screen) {
     case 'login': {
       state.screen = 'login'
@@ -512,15 +539,13 @@ async function handleLoginResponse(resp) {
     }
     default: {
       loading.hide()
-      notify({
-        type: 'negative',
-        message: t('auth.errors.unexpectedResponse')
-      })
+      setError(t('auth.errors.unexpectedResponse'))
     }
   }
 }
 
 async function login() {
+  clearError()
   loading.show({
     message: t('auth.signingIn')
   })
@@ -545,14 +570,12 @@ async function login() {
   } catch (err) {
     log.warn('auth', 'could not sign in', err)
     loading.hide()
-    notify({
-      type: 'negative',
-      message: localizeError(apiErrorMessage(err), t)
-    })
+    setError(localizeError(apiErrorMessage(err), t))
   }
 }
 
 async function loginWithPasskey() {
+  clearError()
   loading.show({
     message: t('auth.signingIn')
   })
@@ -581,10 +604,7 @@ async function loginWithPasskey() {
     if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
       return
     }
-    notify({
-      type: 'negative',
-      message: localizeError(apiErrorMessage(err), t)
-    })
+    setError(localizeError(apiErrorMessage(err), t))
   }
 }
 
@@ -594,6 +614,7 @@ async function loginWithPasskey() {
  * turn this form into an account-enumeration oracle.
  */
 async function forgotPassword() {
+  clearError()
   loading.show({
     message: t('auth.forgotPasswordLoading')
   })
@@ -615,10 +636,7 @@ async function forgotPassword() {
     })
     switchTo('login')
   } catch (err) {
-    notify({
-      type: 'negative',
-      message: localizeError(apiErrorMessage(err), t)
-    })
+    setError(localizeError(apiErrorMessage(err), t))
   } finally {
     loading.hide()
   }
@@ -636,6 +654,7 @@ function finishRegistration(resp) {
 }
 
 async function changePwd() {
+  clearError()
   try {
     const isFormValid = await changePwdForm.value.validate(true)
     if (!isFormValid) {
@@ -659,14 +678,12 @@ async function changePwd() {
       throw new Error(resp.message || 'ERR_CHANGE_PASSWORD_FAILED')
     }
   } catch (err) {
-    notify({
-      type: 'negative',
-      message: localizeError(apiErrorMessage(err), t)
-    })
+    setError(localizeError(apiErrorMessage(err), t))
   }
 }
 
 async function resetPassword() {
+  clearError()
   try {
     const isFormValid = await resetPasswordForm.value.validate(true)
     if (!isFormValid) {
@@ -691,10 +708,7 @@ async function resetPassword() {
       throw new Error(resp.message || 'ERR_RESET_PASSWORD_FAILED')
     }
   } catch (err) {
-    notify({
-      type: 'negative',
-      message: localizeError(apiErrorMessage(err), t)
-    })
+    setError(localizeError(apiErrorMessage(err), t))
   }
 }
 
@@ -732,11 +746,7 @@ function reportRedirectLoginError() {
   if (!code) {
     return
   }
-  notify({
-    type: 'negative',
-    message: t('auth.errors.loginError'),
-    caption: localizeError(code, t)
-  })
+  setError(t('auth.errors.loginError'), localizeError(code, t))
   params.delete('error')
   const query = params.toString()
   window.history.replaceState(

@@ -108,14 +108,31 @@ export const SUGGEST_TITLE_THRESHOLD = 0.3
 /** How many similarity candidates to pull before permission-filtering them down to one. */
 export const SUGGEST_TITLE_CANDIDATES = 5
 
-export interface SearchPagesParams {
+export type TagsMatch = 'all' | 'any'
+
+export const TAGS_MATCH: readonly TagsMatch[] = ['all', 'any']
+
+export interface SearchFilters {
+  path?: string[]
+  excludePath?: string[]
+  locales?: string[]
+  excludeLocales?: string[]
+  tags?: string[]
+  tagsMatch?: TagsMatch
+  excludeTags?: string[]
+  editor?: string[]
+  excludeEditor?: string[]
+  publishState?: string[]
+  excludePublishState?: string[]
+  creatorId?: string[]
+  excludeCreatorId?: string[]
+  authorId?: string[]
+  excludeAuthorId?: string[]
+}
+
+export interface SearchPagesParams extends SearchFilters {
   siteId: string
   query?: string
-  path?: string
-  locales?: string[]
-  tags?: string[]
-  editor?: string
-  publishState?: string
   orderBy?: SearchOrderBy
   orderByDirection?: 'asc' | 'desc'
   offset?: number

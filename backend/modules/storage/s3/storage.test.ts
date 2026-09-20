@@ -1,10 +1,13 @@
 import { describe, test, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import { Readable } from 'node:stream'
 import {
   CopyObjectCommand,
   CreateBucketCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client
 } from '@aws-sdk/client-s3'
@@ -14,6 +17,7 @@ import storageModule, {
   encodeCopySourceKey,
   ensureBucket,
   isBucketNotFound,
+  isObjectNotFound,
   resolveCustomEndpoint,
   storageClassFor
 } from './storage.ts'
@@ -438,4 +442,110 @@ runStorageModuleContract('s3', {
       }
     }
   }
+})
+
+describe('s3 storage / isObjectNotFound', () => {
+  test('recognises a missing key but not a missing bucket', () => {
+    assert.equal(isObjectNotFound({ name: 'NoSuchKey' }), true)
+    assert.equal(isObjectNotFound({ name: 'NotFound' }), true)
+    assert.equal(isObjectNotFound({ $metadata: { httpStatusCode: 404 } }), true)
+    assert.equal(
+      isObjectNotFound({ name: 'NoSuchBucket', $metadata: { httpStatusCode: 404 } }),
+      false
+    )
+    assert.equal(
+      isObjectNotFound({ name: 'AccessDenied', $metadata: { httpStatusCode: 403 } }),
+      false
+    )
+    assert.equal(isObjectNotFound(undefined), false)
+  })
+})
+
+describe('s3 storage / readAsset and headAsset', () => {
+  const asset = { folderPath: 'images', fileName: 'pic.png' }
+
+  test('readAsset streams the object body with its length, keyed under the site and bucket', async () => {
+    s3Mock.on(GetObjectCommand).resolves({
+      Body: Readable.from([Buffer.from('hello')]) as any,
+      ContentLength: 5
+    })
+    const target = makeTarget()
+
+    const result = await storageModule.readAsset!(asset, target)
+
+    assert.equal(result!.size, 5)
+    const chunks: Buffer[] = []
+    for await (const chunk of result!.body) {
+      chunks.push(chunk)
+    }
+    assert.equal(Buffer.concat(chunks).toString(), 'hello')
+    const input = s3Mock.commandCalls(GetObjectCommand)[0]!.args[0].input
+    assert.equal(input.Bucket, 'my-bucket')
+    assert.equal(input.Key, `${target.siteId}/images/pic.png`)
+  })
+
+  test('readAsset maps NoSuchKey to null', async () => {
+    s3Mock.on(GetObjectCommand).rejects(Object.assign(new Error('gone'), { name: 'NoSuchKey' }))
+
+    assert.equal(await storageModule.readAsset!(asset, makeTarget()), null)
+  })
+
+  test('readAsset wraps any other failure', async () => {
+    s3Mock.on(GetObjectCommand).rejects(
+      Object.assign(new Error('Access Denied'), {
+        name: 'AccessDenied',
+        $metadata: { httpStatusCode: 403 }
+      })
+    )
+
+    await assert.rejects(
+      () => storageModule.readAsset!(asset, makeTarget()),
+      /^Error: Failed to read ".*": Access Denied$/
+    )
+  })
+
+  test('readAsset treats a missing bucket as a failure, not a not-found', async () => {
+    s3Mock.on(GetObjectCommand).rejects(
+      Object.assign(new Error('no bucket'), {
+        name: 'NoSuchBucket',
+        $metadata: { httpStatusCode: 404 }
+      })
+    )
+
+    await assert.rejects(() => storageModule.readAsset!(asset, makeTarget()), /no bucket/)
+  })
+
+  test('headAsset returns the content length', async () => {
+    s3Mock.on(HeadObjectCommand).resolves({ ContentLength: 42 })
+    const target = makeTarget()
+
+    assert.deepEqual(await storageModule.headAsset!(asset, target), { size: 42 })
+    const input = s3Mock.commandCalls(HeadObjectCommand)[0]!.args[0].input
+    assert.equal(input.Bucket, 'my-bucket')
+    assert.equal(input.Key, `${target.siteId}/images/pic.png`)
+  })
+
+  test('headAsset maps a 404 to null and wraps any other failure', async () => {
+    s3Mock
+      .on(HeadObjectCommand)
+      .rejectsOnce(
+        Object.assign(new Error('NotFound'), {
+          name: 'NotFound',
+          $metadata: { httpStatusCode: 404 }
+        })
+      )
+      .rejectsOnce(
+        Object.assign(new Error('Forbidden'), {
+          name: 'Forbidden',
+          $metadata: { httpStatusCode: 403 }
+        })
+      )
+    const target = makeTarget()
+
+    assert.equal(await storageModule.headAsset!(asset, target), null)
+    await assert.rejects(
+      () => storageModule.headAsset!(asset, target),
+      /^Error: Failed to inspect ".*": Forbidden$/
+    )
+  })
 })

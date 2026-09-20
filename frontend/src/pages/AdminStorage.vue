@@ -46,9 +46,9 @@
       </div>
     </div>
     <div class="flex flex-wrap p-4 gap-4" v-if="state.displayMode === `targets`">
-      <div class="flex-none">
+      <div class="w-[300px] max-w-full flex-none">
         <w-card class="rounded bg-dark">
-          <w-list style="min-width: 300px" padding dark>
+          <w-list padding dark>
             <w-item
               v-for="tgt of state.targets"
               :key="tgt.id"
@@ -72,17 +72,23 @@
           </w-list>
         </w-card>
       </div>
-      <div class="min-w-0 flex-1" v-if="state.target">
+      <div class="min-w-0 shrink grow basis-80" v-if="state.target">
         <!--
           Flex rather than the 12-column grid: the infobox is a fixed 300px and the settings take
           what is left, each dropping onto its own row when there is no room. `col-span-12` on the
           settings would take a whole grid row and push the infobox underneath.
         -->
         <div class="flex flex-wrap gap-4">
-          <div class="min-w-0 flex-1">
+          <div class="min-w-0 shrink grow basis-80">
             <w-settings-card :title="t('admin.storage.contentTypes')">
-              <template #hint>{{ t('admin.storage.contentTypesHint') }}</template>
+              <template #hint>
+                <div>{{ t('admin.storage.contentTypesHint') }}</div>
+                <div v-if="!state.target.sync?.supportsContentSync">
+                  {{ t('admin.storage.contentTypesNoLiveSyncHint') }}
+                </div>
+              </template>
               <w-settings-row
+                v-if="supportsContentType(`pages`)"
                 tag="label"
                 control-width="auto"
                 icon="tabler:file-text"
@@ -96,6 +102,7 @@
                   :disabled="state.target.module === `db`" />
               </w-settings-row>
               <w-settings-row
+                v-if="supportsContentType(`images`)"
                 tag="label"
                 control-width="auto"
                 icon="tabler:photo"
@@ -108,6 +115,7 @@
                   :aria-label="t(`admin.storage.contentTypeImages`)" />
               </w-settings-row>
               <w-settings-row
+                v-if="supportsContentType(`documents`)"
                 tag="label"
                 control-width="auto"
                 icon="tabler:file-typography"
@@ -120,6 +128,7 @@
                   :aria-label="t(`admin.storage.contentTypeDocuments`)" />
               </w-settings-row>
               <w-settings-row
+                v-if="supportsContentType(`others`)"
                 tag="label"
                 control-width="auto"
                 icon="tabler:files"
@@ -132,6 +141,7 @@
                   :aria-label="t(`admin.storage.contentTypeOthers`)" />
               </w-settings-row>
               <w-settings-row
+                v-if="supportsContentType(`large`)"
                 tag="label"
                 control-width="auto"
                 icon="tabler:database-import"
@@ -201,6 +211,25 @@
                   :color="!state.target.assetDelivery.isDirectAccessSupported ? `grey` : `primary`"
                   :aria-label="t(`admin.storage.assetDirectAccess`)"
                   :disabled="!state.target.assetDelivery.isDirectAccessSupported" />
+              </w-settings-row>
+              <w-settings-row
+                :tag="state.target.assetDelivery.isReadThroughSupported ? `label` : `div`"
+                control-width="auto"
+                icon="tabler:cloud-download"
+                :label="t(`admin.storage.assetReadThrough`)">
+                <template #hint>
+                  <div>{{ t(`admin.storage.assetReadThroughHint`) }}</div>
+                  <div
+                    class="text-deep-orange"
+                    v-if="!state.target.assetDelivery.isReadThroughSupported">
+                    {{ t(`admin.storage.assetReadThroughNotSupported`) }}
+                  </div>
+                </template>
+                <w-checkbox
+                  v-model="state.target.assetDelivery.readThrough"
+                  :color="!state.target.assetDelivery.isReadThroughSupported ? `grey` : `primary`"
+                  :aria-label="t(`admin.storage.assetReadThrough`)"
+                  :disabled="!state.target.assetDelivery.isReadThroughSupported" />
               </w-settings-row>
             </w-settings-card>
             <w-settings-card class="mt-4" :title="t('admin.storage.config')">
@@ -365,8 +394,8 @@
               </template>
             </w-settings-card>
           </div>
-          <div class="flex-none">
-            <w-settings-card class="rounded" style="width: 300px" :title="state.target.title">
+          <div class="w-[300px] max-w-full flex-none">
+            <w-settings-card class="rounded" :title="state.target.title">
               <w-card-section>
                 <img
                   class="w-full object-cover rounded"
@@ -392,10 +421,7 @@
                 </div>
               </w-settings-row>
             </w-settings-card>
-            <w-settings-card
-              class="rounded mt-4"
-              style="width: 300px"
-              :title="t('admin.storage.status')">
+            <w-settings-card class="rounded mt-4" :title="t('admin.storage.status')">
               <w-settings-row
                 v-if="state.target.module !== `db`"
                 tag="label"
@@ -414,10 +440,7 @@
                 <div class="text-positive text-caption">{{ t('admin.storage.noIssues') }}</div>
               </w-settings-row>
             </w-settings-card>
-            <w-settings-card
-              class="rounded mt-4"
-              style="width: 300px"
-              :title="t(`admin.storage.versioning`)">
+            <w-settings-card class="rounded mt-4" :title="t(`admin.storage.versioning`)">
               <template #hint>{{ t(`admin.storage.versioningHint`) }}</template>
               <w-settings-row
                 :tag="state.target.versioning.isSupported ? `label` : `div`"
@@ -692,7 +715,8 @@ function payloadFor(tgt) {
     },
     assetDelivery: {
       streaming: tgt.assetDelivery.streaming,
-      directAccess: tgt.assetDelivery.directAccess
+      directAccess: tgt.assetDelivery.directAccess,
+      readThrough: tgt.assetDelivery.readThrough
     },
     versioning: {
       enabled: tgt.versioning.enabled
@@ -735,6 +759,10 @@ async function save({ silent = false } = {}) {
   }
   state.loading--
   return saveSuccess
+}
+
+function supportsContentType(type) {
+  return state.target?.contentTypes?.supportedTypes?.includes(type) ?? true
 }
 
 function getTargetSubtitle(target) {

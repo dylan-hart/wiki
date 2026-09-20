@@ -10,7 +10,10 @@ assetDelivery:
   isDirectAccessSupported: true
   defaultStreamingEnabled: true
   defaultDirectAccessEnabled: true
+  isReadThroughSupported: true
+  defaultReadThroughEnabled: false
 contentTypes:
+  supportedTypes: ['images', 'documents', 'others', 'large']
   defaultTypesEnabled: ['images', 'documents', 'others', 'large']
   defaultLargeThreshold: '5MB'
 versioning:
@@ -24,7 +27,7 @@ props:
     type: String
     title: Mode
     hint: Select a preset configuration mode or define a custom one.
-    icon: tune
+    icon: tabler:adjustments-horizontal
     default: aws
     order: 1
     enum:
@@ -35,7 +38,7 @@ props:
     type: String
     title: Region
     hint: The AWS datacenter region where the bucket will be created.
-    icon: geography
+    icon: tabler:map-pin
     default: us-east-1
     enum:
       - af-south-1|af-south-1 - Africa (Cape Town)
@@ -69,7 +72,7 @@ props:
     type: String
     title: Region
     hint: The DigitalOcean Spaces region
-    icon: geography
+    icon: tabler:map-pin
     default: nyc3
     enum:
       - ams3|Amsterdam
@@ -85,7 +88,7 @@ props:
     type: String
     title: Endpoint URI
     hint: The full S3-compliant endpoint URI.
-    icon: dns
+    icon: tabler:world-www
     default: https://service.region.example.com
     order: 2
     if:
@@ -94,36 +97,43 @@ props:
     type: String
     title: Region
     hint: The signing region to use for SigV4 requests. Must match the value your S3-compatible server is configured with (e.g. Garage's `s3_region`) or every signed request will fail signature validation.
-    icon: geography
+    icon: tabler:map-pin
     default: us-east-1
-    order: 9
+    order: 10
     if:
       - { key: 'mode', eq: 'custom' }
   bucket:
     type: String
     title: Unique bucket name
     hint: The unique bucket name to create (e.g. wiki-johndoe).
-    icon: open-box
+    icon: tabler:box
     order: 3
+  pathPrefix:
+    type: String
+    title: Path Prefix
+    hint: Optional folder inside the bucket under which everything is stored, so keys become `<prefix>/<siteId>/...` (e.g. wiki/prod). It lets several instances or apps share one bucket, and lets an IAM policy be scoped to just this sub-path. Changing it on an existing target orphans objects already uploaded under the old prefix; they are not moved or deleted.
+    icon: tabler:folder
+    default: ''
+    order: 4
   accessKeyId:
     type: String
     title: Access Key ID
     hint: The Access Key.
-    icon: 3d-touch
-    order: 4
+    icon: tabler:id
+    order: 5
   secretAccessKey:
     type: String
     title: Secret Access Key
     hint: The Secret Access Key for the Access Key ID you created above.
-    icon: key
+    icon: tabler:key
     sensitive: true
-    order: 5
+    order: 6
   storageTier:
     type: String
     title: Storage Tier
     hint: The storage tier to use when adding files.
-    icon: scan-stock
-    order: 6
+    icon: tabler:stack-2
+    order: 7
     default: STANDARD
     enum:
       - STANDARD|Standard
@@ -141,31 +151,31 @@ props:
     type: Boolean
     title: Use SSL
     hint: Whether to enable SSL for requests
-    icon: secure
+    icon: tabler:lock-check
     default: true
-    order: 10
+    order: 11
     if:
       - { key: 'mode', eq: 'custom' }
   s3ForcePathStyle:
     type: Boolean
     title: Force Path Style for S3 objects
     hint: Whether to address objects as https://endpoint/bucket/key instead of https://bucket.endpoint/key. Required for MinIO and most other self-hosted S3-compatible servers, which have no wildcard DNS record for a per-bucket subdomain.
-    icon: filtration
+    icon: tabler:filter
     default: false
-    order: 11
+    order: 12
     if:
       - { key: 'mode', eq: 'custom' }
   s3BucketEndpoint:
     type: Boolean
     title: Single Bucket Endpoint
     hint: Whether the provided endpoint addresses an individual bucket.
-    icon: swipe-right
+    icon: tabler:arrow-right
     default: false
-    order: 12
+    order: 13
     if:
       - { key: 'mode', eq: 'custom' }
 actions:
   exportAll:
     label: Export All DB Assets to S3
     hint: Output all content from the DB to S3, overwriting any existing data. If you enabled S3 after content was created or you temporarily disabled it, you'll want to execute this action to add the missing content.
-    icon: this-way-up
+    icon: tabler:upload

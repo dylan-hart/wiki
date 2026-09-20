@@ -341,7 +341,7 @@
             <w-item
               to="/_admin/audit"
               active-class="admin-nav-active"
-              v-if="userStore.can(`manage:system`)">
+              v-if="userStore.can(`read:audit`)">
               <w-item-section avatar>
                 <w-icon name="tabler:file-description" />
               </w-item-section>
@@ -731,7 +731,12 @@ const usersAreVisible = computed(() => {
   return userStore.can('read:users') || userStore.can('manage:users')
 })
 const usersAccessShown = computed(() => {
-  return groupsAreVisible.value || usersAreVisible.value || userStore.can('manage:system')
+  return (
+    groupsAreVisible.value ||
+    usersAreVisible.value ||
+    userStore.can('read:audit') ||
+    userStore.can('manage:system')
+  )
 })
 
 const integrationsAutomationShown = computed(() => {
@@ -1029,10 +1034,10 @@ body.body--cobalt .admin-page-icon {
   */
   .count-badge {
     border-inline-end: 5px solid var(--color-negative-fill);
+  }
 
-    &--filled {
-      border-inline-end-color: var(--color-positive-fill);
-    }
+  .count-badge--filled {
+    border-inline-end-color: var(--color-positive-fill);
   }
 
   .admin-nav-section,

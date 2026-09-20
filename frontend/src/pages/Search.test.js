@@ -208,7 +208,10 @@ function createSearchI18n() {
       loadMore: 'Load More',
       modeKeyword: 'Keyword',
       modeSemantic: 'Semantic',
-      modeToggleLabel: 'Search Mode'
+      modeToggleLabel: 'Search Mode',
+      addFilter: 'Add filter',
+      removeFilter: 'Remove filter',
+      filtersActive: 'Filters ({count})'
     }
   })
 }
@@ -390,7 +393,7 @@ describe('Search.vue offset paging (OpenProject #2001)', () => {
     expect(API_CLIENT.get).toHaveBeenCalledWith(
       'sites/site-1/pages/search',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ offset: 0 })
+        searchParams: expect.arrayContaining([['offset', 0]])
       })
     )
     expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1', 'p2'])
@@ -413,7 +416,7 @@ describe('Search.vue offset paging (OpenProject #2001)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ offset: 2 })
+        searchParams: expect.arrayContaining([['offset', 2]])
       })
     )
     expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1', 'p2', 'p3'])
@@ -469,7 +472,7 @@ describe('Search.vue offset paging (OpenProject #2001)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ offset: 0 })
+        searchParams: expect.arrayContaining([['offset', 0]])
       })
     )
     expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1'])
@@ -511,13 +514,13 @@ describe('Search.vue filter/sort changes re-search from offset 0 (OpenProject #3
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ offset: 0 })
+        searchParams: expect.arrayContaining([['offset', 0]])
       })
     )
     expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1'])
   })
 
-  it('re-searches from offset 0 for every state.params field, not just sort order', async () => {
+  it('re-searches from offset 0 when a filter row changes, not just the sort order', async () => {
     const { wrapper } = await mountSearchWithOffset('/_search?q=test', {
       results: [FIXTURE_PAGE_A, FIXTURE_PAGE_B],
       totalHits: 2,
@@ -529,14 +532,16 @@ describe('Search.vue filter/sort changes re-search from offset 0 (OpenProject #3
       json: () => Promise.resolve({ results: [FIXTURE_PAGE_A], totalHits: 2, suggestion: null })
     })
 
-    wrapper.vm.state.params.filterPublishState = 'published'
+    wrapper.vm.state.filters = [
+      { id: 1, mode: 'include', type: 'publishState', value: 'published' }
+    ]
     await vi.advanceTimersByTimeAsync(500)
     await flushPromises()
 
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ offset: 0 })
+        searchParams: expect.arrayContaining([['offset', 0]])
       })
     )
   })
@@ -727,7 +732,10 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search/semantic',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ query: 'onboarding', offset: 0 })
+        searchParams: expect.arrayContaining([
+          ['query', 'onboarding'],
+          ['offset', 0]
+        ])
       })
     )
     expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p2'])
@@ -755,18 +763,24 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ query: 'onboarding', offset: 0 })
+        searchParams: expect.arrayContaining([
+          ['query', 'onboarding'],
+          ['offset', 0]
+        ])
       })
     )
     expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1'])
   })
 
-  it('sends locales as a single-element comma-joined list when one locale filter is selected', async () => {
+  it('sends each locale row as its own repeated locales pair in Semantic mode', async () => {
     const { wrapper } = await mountSearchWithMode({
       semanticEnabled: true,
       firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
     })
-    wrapper.vm.state.params.filterLocale = ['en']
+    wrapper.vm.state.filters = [
+      { id: 1, mode: 'include', type: 'locale', value: 'en' },
+      { id: 2, mode: 'include', type: 'locale', value: 'fr' }
+    ]
 
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
@@ -777,17 +791,31 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search/semantic',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ locales: 'en' })
+        searchParams: expect.arrayContaining([
+          ['locales', 'en'],
+          ['locales', 'fr']
+        ])
       })
     )
+    expect(pairNames(lastSearchParams())).not.toContain('excludeLocales')
   })
 
-  it('sends locales as a comma-joined list when multiple locale filters are selected', async () => {
+  it('sends every include and exclude row under the list-valued contract names in Semantic mode', async () => {
     const { wrapper } = await mountSearchWithMode({
       semanticEnabled: true,
       firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
     })
-    wrapper.vm.state.params.filterLocale = ['en', 'fr']
+    wrapper.vm.state.filters = [
+      { id: 1, mode: 'include', type: 'path', value: 'docs' },
+      { id: 2, mode: 'exclude', type: 'path', value: 'docs/archive' },
+      { id: 3, mode: 'include', type: 'tag', value: 'alpha' },
+      { id: 4, mode: 'exclude', type: 'tag', value: 'beta' },
+      { id: 5, mode: 'exclude', type: 'locale', value: 'fr' },
+      { id: 6, mode: 'include', type: 'editor', value: 'markdown' },
+      { id: 7, mode: 'exclude', type: 'editor', value: 'asciidoc' },
+      { id: 8, mode: 'include', type: 'publishState', value: 'published' },
+      { id: 9, mode: 'exclude', type: 'publishState', value: 'draft' }
+    ]
 
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
@@ -798,12 +826,22 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search/semantic',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ locales: 'en,fr' })
+        searchParams: expect.arrayContaining([
+          ['path', 'docs'],
+          ['excludePath', 'docs/archive'],
+          ['tags', 'alpha'],
+          ['excludeTags', 'beta'],
+          ['excludeLocales', 'fr'],
+          ['editor', 'markdown'],
+          ['excludeEditor', 'asciidoc'],
+          ['publishState', 'published'],
+          ['excludePublishState', 'draft']
+        ])
       })
     )
   })
 
-  it('omits locales when no locale filter is selected', async () => {
+  it('omits every filter param from the semantic request when there are no rows', async () => {
     const { wrapper } = await mountSearchWithMode({
       semanticEnabled: true,
       firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
@@ -815,56 +853,7 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     wrapper.vm.setSearchMode('semantic')
     await flushPromises()
 
-    const lastCall = API_CLIENT.get.mock.calls.at(-1)
-    expect(lastCall[1].searchParams).not.toHaveProperty('locales')
-  })
-
-  it('sends path/tags/editor/publishState filters in Semantic mode, matching the Keyword param names', async () => {
-    const { wrapper } = await mountSearchWithMode({
-      semanticEnabled: true,
-      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
-    })
-    wrapper.vm.state.params.filterPath = 'docs'
-    wrapper.vm.state.selectedTags = ['alpha', 'beta']
-    wrapper.vm.state.params.filterEditor = 'markdown'
-    wrapper.vm.state.params.filterPublishState = 'published'
-
-    API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
-    })
-    wrapper.vm.setSearchMode('semantic')
-    await flushPromises()
-
-    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
-      'sites/site-1/pages/search/semantic',
-      expect.objectContaining({
-        searchParams: expect.objectContaining({
-          path: 'docs',
-          tags: 'alpha,beta',
-          editor: 'markdown',
-          publishState: 'published'
-        })
-      })
-    )
-  })
-
-  it('omits path/tags/editor/publishState from the semantic request when unset', async () => {
-    const { wrapper } = await mountSearchWithMode({
-      semanticEnabled: true,
-      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
-    })
-
-    API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
-    })
-    wrapper.vm.setSearchMode('semantic')
-    await flushPromises()
-
-    const lastCall = API_CLIENT.get.mock.calls.at(-1)
-    expect(lastCall[1].searchParams).not.toHaveProperty('path')
-    expect(lastCall[1].searchParams).not.toHaveProperty('tags')
-    expect(lastCall[1].searchParams).not.toHaveProperty('editor')
-    expect(lastCall[1].searchParams).not.toHaveProperty('publishState')
+    expect(pairNames(lastSearchParams()).sort()).toEqual(['limit', 'offset', 'query'])
   })
 
   it('keeps the sort/filter sidebar visible in Semantic mode, hiding only Sort By', async () => {
@@ -935,7 +924,7 @@ describe('Search.vue reads the mode query param (OpenProject #3138)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search/semantic',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ query: 'onboarding' })
+        searchParams: expect.arrayContaining([['query', 'onboarding']])
       })
     )
   })
@@ -951,7 +940,7 @@ describe('Search.vue reads the mode query param (OpenProject #3138)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ query: 'onboarding' })
+        searchParams: expect.arrayContaining([['query', 'onboarding']])
       })
     )
   })
@@ -984,7 +973,7 @@ describe('Search.vue reads the mode query param (OpenProject #3138)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ query: 'onboarding' })
+        searchParams: expect.arrayContaining([['query', 'onboarding']])
       })
     )
   })
@@ -1007,7 +996,7 @@ describe('Search.vue reads the mode query param (OpenProject #3138)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search/semantic',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ query: 'onboarding tag' })
+        searchParams: expect.arrayContaining([['query', 'onboarding tag']])
       })
     )
   })
@@ -1173,5 +1162,496 @@ describe('Search.vue similarity match badge (OpenProject #3223)', () => {
     })
 
     expect(wrapper.find('.layout-search-rowdate').text()).toBe('87% match')
+  })
+})
+
+function lastSearchParams() {
+  return API_CLIENT.get.mock.calls.at(-1)[1].searchParams
+}
+
+function pairNames(pairs) {
+  return pairs.map(([name]) => name)
+}
+
+function searchCalls() {
+  return API_CLIENT.get.mock.calls.filter(([url]) => url.startsWith('sites/site-1/pages/search'))
+}
+
+/**
+ * `profile` is what `users/profile` answers (or a rejection for `'fail'`); anything else is a
+ * search. Queued before mount because the route watcher and `onMounted` both fire during it.
+ */
+async function mountWithFilters({
+  authenticated = false,
+  profile = { searchFilters: [] },
+  initialPath = '/_search?q=onboarding',
+  activeLocales
+} = {}) {
+  setActivePinia(createPinia())
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+  const userStore = useUserStore()
+  userStore.authenticated = authenticated
+  if (activeLocales) {
+    siteStore.locales.active = activeLocales.map((code) => ({ code, name: code.toUpperCase() }))
+  }
+
+  API_CLIENT.get.mockImplementation((url) => ({
+    json: () => {
+      if (url === 'users/profile') {
+        return profile === 'fail' ? Promise.reject(new Error('down')) : Promise.resolve(profile)
+      }
+      return Promise.resolve({ results: [FIXTURE_PAGE], totalHits: 1, suggestion: null })
+    }
+  }))
+  API_CLIENT.put.mockImplementation(() => ({ json: () => Promise.resolve({ ok: true }) }))
+
+  const router = await createSearchRouter(initialPath)
+  const wrapper = mount(Search, {
+    global: {
+      plugins: [router, createSearchI18n()],
+      stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
+    }
+  })
+  activeWrapper = wrapper
+  await flushPromises()
+  return { wrapper, siteStore, userStore }
+}
+
+function rows(wrapper) {
+  return wrapper.findAll('[data-testid="search-filter-row"]')
+}
+
+describe('Search.vue dynamic filter rows (OpenProject #3518)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('starts with no rows and sends no filter param on the first search', async () => {
+    const { wrapper } = await mountWithFilters()
+
+    expect(rows(wrapper)).toHaveLength(0)
+    expect(pairNames(lastSearchParams()).sort()).toEqual([
+      'limit',
+      'offset',
+      'orderBy',
+      'orderByDirection',
+      'query'
+    ])
+  })
+
+  it('draws an add button in the Filters header carrying the plus glyph', async () => {
+    const { wrapper } = await mountWithFilters()
+
+    const add = wrapper.find('[data-testid="search-filter-add"]')
+    expect(add.exists()).toBe(true)
+    expect(add.attributes('aria-label')).toBe('Add filter')
+    const filtersHeader = wrapper
+      .findAll('.section-header')
+      .find((el) => el.text() === 'search.filters')
+    expect(filtersHeader.find('[data-testid="search-filter-add"]').exists()).toBe(true)
+  })
+
+  it('adds an Include/Path row with an empty value, and no request for a blank row', async () => {
+    const { wrapper } = await mountWithFilters()
+    API_CLIENT.get.mockClear()
+
+    await wrapper.find('[data-testid="search-filter-add"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(600)
+    await flushPromises()
+
+    expect(rows(wrapper)).toHaveLength(1)
+    expect(wrapper.vm.state.filters).toMatchObject([{ mode: 'include', type: 'path', value: '' }])
+    expect(searchCalls()).toHaveLength(0)
+  })
+
+  it('gives every row a trash button named "Remove filter" that is always present', async () => {
+    const { wrapper } = await mountWithFilters()
+    await wrapper.find('[data-testid="search-filter-add"]').trigger('click')
+
+    const remove = rows(wrapper)[0].find('[data-testid="search-filter-remove"]')
+    expect(remove.exists()).toBe(true)
+    expect(remove.attributes('aria-label')).toBe('Remove filter')
+  })
+
+  it('draws a text input for path and tag rows, and a dropdown for the other three types', async () => {
+    const { wrapper } = await mountWithFilters()
+    await wrapper.find('[data-testid="search-filter-add"]').trigger('click')
+    const [row] = wrapper.vm.state.filters
+
+    const valueEl = () => rows(wrapper)[0].find('[data-testid="search-filter-value"]')
+    expect(valueEl().element.tagName).toBe('INPUT')
+    expect(valueEl().attributes('role')).toBeUndefined()
+
+    wrapper.vm.setFilterType(row, 'tag')
+    await flushPromises()
+    expect(valueEl().element.tagName).toBe('INPUT')
+
+    for (const type of ['locale', 'editor', 'publishState']) {
+      wrapper.vm.setFilterType(row, type)
+      await flushPromises()
+      expect(valueEl().attributes('role')).toBe('combobox')
+    }
+  })
+
+  it('starts a Locale row at the only active locale when the site has just one', async () => {
+    const { wrapper } = await mountWithFilters()
+    await wrapper.find('[data-testid="search-filter-add"]').trigger('click')
+
+    wrapper.vm.setFilterType(wrapper.vm.state.filters[0], 'locale')
+
+    expect(wrapper.vm.state.filters[0].value).toBe('en')
+  })
+
+  it('leaves a Locale row unset when the site has several locales', async () => {
+    const { wrapper } = await mountWithFilters({ activeLocales: ['en', 'fr'] })
+    await wrapper.find('[data-testid="search-filter-add"]').trigger('click')
+
+    wrapper.vm.setFilterType(wrapper.vm.state.filters[0], 'locale')
+
+    expect(wrapper.vm.state.filters[0].value).toBe('')
+  })
+
+  it('starts a Publish State row at Published, and an Editor row unset', async () => {
+    const { wrapper } = await mountWithFilters()
+    await wrapper.find('[data-testid="search-filter-add"]').trigger('click')
+    const [row] = wrapper.vm.state.filters
+
+    wrapper.vm.setFilterType(row, 'publishState')
+    expect(row.value).toBe('published')
+
+    wrapper.vm.setFilterType(row, 'editor')
+    expect(row.value).toBe('')
+  })
+
+  it('keeps the typed text when a row switches between path and tag', async () => {
+    const { wrapper } = await mountWithFilters()
+    await wrapper.find('[data-testid="search-filter-add"]').trigger('click')
+    const [row] = wrapper.vm.state.filters
+    wrapper.vm.setFilterValue(row, 'docs')
+
+    wrapper.vm.setFilterType(row, 'tag')
+
+    expect(row.value).toBe('docs')
+  })
+
+  it('stops adding rows at the 20 the preference accepts', async () => {
+    const { wrapper } = await mountWithFilters()
+    for (let i = 0; i < 25; i++) {
+      wrapper.vm.addFilter()
+    }
+    await flushPromises()
+
+    expect(wrapper.vm.state.filters).toHaveLength(20)
+    expect(wrapper.find('[data-testid="search-filter-add"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('re-searches with a repeated pair per row once a path value is typed', async () => {
+    const { wrapper } = await mountWithFilters()
+    await wrapper.find('[data-testid="search-filter-add"]').trigger('click')
+    API_CLIENT.get.mockClear()
+
+    await rows(wrapper)[0].find('input[data-testid="search-filter-value"]').setValue('/docs')
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    expect(searchCalls()).toHaveLength(1)
+    expect(lastSearchParams()).toEqual(
+      expect.arrayContaining([
+        ['query', 'onboarding'],
+        ['path', 'docs']
+      ])
+    )
+  })
+
+  it('sends an Exclude row under the exclude* name', async () => {
+    const { wrapper } = await mountWithFilters()
+    wrapper.vm.state.filters = [{ id: 1, mode: 'exclude', type: 'path', value: 'private' }]
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    expect(lastSearchParams()).toEqual(expect.arrayContaining([['excludePath', 'private']]))
+    expect(pairNames(lastSearchParams())).not.toContain('path')
+  })
+
+  it('repeats a name once per row rather than joining values, so enum lists stay valid', async () => {
+    const { wrapper } = await mountWithFilters()
+    wrapper.vm.state.filters = [
+      { id: 1, mode: 'include', type: 'publishState', value: 'draft' },
+      { id: 2, mode: 'include', type: 'publishState', value: 'published' },
+      { id: 3, mode: 'include', type: 'locale', value: 'en' },
+      { id: 4, mode: 'include', type: 'locale', value: 'fr' }
+    ]
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    const pairs = lastSearchParams()
+    expect(pairs.filter(([name]) => name === 'publishState')).toEqual([
+      ['publishState', 'draft'],
+      ['publishState', 'published']
+    ])
+    expect(pairs.filter(([name]) => name === 'locales')).toEqual([
+      ['locales', 'en'],
+      ['locales', 'fr']
+    ])
+    expect(pairs.every(([, value]) => !String(value).includes(','))).toBe(true)
+  })
+
+  it('serializes to a query string that repeats each key', async () => {
+    const { wrapper } = await mountWithFilters()
+    wrapper.vm.state.filters = [
+      { id: 1, mode: 'include', type: 'tag', value: 'a' },
+      { id: 2, mode: 'include', type: 'tag', value: 'b' },
+      { id: 3, mode: 'exclude', type: 'tag', value: 'c' }
+    ]
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    const query = new URLSearchParams(lastSearchParams())
+    expect(query.getAll('tags')).toEqual(['a', 'b'])
+    expect(query.getAll('excludeTags')).toEqual(['c'])
+  })
+
+  it('merges #tags typed in the query with tag rows without duplicating one', async () => {
+    const { wrapper } = await mountWithFilters({ initialPath: '/_search?q=onboarding%20%23alpha' })
+    wrapper.vm.state.filters = [
+      { id: 1, mode: 'include', type: 'tag', value: 'alpha' },
+      { id: 2, mode: 'include', type: 'tag', value: 'beta' }
+    ]
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    expect(lastSearchParams().filter(([name]) => name === 'tags')).toEqual([
+      ['tags', 'alpha'],
+      ['tags', 'beta']
+    ])
+    expect(lastSearchParams()).toEqual(expect.arrayContaining([['query', 'onboarding']]))
+  })
+
+  it('removes a row and re-searches without it', async () => {
+    const { wrapper } = await mountWithFilters()
+    wrapper.vm.state.filters = [
+      { id: 1, mode: 'include', type: 'path', value: 'docs' },
+      { id: 2, mode: 'include', type: 'tag', value: 'alpha' }
+    ]
+    await flushPromises()
+    API_CLIENT.get.mockClear()
+
+    await rows(wrapper)[0].find('[data-testid="search-filter-remove"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    expect(wrapper.vm.state.filters.map((r) => r.id)).toEqual([2])
+    expect(pairNames(lastSearchParams())).not.toContain('path')
+    expect(lastSearchParams()).toEqual(expect.arrayContaining([['tags', 'alpha']]))
+  })
+
+  describe('the filters-only-search guard', () => {
+    it('runs a search with no query text when an include row applies', async () => {
+      const { wrapper } = await mountWithFilters({ initialPath: '/_search' })
+      API_CLIENT.get.mockClear()
+
+      wrapper.vm.state.filters = [{ id: 1, mode: 'include', type: 'publishState', value: 'draft' }]
+      await vi.advanceTimersByTimeAsync(500)
+      await flushPromises()
+
+      expect(searchCalls()).toHaveLength(1)
+      expect(pairNames(lastSearchParams())).not.toContain('query')
+      expect(lastSearchParams()).toEqual(expect.arrayContaining([['publishState', 'draft']]))
+    })
+
+    it('does not list the wiki for exclude rows alone with no query text', async () => {
+      const { wrapper } = await mountWithFilters({ initialPath: '/_search' })
+      API_CLIENT.get.mockClear()
+
+      wrapper.vm.state.filters = [{ id: 1, mode: 'exclude', type: 'path', value: 'private' }]
+      await vi.advanceTimersByTimeAsync(500)
+      await flushPromises()
+
+      expect(searchCalls()).toHaveLength(0)
+      expect(wrapper.vm.state.results).toEqual([])
+    })
+
+    it('does not search for an include row whose value is still blank', async () => {
+      const { wrapper } = await mountWithFilters({ initialPath: '/_search' })
+      API_CLIENT.get.mockClear()
+
+      wrapper.vm.state.filters = [{ id: 1, mode: 'include', type: 'path', value: '   ' }]
+      await vi.advanceTimersByTimeAsync(500)
+      await flushPromises()
+
+      expect(searchCalls()).toHaveLength(0)
+    })
+  })
+
+  describe('the mobile Filters disclosure label', () => {
+    it('is the plain label when no filter applies', async () => {
+      const { wrapper } = await mountWithFilters()
+
+      expect(wrapper.vm.filtersButtonLabel).toBe('search.filters')
+    })
+
+    it('carries how many filters apply, ignoring blank rows', async () => {
+      const { wrapper } = await mountWithFilters()
+      wrapper.vm.state.filters = [
+        { id: 1, mode: 'include', type: 'path', value: 'docs' },
+        { id: 2, mode: 'exclude', type: 'tag', value: 'old' },
+        { id: 3, mode: 'include', type: 'path', value: '' }
+      ]
+      await flushPromises()
+
+      expect(wrapper.vm.filtersButtonLabel).toBe('Filters (2)')
+    })
+  })
+
+  describe('the searchFilters preference', () => {
+    it('keeps an anonymous reader session-only: nothing is read or written', async () => {
+      const { wrapper } = await mountWithFilters({ authenticated: false })
+      wrapper.vm.addFilter()
+      wrapper.vm.setFilterValue(wrapper.vm.state.filters[0], 'docs')
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+
+      expect(API_CLIENT.get).not.toHaveBeenCalledWith('users/profile')
+      expect(API_CLIENT.put).not.toHaveBeenCalled()
+    })
+
+    it('loads the saved rows and searches once with them, never once without', async () => {
+      const { wrapper } = await mountWithFilters({
+        authenticated: true,
+        profile: {
+          searchFilters: [
+            { mode: 'exclude', type: 'path', value: 'private' },
+            { mode: 'include', type: 'locale', value: 'en' }
+          ]
+        }
+      })
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+
+      expect(wrapper.vm.state.filters).toMatchObject([
+        { mode: 'exclude', type: 'path', value: 'private' },
+        { mode: 'include', type: 'locale', value: 'en' }
+      ])
+      expect(rows(wrapper)).toHaveLength(2)
+      expect(searchCalls()).toHaveLength(1)
+      expect(lastSearchParams()).toEqual(
+        expect.arrayContaining([
+          ['excludePath', 'private'],
+          ['locales', 'en']
+        ])
+      )
+    })
+
+    it('searches unfiltered once when the reader has nothing saved', async () => {
+      await mountWithFilters({ authenticated: true, profile: {} })
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+
+      expect(searchCalls()).toHaveLength(1)
+    })
+
+    it('drops a stored row this build does not understand instead of sending it', async () => {
+      const { wrapper } = await mountWithFilters({
+        authenticated: true,
+        profile: {
+          searchFilters: [
+            { mode: 'include', type: 'author', value: 'x' },
+            { mode: 'include', type: 'publishState', value: 'archived' },
+            { mode: 'exclude', type: 'tag', value: 'old' }
+          ]
+        }
+      })
+
+      expect(wrapper.vm.state.filters).toMatchObject([
+        { mode: 'exclude', type: 'tag', value: 'old' }
+      ])
+    })
+
+    it('still searches, unfiltered, when the profile cannot be read', async () => {
+      const { wrapper } = await mountWithFilters({ authenticated: true, profile: 'fail' })
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+
+      expect(wrapper.vm.state.filters).toEqual([])
+      expect(searchCalls()).toHaveLength(1)
+    })
+
+    it('saves only the applied rows, in the frozen {mode, type, value} shape, after a pause', async () => {
+      const { wrapper } = await mountWithFilters({ authenticated: true })
+      await vi.advanceTimersByTimeAsync(1000)
+      wrapper.vm.addFilter()
+      wrapper.vm.addFilter()
+      const [first, second] = wrapper.vm.state.filters
+      wrapper.vm.setFilterValue(first, ' docs ')
+      wrapper.vm.setFilterMode(second, 'exclude')
+      await vi.advanceTimersByTimeAsync(499)
+      expect(API_CLIENT.put).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1)
+      await flushPromises()
+
+      expect(API_CLIENT.put).toHaveBeenCalledTimes(1)
+      expect(API_CLIENT.put).toHaveBeenCalledWith('users/profile', {
+        json: { searchFilters: [{ mode: 'include', type: 'path', value: 'docs' }] }
+      })
+    })
+
+    it('saves an empty list when the last row is removed', async () => {
+      const { wrapper } = await mountWithFilters({
+        authenticated: true,
+        profile: { searchFilters: [{ mode: 'include', type: 'tag', value: 'alpha' }] }
+      })
+      await vi.advanceTimersByTimeAsync(1000)
+
+      wrapper.vm.removeFilter(wrapper.vm.state.filters[0])
+      await vi.advanceTimersByTimeAsync(500)
+      await flushPromises()
+
+      expect(API_CLIENT.put).toHaveBeenCalledWith('users/profile', {
+        json: { searchFilters: [] }
+      })
+    })
+
+    it('does not write back what it just loaded', async () => {
+      await mountWithFilters({
+        authenticated: true,
+        profile: { searchFilters: [{ mode: 'include', type: 'tag', value: 'alpha' }] }
+      })
+      await vi.advanceTimersByTimeAsync(2000)
+      await flushPromises()
+
+      expect(API_CLIENT.put).not.toHaveBeenCalled()
+    })
+
+    it('flushes a pending save when the page is left', async () => {
+      const { wrapper } = await mountWithFilters({ authenticated: true })
+      await vi.advanceTimersByTimeAsync(1000)
+      wrapper.vm.addFilter()
+      wrapper.vm.setFilterValue(wrapper.vm.state.filters[0], 'docs')
+
+      wrapper.unmount()
+      activeWrapper = null
+      await flushPromises()
+
+      expect(API_CLIENT.put).toHaveBeenCalledWith('users/profile', {
+        json: { searchFilters: [{ mode: 'include', type: 'path', value: 'docs' }] }
+      })
+    })
+
+    it('never sends an anonymous session a save, even after edits', async () => {
+      const { wrapper } = await mountWithFilters({ authenticated: false })
+      wrapper.vm.addFilter()
+      wrapper.vm.setFilterValue(wrapper.vm.state.filters[0], 'docs')
+      wrapper.unmount()
+      activeWrapper = null
+      await flushPromises()
+
+      expect(API_CLIENT.put).not.toHaveBeenCalled()
+    })
   })
 })

@@ -13,6 +13,7 @@ import { ensureRepo } from './repo.ts'
 import { generatePathHash } from '../../../helpers/common.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
+import { CONTENT_TYPES } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 const SITE_ID = 'site-1'
@@ -61,7 +62,8 @@ function installWiki(
         getById: mock.fn(async () => null),
         getByEmail: mock.fn(async (email: string) =>
           email === ADMIN_EMAIL ? { id: 'admin-1', email } : null
-        )
+        ),
+        ensureSystemUser: mock.fn(async () => 'system-user-1')
       },
       pages: {
         listAllForSite: mock.fn(async () =>
@@ -255,7 +257,11 @@ describe('git storage: syncUntracked', () => {
     })
     const noPagesTarget = makeTarget({
       config: { ...target.config },
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const { repoPath } = await ensureRepo(noPagesTarget)
 
@@ -281,7 +287,11 @@ describe('git storage: syncUntracked', () => {
     })
     const largeOnlyTarget = makeTarget({
       config: { ...target.config },
-      contentTypes: { activeTypes: ['large'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['large'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const { repoPath } = await ensureRepo(largeOnlyTarget)
 
@@ -305,7 +315,11 @@ describe('git storage: syncUntracked', () => {
     })
     const imagesOnlyTarget = makeTarget({
       config: { ...target.config },
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const { repoPath } = await ensureRepo(imagesOnlyTarget)
 
@@ -404,7 +418,7 @@ describe('git storage: importAll', () => {
     assert.equal(calls.createPage.length, 0)
   })
 
-  test('does nothing when no user matches the configured default author email', async () => {
+  test('attributes the import to the system user when no user matches the default author email', async () => {
     const calls = installWiki(rootPath, { pages: [] })
     ;(globalThis as any).CARDINAL.models.users.getByEmail = mock.fn(async () => null)
     const { repoPath } = await ensureRepo(target)
@@ -412,7 +426,8 @@ describe('git storage: importAll', () => {
 
     await importAll(target)
 
-    assert.equal(calls.createPage.length, 0)
+    assert.equal(calls.createPage.length, 1)
+    assert.equal(calls.createPage[0].actor.id, 'system-user-1')
   })
 })
 
@@ -429,6 +444,9 @@ describe('git storage: purge', () => {
 
   test('empties the repo directory and leaves a fresh, empty, initialized repo behind', async () => {
     installWiki(rootPath)
+    const originPath = await makeTempDir('wiki-git-purge-origin-')
+    await simpleGit(originPath).init(true, ['--initial-branch=main'])
+    target = makeTarget({ config: { ...target.config, repoUrl: originPath } })
     const { git, repoPath } = await ensureRepo(target)
     await fs.writeFile(path.join(repoPath, 'foo.md'), 'hi')
     await git.add('foo.md')
@@ -444,6 +462,80 @@ describe('git storage: purge', () => {
     assert.equal(head, 'main')
     const remotes = await postGit.getRemotes(true)
     assert.equal(remotes.find((r) => r.name === 'origin')?.refs.fetch, target.config.repoUrl)
+  })
+
+  test('with no repoUrl configured, leaves an empty repo and touches no remote', async () => {
+    installWiki(rootPath)
+    const bare = makeTarget({
+      config: { ...target.config, repoUrl: '', localRepoPath: path.join(rootPath, 'repo') }
+    })
+    await ensureRepo(bare)
+
+    await purge(bare)
+
+    const postGit = simpleGit(path.join(rootPath, 'repo'))
+    await assert.rejects(postGit.revparse(['HEAD']))
+  })
+
+  test('re-clones the configured remote instead of leaving an empty repo', async () => {
+    installWiki(rootPath)
+    const originPath = await makeTempDir('wiki-git-purge-origin-')
+    await simpleGit(originPath).init(true, ['--initial-branch=main'])
+    const seedPath = await makeTempDir('wiki-git-purge-seed-')
+    const seed = simpleGit(seedPath)
+    await seed.init(false, ['--initial-branch=main'])
+    await seed.addConfig('user.name', 'Seed')
+    await seed.addConfig('user.email', 'seed@example.com')
+    await fs.writeFile(path.join(seedPath, 'remote.md'), 'from the remote')
+    await seed.add('remote.md')
+    await seed.commit('docs: create remote')
+    await seed.addRemote('origin', originPath)
+    await seed.push('origin', 'main')
+    const seedHead = (await seed.revparse(['HEAD'])).trim()
+
+    const cloned = makeTarget({
+      config: { ...target.config, repoUrl: originPath, localRepoPath: path.join(rootPath, 'repo') }
+    })
+    const { git, repoPath } = await ensureRepo(cloned)
+    await fs.writeFile(path.join(repoPath, 'unshared.md'), 'unrelated history')
+    await git.add('unshared.md')
+    await git.commit('docs: unrelated root')
+
+    await purge(cloned)
+
+    await assert.rejects(fs.access(path.join(repoPath, 'unshared.md')))
+    assert.equal(await fs.readFile(path.join(repoPath, 'remote.md'), 'utf8'), 'from the remote')
+    const postGit = simpleGit(repoPath)
+    assert.equal((await postGit.revparse(['HEAD'])).trim(), seedHead)
+    assert.equal((await postGit.raw(['symbolic-ref', '--short', 'HEAD'])).trim(), 'main')
+  })
+
+  test('a remote with no such branch still purges to an initialized empty repo', async () => {
+    installWiki(rootPath)
+    const originPath = await makeTempDir('wiki-git-purge-empty-')
+    await simpleGit(originPath).init(true, ['--initial-branch=main'])
+    const emptyRemote = makeTarget({
+      config: { ...target.config, repoUrl: originPath, localRepoPath: path.join(rootPath, 'repo') }
+    })
+    await ensureRepo(emptyRemote)
+
+    await purge(emptyRemote)
+
+    await assert.doesNotReject(fs.access(path.join(rootPath, 'repo', '.git')))
+  })
+
+  test('an unreachable remote surfaces as an error rather than a silent empty repo', async () => {
+    installWiki(rootPath)
+    const missing = makeTarget({
+      config: {
+        ...target.config,
+        repoUrl: path.join(rootPath, 'no-such-remote.git'),
+        localRepoPath: path.join(rootPath, 'repo')
+      }
+    })
+    await ensureRepo(missing)
+
+    await assert.rejects(purge(missing))
   })
 
   test('refuses to purge when localRepoPath resolves to CARDINAL.ROOTPATH itself', async () => {

@@ -25,6 +25,7 @@ import { buildTestRouter } from '../../test/router.js'
 
 const i18n = createTestI18n({
   common: {
+    actions: { view: 'View' },
     datetime: '{date} at {time}',
     // -> The file manager's key-cap hint resolves through `HeaderSearch`'s own two keys.
     header: {
@@ -48,6 +49,15 @@ const i18n = createTestI18n({
     fetchingFolderContents: 'Fetching folder contents...',
     duplicateItem: 'Duplicate...',
     renameItem: 'Rename...',
+    moveItem: 'Move...',
+    moveAssetSuccess: 'Asset moved successfully.',
+    moveAssetFailed: 'Failed to move asset.',
+    moveFolderSuccess: 'Folder moved successfully.',
+    moveFolderFailed: 'Failed to move folder.',
+    duplicateFolderTitle: 'Duplicate to…',
+    duplicateFolderConfirm: 'Duplicate',
+    duplicateFolderSuccess: 'Folder duplicated successfully.',
+    duplicateFolderFailed: 'Failed to duplicate folder.',
     renameMovePage: 'Rename / Move Page...',
     pngFileType: 'PNG Image',
     markdownPageType: 'Markdown Page',
@@ -340,6 +350,7 @@ describe('FileManager drag-and-drop upload (OpenProject #790)', () => {
 describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', () => {
   afterEach(() => {
     vi.clearAllMocks()
+    openDialogs.splice(0, openDialogs.length)
   })
 
   async function mountFileManagerWithItems(fileList) {
@@ -378,9 +389,85 @@ describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', 
     wrapper.unmount()
   })
 
-  it('does not render "Duplicate..." for a folder or an asset, only for a page', async () => {
+  it("openItem()'s asset case still opens a non-image asset in a new tab and closes the file manager", async () => {
+    const { wrapper, siteStore } = await mountFileManagerWithItems([])
+    siteStore.overlay = 'FileManager'
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
+
+    wrapper.vm.openItem({
+      id: 'a2',
+      type: 'asset',
+      folderPath: 'media',
+      fileName: 'report.pdf',
+      mimeType: 'application/pdf'
+    })
+
+    expect(openSpy).toHaveBeenCalledWith('/_files/media/report.pdf', '_blank')
+    expect(openDialogs).toHaveLength(0)
+    expect(siteStore.overlay).toBeNull()
+
+    wrapper.unmount()
+  })
+
+  it("openItem()'s asset case opens the preview dialog for an image asset, not a new tab", async () => {
+    const { wrapper, siteStore } = await mountFileManagerWithItems([])
+    siteStore.overlay = 'FileManager'
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
+
+    wrapper.vm.openItem({
+      id: 'a1',
+      type: 'asset',
+      folderPath: 'media',
+      fileName: 'photo.png',
+      fileSize: 1024,
+      mimeType: 'image/png'
+    })
+
+    expect(openSpy).not.toHaveBeenCalled()
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].component.__name).toBe('AssetPreviewDialog')
+    expect(openDialogs[0].props).toEqual({
+      assetId: 'a1',
+      fileName: 'photo.png',
+      folderPath: 'media',
+      fileSize: 1024,
+      mimeType: 'image/png'
+    })
+    expect(siteStore.overlay).toBe('FileManager')
+
+    openDialogs.splice(0, openDialogs.length)
+    wrapper.unmount()
+  })
+
+  it('the "View" entry on an image asset row opens the preview dialog', async () => {
     const { wrapper } = await mountFileManagerWithItems([
-      { id: 'f1', type: 'folder', title: 'My Folder', fileName: 'my-folder', children: 0 },
+      {
+        id: 'a1',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 1024,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ])
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
+
+    const view = wrapper.findAll('[role="button"]').find((node) => node.text() === 'View')
+    expect(view).toBeDefined()
+    await view.trigger('click')
+
+    expect(openSpy).not.toHaveBeenCalled()
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({ assetId: 'a1', fileName: 'photo.png' })
+
+    openDialogs.splice(0, openDialogs.length)
+    wrapper.unmount()
+  })
+
+  it('does not render "Duplicate..." for an asset, only for a page or a folder', async () => {
+    const { wrapper } = await mountFileManagerWithItems([
       {
         id: 'a1',
         type: 'asset',
@@ -720,7 +807,7 @@ describe('FileManager page detail dates (OpenProject #1755)', () => {
     )
     // FIXME: this only asserts the value is non-empty, so it would still pass against a raw
     // `toLocaleString()`. Assert the `common.datetime` separator ("{date} at {time}") instead.
-    expect(createdItem.value).not.toBe('')
+    expect(createdItem.value).toMatch(/^2026-01-01 at 00:00$/)
     wrapper.unmount()
   })
 })
@@ -1200,5 +1287,413 @@ describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
     const { wrapper: wrapper2 } = await mountFileManager()
     expect(wrapper2.vm.state.isCompact).toBe(false)
     wrapper2.unmount()
+  })
+})
+
+describe('FileManager asset Move action (OpenProject #3664)', () => {
+  const asset = {
+    id: 'a1',
+    type: 'asset',
+    title: 'photo',
+    fileName: 'photo.png',
+    fileExt: 'png',
+    fileSize: 1024,
+    mimeType: 'image/png',
+    folderPath: 'media'
+  }
+
+  async function mountWithItems(fileList) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, buildTestRouter([])],
+        stubs: {
+          Tree: true,
+          NewMenu: true,
+          LocaleSelectorMenu: true,
+          WMenu: { template: '<div><slot /></div>' }
+        }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+    wrapper.vm.state.fileList = fileList
+    await flushPromises()
+    return { wrapper, siteStore }
+  }
+
+  beforeEach(() => {
+    notifyQueue.length = 0
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('renders "Move..." on an asset row and not on a page row', async () => {
+    const { wrapper } = await mountWithItems([asset])
+    expect(wrapper.text()).toContain('Move...')
+
+    wrapper.vm.state.fileList = [
+      {
+        id: 'p1',
+        type: 'page',
+        title: 'Page',
+        fileName: 'page',
+        pageType: 'markdown',
+        folderPath: ''
+      }
+    ]
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Move...')
+
+    wrapper.unmount()
+  })
+
+  it("opens the destination-only picker on the asset's current folder", async () => {
+    const { wrapper } = await mountWithItems([asset])
+
+    wrapper.vm.moveItem(asset)
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({ mode: 'moveItem', folderPath: 'media' })
+
+    wrapper.unmount()
+  })
+
+  it('PUTs the picked destination to the asset folder route, then reloads and notifies', async () => {
+    const { wrapper, siteStore } = await mountWithItems([asset])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    wrapper.vm.moveItem(asset)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'docs' })
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith(`sites/${siteStore.id}/assets/a1/folder`, {
+      json: { folderId: 'f2', parentPath: 'docs' }
+    })
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Asset moved successfully.'
+    })
+
+    wrapper.unmount()
+  })
+
+  it('surfaces the 409 name-collision message and does not report success', async () => {
+    const { wrapper } = await mountWithItems([asset])
+    const err = Object.assign(new Error('Request failed with status code 409'), {
+      data: { message: 'An asset with that name already exists there.' }
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(err) })
+
+    wrapper.vm.moveItem(asset)
+    closeDialog(openDialogs[0].id, true, { folderId: null, parentPath: '' })
+    await flushPromises()
+
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to move asset.',
+      caption: 'An asset with that name already exists there.'
+    })
+
+    wrapper.unmount()
+  })
+
+  it('surfaces the 403 message the same way', async () => {
+    const { wrapper } = await mountWithItems([asset])
+    const err = Object.assign(new Error('Request failed with status code 403'), {
+      data: { message: 'You are not allowed to move this file.' }
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(err) })
+
+    wrapper.vm.moveItem(asset)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'docs' })
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      caption: 'You are not allowed to move this file.'
+    })
+
+    wrapper.unmount()
+  })
+})
+
+describe('FileManager folder Move action (OpenProject #3666)', () => {
+  const folder = {
+    id: 'f1',
+    type: 'folder',
+    title: 'Guides',
+    fileName: 'guides',
+    folderPath: 'docs'
+  }
+
+  async function mountWithItems(fileList) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, buildTestRouter([])],
+        stubs: {
+          Tree: { template: '<div />', methods: { resetLoaded() {} } },
+          NewMenu: true,
+          LocaleSelectorMenu: true,
+          WMenu: { template: '<div><slot /></div>' }
+        }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+    wrapper.vm.state.fileList = fileList
+    await flushPromises()
+    return { wrapper, siteStore }
+  }
+
+  beforeEach(() => {
+    notifyQueue.length = 0
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('renders "Move..." on a folder row', async () => {
+    const { wrapper } = await mountWithItems([folder])
+    expect(wrapper.text()).toContain('Move...')
+    wrapper.unmount()
+  })
+
+  it("opens the destination-only picker on the folder's current parent", async () => {
+    const { wrapper } = await mountWithItems([folder])
+
+    wrapper.vm.moveItem(folder)
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({ mode: 'moveItem', folderPath: 'docs' })
+
+    wrapper.unmount()
+  })
+
+  it('PUTs the picked destination to the folder parent route, then notifies', async () => {
+    const { wrapper, siteStore } = await mountWithItems([folder])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    wrapper.vm.moveItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'archive' })
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith(`sites/${siteStore.id}/tree/folders/f1/parent`, {
+      json: { folderId: 'f2', parentPath: 'archive' }
+    })
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Folder moved successfully.'
+    })
+
+    wrapper.unmount()
+  })
+
+  it('reloads the listing after a successful move and drops a stale selection', async () => {
+    const { wrapper } = await mountWithItems([folder])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    wrapper.vm.state.currentFileId = 'f1'
+    API_CLIENT.get.mockClear()
+
+    wrapper.vm.moveItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: null, parentPath: '' })
+    await flushPromises()
+
+    expect(wrapper.vm.state.currentFileId).toBeNull()
+    expect(API_CLIENT.get).toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
+  it('surfaces the 403 message and does not report success', async () => {
+    const { wrapper } = await mountWithItems([folder])
+    const err = Object.assign(new Error('Request failed with status code 403'), {
+      data: { message: 'You are not allowed to move a page inside this folder.' }
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(err) })
+
+    wrapper.vm.moveItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'archive' })
+    await flushPromises()
+
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to move folder.',
+      caption: 'You are not allowed to move a page inside this folder.'
+    })
+
+    wrapper.unmount()
+  })
+
+  it('surfaces the 409 name-collision message', async () => {
+    const { wrapper } = await mountWithItems([folder])
+    const err = Object.assign(new Error('Request failed with status code 409'), {
+      data: { message: 'A folder with that name already exists there.' }
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(err) })
+
+    wrapper.vm.moveItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'archive' })
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      caption: 'A folder with that name already exists there.'
+    })
+
+    wrapper.unmount()
+  })
+})
+
+describe('FileManager folder Duplicate action (OpenProject #3669)', () => {
+  const folder = {
+    id: 'f1',
+    type: 'folder',
+    title: 'Guides',
+    fileName: 'guides',
+    folderPath: 'docs'
+  }
+  const page = {
+    id: 'p1',
+    type: 'page',
+    title: 'Page',
+    fileName: 'page',
+    pageType: 'markdown',
+    folderPath: ''
+  }
+
+  async function mountWithItems(fileList) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, buildTestRouter([])],
+        stubs: {
+          Tree: true,
+          NewMenu: true,
+          LocaleSelectorMenu: true,
+          WMenu: { template: '<div><slot /></div>' }
+        }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+    wrapper.vm.state.fileList = fileList
+    await flushPromises()
+    return { wrapper, siteStore }
+  }
+
+  function httpError(status, message) {
+    return Object.assign(new Error(`Request failed with status code ${status}`), {
+      data: { message }
+    })
+  }
+
+  beforeEach(() => {
+    notifyQueue.length = 0
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('renders "Duplicate..." on a folder row', async () => {
+    const { wrapper } = await mountWithItems([folder])
+    expect(wrapper.text()).toContain('Duplicate...')
+    wrapper.unmount()
+  })
+
+  it('still renders "Duplicate..." on a page row', async () => {
+    const { wrapper } = await mountWithItems([page])
+    expect(wrapper.text()).toContain('Duplicate...')
+    wrapper.unmount()
+  })
+
+  it("opens the destination-only picker on the folder's parent with its own title and label", async () => {
+    const { wrapper } = await mountWithItems([folder])
+
+    wrapper.vm.duplicateItem(folder)
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({
+      mode: 'moveItem',
+      folderPath: 'docs',
+      title: 'Duplicate to…',
+      confirmLabel: 'Duplicate'
+    })
+    wrapper.unmount()
+  })
+
+  it('POSTs the picked destination to the duplicate route, then notifies', async () => {
+    const { wrapper, siteStore } = await mountWithItems([folder])
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    wrapper.vm.duplicateItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'other' })
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith(
+      `sites/${siteStore.id}/tree/folders/f1/duplicate`,
+      { json: { folderId: 'f2', parentPath: 'other' } }
+    )
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Folder duplicated successfully.'
+    })
+    wrapper.unmount()
+  })
+
+  it.each([
+    [403, 'You are not allowed to duplicate this folder.'],
+    [409, 'A folder with that name already exists there.'],
+    [400, 'A folder cannot be duplicated into itself or a folder inside it.']
+  ])('surfaces the %i message and does not report success', async (status, message) => {
+    const { wrapper } = await mountWithItems([folder])
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.reject(httpError(status, message)) })
+
+    wrapper.vm.duplicateItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'other' })
+    await flushPromises()
+
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to duplicate folder.',
+      caption: message
+    })
+    wrapper.unmount()
+  })
+
+  it('leaves page duplication on the page picker', async () => {
+    const { wrapper } = await mountWithItems([page])
+
+    wrapper.vm.duplicateItem(page)
+    await flushPromises()
+
+    expect(openDialogs[0].props).toMatchObject({ mode: 'duplicatePage', itemId: 'p1' })
+    wrapper.unmount()
   })
 })

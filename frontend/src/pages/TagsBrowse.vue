@@ -44,6 +44,17 @@
               <span class="tags-browse-hash" aria-hidden="true">#</span>{{ tag }}
             </w-chip>
           </div>
+          <div
+            v-if="state.selectedTags.length > 1"
+            class="tags-browse-match flex items-center gap-2 px-2 pb-2">
+            <span class="text-caption">{{ t('tags.matchMode') }}</span>
+            <w-btn-toggle
+              class="tags-browse-match-toggle"
+              :model-value="state.tagsMatch"
+              :aria-label="t('tags.matchMode')"
+              :options="matchOptions"
+              @update:model-value="setTagsMatch" />
+          </div>
         </template>
 
         <div class="tags-browse-subheader flex items-center justify-between">
@@ -310,6 +321,7 @@ const state = reactive({
    * link reopens the same intersection. The filters below only refine an already-open browse.
    */
   selectedTags: [],
+  tagsMatch: 'all',
   filterLocale: '',
   filterQuery: '',
   orderBy: 'title',
@@ -346,6 +358,11 @@ const orderByOptions = computed(() => [
   { label: t('tags.orderByField.lastModified'), value: 'updatedAt' }
 ])
 
+const matchOptions = computed(() => [
+  { label: t('tags.matchAll'), value: 'all' },
+  { label: t('tags.matchAny'), value: 'any' }
+])
+
 const hasResultFilters = computed(() => Boolean(state.filterQuery || state.filterLocale))
 
 /*
@@ -359,9 +376,10 @@ const orderByDirection = computed(() => (state.orderBy === 'title' ? 'asc' : 'de
  * writing `state.selectedTags`, and this watcher is what turns a route change back into a fetch.
  */
 watch(
-  () => route.query.tags,
-  (newValue) => {
-    state.selectedTags = splitTags(newValue)
+  () => [route.query.tags, route.query.tagsMatch],
+  ([newTags, newMatch]) => {
+    state.selectedTags = splitTags(newTags)
+    state.tagsMatch = newMatch === 'any' ? 'any' : 'all'
     performSearch()
   },
   { immediate: true }
@@ -376,6 +394,13 @@ function splitTags(raw) {
     .filter(Boolean)
 }
 
+function tagsQuery(tags, match) {
+  return {
+    ...(tags.length > 0 ? { tags: tags.join(',') } : {}),
+    ...(tags.length > 0 && match === 'any' ? { tagsMatch: 'any' } : {})
+  }
+}
+
 /**
  * Selected tags are ANDed server-side: toggling one on only ever narrows the results.
  *
@@ -387,7 +412,11 @@ function toggleTag(tag) {
   const next = state.selectedTags.includes(tag)
     ? state.selectedTags.filter((t) => t !== tag)
     : [...state.selectedTags, tag]
-  router.push({ path: '/_tags', query: next.length > 0 ? { tags: next.join(',') } : {} })
+  router.push({ path: '/_tags', query: tagsQuery(next, state.tagsMatch) })
+}
+
+function setTagsMatch(value) {
+  router.push({ path: '/_tags', query: tagsQuery(state.selectedTags, value) })
 }
 
 function clearSelection() {
@@ -411,6 +440,7 @@ async function performSearch(append = false) {
     const resp = await API_CLIENT.get(`sites/${siteStore.id}/pages/search`, {
       searchParams: {
         tags: state.selectedTags.join(','),
+        tagsMatch: state.tagsMatch,
         ...(state.filterQuery ? { query: state.filterQuery } : {}),
         ...(state.filterLocale ? { locales: state.filterLocale } : {}),
         orderBy: state.orderBy,

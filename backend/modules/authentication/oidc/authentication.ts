@@ -1,4 +1,5 @@
 import * as client from 'openid-client'
+import { buildEndSessionUrl, type EndSessionParams } from '../../../helpers/endSessionUrl.ts'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 import { providerNameHalves } from '../../../models/authentication.ts'
 
@@ -158,7 +159,7 @@ export default class OidcAuthentication {
     codeVerifier
   }: AuthFlowCallback): Promise<ProviderProfile> {
     const config = await this.configuration()
-    const tokens = await client.authorizationCodeGrant(config, new URL(currentUrl), {
+    const tokens = await this.exchangeCode(config, currentUrl, {
       expectedState: state,
       expectedNonce: nonce,
       pkceCodeVerifier: codeVerifier
@@ -181,10 +182,23 @@ export default class OidcAuthentication {
       }
     }
 
-    return mapOidcProfile(this.conf, claims.sub, info)
+    return {
+      ...mapOidcProfile(this.conf, claims.sub, info),
+      ...(typeof tokens.id_token === 'string' && tokens.id_token
+        ? { idToken: tokens.id_token }
+        : {})
+    }
   }
 
-  logoutUrl(): string | null {
-    return this.conf.logoutURL || null
+  private exchangeCode(
+    config: client.Configuration,
+    currentUrl: string,
+    checks: client.AuthorizationCodeGrantChecks
+  ) {
+    return client.authorizationCodeGrant(config, new URL(currentUrl), checks)
+  }
+
+  logoutUrl(params: EndSessionParams = {}): string | null {
+    return buildEndSessionUrl(this.conf.logoutURL, params)
   }
 }

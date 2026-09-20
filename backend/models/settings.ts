@@ -121,6 +121,7 @@ class Settings {
       {
         key: 'security',
         value: {
+          allowPasskeys: true,
           corsConfig: '',
           corsMode: 'OFF',
           ...securityCspSeed(CARDINAL.config, CARDINAL.data),
@@ -150,6 +151,13 @@ class Settings {
           timezone: 'America/New_York',
           dateFormat: 'YYYY-MM-DD',
           timeFormat: '12h'
+        }
+      },
+      {
+        key: 'profileVisibility',
+        value: {
+          forcedPublicFields: [],
+          guestsMayView: false
         }
       }
     ])

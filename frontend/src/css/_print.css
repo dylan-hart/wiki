@@ -10,6 +10,10 @@
   retain. That credit survives by sitting inside the scrolling article column, not by being named
   here.
 */
+@page {
+  margin: 2cm;
+}
+
 @media print {
   .w-header,
   .w-drawer,
@@ -36,5 +40,34 @@
     max-height: none !important;
     min-height: 0 !important;
     overflow: visible !important;
+  }
+
+  .page-contents {
+    p,
+    li,
+    dd,
+    blockquote,
+    .footnote-item {
+      orphans: 3;
+      widows: 3;
+    }
+
+    pre,
+    pre > code {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    pre {
+      overflow: visible;
+    }
+
+    pre.codeblock.line-numbers {
+      padding-inline-start: 1.125rem;
+
+      .line-numbers-rows {
+        display: none;
+      }
+    }
   }
 }

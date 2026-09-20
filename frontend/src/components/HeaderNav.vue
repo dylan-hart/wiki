@@ -183,7 +183,9 @@ import { useI18n } from 'vue-i18n'
 
 import { useMinWidth } from '@/composables/screen'
 
+import { localizedPagePath } from '@/helpers/pagePaths'
 import { useCommonStore } from '@/stores/common'
+import { useGraphStore } from '@/stores/graph'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -209,6 +211,7 @@ defineProps({
 const emit = defineEmits(['openSidebar'])
 
 const commonStore = useCommonStore()
+const graphStore = useGraphStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
@@ -360,10 +363,16 @@ function openInbox() {
  */
 function onGraphNavClick() {
   if (route.path === GRAPH_ROUTE_PATH) {
-    router.push(lastNonGraphPath.value)
+    const selected = graphStore.selectedPath
+    router.push(
+      selected
+        ? localizedPagePath(selected, pageStore.locale, siteStore.localeRouting)
+        : lastNonGraphPath.value
+    )
     return
   }
   if (route.meta.contentPage) {
+    graphStore.select(pageStore.path)
     router.push({ path: GRAPH_ROUTE_PATH, query: { path: pageStore.folderPath } })
     return
   }

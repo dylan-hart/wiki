@@ -59,6 +59,11 @@ export function initializeApi(router) {
     prefix: '/_api',
     credentials: 'same-origin',
     throwHttpErrors: true,
+    retry: {
+      methods: ['get', 'head'],
+      statusCodes: [408, 500, 502, 503, 504],
+      afterStatusCodes: []
+    },
     hooks: {
       beforeError: [
         ({ request, error }) => {

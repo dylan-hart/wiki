@@ -1,7 +1,22 @@
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { readFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { after, before, beforeEach, describe, test } from 'node:test'
+import Fastify from 'fastify'
 
-import { isPageUrl, RESERVED_ROOT_FILES, SERVER_ROUTE_SEGMENTS } from './siteRouting.ts'
+import { resetAppShellCache } from '../../helpers/appShell.ts'
+import {
+  isPageUrl,
+  isSpaAppRoute,
+  registerAppShellFallback,
+  registerSeoRedirects,
+  RESERVED_ROOT_FILES,
+  SERVER_ROUTE_SEGMENTS
+} from './siteRouting.ts'
+import { makeGroupRule } from '../../test/builders.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 describe('isPageUrl', () => {
   test('a plain page path addresses the page tree', () => {
@@ -58,6 +73,664 @@ describe('RESERVED_ROOT_FILES', () => {
   test('is stored lowercase, since isPageUrl lowercases before looking up', () => {
     for (const file of RESERVED_ROOT_FILES) {
       assert.equal(file, file.toLowerCase())
+    }
+  })
+})
+
+describe('isSpaAppRoute', () => {
+  test('the login screen and its password-reset link are app routes', () => {
+    assert.equal(isSpaAppRoute('/login'), true)
+    assert.equal(isSpaAppRoute('/login/reset-password/abc123'), true)
+    assert.equal(isSpaAppRoute('/login/other'), false)
+  })
+
+  test('`/a/:alias` is an app route, a bare `/a` or a deeper path is not', () => {
+    assert.equal(isSpaAppRoute('/a/some-alias'), true)
+    assert.equal(isSpaAppRoute('/a'), false)
+    assert.equal(isSpaAppRoute('/a/some/alias'), false)
+  })
+
+  test('every underscore route the frontend router owns is an app route', () => {
+    for (const urlPath of [
+      '/_search',
+      '/_tags',
+      '/_graph',
+      '/_admin',
+      '/_admin/dashboard',
+      '/_admin/site-1/general',
+      '/_error',
+      '/_error/notfound',
+      '/_create',
+      '/_create/markdown',
+      '/_edit',
+      '/_edit/docs/guide'
+    ]) {
+      assert.equal(isSpaAppRoute(urlPath), true, urlPath)
+    }
+  })
+
+  test('an unknown underscore path, a page path and a junk path are not', () => {
+    for (const urlPath of ['/_nope', '/_searchx', '/docs/guide', '/wp-login.php', '/', '/loginx']) {
+      assert.equal(isSpaAppRoute(urlPath), false, urlPath)
+    }
+  })
+
+  test('covers every top-level route declared in frontend/src/router/routes.js', async () => {
+    const source = await readFile(
+      path.join(import.meta.dirname, '../../../frontend/src/router/routes.js'),
+      'utf8'
+    )
+    const routes = [...source.matchAll(/^ {4}path: '([^']+)'/gm)]
+      .map((m) => m[1]!)
+      .filter((route) => !route.includes('catchAll'))
+    assert.ok(routes.length >= 8, `expected the router's top-level routes, found ${routes.length}`)
+    const param = /:\w+(\([^)]*\))?/g
+    for (const route of routes) {
+      const withoutOptional = route.replace(/\/:\w+(\([^)]*\))?\?$/, '').replace(param, 'x')
+      const withOptional = route.replace(/\?$/, '').replace(param, 'x')
+      assert.equal(isSpaAppRoute(withoutOptional), true, `${route} -> ${withoutOptional}`)
+      assert.equal(isSpaAppRoute(withOptional), true, `${route} -> ${withOptional}`)
+    }
+  })
+})
+
+describe('registerAppShellFallback', () => {
+  const shellHtml =
+    '<!DOCTYPE html>\n<html lang="en">\n<head><title>Cardinal.js</title></head>\n<body><div id="app"></div></body>\n</html>'
+  let rootPath: string
+  let previousCardinal: unknown
+  let handler: (req: any, reply: any) => Promise<any>
+  let pageRows: Array<Record<string, unknown>> = []
+  let guestRules: unknown[] = []
+  let lookupFails = false
+  let lookups = 0
+
+  function pageRow(overrides: Record<string, unknown> = {}) {
+    return {
+      locale: 'en',
+      path: 'docs/guide',
+      title: 'Guide',
+      description: null,
+      tags: [],
+      classification: null,
+      password: null,
+      ...overrides
+    }
+  }
+
+  before(async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), 'app-shell-'))
+    await mkdir(path.join(rootPath, 'assets'))
+    await writeFile(path.join(rootPath, 'assets/index.html'), shellHtml)
+    previousCardinal = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = {
+      ROOTPATH: rootPath,
+      sites: {},
+      sitesMappings: {},
+      data: { systemIds: { guestsGroupId: 'guests' } },
+      db: {
+        select: () => {
+          const chain: any = {
+            from: () => chain,
+            where: () => {
+              lookups++
+              return lookupFails ? Promise.reject(new Error('db down')) : Promise.resolve(pageRows)
+            }
+          }
+          return chain
+        }
+      },
+      models: {
+        locales: { getLocales: async () => [{ code: 'en', isRTL: false }] },
+        groups: { rulesForGroups: () => guestRules }
+      },
+      logger: { error: () => {}, warn: () => {} }
+    }
+    resetAppShellCache()
+    registerAppShellFallback({
+      setNotFoundHandler: (fn: typeof handler) => {
+        handler = fn
+      }
+    } as any)
+  })
+
+  after(async () => {
+    ;(globalThis as any).CARDINAL = previousCardinal
+    resetAppShellCache()
+    await rm(rootPath, { recursive: true, force: true })
+  })
+
+  async function serve(method: string, url: string) {
+    const sent: { body?: string; headers: Record<string, string>; type?: string; status: number } =
+      {
+        headers: {},
+        status: 200
+      }
+    const reply: any = {
+      code: (c: number) => {
+        sent.status = c
+        return reply
+      },
+      header: (k: string, v: string) => {
+        sent.headers[k] = v
+        return reply
+      },
+      type: (t: string) => {
+        sent.type = t
+        return reply
+      },
+      send: (b: string) => {
+        sent.body = b
+        return reply
+      },
+      notFound: () => {
+        sent.body = 'not found'
+        return reply
+      }
+    }
+    await handler({ method, raw: { url }, hostname: 'wiki.test' }, reply)
+    return sent
+  }
+
+  describe('status', () => {
+    const plainShell = shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">')
+
+    beforeEach(() => {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = { '*': 'site-1' }
+      cardinal.sites = { 'site-1': { config: { locales: { primary: 'en', active: ['en'] } } } }
+      pageRows = []
+      guestRules = [makeGroupRule({ match: 'START', path: '' })]
+      lookupFails = false
+      lookups = 0
+    })
+
+    after(() => {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = {}
+      cardinal.sites = {}
+      pageRows = []
+      guestRules = []
+    })
+
+    test('a guest-readable page answers 200', async () => {
+      pageRows = [pageRow()]
+      const sent = await serve('GET', '/docs/guide')
+      assert.equal(sent.status, 200)
+      assert.ok(sent.body!.includes('<title>Guide</title>'))
+    })
+
+    test('a junk path answers 404 with the shell body', async () => {
+      for (const url of ['/wp-login.php', '/no/such/page', '/_nope', '/a']) {
+        const sent = await serve('GET', url)
+        assert.equal(sent.status, 404, url)
+        assert.equal(sent.body, plainShell, url)
+      }
+    })
+
+    test('app routes answer 200 without looking for a page', async () => {
+      for (const url of [
+        '/login',
+        '/login/reset-password/tok',
+        '/a/alias',
+        '/_admin/dashboard',
+        '/_search',
+        '/_tags',
+        '/_graph',
+        '/_error/notfound',
+        '/_create/markdown',
+        '/_edit/docs/guide'
+      ]) {
+        const sent = await serve('GET', url)
+        assert.equal(sent.status, 200, url)
+      }
+      assert.equal(lookups, 0)
+    })
+
+    test('an underscore path skips the page lookup', async () => {
+      await serve('GET', '/_nope')
+      assert.equal(lookups, 0)
+    })
+
+    test('HEAD answers the status GET would', async () => {
+      pageRows = [pageRow()]
+      assert.equal((await serve('HEAD', '/docs/guide')).status, 200)
+      pageRows = []
+      assert.equal((await serve('HEAD', '/docs/guide')).status, 404)
+    })
+
+    test('a guest-unreadable page and a missing page are indistinguishable', async () => {
+      pageRows = [pageRow({ path: 'hr/salaries' })]
+      guestRules = [
+        makeGroupRule({ match: 'START', path: '' }),
+        makeGroupRule({ id: 'deny', match: 'START', path: 'hr', mode: 'DENY' })
+      ]
+      const denied = await serve('GET', '/hr/salaries')
+      pageRows = []
+      const missing = await serve('GET', '/hr/salaries')
+      assert.equal(denied.status, 404)
+      assert.deepEqual(denied, missing)
+    })
+
+    test('a password-locked page answers 404, the same as a missing one', async () => {
+      pageRows = [pageRow({ password: '$2a$hash' })]
+      const locked = await serve('GET', '/docs/guide')
+      pageRows = []
+      const missing = await serve('GET', '/docs/guide')
+      assert.equal(locked.status, 404)
+      assert.deepEqual(locked, missing)
+    })
+
+    test('a request that resolves to no site answers 404', async () => {
+      ;(globalThis as any).CARDINAL.sitesMappings = {}
+      assert.equal((await serve('GET', '/docs/guide')).status, 404)
+      assert.equal((await serve('GET', '/login')).status, 200)
+    })
+
+    test('a failed lookup answers 200 rather than declaring the page missing', async () => {
+      lookupFails = true
+      const sent = await serve('GET', '/docs/guide')
+      assert.equal(sent.status, 200)
+      assert.equal(sent.body, plainShell)
+    })
+
+    test('a non-read method and a server-owned segment answer as a plain not-found', async () => {
+      assert.equal((await serve('POST', '/docs/guide')).body, 'not found')
+      assert.equal((await serve('GET', '/_api/nope')).body, 'not found')
+    })
+  })
+
+  test('with no fragments the served shell is the templated shell, byte for byte', async () => {
+    const sent = await serve('GET', '/guides/x')
+    assert.equal(sent.body, shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">'))
+    assert.equal(sent.headers['Cache-Control'], 'no-store')
+    assert.equal(sent.type, 'text/html; charset=utf-8')
+  })
+
+  describe('theme injection', () => {
+    function setSite(theme: Record<string, unknown> | undefined) {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = { '*': 'site-1' }
+      cardinal.sites = { 'site-1': { config: { theme } } }
+    }
+
+    after(() => {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = {}
+      cardinal.sites = {}
+    })
+
+    test('a raw fetch carries the site head, CSS and body markup exactly once', async () => {
+      setSite({
+        injectCSS: 'body { color: red }',
+        injectHead: '<meta name="site-verification" content="abc">',
+        injectBody: '<script src="/beacon.js"></script>'
+      })
+      const { body } = await serve('GET', '/guides/x')
+      const count = (needle: string) => body!.split(needle).length - 1
+      assert.equal(count('<style id="theme-inject-css">body { color: red }</style>'), 1)
+      assert.equal(count('<meta name="site-verification" content="abc">'), 1)
+      assert.equal(count('<script src="/beacon.js"></script>'), 1)
+      assert.ok(body!.indexOf('site-verification') < body!.indexOf('</head>'))
+      assert.ok(body!.indexOf('beacon.js') > body!.indexOf('<div id="app">'))
+      assert.ok(body!.indexOf('beacon.js') < body!.indexOf('</body>'))
+    })
+
+    test('a path no page owns (the not-found fallback) is injected the same way', async () => {
+      setSite({ injectHead: '<meta name="x" content="y">' })
+      const { body } = await serve('GET', '/no/such/page')
+      assert.equal(body!.split('<meta name="x" content="y">').length - 1, 1)
+    })
+
+    test('fragments containing replacement patterns or closing tags land intact', async () => {
+      setSite({ injectHead: '<i>$& $1 </body></i>', injectBody: '<b>$`</b>' })
+      const { body } = await serve('GET', '/a')
+      assert.ok(body!.includes('<i>$& $1 </body></i></head>'))
+      assert.ok(body!.includes('<b>$`</b></body>'))
+    })
+
+    test('a site with empty injection fields is served the plain shell', async () => {
+      setSite({ injectCSS: '', injectHead: '', injectBody: '' })
+      const { body } = await serve('GET', '/a')
+      assert.equal(body, shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">'))
+    })
+
+    test('an unresolved site is served the plain shell', async () => {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = {}
+      const { body } = await serve('GET', '/a')
+      assert.equal(body, shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">'))
+    })
+  })
+
+  describe('#3660 analytics snippets', () => {
+    function setSite(config: Record<string, unknown>) {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = { '*': 'site-1' }
+      cardinal.sites = { 'site-1': { config } }
+    }
+
+    after(() => {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = {}
+      cardinal.sites = {}
+    })
+
+    test('an enabled provider is present in the raw HTML with its value escaped', async () => {
+      setSite({
+        analytics: {
+          providers: {
+            google: { isEnabled: true, config: { propertyTrackingId: 'G-ABC</script>' } },
+            gtm: { isEnabled: true, config: { containerTrackingId: 'GTM-1' } },
+            matomo: {
+              isEnabled: true,
+              config: { siteId: '3', serverHost: 'https://m.example.test/' }
+            }
+          }
+        }
+      })
+      const { body } = await serve('GET', '/guides/x')
+      assert.ok(body!.includes('data-analytics-provider="google"'))
+      assert.ok(body!.includes('data-analytics-provider="gtm"'))
+      assert.ok(body!.includes('data-analytics-provider="matomo"'))
+      assert.ok(body!.includes('"G-ABC\\u003c/script>"'))
+      assert.ok(body!.indexOf('data-analytics-provider') < body!.indexOf('</head>'))
+      assert.ok(body!.indexOf('<div id="app">') > body!.indexOf('</head>'))
+    })
+
+    test('a disabled provider adds nothing', async () => {
+      setSite({
+        analytics: {
+          providers: { google: { isEnabled: false, config: { propertyTrackingId: 'G-1' } } }
+        }
+      })
+      const { body } = await serve('GET', '/a')
+      assert.equal(body, shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">'))
+    })
+
+    test('analytics land before the theme head injection, in a single insertion', async () => {
+      setSite({
+        analytics: {
+          providers: { gtm: { isEnabled: true, config: { containerTrackingId: 'GTM-1' } } }
+        },
+        theme: { injectHead: '<i>$& </body></i>', injectBody: '<b>tail</b>' }
+      })
+      const { body } = await serve('GET', '/a')
+      assert.ok(body!.indexOf('provider="gtm"') < body!.indexOf('<i>$& </body></i>'))
+      assert.ok(body!.includes('<i>$& </body></i></head>'))
+      assert.ok(body!.includes('<b>tail</b></body>'))
+    })
+
+    test('the not-found fallback path carries the snippets too', async () => {
+      setSite({
+        analytics: {
+          providers: { gtm: { isEnabled: true, config: { containerTrackingId: 'GTM-1' } } }
+        }
+      })
+      const { body } = await serve('GET', '/no/such/page')
+      assert.ok(body!.includes('data-analytics-provider="gtm"'))
+    })
+  })
+
+  describe('robots', () => {
+    function setRobots(config: Record<string, unknown>) {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = { '*': 'site-1' }
+      cardinal.sites = { 'site-1': { config } }
+    }
+
+    after(() => {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = {}
+      cardinal.sites = {}
+    })
+
+    const cases: Array<[boolean, boolean, string]> = [
+      [true, true, 'index, follow'],
+      [false, true, 'noindex, follow'],
+      [true, false, 'index, nofollow'],
+      [false, false, 'noindex, nofollow']
+    ]
+    for (const [index, follow, directive] of cases) {
+      test(`index=${index} follow=${follow} sends "${directive}" as header and meta`, async () => {
+        setRobots({ robots: { index, follow } })
+        const sent = await serve('GET', '/guides/x')
+        assert.equal(sent.headers['X-Robots-Tag'], directive)
+        const meta = `<meta name="robots" content="${directive}">`
+        assert.equal(sent.body!.split(meta).length - 1, 1)
+        assert.ok(sent.body!.indexOf(meta) < sent.body!.indexOf('</head>'))
+      })
+    }
+
+    test('a HEAD request and a not-found path carry the same header', async () => {
+      setRobots({ robots: { index: false, follow: false } })
+      const head = await serve('HEAD', '/no/such/page')
+      assert.equal(head.headers['X-Robots-Tag'], 'noindex, nofollow')
+    })
+
+    test('robots and theme injection share the one head', async () => {
+      setRobots({ robots: { index: false, follow: true }, theme: { injectHead: '<i>t</i>' } })
+      const { body } = await serve('GET', '/a')
+      assert.ok(body!.includes('<meta name="robots" content="noindex, follow"><i>t</i></head>'))
+    })
+
+    test('a site with no robots block gets neither header nor meta', async () => {
+      setRobots({})
+      const sent = await serve('GET', '/a')
+      assert.equal(sent.headers['X-Robots-Tag'], undefined)
+      assert.equal(sent.body!.includes('name="robots"'), false)
+    })
+  })
+
+  test('repeated requests keep serving the same bytes', async () => {
+    const first = await serve('GET', '/a')
+    const second = await serve('HEAD', '/b?x=1')
+    assert.equal(second.body, first.body)
+  })
+})
+
+describe('registerSeoRedirects locale aliases', () => {
+  async function redirectFor(url: string, locales: Record<string, unknown>) {
+    const handle = installTestWiki({
+      sitesMappings: { '*': 'site-1' },
+      sites: { 'site-1': { config: { locales } } }
+    })
+    const app = Fastify()
+    registerSeoRedirects(app)
+    app.get('/*', async () => 'ok')
+    try {
+      const res = await app.inject({ method: 'GET', url })
+      return { status: res.statusCode, location: res.headers.location }
+    } finally {
+      await app.close()
+      handle.restore()
+    }
+  }
+
+  const base = { primary: 'en', active: ['en', 'zh-CN'], forcePrefix: false }
+  const aliased = { ...base, aliases: { 'zh-CN': 'zh' } }
+
+  test('302s the canonical spelling to the alias and keeps the query string', async () => {
+    assert.deepEqual(await redirectFor('/zh-CN/page?a=1', aliased), {
+      status: 302,
+      location: '/zh/page?a=1'
+    })
+  })
+
+  test('leaves the alias spelling alone', async () => {
+    assert.deepEqual(await redirectFor('/zh/page', aliased), { status: 200, location: undefined })
+  })
+
+  test('re-cases a mis-cased alias', async () => {
+    assert.deepEqual(await redirectFor('/ZH/page', aliased), {
+      status: 302,
+      location: '/zh/page'
+    })
+  })
+
+  test('forcePrefix sends a bare path to the primary locale alias, then settles', async () => {
+    const cfg = { ...aliased, forcePrefix: true, aliases: { en: 'e', 'zh-CN': 'zh' } }
+    assert.deepEqual(await redirectFor('/page', cfg), { status: 302, location: '/e/page' })
+    assert.deepEqual(await redirectFor('/e/page', cfg), { status: 200, location: undefined })
+    assert.deepEqual(await redirectFor('/en/page', cfg), { status: 302, location: '/e/page' })
+  })
+
+  test('without aliases the canonical spelling is untouched', async () => {
+    assert.deepEqual(await redirectFor('/zh-CN/page', base), { status: 200, location: undefined })
+  })
+})
+
+describe('registerAppShellFallback page head tags (#3655)', () => {
+  const shellHtml =
+    '<!DOCTYPE html>\n<html lang="en">\n<head><title>Cardinal.js</title></head>\n<body><div id="app"></div></body>\n</html>'
+  const plain = shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">')
+  let rootPath: string
+  let previousCardinal: unknown
+  let handler: (req: any, reply: any) => Promise<any>
+  let rows: Array<Record<string, unknown>>
+  let dbFails: boolean
+  let selects: number
+
+  function pageRow(overrides: Record<string, unknown> = {}) {
+    return {
+      locale: 'en',
+      path: 'docs/guide',
+      title: 'Guide <b>&</b>',
+      description: 'How "to"',
+      tags: [],
+      classification: null,
+      password: null,
+      ...overrides
+    }
+  }
+
+  before(async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), 'app-shell-head-'))
+    await mkdir(path.join(rootPath, 'assets'))
+    await writeFile(path.join(rootPath, 'assets/index.html'), shellHtml)
+    previousCardinal = (globalThis as any).CARDINAL
+    const chain: any = {
+      from: () => chain,
+      where: () => (dbFails ? Promise.reject(new Error('db down')) : Promise.resolve(rows))
+    }
+    ;(globalThis as any).CARDINAL = {
+      ROOTPATH: rootPath,
+      sitesMappings: { '*': 'site-1' },
+      sites: {
+        'site-1': {
+          config: {
+            locales: { primary: 'en', active: ['en', 'fr'] },
+            theme: { injectHead: '<meta name="site-verification" content="abc">' }
+          }
+        }
+      },
+      data: { systemIds: { guestsGroupId: 'guests' } },
+      db: {
+        select: () => {
+          selects++
+          return chain
+        }
+      },
+      models: {
+        locales: { getLocales: async () => [{ code: 'en', isRTL: false }] },
+        groups: { rulesForGroups: () => [makeGroupRule({ match: 'START', path: '' })] }
+      },
+      logger: { error: () => {}, warn: () => {} }
+    }
+    resetAppShellCache()
+    registerAppShellFallback({
+      setNotFoundHandler: (fn: typeof handler) => {
+        handler = fn
+      }
+    } as any)
+  })
+
+  beforeEach(() => {
+    rows = []
+    dbFails = false
+    selects = 0
+  })
+
+  after(async () => {
+    ;(globalThis as any).CARDINAL = previousCardinal
+    resetAppShellCache()
+    await rm(rootPath, { recursive: true, force: true })
+  })
+
+  async function serve(url: string) {
+    const sent: { body?: string; code?: number } = {}
+    const reply: any = {
+      header: () => reply,
+      type: () => reply,
+      code: (c: number) => {
+        sent.code = c
+        return reply
+      },
+      send: (b: string) => {
+        sent.body = b
+        return reply
+      },
+      notFound: () => reply
+    }
+    await handler({ method: 'GET', raw: { url }, hostname: 'wiki.test', protocol: 'https' }, reply)
+    return sent.body!
+  }
+
+  test('a guest-readable page gets its title, canonical and og/twitter tags with escaped values', async () => {
+    rows = [pageRow()]
+    const body = await serve('/docs/guide')
+    assert.ok(body.includes('<title>Guide &lt;b&gt;&amp;&lt;/b&gt;</title>'))
+    assert.equal(body.split('<title').length - 1, 1)
+    assert.ok(body.includes('<link rel="canonical" href="https://wiki.test/docs/guide">'))
+    assert.ok(body.includes('<meta property="og:title" content="Guide &lt;b&gt;&amp;&lt;/b&gt;">'))
+    assert.ok(body.includes('<meta name="twitter:description" content="How &quot;to&quot;">'))
+    assert.ok(!body.includes('<b>&</b>'))
+  })
+
+  test('translations render hreflang alternates', async () => {
+    rows = [pageRow(), pageRow({ locale: 'fr', title: 'Guide fr' })]
+    const body = await serve('/docs/guide')
+    assert.ok(body.includes('hreflang="en" href="https://wiki.test/docs/guide"'))
+    assert.ok(body.includes('hreflang="fr" href="https://wiki.test/fr/docs/guide"'))
+  })
+
+  test('page tags precede the theme head injection, and there is one lookup', async () => {
+    rows = [pageRow()]
+    const body = await serve('/docs/guide')
+    assert.ok(body.indexOf('rel="canonical"') < body.indexOf('site-verification'))
+    assert.ok(body.indexOf('site-verification') < body.indexOf('</head>'))
+    assert.equal(selects, 1)
+  })
+
+  test('a path with no page metadata gets no page tags and keeps the static title', async () => {
+    const body = await serve('/no/such/page')
+    assert.ok(body.includes('<title>Cardinal.js</title>'))
+    assert.ok(!body.includes('canonical'))
+    assert.ok(!body.includes('og:title'))
+  })
+
+  test('a password-locked page gets no page metadata', async () => {
+    rows = [pageRow({ password: 'hash' })]
+    assert.ok(!(await serve('/docs/guide')).includes('canonical'))
+  })
+
+  test('a failing lookup degrades to the shell without page tags', async () => {
+    dbFails = true
+    const body = await serve('/docs/guide')
+    assert.ok(body.includes('<title>Cardinal.js</title>'))
+    assert.ok(body.includes('site-verification'))
+    assert.ok(!body.includes('canonical'))
+  })
+
+  test('an unresolved site is served the plain shell without a lookup', async () => {
+    const cardinal = (globalThis as any).CARDINAL
+    const mappings = cardinal.sitesMappings
+    cardinal.sitesMappings = {}
+    try {
+      assert.equal(await serve('/docs/guide'), plain)
+      assert.equal(selects, 0)
+    } finally {
+      cardinal.sitesMappings = mappings
     }
   })
 })

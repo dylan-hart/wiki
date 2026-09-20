@@ -12,4 +12,5 @@ props:
     default: ''
     title: Shortname
     hint: Unique identifier from Disqus to identify your website
+    icon: tabler:id
     order: 1

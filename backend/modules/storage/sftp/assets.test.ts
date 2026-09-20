@@ -4,6 +4,7 @@ import { describe, test } from 'node:test'
 import type Client from 'ssh2-sftp-client'
 import { exportAssets, remotePathForAsset, type AssetExportRow } from './assets.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
+import { CONTENT_TYPES } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 function makeRow(overrides: Partial<AssetExportRow> = {}): AssetExportRow {
@@ -72,7 +73,11 @@ describe('exportAssets / large-file classification', () => {
   test('a file exactly at the threshold IS large (">=", 5MB = 5 * 1024²)', async () => {
     const client = makeStubClient()
     const target = makeTarget({
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const row = makeRow({ kind: 'image', fileSize: 5 * 1024 ** 2, fileName: 'exactly-5mb.png' })
     const fetchBatch = mock.fn(async ({ afterId }: { afterId: string | null }) =>
@@ -87,7 +92,11 @@ describe('exportAssets / large-file classification', () => {
   test('units are binary: a 5,000,000-byte file is still under a 5MB threshold', async () => {
     const client = makeStubClient()
     const target = makeTarget({
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const row = makeRow({ kind: 'image', fileSize: 5_000_000, fileName: 'just-under.png' })
     const fetchBatch = mock.fn(async ({ afterId }: { afterId: string | null }) =>
@@ -104,7 +113,13 @@ describe('exportAssets / large-file classification', () => {
 describe('exportAssets', () => {
   test('does nothing when no asset content type is active', async () => {
     const client = makeStubClient()
-    const target = makeTarget({ contentTypes: { activeTypes: ['pages'], largeThreshold: '5MB' } })
+    const target = makeTarget({
+      contentTypes: {
+        activeTypes: ['pages'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
+    })
     const fetchBatch = mock.fn(async () => [])
 
     await exportAssets(client as unknown as Client, target, { fetchBatch })
@@ -152,7 +167,11 @@ describe('exportAssets', () => {
   test('skips a kind whose bucket is not in activeTypes', async () => {
     const client = makeStubClient()
     const target = makeTarget({
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const rows = [
       makeRow({ id: 'a', kind: 'image', fileName: 'a.png' }),
@@ -172,7 +191,11 @@ describe('exportAssets', () => {
   test("skips a large asset when 'large' is not active, even though its kind's bucket is", async () => {
     const client = makeStubClient()
     const target = makeTarget({
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const row = makeRow({ kind: 'image', fileSize: 6_000_000, fileName: 'huge.png' })
     const fetchBatch = mock.fn(async ({ afterId }: { afterId: string | null }) =>
@@ -187,7 +210,11 @@ describe('exportAssets', () => {
   test("writes a large asset when 'large' is active, even though its kind's bucket is not", async () => {
     const client = makeStubClient()
     const target = makeTarget({
-      contentTypes: { activeTypes: ['large'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['large'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const row = makeRow({ kind: 'document', fileSize: 6_000_000, fileName: 'huge.pdf' })
     const fetchBatch = mock.fn(async ({ afterId }: { afterId: string | null }) =>

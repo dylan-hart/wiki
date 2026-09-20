@@ -19,6 +19,7 @@ import {
 import { sites as sitesTable, storage as storageTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { HookEvent } from './hooks.ts'
+import type { Readable } from 'node:stream'
 
 export const CONTENT_TYPES = ['pages', 'images', 'documents', 'others', 'large'] as const
 
@@ -48,7 +49,11 @@ export function getContentTypeFromExtension(ext: string): string | null {
 export const DB_MODULE = 'db'
 
 /** An ISO-8601 duration such as `PT5M` or `P1DT12H`, requiring at least one date or time component. */
-const ISO_DURATION_PATTERN = /^P(?!$)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
+const ISO_DURATION_PATTERN = /^P(?!$)(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
+
+export function isIsoDuration(value: string): boolean {
+  return ISO_DURATION_PATTERN.test(value)
+}
 
 /**
  * A `scheduleOverride` is either an ISO-8601 duration (`PT5M`) or a cron expression, parsed with the
@@ -56,7 +61,7 @@ const ISO_DURATION_PATTERN = /^P(?!$)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?
  * is tried first: it needs no external parse.
  */
 function isValidScheduleOverride(value: string): boolean {
-  if (ISO_DURATION_PATTERN.test(value)) {
+  if (isIsoDuration(value)) {
     return true
   }
   try {
@@ -84,7 +89,7 @@ function isScheduleDue(
   lastTick: Temporal.Instant | null,
   now: Temporal.Instant
 ): boolean {
-  if (ISO_DURATION_PATTERN.test(scheduleStr)) {
+  if (isIsoDuration(scheduleStr)) {
     const intervalMs = Math.round(
       Temporal.Duration.from(scheduleStr).total({ unit: 'milliseconds' })
     )
@@ -150,6 +155,7 @@ export interface StorageDefinition {
   vendor: string
   website: string
   contentTypes: {
+    supportedTypes: string[]
     defaultTypesEnabled: string[]
     defaultLargeThreshold: string
   }
@@ -158,6 +164,8 @@ export interface StorageDefinition {
     isDirectAccessSupported: boolean
     defaultStreamingEnabled: boolean
     defaultDirectAccessEnabled: boolean
+    isReadThroughSupported?: boolean
+    defaultReadThroughEnabled?: boolean
   }
   versioning: {
     isSupported: boolean
@@ -205,13 +213,16 @@ export interface StorageTarget {
   website: string
   contentTypes: {
     activeTypes: string[]
+    supportedTypes: string[]
     largeThreshold: string
   }
   assetDelivery: {
     isStreamingSupported: boolean
     isDirectAccessSupported: boolean
+    isReadThroughSupported: boolean
     streaming: boolean
     directAccess: boolean
+    readThrough: boolean
   }
   versioning: {
     isSupported: boolean
@@ -241,6 +252,7 @@ export interface StorageTargetInput {
   assetDelivery?: {
     streaming?: boolean
     directAccess?: boolean
+    readThrough?: boolean
   }
   versioning?: {
     enabled?: boolean
@@ -294,6 +306,14 @@ export interface StorageModule {
     asset: { id: string; updatedAt: Date; fileName: string; folderPath: string },
     target: StorageTarget
   ) => Promise<string | null | undefined>
+  readAsset?: (
+    asset: { folderPath: string; fileName: string },
+    target: StorageTarget
+  ) => Promise<{ body: Readable; size: number } | null>
+  headAsset?: (
+    asset: { folderPath: string; fileName: string },
+    target: StorageTarget
+  ) => Promise<{ size: number } | null>
   /** Handlers named by the definition's actions. */
   [handler: string]: any
 }
@@ -335,6 +355,12 @@ class Storage {
           parsed.supportedModes = parsed.supportedModes ?? ['push']
           parsed.defaultMode = parsed.defaultMode ?? parsed.supportedModes[0]
           parsed.schedule = parsed.schedule ?? false
+          parsed.contentTypes = {
+            defaultTypesEnabled: [],
+            defaultLargeThreshold: '5MB',
+            ...parsed.contentTypes,
+            supportedTypes: parsed.contentTypes?.supportedTypes ?? [...CONTENT_TYPES]
+          }
           parsed.hasImplementation = await this.hasImplementation(key)
           return parsed as StorageDefinition
         }
@@ -396,7 +422,8 @@ class Storage {
         },
         assetDelivery: {
           streaming: definition.assetDelivery?.defaultStreamingEnabled ?? false,
-          directAccess: definition.assetDelivery?.defaultDirectAccessEnabled ?? false
+          directAccess: definition.assetDelivery?.defaultDirectAccessEnabled ?? false,
+          readThrough: definition.assetDelivery?.defaultReadThroughEnabled ?? false
         },
         versioning: {
           enabled: definition.versioning.isForceEnabled || definition.versioning.defaultEnabled
@@ -456,6 +483,7 @@ class Storage {
       const assetDelivery = (row.assetDelivery ?? {}) as Record<string, any>
       const versioning = (row.versioning ?? {}) as Record<string, any>
       const config = this.buildConfig(definition.key, {}, row.config as Record<string, any>)
+      const supportedTypes = definition.contentTypes.supportedTypes
       targets.push({
         id: row.id,
         siteId: row.siteId,
@@ -468,14 +496,19 @@ class Storage {
         vendor: definition.vendor,
         website: definition.website,
         contentTypes: {
-          activeTypes: contentTypes.activeTypes ?? [],
+          activeTypes: ((contentTypes.activeTypes ?? []) as string[]).filter((type) =>
+            supportedTypes.includes(type)
+          ),
+          supportedTypes,
           largeThreshold: contentTypes.largeThreshold ?? '5MB'
         },
         assetDelivery: {
           isStreamingSupported: definition.assetDelivery?.isStreamingSupported ?? false,
           isDirectAccessSupported: definition.assetDelivery?.isDirectAccessSupported ?? false,
+          isReadThroughSupported: definition.assetDelivery?.isReadThroughSupported ?? false,
           streaming: assetDelivery.streaming ?? false,
-          directAccess: assetDelivery.directAccess ?? false
+          directAccess: assetDelivery.directAccess ?? false,
+          readThrough: assetDelivery.readThrough ?? false
         },
         versioning: {
           isSupported: definition.versioning.isSupported,
@@ -545,6 +578,12 @@ class Storage {
       if (unknown) {
         return `"${unknown}" is not a valid content type.`
       }
+      const unsupported = activeTypes.find(
+        (type) => !definition.contentTypes.supportedTypes.includes(type)
+      )
+      if (unsupported) {
+        return `${definition.title} does not store "${unsupported}".`
+      }
       if (target.module === DB_MODULE && !activeTypes.includes('pages')) {
         return 'The database storage target must keep holding pages.'
       }
@@ -608,7 +647,9 @@ class Storage {
     }
     if (patch.contentTypes) {
       values.contentTypes = {
-        activeTypes: patch.contentTypes.activeTypes ?? target.contentTypes.activeTypes,
+        activeTypes: (patch.contentTypes.activeTypes ?? target.contentTypes.activeTypes).filter(
+          (type) => definition.contentTypes.supportedTypes.includes(type)
+        ),
         largeThreshold: patch.contentTypes.largeThreshold ?? target.contentTypes.largeThreshold
       }
     }
@@ -619,7 +660,10 @@ class Storage {
           (patch.assetDelivery.streaming ?? target.assetDelivery.streaming),
         directAccess:
           definition.assetDelivery.isDirectAccessSupported &&
-          (patch.assetDelivery.directAccess ?? target.assetDelivery.directAccess)
+          (patch.assetDelivery.directAccess ?? target.assetDelivery.directAccess),
+        readThrough:
+          (definition.assetDelivery.isReadThroughSupported ?? false) &&
+          (patch.assetDelivery.readThrough ?? target.assetDelivery.readThrough)
       }
     }
     if (patch.versioning) {

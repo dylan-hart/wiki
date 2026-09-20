@@ -13,6 +13,7 @@ import {
 } from '../../helpers/common.ts'
 import { buildRequestLogContext } from '../../helpers/requestLogContext.ts'
 import { registerAjvFormats } from './ajvFormats.ts'
+import { createLiveTrustProxy } from './trustProxy.ts'
 import {
   createGracefulShutdown,
   registerProbes,
@@ -50,7 +51,7 @@ export function createHttpApp(): FastifyInstance {
     //    lookup reads `req.hostname`, so a trusted-proxy address/CIDR list here, not a bare `true`,
     //    is what keeps an untrusted client's `X-Forwarded-Host` from steering a request to another
     //    site -- see `docs/audits/tls-termination.md`.
-    trustProxy: CARDINAL.config.security.trustProxy ?? false,
+    trustProxy: createLiveTrustProxy(),
     routerOptions: {
       ignoreTrailingSlash: true
     }
@@ -237,16 +238,17 @@ export function registerStaticAssets(app: FastifyInstance): void {
       cacheControl: ROOT_FAVICON_CACHE
     })
   )
+  const assetsRoot = path.join(CARDINAL.ROOTPATH, 'assets/_assets')
   app.register(fastifyStatic, {
     prefix: '/_assets/',
-    root: path.join(CARDINAL.ROOTPATH, 'assets/_assets'),
+    root: assetsRoot,
     index: false,
     maxAge: '7d',
     decorateReply: false,
     // -> A vite build output named `[name]-[hash].[ext]` can never change under a given URL, so it
     //    is immutable. The unhashed entries fall through to the `maxAge: '7d'` default above.
     setHeaders(reply, filePath) {
-      if (isHashedAssetFilename(path.basename(filePath))) {
+      if (isHashedAssetFilename(path.relative(assetsRoot, filePath))) {
         reply.header('Cache-Control', 'public, max-age=31536000, immutable')
       }
     }

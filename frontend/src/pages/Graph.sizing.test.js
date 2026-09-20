@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { drawLabels, LABEL_MAX_EFFECTIVE_FONT_PX } from './graphDraw.js'
-import { linkDistanceFor } from './graphSimulation.js'
+import { nodeId } from './graphFilters.js'
+import { childCountsFor, linkDistanceFor } from './graphSimulation.js'
 import { FIXTURE_GRAPH, GRAPH_MESSAGES, mountGraph } from './graphFixtures.js'
 import Graph from './Graph.vue'
 import { createTestRouter } from '../../test/router.js'
@@ -352,7 +353,8 @@ describe('Graph.vue node sizing and the control rail', () => {
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
     const expected = linkDistanceFor(
       { source: nodeA, target: nodeB },
-      (node) => wrapper.vm.radiusFor(node) + 2
+      (node) => wrapper.vm.radiusFor(node) + 2,
+      (node) => childCountsFor(wrapper.vm.edges).get(nodeId(node)) ?? 0
     )
     expect(newDistanceFn({ source: nodeA, target: nodeB })).toBeCloseTo(expected, 5)
   })

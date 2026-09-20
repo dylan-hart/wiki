@@ -1,8 +1,28 @@
-import { and, asc, desc, eq, exists, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNotNull,
+  ne,
+  not,
+  notExists,
+  or,
+  sql,
+  type SQL
+} from 'drizzle-orm'
 import { alias, type PgColumn } from 'drizzle-orm/pg-core'
+import { randomUUID } from 'node:crypto'
 import { chunk } from 'es-toolkit/array'
 import type { WikiDbOrTx } from '../core/db.ts'
-import { assets as assetsTable, pages as pagesTable, tree as treeTable } from '../db/schema.ts'
+import {
+  assets as assetsTable,
+  navigation as navigationTable,
+  pages as pagesTable,
+  tree as treeTable
+} from '../db/schema.ts'
 import {
   CustomError,
   decodeTreePath,
@@ -11,6 +31,10 @@ import {
   isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
+import type { NavigationItem } from './navigation.ts'
+import { announce } from './hooks.ts'
+import type { CreatedPageRows, PageActor, PageInput } from './pages.ts'
+import { reservedLocaleSegmentLabel } from '../helpers/localeRouting.ts'
 
 export const TREE_UPDATE_CHUNK_SIZE = 200
 
@@ -155,6 +179,25 @@ export interface MovedDescendantAsset {
   fileSize: number | null
 }
 
+export interface PurgedFolder {
+  id: string
+  path: string
+  locale: string
+}
+
+export interface PurgeEmptyFoldersResult {
+  folders: PurgedFolder[]
+  count: number
+  dryRun: boolean
+}
+
+export interface DuplicatedFolder {
+  folder: TreeRow
+  folders: number
+  pages: number
+  assets: number
+}
+
 export interface TreeRow {
   id: string
   folderPath: string | null
@@ -262,6 +305,13 @@ function childPathOf(folder: { folderPath?: string | null; fileName: string }): 
   return folder.folderPath ? `${folder.folderPath}.${folder.fileName}` : folder.fileName
 }
 
+function navTargetPath(target: string): string | null {
+  if (!target.startsWith('/') || target.startsWith('//')) {
+    return null
+  }
+  return normalizePagePath(target.split(/[?#]/)[0])
+}
+
 /**
  * Exported so `Navigation.generateFromTree` reuses `browse()`'s order: an auto-generated menu reads
  * the same way the folder it was built from does.
@@ -348,6 +398,175 @@ export function pageIsVisible(
  * to know about the dotted form.
  */
 class Tree {
+  async purgeEmptyFolders(
+    siteId: string,
+    { dryRun = false }: { dryRun?: boolean } = {}
+  ): Promise<PurgeEmptyFoldersResult> {
+    const referenced = await this.navigationReferencedFolderIds(siteId)
+    const purgeable = this.purgeableFolderCondition(siteId, referenced)
+
+    const toResult = (
+      rows: { id: string; folderPath: string | null; fileName: string; locale: string }[]
+    ): PurgedFolder[] =>
+      rows
+        .map((row) => {
+          const folderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+          return {
+            id: row.id,
+            path: folderPath ? `${folderPath}/${row.fileName}` : row.fileName,
+            locale: row.locale,
+            depth: folderPath ? folderPath.split('/').length : 0
+          }
+        })
+        .toSorted((a, b) => b.depth - a.depth || a.path.localeCompare(b.path))
+        .map(({ depth: _depth, ...folder }) => folder)
+
+    if (dryRun) {
+      const found = await CARDINAL.db
+        .select({
+          id: treeTable.id,
+          folderPath: treeTable.folderPath,
+          fileName: treeTable.fileName,
+          locale: treeTable.locale
+        })
+        .from(treeTable)
+        .where(purgeable)
+      const folders = toResult(found)
+      return { folders, count: folders.length, dryRun: true }
+    }
+
+    const removed = await CARDINAL.db.transaction(async (tx) => {
+      const deleted = await tx
+        .delete(treeTable)
+        .where(
+          inArray(treeTable.id, tx.select({ id: treeTable.id }).from(treeTable).where(purgeable))
+        )
+        .returning({
+          id: treeTable.id,
+          folderPath: treeTable.folderPath,
+          fileName: treeTable.fileName,
+          locale: treeTable.locale
+        })
+
+      const gone = new Set(deleted.map((row) => `${row.locale}\0${childPathOf(row)}`))
+      const perParent = new Map<string, { locale: string; path: string; count: number }>()
+      for (const row of deleted) {
+        const path = row.folderPath ?? ''
+        const key = `${row.locale}\0${path}`
+        if (!path || gone.has(key)) {
+          continue
+        }
+        const entry = perParent.get(key) ?? { locale: row.locale, path, count: 0 }
+        entry.count++
+        perParent.set(key, entry)
+      }
+      for (const { locale, path, count } of perParent.values()) {
+        await this.countTowardsFolderAt(siteId, locale, path, -count, tx)
+      }
+
+      return deleted
+    })
+
+    await CARDINAL.models.navigation.deleteNavForEntries(
+      siteId,
+      removed.map((row) => row.id)
+    )
+
+    const folders = toResult(removed)
+    CARDINAL.logger.debug('pages', 'purged empty folders', { siteId, count: folders.length })
+    return { folders, count: folders.length, dryRun: false }
+  }
+
+  private purgeableFolderCondition(siteId: string, referencedIds: string[]): SQL {
+    const under = alias(treeTable, 'under')
+    const ownedMenus = CARDINAL.db
+      .select({ id: navigationTable.id })
+      .from(navigationTable)
+      .where(eq(navigationTable.siteId, siteId))
+    const keepsFolder = (row: { id: PgColumn; navigationMode: PgColumn; navigationId: PgColumn }) =>
+      or(
+        ne(row.navigationMode, 'inherit'),
+        isNotNull(row.navigationId),
+        inArray(row.id, ownedMenus),
+        referencedIds.length > 0 ? inArray(row.id, referencedIds) : undefined
+      )!
+
+    return and(
+      eq(treeTable.siteId, siteId),
+      eq(treeTable.type, 'folder'),
+      not(keepsFolder(treeTable)),
+      notExists(
+        CARDINAL.db
+          .select({ one: sql`1` })
+          .from(under)
+          .where(
+            and(
+              eq(under.siteId, treeTable.siteId),
+              eq(under.locale, treeTable.locale),
+              sql`${under.folderPath} <@ (${treeTable.folderPath} || ${treeTable.fileName})`,
+              or(ne(under.type, 'folder'), keepsFolder(under))
+            )
+          )
+      )
+    )!
+  }
+
+  private async navigationReferencedFolderIds(siteId: string): Promise<string[]> {
+    const menus = await CARDINAL.db
+      .select({ items: navigationTable.items })
+      .from(navigationTable)
+      .where(eq(navigationTable.siteId, siteId))
+
+    const targets = new Set<string>()
+    const folderIds = new Set<string>()
+    const walk = (items: unknown): void => {
+      if (!Array.isArray(items)) {
+        return
+      }
+      for (const item of items as Partial<NavigationItem>[]) {
+        if (typeof item?.target === 'string') {
+          const path = navTargetPath(item.target)
+          if (path) {
+            targets.add(path)
+          }
+        }
+        if (typeof item?.folderId === 'string') {
+          folderIds.add(item.folderId)
+        }
+        walk(item?.children)
+      }
+    }
+    for (const menu of menus) {
+      walk(menu.items)
+    }
+    if (targets.size === 0 && folderIds.size === 0) {
+      return []
+    }
+
+    const folders = await CARDINAL.db
+      .select({
+        id: treeTable.id,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        locale: treeTable.locale
+      })
+      .from(treeTable)
+      .where(and(eq(treeTable.siteId, siteId), eq(treeTable.type, 'folder')))
+
+    return folders
+      .filter((folder) => {
+        if (folderIds.has(folder.id)) {
+          return true
+        }
+        const folderPath = decodeTreePath(folder.folderPath ?? '') ?? ''
+        const path = (
+          folderPath ? `${folderPath}/${folder.fileName}` : folder.fileName
+        ).toLowerCase()
+        return targets.has(path) || targets.has(`${folder.locale.toLowerCase()}/${path}`)
+      })
+      .map((folder) => folder.id)
+  }
+
   /**
    * @param parentId Takes precedence over `parentPath`.
    * @param parentPath The site root when both are absent.
@@ -920,10 +1139,10 @@ class Tree {
 
     // -> Only a root-level folder can shadow a locale prefix: a nested `fr/` never collides with the
     //    URL parser, which only strips a locale code off the FIRST path segment
-    if (path === '' && (await CARDINAL.models.locales.isReservedLocaleCode(name))) {
+    if (path === '' && (await CARDINAL.models.locales.isReservedLocaleCode(name, siteId))) {
       throw new CustomError(
         'treeReservedLocaleSegment',
-        `"${name}" is an installed locale code and cannot name a root folder.`,
+        `"${name}" is ${reservedLocaleSegmentLabel(siteId, name)} and cannot name a root folder.`,
         400
       )
     }
@@ -1071,10 +1290,13 @@ class Tree {
     // -> Same root-only rule as `createFolder`: a folder already nested cannot collide with the
     //    locale-prefix parser regardless of what it is renamed to. Checked only once the segment is
     //    actually changing, so a title-only edit of a grandfathered root folder is not blocked.
-    if (!folder.folderPath && (await CARDINAL.models.locales.isReservedLocaleCode(name))) {
+    if (
+      !folder.folderPath &&
+      (await CARDINAL.models.locales.isReservedLocaleCode(name, folder.siteId))
+    ) {
       throw new CustomError(
         'treeReservedLocaleSegment',
-        `"${name}" is an installed locale code and cannot name a root folder.`,
+        `"${name}" is ${reservedLocaleSegmentLabel(folder.siteId, name)} and cannot name a root folder.`,
         400
       )
     }
@@ -1169,6 +1391,154 @@ class Tree {
 
     CARDINAL.logger.debug('pages', 'renamed folder', { folder: folder.id })
     return updated[0] as TreeRow
+  }
+
+  async moveFolder({
+    folderId,
+    siteId,
+    destinationId,
+    parentPath
+  }: {
+    folderId: string
+    siteId: string
+    destinationId?: string | null
+    parentPath?: string | null
+  }): Promise<TreeRow> {
+    const folder = await this.requireFolderById(folderId, siteId)
+    const name = folder.fileName
+    const oldPath = childPathOf(folder)
+    const oldParent = folder.folderPath ?? ''
+
+    let newParent: string
+    if (destinationId) {
+      const destination = await this.getFolderById(destinationId, siteId)
+      if (!destination) {
+        throw new CustomError('treeInvalidParent', 'The destination folder does not exist.', 404)
+      }
+      if (destination.locale !== folder.locale) {
+        throw new CustomError(
+          'treeLocaleMismatch',
+          'A folder cannot be moved into a folder of another locale.',
+          400
+        )
+      }
+      newParent = childPathOf(destination)
+    } else {
+      newParent = encodeTreePath(parentPath)
+    }
+
+    if (newParent === oldPath || newParent.startsWith(`${oldPath}.`)) {
+      throw new CustomError(
+        'treeMoveIntoSelf',
+        'A folder cannot be moved into itself or one of its own subfolders.',
+        400
+      )
+    }
+
+    if (newParent === oldParent) {
+      return folder
+    }
+
+    if (!newParent && (await CARDINAL.models.locales.isReservedLocaleCode(name))) {
+      throw new CustomError(
+        'treeReservedLocaleSegment',
+        `"${name}" is an installed locale code and cannot name a root folder.`,
+        400
+      )
+    }
+
+    await this.assertFolderNameFree(folder.siteId, folder.locale, newParent, name, folder.id)
+
+    const newPath = newParent ? `${newParent}.${name}` : name
+
+    CARDINAL.logger.debug('pages', 'moving folder', {
+      folder: folder.id,
+      from: oldPath,
+      path: newPath
+    })
+
+    let movedPages: MovedDescendantPage[] = []
+    let movedAssets: MovedDescendantAsset[] = []
+
+    let updated: TreeRow[]
+    try {
+      updated = (await CARDINAL.db.transaction(async (tx) => {
+        if (!destinationId && newParent) {
+          await this.getFolder({
+            path: decodeTreePath(newParent),
+            locale: folder.locale,
+            siteId: folder.siteId,
+            createIfMissing: true,
+            db: tx
+          })
+        }
+
+        await tx
+          .update(treeTable)
+          .set({ folderPath: newPath })
+          .where(
+            and(
+              eq(treeTable.siteId, folder.siteId),
+              eq(treeTable.locale, folder.locale),
+              eq(treeTable.folderPath, oldPath)
+            )
+          )
+        await tx
+          .update(treeTable)
+          .set({
+            folderPath: sql`${newPath}::ltree || subpath(${treeTable.folderPath}, nlevel(${oldPath}::ltree))`
+          })
+          .where(
+            and(
+              eq(treeTable.siteId, folder.siteId),
+              eq(treeTable.locale, folder.locale),
+              sql`${treeTable.folderPath} <@ ${oldPath}::ltree`
+            )
+          )
+
+        const moved = await tx
+          .update(treeTable)
+          .set({ folderPath: newParent, updatedAt: sql`now()` })
+          .where(eq(treeTable.id, folder.id))
+          .returning()
+
+        await this.countTowardsFolderAt(folder.siteId, folder.locale, oldParent, -1, tx)
+        await this.countTowardsFolderAt(folder.siteId, folder.locale, newParent, 1, tx)
+
+        movedPages = await this.refreshDescendantPaths(folder.siteId, folder.locale, newPath, tx)
+        movedAssets = await this.refreshDescendantAssetFolders(
+          folder.siteId,
+          folder.locale,
+          oldPath,
+          newPath,
+          tx
+        )
+
+        return moved as TreeRow[]
+      })) as TreeRow[]
+    } catch (err: any) {
+      if (isUniqueViolation(err)) {
+        throw duplicateEntryError()
+      }
+      throw err
+    }
+
+    CARDINAL.models.assetServing.forgetAllPaths()
+
+    for (const moved of movedPages) {
+      await this.fireDescendantMoveSideEffects(folder.siteId, moved)
+    }
+    if (movedPages.length > 0) {
+      CARDINAL.models.glossary.invalidateCache(folder.siteId)
+    }
+    for (const moved of movedAssets) {
+      await this.fireDescendantAssetMoveSideEffects(folder.siteId, moved)
+    }
+
+    CARDINAL.models.navigation.invalidateCache(folder.siteId)
+
+    CARDINAL.logger.debug('pages', 'moved folder', { folder: folder.id })
+    return updated[0]
   }
 
   /**
@@ -1420,6 +1790,236 @@ class Tree {
     }
 
     return { pages, assets }
+  }
+
+  async duplicateFolder({
+    id,
+    siteId,
+    folderId,
+    parentPath,
+    pathName,
+    title,
+    actor
+  }: {
+    id: string
+    siteId: string
+    folderId?: string | null
+    parentPath?: string | null
+    pathName?: string
+    title?: string
+    actor: PageActor
+  }): Promise<DuplicatedFolder> {
+    const source = await this.requireFolderById(id, siteId)
+    const sourcePath = childPathOf(source)
+
+    CARDINAL.logger.debug('pages', 'duplicating folder', { folder: source.id, path: sourcePath })
+
+    const createdPages: { rows: CreatedPageRows; input: PageInput }[] = []
+    const createdAssets: {
+      id: string
+      fileName: string
+      folderPath: string
+      kind: string
+      fileSize: number | null
+    }[] = []
+    let folderCount = 0
+
+    const copy = await CARDINAL.db.transaction(async (tx) => {
+      const rows = await tx
+        .select({
+          id: treeTable.id,
+          type: treeTable.type,
+          folderPath: treeTable.folderPath,
+          fileName: treeTable.fileName,
+          title: treeTable.title,
+          tags: treeTable.tags,
+          meta: treeTable.meta,
+          assetId: assetsTable.id,
+          assetKind: assetsTable.kind,
+          assetFileSize: assetsTable.fileSize
+        })
+        .from(treeTable)
+        .leftJoin(assetsTable, eq(assetsTable.id, treeTable.id))
+        .where(
+          and(
+            eq(treeTable.siteId, source.siteId),
+            eq(treeTable.locale, source.locale),
+            sql`${treeTable.folderPath} <@ ${sourcePath}::ltree`
+          )
+        )
+
+      const root = await this.createFolder({
+        parentId: folderId,
+        parentPath: folderId ? undefined : parentPath,
+        pathName: pathName ?? source.fileName,
+        title: title ?? source.title,
+        locale: source.locale,
+        siteId,
+        db: tx
+      })
+      folderCount++
+      const rootPath = childPathOf(root)
+
+      const relocate = (folderPath: string | null): string =>
+        `${rootPath}${(folderPath ?? '').slice(sourcePath.length)}`
+      const depthOf = (folderPath: string | null): number => (folderPath ?? '').split('.').length
+
+      const folders = rows
+        .filter((row) => row.type === 'folder')
+        .toSorted((a, b) => depthOf(a.folderPath) - depthOf(b.folderPath))
+      for (const row of folders) {
+        await this.createFolder({
+          parentPath: decodeTreePath(relocate(row.folderPath)),
+          pathName: row.fileName,
+          title: row.title,
+          locale: root.locale,
+          siteId,
+          db: tx
+        })
+        folderCount++
+      }
+
+      for (const row of rows.filter((entry) => entry.type === 'page')) {
+        const pageRow = (
+          await tx.select().from(pagesTable).where(eq(pagesTable.id, row.id)).limit(1)
+        )[0]
+        if (!pageRow) {
+          CARDINAL.logger.warn('pages', 'skipped a tree page with no page row while duplicating', {
+            page: row.id
+          })
+          continue
+        }
+        const config = (pageRow.config ?? {}) as Record<string, any>
+        const input: PageInput = {
+          path: `${decodeTreePath(relocate(row.folderPath))}/${row.fileName}`,
+          title: pageRow.title,
+          editor: pageRow.editor,
+          content: pageRow.content ?? '',
+          ...(pageRow.render ? { render: pageRow.render } : {}),
+          locale: root.locale,
+          description: pageRow.description ?? '',
+          icon: pageRow.icon ?? '',
+          publishState: pageRow.publishState,
+          publishStartDate: pageRow.publishStartDate?.toISOString() ?? null,
+          publishEndDate: pageRow.publishEndDate?.toISOString() ?? null,
+          isBrowsable: pageRow.isBrowsable,
+          isSearchable: pageRow.isSearchable,
+          relations: pageRow.relations as any[],
+          tags: pageRow.tags,
+          classification: pageRow.classification,
+          allowComments: config.allowComments,
+          allowContributions: config.allowContributions,
+          showSidebar: config.showSidebar,
+          showTags: config.showTags,
+          showToc: config.showToc,
+          tocDepth: config.tocDepth
+        }
+        const created = await CARDINAL.models.pages.insertPageRows(siteId, input, actor, {
+          tx,
+          passwordHash: pageRow.password
+        })
+        createdPages.push({ rows: created, input })
+      }
+
+      for (const row of rows.filter((entry) => entry.type === 'asset')) {
+        if (!row.assetId) {
+          CARDINAL.logger.warn(
+            'assets',
+            'skipped a tree asset with no asset row while duplicating',
+            {
+              asset: row.id
+            }
+          )
+          continue
+        }
+        const folderPath = decodeTreePath(relocate(row.folderPath)) ?? ''
+        const entry = await this.addAsset({
+          id: randomUUID(),
+          parentPath: folderPath,
+          fileName: row.fileName,
+          title: row.title,
+          locale: root.locale,
+          siteId,
+          tags: row.tags ?? [],
+          meta: row.meta as Record<string, any>,
+          db: tx
+        })
+        await tx.execute(sql`
+          INSERT INTO ${assetsTable} (
+            "id", "fileName", "fileExt", "isSystem", "kind", "mimeType", "fileSize", "meta",
+            "data", "preview", "authorId", "siteId"
+          )
+          SELECT
+            ${entry.id}::uuid, ${entry.fileName}, "fileExt", "isSystem", "kind", "mimeType",
+            "fileSize", "meta", "data", "preview", ${actor.id}::uuid, "siteId"
+          FROM ${assetsTable}
+          WHERE "id" = ${row.assetId}::uuid
+        `)
+        createdAssets.push({
+          id: entry.id,
+          fileName: entry.fileName,
+          folderPath,
+          kind: row.assetKind ?? 'other',
+          fileSize: row.assetFileSize ?? null
+        })
+      }
+
+      return root
+    })
+
+    CARDINAL.models.navigation.invalidateCache(siteId)
+
+    for (const { rows, input } of createdPages) {
+      try {
+        await CARDINAL.models.pages.completePageCreate(siteId, rows, input, actor)
+      } catch (err: any) {
+        CARDINAL.logger.warn('pages', 'finishing a duplicated page failed', {
+          page: rows.page.id,
+          error: err
+        })
+      }
+    }
+    for (const asset of createdAssets) {
+      try {
+        await announce(
+          'asset:upload',
+          siteId,
+          {
+            id: asset.id,
+            fileName: asset.fileName,
+            folderPath: asset.folderPath,
+            siteId,
+            authorId: actor.id
+          },
+          {
+            metadata: { fileSize: asset.fileSize, kind: asset.kind },
+            dispatchExtra: { kind: asset.kind, fileSize: asset.fileSize }
+          }
+        )
+      } catch (err: any) {
+        CARDINAL.logger.warn('assets', 'announcing a duplicated asset failed', {
+          asset: asset.id,
+          error: err
+        })
+      }
+    }
+
+    CARDINAL.logger.info('pages', 'duplicated folder', {
+      site: siteId,
+      from: source.id,
+      to: copy.id,
+      folders: folderCount,
+      pages: createdPages.length,
+      assets: createdAssets.length,
+      user: actor.id
+    })
+
+    return {
+      folder: copy,
+      folders: folderCount,
+      pages: createdPages.length,
+      assets: createdAssets.length
+    }
   }
 
   /**
@@ -1733,6 +2333,25 @@ class Tree {
     //    than branching on `entry.type`: over-invalidating on an asset delete is harmless.
     CARDINAL.models.navigation.invalidateCache(entry.siteId)
     return true
+  }
+
+  async hasRootSegment(siteId: string, segment: string, db: WikiDbOrTx = CARDINAL.db) {
+    const encoded = encodeTreePath(segment)
+    const rows = await db
+      .select({ id: treeTable.id })
+      .from(treeTable)
+      .where(
+        and(
+          eq(treeTable.siteId, siteId),
+          inArray(treeTable.type, ['page', 'folder']),
+          or(
+            and(eq(treeTable.folderPath, ''), eq(treeTable.fileName, encoded)),
+            sql`${treeTable.folderPath} <@ ${encoded}::ltree`
+          )
+        )
+      )
+      .limit(1)
+    return rows.length > 0
   }
 
   private async addEntry({

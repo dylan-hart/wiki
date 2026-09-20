@@ -52,9 +52,9 @@
       </w-tabs>
     </div>
     <div class="flex flex-wrap p-4 gap-4" v-if="state.mode === `provider`">
-      <div class="flex-none">
+      <div class="w-[300px] max-w-full flex-none">
         <w-card class="rounded bg-dark">
-          <w-list style="min-width: 300px" padding dark>
+          <w-list padding dark>
             <w-item
               v-for="prov of state.providers"
               :key="prov.module"
@@ -93,7 +93,7 @@
           </w-list>
         </w-card>
       </div>
-      <div class="min-w-0 flex-1" v-if="selectedProvider">
+      <div class="min-w-0 shrink grow basis-80" v-if="selectedProvider">
         <w-banner
           class="mb-4"
           v-if="showEnabledNoProviderHint"

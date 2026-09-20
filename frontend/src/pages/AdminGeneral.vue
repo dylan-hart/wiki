@@ -110,6 +110,38 @@
               :aria-label="t(`admin.general.footerExtra`)" />
           </w-settings-row>
         </w-settings-card>
+        <w-settings-card class="mt-4" :title="t('admin.general.banner')">
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:speakerphone"
+            :label="t(`admin.general.bannerEnabled`)"
+            :hint="t(`admin.general.bannerEnabledHint`)">
+            <w-toggle
+              v-model="state.config.banner.isEnabled"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.bannerEnabled`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:heading"
+            :label="t(`admin.general.bannerTitle`)"
+            :hint="t(`admin.general.bannerTitleHint`)">
+            <w-input
+              v-model="state.config.banner.title"
+              dense
+              :aria-label="t(`admin.general.bannerTitle`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:message-2"
+            :label="t(`admin.general.bannerContent`)"
+            :hint="t(`admin.general.bannerContentHint`)">
+            <w-input
+              v-model="state.config.banner.content"
+              type="textarea"
+              dense
+              :aria-label="t(`admin.general.bannerContent`)" />
+          </w-settings-row>
+        </w-settings-card>
         <w-settings-card class="mt-4" :title="t('admin.general.features')">
           <w-settings-row
             tag="label"
@@ -481,6 +513,11 @@ function defaultConfig() {
     company: '',
     contentLicense: '',
     footerExtra: '',
+    banner: {
+      isEnabled: false,
+      title: '',
+      content: ''
+    },
     pageExtensions: '',
     allowedUrlSchemes: '',
     logoText: false,
@@ -563,6 +600,11 @@ const {
   // -> The API sends arrays; the form edits each as one comma-separated string.
   pick: (site) => ({
     ...site,
+    banner: {
+      isEnabled: site.banner?.isEnabled ?? false,
+      title: site.banner?.title ?? '',
+      content: site.banner?.content ?? ''
+    },
     pageExtensions: site.pageExtensions.join(','),
     allowedUrlSchemes: (site.allowedUrlSchemes ?? []).join(','),
     security: {
@@ -583,6 +625,11 @@ const {
         company: config.company ?? '',
         contentLicense: config.contentLicense ?? '',
         footerExtra: config.footerExtra ?? '',
+        banner: {
+          isEnabled: config.banner?.isEnabled ?? false,
+          title: config.banner?.title ?? '',
+          content: config.banner?.content ?? ''
+        },
         pageExtensions: parsePageExtensions(config.pageExtensions),
         allowedUrlSchemes: parseAllowedUrlSchemes(config.allowedUrlSchemes),
         logoText: config.logoText ?? false,

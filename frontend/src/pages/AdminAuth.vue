@@ -42,9 +42,9 @@
       </div>
     </div>
     <div class="flex flex-wrap p-4 gap-4">
-      <div class="flex-none">
+      <div class="w-[350px] max-w-full flex-none">
         <w-card class="rounded bg-dark">
-          <w-list style="min-width: 350px" padding dark>
+          <w-list padding dark>
             <w-item
               v-for="str of state.activeStrategies"
               :key="str.id"
@@ -136,7 +136,7 @@
         </w-btn>
       </div>
       <!-- -> `min-w-0`, or a long value inside a field would push the panel wider than the row -->
-      <div class="min-w-0 flex-1" v-if="state.strategy.id">
+      <div class="min-w-0 shrink grow basis-80" v-if="state.strategy.id">
         <w-settings-card :title="t('admin.auth.info')">
           <w-settings-row
             icon="tabler:info-circle"

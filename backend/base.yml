@@ -109,6 +109,7 @@ defaults:
       hideLocal: false
       loginBgUrl: ''
     security:
+      allowPasskeys: true
       corsMode: 'OFF'
       corsConfig: ''
       enforceCsp: false
@@ -174,9 +175,13 @@ defaults:
       timezone: 'America/New_York'
       dateFormat: 'YYYY-MM-DD'
       timeFormat: '12h'
+    profileVisibility:
+      forcedPublicFields: []
+      guestsMayView: false
     update:
       # Whether the daily updateLocales job may pull the latest strings from requarks/wiki-locales.
       locales: true
+      releasesUrl: 'https://api.github.com/repos/dylan-hart/wiki/releases'
     # Upstream Wiki.js's docs site, prepended to every in-app "view docs" / help link
     # (`siteStore.docsBase` on the frontend).
     docsBase: 'https://beta.js.wiki/docs'
@@ -194,6 +199,7 @@ systemIds:
   classificationPublicId: '30000000-0000-4000-8000-000000000001'
   classificationInternalId: '30000000-0000-4000-8000-000000000002'
   classificationRestrictedId: '30000000-0000-4000-8000-000000000003'
+  systemUserId: '40000000-0000-4000-8000-000000000001'
 groups:
   defaultPermissions:
     - 'read:pages'

@@ -13,6 +13,7 @@ props:
     title: Artalk Backend URL
     hint: 'Publicly accessible URL of your Artalk instance. It should start with http/https and omit the trailing slash. (e.g. https://artalk.example.com)'
     maxWidth: 650
+    icon: tabler:world-www
     order: 1
   siteName:
     type: String
@@ -20,4 +21,5 @@ props:
     title: Site Name
     hint: 'The name of this site configured in the artalk backend. Leave empty to use default site.'
     maxWidth: 450
+    icon: tabler:tag
     order: 2

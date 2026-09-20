@@ -32,6 +32,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Whether this instance is configured as a scheduled-replication TARGET (`CARDINAL.config.replication.isEnabled`, from `base.yml`/`config.yml` — see Epic #2437). Instance-wide, not a per-site setting: a replication target periodically wipes and replaces its own data from a source instance, which is what this flag lets the frontend warn an admin about (header banner, Feature #2833).'
       },
+      guestsMayViewProfiles: {
+        type: 'boolean',
+        description:
+          "Whether an anonymous visitor may open a user profile (`CARDINAL.config.profileVisibility.guestsMayView`). Instance-wide, not a per-site setting. Carried here because `GET /users/profile-visibility` needs `read:users`, so a guest's browser has no other way to know whether to make avatars clickable."
+      },
       navigationId: {
         type: 'string',
         format: 'uuid',
@@ -104,6 +109,24 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       footerExtra: {
         type: 'string'
+      },
+      banner: {
+        type: 'object',
+        description:
+          'Admin-authored site-wide banner. `title` and `content` are plain text: never markdown-rendered or sanitized as HTML.',
+        properties: {
+          isEnabled: {
+            type: 'boolean'
+          },
+          title: {
+            type: 'string',
+            maxLength: 255
+          },
+          content: {
+            type: 'string',
+            maxLength: 2000
+          }
+        }
       },
       pageExtensions: {
         type: 'array',
@@ -290,6 +313,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           },
           forcePrefix: {
             type: 'boolean'
+          },
+          aliases: {
+            type: 'object',
+            description:
+              'URL segment each active locale is served under instead of its code, keyed by the canonical code (`{ "zh-CN": "zh" }`). Pages, tree entries and page rules keep the canonical code.',
+            additionalProperties: {
+              type: 'string',
+              maxLength: 64
+            }
           },
           showMenu: {
             type: 'boolean',

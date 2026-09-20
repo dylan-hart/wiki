@@ -49,6 +49,10 @@ export async function getSiteLocales() {
   return site?.locales ?? null
 }
 
+export function localeUrlSegment(locale, aliases) {
+  return aliases?.[locale] || locale
+}
+
 /**
  * The current page's locale and bare path, read off `location.pathname` -- the one thing a block CAN
  * know about its own page without asking the server. Only which locale codes are active has to come
@@ -61,7 +65,10 @@ export async function getCurrentPage() {
   const active = locales?.active ?? []
   const segments = location.pathname.split('/').map(decodeURIComponent)
   const first = segments[1] ?? ''
-  const matched = active.find((code) => code.toLowerCase() === first.toLowerCase())
+  const aliases = locales?.aliases ?? {}
+  const matched =
+    active.find((code) => aliases[code]?.toLowerCase() === first.toLowerCase()) ??
+    active.find((code) => code.toLowerCase() === first.toLowerCase())
   return {
     locale: matched ?? locales?.primary ?? null,
     path: (matched ? segments.slice(2) : segments.slice(1)).join('/')

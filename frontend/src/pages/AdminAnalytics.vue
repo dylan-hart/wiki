@@ -32,9 +32,9 @@
       </div>
     </div>
     <div class="flex flex-wrap p-4 gap-4">
-      <div class="flex-none">
+      <div class="w-[350px] max-w-full flex-none">
         <w-card class="rounded bg-dark">
-          <w-list style="min-width: 350px" padding dark>
+          <w-list padding dark>
             <w-item v-if="state.providers.length < 1">
               <w-item-section>
                 <w-item-label caption>{{ t('admin.analytics.noModules') }}</w-item-label>
@@ -64,7 +64,7 @@
         </w-card>
       </div>
       <!-- -> `min-w-0`, or a long value inside a field would push the panel wider than the row -->
-      <div class="min-w-0 flex-1" v-if="provider">
+      <div class="min-w-0 shrink grow basis-80" v-if="provider">
         <w-settings-card :title="t('admin.analytics.info')">
           <w-settings-row
             tag="label"

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 
 import adminRoutes from './admin.ts'
 import profileRoutes from './profile.ts'
+import publicProfileRoutes from './publicProfile.ts'
 
 /**
  * `admin.ts` is what somebody with `read:users`/`manage:users` does to other people's accounts,
@@ -12,6 +13,7 @@ import profileRoutes from './profile.ts'
 async function routes(app: FastifyInstance) {
   await app.register(adminRoutes)
   await app.register(profileRoutes)
+  await app.register(publicProfileRoutes)
 }
 
 export default routes

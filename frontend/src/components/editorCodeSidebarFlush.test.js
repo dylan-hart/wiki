@@ -16,10 +16,13 @@ vi.mock('monaco-editor', () => ({
       getPosition: vi.fn(() => ({ lineNumber: 1, column: 1 })),
       executeEdits: vi.fn(),
       onDidChangeModelContent: vi.fn(),
+      addAction: vi.fn(),
       focus: vi.fn(),
       dispose: vi.fn()
     }))
   },
+  KeyMod: { CtrlCmd: 1 },
+  KeyCode: { KeyS: 3 },
   Range: class Range {}
 }))
 

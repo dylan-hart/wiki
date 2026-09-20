@@ -15,14 +15,14 @@ props:
     type: String
     title: CAS Server URL
     hint: The CAS server's own base URL, including its context path, e.g. https://cas.example.com/cas.
-    icon: internet
+    icon: tabler:world
     default: ''
     order: 1
   casVersion:
     type: String
     title: CAS Version
     hint: The CAS protocol version this server answers with — CAS 3.0 is the only supported version, since it is the version that reports attributes, which the mappings below read from.
-    icon: fingerprint-scan
+    icon: tabler:fingerprint
     enum:
       - CAS3.0|CAS 3.0
     default: 'CAS3.0'
@@ -31,26 +31,26 @@ props:
     type: String
     title: Unique ID Attribute
     hint: (optional) The CAS attribute holding the user's unique identifier. Falls back to the CAS username when left empty, or when the attribute is absent from what CAS reports.
-    icon: fingerprint-scan
+    icon: tabler:fingerprint
     default: ''
     order: 3
   emailAttribute:
     type: String
     title: Email Attribute
     hint: The CAS attribute holding the user's email address.
-    icon: envelope
+    icon: tabler:mail
     default: 'mail'
     order: 4
   displayNameAttribute:
     type: String
     title: Display Name Attribute
     hint: (optional) The CAS attribute holding the user's display name. Falls back to the CAS username when left empty, or when the attribute is absent from what CAS reports.
-    icon: person
+    icon: tabler:user
     default: 'displayName'
     order: 5
 refs:
   serviceUrl:
     title: Service URL
     hint: Register this as an allowed service with the CAS server above (a pattern match covering it is fine — the actual value this module sends is this URL plus a `?state=` parameter that changes on every login attempt).
-    icon: back
+    icon: tabler:arrow-back
     value: '{host}/_api/auth/{id}/callback'

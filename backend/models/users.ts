@@ -14,9 +14,19 @@ import {
 import { and, count, desc, eq, ilike, inArray, isNotNull, notExists, or, sql } from 'drizzle-orm'
 import type { WikiDbOrTx } from '../core/db.ts'
 import { flatten, uniq } from 'es-toolkit/array'
-import { BCRYPT_ROUNDS, escapeLikePattern, isUniqueViolation } from '../helpers/common.ts'
+import {
+  BCRYPT_ROUNDS,
+  CustomError,
+  escapeLikePattern,
+  isUniqueViolation
+} from '../helpers/common.ts'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { paginate } from '../helpers/pagination.ts'
+import {
+  isSearchFilters,
+  normalizeSearchFilters,
+  type SearchFilter
+} from '../helpers/searchFilters.ts'
 import { HOOK_EVENTS, type HookEvent } from './hooks.ts'
 import type { SystemIds } from './types.ts'
 
@@ -77,6 +87,7 @@ export interface UserPatch {
    * mark the account as locally authored.
    */
   nameLocallyEdited?: boolean
+  handle?: string
   email?: string
   isActive?: boolean
   isVerified?: boolean
@@ -103,6 +114,19 @@ export interface IconPickerPrefs {
   set?: string
 }
 
+export const PROFILE_PUBLIC_FIELDS = ['location', 'jobTitle', 'pronouns'] as const
+
+export type ProfilePublicField = (typeof PROFILE_PUBLIC_FIELDS)[number]
+
+/** Mirrors the `UserPublicProfile` API schema. */
+export interface UserPublicProfile {
+  id: string
+  name: string
+  hasAvatar: boolean
+  avatarProviderUrl: string | null
+  fields: Partial<Record<ProfilePublicField, string>>
+}
+
 /** The `meta` and `prefs` blobs flattened out; mirrors the `UserProfile` API schema. */
 export interface UserProfile {
   id: string
@@ -113,6 +137,7 @@ export interface UserProfile {
   hasAvatar: boolean
   /** Only a fallback: an uploaded avatar (`hasAvatar`) wins whenever both are set. */
   avatarProviderUrl: string | null
+  handle: string | null
   location: string
   jobTitle: string
   pronouns: string
@@ -131,6 +156,9 @@ export interface UserProfile {
   locale: string
   graph?: GraphPrefs
   iconPicker?: IconPickerPrefs
+  publicFields: ProfilePublicField[]
+  forcedPublicFields: ProfilePublicField[]
+  searchFilters?: SearchFilter[]
 }
 
 /** What a user may change on its own profile: notably not the email, nor any admin flag. */
@@ -138,6 +166,7 @@ export interface UserProfilePatch {
   name?: string
   firstName?: string
   lastName?: string
+  handle?: string
   location?: string
   jobTitle?: string
   pronouns?: string
@@ -151,6 +180,8 @@ export interface UserProfilePatch {
   locale?: string
   graph?: GraphPrefs
   iconPicker?: IconPickerPrefs
+  publicFields?: ProfilePublicField[]
+  searchFilters?: SearchFilter[]
 }
 
 /**
@@ -177,8 +208,93 @@ const profilePrefsKeys = [
   'cvd',
   'locale',
   'graph',
-  'iconPicker'
+  'iconPicker',
+  'publicFields',
+  'searchFilters'
 ] as const
+
+export const HANDLE_MAX_LENGTH = 32
+
+const HANDLE_PATTERN = /^[A-Za-z0-9._-]+$/
+
+const HANDLE_UNIQUE_INDEX = 'users_handle_lower_idx'
+
+export function normalizeHandle(input: string): string | null {
+  const handle = input.trim()
+  if (handle === '') {
+    return null
+  }
+  if (handle.length > HANDLE_MAX_LENGTH) {
+    throw new CustomError(
+      'userHandleInvalid',
+      `A handle may be at most ${HANDLE_MAX_LENGTH} characters long.`
+    )
+  }
+  if (!HANDLE_PATTERN.test(handle)) {
+    throw new CustomError(
+      'userHandleInvalid',
+      'A handle may contain only letters, digits, dots, underscores and hyphens.'
+    )
+  }
+  return handle
+}
+
+function isHandleCollision(err: unknown): boolean {
+  const candidate = err as { constraint?: unknown; cause?: { constraint?: unknown } } | null
+  return (
+    isUniqueViolation(err) &&
+    (candidate?.constraint === HANDLE_UNIQUE_INDEX ||
+      candidate?.cause?.constraint === HANDLE_UNIQUE_INDEX)
+  )
+}
+
+function knownPublicFields(value: unknown): ProfilePublicField[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return PROFILE_PUBLIC_FIELDS.filter((field) => value.includes(field))
+}
+
+export function forcedPublicFields(): ProfilePublicField[] {
+  return knownPublicFields(CARDINAL.config.profileVisibility?.forcedPublicFields)
+}
+
+export function effectivePublicFields(userFields: unknown): ProfilePublicField[] {
+  const chosen = new Set([...knownPublicFields(userFields), ...forcedPublicFields()])
+  return PROFILE_PUBLIC_FIELDS.filter((field) => chosen.has(field))
+}
+
+/** Null for an account nobody may look at: inactive, or a system account such as the guest. */
+export function toPublicProfile(user: {
+  id: string
+  name: string
+  hasAvatar: boolean
+  avatarProviderUrl: string | null
+  isActive: boolean
+  isSystem: boolean
+  meta: unknown
+  prefs: unknown
+}): UserPublicProfile | null {
+  if (!user.isActive || user.isSystem) {
+    return null
+  }
+  const meta = (user.meta ?? {}) as Record<string, any>
+  const prefs = (user.prefs ?? {}) as Record<string, any>
+  const fields: UserPublicProfile['fields'] = {}
+  for (const field of effectivePublicFields(prefs.publicFields)) {
+    const value = meta[field]
+    if (typeof value === 'string' && value.trim() !== '') {
+      fields[field] = value
+    }
+  }
+  return {
+    id: user.id,
+    name: user.name,
+    hasAvatar: user.hasAvatar,
+    avatarProviderUrl: user.avatarProviderUrl ?? null,
+    fields
+  }
+}
 
 /** Nothing displays an avatar larger than this. */
 const avatarSize = 180
@@ -324,6 +440,8 @@ export type ImportLocalUserResult =
   | { status: 'created'; id: string }
   | { status: 'skipped'; reason: 'email-collision'; existingId: string }
 
+const SYSTEM_USER_EMAIL = 'system@cardinal.invalid'
+
 class Users {
   async getByEmail(email: string) {
     const res = await CARDINAL.db
@@ -332,6 +450,33 @@ class Users {
       .where(eq(usersTable.email, email))
       .limit(1)
     return res?.[0] ?? null
+  }
+
+  async ensureSystemUser(): Promise<string> {
+    const id: string = CARDINAL.data.systemIds.systemUserId
+    await CARDINAL.db
+      .insert(usersTable)
+      .values({
+        id,
+        email: SYSTEM_USER_EMAIL,
+        auth: {},
+        ...resolveNameFields({ firstName: 'System' }),
+        isSystem: true,
+        isActive: false,
+        isVerified: true,
+        meta: {},
+        prefs: {
+          timezone: 'UTC',
+          dateFormat: 'YYYY-MM-DD',
+          timeFormat: '24h',
+          appearance: 'site',
+          aesthetic: 'site',
+          contentWidth: 'site',
+          cvd: 'none'
+        }
+      })
+      .onConflictDoNothing({ target: usersTable.id })
+    return id
   }
 
   async getById(id: string, db: WikiDbOrTx = CARDINAL.db) {
@@ -387,6 +532,24 @@ class Users {
         sql`(${usersTable.auth} -> ${localStrategyId} ->> 'mustChangePwd')::boolean = true AND ${providerKeyExpr} IS NOT NULL`
       )
       .orderBy(usersTable.createdAt)
+  }
+
+  async searchHandles(prefix: string, limit: number): Promise<{ handle: string; name: string }[]> {
+    const pattern = `${escapeLikePattern(prefix.toLowerCase())}%`
+    const rows = await CARDINAL.db
+      .select({ handle: usersTable.handle, name: usersTable.name })
+      .from(usersTable)
+      .where(
+        and(
+          isNotNull(usersTable.handle),
+          eq(usersTable.isActive, true),
+          eq(usersTable.isSystem, false),
+          sql`lower(${usersTable.handle}) LIKE ${pattern}`
+        )
+      )
+      .orderBy(sql`lower(${usersTable.handle})`)
+      .limit(limit)
+    return rows.flatMap((row) => (row.handle ? [{ handle: row.handle, name: row.name }] : []))
   }
 
   async getUsers({
@@ -697,6 +860,9 @@ class Users {
    */
   async updateUser(id: string, patch: UserPatch, db: WikiDbOrTx = CARDINAL.db): Promise<boolean> {
     const values: Record<string, any> = { ...patch, updatedAt: sql`now()` }
+    if (patch.handle !== undefined) {
+      values.handle = normalizeHandle(patch.handle)
+    }
     if (typeof values.email === 'string') {
       values.email = values.email.toLowerCase()
     }
@@ -709,8 +875,15 @@ class Users {
     if (patch.name !== undefined || patch.firstName !== undefined || patch.lastName !== undefined) {
       await this.reconcileNameValues(id, patch, values, db)
     }
-    const result = await db.update(usersTable).set(values).where(eq(usersTable.id, id))
-    return (result.rowCount ?? 0) > 0
+    try {
+      const result = await db.update(usersTable).set(values).where(eq(usersTable.id, id))
+      return (result.rowCount ?? 0) > 0
+    } catch (err: any) {
+      if (isHandleCollision(err)) {
+        throw new CustomError('userHandleTaken', 'That handle is already taken.', 409)
+      }
+      throw err
+    }
   }
 
   /**
@@ -774,6 +947,7 @@ class Users {
       email: user.email,
       hasAvatar: user.hasAvatar,
       avatarProviderUrl: user.avatarProviderUrl ?? null,
+      handle: user.handle ?? null,
       location: meta.location ?? '',
       jobTitle: meta.jobTitle ?? '',
       pronouns: meta.pronouns ?? '',
@@ -792,8 +966,16 @@ class Users {
       //    what each control falls back to when unset, rather than it being duplicated here.
       graph: prefs.graph as GraphPrefs | undefined,
       // -> Same reasoning as `graph`: `IconPickerDialog.vue` owns the unset fallback.
-      iconPicker: prefs.iconPicker as IconPickerPrefs | undefined
+      iconPicker: prefs.iconPicker as IconPickerPrefs | undefined,
+      publicFields: knownPublicFields(prefs.publicFields),
+      forcedPublicFields: forcedPublicFields(),
+      searchFilters: prefs.searchFilters as SearchFilter[] | undefined
     }
+  }
+
+  async getPublicProfile(id: string): Promise<UserPublicProfile | null> {
+    const user = await this.getById(id)
+    return user ? toPublicProfile(user) : null
   }
 
   /**
@@ -951,6 +1133,7 @@ class Users {
    * and any key this endpoint does not expose must survive a user saving its profile.
    *
    * @throws `ERR_INVALID_LOCALE` for a non-empty `locale` that names no installed locale
+   * @throws `ERR_INVALID_SEARCH_FILTERS` for a `searchFilters` list that fails {@link isSearchFilters}
    */
   async updateProfile(id: string, patch: UserProfilePatch): Promise<UserProfile | null> {
     const user = await this.getById(id)
@@ -969,6 +1152,10 @@ class Users {
       }
     }
 
+    if (patch.searchFilters !== undefined && !isSearchFilters(patch.searchFilters)) {
+      throw new Error('ERR_INVALID_SEARCH_FILTERS')
+    }
+
     const meta = { ...((user.meta ?? {}) as Record<string, any>) }
     const prefs = { ...((user.prefs ?? {}) as Record<string, any>) }
     for (const key of profileMetaKeys) {
@@ -981,11 +1168,20 @@ class Users {
         prefs[key] = patch[key]
       }
     }
+    if (patch.publicFields !== undefined) {
+      prefs.publicFields = knownPublicFields(patch.publicFields)
+    }
+    if (patch.searchFilters !== undefined) {
+      prefs.searchFilters = normalizeSearchFilters(patch.searchFilters)
+    }
 
     // -> Name fields go to `updateUser` untouched: it is the one owner of the
     //    derive-unless-authored rule, so this method neither derives nor decides what counts as
     //    authoring.
     const values: UserPatch = { meta, prefs }
+    if (patch.handle !== undefined) {
+      values.handle = patch.handle
+    }
     for (const key of profileNameKeys) {
       if (patch[key] !== undefined) {
         values[key] = patch[key]

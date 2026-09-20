@@ -34,7 +34,8 @@ before(async () => {
         }
       },
       groups: {
-        hasUnknownGroupIds: async (ids: string[]) => ids.length > 0
+        hasUnknownGroupIds: async (ids: string[]) => ids.length > 0,
+        assertMembershipChangeAllowed: async () => {}
       },
       mail: {
         isConfigured: () => mailConfigured,

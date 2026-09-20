@@ -14,15 +14,19 @@ const LOCALES = [
   { code: 'am', name: 'Amharic', nativeName: 'አማርኛ', language: 'am', completeness: 12 }
 ]
 
-async function mountPage({ permissions = ['manage:sites'] } = {}) {
+async function mountPage({
+  permissions = ['manage:sites'],
+  locales = LOCALES,
+  site = { locales: { primary: 'en', active: ['en'] } }
+} = {}) {
   // -> A site must already be selected for onMounted() to load, and `manage:sites` satisfies
   //    `useSiteAdminAccess('site:locale')` on its own, skipping its redirect-on-denial path
   const router = await createTestRouter(['/_admin/:siteid/locale'], '/_admin/site-1/locale')
 
   stubApi(
     new Map([
-      ['locales', LOCALES],
-      [/^sites\//, { locales: { primary: 'en', active: ['en'] } }]
+      ['locales', locales],
+      [/^sites\//, site]
     ])
   )
 
@@ -31,6 +35,8 @@ async function mountPage({ permissions = ['manage:sites'] } = {}) {
       admin: {
         locale: {
           completeness: '{percent}% translated',
+          alias: 'URL alias',
+          aliasPreview: 'Served at /{alias}/... instead of /{code}/...',
           sideload: 'Sideload Locale Package',
           sideloadHelp: 'sideload help text',
           sideloadSuccess: '{count} locale package(s) loaded successfully.',
@@ -179,6 +185,99 @@ describe('AdminLocale: offline sideload control', () => {
     expect(queue.at(-1)).toMatchObject({
       type: 'info',
       message: 'No locale packages were found to sideload.'
+    })
+  })
+})
+
+describe('AdminLocale: URL alias field', () => {
+  const WITH_ZH = [
+    ...LOCALES,
+    { code: 'zh-CN', name: 'Chinese', nativeName: '中文', language: 'zh', completeness: 60 }
+  ]
+  const SITE = {
+    locales: { primary: 'en', active: ['en', 'fr', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+  }
+
+  async function mountAliasPage() {
+    const wrapper = await mountPage({ locales: WITH_ZH, site: SITE })
+    await flushPromises()
+    return wrapper
+  }
+
+  const aliasInput = (wrapper, code) => wrapper.find(`input[data-locale="${code}"]`)
+
+  async function apply(wrapper) {
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('common.actions.apply'))
+    await btn.trigger('click')
+    await flushPromises()
+  }
+
+  beforeEach(() => {
+    queue.splice(0, queue.length)
+    API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+  })
+
+  it('offers an input for each active locale only, loaded with the stored alias', async () => {
+    const wrapper = await mountAliasPage()
+
+    expect(aliasInput(wrapper, 'zh-CN').element.value).toBe('zh')
+    expect(aliasInput(wrapper, 'fr').element.value).toBe('')
+    expect(aliasInput(wrapper, 'en').exists()).toBe(true)
+    expect(aliasInput(wrapper, 'am').exists()).toBe(false)
+  })
+
+  it('shows the resulting URL for a locale with an alias', async () => {
+    const wrapper = await mountAliasPage()
+
+    expect(wrapper.text()).toContain('Served at /zh/... instead of /zh-CN/...')
+  })
+
+  it('includes the aliases in the saved payload, sparse and edited', async () => {
+    const wrapper = await mountAliasPage()
+
+    await aliasInput(wrapper, 'fr').setValue('f')
+    await apply(wrapper)
+
+    const [url, options] = API_CLIENT.put.mock.calls[0]
+    expect(url).toBe('sites/site-1')
+    expect(options.json.locales.aliases).toEqual({ 'zh-CN': 'zh', fr: 'f' })
+  })
+
+  it('clears an alias when its field is emptied', async () => {
+    const wrapper = await mountAliasPage()
+
+    await aliasInput(wrapper, 'zh-CN').setValue('')
+    await apply(wrapper)
+
+    expect(API_CLIENT.put.mock.calls[0][1].json.locales.aliases).toEqual({})
+  })
+
+  it('drops the alias of a locale deactivated in the same save', async () => {
+    const wrapper = await mountAliasPage()
+
+    await wrapper.find('[aria-label="Chinese"]').trigger('click')
+    await apply(wrapper)
+
+    const { active, aliases } = API_CLIENT.put.mock.calls[0][1].json.locales
+    expect(active).not.toContain('zh-CN')
+    expect(aliases).toEqual({})
+  })
+
+  it("shows the backend's rejection message", async () => {
+    const wrapper = await mountAliasPage()
+    const err = Object.assign(new Error('Request failed'), {
+      data: { message: 'The alias "fr" is already in use by another locale.' }
+    })
+    API_CLIENT.put.mockImplementationOnce(() => {
+      throw err
+    })
+
+    await aliasInput(wrapper, 'zh-CN').setValue('fr')
+    await apply(wrapper)
+
+    expect(queue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'The alias "fr" is already in use by another locale.'
     })
   })
 })

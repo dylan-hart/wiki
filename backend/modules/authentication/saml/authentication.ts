@@ -186,6 +186,19 @@ export default class SamlAuthentication {
     })
   }
 
+  metadata(redirectUri: string): string {
+    const { privateKey, decryptionPvk, signingCert, decryptionCert } = this.conf
+    const saml = new SamlAuthentication(this.strategyId, {
+      ...this.conf,
+      privateKey: signingCert ? privateKey : undefined,
+      decryptionPvk: decryptionCert ? decryptionPvk : undefined
+    }).buildSaml(redirectUri)
+    return saml.generateServiceProviderMetadata(
+      decryptionCert || null,
+      signingCert ? SamlAuthentication.certs(signingCert) : null
+    )
+  }
+
   /**
    * Which of `node-saml`'s two request builders runs has to be decided here: the library's own
    * like-named `authnRequestBinding` option only sets a default on the instance, and nothing inside

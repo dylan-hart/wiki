@@ -23,6 +23,14 @@ only on disk. A `pg_dump` with no `<dataPath>` backup still restores every uploa
 bytes; it's `<dataPath>`'s _cache and working directories_ (below) that a DB-only backup does not
 cover.
 
+**That stops being true once you run the database target's "Purge All Assets" action.** Purge
+deletes `assets.data` and `assets.preview` for every asset an `s3`, `azure` or `gcs` target can serve
+on its own (Direct Access or Read-Through), after checking that the bucket's copy matches the
+database's in size and SHA-256. From then on the bytes live only in the bucket, so a `pg_dump` alone
+no longer holds them: back up the bucket (or rely on its own versioning and replication) alongside
+the database, and restore both together. An asset whose copy fails the check is left in the database
+and reported as `unverified` in the action's result.
+
 The database also holds two secrets an operator cannot regenerate from anything else:
 
 - **The API-key signing keypair** (`settings.auth.certs`, generated once at install by
@@ -226,12 +234,12 @@ handshake frame.
 
 ### Levels
 
-| Level | What it means | Alert on it? |
-| --- | --- | --- |
-| `error` | Something is broken and will stay broken until a person acts — a boot failure, a job out of retries, an unhandled 5xx, an external system unreachable after its own retries. | Yes. |
-| `warn` | Degraded, self-healing, or a configuration smell — a job retrying, an unknown config key, mail unconfigured while a notification was due, a rate-limit ban, a refused API key. | Worth a dashboard, not a page. |
-| `info` | A state change worth having in the record — boot milestones and `ready`, config reload, a strategy or storage target activating, a job that actually did something, page/site lifecycle, cluster peers joining and leaving. | No. |
-| `debug` | Per-item, per-request, per-tick — the access log, every job start and finish, every locale loaded, icon fetches, tree operations, the SQL and auth firehoses. Quiet instances say nothing at `info` for minutes at a time; that is the design, not a stuck process. | No. |
+| Level   | What it means                                                                                                                                                                                                                                                       | Alert on it?                   |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `error` | Something is broken and will stay broken until a person acts — a boot failure, a job out of retries, an unhandled 5xx, an external system unreachable after its own retries.                                                                                        | Yes.                           |
+| `warn`  | Degraded, self-healing, or a configuration smell — a job retrying, an unknown config key, mail unconfigured while a notification was due, a rate-limit ban, a refused API key.                                                                                      | Worth a dashboard, not a page. |
+| `info`  | A state change worth having in the record — boot milestones and `ready`, config reload, a strategy or storage target activating, a job that actually did something, page/site lifecycle, cluster peers joining and leaving.                                         | No.                            |
+| `debug` | Per-item, per-request, per-tick — the access log, every job start and finish, every locale loaded, icon fetches, tree operations, the SQL and auth firehoses. Quiet instances say nothing at `info` for minutes at a time; that is the design, not a stuck process. | No.                            |
 
 ### Scopes
 
@@ -239,35 +247,35 @@ Every line names exactly one subsystem, from a closed vocabulary
 (`backend/core/logScopes.ts`). It is what makes `grep ' storage '` a useful filter, and what
 per-scope verbosity (`logScopes`, below) hangs off.
 
-| Scope | Owns |
-| --- | --- |
-| `boot` | process start-up, the three boot phases, shutdown |
-| `config` | config load, settings seed and save, unknown-key warnings |
-| `db` | connection, migrations, pool errors, the LISTEN/NOTIFY channel |
-| `sql` | the query firehose, at `debug` — the `sqlLog` admin flag is what raises it — plus the `slowQueryMs` line, at `warn` (see [Slow queries](#slow-queries)) |
-| `http` | the access log, 5xx, the app-shell fallback |
-| `auth` | strategies, login/register/2FA/passkey outcomes, API-key and bearer refusals |
-| `session` | secret rotation, session purge |
-| `jobs` | scheduler lifecycle, job planning and outcomes |
-| `worker` | the worker thread pool coming online, going offline, erroring |
-| `mail` | outbound mail |
-| `storage` | storage targets and all seven storage modules (the module is a `target=` field) |
-| `search` | the search index and all five engines (the engine is a field) |
-| `render` | the render pipeline, the render queue, puppeteer |
-| `collab` | collaborative editing sessions |
-| `cluster` | cross-instance events, peer presence, maintenance broadcasts |
-| `locale` | locale load and update |
-| `icons` | icon resolution and set management |
-| `blocks` | custom block uploads and compilation |
-| `ext` | extensions |
-| `pages` | page, tree and folder lifecycle, drafts, approvals, watch notifications |
-| `assets` | uploads, thumbnails, the file cache |
-| `nav` | navigation rewrites |
-| `hooks` | webhook deliveries and notification fan-outs |
-| `mcp` | the in-process MCP server |
-| `terminal` | the admin log stream itself |
-| `migrate` | the 2.5.x → 3.0 migration CLI |
-| `audit` | the audit-log model's own failures (the audit *table* is a separate thing, see below) |
+| Scope      | Owns                                                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `boot`     | process start-up, the three boot phases, shutdown                                                                                                       |
+| `config`   | config load, settings seed and save, unknown-key warnings                                                                                               |
+| `db`       | connection, migrations, pool errors, the LISTEN/NOTIFY channel                                                                                          |
+| `sql`      | the query firehose, at `debug` — the `sqlLog` admin flag is what raises it — plus the `slowQueryMs` line, at `warn` (see [Slow queries](#slow-queries)) |
+| `http`     | the access log, 5xx, the app-shell fallback                                                                                                             |
+| `auth`     | strategies, login/register/2FA/passkey outcomes, API-key and bearer refusals                                                                            |
+| `session`  | secret rotation, session purge                                                                                                                          |
+| `jobs`     | scheduler lifecycle, job planning and outcomes                                                                                                          |
+| `worker`   | the worker thread pool coming online, going offline, erroring                                                                                           |
+| `mail`     | outbound mail                                                                                                                                           |
+| `storage`  | storage targets and all seven storage modules (the module is a `target=` field)                                                                         |
+| `search`   | the search index and all five engines (the engine is a field)                                                                                           |
+| `render`   | the render pipeline, the render queue, puppeteer                                                                                                        |
+| `collab`   | collaborative editing sessions                                                                                                                          |
+| `cluster`  | cross-instance events, peer presence, maintenance broadcasts                                                                                            |
+| `locale`   | locale load and update                                                                                                                                  |
+| `icons`    | icon resolution and set management                                                                                                                      |
+| `blocks`   | custom block uploads and compilation                                                                                                                    |
+| `ext`      | extensions                                                                                                                                              |
+| `pages`    | page, tree and folder lifecycle, drafts, approvals, watch notifications                                                                                 |
+| `assets`   | uploads, thumbnails, the file cache                                                                                                                     |
+| `nav`      | navigation rewrites                                                                                                                                     |
+| `hooks`    | webhook deliveries and notification fan-outs                                                                                                            |
+| `mcp`      | the in-process MCP server                                                                                                                               |
+| `terminal` | the admin log stream itself                                                                                                                             |
+| `migrate`  | the 2.5.x → 3.0 migration CLI                                                                                                                           |
+| `audit`    | the audit-log model's own failures (the audit _table_ is a separate thing, see below)                                                                   |
 
 A subsystem inside one of these is a **field**, not a new scope: a git storage target logs on
 `storage` with `target=…`, not on a `git` scope of its own.
@@ -277,11 +285,11 @@ A subsystem inside one of these is a **field**, not a new scope: a git storage t
 Three keys in `config.yml`, all validated at boot **case-sensitively** — an unrecognised value is a
 one-line refusal and `exit(1)`, not a silently ignored setting:
 
-| Key | Values | Default |
-| --- | --- | --- |
-| `logLevel` | `error`, `warn`, `info`, `debug` | `info` |
-| `logFormat` | `text` (human-readable, coloured on a TTY) or `json` (one object per line, for a log shipper) | `text` |
-| `logScopes` | a map of any scope in the table above to any of the four levels | none |
+| Key         | Values                                                                                        | Default |
+| ----------- | --------------------------------------------------------------------------------------------- | ------- |
+| `logLevel`  | `error`, `warn`, `info`, `debug`                                                              | `info`  |
+| `logFormat` | `text` (human-readable, coloured on a TTY) or `json` (one object per line, for a log shipper) | `text`  |
+| `logScopes` | a map of any scope in the table above to any of the four levels                               | none    |
 
 The 2.x levels `verbose` and `silly` do not exist here, and neither does the old `default` format
 name — `text` is what that value is called.
@@ -292,8 +300,8 @@ for a scope that says nothing; an entry sets that one scope's threshold instead,
 ```yaml
 logLevel: info
 logScopes:
-  http: debug    # turn the access log on — it is a `debug http` line, so `info` shows none of it
-  sql: error     # and quieten a scope below the global default
+  http: debug # turn the access log on — it is a `debug http` line, so `info` shows none of it
+  sql: error # and quieten a scope below the global default
 ```
 
 An unknown scope name or an unknown level refuses the boot, for the same reason a bad `logLevel`
@@ -354,7 +362,15 @@ instance the websocket happened to land on — it is not an aggregated multi-ins
 What travels over that websocket is a **structured frame**, not pre-rendered text:
 
 ```json
-{ "timestamp": "…", "instance": "46af6c1ac1", "level": "warn", "scope": "jobs", "message": "updateLocales failed, retrying", "fields": { "attempt": "1/3" }, "stack": "…" }
+{
+  "timestamp": "…",
+  "instance": "46af6c1ac1",
+  "level": "warn",
+  "scope": "jobs",
+  "message": "updateLocales failed, retrying",
+  "fields": { "attempt": "1/3" },
+  "stack": "…"
+}
 ```
 
 Rendering is the browser's job, which is why the page's colours never have to survive a non-TTY
@@ -371,19 +387,35 @@ The **audit log** is a different thing entirely: a durable, queryable table of w
 (`models/auditLog.ts`, the admin area's Audit Log page, retention configurable there). Security
 questions are answered from it, not from stdout.
 
+Reading it takes `read:audit` (or `manage:system`), which also covers `GET /_api/audit-log/export`:
+the same filters as the list, streamed as newline-delimited JSON, one entry per line, for a SIEM or
+an auditor. Each export is itself recorded as an `auditLog.exported` event. Changing the retention
+window stays with `manage:system`.
+
 ## Metrics
 
 `GET /metrics` (deliberately outside `/_api` — see the header comment in
 `backend/controllers/metrics.ts` for why) exposes a small, fixed set of Prometheus gauges when
 `metrics.isEnabled` is turned on in config: active scheduler workers, total pages, total users, total
-groups, cluster node count, and queued jobs. It is not a general request/latency/error-rate exporter —
+groups, cluster node count, queued jobs and database pool state, plus Node runtime gauges for the
+serving process: memory (`cardinaljs_process_resident_memory_bytes`, `..._heap_used_bytes`,
+`..._heap_total_bytes`, `..._external_memory_bytes`), `cardinaljs_process_uptime_seconds`, cumulative
+CPU time (`..._cpu_user_seconds_total`, `..._cpu_system_seconds_total`) and event-loop delay
+(`cardinaljs_nodejs_eventloop_delay_{min,mean,max,p50,p99}_seconds`). The event-loop delay series
+describe the window since the previous scrape (the sampler resets on each one, so two scrapers share
+one window) and include the 10 ms sampling interval, so an idle loop reads about 0.01, not 0. All are
+in base units (bytes, seconds) and computed from built-in Node APIs, with no client library. It is
+not a general request/latency/error-rate exporter —
 there are no HTTP-level counters or histograms here, by deliberate scope decision (task 594), not an
 oversight.
 
-Access requires a **Bearer API key** with the `manage:system` global permission — the same permission
-gate as every other system-level action in this document, not a separate `read:metrics` permission
-(no such permission exists in this project's closed permission list). With the feature flag
-off, the route behaves as if it does not exist (a plain 404) for any caller, authenticated or not.
+Access requires a **Bearer API key** whose owner holds the `manage:system` or the `read:metrics`
+global permission. Prefer `read:metrics`: create a service user in a group holding only that
+permission and mint the scraper's key for it (optionally with `scope: ['read:metrics']`), so a leaked
+scrape credential exposes gauges and not the whole instance. A key's scope only narrows what its owner
+holds, so a scope of `read:metrics` on an owner without it still gets a 403. With the feature flag off,
+the route behaves as if it does not exist (a plain 404) for any caller, authenticated or not. See
+`docs/decisions/2026-09-20-metrics-read-permission.md`.
 
 ## Container mounts
 

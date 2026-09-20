@@ -269,7 +269,9 @@ async function routes(app: FastifyInstance) {
         return reply.badRequest('No security settings provided to update.')
       }
 
-      const invalid = CARDINAL.models.security.validate(patch)
+      const invalid =
+        CARDINAL.models.security.validate(patch) ??
+        (await CARDINAL.models.security.checkPasskeyLockout(patch))
       if (invalid) {
         return reply.badRequest(invalid)
       }

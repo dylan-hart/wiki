@@ -100,6 +100,23 @@ describe('AdminBlocks: self-hosted server note (OpenProject #829 item 5)', () =>
   })
 })
 
+describe('AdminBlocks: Server field layout (OpenProject #3499)', () => {
+  it("stacks the Server field under the block's description, in the same column", async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK])
+
+    const section = wrapper.findComponent(WInput).element.closest('.w-item-section')
+    expect(section).not.toBeNull()
+    expect(section.classList.contains('w-item-section--main')).toBe(true)
+    expect(section.textContent).toContain(KROKI_BLOCK.description)
+  })
+
+  it('leaves no fixed-width side column holding the Server field', async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK])
+
+    expect(wrapper.html()).not.toContain('min-width: 260px')
+  })
+})
+
 describe('AdminBlocks', () => {
   it('shows a Server field only for a block whose definition declares one', async () => {
     const wrapper = await mountAdminBlocks([KROKI_BLOCK, GALLERY_BLOCK])

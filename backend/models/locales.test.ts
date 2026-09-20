@@ -1,4 +1,4 @@
-import { describe, test, before, beforeEach, after } from 'node:test'
+import { describe, test, before, beforeEach, after, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, writeFile, rm, utimes, stat } from 'node:fs/promises'
@@ -808,6 +808,41 @@ describe('isReservedLocaleCode (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
   test('returns false for an empty segment', async () => {
     assert.equal(await localesModel.isReservedLocaleCode(''), false)
+    assert.equal(await localesModel.isReservedLocaleCode('', fixtures.siteId), false)
+  })
+
+  describe('with a siteId', () => {
+    let originalLocales: any
+
+    beforeEach(() => {
+      originalLocales = CARDINAL.sites[fixtures.siteId]!.config.locales
+      CARDINAL.sites[fixtures.siteId]!.config.locales = {
+        ...originalLocales,
+        aliases: { 'pt-BR': 'pt' }
+      }
+    })
+
+    afterEach(() => {
+      CARDINAL.sites[fixtures.siteId]!.config.locales = originalLocales
+    })
+
+    test('also reserves a configured alias, case-insensitively', async () => {
+      assert.equal(await localesModel.isReservedLocaleCode('pt', fixtures.siteId), true)
+      assert.equal(await localesModel.isReservedLocaleCode('PT', fixtures.siteId), true)
+    })
+
+    test('does not reserve the alias without the siteId', async () => {
+      assert.equal(await localesModel.isReservedLocaleCode('pt'), false)
+    })
+
+    test('does not reserve the alias for a site that has not configured it', async () => {
+      assert.equal(await localesModel.isReservedLocaleCode('pt', 'no-such-site'), false)
+    })
+
+    test('installed codes stay reserved', async () => {
+      assert.equal(await localesModel.isReservedLocaleCode('fr', fixtures.siteId), true)
+      assert.equal(await localesModel.isReservedLocaleCode('de', fixtures.siteId), false)
+    })
   })
 })
 

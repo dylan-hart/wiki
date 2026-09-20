@@ -11,7 +11,7 @@
  * own fallback stack in effect. Nothing ever requests a font literally named "user".
  */
 
-import { replaceHeadStyle } from '@/helpers/injectCss'
+import { replaceHeadStyle } from '@/helpers/headStyle'
 
 /**
  * Keyed by the value stored in `theme.baseFont` / `theme.contentFont`. Mirrors `AdminTheme.vue`'s

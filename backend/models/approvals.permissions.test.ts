@@ -137,6 +137,43 @@ describe(
       assert.equal(detail!.content, 'Suggested body')
     })
 
+    test('getSubmissionForReview returns pageContent to a reviewer holding write:pages without read:source', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'approvals/source-implied',
+          title: 'Source implied',
+          editor: 'markdown',
+          content: 'Editor visible body'
+        },
+        adminActor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: {
+          id: page.id,
+          path: page.path,
+          locale: 'en',
+          tags: [],
+          allowContributions: true,
+          classification: null
+        },
+        baseContent: 'Editor visible body',
+        content: 'Suggested body',
+        authorId: fixtures.userId
+      })
+
+      const detail = await approvalsModel.getSubmissionForReview(
+        fixtures.siteId,
+        submission.id,
+        writeActor,
+        { groupIds: [], reviewsAll: true }
+      )
+
+      assert.ok(detail)
+      assert.equal(detail!.pageContent, 'Editor visible body')
+    })
+
     function pageRef(page: { id: string; path: string }): ApprovalPageRef {
       return {
         id: page.id,

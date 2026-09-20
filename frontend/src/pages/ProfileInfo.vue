@@ -81,6 +81,27 @@
     </w-item>
     <w-separator inset />
     <w-item>
+      <blueprint-icon icon="tabler:hash" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.handle`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.handleHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-input
+          ref="handleField"
+          v-model="state.config.handle"
+          hide-bottom-space
+          prefix="@"
+          :aria-label="t(`profile.handle`)"
+          :readonly="!canEdit"
+          :rules="[handleRule]"
+          @blur="commitTextField('handle')"
+          @keyup:enter="commitTextField('handle')"
+          @keydown.esc="revertTextField('handle', $event)" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset />
+    <w-item>
       <blueprint-icon icon="tabler:mail" />
       <w-item-section>
         <w-item-label>{{ t(`profile.email`) }}</w-item-label>
@@ -110,6 +131,13 @@
           @blur="commitTextField('location')"
           @keyup:enter="commitTextField('location')"
           @keydown.esc="revertTextField('location', $event)" />
+        <profile-visibility-toggle
+          field="location"
+          :field-label="t(`profile.location`)"
+          :model-value="isPublic('location')"
+          :forced="isForced('location')"
+          :disabled="!canEdit"
+          @update:model-value="setPublic('location', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -128,6 +156,13 @@
           @blur="commitTextField('jobTitle')"
           @keyup:enter="commitTextField('jobTitle')"
           @keydown.esc="revertTextField('jobTitle', $event)" />
+        <profile-visibility-toggle
+          field="jobTitle"
+          :field-label="t(`profile.jobTitle`)"
+          :model-value="isPublic('jobTitle')"
+          :forced="isForced('jobTitle')"
+          :disabled="!canEdit"
+          @update:model-value="setPublic('jobTitle', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -146,6 +181,13 @@
           @blur="commitTextField('pronouns')"
           @keyup:enter="commitTextField('pronouns')"
           @keydown.esc="revertTextField('pronouns', $event)" />
+        <profile-visibility-toggle
+          field="pronouns"
+          :field-label="t(`profile.pronouns`)"
+          :model-value="isPublic('pronouns')"
+          :forced="isForced('pronouns')"
+          :disabled="!canEdit"
+          @update:model-value="setPublic('pronouns', $event)" />
       </w-item-section>
     </w-item>
   </w-page>
@@ -155,6 +197,7 @@
 import { useI18n } from 'vue-i18n'
 import { debounce } from 'es-toolkit/function'
 
+import ProfileVisibilityToggle from '@/components/ProfileVisibilityToggle.vue'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { profileSaving } from '@/composables/profileSaving'
@@ -181,10 +224,13 @@ const state = reactive({
     name: '',
     firstName: '',
     lastName: '',
+    handle: '',
     email: '',
     location: '',
     jobTitle: '',
     pronouns: '',
+    publicFields: [],
+    forcedPublicFields: [],
     timezone: '',
     dateFormat: '',
     timeFormat: '12h',
@@ -200,17 +246,19 @@ const state = reactive({
   fieldErrors: {
     name: null,
     firstName: null,
-    lastName: null
+    lastName: null,
+    handle: null
   }
 })
 
 // -> What Esc reverts to: `state.config` only ever holds the in-progress edit, so this parallel
 //    record holds what the server last confirmed. Written only once a fetch or save response lands.
-const TEXT_FIELDS = ['firstName', 'lastName', 'name', 'location', 'jobTitle', 'pronouns']
+const TEXT_FIELDS = ['firstName', 'lastName', 'name', 'handle', 'location', 'jobTitle', 'pronouns']
 const lastSaved = reactive({
   firstName: '',
   lastName: '',
   name: '',
+  handle: '',
   location: '',
   jobTitle: '',
   pronouns: ''
@@ -229,6 +277,7 @@ const AUTO_SAVE_DEBOUNCE_MS = 800
 const firstNameField = ref(null)
 const lastNameField = ref(null)
 const nameField = ref(null)
+const handleField = ref(null)
 
 /*
   `WInput` re-runs its `rules` only on its own `modelValue` change or blur, never because
@@ -239,13 +288,35 @@ function revalidateFieldRefs() {
   firstNameField.value?.validate()
   lastNameField.value?.validate()
   nameField.value?.validate()
+  handleField.value?.validate()
 }
 
 const firstNameRule = () => state.fieldErrors.firstName ?? true
 const lastNameRule = () => state.fieldErrors.lastName ?? true
 const nameRule = () => state.fieldErrors.name ?? true
+const handleRule = () => state.fieldErrors.handle ?? true
 
 const canEdit = computed(() => siteStore.features?.profile)
+
+const PUBLIC_FIELD_KEYS = ['location', 'jobTitle', 'pronouns']
+
+function knownPublicFields(list) {
+  return Array.isArray(list) ? PUBLIC_FIELD_KEYS.filter((key) => list.includes(key)) : []
+}
+
+const isPublic = (field) => state.config.publicFields.includes(field)
+const isForced = (field) => state.config.forcedPublicFields.includes(field)
+
+function setPublic(field, on) {
+  if (isForced(field)) {
+    return
+  }
+  state.config.publicFields = knownPublicFields(
+    on
+      ? [...state.config.publicFields, field]
+      : state.config.publicFields.filter((f) => f !== field)
+  )
+}
 
 // -> Without this, editing a half alone leaves a stale `name` in the payload, which the server
 //    reads as a deliberate override and freezes the display name for good.
@@ -282,10 +353,13 @@ function applyProfile(profile) {
   state.config.name = profile.name || ''
   state.config.firstName = profile.firstName || ''
   state.config.lastName = profile.lastName || ''
+  state.config.handle = profile.handle || ''
   state.config.email = profile.email || ''
   state.config.location = profile.location || ''
   state.config.jobTitle = profile.jobTitle || ''
   state.config.pronouns = profile.pronouns || ''
+  state.config.publicFields = knownPublicFields(profile.publicFields)
+  state.config.forcedPublicFields = knownPublicFields(profile.forcedPublicFields)
   state.config.timezone = profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || ''
   state.config.dateFormat = profile.dateFormat || ''
   state.config.timeFormat = profile.timeFormat || '12h'
@@ -314,6 +388,8 @@ function applyFieldErrors(err) {
     state.fieldErrors.name = message
     state.fieldErrors.firstName = message
     state.fieldErrors.lastName = message
+  } else if (code === 'userHandleTaken' || code === 'userHandleInvalid') {
+    state.fieldErrors.handle = message
   }
   revalidateFieldRefs()
 }
@@ -340,9 +416,11 @@ async function save() {
         name: state.config.name,
         firstName: state.config.firstName,
         lastName: state.config.lastName,
+        handle: state.config.handle,
         location: state.config.location,
         jobTitle: state.config.jobTitle,
         pronouns: state.config.pronouns,
+        publicFields: state.config.publicFields,
         timezone: state.config.timezone,
         dateFormat: state.config.dateFormat,
         timeFormat: state.config.timeFormat,
@@ -419,6 +497,7 @@ watch(
     state.config.appearance,
     state.config.contentWidth,
     state.config.cvd,
+    state.config.publicFields.join(','),
     state.config.timezone,
     state.config.dateFormat,
     state.config.timeFormat

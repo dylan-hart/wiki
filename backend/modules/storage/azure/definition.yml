@@ -10,7 +10,10 @@ assetDelivery:
   isDirectAccessSupported: true
   defaultStreamingEnabled: true
   defaultDirectAccessEnabled: true
+  isReadThroughSupported: true
+  defaultReadThroughEnabled: false
 contentTypes:
+  supportedTypes: ['images', 'documents', 'others', 'large']
   defaultTypesEnabled: ['images', 'documents', 'others', 'large']
   defaultLargeThreshold: '5MB'
 versioning:
@@ -25,14 +28,14 @@ props:
     title: Account Name
     default: ''
     hint: Your unique account name.
-    icon: 3d-touch
+    icon: tabler:id
     order: 1
   accountKey:
     type: String
     title: Account Access Key
     default: ''
     hint: Either key 1 or key 2.
-    icon: key
+    icon: tabler:key
     sensitive: true
     order: 2
   containerName:
@@ -40,14 +43,21 @@ props:
     title: Container Name
     default: wiki
     hint: Will automatically be created if it doesn't exist yet.
-    icon: shipping-container
+    icon: tabler:packages
     order: 3
+  pathPrefix:
+    type: String
+    title: Path Prefix
+    hint: Optional folder inside the container under which everything is stored, so keys become `<prefix>/<siteId>/...` (e.g. wiki/prod). It lets several instances or apps share one container, and lets an access policy be scoped to just this sub-path. Changing it on an existing target orphans objects already uploaded under the old prefix; they are not moved or deleted.
+    icon: tabler:folder
+    default: ''
+    order: 4
   storageTier:
     type: String
     title: Storage Tier
     hint: Represents the access tier on a blob. Use Cool for lower storage costs but at higher retrieval costs.
-    icon: scan-stock
-    order: 4
+    icon: tabler:stack-2
+    order: 5
     default: cool
     enum:
       - hot|Hot
@@ -56,4 +66,4 @@ actions:
   exportAll:
     label: Export All DB Assets to Azure
     hint: Output all content from the DB to Azure Blog Storage, overwriting any existing data. If you enabled Azure Blog Storage after content was created or you temporarily disabled it, you'll want to execute this action to add the missing content.
-    icon: this-way-up
+    icon: tabler:upload

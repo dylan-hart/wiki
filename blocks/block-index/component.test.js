@@ -118,6 +118,22 @@ describe('block-index', () => {
     expect(el.shadowRoot.querySelector('li a').getAttribute('href')).toBe('/fr/docs/intro')
   })
 
+  it("reads a locale URL alias off the address bar as the reader's locale and links under it", async () => {
+    const fetchMock = stubFetch({
+      locales: {
+        primary: 'en',
+        active: ['en', 'zh-CN'],
+        forcePrefix: false,
+        aliases: { 'zh-CN': 'zh' }
+      },
+      pathname: '/zh/some/page'
+    })
+    const el = await mountIndex()
+
+    expect(treeCall(fetchMock).searchParams.get('locale')).toBe('zh-CN')
+    expect(el.shadowRoot.querySelector('li a').getAttribute('href')).toBe('/zh/docs/intro')
+  })
+
   it('prefixes even the primary locale when forcePrefix is on', async () => {
     stubFetch({ locales: { primary: 'en', active: ['en', 'fr'], forcePrefix: true } })
     const el = await mountIndex()

@@ -250,6 +250,7 @@
                   flat
                   icon="tabler:square-x"
                   color="negative"
+                  :aria-label="t(`admin.scheduler.cancelJob`)"
                   @click="cancelJob(props.row.id)">
                   <w-tooltip labels anchor="center left" self="center right">{{
                     t('admin.scheduler.cancelJob')

@@ -91,9 +91,7 @@
                 }}</em>
                 <em class="text-positive" v-else>{{ t('admin.blocks.builtin') }}</em>
               </w-item-label>
-            </w-item-section>
-            <template v-if="hasServerProp(block)">
-              <w-item-section side style="min-width: 260px">
+              <div v-if="hasServerProp(block)" class="mt-3 w-full max-w-[420px]">
                 <w-input
                   dense
                   v-model="block.config.server"
@@ -101,9 +99,8 @@
                   :aria-label="t('admin.blocks.server')"
                   :placeholder="serverProp(block)?.default"
                   :hint="t('admin.blocks.serverHint')" />
-              </w-item-section>
-              <w-separator class="mx-4" vertical />
-            </template>
+              </div>
+            </w-item-section>
             <template v-if="block.isCustom">
               <w-item-section side>
                 <w-btn

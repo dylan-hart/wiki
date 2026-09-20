@@ -32,6 +32,33 @@ function siteInfoFixture(overrides = {}) {
   }
 }
 
+describe('site store: applySiteInfo() banner', () => {
+  it('exposes the empty default before any site loads', () => {
+    const store = useSiteStore()
+
+    expect(store.banner).toEqual({ isEnabled: false, title: '', content: '' })
+  })
+
+  it('adopts the banner from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(
+      siteInfoFixture({ banner: { isEnabled: true, title: 'Notice', content: 'Hello' } })
+    )
+
+    expect(store.banner).toEqual({ isEnabled: true, title: 'Notice', content: 'Hello' })
+  })
+
+  it('falls back to the empty default when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(
+      siteInfoFixture({ banner: { isEnabled: true, title: 'Old', content: 'x' } })
+    )
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.banner).toEqual({ isEnabled: false, title: '', content: '' })
+  })
+})
+
 describe('site store: applySiteInfo() pdfExportAvailable', () => {
   it('adopts pdfExportAvailable: true from the site payload', () => {
     const store = useSiteStore()
@@ -52,6 +79,22 @@ describe('site store: applySiteInfo() pdfExportAvailable', () => {
     store.applySiteInfo(siteInfoFixture())
 
     expect(store.pdfExportAvailable).toBe(false)
+  })
+})
+
+describe('site store: applySiteInfo() guestsMayViewProfiles', () => {
+  it('adopts guestsMayViewProfiles: true from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ guestsMayViewProfiles: true }))
+
+    expect(store.guestsMayViewProfiles).toBe(true)
+  })
+
+  it('defaults to false when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.guestsMayViewProfiles).toBe(false)
   })
 })
 
@@ -791,5 +834,35 @@ describe('site store: openFileManager()', () => {
 
     expect(store.overlay).toBe('FileManager')
     expect(store.overlayOpts).toEqual({ insertMode: true })
+  })
+})
+
+describe('site store: localeRouting', () => {
+  it('carries the locale aliases the site returns', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(
+      siteInfoFixture({
+        locales: {
+          primary: 'en',
+          forcePrefix: true,
+          active: ['en', 'zh-CN'],
+          aliases: { 'zh-CN': 'zh' }
+        }
+      })
+    )
+
+    expect(store.localeRouting).toEqual({
+      useLocales: true,
+      primary: 'en',
+      forcePrefix: true,
+      aliases: { 'zh-CN': 'zh' }
+    })
+  })
+
+  it('carries an empty alias map when the site returns none', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.localeRouting.aliases).toEqual({})
   })
 })

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import proxyAddr from '@fastify/proxy-addr'
 
 export const CORS_MODES = ['OFF', 'REFLECT', 'HOSTNAMES', 'REGEX'] as const
 export type CorsMode = (typeof CORS_MODES)[number]
@@ -280,4 +281,23 @@ export function corsOptions(security: { corsMode?: string; corsConfig?: string }
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type']
   }
+}
+
+export type TrustProxyFn = (addr: string, hop: number) => boolean
+
+const trustNobody: TrustProxyFn = () => false
+const trustEveryone: TrustProxyFn = () => true
+
+export function compileTrustProxyList(spec: string): TrustProxyFn {
+  return proxyAddr.compile(spec.split(',').map((entry) => entry.trim()))
+}
+
+export function compileTrustProxy(value: unknown): TrustProxyFn {
+  if (value === true) {
+    return trustEveryone
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    return compileTrustProxyList(value)
+  }
+  return trustNobody
 }

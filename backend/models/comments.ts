@@ -15,6 +15,7 @@ import {
 } from 'drizzle-orm'
 import { chunk } from 'es-toolkit/array'
 import { loadModule } from '../helpers/moduleRegistry.ts'
+import { extractMentionCandidates, MAX_MENTION_CANDIDATES } from '../helpers/mentions.ts'
 import {
   comments as commentsTable,
   pages as pagesTable,
@@ -164,8 +165,9 @@ class Comments {
     if (!active) {
       return null
     }
+    const mentions = await this.resolveMentions(siteId, content)
     try {
-      return (await active.module.render(content)).render
+      return (await active.module.render(content, { mentions })).render
     } catch (err: any) {
       CARDINAL.logger.warn('ext', 'rendering a comment failed', {
         module: active.provider.module,
@@ -175,6 +177,34 @@ class Comments {
       return null
     }
   }
+
+  /**
+   * Lookup failure degrades to no mentions rather than losing the comment's render: `@text` then
+   * stays literal.
+   */
+  async resolveMentions(siteId: string, content: string): Promise<Map<string, string>> {
+    const resolved = new Map<string, string>()
+    const candidates = extractMentionCandidates(content)
+    if (candidates.length === 0) {
+      return resolved
+    }
+    try {
+      const rows = await CARDINAL.db
+        .select({ handle: usersTable.handle })
+        .from(usersTable)
+        .where(inArray(sql`lower(${usersTable.handle})`, candidates))
+        .limit(MAX_MENTION_CANDIDATES)
+      for (const { handle } of rows) {
+        if (handle) {
+          resolved.set(handle.toLowerCase(), handle)
+        }
+      }
+    } catch (err: any) {
+      CARDINAL.logger.warn('ext', 'resolving comment mentions failed', { siteId, error: err })
+    }
+    return resolved
+  }
+
   async create({
     siteId,
     pageId,
@@ -230,7 +260,11 @@ class Comments {
       })
       .returning()
     const comment = rows[0]
-    await this.emitEvent('comment:new', comment, await this.resolveAuthorName(comment))
+    const authorName = await this.resolveAuthorName(comment)
+    await this.emitEvent('comment:new', comment, authorName)
+    if (!createdAt && !updatedAt) {
+      this.queueMentionNotifications(comment, authorName)
+    }
     return comment
   }
 
@@ -269,8 +303,31 @@ class Comments {
       .where(eq(commentsTable.id, id))
       .returning()
     const comment = rows[0]
-    await this.emitEvent('comment:edit', comment, await this.resolveAuthorName(comment))
+    const authorName = await this.resolveAuthorName(comment)
+    await this.emitEvent('comment:edit', comment, authorName)
+    if (existing) {
+      this.queueMentionNotifications(comment, authorName, existing.content)
+    }
     return comment
+  }
+
+  private queueMentionNotifications(
+    comment: Comment,
+    authorName: string,
+    previousContent?: string
+  ): void {
+    try {
+      void CARDINAL.models.commentNotifications.notifyMentions({
+        comment,
+        authorName,
+        previousContent
+      })
+    } catch (err: any) {
+      CARDINAL.logger.warn('hooks', 'queueing the comment mention notifications failed', {
+        comment: comment.id,
+        error: err
+      })
+    }
   }
 
   async get(id: string): Promise<Comment | null> {

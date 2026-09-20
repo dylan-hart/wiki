@@ -1,9 +1,15 @@
-import { and, asc, eq, gt } from 'drizzle-orm'
+import { and, asc, eq, gt, sql } from 'drizzle-orm'
 import { pages as pagesTable } from '../../db/schema.ts'
+import { escapeLikePattern } from '../../helpers/common.ts'
 import { search } from '../../models/search.ts'
 import type { SQL } from 'drizzle-orm'
 import type { AccessActor } from '../../models/groups.ts'
-import type { SearchIndexablePage, SearchPagesResult, SearchResult } from '../../models/search.ts'
+import type {
+  SearchFilters,
+  SearchIndexablePage,
+  SearchPagesResult,
+  SearchResult
+} from '../../models/search.ts'
 
 /**
  * Helpers every `modules/search/*` engine shares.
@@ -185,6 +191,8 @@ export interface SearchDocument {
   tags: string[]
   editor: string
   publishState: string
+  creatorId: string
+  authorId: string
   isSearchable: boolean
   classification: string
   updatedAt: string
@@ -204,6 +212,8 @@ export function buildSearchDocument(page: SearchIndexablePage): SearchDocument {
     tags: page.tags ?? [],
     editor: page.editor,
     publishState: page.publishState,
+    creatorId: page.creatorId,
+    authorId: page.authorId,
     isSearchable: page.isSearchable,
     classification: page.classification,
     updatedAt,
@@ -243,6 +253,8 @@ export async function* pageStream(
         tags: pagesTable.tags,
         editor: pagesTable.editor,
         publishState: pagesTable.publishState,
+        creatorId: pagesTable.creatorId,
+        authorId: pagesTable.authorId,
         isSearchable: pagesTable.isSearchable,
         classification: pagesTable.classification,
         password: pagesTable.password,
@@ -390,4 +402,71 @@ export function fillEmptyStringDefaults(
     }
   }
   return filled
+}
+
+function nonEmpty(values?: string[]): values is string[] {
+  return Array.isArray(values) && values.length > 0
+}
+
+/** Conditions over the aliased `pages p` table, shared by the `db` engine and semantic search. */
+export function buildSqlFilterConditions(filters: SearchFilters): SQL[] {
+  const conditions: SQL[] = []
+  const { path, excludePath, locales, excludeLocales, tags, tagsMatch, excludeTags } = filters
+  const { editor, excludeEditor, publishState, excludePublishState } = filters
+  const { creatorId, excludeCreatorId, authorId, excludeAuthorId } = filters
+  const prefix = (value: string) => `${escapeLikePattern(value)}%`
+
+  if (nonEmpty(path)) {
+    conditions.push(
+      sql`(${sql.join(
+        path.map((v) => sql`p.path LIKE ${prefix(v)}`),
+        sql` OR `
+      )})`
+    )
+  }
+  if (nonEmpty(excludePath)) {
+    for (const value of excludePath) {
+      conditions.push(sql`p.path NOT LIKE ${prefix(value)}`)
+    }
+  }
+  if (nonEmpty(locales)) {
+    conditions.push(sql`p.locale = ANY(${sql.param(locales)}::text[])`)
+  }
+  if (nonEmpty(excludeLocales)) {
+    conditions.push(sql`p.locale <> ALL(${sql.param(excludeLocales)}::text[])`)
+  }
+  if (nonEmpty(tags)) {
+    conditions.push(
+      tagsMatch === 'any'
+        ? sql`p.tags && ${sql.param(tags)}::text[]`
+        : sql`p.tags @> ${sql.param(tags)}::text[]`
+    )
+  }
+  if (nonEmpty(excludeTags)) {
+    conditions.push(sql`NOT (p.tags && ${sql.param(excludeTags)}::text[])`)
+  }
+  if (nonEmpty(editor)) {
+    conditions.push(sql`p.editor = ANY(${sql.param(editor)}::text[])`)
+  }
+  if (nonEmpty(excludeEditor)) {
+    conditions.push(sql`p.editor <> ALL(${sql.param(excludeEditor)}::text[])`)
+  }
+  if (nonEmpty(publishState)) {
+    conditions.push(sql`p."publishState"::text = ANY(${sql.param(publishState)}::text[])`)
+  }
+  if (nonEmpty(excludePublishState)) {
+    conditions.push(sql`p."publishState"::text <> ALL(${sql.param(excludePublishState)}::text[])`)
+  }
+  for (const [column, include, exclude] of [
+    [sql`p."creatorId"`, creatorId, excludeCreatorId],
+    [sql`p."authorId"`, authorId, excludeAuthorId]
+  ] as const) {
+    if (nonEmpty(include)) {
+      conditions.push(sql`${column} = ANY(${sql.param(include)}::uuid[])`)
+    }
+    if (nonEmpty(exclude)) {
+      conditions.push(sql`${column} <> ALL(${sql.param(exclude)}::uuid[])`)
+    }
+  }
+  return conditions
 }

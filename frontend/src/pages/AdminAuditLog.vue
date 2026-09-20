@@ -25,6 +25,14 @@
         </w-btn>
         <w-btn
           class="me-2"
+          icon="tabler:download"
+          outline
+          color="slate-soft"
+          :label="t('admin.audit.exportNdjson')"
+          :loading="state.exporting"
+          @click="exportNdjson" />
+        <w-btn
+          class="me-2"
           icon="tabler:refresh"
           outline
           color="slate-soft"
@@ -118,6 +126,9 @@
           <template v-slot:body-cell-actor="props">
             <w-td :props="props">
               <span>{{ props.row.actor.name || t('admin.audit.systemActor') }}</span>
+              <div v-if="props.row.actor.email">
+                <small class="text-grey">{{ props.row.actor.email }}</small>
+              </div>
               <div v-if="props.row.actorIp">
                 <small class="text-grey">{{ props.row.actorIp }}</small>
               </div>
@@ -163,7 +174,7 @@
           @click="loadMore" />
       </div>
 
-      <w-separator class="my-4" inset />
+      <w-separator v-if="canManageRetention" class="my-4" inset />
 
       <!--
         Card-local save, not a page-header Apply: this page is a viewer (audit entries + filters)
@@ -171,7 +182,7 @@
         commits locally the same way. The setting takes a settings row because it is a fixed,
         design-time named setting; the log table above it is a data-driven collection and does not.
       -->
-      <w-card>
+      <w-card v-if="canManageRetention">
         <w-settings-row
           icon="tabler:calendar-time"
           control-width="auto"
@@ -214,7 +225,8 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { fileSave } from 'browser-fs-access'
 import { useI18n } from 'vue-i18n'
 
 import { useDark } from '@/composables/dark'
@@ -225,11 +237,16 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 const dark = useDark()
 
 const siteStore = useSiteStore()
+
+const userStore = useUserStore()
+
+const canManageRetention = computed(() => userStore.can('manage:system'))
 
 const { t } = useI18n()
 
@@ -246,6 +263,14 @@ const AUDIT_EVENTS = [
   'user.deleted',
   'user.passwordReset',
   'user.tfaDisabledByAdmin',
+  'user.registered',
+  'user.passwordResetRequested',
+  'user.passwordResetCompleted',
+  'user.tfaEnabled',
+  'user.tfaDisabled',
+  'user.passkeyEnrolled',
+  'user.passkeyRemoved',
+  'user.loggedOut',
   'group.created',
   'group.updated',
   'group.deleted',
@@ -291,6 +316,7 @@ const state = reactive({
   total: 0,
   retentionDays: 365,
   savingRetention: false,
+  exporting: false,
   loading: 0,
   filters: {
     actorId: null,
@@ -331,7 +357,7 @@ function resetFilters() {
   reload()
 }
 
-function buildSearchParams(offset) {
+function buildSearchParams(offset, { paged = true } = {}) {
   const searchParams = new URLSearchParams()
   if (state.filters.actorId) {
     searchParams.set('actorId', state.filters.actorId)
@@ -345,8 +371,10 @@ function buildSearchParams(offset) {
   if (state.filters.to) {
     searchParams.set('to', new Date(`${state.filters.to}T23:59:59.999Z`).toISOString())
   }
-  searchParams.set('limit', PAGE_LIMIT)
-  searchParams.set('offset', offset)
+  if (paged) {
+    searchParams.set('limit', PAGE_LIMIT)
+    searchParams.set('offset', offset)
+  }
   return searchParams
 }
 
@@ -385,6 +413,28 @@ async function loadMore() {
     })
   }
   state.loading--
+}
+
+async function exportNdjson() {
+  state.exporting = true
+  try {
+    const blob = await API_CLIENT.get('audit-log/export', {
+      searchParams: buildSearchParams(0, { paged: false })
+    }).blob()
+    await fileSave(blob, {
+      fileName: `audit-log-${new Date().toISOString().slice(0, 10)}.ndjson`,
+      extensions: ['.ndjson']
+    })
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      notify({
+        type: 'negative',
+        message: t('admin.audit.exportFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+  }
+  state.exporting = false
 }
 
 async function loadActors() {
@@ -440,6 +490,10 @@ async function saveRetention() {
 }
 
 onMounted(async () => {
-  await Promise.all([reload(), loadActors(), loadRetention()])
+  await Promise.all([
+    reload(),
+    loadActors(),
+    ...(canManageRetention.value ? [loadRetention()] : [])
+  ])
 })
 </script>

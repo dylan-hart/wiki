@@ -30,9 +30,25 @@
         class="page-comments-item"
         :style="{ marginInlineStart: `${entry.depth * INDENT_PX}px` }">
         <div class="page-comments-card group flex gap-3">
-          <w-avatar identity="initials" size="30px" font-size="11px">{{
-            initialsFor(entry.comment)
-          }}</w-avatar>
+          <component
+            :is="canViewProfile(entry.comment) ? 'button' : 'span'"
+            class="page-comments-avatar shrink-0 self-start"
+            :class="{
+              'cursor-pointer border-0 bg-transparent p-0': canViewProfile(entry.comment)
+            }"
+            :type="canViewProfile(entry.comment) ? 'button' : undefined"
+            :aria-haspopup="canViewProfile(entry.comment) ? 'dialog' : undefined"
+            :aria-label="
+              canViewProfile(entry.comment)
+                ? t('profilePopover.avatarLabel', { name: entry.comment.authorName })
+                : undefined
+            "
+            :title="entry.comment.authorName"
+            @click="openAuthorProfile(entry.comment, $event)">
+            <w-avatar identity="initials" size="30px" font-size="11px">{{
+              initialsFor(entry.comment)
+            }}</w-avatar>
+          </component>
           <div class="min-w-0 flex-1">
             <div class="page-comments-meta flex flex-wrap items-baseline gap-2">
               <strong class="text-text-body dark:text-text-dark">{{
@@ -47,9 +63,10 @@
                 for a tab-focused button, so these would otherwise be invisible to the keyboard.
               -->
               <div
-                v-if="canModerate"
-                class="page-comments-actions ml-auto flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                v-if="entry.comment.canEdit || entry.comment.canDelete"
+                class="page-comments-actions ms-auto flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                 <w-btn
+                  v-if="entry.comment.canEdit"
                   class="page-comments-edit-toggle"
                   icon="tabler:pencil"
                   flat
@@ -59,6 +76,7 @@
                   :aria-label="t(`common.comments.updateComment`)"
                   @click="startEdit(entry.comment)" />
                 <w-btn
+                  v-if="entry.comment.canDelete"
                   class="page-comments-delete-toggle"
                   icon="tabler:trash"
                   flat
@@ -139,6 +157,7 @@ import { useI18n } from 'vue-i18n'
 import CommentComposer from '@/components/CommentComposer.vue'
 import { confirm } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { canOpenProfilePopover, openProfilePopover } from '@/composables/profilePopover'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { initials } from '@/helpers/initials'
 
@@ -166,7 +185,6 @@ const canWrite = computed(() => userStore.can('write:comments'))
  * delete their own comment here, even though `maySelfModerate()` (`backend/api/comments.ts`) lets
  * them. The fix is putting those flags on the wire and gating per comment.
  */
-const canModerate = computed(() => userStore.can('manage:comments'))
 
 const loading = ref(true)
 const comments = ref([])
@@ -206,6 +224,20 @@ function initialsFor(comment) {
     return name.charAt(0).toUpperCase()
   }
   return initials(name)
+}
+
+function canViewProfile(comment) {
+  return Boolean(comment.authorId) && canOpenProfilePopover()
+}
+
+function openAuthorProfile(comment, ev) {
+  if (canViewProfile(comment)) {
+    openProfilePopover({
+      userId: comment.authorId,
+      anchor: ev.currentTarget,
+      name: comment.authorName
+    })
+  }
 }
 
 function isModified(comment) {

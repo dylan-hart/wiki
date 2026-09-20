@@ -59,6 +59,7 @@ CREATE TABLE "auditLog" (
 	"event" varchar(64) NOT NULL,
 	"actorId" uuid,
 	"actorName" varchar(255) DEFAULT '' NOT NULL,
+	"actorEmail" varchar(255) DEFAULT '' NOT NULL,
 	"actorIp" varchar(64) DEFAULT '' NOT NULL,
 	"targetType" varchar(32) DEFAULT '' NOT NULL,
 	"targetId" varchar(255) DEFAULT '' NOT NULL,
@@ -443,6 +444,7 @@ CREATE TABLE "pages" (
 	"contentType" varchar(255) NOT NULL,
 	"isBrowsable" boolean DEFAULT true NOT NULL,
 	"isSearchable" boolean DEFAULT true NOT NULL,
+	"autoTagPending" boolean DEFAULT false NOT NULL,
 	"password" varchar(255),
 	"historyData" jsonb DEFAULT '{}' NOT NULL,
 	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
@@ -511,7 +513,6 @@ CREATE TABLE "storage" (
 	"scheduleOverride" varchar(32),
 	"lastTickAt" timestamp with time zone,
 	"config" jsonb DEFAULT '{}' NOT NULL,
-	"state" jsonb DEFAULT '{}' NOT NULL,
 	"siteId" uuid NOT NULL
 );
 --> statement-breakpoint
@@ -574,6 +575,7 @@ CREATE TABLE "users" (
 	"passkeys" jsonb DEFAULT '{}' NOT NULL,
 	"prefs" jsonb DEFAULT '{}' NOT NULL,
 	"hasAvatar" boolean DEFAULT false NOT NULL,
+	"handle" varchar(32),
 	"isActive" boolean DEFAULT false NOT NULL,
 	"isSystem" boolean DEFAULT false NOT NULL,
 	"isVerified" boolean DEFAULT false NOT NULL,
@@ -657,9 +659,11 @@ CREATE INDEX "tree_tags_idx" ON "tree" USING gin ("tags");--> statement-breakpoi
 CREATE INDEX "tree_siteId_idx" ON "tree" ("siteId");--> statement-breakpoint
 CREATE UNIQUE INDEX "tree_composite_page_idx" ON "tree" ("siteId","locale","folderPath","fileName") WHERE "tree" = 'page';--> statement-breakpoint
 CREATE UNIQUE INDEX "tree_composite_nonpage_idx" ON "tree" ("siteId","locale","folderPath","fileName") WHERE "tree" <> 'page';--> statement-breakpoint
+CREATE UNIQUE INDEX "groups_name_normalized_idx" ON "groups" (lower(trim("name")));--> statement-breakpoint
 CREATE INDEX "userGroups_groupId_idx" ON "userGroups" ("groupId");--> statement-breakpoint
 CREATE INDEX "userKeys_userId_idx" ON "userKeys" ("userId");--> statement-breakpoint
 CREATE UNIQUE INDEX "userKeys_token_idx" ON "userKeys" ("token");--> statement-breakpoint
+CREATE UNIQUE INDEX "users_handle_lower_idx" ON "users" (lower("handle"));--> statement-breakpoint
 CREATE INDEX "users_lastLoginAt_idx" ON "users" ("lastLoginAt");--> statement-breakpoint
 ALTER TABLE "apiKeys" ADD CONSTRAINT "apiKeys_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
 ALTER TABLE "apiKeys" ADD CONSTRAINT "apiKeys_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint

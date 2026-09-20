@@ -31,6 +31,52 @@ export function templateAppShell(html: string, { lang, isRTL }: AppShellTemplate
   return html.replace(HTML_TAG_PATTERN, `<html lang="${lang}" dir="${isRTL ? 'rtl' : 'ltr'}">`)
 }
 
+export interface AppShellFragments {
+  head?: string
+  bodyEnd?: string
+}
+
+export function mergeShellFragments(...parts: AppShellFragments[]): AppShellFragments {
+  let head = ''
+  let bodyEnd = ''
+  for (const part of parts) {
+    head += part.head ?? ''
+    bodyEnd += part.bodyEnd ?? ''
+  }
+  const merged: AppShellFragments = {}
+  if (head) merged.head = head
+  if (bodyEnd) merged.bodyEnd = bodyEnd
+  return merged
+}
+
+const HEAD_CLOSE_PATTERN = /<\/head\s*>/i
+const BODY_CLOSE_PATTERN = /<\/body\s*>/gi
+
+export function insertIntoAppShell(template: string, fragments: AppShellFragments): string {
+  const { head, bodyEnd } = fragments
+  const headAt = head ? template.search(HEAD_CLOSE_PATTERN) : -1
+  let bodyAt = -1
+  if (bodyEnd) {
+    for (const match of template.matchAll(BODY_CLOSE_PATTERN)) {
+      bodyAt = match.index
+    }
+  }
+  if (headAt === -1 && bodyAt === -1) {
+    return template
+  }
+  const inserts: Array<[number, string]> = []
+  if (headAt !== -1) inserts.push([headAt, head!])
+  if (bodyAt !== -1) inserts.push([bodyAt, bodyEnd!])
+  inserts.sort((a, b) => a[0] - b[0])
+  let result = ''
+  let cursor = 0
+  for (const [at, fragment] of inserts) {
+    result += template.slice(cursor, at) + fragment
+    cursor = at
+  }
+  return result + template.slice(cursor)
+}
+
 /**
  * Mirrors the frontend's `resolveRouteLocale`, so the shell is stamped with the locale the booted
  * app will settle on.

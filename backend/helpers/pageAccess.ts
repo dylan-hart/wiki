@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { AccessActor } from '../models/groups.ts'
 import type { Page, PageActor } from '../models/pages.ts'
 import { PAGE_PERMISSIONS } from './permissions.ts'
 
@@ -72,10 +73,19 @@ export function mayReadSource(
   siteId: string,
   page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): boolean {
+  return mayReadSourceAs(CARDINAL.models.groups.actorForRequest(req), siteId, page)
+}
+
+export function mayReadSourceAs(
+  actor: AccessActor,
+  siteId: string,
+  page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
+): boolean {
+  const ref = { ...page, classification: page.classification ?? null, siteId }
   return (
-    mayOnPage(req, 'read:source', siteId, page) ||
-    mayOnPage(req, 'write:pages', siteId, page) ||
-    mayOnPage(req, 'manage:pages', siteId, page)
+    CARDINAL.models.groups.checkAccess(actor, 'read:source', ref) ||
+    CARDINAL.models.groups.checkAccess(actor, 'write:pages', ref) ||
+    CARDINAL.models.groups.checkAccess(actor, 'manage:pages', ref)
   )
 }
 

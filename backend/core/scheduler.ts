@@ -160,6 +160,7 @@ export default {
   listenerHandle: null as ListenerHandle | null,
   maxWorkers: 1,
   activeWorkers: 0,
+  stopping: false,
   pollingRef: null as NodeJS.Timeout | null,
   scheduledRef: null as NodeJS.Timeout | null,
   tasks: null as Record<string, SimpleTask> | null,
@@ -208,6 +209,7 @@ export default {
     return this
   },
   async start(): Promise<void> {
+    this.stopping = false
     const connectionAppName = `Cardinal.js - ${CARDINAL.INSTANCE_ID}:SCHEDULER`
 
     this.listenerHandle = await connectListener({
@@ -370,6 +372,15 @@ export default {
    * history row, which is what `reapStaleJobs` is for.
    */
   async processJob(): Promise<void> {
+    if (this.stopping) {
+      return
+    }
+    const claiming = this.claimAndRun()
+    this.inFlightJobs.add(claiming)
+    claiming.finally(() => this.inFlightJobs.delete(claiming))
+    return claiming
+  },
+  async claimAndRun(): Promise<void> {
     // -> Reserved synchronously, before the first `await`: `processJob` has two overlapping callers
     //    (the polling interval and the `newJob` handler) and the claim is several round trips long,
     //    so a check-then-act read of `activeWorkers` would not bind concurrency to `maxWorkers`.
@@ -783,6 +794,7 @@ export default {
    * `staleJobTimeout` elapses.
    */
   async stop(): Promise<void> {
+    this.stopping = true
     clearInterval(this.scheduledRef!)
     clearInterval(this.pollingRef!)
     this.scheduledRef = null

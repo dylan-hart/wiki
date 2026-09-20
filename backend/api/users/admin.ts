@@ -1,7 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { CustomError, rethrowAsBadRequest } from '../../helpers/common.ts'
 import { actorFromRequest } from '../../models/auditLog.ts'
-import { deriveDisplayName, type UserPatch } from '../../models/users.ts'
+import {
+  deriveDisplayName,
+  forcedPublicFields,
+  PROFILE_PUBLIC_FIELDS,
+  type ProfilePublicField,
+  type UserPatch
+} from '../../models/users.ts'
 import { sessionUserIdOrNull } from './profile.ts'
 
 interface UserUpdateBody {
@@ -61,7 +67,8 @@ export async function whoAmI(req: FastifyRequest): Promise<Record<string, any>> 
       cvd: profile.cvd,
       locale: profile.locale,
       graph: profile.graph,
-      iconPicker: profile.iconPicker
+      iconPicker: profile.iconPicker,
+      searchFilters: profile.searchFilters
     }),
     /*
       The same list the route permission hook checks. Nothing is added for the interface's benefit: a
@@ -380,6 +387,97 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  app.get(
+    '/profile-visibility',
+    {
+      config: {
+        permissions: ['read:users', 'manage:users']
+      },
+      schema: {
+        summary: 'Get the instance-wide profile visibility settings',
+        tags: ['Users'],
+        response: {
+          200: {
+            description: 'Profile visibility settings',
+            type: 'object',
+            $ref: 'ProfileVisibility#'
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async () => {
+      return {
+        forcedPublicFields: forcedPublicFields(),
+        guestsMayView: CARDINAL.config.profileVisibility?.guestsMayView === true
+      }
+    }
+  )
+
+  app.put<{ Body: { forcedPublicFields?: ProfilePublicField[]; guestsMayView?: boolean } }>(
+    '/profile-visibility',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: 'Update the instance-wide profile visibility settings',
+        description:
+          'These are instance-wide, not per-site, because the public profile endpoint is not site-scoped. Any subset may be sent; omitted ones are left unchanged.',
+        tags: ['Users'],
+        body: {
+          $ref: 'ProfileVisibility#'
+        },
+        response: {
+          200: {
+            description: 'Profile visibility settings updated successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The settings could not be saved.' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const patch: Record<string, any> = {}
+      if (req.body.forcedPublicFields !== undefined) {
+        patch.forcedPublicFields = PROFILE_PUBLIC_FIELDS.filter((field) =>
+          req.body.forcedPublicFields!.includes(field)
+        )
+      }
+      if (req.body.guestsMayView !== undefined) {
+        patch.guestsMayView = req.body.guestsMayView
+      }
+      if (Object.keys(patch).length < 1) {
+        throw new CustomError('profileVisibilityEmpty', 'No profile visibility settings provided.')
+      }
+
+      const previous = CARDINAL.config.profileVisibility
+      CARDINAL.config.profileVisibility = { ...previous, ...patch }
+
+      if (!(await CARDINAL.configSvc.saveToDb(['profileVisibility']))) {
+        CARDINAL.config.profileVisibility = previous
+        return reply.internalServerError('Failed to save profile visibility settings.')
+      }
+
+      return {
+        ok: true,
+        message: 'Profile visibility settings updated successfully.'
+      }
+    }
+  )
+
   app.get<{ Params: { userId: string } }>(
     '/:userId',
     {
@@ -556,6 +654,7 @@ async function routes(app: FastifyInstance) {
       if (await CARDINAL.models.groups.hasUnknownGroupIds(req.body.groups ?? [])) {
         return reply.badRequest('ERR_UNKNOWN_GROUPS')
       }
+      await CARDINAL.models.groups.assertMembershipChangeAllowed(req, [], req.body.groups ?? [])
 
       try {
         const id = await CARDINAL.models.users.createUser({
@@ -790,18 +889,11 @@ async function routes(app: FastifyInstance) {
           checked: a user already in such a group is protected by `systemUserGuard` above, which has
           refused this request before it gets here.
         */
-        if (!CARDINAL.models.groups.holdsSystemPermission(req)) {
-          const current = await CARDINAL.models.users.getUserGroupIds(req.params.userId)
-          const systemGroupIds = await CARDINAL.models.groups.systemGroupIds()
-          const added = req.body.groups.filter((id) => !current.includes(id))
-          if (added.some((id) => systemGroupIds.includes(id))) {
-            throw new CustomError(
-              'groupMembershipSystemProtected',
-              'Only a user who holds the manage:system permission can add a user to a group that has it.',
-              403
-            )
-          }
-        }
+        await CARDINAL.models.groups.assertMembershipChangeAllowed(
+          req,
+          await CARDINAL.models.users.getUserGroupIds(req.params.userId),
+          req.body.groups
+        )
 
         const rootAdminGroupId = CARDINAL.config.auth.rootAdminGroupId
         const wasRootAdmin = await CARDINAL.models.groups.isUserInGroup(

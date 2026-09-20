@@ -1,6 +1,7 @@
 import * as client from 'openid-client'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 import { providerNameHalves } from '../../../models/authentication.ts'
+import { fetchWorkspaceGroups } from './groups.ts'
 
 const ISSUER = 'https://accounts.google.com'
 
@@ -35,6 +36,21 @@ export function mapGoogleProfile(
       ? { picture: claims.picture }
       : {})
   }
+}
+
+export async function googleProfileWithGroups(
+  conf: Record<string, any>,
+  claims: Record<string, any>,
+  fetchGroups: (
+    conf: Record<string, any>,
+    email: string
+  ) => Promise<string[]> = fetchWorkspaceGroups
+): Promise<ProviderProfile> {
+  const profile = mapGoogleProfile(conf, claims)
+  if (!conf.mapGroups) {
+    return profile
+  }
+  return { ...profile, groups: await fetchGroups(conf, profile.email) }
 }
 
 /**
@@ -109,6 +125,6 @@ export default class GoogleAuthentication {
       throw new Error('ERR_NO_ID_TOKEN')
     }
 
-    return mapGoogleProfile(this.conf, claims)
+    return googleProfileWithGroups(this.conf, claims)
   }
 }

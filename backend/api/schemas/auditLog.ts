@@ -30,6 +30,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           name: {
             type: 'string',
             description: 'Snapshotted at write time — survives the actor being renamed or deleted.'
+          },
+          email: {
+            type: 'string',
+            description:
+              'Snapshotted at write time like `name`. Empty for an event with no account actor, and for entries written before the column existed.'
           }
         }
       },

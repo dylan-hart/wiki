@@ -7,7 +7,7 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
-import { DIGEST_PENDING_LIMIT } from './pageWatchEvents.ts'
+import { DIGEST_PENDING_LIMIT, UNREAD_COUNT_SCAN_LIMIT } from './pageWatchEvents.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import type { GroupRule } from './groups.ts'
 
@@ -575,6 +575,95 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
 
     const count = await pageWatchEventsModel.unreadCount(userId, siteId)
     assert.equal(count, 2)
+  })
+
+  test('unreadCount excludes a row once the user has lost read:pages on it, matching listForUser', async () => {
+    const userId = await makeUser('inbox-count-revoked@example.com')
+    const hiddenPage = await pagesModel.createPage(
+      siteId,
+      {
+        path: 'inbox-count-hidden',
+        title: 'Hidden',
+        editor: 'markdown',
+        content: '# Hidden'
+      } as PageInput,
+      actor
+    )
+    const base = {
+      siteId,
+      pageTitle: 'Hidden',
+      pageLocale: 'en',
+      userId,
+      action: 'updated' as const,
+      actorId: actor.id,
+      changedFields: ['title'],
+      notifyMode: 'digest' as const
+    }
+    await pageWatchEventsModel.recordMany([
+      { ...base, pageId, pagePath: 'inbox-fixture' },
+      { ...base, pageId: hiddenPage.id, pagePath: 'inbox-count-hidden' }
+    ])
+    assert.equal(await pageWatchEventsModel.unreadCount(userId, siteId), 2)
+
+    const allow = {
+      id: 'inbox-read-everywhere',
+      name: 'Read everywhere',
+      roles: ['read:pages'],
+      match: 'START',
+      mode: 'ALLOW',
+      path: '',
+      locales: [],
+      sites: []
+    } satisfies GroupRule
+    await fixtures.db
+      .update(groupsTable)
+      .set({
+        rules: [
+          allow,
+          {
+            id: 'inbox-count-deny',
+            name: 'Deny the hidden path',
+            roles: ['read:pages'],
+            match: 'EXACT',
+            mode: 'DENY',
+            path: 'inbox-count-hidden',
+            locales: [],
+            sites: []
+          }
+        ] satisfies GroupRule[]
+      })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    try {
+      assert.equal(await pageWatchEventsModel.unreadCount(userId, siteId), 1)
+      assert.equal((await pageWatchEventsModel.listForUser(userId, siteId)).length, 1)
+    } finally {
+      await fixtures.db
+        .update(groupsTable)
+        .set({ rules: [allow] })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await groupsModel.reloadCache()
+    }
+  })
+
+  test('unreadCount saturates at UNREAD_COUNT_SCAN_LIMIT instead of scanning the whole backlog', async () => {
+    const userId = await makeUser('inbox-count-saturated@example.com')
+    const rows = Array.from({ length: UNREAD_COUNT_SCAN_LIMIT + 5 }, () => ({
+      siteId,
+      pageId,
+      pageTitle: 'Inbox Fixture',
+      pagePath: 'inbox-fixture',
+      pageLocale: 'en',
+      userId,
+      action: 'updated' as const,
+      actorId: actor.id,
+      changedFields: ['title'],
+      notifyMode: 'digest' as const
+    }))
+    await pageWatchEventsModel.recordMany(rows)
+
+    assert.equal(await pageWatchEventsModel.unreadCount(userId, siteId), UNREAD_COUNT_SCAN_LIMIT)
   })
 
   /** `pageId` is an `on delete set null` foreign key, so deleting the page unlinks the row. */

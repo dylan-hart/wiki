@@ -145,3 +145,49 @@ describe(
     })
   }
 )
+
+describe(
+  'storage / assetDelivery.readThrough seeding (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      CARDINAL.SERVERPATH = path.join(import.meta.dirname, '..')
+      await storage.refreshFromDisk()
+      await storage.syncSite(fixtures.siteId)
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('a freshly seeded blob target has readThrough off and its supported flag on', async () => {
+      const targets = await storage.getSiteTargets(fixtures.siteId)
+      for (const key of ['s3', 'azure', 'gcs']) {
+        const target = targets.find((t) => t.module === key)!
+        assert.equal(target.assetDelivery.isReadThroughSupported, true, key)
+        assert.equal(target.assetDelivery.readThrough, false, key)
+      }
+    })
+
+    test('readThrough round-trips through the row for a blob target and stays off for db', async () => {
+      let targets = await storage.getSiteTargets(fixtures.siteId)
+      const s3 = targets.find((t) => t.module === 's3')!
+      await storage.updateTarget(fixtures.siteId, s3, {
+        id: s3.id,
+        assetDelivery: { readThrough: true }
+      })
+      const db = targets.find((t) => t.module === 'db')!
+      await storage.updateTarget(fixtures.siteId, db, {
+        id: db.id,
+        assetDelivery: { readThrough: true }
+      })
+
+      targets = await storage.getSiteTargets(fixtures.siteId)
+      assert.equal(targets.find((t) => t.module === 's3')!.assetDelivery.readThrough, true)
+      assert.equal(targets.find((t) => t.module === 'db')!.assetDelivery.readThrough, false)
+    })
+  }
+)

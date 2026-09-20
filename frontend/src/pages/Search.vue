@@ -12,7 +12,8 @@
           v-if="isFiltersCollapsed"
           class="layout-search-filterbtn"
           flat
-          :label="t(`search.filters`)"
+          data-testid="search-filters-toggle"
+          :label="filtersButtonLabel"
           :aria-expanded="state.filtersOpen"
           @click="toggleFilters">
           <w-icon
@@ -58,79 +59,81 @@
               </w-item>
             </w-list>
           </template>
-          <div class="section-header">{{ t('search.filters') }}</div>
-          <div class="p-2">
-            <w-input
+          <div class="section-header">
+            <span>{{ t('search.filters') }}</span>
+            <w-space />
+            <w-btn
+              data-testid="search-filter-add"
+              flat
+              round
               dense
-              :placeholder="t(`search.filterPath`)"
-              prefix="/"
-              v-model="state.params.filterPath">
-              <template #prepend>
-                <w-icon name="tabler:square-chevron-right" size="xs" />
-              </template>
-            </w-input>
-            <w-select
-              class="mt-2"
-              v-model="state.selectedTags"
-              :options="tags"
-              dense
-              options-dense
-              use-input
-              use-chips
-              multiple
-              hide-dropdown-icon
-              :aria-label="t(`search.filterTags`)"
-              @update:model-value="(v) => syncTags(v)"
-              :placeholder="state.selectedTags.length < 1 ? t(`search.filterTags`) : ``"
-              :loading="state.loading > 0">
-              <template #prepend><w-icon name="tabler:hash" size="xs" /></template>
-            </w-select>
-            <w-select
-              class="mt-2"
-              v-model="state.params.filterLocale"
-              emit-value
-              map-options
-              dense
-              :aria-label="t(`search.filterLocale`)"
-              :options="siteStore.locales.active"
-              option-value="code"
-              option-label="name"
-              options-dense
-              multiple
-              :display-value="
-                t(
-                  `search.filterLocaleDisplay`,
-                  {
-                    n:
-                      state.params.filterLocale.length > 0
-                        ? state.params.filterLocale[0].toUpperCase()
-                        : state.params.filterLocale.length
-                  },
-                  state.params.filterLocale.length
-                )
-              ">
-              <template #prepend><w-icon name="tabler:language" size="xs" /></template>
-            </w-select>
-            <w-select
-              class="mt-2"
-              v-model="state.params.filterEditor"
-              emit-value
-              map-options
-              dense
-              :aria-label="t(`search.filterEditor`)"
-              :options="editors">
-              <template #prepend><w-icon name="tabler:ballpen" size="xs" /></template>
-            </w-select>
-            <w-select
-              class="mt-2"
-              v-model="state.params.filterPublishState"
-              emit-value
-              map-options
-              dense
-              :aria-label="t(`search.filterPublishState`)"
-              :options="publishStates">
-              <template #prepend><w-icon name="tabler:traffic-lights" size="xs" /></template>
-            </w-select>
+              size="sm"
+              icon="la:plus"
+              :aria-label="t('search.addFilter')"
+              :disabled="state.filters.length >= SEARCH_FILTERS_MAX_ROWS"
+              @click="addFilter" />
+          </div>
+          <div class="layout-search-filterlist">
+            <div
+              v-for="row of state.filters"
+              :key="row.id"
+              class="layout-search-filterrow"
+              data-testid="search-filter-row">
+              <div class="layout-search-filterline">
+                <w-select
+                  class="layout-search-filtermode"
+                  data-testid="search-filter-mode"
+                  :model-value="row.mode"
+                  emit-value
+                  map-options
+                  dense
+                  options-dense
+                  :aria-label="t('search.filterMode')"
+                  :options="modeOptions"
+                  @update:model-value="(v) => setFilterMode(row, v)" />
+                <w-select
+                  class="layout-search-filtertype"
+                  data-testid="search-filter-type"
+                  :model-value="row.type"
+                  emit-value
+                  map-options
+                  dense
+                  options-dense
+                  :aria-label="t('search.filterType')"
+                  :options="typeOptions"
+                  @update:model-value="(v) => setFilterType(row, v)" />
+                <w-btn
+                  data-testid="search-filter-remove"
+                  flat
+                  round
+                  dense
+                  size="sm"
+                  icon="la:trash"
+                  :aria-label="t('search.removeFilter')"
+                  @click="removeFilter(row)" />
+              </div>
+              <w-input
+                v-if="isFreeTextFilterType(row.type)"
+                data-testid="search-filter-value"
+                dense
+                :model-value="row.value"
+                :maxlength="SEARCH_FILTER_VALUE_MAX_LENGTH"
+                :prefix="row.type === `path` ? `/` : `#`"
+                :aria-label="t('search.filterValue')"
+                :placeholder="row.type === `path` ? t('search.filterPath') : t('search.filterTag')"
+                @update:model-value="(v) => setFilterValue(row, v)" />
+              <w-select
+                v-else
+                data-testid="search-filter-value"
+                :model-value="row.value"
+                emit-value
+                map-options
+                dense
+                options-dense
+                :aria-label="t('search.filterValue')"
+                :options="valueOptionsFor(row.type)"
+                @update:model-value="(v) => setFilterValue(row, v)" />
+            </div>
           </div>
         </div>
         <w-page>
@@ -244,7 +247,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useMeta } from '@/composables/meta'
@@ -259,7 +262,6 @@ import { useUserStore } from '@/stores/user'
 import { DEFAULT_PAGE_ICON } from '@/stores/page'
 
 import { debounce } from 'es-toolkit/function'
-import { difference } from 'es-toolkit/array'
 import HeaderNav from '@/components/HeaderNav.vue'
 import FooterNav from '@/components/FooterNav.vue'
 import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
@@ -267,6 +269,18 @@ import SearchResultHopBadge from '@/components/SearchResultHopBadge.vue'
 import SearchResultSimilarityBadge from '@/components/SearchResultSimilarityBadge.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { log } from '@/helpers/log'
+import {
+  SEARCH_FILTER_VALUE_MAX_LENGTH,
+  SEARCH_FILTERS_MAX_ROWS,
+  appliedFilters,
+  defaultFilterValue,
+  filtersToSearchParams,
+  hasIncludeFilter,
+  isFreeTextFilterType,
+  newFilterRow,
+  restoreFilters,
+  toSavedFilters
+} from '@/helpers/searchFilters'
 import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
 
 /** The API caps a single request at 100. */
@@ -297,14 +311,11 @@ const state = reactive({
   /** Only consulted below 900px, where the sort/filter panel is a disclosure. */
   filtersOpen: false,
   params: {
-    filterPath: '',
-    filterLocale: [],
-    filterEditor: '',
-    filterPublishState: '',
     orderBy: 'relevancy',
     orderByDirection: 'desc'
   },
-  selectedTags: [],
+  filters: [],
+  filtersLoaded: !userStore.authenticated,
   results: [],
   total: 0,
   /**
@@ -339,25 +350,51 @@ const orderByOptions = computed(() => {
   ]
 })
 
-const editors = computed(() => {
-  return [
-    { label: t('search.editorAny'), value: '' },
-    { label: 'AsciiDoc', value: 'asciidoc' },
-    { label: 'Markdown', value: 'markdown' },
-    { label: 'Visual Editor', value: 'wysiwyg' }
-  ]
-})
+const modeOptions = computed(() => [
+  { label: t('search.filterModeInclude'), value: 'include' },
+  { label: t('search.filterModeExclude'), value: 'exclude' }
+])
 
-const publishStates = computed(() => {
-  return [
-    { label: t('search.publishStateAny'), value: '' },
-    { label: t('search.publishStateDraft'), value: 'draft' },
-    { label: t('search.publishStatePublished'), value: 'published' },
-    { label: t('search.publishStateScheduled'), value: 'scheduled' }
-  ]
-})
+const typeOptions = computed(() => [
+  { label: t('search.filterTypePath'), value: 'path' },
+  { label: t('search.filterTypeTag'), value: 'tag' },
+  { label: t('search.filterTypeLocale'), value: 'locale' },
+  { label: t('search.filterTypeEditor'), value: 'editor' },
+  { label: t('search.filterTypePublishState'), value: 'publishState' }
+])
 
-const tags = computed(() => siteStore.tags.map((t) => t.tag))
+const editorOptions = computed(() => [
+  { label: 'AsciiDoc', value: 'asciidoc' },
+  { label: 'Markdown', value: 'markdown' },
+  { label: 'Visual Editor', value: 'wysiwyg' }
+])
+
+const publishStateOptions = computed(() => [
+  { label: t('search.publishStateDraft'), value: 'draft' },
+  { label: t('search.publishStatePublished'), value: 'published' },
+  { label: t('search.publishStateScheduled'), value: 'scheduled' }
+])
+
+const localeOptions = computed(() =>
+  siteStore.locales.active.map((locale) => ({ label: locale.name, value: locale.code }))
+)
+
+const localeCodes = computed(() => siteStore.locales.active.map((locale) => locale.code))
+
+const activeFilterCount = computed(() => appliedFilters(state.filters).length)
+
+const filtersButtonLabel = computed(() =>
+  activeFilterCount.value > 0
+    ? t('search.filtersActive', { count: activeFilterCount.value })
+    : t('search.filters')
+)
+
+function valueOptionsFor(type) {
+  if (type === 'locale') {
+    return localeOptions.value
+  }
+  return type === 'editor' ? editorOptions.value : publishStateOptions.value
+}
 
 const defaultPageIcon = DEFAULT_PAGE_ICON
 
@@ -382,7 +419,6 @@ watch(
   async (newQueryObj) => {
     if (newQueryObj.q) {
       siteStore.search = newQueryObj.q.trim().slice(0, MAX_QUERY_LENGTH)
-      syncTags()
       // -> `HeaderSearch.vue` carries its pending mode here, so a semantic search started from the
       //    header lands already in Semantic mode. A stray `mode=semantic` is not honoured where the
       //    feature is unavailable, and no `mode` param at all (e.g. `syncTags`'s own
@@ -398,11 +434,100 @@ watch(
   { immediate: true }
 )
 
-watch(
-  () => state.params,
-  debounce(() => performSearch(), 500),
-  { deep: true }
-)
+let nextFilterId = 0
+let restoringFilters = false
+let savedFiltersSnapshot = '[]'
+
+const queueSearch = debounce(() => performSearch(), 500)
+const queueSaveFilters = debounce(() => saveFilters(), 500)
+
+const filtersSignature = computed(() => JSON.stringify(appliedFilters(state.filters)))
+
+watch(() => state.params, queueSearch, { deep: true })
+
+watch(filtersSignature, () => {
+  if (!restoringFilters) {
+    queueSearch()
+  }
+})
+
+function addFilter() {
+  if (state.filters.length >= SEARCH_FILTERS_MAX_ROWS) {
+    return
+  }
+  state.filters.push({ id: ++nextFilterId, ...newFilterRow(localeCodes.value) })
+}
+
+function removeFilter(row) {
+  state.filters = state.filters.filter((r) => r.id !== row.id)
+  queueSaveFilters()
+}
+
+function setFilterMode(row, mode) {
+  row.mode = mode
+  queueSaveFilters()
+}
+
+function setFilterType(row, type) {
+  if (type === row.type) {
+    return
+  }
+  const keepsText = isFreeTextFilterType(row.type) && isFreeTextFilterType(type)
+  row.type = type
+  row.value = keepsText ? row.value : defaultFilterValue(type, localeCodes.value)
+  queueSaveFilters()
+}
+
+function setFilterValue(row, value) {
+  row.value = value ?? ''
+  queueSaveFilters()
+}
+
+async function loadSavedFilters() {
+  if (!userStore.authenticated) {
+    return
+  }
+  try {
+    state.loading++
+    const resp = await API_CLIENT.get('users/profile').json()
+    const saved = restoreFilters(resp?.searchFilters)
+    savedFiltersSnapshot = JSON.stringify(saved)
+    if (state.filters.length < 1) {
+      restoringFilters = true
+      state.filters = saved.map((row) => ({ id: ++nextFilterId, ...row }))
+      await nextTick()
+      restoringFilters = false
+    }
+  } catch (err) {
+    log.warn('search', 'could not load the saved search filters', err)
+  } finally {
+    state.loading--
+    state.filtersLoaded = true
+  }
+  performSearch()
+}
+
+async function saveFilters() {
+  if (!userStore.authenticated) {
+    return
+  }
+  const payload = toSavedFilters(state.filters)
+  const snapshot = JSON.stringify(payload)
+  if (snapshot === savedFiltersSnapshot) {
+    return
+  }
+  try {
+    await API_CLIENT.put('users/profile', { json: { searchFilters: payload } }).json()
+    savedFiltersSnapshot = snapshot
+  } catch (err) {
+    log.warn('search', 'could not save the search filters', err)
+    notify({
+      type: 'negative',
+      message: t('search.filtersSaveFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+}
 
 function toggleFilters() {
   state.filtersOpen = !state.filtersOpen
@@ -414,25 +539,6 @@ function setOrderBy(val) {
   } else {
     state.params.orderBy = val
     state.params.orderByDirection = val === 'title' ? 'asc' : 'desc'
-  }
-}
-
-function syncTags(newSelection) {
-  const queryTags = extractTags(siteStore.search)
-  if (!newSelection) {
-    state.selectedTags = queryTags
-  } else {
-    let newQuery = siteStore.search
-    for (const tag of newSelection) {
-      if (!newQuery.includes(`#${tag}`)) {
-        newQuery = `${newQuery} #${tag}`
-      }
-    }
-    for (const tag of difference(queryTags, newSelection)) {
-      newQuery = newQuery.replaceAll(`#${tag}`, '')
-    }
-    newQuery = newQuery.replaceAll('  ', ' ').trim()
-    router.replace({ path: '/_search', query: { q: newQuery } })
   }
 }
 
@@ -452,7 +558,7 @@ async function runSearchRequest(endpoint, searchParams, append) {
   siteStore.searchIsLoading = true
   try {
     const resp = await API_CLIENT.get(endpoint, {
-      searchParams: { ...searchParams, offset, limit: RESULTS_LIMIT }
+      searchParams: [...searchParams, ['offset', offset], ['limit', RESULTS_LIMIT]]
     }).json()
     const results = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
     state.results = append ? [...state.results, ...results] : results
@@ -492,28 +598,21 @@ function performSemanticSearch(append) {
     return undefined
   }
 
-  const filters = {
-    ...(state.params.filterPath ? { path: state.params.filterPath } : {}),
-    ...(state.selectedTags.length > 0 ? { tags: state.selectedTags.join(',') } : {}),
-    ...(state.params.filterLocale.length > 0
-      ? { locales: state.params.filterLocale.join(',') }
-      : {}),
-    ...(state.params.filterEditor ? { editor: state.params.filterEditor } : {}),
-    ...(state.params.filterPublishState ? { publishState: state.params.filterPublishState } : {})
-  }
-
   return runSearchRequest(
     `sites/${siteStore.id}/pages/search/semantic`,
-    {
-      query: q,
-      ...filters
-    },
+    [
+      ['query', q],
+      ...filtersToSearchParams(state.filters, { queryTags: extractTags(siteStore.search) })
+    ],
     append
   )
 }
 
 /** `append` is `loadMore()`'s alone: every other caller starts over at offset 0. */
 async function performSearch(append = false) {
+  if (!state.filtersLoaded) {
+    return undefined
+  }
   if (isSemanticMode.value) {
     return performSemanticSearch(append)
   }
@@ -526,31 +625,21 @@ async function performSearch(append = false) {
   }
   q = q.trim().replaceAll(/\s\s+/g, ' ')
 
-  const filters = {
-    ...(state.params.filterPath ? { path: state.params.filterPath } : {}),
-    ...(queryTags.length > 0 ? { tags: queryTags.join(',') } : {}),
-    ...(state.params.filterLocale.length > 0
-      ? { locales: state.params.filterLocale.join(',') }
-      : {}),
-    ...(state.params.filterEditor ? { editor: state.params.filterEditor } : {}),
-    ...(state.params.filterPublishState ? { publishState: state.params.filterPublishState } : {})
-  }
-
   // -> Asking the server with nothing to go on answers with the most recently updated pages, which
   //    is not what an empty search box means
-  if (!q && Object.keys(filters).length < 1) {
+  if (!q && queryTags.length < 1 && !hasIncludeFilter(state.filters)) {
     resetResults()
     return undefined
   }
 
   return runSearchRequest(
     `sites/${siteStore.id}/pages/search`,
-    {
-      ...(q ? { query: q } : {}),
-      ...filters,
-      orderBy: state.params.orderBy,
-      orderByDirection: state.params.orderByDirection
-    },
+    [
+      ...(q ? [['query', q]] : []),
+      ...filtersToSearchParams(state.filters, { queryTags }),
+      ['orderBy', state.params.orderBy],
+      ['orderByDirection', state.params.orderByDirection]
+    ],
     append
   )
 }
@@ -571,18 +660,12 @@ onMounted(async () => {
   if (!siteStore.search) {
     siteStore.searchIsLoading = false
   }
-  // -> Listing tags needs a session. A reader without one still gets to search — they just filter
-  //    by typing `#tag` instead of picking from the (then empty) dropdown
-  if (userStore.authenticated) {
-    try {
-      await siteStore.fetchTags()
-    } catch (err) {
-      log.warn('search', 'could not load the tag filter list', err)
-    }
-  }
+  await loadSavedFilters()
 })
 
 onUnmounted(() => {
+  queueSearch.cancel()
+  queueSaveFilters.flush()
   siteStore.search = ''
   siteStore.searchLastQuery = ''
   siteStore.searchIsLoading = false
@@ -645,6 +728,33 @@ body.body--cobalt .layout-search-card {
 .layout-search-sd {
   flex: 0 0 300px;
   overflow: hidden;
+}
+.layout-search-filterlist {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px;
+}
+.layout-search-filterlist:empty {
+  display: none;
+}
+.layout-search-filterrow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.layout-search-filterline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.layout-search-filtermode {
+  flex: 0 0 104px;
+  min-width: 0;
+}
+.layout-search-filtertype {
+  flex: 1 1 0;
+  min-width: 0;
 }
 .body--light .layout-search-sd {
   background-color: var(--color-tint);

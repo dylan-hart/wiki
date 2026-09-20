@@ -22,6 +22,10 @@
         <w-icon name="tabler:cursor-text" size="sm" class="me-2" />
         <span>{{ t('pageRenameDialog.title') }}</span>
       </w-card-section>
+      <w-card-section v-else-if="isMoveItem" class="card-header">
+        <w-icon name="tabler:folder" size="sm" class="me-2" />
+        <span>{{ dialogTitle }}</span>
+      </w-card-section>
       <!--
         The 300px is stated inline as well as in the stylesheet below: `TreeBrowserDialog.test.js`
         measures this geometry in a real Chromium page built out of this markup, and stating the
@@ -30,7 +34,7 @@
       <div
         class="page-save-dialog-browser flex flex-nowrap"
         style="height: 300px; overflow: hidden">
-        <div class="page-save-dialog-tree w-1/3">
+        <div class="page-save-dialog-tree" :class="isMoveItem ? `w-full` : `w-1/3`">
           <w-scroll-area style="height: 300px">
             <!-- -> No side padding: the rows carry their own and span the column, and padding here
                     would inset the highlight band with them -->
@@ -48,7 +52,7 @@
             </div>
           </w-scroll-area>
         </div>
-        <div class="w-2/3">
+        <div v-if="!isMoveItem" class="w-2/3">
           <w-scroll-area style="height: 300px">
             <w-list class="page-save-dialog-filelist" dense>
               <w-item
@@ -74,7 +78,7 @@
         <up-one-level-btn :show="Boolean(state.currentFolderId)" @click="goUp" />
         <span class="font-robotomono truncate">{{ assembledPath }}</span>
       </div>
-      <w-list class="page-save-dialog-fields">
+      <w-list v-if="!isMoveItem" class="page-save-dialog-fields">
         <w-item>
           <blueprint-icon icon="tabler:file-plus" />
           <w-item-section>
@@ -121,7 +125,13 @@
         </w-item>
       </w-list>
       <w-card-actions class="card-actions px-4">
-        <w-btn class="acrylic-btn" icon="tabler:dots" color="blue-grey" padding="xs sm" flat>
+        <w-btn
+          v-if="!isMoveItem"
+          class="acrylic-btn"
+          icon="tabler:dots"
+          color="blue-grey"
+          padding="xs sm"
+          flat>
           <w-tooltip labels anchor="center right" self="center left">{{
             t(`pageSaveDialog.displayOptions`)
           }}</w-tooltip>
@@ -158,7 +168,7 @@
         </w-btn>
         <!-- -> A tooltip is not readable without a pointer, so the sentence sits beside the button;
                 the tooltip stays on as the button's accessible name -->
-        <span class="page-save-dialog-display-hint">{{
+        <span v-if="!isMoveItem" class="page-save-dialog-display-hint">{{
           t('pageSaveDialog.displayOptionsHint')
         }}</span>
         <w-space />
@@ -172,10 +182,10 @@
           @click="onDialogCancel" />
         <w-btn
           icon="tabler:check"
-          :label="t(`common.actions.save`)"
+          :label="isMoveItem ? confirmLabelText : t(`common.actions.save`)"
           color="primary"
           padding="xs md"
-          :disabled="pathHasSlash"
+          :disabled="!isMoveItem && pathHasSlash"
           @click="save" />
       </w-card-actions>
     </w-card>
@@ -238,6 +248,16 @@ const props = defineProps({
     required: false,
     default: ''
   },
+  title: {
+    type: String,
+    required: false,
+    default: ''
+  },
+  confirmLabel: {
+    type: String,
+    required: false,
+    default: ''
+  },
   /**
    * The content locale to browse. Null for a caller with no page context of its own: it is sent as
    * no `locale` param at all, so the tree falls back to the site's primary locale.
@@ -286,6 +306,8 @@ const pathRules = [(value) => !value?.includes('/') || t('pageSaveDialog.pathNoS
 /** Mirrors the header's own per-mode title, as the dialog's accessible name. */
 const dialogTitle = computed(() => {
   switch (props.mode) {
+    case 'moveItem':
+      return props.title || t('fileman.moveTitle')
     case 'duplicatePage':
       return t('pageDuplicateDialog.title')
     case 'renamePage':
@@ -294,6 +316,10 @@ const dialogTitle = computed(() => {
       return t('pageSaveDialog.title')
   }
 })
+
+const isMoveItem = computed(() => props.mode === 'moveItem')
+
+const confirmLabelText = computed(() => props.confirmLabel || t('fileman.moveConfirm'))
 
 const currentFolderPath = computed(() => {
   const folderNode = state.currentFolderId ? state.treeNodes[state.currentFolderId] : null
@@ -364,7 +390,18 @@ function onPathFocus() {
   state.currentFileId = null
 }
 
+function confirmDestination() {
+  onDialogOK({
+    folderId: state.currentFolderId,
+    parentPath: currentFolderPath.value.slice(1, -1)
+  })
+}
+
 async function save() {
+  if (isMoveItem.value) {
+    confirmDestination()
+    return
+  }
   if (!state.title?.trim()) {
     notify({
       type: 'negative',
@@ -571,6 +608,10 @@ onMounted(async () => {
       state.typesToFetch = ['folder', 'page']
       state.pathDirty = true
       fetchTranslationsCount()
+      break
+    }
+    case 'moveItem': {
+      state.typesToFetch = ['folder']
       break
     }
   }

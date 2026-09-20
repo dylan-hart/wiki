@@ -9,14 +9,14 @@ props:
     type: String
     title: Application ID
     hint: Your Algolia Application ID, found under API Keys in the Algolia dashboard.
-    icon: fingerprint-scan
+    icon: tabler:fingerprint
     required: true
     order: 1
   apiKey:
     type: String
     title: Admin API Key
     hint: Your Algolia Admin API Key, found under API Keys. Needs write access to create/update objects and edit the index configuration.
-    icon: key
+    icon: tabler:key
     sensitive: true
     required: true
     order: 2
@@ -24,6 +24,6 @@ props:
     type: String
     title: Index Name
     hint: The name of the Algolia index pages are written to and searched against.
-    icon: index
+    icon: tabler:list-search
     default: wiki
     order: 3

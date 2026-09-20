@@ -496,7 +496,10 @@
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.download`) }}</w-item-section>
                         </w-item>
-                        <w-item clickable v-if="item.type === `page`" @click="duplicateItem(item)">
+                        <w-item
+                          clickable
+                          v-if="item.type === `page` || item.type === `folder`"
+                          @click="duplicateItem(item)">
                           <w-item-section side>
                             <w-icon name="tabler:copy" color="slate-soft" />
                           </w-item-section>
@@ -518,6 +521,12 @@
                               <w-icon name="tabler:arrow-forward-up" color="slate-soft" />
                             </w-item-section>
                             <w-item-section>{{ t('fileman.renameItem') }}</w-item-section>
+                          </w-item>
+                          <w-item clickable @click="moveItem(item)">
+                            <w-item-section side>
+                              <w-icon name="tabler:share" color="slate-soft" />
+                            </w-item-section>
+                            <w-item-section>{{ t('fileman.moveItem') }}</w-item-section>
                           </w-item>
                         </template>
                         <w-item clickable @click="delItem(item)">
@@ -702,9 +711,13 @@ const {
   reloadFolder,
   rerenderPage,
   duplicatePage,
+  duplicateFolder,
   renameMovePage,
   delPage,
   renameAsset,
+  moveAsset,
+  moveFolder,
+  previewAsset,
   delAsset
 } = useFileManagerActions({ state, treeComp, loadTree, close })
 
@@ -1064,6 +1077,10 @@ function openItem(item) {
       break
     }
     case 'asset': {
+      if (item.mimeType?.startsWith('image/')) {
+        previewAsset(item)
+        break
+      }
       window.open(assetUrl(item.folderPath, item.fileName), '_blank')
       close()
       break
@@ -1152,9 +1169,26 @@ function renameItem(item) {
   }
 }
 
+function moveItem(item) {
+  switch (item.type) {
+    case 'asset': {
+      moveAsset(item)
+      break
+    }
+    case 'folder': {
+      moveFolder(item)
+      break
+    }
+  }
+}
+
 /** Only a page can be duplicated: there is no endpoint behind a folder or an asset. */
 function duplicateItem(item) {
   switch (item.type) {
+    case 'folder': {
+      duplicateFolder(item)
+      break
+    }
     case 'page': {
       duplicatePage(item)
       break

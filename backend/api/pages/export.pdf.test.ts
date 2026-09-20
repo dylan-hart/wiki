@@ -157,6 +157,31 @@ test('answers with the PDF bytes as a downloadable attachment', async () => {
   assert.equal(res.rawPayload.toString(), '%PDF-fake')
 })
 
+test('names a nested page after its last path segment', async () => {
+  getPage.mock.mockImplementation(async () => ({
+    id: PAGE_ID,
+    path: 'docs/getting-started',
+    isLocked: false
+  }))
+
+  const res = await app.inject({ method: 'GET', url: exportUrl() })
+
+  assert.equal(res.statusCode, 200)
+  assert.match(
+    res.headers['content-disposition'] as string,
+    /^attachment; filename="getting-started\.pdf"$/
+  )
+})
+
+test('names the home page home.pdf', async () => {
+  getPage.mock.mockImplementation(async () => ({ id: PAGE_ID, path: '', isLocked: false }))
+
+  const res = await app.inject({ method: 'GET', url: exportUrl() })
+
+  assert.equal(res.statusCode, 200)
+  assert.match(res.headers['content-disposition'] as string, /^attachment; filename="home\.pdf"$/)
+})
+
 test('forwards no cookie when an authenticated caller sent none', async () => {
   const res = await app.inject({ method: 'GET', url: exportUrl() })
 

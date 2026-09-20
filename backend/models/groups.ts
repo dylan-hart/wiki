@@ -3,7 +3,12 @@ import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { ClusterReloaded } from '../helpers/clusterCache.ts'
-import { CustomError, escapeLikePattern, normalizePagePath } from '../helpers/common.ts'
+import {
+  CustomError,
+  escapeLikePattern,
+  isUniqueViolation,
+  normalizePagePath
+} from '../helpers/common.ts'
 import { clearPageRuleRegexCache, resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { paginate } from '../helpers/pagination.ts'
 import { resolveSiteRule, ruleMatchesSite } from '../helpers/siteRules.ts'
@@ -15,12 +20,35 @@ import type { FastifyRequest } from 'fastify'
 /** Bypasses every permission check. */
 export const SYSTEM_PERMISSION = 'manage:system'
 
+export const ELEVATED_PERMISSIONS = ['manage:users', 'manage:groups', SYSTEM_PERMISSION] as const
+
+const GROUP_NAME_MAX_LENGTH = 255
+const MAX_IMPORT_NAME_ATTEMPTS = 1000
+
+function groupNameTaken(name: string): CustomError {
+  return new CustomError(
+    'groupNameTaken',
+    `A group named "${name.trim()}" already exists. Group names are compared ignoring case and surrounding spaces.`,
+    409
+  )
+}
+
+function suffixedGroupName(name: string, attempt: number): string {
+  const suffix = ` (${attempt})`
+  const base = name
+    .trim()
+    .slice(0, GROUP_NAME_MAX_LENGTH - suffix.length)
+    .trimEnd()
+  return `${base}${suffix}`
+}
+
 /**
  * How a rule's `path` is compared against the page path. `CLASSIFICATION` does not read `path` at
  * all: it matches page metadata (`classifications` on `GroupRule`), which survives a move/rename.
  */
 const GROUP_RULE_MATCH_KINDS = [
   'START',
+  'SUBTREE',
   'END',
   'REGEX',
   'TAG',
@@ -38,6 +66,7 @@ export type GroupRuleMatch = (typeof GROUP_RULE_MATCH_KINDS)[number]
  */
 const GROUP_RULE_MATCH_MEMBERS: Record<GroupRuleMatch, true> = {
   START: true,
+  SUBTREE: true,
   END: true,
   REGEX: true,
   TAG: true,
@@ -469,28 +498,37 @@ class Groups extends ClusterReloaded {
    */
   async createGroup(name: string): Promise<string> {
     const startingPageRoles = ['read:pages', 'read:assets', 'read:comments']
-    const result = await CARDINAL.db
-      .insert(groupsTable)
-      .values({
-        name,
-        permissions: [],
-        rules: [
-          {
-            id: crypto.randomUUID(),
-            name: 'Default Rule',
-            roles: startingPageRoles,
-            match: 'START',
-            mode: 'ALLOW',
-            path: '',
-            locales: [],
-            sites: []
-          }
-        ],
-        isSystem: false
-      })
-      .returning({ id: groupsTable.id })
+    let result
+    try {
+      result = await CARDINAL.db
+        .insert(groupsTable)
+        .values({
+          name,
+          permissions: [],
+          rules: [
+            {
+              id: crypto.randomUUID(),
+              name: 'Default Rule',
+              roles: startingPageRoles,
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ],
+          isSystem: false
+        })
+        .returning({ id: groupsTable.id })
+    } catch (err: any) {
+      throw this.nameTakenError(err, name)
+    }
     await this.broadcastReload()
     return result[0].id
+  }
+
+  private nameTakenError(err: unknown, name: string): unknown {
+    return isUniqueViolation(err) ? groupNameTaken(name) : err
   }
 
   /**
@@ -503,17 +541,27 @@ class Groups extends ClusterReloaded {
     permissions: string[]
     rules: GroupRule[]
   }): Promise<string> {
-    const result = await CARDINAL.db
-      .insert(groupsTable)
-      .values({
-        name: input.name,
-        permissions: input.permissions,
-        rules: input.rules,
-        isSystem: false
-      })
-      .returning({ id: groupsTable.id })
-    await this.broadcastReload()
-    return result[0].id
+    for (let attempt = 1; attempt <= MAX_IMPORT_NAME_ATTEMPTS; attempt++) {
+      const name = attempt === 1 ? input.name : suffixedGroupName(input.name, attempt)
+      try {
+        const result = await CARDINAL.db
+          .insert(groupsTable)
+          .values({
+            name,
+            permissions: input.permissions,
+            rules: input.rules,
+            isSystem: false
+          })
+          .returning({ id: groupsTable.id })
+        await this.broadcastReload()
+        return result[0].id
+      } catch (err: any) {
+        if (!isUniqueViolation(err)) {
+          throw err
+        }
+      }
+    }
+    throw groupNameTaken(input.name)
   }
 
   async getAllGroups(): Promise<GroupWithUserCount[]> {
@@ -558,10 +606,15 @@ class Groups extends ClusterReloaded {
   }
 
   async updateGroup(id: string, patch: GroupPatch): Promise<boolean> {
-    const result = await CARDINAL.db
-      .update(groupsTable)
-      .set({ ...this.clampGuestPatch(id, this.normalizeRulePaths(patch)), updatedAt: sql`now()` })
-      .where(eq(groupsTable.id, id))
+    let result
+    try {
+      result = await CARDINAL.db
+        .update(groupsTable)
+        .set({ ...this.clampGuestPatch(id, this.normalizeRulePaths(patch)), updatedAt: sql`now()` })
+        .where(eq(groupsTable.id, id))
+    } catch (err: any) {
+      throw this.nameTakenError(err, patch.name ?? '')
+    }
     await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
   }
@@ -583,7 +636,10 @@ class Groups extends ClusterReloaded {
       ...patch,
       rules: patch.rules.map((rule) => {
         const withPath =
-          rule.match === 'START' || rule.match === 'END' || rule.match === 'EXACT'
+          rule.match === 'START' ||
+          rule.match === 'SUBTREE' ||
+          rule.match === 'END' ||
+          rule.match === 'EXACT'
             ? { ...rule, path: normalizePagePath(rule.path) }
             : rule
         return rule.tags ? { ...withPath, tags: normalizeRuleTags(rule.tags) } : withPath
@@ -764,6 +820,64 @@ class Groups extends ClusterReloaded {
       ids.add(rootAdminGroupId)
     }
     return [...ids]
+  }
+
+  async elevatedGroupIds(): Promise<string[]> {
+    const rows = await CARDINAL.db
+      .select({ id: groupsTable.id, permissions: groupsTable.permissions })
+      .from(groupsTable)
+    const ids = new Set(
+      rows
+        .filter((row) =>
+          ELEVATED_PERMISSIONS.some((permission) =>
+            ((row.permissions ?? []) as string[]).includes(permission)
+          )
+        )
+        .map((row) => row.id)
+    )
+    const rootAdminGroupId = CARDINAL.config?.auth?.rootAdminGroupId
+    if (rootAdminGroupId) {
+      ids.add(rootAdminGroupId)
+    }
+    return [...ids]
+  }
+
+  async assertMembershipChangeAllowed(
+    req: FastifyRequest,
+    before: readonly string[],
+    after: readonly string[]
+  ): Promise<void> {
+    const permissions = this.actorForRequest(req).permissions
+    const holdsSystem = permissions.includes(SYSTEM_PERMISSION)
+    if (holdsSystem) {
+      return
+    }
+    const added = after.filter((id) => !before.includes(id))
+    const removed = before.filter((id) => !after.includes(id))
+    if (added.length === 0 && removed.length === 0) {
+      return
+    }
+
+    const systemGroupIds = await this.systemGroupIds()
+    if (added.some((id) => systemGroupIds.includes(id))) {
+      throw new CustomError(
+        'groupMembershipSystemProtected',
+        'Only a user who holds the manage:system permission can add a user to a group that has it.',
+        403
+      )
+    }
+
+    if (permissions.includes('manage:groups')) {
+      return
+    }
+    const elevatedGroupIds = await this.elevatedGroupIds()
+    if ([...added, ...removed].some((id) => elevatedGroupIds.includes(id))) {
+      throw new CustomError(
+        'groupMembershipElevatedProtected',
+        'Only a user who holds the manage:groups or manage:system permission can change membership of a group that carries manage:users, manage:groups or manage:system.',
+        403
+      )
+    }
   }
 
   /**

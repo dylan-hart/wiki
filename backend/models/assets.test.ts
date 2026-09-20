@@ -63,7 +63,7 @@ test('dispositionFor: a non-inline extension downloads only when forceAssetDownl
  * Stubs the fresh-name (no conflict) `upload()` path; `CARDINAL.db.insert` captures the row handed
  * to it, which is what these tests assert against.
  */
-function stubUploadPath(uploadScanSVG: boolean) {
+function stubUploadPath(uploadScanSVG: boolean, sharpInstalled = false) {
   let inserted: any
   global.CARDINAL = {
     ...global.CARDINAL,
@@ -85,7 +85,12 @@ function stubUploadPath(uploadScanSVG: boolean) {
       },
       hooks: { emit: () => {} },
       storage: { dispatch: () => {} },
-      extensions: { getDefinition: () => null, isInstalled: async () => false }
+      extensions: {
+        getDefinition: () =>
+          sharpInstalled ? { key: 'sharp', detect: { type: 'module', value: 'sharp' } } : null,
+        isInstalled: async () => sharpInstalled,
+        noteLoadFailure: () => {}
+      }
     },
     db: {
       insert: () => ({
@@ -172,6 +177,190 @@ test('upload with no createdAt/updatedAt override leaves the assets row insert w
     'no override -- must not fight the column default'
   )
   assert.equal(Object.prototype.hasOwnProperty.call(inserted, 'updatedAt'), false)
+})
+
+async function loadSharp(): Promise<any> {
+  try {
+    return (await import('sharp')).default
+  } catch {
+    return null
+  }
+}
+
+async function pngOf(width: number, height: number): Promise<Buffer> {
+  const sharp = await loadSharp()
+  return sharp({
+    create: { width, height, channels: 3, background: { r: 1, g: 2, b: 3 } }
+  })
+    .png()
+    .toBuffer()
+}
+
+test('upload of an image stores its width and height in assets.meta and returns them', async (t) => {
+  if (!(await loadSharp())) {
+    return t.skip('sharp is not installed')
+  }
+  const { getInserted } = stubUploadPath(false, true)
+
+  const asset = await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'photo.png',
+    data: await pngOf(640, 480),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(getInserted().meta, { width: 640, height: 480 })
+  assert.equal(asset.width, 640)
+  assert.equal(asset.height, 480)
+  assert.equal(asset.hasPreview, true)
+})
+
+test('upload of an image without Sharp stores no dimensions and raises no error', async () => {
+  const { getInserted } = stubUploadPath(false, false)
+
+  const asset = await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'photo.png',
+    data: Buffer.from('bytes'),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(getInserted().meta, {})
+  assert.equal(asset.width, undefined)
+  assert.equal(asset.height, undefined)
+  assert.equal(asset.hasPreview, false)
+})
+
+test('upload of a non-image stores no dimensions even when Sharp is installed', async () => {
+  const { getInserted } = stubUploadPath(false, true)
+
+  const asset = await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'notes.txt',
+    data: Buffer.from('hello'),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(getInserted().meta, {})
+  assert.equal(asset.width, undefined)
+  assert.equal(asset.height, undefined)
+})
+
+test('getAsset lifts width and height out of assets.meta and never leaks the raw meta', async () => {
+  global.CARDINAL = {
+    ...global.CARDINAL,
+    db: makeAssetsDbStub({
+      id: 'asset-1',
+      fileName: 'photo.png',
+      folderPath: '',
+      fileSize: 10,
+      hasPreview: true,
+      meta: { width: 800, height: 600 }
+    })
+  } as unknown as CardinalGlobal
+
+  const asset: any = await assets.getAsset('site-1', 'asset-1')
+
+  assert.equal(asset.width, 800)
+  assert.equal(asset.height, 600)
+  assert.equal('meta' in asset, false)
+})
+
+test('getAsset omits width and height for an asset with an empty meta', async () => {
+  global.CARDINAL = {
+    ...global.CARDINAL,
+    db: makeAssetsDbStub({
+      id: 'asset-1',
+      fileName: 'archive.zip',
+      folderPath: '',
+      fileSize: 10,
+      hasPreview: false,
+      meta: {}
+    })
+  } as unknown as CardinalGlobal
+
+  const asset: any = await assets.getAsset('site-1', 'asset-1')
+
+  assert.equal('width' in asset, false)
+  assert.equal('height' in asset, false)
+})
+
+test('an overwrite rewrites the width/height keys of assets.meta from the new upload, and clears them when it has none', async (t) => {
+  if (!(await loadSharp())) {
+    return t.skip('sharp is not installed')
+  }
+  const sets: any[] = []
+  const chain: any = {
+    from: () => chain,
+    innerJoin: () => chain,
+    where: () => chain,
+    values: () => chain,
+    limit: () => Promise.resolve([undefined]),
+    set: (values: any) => {
+      sets.push(values)
+      return chain
+    }
+  }
+  const stubOverwrite = (sharpInstalled: boolean) => {
+    global.CARDINAL = {
+      ...global.CARDINAL,
+      ...cacheFsStubs,
+      sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
+      db: { select: () => chain, update: () => chain, delete: () => chain, insert: () => chain },
+      models: {
+        ...(global.CARDINAL as any).models,
+        tree: {
+          getEntryAt: async () => ({
+            type: 'asset',
+            id: 'asset-1',
+            fileName: 'photo.png',
+            folderPath: '',
+            title: 'photo.png'
+          })
+        },
+        hooks: { emit: () => {} },
+        storage: { dispatch: () => {} },
+        extensions: {
+          getDefinition: () =>
+            sharpInstalled ? { key: 'sharp', detect: { type: 'module', value: 'sharp' } } : null,
+          isInstalled: async () => sharpInstalled,
+          noteLoadFailure: () => {}
+        }
+      }
+    } as unknown as CardinalGlobal
+  }
+
+  stubOverwrite(true)
+  const withDims = await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'photo.png',
+    data: await pngOf(30, 20),
+    authorId: 'user-1'
+  })
+  assert.equal(withDims.width, 30)
+  assert.equal(withDims.height, 20)
+
+  stubOverwrite(false)
+  const withoutDims = await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'photo.png',
+    data: Buffer.from('bytes'),
+    authorId: 'user-1'
+  })
+  assert.equal(withoutDims.width, undefined)
+  assert.equal(withoutDims.height, undefined)
+
+  const assetsRowSets = sets.filter((values) => 'preview' in values)
+  assert.equal(assetsRowSets.length, 2)
+  const boundJson = (values: any) =>
+    values.meta.queryChunks.find((chunk: any) => typeof chunk === 'string')
+  assert.equal(boundJson(assetsRowSets[0]), '{"width":30,"height":20}')
+  assert.equal(boundJson(assetsRowSets[1]), '{}')
 })
 
 /**

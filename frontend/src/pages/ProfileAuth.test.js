@@ -72,9 +72,9 @@ function localAuthMethod(config = {}) {
   }
 }
 
-async function mountPage({ authMethods, recoveryCodesResponse }) {
+async function mountPage({ authMethods, recoveryCodesResponse, passkeys = [], passkeysEnabled }) {
   stubApi({
-    'users/profile/auth': { authMethods, passkeys: [] },
+    'users/profile/auth': { authMethods, passkeys, passkeysEnabled },
     'users/profile/tfa/recovery-codes': recoveryCodesResponse
   })
 
@@ -400,5 +400,64 @@ describe('ProfileAuth actions menu icons stay legible in dark mode (OpenProject 
 
     expectBlueDarkPair(wrapper, 'tabler:fingerprint')
     expectBlueDarkPair(wrapper, 'tabler:arrow-forward-up')
+  })
+})
+
+describe('ProfileAuth admin policy toggles', () => {
+  const PASSKEY = {
+    id: 'pk-1',
+    name: 'Laptop',
+    siteHostname: 'wiki.example.com',
+    createdAt: '2026-09-01T00:00:00.000Z'
+  }
+
+  function findButton(wrapper, label) {
+    return wrapper.findAll('button').find((b) => b.text().includes(label))
+  }
+
+  it('shows the add-passkey button when passkeysEnabled is true', async () => {
+    const wrapper = await mountPage({
+      authMethods: [localAuthMethod()],
+      passkeysEnabled: true
+    })
+    expect(findButton(wrapper, 'Add Passkey')).toBeTruthy()
+  })
+
+  it('shows the add-passkey button when the server does not report passkeysEnabled', async () => {
+    const wrapper = await mountPage({ authMethods: [localAuthMethod()] })
+    expect(findButton(wrapper, 'Add Passkey')).toBeTruthy()
+  })
+
+  it('hides the add-passkey button when passkeysEnabled is false, keeping stored passkeys listed and removable', async () => {
+    const wrapper = await mountPage({
+      authMethods: [localAuthMethod()],
+      passkeys: [PASSKEY],
+      passkeysEnabled: false
+    })
+
+    expect(findButton(wrapper, 'Add Passkey')).toBeUndefined()
+    expect(wrapper.text()).toContain('Laptop')
+
+    const removeButton = wrapper.find('button[aria-label="Delete"]')
+    expect(removeButton.exists()).toBe(true)
+
+    API_CLIENT.delete.mockReturnValue({ json: () => Promise.resolve({}) })
+    await removeButton.trigger('click')
+    await flushPromises()
+    expect(API_CLIENT.delete).toHaveBeenCalledWith('users/profile/passkeys/pk-1')
+  })
+
+  it('shows the change-password item when canChangePassword is true or absent', async () => {
+    const withFlag = await mountActionsMenu({ canChangePassword: true })
+    expect(withFlag.text()).toContain('Change Password')
+
+    const withoutFlag = await mountActionsMenu()
+    expect(withoutFlag.text()).toContain('Change Password')
+  })
+
+  it('hides the change-password item when canChangePassword is false, keeping the other actions', async () => {
+    const wrapper = await mountActionsMenu({ canChangePassword: false })
+    expect(wrapper.text()).not.toContain('Change Password')
+    expect(wrapper.text()).toContain('Disable 2FA')
   })
 })

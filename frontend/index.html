@@ -10,6 +10,7 @@
       content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width" />
     <title>Cardinal.js</title>
     <!--preload-links-->
+    <!--temporal-polyfill-chunk-url-->
     <!-- temporal-polyfill-preload:start
       Warms the `temporal-polyfill` chunk in parallel with the eager bundle for a browser lacking
       native `Temporal`. Without it, `main.js`'s top-level `await initializeTemporal()` reaches
@@ -24,10 +25,10 @@
       `window.__wikiTemporalPolyfillUrl`, which means emitting that assignment above this block.
     -->
     <script>
-      if (typeof globalThis.Temporal === 'undefined') {
+      if (typeof globalThis.Temporal === 'undefined' && window.__wikiTemporalPolyfillUrl) {
         var temporalPolyfillPreload = document.createElement('link')
         temporalPolyfillPreload.rel = 'modulepreload'
-        temporalPolyfillPreload.href = '__TEMPORAL_POLYFILL_HREF__'
+        temporalPolyfillPreload.href = window.__wikiTemporalPolyfillUrl
         document.head.appendChild(temporalPolyfillPreload)
       }
     </script>
@@ -38,7 +39,6 @@
       chunk. That chunk is deliberately kept out of Vite's own modulepreload links so only a
       feature-detect script preloads it, for the browsers that actually need it.
     -->
-    <!--temporal-polyfill-chunk-url-->
     <!--
       No webfont is linked statically: which family applies (if any -- `theme.baseFont` /
       `theme.contentFont` can both be `'user'`, meaning "no override") is a per-site setting, known

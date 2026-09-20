@@ -49,20 +49,3 @@ describe('GroupRulesEditor.vue .is-forceallow uses color-mix(), matching .is-all
     )
   })
 })
-
-describe('EditorMarkdown.vue teal callout dark-mode tint uses color-mix()', () => {
-  const source = readFileSync(resolve(SRC_ROOT, 'components/EditorMarkdown.vue'), 'utf-8')
-  const darkContentRule = source.match(
-    /\.body--dark \.editor-markdown-preview-content \.tabset-content \{\s*background-color:\s*([^;]+);\s*\}/
-  )
-
-  it('finds the callout content dark-mode rule', () => {
-    expect(darkContentRule, 'callout content dark-mode rule found').toBeTruthy()
-  })
-
-  it('mixes var(--color-teal-5) at 10% against transparent, the value rgba($teal-5, 0.1) drew', () => {
-    expect(darkContentRule[1].trim()).toBe(
-      'color-mix(in srgb, var(--color-teal-5) 10%, transparent)'
-    )
-  })
-})

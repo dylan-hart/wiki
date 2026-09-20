@@ -20,9 +20,17 @@ describe('buildRobotsTxt', () => {
     assert.equal(txt, 'User-agent: *\nDisallow: /\n')
   })
 
-  test('disallows everything when follow is off, even with index on', () => {
+  test('still allows everything when only follow is off', () => {
     const txt = buildRobotsTxt(
       { robots: { index: true, follow: false }, sitemap: false },
+      'ignored'
+    )
+    assert.equal(txt, 'User-agent: *\nAllow: /\n')
+  })
+
+  test('disallows everything when index is off, whatever follow says', () => {
+    const txt = buildRobotsTxt(
+      { robots: { index: false, follow: false }, sitemap: false },
       'ignored'
     )
     assert.equal(txt, 'User-agent: *\nDisallow: /\n')
@@ -110,6 +118,76 @@ describe('buildSitemapXml', () => {
     )
     assert.doesNotMatch(xml, /<xhtml:link[^>]*href="[^"]*\/solo"/)
     assert.match(xml, /xmlns:xhtml="http:\/\/www\.w3\.org\/1999\/xhtml"/)
+  })
+})
+
+describe('buildSitemapXml with locale aliases', () => {
+  const pages: SitemapPage[] = [
+    { path: 'guides/x', locale: 'en', updatedAt: new Date('2026-08-01T00:00:00Z') },
+    { path: 'guides/x', locale: 'zh-CN', updatedAt: new Date('2026-08-02T00:00:00Z') }
+  ]
+  const base = 'https://wiki.example.com'
+
+  test('loc and hreflang hrefs use the alias while hreflang keeps the canonical code', () => {
+    const xml = buildSitemapXml(base, pages, {
+      primary: 'en',
+      active: ['en', 'zh-CN'],
+      aliases: { 'zh-CN': 'zh' }
+    })
+    assert.match(xml, /<loc>https:\/\/wiki\.example\.com\/zh\/guides\/x<\/loc>/)
+    assert.equal(
+      (xml.match(/hreflang="zh-CN" href="https:\/\/wiki\.example\.com\/zh\/guides\/x"/g) ?? [])
+        .length,
+      2
+    )
+    assert.doesNotMatch(xml, /\/zh-CN\//)
+    assert.doesNotMatch(xml, /hreflang="zh"/)
+    assert.equal(
+      (xml.match(/hreflang="en" href="https:\/\/wiki\.example\.com\/guides\/x"/g) ?? []).length,
+      2
+    )
+  })
+
+  test('without an alias the sitemap is unchanged', () => {
+    const cfg = { primary: 'en', active: ['en', 'zh-CN'] }
+    assert.equal(
+      buildSitemapXml(base, pages, { ...cfg, aliases: {} }),
+      buildSitemapXml(base, pages, cfg)
+    )
+    assert.match(
+      buildSitemapXml(base, pages, cfg),
+      /<loc>https:\/\/wiki\.example\.com\/zh-CN\/guides\/x<\/loc>/
+    )
+  })
+
+  test('an alias on the primary locale applies when forcePrefix prefixes it', () => {
+    const xml = buildSitemapXml(base, pages, {
+      primary: 'en',
+      active: ['en', 'zh-CN'],
+      forcePrefix: true,
+      aliases: { en: 'e' }
+    })
+    assert.match(xml, /hreflang="en" href="https:\/\/wiki\.example\.com\/e\/guides\/x"/)
+  })
+
+  test('an alias on an unprefixed primary locale leaves its URL bare', () => {
+    const xml = buildSitemapXml(base, pages, {
+      primary: 'en',
+      active: ['en', 'zh-CN'],
+      aliases: { en: 'e' }
+    })
+    assert.match(xml, /<loc>https:\/\/wiki\.example\.com\/guides\/x<\/loc>/)
+  })
+
+  test('paginateSitemap passes the aliases through to the flat sitemap', () => {
+    const result = paginateSitemap(
+      base,
+      pages,
+      { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } },
+      undefined
+    )
+    assert.ok('xml' in result)
+    assert.match(result.xml, /<loc>https:\/\/wiki\.example\.com\/zh\/guides\/x<\/loc>/)
   })
 })
 

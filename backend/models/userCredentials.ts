@@ -8,6 +8,7 @@ import {
 import { eq, lt, sql } from 'drizzle-orm'
 import type { WikiDbOrTx } from '../core/db.ts'
 import { BCRYPT_ROUNDS } from '../helpers/common.ts'
+import { passkeysAllowed } from './security.ts'
 import { randomToken } from '../helpers/randomToken.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
 import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
@@ -35,6 +36,7 @@ export interface UserProfileAuthMethod {
     isTfaSetup: boolean
     isTfaRequired: boolean
     isPasswordLoginEnabled: boolean
+    canChangePassword: boolean
     canDisablePasswordLogin: boolean
     /** 0 when 2FA is off, not the leftovers of a previous setup. */
     recoveryCodesRemaining: number
@@ -169,12 +171,12 @@ export async function matchRecoveryCode(
  * registered against: on a multi-site instance one bound to another site still leaves the account
  * reachable.
  */
-function countAlternativeLogins(user: any, strategyId: string): number {
+export function countAlternativeLogins(user: any, strategyId: string): number {
   const auth = (user.auth ?? {}) as Record<string, any>
   const otherProviders = Object.entries(auth).filter(
     ([id, config]) => id !== strategyId && !config?.restrictLogin
   ).length
-  const passkeys = ((user.passkeys ?? {}).authenticators ?? []).length
+  const passkeys = passkeysAllowed() ? ((user.passkeys ?? {}).authenticators ?? []).length : 0
   return otherProviders + passkeys
 }
 
@@ -347,6 +349,8 @@ class UserCredentials {
                 tfaRequired || (strategy?.config as Record<string, any>)?.enforceTfa
               ),
               isPasswordLoginEnabled: !rawConfig?.restrictLogin,
+              canChangePassword:
+                (strategy?.config as Record<string, any>)?.allowPasswordChange !== false,
               canDisablePasswordLogin: countAlternativeLogins(user, strategyId) > 0
             }
           : { ...rest, ...shared, isTfaRequired: Boolean(tfaRequired) }
@@ -386,6 +390,10 @@ class UserCredentials {
     // -> An external identity provider holds the password somewhere this instance cannot reach
     if (!auth[strategyId]?.password) {
       throw new Error('ERR_INVALID_STRATEGY')
+    }
+    const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
+    if (strategy?.config?.allowPasswordChange === false) {
+      throw new Error('ERR_PASSWORD_CHANGE_DISABLED')
     }
     if ((await bcrypt.compare(currentPassword, auth[strategyId].password)) !== true) {
       CARDINAL.models.flags.authDebug(
@@ -485,7 +493,7 @@ class UserCredentials {
    * @returns The recovery codes in plaintext. Only their hashes are stored, so this is the one and
    *          only time the caller can get at them — display or offer them for download immediately.
    */
-  async enableTfa(user: any, strategyId: string, siteId?: string): Promise<string[]> {
+  async enableTfa(user: any, strategyId: string, siteId?: string, ip?: string): Promise<string[]> {
     const { plaintext, entries } = await issueRecoveryCodes()
     await this.patchStrategyAuth(
       user.id,
@@ -494,6 +502,15 @@ class UserCredentials {
       { mirrorInto: user }
     )
     CARDINAL.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
+    await CARDINAL.models.auditLog.record({
+      event: 'user.tfaEnabled',
+      actor: { id: user.id, name: user.name, email: user.email, ip },
+      targetType: 'user',
+      targetId: user.id,
+      targetLabel: user.email,
+      detail: { strategyId },
+      siteId: siteId ?? null
+    })
 
     await notifyRecoveryCodesGenerated(user, siteId)
 
@@ -519,7 +536,7 @@ class UserCredentials {
   /**
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`, `ERR_TFA_NOT_ACTIVE` or `ERR_TFA_ENFORCED`
    */
-  async disableTfa(userId: string, strategyId: string): Promise<void> {
+  async disableTfa(userId: string, strategyId: string, ip?: string): Promise<void> {
     const { user, entry } = await this.requireStrategyAuth(userId, strategyId, { tfaActive: true })
 
     // -> Turning it off would be undone at the next login, which is worth an error rather than a
@@ -531,6 +548,14 @@ class UserCredentials {
 
     await this.patchStrategyAuth(userId, strategyId, clearedTfa)
     CARDINAL.models.flags.authDebug(`User ${userId} <${user.email}> disabled 2FA`)
+    await CARDINAL.models.auditLog.record({
+      event: 'user.tfaDisabled',
+      actor: { id: userId, name: user.name, email: user.email, ip },
+      targetType: 'user',
+      targetId: userId,
+      targetLabel: user.email,
+      detail: { strategyId }
+    })
     await this.notifyTfaDisabled(user)
   }
 

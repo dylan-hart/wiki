@@ -1,8 +1,11 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { sql } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import {
   batchBySize,
   buildSearchDocument,
+  buildSqlFilterConditions,
   defaultPageSource,
   escapeHtml,
   fillEmptyStringDefaults,
@@ -21,7 +24,7 @@ import { installTestWiki } from '../../test/mocks.ts'
 import { search } from '../../models/search.ts'
 import type { RebuildPageSource } from './shared.ts'
 import type { AccessActor } from '../../models/groups.ts'
-import type { SearchIndexablePage, SearchResult } from '../../models/search.ts'
+import type { SearchFilters, SearchIndexablePage, SearchResult } from '../../models/search.ts'
 
 before(() => ensureTemporal())
 
@@ -154,6 +157,8 @@ describe('buildSearchDocument()', () => {
       tags: ['guide'],
       editor: 'markdown',
       publishState: 'published',
+      creatorId: 'user-1',
+      authorId: 'user-2',
       isSearchable: true,
       classification: 'classification-1',
       password: null,
@@ -174,6 +179,8 @@ describe('buildSearchDocument()', () => {
       tags: ['guide'],
       editor: 'markdown',
       publishState: 'published',
+      creatorId: 'user-1',
+      authorId: 'user-2',
       isSearchable: true,
       classification: 'classification-1',
       updatedAt: '2026-01-01T00:00:00.000Z',
@@ -631,5 +638,120 @@ describe('fillEmptyStringDefaults()', () => {
     assert.deepEqual(fillEmptyStringDefaults({ indexName: '' }, 'no-such-engine'), {
       indexName: ''
     })
+  })
+})
+
+describe('buildSqlFilterConditions()', () => {
+  function render(filters: SearchFilters) {
+    const dialect = new PgDialect()
+    return buildSqlFilterConditions(filters).map((condition) =>
+      dialect.sqlToQuery(sql`${condition}`)
+    )
+  }
+
+  test('no filters add no conditions', () => {
+    assert.deepEqual(render({}), [])
+    assert.deepEqual(
+      render({ path: [], excludePath: [], locales: [], excludeTags: [], editor: [] }),
+      []
+    )
+  })
+
+  test('include lists are any-of, except tags which are all-of', () => {
+    const conditions = render({
+      path: ['docs', 'guides'],
+      locales: ['en', 'fr'],
+      tags: ['a', 'b'],
+      editor: ['markdown', 'code'],
+      publishState: ['published', 'scheduled']
+    })
+    assert.deepEqual(
+      conditions.map((c) => c.sql),
+      [
+        '(p.path LIKE $1 OR p.path LIKE $2)',
+        'p.locale = ANY($1::text[])',
+        'p.tags @> $1::text[]',
+        'p.editor = ANY($1::text[])',
+        'p."publishState"::text = ANY($1::text[])'
+      ]
+    )
+    assert.deepEqual(conditions[0]!.params, ['docs%', 'guides%'])
+    assert.deepEqual(conditions[1]!.params, [['en', 'fr']])
+  })
+
+  test('tagsMatch any turns the include tag condition into overlap', () => {
+    const conditions = render({ tags: ['a', 'b'], tagsMatch: 'any' })
+    assert.deepEqual(
+      conditions.map((c) => c.sql),
+      ['p.tags && $1::text[]']
+    )
+    assert.deepEqual(conditions[0]!.params, [['a', 'b']])
+  })
+
+  test('tagsMatch all keeps containment', () => {
+    const conditions = render({ tags: ['a', 'b'], tagsMatch: 'all' })
+    assert.deepEqual(
+      conditions.map((c) => c.sql),
+      ['p.tags @> $1::text[]']
+    )
+  })
+
+  test('exclude lists drop a page matching any entry', () => {
+    const conditions = render({
+      excludePath: ['docs/private', 'legacy'],
+      excludeLocales: ['fr'],
+      excludeTags: ['old', 'stale'],
+      excludeEditor: ['code'],
+      excludePublishState: ['scheduled']
+    })
+    assert.deepEqual(
+      conditions.map((c) => c.sql),
+      [
+        'p.path NOT LIKE $1',
+        'p.path NOT LIKE $1',
+        'p.locale <> ALL($1::text[])',
+        'NOT (p.tags && $1::text[])',
+        'p.editor <> ALL($1::text[])',
+        'p."publishState"::text <> ALL($1::text[])'
+      ]
+    )
+    assert.deepEqual(conditions[0]!.params, ['docs/private%'])
+    assert.deepEqual(conditions[3]!.params, [['old', 'stale']])
+  })
+
+  test('creator and author lists compare against the uuid columns', () => {
+    const conditions = render({
+      creatorId: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'],
+      authorId: ['11111111-1111-4111-8111-111111111111'],
+      excludeCreatorId: ['22222222-2222-4222-8222-222222222222'],
+      excludeAuthorId: [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222'
+      ]
+    })
+    assert.deepEqual(
+      conditions.map((c) => c.sql),
+      [
+        'p."creatorId" = ANY($1::uuid[])',
+        'p."creatorId" <> ALL($1::uuid[])',
+        'p."authorId" = ANY($1::uuid[])',
+        'p."authorId" <> ALL($1::uuid[])'
+      ]
+    )
+    assert.deepEqual(conditions[0]!.params, [
+      ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
+    ])
+    assert.deepEqual(conditions[3]!.params, [
+      ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
+    ])
+  })
+
+  test('empty creator and author lists add no condition', () => {
+    assert.deepEqual(render({ creatorId: [], excludeCreatorId: [], authorId: [] }), [])
+  })
+
+  test('a path value is escaped so `%` and `_` stay literal', () => {
+    const [condition] = render({ excludePath: ['100%_done'] })
+    assert.deepEqual(condition!.params, ['100\\%\\_done%'])
   })
 })

@@ -9,11 +9,12 @@ import { recordClassificationChange } from './classification.ts'
 // FIXME: not a true set comparison. Against `['a', 'b']`, a duplicate-padded `['a', 'a']` reads
 // as unchanged, so `b` is dropped without the retag checks. Compare against `new Set(next)`.
 function tagSetChanged(current: string[], next: string[]): boolean {
-  if (current.length !== next.length) {
+  const currentSet = new Set(current)
+  const nextSet = new Set(next)
+  if (currentSet.size !== nextSet.size) {
     return true
   }
-  const currentSet = new Set(current)
-  return next.some((tag) => !currentSet.has(tag))
+  return [...nextSet].some((tag) => !currentSet.has(tag))
 }
 
 /**

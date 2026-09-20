@@ -10,10 +10,12 @@ props:
     title: Site ID
     hint: The number index representing your site ID
     default: 1
+    icon: tabler:id
     order: 1
   serverHost:
     type: String
     title: Server Host
     hint: Including https:// and optionally the port. Without trailing slash. (e.g. https://example.matomo.cloud)
     default: https://example.matomo.cloud
+    icon: tabler:world-www
     order: 2

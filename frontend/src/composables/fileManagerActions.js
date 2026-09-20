@@ -9,6 +9,7 @@ import { isHomePath } from '@/helpers/pagePaths'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
+import AssetPreviewDialog from '@/components/AssetPreviewDialog.vue'
 import AssetRenameDialog from '@/components/AssetRenameDialog.vue'
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import FolderRenameDialog from '@/components/FolderRenameDialog.vue'
@@ -141,6 +142,37 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     })
   }
 
+  function duplicateFolder(item) {
+    dialog({
+      component: defineAsyncComponent(() => import('@/components/TreeBrowserDialog.vue')),
+      componentProps: {
+        mode: 'moveItem',
+        folderPath: item.folderPath,
+        title: t('fileman.duplicateFolderTitle'),
+        confirmLabel: t('fileman.duplicateFolderConfirm'),
+        locale: state.locale
+      }
+    }).onOk(async (destination) => {
+      try {
+        await API_CLIENT.post(`sites/${siteStore.id}/tree/folders/${item.id}/duplicate`, {
+          json: { folderId: destination.folderId, parentPath: destination.parentPath }
+        }).json()
+        notify({
+          type: 'positive',
+          message: t('fileman.duplicateFolderSuccess')
+        })
+      } catch (err) {
+        notify({
+          type: 'negative',
+          message: t('fileman.duplicateFolderFailed'),
+          caption: apiErrorMessage(err, t('common.error.unexpected'))
+        })
+        return
+      }
+      await loadTree({ parentId: state.currentFolderId })
+    })
+  }
+
   /**
    * Rename and move are one action: the dialog hands back a title and a full path, and only the
    * path decides which of the two endpoints is called.
@@ -241,6 +273,81 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     })
   }
 
+  function moveAsset(item) {
+    dialog({
+      component: defineAsyncComponent(() => import('@/components/TreeBrowserDialog.vue')),
+      componentProps: {
+        mode: 'moveItem',
+        folderPath: item.folderPath,
+        locale: state.locale
+      }
+    }).onOk(async (destination) => {
+      try {
+        await API_CLIENT.put(`sites/${siteStore.id}/assets/${item.id}/folder`, {
+          json: { folderId: destination.folderId, parentPath: destination.parentPath }
+        }).json()
+        notify({
+          type: 'positive',
+          message: t('fileman.moveAssetSuccess')
+        })
+      } catch (err) {
+        notify({
+          type: 'negative',
+          message: t('fileman.moveAssetFailed'),
+          caption: apiErrorMessage(err, t('common.error.unexpected'))
+        })
+        return
+      }
+      await loadTree({ parentId: state.currentFolderId })
+    })
+  }
+
+  function moveFolder(item) {
+    dialog({
+      component: defineAsyncComponent(() => import('@/components/TreeBrowserDialog.vue')),
+      componentProps: {
+        mode: 'moveItem',
+        folderPath: item.folderPath,
+        locale: state.locale
+      }
+    }).onOk(async (destination) => {
+      try {
+        await API_CLIENT.put(`sites/${siteStore.id}/tree/folders/${item.id}/parent`, {
+          json: { folderId: destination.folderId, parentPath: destination.parentPath }
+        }).json()
+        notify({
+          type: 'positive',
+          message: t('fileman.moveFolderSuccess')
+        })
+      } catch (err) {
+        notify({
+          type: 'negative',
+          message: t('fileman.moveFolderFailed'),
+          caption: apiErrorMessage(err, t('common.error.unexpected'))
+        })
+        return
+      }
+      if (state.currentFileId === item.id) {
+        state.currentFileId = null
+      }
+      treeComp.value?.resetLoaded()
+      await loadTree({ parentId: state.currentFolderId })
+    })
+  }
+
+  function previewAsset(item) {
+    dialog({
+      component: AssetPreviewDialog,
+      componentProps: {
+        assetId: item.id,
+        fileName: item.fileName,
+        folderPath: item.folderPath ?? '',
+        fileSize: item.fileSize,
+        mimeType: item.mimeType
+      }
+    })
+  }
+
   function delAsset(assetId, assetName) {
     confirm({
       title: t('fileman.assetDelete'),
@@ -274,9 +381,13 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     reloadFolder,
     rerenderPage,
     duplicatePage,
+    duplicateFolder,
     renameMovePage,
     delPage,
     renameAsset,
+    moveAsset,
+    moveFolder,
+    previewAsset,
     delAsset
   }
 }

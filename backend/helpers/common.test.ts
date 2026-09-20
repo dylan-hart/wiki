@@ -171,6 +171,22 @@ describe('isHashedAssetFilename', () => {
     })
   }
 
+  test('a hand-authored file at the root is not immutable just because its name is hash-shaped', () => {
+    assert.equal(isHashedAssetFilename('logo-cardinal.svg'), false)
+  })
+
+  test('files under the hand-authored subdirectories are never immutable', () => {
+    assert.equal(isHashedAssetFilename('icons/ultraviolet-security-configuration.svg'), false)
+    assert.equal(isHashedAssetFilename('icons/color-document.svg'), false)
+    assert.equal(isHashedAssetFilename('fonts/rubik-variable-latin.woff2'), false)
+    assert.equal(isHashedAssetFilename('fonts/inter-all-regular.woff2'), false)
+    assert.equal(isHashedAssetFilename('svg\\index-CL_uwIZr.js'), false)
+  })
+
+  test('a name whose suffix is longer than a vite hash is not immutable', () => {
+    assert.equal(isHashedAssetFilename('index-CL_uwIZrX.js'), false)
+  })
+
   test('a short suffix under 8 characters does not count as a hash', () => {
     assert.equal(isHashedAssetFilename('logo-abc1234.svg'), false)
   })

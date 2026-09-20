@@ -155,7 +155,7 @@ describe(
     })
 
     test('path filters to that subtree, excluding siblings and drafts outside it', async () => {
-      const result = await mod.query({ siteId, path: 'docs' })
+      const result = await mod.query({ siteId, path: ['docs'] })
       const paths = result.results.map((r) => r.path).sort()
       assert.deepEqual(paths, ['docs/alpha', 'docs/beta', 'docs/delta'])
     })
@@ -175,12 +175,12 @@ describe(
     })
 
     test('draft pages are excluded by default', async () => {
-      const result = await mod.query({ siteId, path: 'guides' })
+      const result = await mod.query({ siteId, path: ['guides'] })
       assert.deepEqual(result.results, [])
     })
 
     test('includeDrafts surfaces the draft page', async () => {
-      const result = await mod.query({ siteId, path: 'guides', includeDrafts: true })
+      const result = await mod.query({ siteId, path: ['guides'], includeDrafts: true })
       assert.deepEqual(
         result.results.map((r) => r.path),
         ['guides/gamma']
@@ -188,7 +188,7 @@ describe(
     })
 
     test('an explicit publishState filter finds only pages in that state', async () => {
-      const result = await mod.query({ siteId, publishState: 'draft', includeDrafts: true })
+      const result = await mod.query({ siteId, publishState: ['draft'], includeDrafts: true })
       assert.deepEqual(
         result.results.map((r) => r.path),
         ['guides/gamma']
@@ -211,7 +211,7 @@ describe(
     })
 
     test('editor filters to only that editor', async () => {
-      const result = await mod.query({ siteId, editor: 'asciidoc' })
+      const result = await mod.query({ siteId, editor: ['asciidoc'] })
       assert.deepEqual(
         result.results.map((r) => r.path),
         ['docs/delta']

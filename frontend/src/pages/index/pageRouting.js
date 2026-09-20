@@ -148,7 +148,8 @@ export async function loadPageForRoute(
   const parsedLocale = siteStore.useLocales
     ? parseLocalePrefix(
         newValue,
-        siteStore.locales.active.map((l) => l.code)
+        siteStore.locales.active.map((l) => l.code),
+        siteStore.locales.aliases
       )
     : null
   const pagePath = parsedLocale?.path ?? newValue
@@ -175,6 +176,7 @@ export async function loadPageForRoute(
         isActive: false,
         mode: 'edit'
       })
+      editorStore.clearPendingAssets()
     }
     // -> `collectBlocksToLoad` tolerates a missing content element: a locked page draws its lock
     //    screen in place of the article, so there is nothing to scan.

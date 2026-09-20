@@ -8,6 +8,9 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 let app: FastifyInstance
 let executeAction: ReturnType<typeof mock.fn>
 let getSiteTargetById: ReturnType<typeof mock.fn>
+let getSiteTargets: ReturnType<typeof mock.fn>
+let validateTarget: ReturnType<typeof mock.fn>
+let updateTarget: ReturnType<typeof mock.fn>
 
 const SITE_ID = randomUUID()
 
@@ -40,6 +43,10 @@ before(async () => {
     return null
   })
 
+  getSiteTargets = mock.fn(async () => [ENABLED_TARGET])
+  validateTarget = mock.fn(async () => null)
+  updateTarget = mock.fn(async () => true)
+
   app = await buildTestApp({
     routes: storageRoutes,
     ajv: true,
@@ -47,14 +54,19 @@ before(async () => {
       models: {
         storage: {
           getSiteTargetById,
+          getSiteTargets,
+          validateTarget,
+          updateTarget,
           executeAction
-        }
+        },
+        auditLog: { record: async () => {} }
       }
     }
   })
 })
 
 beforeEach(() => {
+  updateTarget.mock.resetCalls()
   executeAction.mock.resetCalls()
   getSiteTargetById.mock.resetCalls()
   ;(CARDINAL.scheduler.addJob as any).mock.resetCalls()
@@ -176,5 +188,37 @@ describe('confirmMassDelete threads through the queued job for a sync-shaped act
     assert.equal(res.statusCode, 200)
     const [job] = (CARDINAL.scheduler.addJob as any).mock.calls[0]!.arguments
     assert.equal(job.payload.data.confirmMassDelete, true)
+  })
+})
+
+describe('PUT /sites/:siteId/storage/targets carries assetDelivery.readThrough', () => {
+  test('a readThrough flag passes schema validation and reaches updateTarget untouched', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/storage/targets`,
+      payload: {
+        targets: [{ id: ENABLED_TARGET.id, assetDelivery: { readThrough: true } }]
+      }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().updated, 1)
+    const [siteId, target, patch] = updateTarget.mock.calls[0]!.arguments as any[]
+    assert.equal(siteId, SITE_ID)
+    assert.equal(target.id, ENABLED_TARGET.id)
+    assert.deepEqual(patch.assetDelivery, { readThrough: true })
+  })
+
+  test('a non-boolean readThrough is refused before anything is written', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/storage/targets`,
+      payload: {
+        targets: [{ id: ENABLED_TARGET.id, assetDelivery: { readThrough: { on: true } } }]
+      }
+    })
+
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateTarget.mock.calls.length, 0)
   })
 })

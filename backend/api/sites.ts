@@ -5,11 +5,14 @@ import { defaultLocale } from '../helpers/localeRouting.ts'
 import { resolveSiteParam } from '../helpers/siteResolution.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
+import { semanticSearchAvailable } from '../helpers/semanticSearch.ts'
 import { maySiteAdmin, SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { siteAssetKinds } from '../models/sites.ts'
 import type { SiteAssetKind } from '../models/sites.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+
+const LOCALE_ALIAS_PATTERN = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/
 
 const imageUploadLimit = 10 * 1024 * 1024
 
@@ -23,6 +26,7 @@ const SITE_CONFIG_KEYS = [
   'company',
   'contentLicense',
   'footerExtra',
+  'banner',
   'pageExtensions',
   'allowedUrlSchemes',
   'logoText',
@@ -55,6 +59,7 @@ const SITE_FIELD_PERMISSIONS: Partial<
   company: 'site:general',
   contentLicense: 'site:general',
   footerExtra: 'site:general',
+  banner: 'site:general',
   pageExtensions: 'site:general',
   allowedUrlSchemes: 'site:general',
   logoText: 'site:general',
@@ -95,19 +100,6 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
 }
 
 /**
- * The single place the instance-wide pgvector capability and the site's own toggle are combined:
- * consumers read `features.semanticSearch` off the site-info response rather than re-deriving it.
- * `CARDINAL.capabilities` is absent on a `CARDINAL` that never ran the db boot step (a test stub),
- * which reads as `false`.
- */
-function semanticSearchAvailable(config: Record<string, any>): boolean {
-  return (
-    CARDINAL.capabilities?.semanticSearch === true &&
-    config.search?.config?.semanticEnabled === true
-  )
-}
-
-/**
  * Every `site.config` key reaching the response is named explicitly rather than spread in: both
  * callers are `publicAccess: true`, and `config.search` holds the active search engine's
  * credentials. `schemas/site.test.ts` pins the allow-list.
@@ -138,6 +130,7 @@ export async function buildSitePayload(
     pdfExportAvailable: await CARDINAL.models.renderQueue.isAvailable(),
     docsBase: CARDINAL.config.docsBase,
     isReplicationEnabled: CARDINAL.config.replication?.isEnabled === true,
+    guestsMayViewProfiles: CARDINAL.config.profileVisibility?.guestsMayView === true,
     navigationId: await CARDINAL.models.navigation.ensureSiteNav(site.id, defaultLocale(site.id)),
     // -> `req` is optional only so a test need not fabricate one; a real caller always passes it.
     commentsProvider:
@@ -156,6 +149,7 @@ export async function buildSitePayload(
     company: config.company,
     contentLicense: config.contentLicense,
     footerExtra: config.footerExtra,
+    banner: config.banner,
     pageExtensions: config.pageExtensions,
     allowedUrlSchemes: config.allowedUrlSchemes,
     discoverable: config.discoverable,
@@ -428,6 +422,7 @@ async function routes(app: FastifyInstance) {
       company?: string
       contentLicense?: string
       footerExtra?: string
+      banner?: { isEnabled?: boolean; title?: string; content?: string }
       pageExtensions?: string[]
       allowedUrlSchemes?: string[]
       logoText?: boolean
@@ -445,6 +440,7 @@ async function routes(app: FastifyInstance) {
         primary?: string
         active?: string[]
         forcePrefix?: boolean
+        aliases?: Record<string, string>
         showMenu?: boolean
       }
       robots?: Record<string, any>
@@ -463,7 +459,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Update a site',
         description:
-          'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`pageExtensions`/`allowedUrlSchemes`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`security`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
+          'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`banner`/`pageExtensions`/`allowedUrlSchemes`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`security`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
         tags: ['Sites'],
         params: { $ref: 'SiteIdParams#' },
         body: {
@@ -494,6 +490,9 @@ async function routes(app: FastifyInstance) {
             },
             footerExtra: {
               type: 'string'
+            },
+            banner: {
+              $ref: 'Site#/properties/banner'
             },
             pageExtensions: {
               type: 'array',
@@ -731,6 +730,62 @@ async function routes(app: FastifyInstance) {
             )
           }
         }
+
+        const storedAliases: Record<string, string> = site.config.locales?.aliases ?? {}
+        const suppliedAliases = req.body.locales.aliases
+        const aliases: Record<string, string> = {}
+        const seen = new Map<string, string>()
+        const installedLower = new Set(installedCodes.map((code: string) => code.toLowerCase()))
+        for (const [code, alias] of Object.entries(suppliedAliases ?? storedAliases)) {
+          if (!active.includes(code)) {
+            if (suppliedAliases) {
+              throw new CustomError(
+                'siteUpdateAliasLocaleInactive',
+                `Cannot alias "${code}": it is not an active locale of this site.`
+              )
+            }
+            continue
+          }
+          if (alias === '') {
+            continue
+          }
+          if (!LOCALE_ALIAS_PATTERN.test(alias)) {
+            throw new CustomError(
+              'siteUpdateAliasInvalid',
+              `The alias "${alias}" for "${code}" must be a single URL segment of letters, digits and hyphens.`
+            )
+          }
+          const lower = alias.toLowerCase()
+          const duplicateOf = seen.get(lower)
+          if (duplicateOf) {
+            throw new CustomError(
+              'siteUpdateAliasDuplicate',
+              `The alias "${alias}" is used by both "${duplicateOf}" and "${code}".`
+            )
+          }
+          if (installedLower.has(lower)) {
+            throw new CustomError(
+              'siteUpdateAliasCollidesWithLocale',
+              `The alias "${alias}" for "${code}" collides with an installed locale code.`
+            )
+          }
+          seen.set(lower, code)
+          aliases[code] = alias
+        }
+
+        for (const [code, alias] of Object.entries(aliases)) {
+          if (storedAliases[code] === alias) {
+            continue
+          }
+          if (await CARDINAL.models.tree.hasRootSegment(req.params.siteId, alias)) {
+            throw new CustomError(
+              'siteUpdateAliasCollidesWithContent',
+              `Cannot use "${alias}" as the alias for "${code}": this site already has a page or folder at "${alias}".`,
+              409
+            )
+          }
+        }
+        req.body.locales.aliases = aliases
       }
 
       const config: Record<string, any> = {}

@@ -1,6 +1,7 @@
 import { describe, test, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
+import { Readable } from 'node:stream'
 import {
   blobStorageModule,
   keyFor,
@@ -9,6 +10,7 @@ import {
 } from './blobBase.ts'
 import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
 import { makeStorageTarget } from '../../test/builders.ts'
+import { CONTENT_TYPES } from '../../models/storage.ts'
 import type { StorageTarget } from '../../models/storage.ts'
 
 /**
@@ -59,7 +61,17 @@ function makeDriver() {
         _config: Record<string, any>
       ) => {}
     ),
-    sign: mock.fn(async (_client: FakeClient, key: string, _ttl: number) => `signed:${key}`)
+    sign: mock.fn(async (_client: FakeClient, key: string, _ttl: number) => `signed:${key}`),
+    get: mock.fn(
+      async (_client: FakeClient, _key: string) =>
+        ({ body: Readable.from([Buffer.from('bytes')]), size: 5 }) as {
+          body: Readable
+          size: number
+        } | null
+    ),
+    head: mock.fn(
+      async (_client: FakeClient, _key: string) => ({ size: 5 }) as { size: number } | null
+    )
   } satisfies BlobDriver<FakeClient>
 }
 
@@ -85,6 +97,72 @@ describe('blobBase / keyFor', () => {
   test('an empty folderPath yields a key straight under the site', () => {
     const target = makeTarget()
     assert.equal(keyFor(target, '', 'logo.png'), `${target.siteId}/logo.png`)
+  })
+})
+
+describe('blobBase / pathPrefix', () => {
+  test('keyFor without a pathPrefix is unchanged, including when the config value is not a string', () => {
+    for (const pathPrefix of [undefined, '', '   ', null, 7]) {
+      const target = makeTarget({ pathPrefix })
+      assert.equal(keyFor(target, 'docs', 'a.pdf'), `${target.siteId}/docs/a.pdf`)
+    }
+  })
+
+  test('keyFor puts the prefix ahead of the siteId', () => {
+    const target = makeTarget({ pathPrefix: 'a/b' })
+    assert.equal(keyFor(target, 'docs', 'a.pdf'), `a/b/${target.siteId}/docs/a.pdf`)
+    assert.equal(keyFor(target, '', 'a.pdf'), `a/b/${target.siteId}/a.pdf`)
+  })
+
+  test('keyFor normalizes slashes and refuses to traverse with ..', () => {
+    const target = makeTarget({ pathPrefix: ' //a//../b/ ' })
+    assert.equal(keyFor(target, 'docs', 'a.pdf'), `a/b/${target.siteId}/docs/a.pdf`)
+  })
+
+  test('assetDeleted removes the prefixed key', async () => {
+    const driver = makeDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget({ pathPrefix: 'wiki' })
+
+    await module.assetDeleted!(target, { fileName: 'old.png', folderPath: 'images' })
+    assert.equal(driver.remove.mock.calls[0]!.arguments[1], `wiki/${target.siteId}/images/old.png`)
+  })
+
+  test('assetRenamed copies and removes using the prefixed source and destination', async () => {
+    const driver = makeDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget({ pathPrefix: 'a/b' })
+
+    await module.assetRenamed!(target, {
+      fileName: 'new-name.png',
+      previousFileName: 'old-name.png',
+      folderPath: 'images'
+    })
+
+    const sourceKey = `a/b/${target.siteId}/images/old-name.png`
+    assert.equal(driver.copy.mock.calls[0]!.arguments[1], sourceKey)
+    assert.equal(
+      driver.copy.mock.calls[0]!.arguments[2],
+      `a/b/${target.siteId}/images/new-name.png`
+    )
+    assert.equal(driver.remove.mock.calls[0]!.arguments[1], sourceKey)
+  })
+
+  test('assetMoved copies and removes using the prefixed source and destination', async () => {
+    const driver = makeDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget({ pathPrefix: 'a/b' })
+
+    await module.assetMoved!(target, {
+      fileName: 'pic.png',
+      folderPath: 'gallery',
+      previousFolderPath: 'images'
+    })
+
+    const sourceKey = `a/b/${target.siteId}/images/pic.png`
+    assert.equal(driver.copy.mock.calls[0]!.arguments[1], sourceKey)
+    assert.equal(driver.copy.mock.calls[0]!.arguments[2], `a/b/${target.siteId}/gallery/pic.png`)
+    assert.equal(driver.remove.mock.calls[0]!.arguments[1], sourceKey)
   })
 })
 
@@ -286,7 +364,11 @@ describe('blobBase / exportAll', () => {
     const driver = makeDriver()
     const module = blobStorageModule(driver)
     const target = makeTarget()
-    target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
+    target.contentTypes = {
+      activeTypes: ['images'],
+      supportedTypes: [...CONTENT_TYPES],
+      largeThreshold: '1MB'
+    }
 
     CARDINAL.models.assets.streamAll = async function* () {
       yield {
@@ -421,6 +503,73 @@ describe('blobBase / error wrapping', () => {
         )
         return true
       }
+    )
+  })
+})
+
+describe('blobBase / readAsset and headAsset', () => {
+  const asset = {
+    id: 'asset-1',
+    updatedAt: new Date('2024-01-01T00:00:00Z'),
+    folderPath: 'images',
+    fileName: 'pic.png'
+  }
+
+  test('readAsset returns the driver body and size, keyed by keyFor', async () => {
+    const driver = makeDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+
+    const result = await module.readAsset!(asset, target)
+
+    assert.equal(result!.size, 5)
+    const chunks: Buffer[] = []
+    for await (const chunk of result!.body) {
+      chunks.push(chunk)
+    }
+    assert.equal(Buffer.concat(chunks).toString(), 'bytes')
+    assert.equal(driver.get.mock.calls[0]!.arguments[1], `${target.siteId}/images/pic.png`)
+  })
+
+  test('headAsset returns the driver size, keyed by keyFor', async () => {
+    const driver = makeDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+
+    assert.deepEqual(await module.headAsset!(asset, target), { size: 5 })
+    assert.equal(driver.head.mock.calls[0]!.arguments[1], `${target.siteId}/images/pic.png`)
+  })
+
+  test('a not-found object is null from both handlers', async () => {
+    const driver = makeDriver()
+    driver.get.mock.mockImplementationOnce(async () => null)
+    driver.head.mock.mockImplementationOnce(async () => null)
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+
+    assert.equal(await module.readAsset!(asset, target), null)
+    assert.equal(await module.headAsset!(asset, target), null)
+  })
+
+  test('a driver failure is wrapped as Failed to ... naming the key', async () => {
+    const driver = makeDriver()
+    driver.get.mock.mockImplementationOnce(async () => {
+      throw new Error('500 boom')
+    })
+    driver.head.mock.mockImplementationOnce(async () => {
+      throw new Error('403 nope')
+    })
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+    const key = `${target.siteId}/images/pic.png`
+
+    await assert.rejects(
+      () => module.readAsset!(asset, target),
+      (err: any) => err.message === `Failed to read "${key}": 500 boom`
+    )
+    await assert.rejects(
+      () => module.headAsset!(asset, target),
+      (err: any) => err.message === `Failed to inspect "${key}": 403 nope`
     )
   })
 })

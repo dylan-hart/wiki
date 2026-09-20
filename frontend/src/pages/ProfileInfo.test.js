@@ -783,3 +783,163 @@ describe('ProfileInfo carries theme/time/accessibility fields through unmodified
     expect(userStore.contentWidth).toBe('measured')
   })
 })
+
+describe('ProfileInfo handle field (OpenProject #3618)', () => {
+  const HANDLE = 'input[aria-label="profile.handle"]'
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('renders the current handle behind an @ prefix', async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, handle: 'jane.doe' })
+    await flushPromises()
+
+    expect(wrapper.find(HANDLE).element.value).toBe('jane.doe')
+    expect(wrapper.text()).toContain('@')
+  })
+
+  it('renders an empty field when the profile has no handle', async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, handle: null })
+    await flushPromises()
+
+    expect(wrapper.find(HANDLE).element.value).toBe('')
+  })
+
+  it('saves a new handle through the profile update call on blur', async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, handle: 'jane.doe' })
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const input = wrapper.find(HANDLE)
+    await input.setValue('janet')
+    await input.trigger('blur')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    const [url, options] = globalThis.API_CLIENT.put.mock.calls.at(-1)
+    expect(url).toBe('users/profile')
+    expect(options.json).toMatchObject({ handle: 'janet' })
+  })
+
+  it('saves on Enter, and sends an empty string to clear the handle', async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, handle: 'jane.doe' })
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const input = wrapper.find(HANDLE)
+    await input.setValue('')
+    await input.trigger('keyup.enter')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({ handle: '' })
+  })
+
+  it('fires no save on blur when the handle is unchanged', async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, handle: 'jane.doe' })
+    await flushPromises()
+
+    await wrapper.find(HANDLE).trigger('blur')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
+  })
+
+  it("shows the server's duplicate-handle message inline", async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, handle: 'jane.doe' })
+    await flushPromises()
+    const err = Object.assign(new Error('Conflict'), {
+      data: { error: 'userHandleTaken', message: 'That handle is already taken.' }
+    })
+    globalThis.API_CLIENT.put.mockImplementation(() => {
+      throw err
+    })
+
+    const input = wrapper.find(HANDLE)
+    await input.setValue('taken')
+    await input.trigger('blur')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('That handle is already taken.')
+  })
+
+  it("shows the server's invalid-handle message inline", async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, handle: 'jane.doe' })
+    await flushPromises()
+    const err = Object.assign(new Error('Bad Request'), {
+      data: {
+        error: 'userHandleInvalid',
+        message: 'A handle may contain only letters, digits, dots, underscores and hyphens.'
+      }
+    })
+    globalThis.API_CLIENT.put.mockImplementation(() => {
+      throw err
+    })
+
+    const input = wrapper.find(HANDLE)
+    await input.setValue('no spaces')
+    await input.trigger('blur')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('A handle may contain only letters')
+  })
+
+  it('clears the inline error once a later save succeeds', async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, handle: 'jane.doe' })
+    await flushPromises()
+    const err = Object.assign(new Error('Conflict'), {
+      data: { error: 'userHandleTaken', message: 'That handle is already taken.' }
+    })
+    globalThis.API_CLIENT.put.mockImplementationOnce(() => {
+      throw err
+    })
+
+    const input = wrapper.find(HANDLE)
+    await input.setValue('taken')
+    await input.trigger('blur')
+    await flushPromises()
+    expect(wrapper.text()).toContain('That handle is already taken.')
+
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+    await input.setValue('free')
+    await input.trigger('blur')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('That handle is already taken.')
+  })
+
+  it('reverts to the last-saved handle on Escape without saving', async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, handle: 'jane.doe' })
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const input = wrapper.find(HANDLE)
+    input.element.focus()
+    await input.setValue('other')
+    input.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+
+    expect(input.element.value).toBe('jane.doe')
+    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
+  })
+
+  it('carries the handle in the payload of another field save', async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, handle: 'jane.doe' })
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const input = wrapper.find('input[aria-label="First Name"]')
+    await input.setValue('Janet')
+    await input.trigger('blur')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      handle: 'jane.doe'
+    })
+  })
+})

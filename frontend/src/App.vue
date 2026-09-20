@@ -4,6 +4,7 @@
   <w-notifications />
   <w-loading-overlay />
   <w-dialog-host />
+  <user-profile-popover />
   <component :is="DevQuickMenu" v-if="DevQuickMenu" />
 </template>
 
@@ -17,8 +18,7 @@ import { bootstrapFailureRedirectFor } from '@/helpers/bootstrap'
 import { resolveAestheticColors } from '@/helpers/aestheticDefaults'
 import { setCssVar } from '@/helpers/cssVars'
 import { applyFonts } from '@/helpers/fonts'
-import { applyInjectCss, replaceHeadStyle } from '@/helpers/injectCss'
-import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
+import { replaceHeadStyle } from '@/helpers/headStyle'
 import { log } from '@/helpers/log'
 import { parseLocalePrefix, resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
 import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
@@ -28,6 +28,7 @@ import { confirm } from '@/composables/dialog'
 import { useDirection } from '@/composables/direction'
 import { notify } from '@/composables/notify'
 
+import UserProfilePopover from '@/components/UserProfilePopover.vue'
 import WDialogHost from '@/components/shared/WDialogHost.vue'
 import WLoadingOverlay from '@/components/shared/WLoadingOverlay.vue'
 import WNotifications from '@/components/shared/WNotifications.vue'
@@ -202,11 +203,6 @@ async function applyTheme() {
 
   applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)
 
-  applyInjectCss(siteStore.theme.injectCSS)
-
-  applyInjectHead(siteStore.theme.injectHead)
-  applyInjectBody(siteStore.theme.injectBody)
-
   await applyCodeBlocksTheme()
 }
 
@@ -338,6 +334,7 @@ router.beforeEach(async (to, from) => {
       lastSaveTimestamp: discardedAt,
       lastChangeTimestamp: discardedAt
     })
+    editorStore.clearPendingAssets()
   }
 
   // -> Asked once: a guest is an answer like any other, so this does not run again on the next page
@@ -391,7 +388,8 @@ router.beforeEach(async (to, from) => {
       to.path,
       to.query,
       siteStore.locales.active.map((l) => l.code),
-      siteStore.locales.primary
+      siteStore.locales.primary,
+      siteStore.locales.aliases
     )
   }
 
@@ -405,7 +403,8 @@ router.beforeEach(async (to, from) => {
   routeLocale = siteStore.useLocales
     ? (parseLocalePrefix(
         to.path,
-        siteStore.locales.active.map((l) => l.code)
+        siteStore.locales.active.map((l) => l.code),
+        siteStore.locales.aliases
       )?.locale ?? null)
     : null
 

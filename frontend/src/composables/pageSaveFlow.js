@@ -6,7 +6,7 @@ import { dialog } from '@/composables/dialog'
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
 import { log } from '@/helpers/log'
-import { shouldPrefixLocale } from '@/helpers/pagePaths'
+import { localeUrlSegment, shouldPrefixLocale } from '@/helpers/pagePaths'
 
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
@@ -57,6 +57,7 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         */
         originPageId: ''
       })
+      editorStore.clearPendingAssets()
 
       if (
         (pageStore.path === '' || pageStore.path === 'home') &&
@@ -66,7 +67,9 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
       }
 
       router.replace(
-        shouldPrefixLocale(pageStore.locale, siteStore.localeRouting) ? `/${pageStore.locale}` : '/'
+        shouldPrefixLocale(pageStore.locale, siteStore.localeRouting)
+          ? `/${localeUrlSegment(pageStore.locale, siteStore.localeRouting.aliases)}`
+          : '/'
       )
       return
     }
@@ -100,6 +103,7 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         // -> Reset, or the next editor opened inherits this one's mode
         mode: 'edit'
       })
+      editorStore.clearPendingAssets()
       if (hadPendingChanges) {
         notify({
           type: 'positive',
@@ -118,6 +122,7 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         mode: 'edit',
         originPageId: ''
       })
+      editorStore.clearPendingAssets()
       notify({
         type: 'negative',
         message: t('common.page.reloadFailed')
@@ -186,6 +191,7 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
           isActive: false,
           editor: ''
         })
+        editorStore.clearPendingAssets()
       }
     } catch (err) {
       // -> A 409 has already put the resolution dialog up via the `saveConflict` watch; a generic
