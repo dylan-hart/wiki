@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { after, before, describe, test } from 'node:test'
 
-import { isPageUrl, RESERVED_ROOT_FILES, SERVER_ROUTE_SEGMENTS } from './siteRouting.ts'
+import { resetAppShellCache } from '../../helpers/appShell.ts'
+import {
+  isPageUrl,
+  registerAppShellFallback,
+  RESERVED_ROOT_FILES,
+  SERVER_ROUTE_SEGMENTS
+} from './siteRouting.ts'
 
 describe('isPageUrl', () => {
   test('a plain page path addresses the page tree', () => {
@@ -59,5 +68,76 @@ describe('RESERVED_ROOT_FILES', () => {
     for (const file of RESERVED_ROOT_FILES) {
       assert.equal(file, file.toLowerCase())
     }
+  })
+})
+
+describe('registerAppShellFallback', () => {
+  const shellHtml =
+    '<!DOCTYPE html>\n<html lang="en">\n<head><title>Cardinal.js</title></head>\n<body><div id="app"></div></body>\n</html>'
+  let rootPath: string
+  let previousCardinal: unknown
+  let handler: (req: any, reply: any) => Promise<any>
+
+  before(async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), 'app-shell-'))
+    await mkdir(path.join(rootPath, 'assets'))
+    await writeFile(path.join(rootPath, 'assets/index.html'), shellHtml)
+    previousCardinal = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = {
+      ROOTPATH: rootPath,
+      sites: {},
+      sitesMappings: {},
+      models: { locales: { getLocales: async () => [{ code: 'en', isRTL: false }] } },
+      logger: { error: () => {} }
+    }
+    resetAppShellCache()
+    registerAppShellFallback({
+      setNotFoundHandler: (fn: typeof handler) => {
+        handler = fn
+      }
+    } as any)
+  })
+
+  after(async () => {
+    ;(globalThis as any).CARDINAL = previousCardinal
+    resetAppShellCache()
+    await rm(rootPath, { recursive: true, force: true })
+  })
+
+  async function serve(method: string, url: string) {
+    const sent: { body?: string; headers: Record<string, string>; type?: string } = { headers: {} }
+    const reply: any = {
+      header: (k: string, v: string) => {
+        sent.headers[k] = v
+        return reply
+      },
+      type: (t: string) => {
+        sent.type = t
+        return reply
+      },
+      send: (b: string) => {
+        sent.body = b
+        return reply
+      },
+      notFound: () => {
+        sent.body = 'not found'
+        return reply
+      }
+    }
+    await handler({ method, raw: { url }, hostname: 'wiki.test' }, reply)
+    return sent
+  }
+
+  test('with no fragments the served shell is the templated shell, byte for byte', async () => {
+    const sent = await serve('GET', '/guides/x')
+    assert.equal(sent.body, shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">'))
+    assert.equal(sent.headers['Cache-Control'], 'no-store')
+    assert.equal(sent.type, 'text/html; charset=utf-8')
+  })
+
+  test('repeated requests keep serving the same bytes', async () => {
+    const first = await serve('GET', '/a')
+    const second = await serve('HEAD', '/b?x=1')
+    assert.equal(second.body, first.body)
   })
 })

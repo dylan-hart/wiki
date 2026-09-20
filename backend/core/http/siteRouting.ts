@@ -1,7 +1,11 @@
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 
-import { resolveAppShellLocale, getTemplatedAppShell } from '../../helpers/appShell.ts'
+import {
+  resolveAppShellLocale,
+  getTemplatedAppShell,
+  insertIntoAppShell
+} from '../../helpers/appShell.ts'
 import { stripPageExtension } from '../../helpers/common.ts'
 import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
 import {
@@ -188,14 +192,12 @@ export function registerAppShellFallback(app: FastifyInstance): void {
       const siteId = siteIdForHostname(req.hostname)
       const siteConfig = siteId ? CARDINAL.sites[siteId]?.config : undefined
       const lang = resolveAppShellLocale(urlPath!, urlSearch, siteConfig?.locales)
-      const templated = await getTemplatedAppShell(appShellPath, lang, async () => {
+      const template = await getTemplatedAppShell(appShellPath, lang, async () => {
         const locales = await CARDINAL.models.locales.getLocales()
         return locales.find((l: any) => l.code === lang)?.isRTL ?? false
       })
-      return reply
-        .header('Cache-Control', 'no-store')
-        .type('text/html; charset=utf-8')
-        .send(templated)
+      const shell = insertIntoAppShell(template, {})
+      return reply.header('Cache-Control', 'no-store').type('text/html; charset=utf-8').send(shell)
     } catch (err: any) {
       // -> Nothing to serve means the frontend was never built, which is a setup step rather than a
       //    fault of this request: say which one, since a bare 500 sends people looking in the server
