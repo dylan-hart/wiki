@@ -1,5 +1,5 @@
 <template>
-  <div class="site-footer">
+  <div ref="rootEl" class="site-footer">
     <!--
       The separator is a real character between the spans rather than a border or a gap, so it
       wraps with them on a narrow screen.
@@ -37,12 +37,13 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 /** This fork's own home, not upstream's `js.wiki`. */
 const PROJECT_URL = 'https://github.com/dylan-hart/wiki'
 
+import { useFooterBarHeight } from '@/composables/footerBarHeight'
 import { useSiteStore } from '@/stores/site'
 
 /**
@@ -58,6 +59,9 @@ const props = defineProps({
 })
 
 const siteStore = useSiteStore()
+
+const rootEl = ref(null)
+useFooterBarHeight(rootEl)
 
 const { t } = useI18n()
 
