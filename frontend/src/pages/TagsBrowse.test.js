@@ -16,17 +16,12 @@ import { createTestRouter } from '../../test/router.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
-  // -> `.onOk(cb)` runs `cb` at once rather than waiting on a real confirmation dialog's own click --
-  //    what these tests need to verify is that confirming DOES the right thing, and that the
-  //    confirmation was asked for with the right message, not the confirmation UI itself.
+  // -> `.onOk(cb)` runs `cb` at once rather than waiting on a real dialog's click: what is under
+  //    test is that confirming does the right thing, not the confirmation UI itself.
   confirm: vi.fn(() => ({ onOk: (cb) => cb() }))
 }))
 
-/**
- * `search.loadMore` is always present -- every mount renders the same "Load more" button template
- * as soon as more results exist, whether or not a given test cares about it -- while `messages`
- * layers in whatever ELSE that one test needs resolved (e.g. `MANAGEMENT_MESSAGES` below).
- */
+/** `search.loadMore` resolves for every mount: `findLoadMoreButton` matches on its rendered text. */
 function createTagsBrowseI18n(messages = {}) {
   return createTestI18n({ search: { loadMore: 'Load More' }, ...messages })
 }
@@ -36,10 +31,8 @@ function findLoadMoreButton(wrapper) {
 }
 
 /**
- * The one subset of the real locale strings the management-mode tests need actually resolved --
- * the "confirmation reports the affected-page count" assertion has to see `{count}` interpolated,
- * which the app's real messages (`backend/locales/en.json`) provide and the shared empty-messages
- * i18n instance above deliberately doesn't.
+ * The management-mode tests assert on an interpolated `{count}`, so they need real strings rather
+ * than the empty-message i18n every other test in this file mounts with.
  */
 const MANAGEMENT_MESSAGES = {
   tags: {
@@ -88,17 +81,11 @@ async function createTagsRouter(initialPath) {
 }
 
 /**
- * Mounts against `initialPath`. If it already carries a `tags` query, the route's `immediate`
- * watcher fires a search DURING setup -- before `onMounted`'s tag-list fetch -- so `searchResponse`
- * has to be queued ahead of the (always-queued) tag-list fixture to land on the right call. A path
- * with no selection triggers no search at mount, so only the tag list is ever queued.
+ * If `initialPath` already carries a `tags` query, the route's `immediate` watcher fires a search
+ * DURING setup -- before `onMounted`'s tag-list fetch -- so `searchResponse` has to be queued ahead
+ * of the (always-queued) tag-list fixture to land on the right call.
  *
- * @param {string} initialPath
- * @param {object} searchResponse
- * @param {string[]} [pagePermissions] What `userStore.pagePermissions` holds -- the gate the
- *   management-mode controls are checked against. Defaults to none, matching an ordinary reader.
- * @param {object} [i18nMessages] Real locale strings to resolve during this mount, rather than the
- *   default empty set every other test in this file relies on -- see `MANAGEMENT_MESSAGES`.
+ * @param {string[]} [pagePermissions] The gate the management-mode controls are checked against
  */
 async function mountTagsBrowse(
   initialPath = '/_tags',
@@ -247,16 +234,13 @@ describe('TagsBrowse.vue (OpenProject #987)', () => {
   })
 
   /**
-   * OpenProject #1121: `siteStore.fetchTags()` short-circuits when `tagsLoaded` is already true, so a
-   * tag list cached from earlier in the session (the editor, `PageTags.vue`, …) used to go stale here
-   * -- a tag created elsewhere never showed up in the sidebar until a full page reload reset the
-   * store. This screen forces a refresh instead of trusting the cache.
+   * `siteStore.fetchTags()` short-circuits when `tagsLoaded` is already set, so a tag created
+   * elsewhere in the session would never reach this sidebar unless the screen forced past it.
    */
   it('force-refreshes the tag list on mount even when the store already has a cached (stale) one', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
-    // -> Simulate a stale cache left behind by an earlier visit to the editor or PageTags.vue.
     siteStore.$patch({ tags: [{ tag: 'stale-only', usageCount: 1 }], tagsLoaded: true })
 
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_TAGS) })
@@ -432,8 +416,7 @@ describe('TagsBrowse.vue tag management mode (OpenProject #1877)', () => {
     wrapper.vm.confirmRename(FIXTURE_TAGS[0])
     await flushPromises()
 
-    // -> `equipment`'s usageCount (5) is what the confirmation must name -- this is the "reports the
-    //    affected-page count" behaviour the work package's done-when criteria calls out.
+    // -> 5 is `equipment`'s own usageCount, which the confirmation has to name
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
         message: expect.stringContaining('5')
@@ -442,7 +425,6 @@ describe('TagsBrowse.vue tag management mode (OpenProject #1877)', () => {
     expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/tags/equipment', {
       json: { newTag: 'gear' }
     })
-    // -> Refreshed after a successful mutation, per the work package's own done-when criteria.
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/tags')
     expect(wrapper.vm.state.renamingTag).toBeNull()
   })
@@ -527,12 +509,9 @@ describe('TagsBrowse.vue tag management mode (OpenProject #1877)', () => {
 })
 
 /**
- * `ui-redesign/Cardinal Wiki - Tags 3x.dc.html` conformance (OpenProject #2626).
- *
- * Structural rather than measured: jsdom runs no layout engine, so what is asserted here is that
- * the markup, classes and inline styles the design's metrics ride on are the ones on the element --
- * not the pixel each resolves to. A claim that genuinely needed a rendered box would have to go
- * through `test/realGridLayout.js`'s real Chromium; nothing on this screen does.
+ * Structural rather than measured: jsdom runs no layout engine, so these assert that the markup,
+ * classes and inline styles the design's metrics ride on are the ones on the element, not the pixel
+ * each resolves to. A claim needing a rendered box would go through `test/realGridLayout.js`.
  */
 describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)', () => {
   const RESULTS = { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
@@ -550,20 +529,15 @@ describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)'
   })
 
   /*
-    Task #2631 (landed) walked every `.w-section-header` caller onto the design's shared padding
-    rhythm and settled the class itself at 34px everywhere -- it deliberately did not raise this
-    screen's band to match the SIDEBAR band beside it, which is a page-specific gap, not a
-    rhythm-wide padding drift. OpenProject #2717 closed that gap the same way #2613 closed the
-    analogous one for `.page-breadcrumbs`: a page-local `min-height` override, leaving the shared
-    class (and `sectionHeaderRhythm.test.js`'s 34px guard) untouched. #2861 later raised the sidebar
-    band again, from 38px to 41px, and this page's override followed it there. So this screen's
-    stylesheet DOES restyle `.w-section-header` now, on purpose, and only ever its height -- never
-    its padding, which stays #2631's alone.
+    Matching the SIDEBAR band beside it is a page-specific gap, not a rhythm-wide drift, so it is a
+    page-local `min-height` override and the shared `.w-section-header` class (with
+    `sectionHeaderRhythm.test.js`'s 34px guard) is left alone. The override covers the height only
+    -- never the padding, which stays the shared rhythm's.
   */
   it('pins its own band to 41px locally, without restating the shared rhythm’s padding', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(here, 'TagsBrowse.vue'), 'utf8')
-    // -> Comments stripped first, same as the padding scan in `sectionHeaderRhythm.test.js`.
+    // -> Comments stripped first, so a comment mentioning padding cannot fail the scan.
     const declarations = source.slice(source.indexOf('<style')).replaceAll(/\/\*[\s\S]*?\*\//g, '')
 
     expect(declarations.length).toBeGreaterThan(0)
@@ -605,9 +579,9 @@ describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)'
   })
 
   /*
-    The design's filter fields are the 34px frame with 10px of inset, which is what the DEFAULT field
-    draws; `dense` is the 28px one (`composables/fieldFrame.js`). Asserted through the marker class
-    `useFieldFrame` puts on a dense control rather than a computed height, which jsdom cannot give.
+    `dense` is the 28px frame, the default the design's 34px one (`composables/fieldFrame.js`).
+    Asserted through the marker class `useFieldFrame` puts on a dense control rather than a computed
+    height, which jsdom cannot give.
   */
   it('puts the locale, order-by and search fields on the 34px frame, not the dense one', async () => {
     const { wrapper } = await mountWithResults()
@@ -661,12 +635,8 @@ describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)'
   })
 
   /**
-   * OpenProject #2716: this line used to go through `humanizeDate` (the long absolute form), the
-   * same as search results and Inbox Watching, while the page view's own "Last modified" line
-   * already used the short recent form -- so the same fact about the same page read differently
-   * depending on which list it was found in. `updatedAt` is computed relative to "now" rather than
-   * a fixed calendar string, since `formatRecent`'s abbreviated form only applies within the last 7
-   * days.
+   * `updatedAt` is computed relative to "now" rather than written as a fixed calendar string:
+   * `formatRecent`'s abbreviated form only applies within the last 7 days.
    */
   it('shows the last-updated line in the recent form, not the legacy absolute one', async () => {
     const recentUpdatedAt = Temporal.Now.instant().subtract({ hours: 26 }).toString()

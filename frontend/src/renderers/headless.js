@@ -1,28 +1,18 @@
 /**
- * Headless rendering entry point.
+ * The server cannot render markdown -- the pipeline lives here, in the browser, and a second
+ * implementation would drift from what the editor preview shows. A server-side re-render therefore
+ * drives a real browser: Puppeteer loads the `/_render` shell, which loads this bundle and calls
+ * `__wikiRender`.
  *
- * The server cannot render markdown — the pipeline lives here, in the browser, and duplicating it
- * would mean two renderers that drift apart and an editor preview that stops matching the saved page.
- * So when the server needs to re-render a page from its source, it drives a real browser instead:
- * Puppeteer loads the `/_render` shell, which loads this bundle, and calls `__wikiRender`.
- *
- * Built to a fixed filename (`_assets/renderer.js`, see `vite.config.js`) because the backend has to
- * reference it from a static page and cannot resolve a hashed one.
+ * Built to a fixed filename (`_assets/renderer.js`, see `vite.config.js`): the backend references it
+ * from a static page and cannot resolve a hashed one.
  */
 import { MarkdownRenderer } from './markdown'
 
 /**
- * Render markdown the way the editor does.
- *
- * @param {string} content Markdown source
- * @param {object} config The site's markdown editor config, so the result matches what an author
- *                        would have produced in the editor
- * @param {object} context What the source cannot say about itself: `pagePath`, which a relative image
- *                         in it resolves against, exactly as the editor passes it; and `siteOrigin`,
- *                         which the editor never passes (its own `location` already is the site's
- *                         origin) but this headless caller must, since it is not -- see
- *                         `markdown.js#isExternalHref`.
- * @returns {string} Rendered HTML, before the server's own post-processing
+ * @param {object} context `pagePath`, which a relative image resolves against, and `siteOrigin`,
+ *                         which only this caller passes: a headless browser's `location` is its own
+ *                         loopback address, never the site's -- see `markdown.js#isExternalHref`.
  */
 window.__wikiRender = function (content, config = {}, context = {}) {
   const renderer = new MarkdownRenderer(config)

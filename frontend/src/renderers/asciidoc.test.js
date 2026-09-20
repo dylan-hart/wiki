@@ -2,11 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { AsciidocRenderer } from './asciidoc.js'
 
-/*
-  No DOM dependency -- Asciidoctor.js converts in plain JS -- so these instantiate and render
-  directly, the same way `markdown.test.js` exercises `MarkdownRenderer`.
-*/
-
 describe('AsciidocRenderer', () => {
   it('converts basic AsciiDoc markup to HTML', async () => {
     const renderer = new AsciidocRenderer()
