@@ -4,11 +4,8 @@ import { buildPathHierarchyEdges } from './graphFilters.js'
 import { applyHoverPushImpulse, clusterForce, parentFanForce } from './graphForces.js'
 
 /**
- * Circular concentration R of a set of edge directions -- 1 means every edge points the same way
- * (the degenerate NW wedge OpenProject #1158 reproduces), ~0 means directions are spread out (a
- * normal radial fan). `sqrt((sum cos)^2 + (sum sin)^2) / n`, the standard mean-resultant-length
- * formula for circular data. Matches how #1158's root-cause investigation measured the bug (R=0.83
- * on cold load) and the fix (R=0.16) -- see that WP for the full derivation.
+ * Mean resultant length for circular data: 1 means every edge points the same way (the degenerate
+ * directional wedge), near 0 means directions are spread out (a normal radial fan).
  */
 function edgeAngleConcentration(edges) {
   let sumCos = 0
@@ -39,8 +36,7 @@ describe('clusterForce (OpenProject #1158)', () => {
     force.initialize(nodes)
     force(1)
 
-    // group centroid (excluding the synthetic node) is (5, 5) -- nodeA is pulled toward +x/+y,
-    // nodeB (already past it) is pulled back toward -x/-y.
+    // Centroid, excluding the synthetic node, is (5, 5) -- between nodeA and nodeB.
     expect(nodeA.vx).toBeGreaterThan(0)
     expect(nodeA.vy).toBeGreaterThan(0)
     expect(nodeB.vx).toBeLessThan(0)
@@ -59,8 +55,8 @@ describe('clusterForce (OpenProject #1158)', () => {
     force(1)
     const firstPull = nodeA.vx
 
-    // Move the group's centroid further away between calls -- a cached-at-initialize force (the
-    // #1158 bug) would keep pulling nodeA toward the stale (50, 0) centroid; this one must react.
+    // Moving the centroid between calls: a force that cached it at initialize would keep pulling
+    // nodeA toward the stale (50, 0).
     nodeB.x = 1000
     nodeA.vx = 0
     force(1)
@@ -70,9 +66,8 @@ describe('clusterForce (OpenProject #1158)', () => {
 })
 
 describe('clusterForce levels (OpenProject #3339)', () => {
-  /** Same shape as `Graph.vue`'s real `groupKeyFor`: level 1 is a node's top folder, level 2/3 are
-   *  composite keys of its first 2/3 directory segments (from `path`), `null` when a node isn't
-   *  nested deep enough for that level. */
+  /** Same shape as `Graph.vue`'s real `groupKeyFor`: composite keys of the first N directory
+   *  segments, `null` when a node is not nested deep enough for that level. */
   function folderGroupKeyFor(node, level = 1) {
     const segments = node.path.split('/').slice(0, -1)
     if (level > segments.length) {
@@ -88,8 +83,7 @@ describe('clusterForce levels (OpenProject #3339)', () => {
     force.initialize([nodeA, nodeB])
     force(1)
 
-    // Both share level-1 key 'guides' -- pulled toward each other's shared centroid, exactly the
-    // single-level behavior this WP must not change for a caller that doesn't opt into `levels`.
+    // Both share level-1 key 'guides' despite differing at level 2.
     expect(nodeA.vx).toBeGreaterThan(0)
     expect(nodeA.vy).toBeGreaterThan(0)
     expect(nodeB.vx).toBeLessThan(0)
@@ -97,9 +91,7 @@ describe('clusterForce levels (OpenProject #3339)', () => {
   })
 
   it('a node nested deep enough for level 2 gets an additional pull on top of its level-1 pull', () => {
-    // -> Two nodes share level-1 ('guides') AND level-2 ('guides/deep') keys -- with levels [1, 2]
-    //    each contributes its own centroid pull, so the combined nudge is strictly larger than the
-    //    level-1-only pull between the same two positions.
+    // -> These two share level-1 AND level-2 keys, so each level contributes its own pull.
     const levelOneOnly = { path: 'guides/deep/a', x: 0, y: 0, vx: 0, vy: 0 }
     const levelOneOnlyPeer = { path: 'guides/deep/b', x: 10, y: 10, vx: 0, vy: 0 }
     const levelOneForce = clusterForce(folderGroupKeyFor, 0.1, [1])
@@ -112,8 +104,7 @@ describe('clusterForce levels (OpenProject #3339)', () => {
     force.initialize([bothLevels, bothLevelsPeer])
     force(1)
 
-    // Identical positions/keys at both levels here, so the level-2 pull exactly doubles the level-1
-    // one -- a direct, non-flaky comparison rather than only a directional assertion.
+    // Identical positions and keys at both levels, so the level-2 pull exactly doubles level 1's.
     expect(bothLevels.vx).toBeCloseTo(levelOneOnly.vx * 2)
     expect(bothLevels.vy).toBeCloseTo(levelOneOnly.vy * 2)
   })
@@ -131,8 +122,7 @@ describe('clusterForce levels (OpenProject #3339)', () => {
     multiLevelForce.initialize([shallowAgain, shallowAgainPeer])
     multiLevelForce(1)
 
-    // Neither node has 2 directory segments, so levels 2/3 contribute nothing -- the multi-level
-    // force's nudge equals the level-1-only force's, not some multiple of it.
+    // Neither node has 2 directory segments, so levels 2 and 3 contribute nothing.
     expect(shallowAgain.vx).toBeCloseTo(shallow.vx)
     expect(shallowAgain.vy).toBeCloseTo(shallow.vy)
   })
@@ -168,22 +158,20 @@ describe('clusterForce settles a cold-load simulation without a directional wedg
     }
 
     const R = edgeAngleConcentration(edges)
-    // Bug (cached forceX/forceY targets near the origin) measures ~0.83; the fix measures ~0.16.
+    // 0.4 sits between the wedged regime (~0.8) and a healthy fan (~0.2).
     expect(R).toBeLessThan(0.4)
   })
 })
 
 describe('parentFanForce (OpenProject #2581)', () => {
-  /** Builds `[targetX, targetY]` for a node at `radius` from `parent`, at `angle` -- the same
-   *  formula `parentFanForce` itself computes, used here to derive the expected nudge independently
-   *  of the module's own internals. */
+  /** Restates the target formula so an expectation is derived independently of the module. */
   function targetFrom(parent, angle, radius) {
     return [parent.x + radius * Math.cos(angle), parent.y + radius * Math.sin(angle)]
   }
 
   it("a root node's own incoming angle is a fixed 0°, regardless of position", () => {
-    // Root sits away from the origin on purpose -- proves the 0° reference is fixed, not derived
-    // from the root's own (nonexistent) parent position.
+    // Root sits away from the origin on purpose: the 0° reference must be fixed, not derived from
+    // the root's own nonexistent parent position.
     const root = { path: '', locale: 'en', root: true, x: 500, y: 500, vx: 0, vy: 0 }
     const child = { path: 'a', locale: 'en', x: 500, y: 550, vx: 0, vy: 0 }
     const nodes = [root, child]
@@ -192,9 +180,7 @@ describe('parentFanForce (OpenProject #2581)', () => {
     force.initialize(nodes)
     force(1)
 
-    // 1 child continues straight out at the parent's incoming angle (0°) -- current radius from
-    // root is 50 straight down (angle 90°), so the nudge should pull it toward angle 0° (rightward,
-    // same y as root).
+    // Current radius from root is 50 straight down; a lone child targets the parent's own 0°.
     const [tx, ty] = targetFrom(root, 0, 50)
     expect(child.vx).toBeCloseTo(tx - child.x, 5)
     expect(child.vy).toBeCloseTo(ty - child.y, 5)
@@ -229,8 +215,8 @@ describe('parentFanForce (OpenProject #2581)', () => {
     expect(child.vx).toBeCloseTo(tx - child.x, 5)
     expect(child.vy).toBeCloseTo(ty - child.y, 5)
 
-    // Recomputed fresh every call, not cached from `initialize()` -- move the grandparent and the
-    // nudge must react on the very next tick with no re-`initialize()`.
+    // Angles are recomputed per tick, so moving the grandparent must change the nudge with no
+    // re-`initialize()`.
     grandparent.x = 10
     grandparent.y = -10
     child.vx = 0
@@ -301,8 +287,7 @@ describe('parentFanForce (OpenProject #2581)', () => {
     force.initialize(nodes)
     force(1)
 
-    // step = 360/4 = 90°; rotated so parent's 0° angle sits at the midpoint between two adjacent
-    // children -> expected angles 45°, 135°, 225°, 315° (per the spec's own worked example).
+    // step = 360/4 = 90°, rotated so the parent's 0° sits midway between two adjacent children.
     const expectedAngles = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4]
     children.forEach((node, i) => {
       const [tx, ty] = targetFrom(parent, expectedAngles[i], 10)
@@ -312,9 +297,8 @@ describe('parentFanForce (OpenProject #2581)', () => {
   })
 
   it('is a silent no-op on a node with no resolvable folder-hierarchy parent (e.g. under a hub-only edge mode)', () => {
-    // Mirrors what the node set looks like under `edgeMode: 'tags'`/`'classification'` -- real page
-    // nodes are present but no folder-hierarchy synthetic nodes were built for them, so this force's
-    // own `path`-derived parent lookup can't resolve anything.
+    // A hub-only node set, as a non-tree edge mode produces: real pages are present but no
+    // folder-hierarchy nodes, so the `path`-derived parent lookup resolves nothing.
     const hub = { path: '__tag__foo', synthetic: true, x: 0, y: 0, vx: 0, vy: 0 }
     const page = { path: 'a/b', locale: 'en', x: 50, y: 50, vx: 0, vy: 0 }
     const nodes = [hub, page]
@@ -330,9 +314,8 @@ describe('parentFanForce (OpenProject #2581)', () => {
   })
 
   describe('concentric rings for high-fanout parents (OpenProject #2582)', () => {
-    /** Builds a parent (whose own incoming angle from a fixed root is 0°) plus `count` children,
-     *  each placed at a distinct current radius from the parent so a ring-0 assertion can tell
-     *  which child is which without depending on fan order. */
+    /** The parent's own incoming angle from the root is 0°, and every child sits at a distinct
+     *  current radius so an assertion can tell them apart without depending on fan order. */
     function buildFan(count) {
       const root = { path: '', locale: 'en', root: true, x: 0, y: 0, vx: 0, vy: 0 }
       const parent = { path: 'p', locale: 'en', x: 100, y: 0, vx: 0, vy: 0 }
@@ -349,12 +332,11 @@ describe('parentFanForce (OpenProject #2581)', () => {
       force.initialize([root, parent, ...children])
       force(1)
 
-      // 6 children, single ring, 4+ full-circle rule: step = 60°, rotated so parent's 0° angle
-      // falls at the midpoint between two adjacent children -> 30°, 90°, 150°, 210°, 270°, 330°.
+      // One ring of 6 under the full-circle rule: step 60°, offset a half-step from the parent's 0°.
       const step = Math.PI / 3
       children.forEach((child, i) => {
         const angle = step / 2 + i * step
-        const radius = 10 * (i + 1) // each child's own current radius from the parent, unchanged.
+        const radius = 10 * (i + 1) // ring 0 leaves each child's own radius unchanged
         const tx = parent.x + radius * Math.cos(angle)
         const ty = parent.y + radius * Math.sin(angle)
         expect(child.vx).toBeCloseTo(tx - child.x, 5)
@@ -368,8 +350,7 @@ describe('parentFanForce (OpenProject #2581)', () => {
       force.initialize([root, parent, ...children])
       force(1)
 
-      // Capacity 6, count 7 -> ceil(7/6) = 2 rings, sizes [4, 3] (base 3 + 1 remainder for ring 0).
-      // Ring 0: children a-d (indices 0-3), 4-way full circle at radius 10..40, no radius offset.
+      // Capacity 6, count 7 -> 2 rings of sizes [4, 3]. Ring 0 is a 4-way circle, no radius offset.
       const ring0Step = Math.PI / 2
       for (let i = 0; i < 4; i++) {
         const angle = ring0Step / 2 + i * ring0Step
@@ -380,8 +361,7 @@ describe('parentFanForce (OpenProject #2581)', () => {
         expect(children[i].vy).toBeCloseTo(ty - children[i].y, 5)
       }
 
-      // Ring 1: children e-g (indices 4-6), 3-way ±45°/0° rule, radius pushed out by one
-      // RING_RADIUS_STEP (80) on top of each child's own current radius.
+      // Ring 1 is 3-way, and pushed out by one RING_RADIUS_STEP on top of each child's own radius.
       const ring1Angles = [-Math.PI / 4, 0, Math.PI / 4]
       for (let i = 0; i < 3; i++) {
         const child = children[4 + i]
@@ -400,14 +380,12 @@ describe('parentFanForce (OpenProject #2581)', () => {
       force.initialize([root, parent, ...children])
       force(1)
 
-      // Capacity 6, count 19 -> ceil(19/6) = 4 rings, sizes base=4, remainder=3 -> [5, 5, 5, 4].
-      // Every ring's size is within 1 of every other, and none exceeds RING_CHILD_CAPACITY.
+      // Capacity 6, count 19 -> 4 rings of [5, 5, 5, 4].
       const ringSizes = [5, 5, 5, 4]
       expect(ringSizes.every((size) => size <= 6)).toBe(true)
       expect(Math.max(...ringSizes) - Math.min(...ringSizes)).toBeLessThanOrEqual(1)
 
-      // Spot-check the very last child: ring 3 (0-indexed), position 3 of 4, radius pushed out by
-      // 3 * RING_RADIUS_STEP.
+      // Spot-check the last child: ring 3, position 3 of 4, radius pushed out by 3 steps.
       const lastChild = children[18]
       const ringIndex = 3
       const positionInRing = 3

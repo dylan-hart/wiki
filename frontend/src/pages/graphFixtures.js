@@ -1,12 +1,7 @@
 /**
- * Everything `Graph.vue`'s six suites share: the `graph.*` message set, the fixture graphs, and
- * `mountGraph()` itself. Lifted out of the single 1,150-line `Graph.test.js` when it was split by
- * concern (TEST-F14) -- `Graph.rendering`, `Graph.sizing`, `Graph.tooltip`, `Graph.i18n`,
- * `Graph.layout` and `Graph.fallback` all mount through this one helper, so the fixtures live once.
- *
- * A sibling module rather than a `*.test.js`, matching `graphDraw.js`/`graphFilters.js`/
- * `graphForces.js` next to it: `vitest.config.js` only collects `*.test.js`, so this is imported,
- * never run as a suite of its own.
+ * What `Graph.vue`'s suites share, so the fixtures live once. Deliberately a plain `.js` rather
+ * than a `*.test.js`: `vitest.config.js` collects only the latter, so this is imported and never
+ * run as a suite of its own.
  */
 
 import { flushPromises } from '@vue/test-utils'
@@ -16,10 +11,9 @@ import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
-/** Mirrors `backend/locales/en.json`'s `graph.*` namespace (OpenProject #1690) -- kept here rather
- *  than imported so this suite doesn't depend on the real locale file's exact key set, only on the
- *  component asking `t()` for these specific keys with these specific meanings. The two `tooltip.*`
- *  entries use vue-i18n's pipe-delimited plural syntax (`singular | plural`), same as the real file. */
+/** Restated rather than imported from `backend/locales/en.json`, so a test depends only on the
+ *  component asking for these keys with these meanings, never on the real file's exact key set.
+ *  Pipe-delimited values are vue-i18n plurals, same as there. */
 export const GRAPH_MESSAGES = {
   'graph.accessibleName.link': '{count} link | {count} links',
   'graph.accessibleName.page': '{count} page | {count} pages',
@@ -89,9 +83,8 @@ export const FIXTURE_GRAPH = {
       icon: null,
       tags: [],
       folder: '',
-      // -> `total` (OpenProject #1269) is deliberately NOT double the unique figures by the same
-      //    factor everywhere -- distinct values from the unique ones make it obvious a test that
-      //    reads `total` is actually reading `total`, not silently passing off the unique fixture.
+      // -> `total` is deliberately not a fixed multiple of the unique figures, so a test reading
+      //    `total` cannot silently pass off the unique numbers.
       contributors: { editor: 3, mcp: 1, all: 4, total: { editor: 6, mcp: 3, all: 9 } },
       pageviews: {
         last30d: {
@@ -129,17 +122,13 @@ export const FIXTURE_GRAPH = {
       pageviews: ZERO_PAGEVIEWS
     }
   ],
-  // -> Composite `${locale}:${path}` ids (OpenProject #1621), matching the real
-  //    `backend/api/graph.ts#assembleGraph` response shape -- see that module's own doc comment.
   edges: [{ source: 'en:a', target: 'en:b', type: 'link' }]
 }
 
-/** OpenProject #1686's fallback-list tests need a real-to-real edge to assert against -- two nodes
- *  are only ever DIRECTLY connected when one's path is literally the other's parent path (every
- *  other case is mediated by a synthetic folder node, per `graphFilters.js#buildPathHierarchyEdges`
- *  reusing a real page as its own folder node rather than synthesizing a duplicate). `docs` is
- *  deliberately real (not just `docs/child`), so `buildPathHierarchyEdges` wires
- *  `docs -> docs/child` directly instead of through a synthetic `docs` marker. */
+/** For a fallback-list test needing a real-to-real edge: two nodes connect directly only when one's
+ *  path is literally the other's parent, so `docs` is deliberately a real page and
+ *  `buildPathHierarchyEdges` wires `docs -> docs/child` rather than routing through a synthetic
+ *  `docs` marker. */
 export const NESTED_FIXTURE_GRAPH = {
   nodes: [
     { path: 'docs', locale: 'en', title: 'Docs', icon: null, tags: [], folder: '' },
@@ -148,50 +137,24 @@ export const NESTED_FIXTURE_GRAPH = {
   edges: []
 }
 
-/** OpenProject #1866's response shape as `FIXTURE_GRAPH` extended with `truncated`/`totalNodes` --
- *  `truncated: true` with a `totalNodes` well above the two returned nodes, so the "N of totalNodes"
- *  notice text (OpenProject #1875) is unambiguous either way it might be phrased. */
+/** `totalNodes` is far above the two returned nodes so the "N of totalNodes" notice reads
+ *  unambiguously however it is phrased. */
 export const FIXTURE_GRAPH_TRUNCATED = {
   ...FIXTURE_GRAPH,
   truncated: true,
   totalNodes: 5000
 }
 
-/** Options for `API_CLIENT.get('system/pageviews')` -- defaults to tracking DISABLED (OpenProject
- *  #2853), matching `Graph.vue`'s own real "safe until proven on" resting state for
- *  `pageviewsTrackingEnabled` and keeping `sizeBy`'s resting value at 'edits' in the default
- *  `mountGraph()` fixture, same as before #2853's tracking-enabled default landed. A test that needs
- *  tracking on (to exercise the 'visits' default itself, or `sizeByOptions` offering 'visits')
- *  passes `{ pageviewsEnabled: true }`; a test that just wants 'visits' MODE without caring about the
- *  tracking-driven default sets `wrapper.vm.sizeBy = 'visits'` directly, same as before. `graph`
- *  defaults to `FIXTURE_GRAPH` (a single-locale graph); a test exercising a different node/edge
- *  shape -- the locale-duplicate case (OpenProject #1629), the locale-filter tests' multi-locale
- *  graph (OpenProject #2294), or the #1686 fallback-list tests' `NESTED_FIXTURE_GRAPH` (for a
- *  real-to-real edge) -- passes its own. `messageOverrides` is forwarded to `createGraphI18n()` for
- *  a test asserting one specific resolved string. `authenticated`/`graphPrefs` are OpenProject
- *  #2854's own addition: an authenticated mount queues a third `API_CLIENT.get` response for
- *  `Graph.vue#loadGraphPrefs()`'s `GET profile` call (`graphPrefs` becomes its `resp.graph`,
- *  defaulting to `{}` -- no persisted preference), issued BEFORE the pageviews check per
- *  `onMounted`'s own argument-order comment; an unauthenticated mount (the default, matching every
- *  pre-#2854 test here) skips that call entirely, so the two-call queue below is untouched for every
- *  suite that never opts in. `delayProfileResolution` is OpenProject #2880's own addition: both
- *  mocked responses below are already-settled `Promise.resolve()`s, so under `Promise.all()` they
- *  actually resolve in CALL order (profile before pageviews, since `loadGraphPrefs()` runs first in
- *  `initializeGraphPrefs()`) regardless of which one a real network round trip would settle first --
- *  the "profile resolves after the pageviews check" ordering #2880's own gap depends on is otherwise
- *  unreachable from this fixture. Passing `true` wraps the profile response in two chained
- *  `queueMicrotask()` hops (real microtasks -- unaffected by `vi.useFakeTimers()`), which reliably
- *  settles it several microtask ticks after the pageviews response's own single-tick native `await`
- *  continuation, without depending on real timers or a fake-timer advance.
+/** `pageviewsEnabled` defaults to off, matching `Graph.vue`'s own "safe until proven on" resting
+ *  state, which keeps `sizeBy` at 'edits' for every mount that does not opt in.
  *
- *  `initialPath`/`pageLocale` are OpenProject #3312's own addition, for `Graph.route.test.js`'s
- *  `?path=` query-param suite: `initialPath` is forwarded to `createTestRouter()` (so a test can pass
- *  `/_graph?path=a` and have `Graph.vue#applyRouteFocus()` see it already resolved at mount, the same
- *  "await `createTestRouter()` before mounting" shape every route-branching suite here already needs
- *  -- see that helper's own doc comment), and `pageLocale` seeds `pageStore.locale`, the field
- *  `applyRouteFocus()` scopes its locale match against. Both default to what every pre-#3312 call
- *  site already got with neither passed: the router's own default path (`'/'`) and the page store's
- *  own default locale (`'en'`, matching every fixture graph's nodes). */
+ *  The mock queue below is ORDER-SENSITIVE: an authenticated mount inserts a third response for the
+ *  `GET profile` call, which `Graph.vue` issues BEFORE the pageviews check.
+ *
+ *  `delayProfileResolution` exists because already-settled `Promise.resolve()`s settle in call
+ *  order, so "profile resolves after the pageviews check" is otherwise unreachable here. It wraps
+ *  the profile response in two chained `queueMicrotask()` hops -- real microtasks, so no dependence
+ *  on real timers or a `vi.useFakeTimers()` advance. */
 export async function mountGraph({
   pageviewsEnabled = false,
   graph = FIXTURE_GRAPH,
@@ -204,13 +167,9 @@ export async function mountGraph({
 } = {}) {
   const router = await createTestRouter(['/:pathMatch(.*)*'], initialPath)
 
-  // -> `structuredClone()`, not the fixture object itself: `Graph.vue#loadGraph()` `markRaw()`s
-  //    the response's nodes/edges but never clones them, so a bare `Promise.resolve(graph)` here
-  //    would hand every call the SAME underlying node/edge objects -- a test that mutates
-  //    `nodeA.contributors`/`nodeB.contributors` in place (several in `Graph.sizing.test.js` do, to
-  //    pin a specific radius) would otherwise permanently corrupt the shared fixture constant for
-  //    every later test in the same file, in file order, with no relation to what that later test
-  //    itself does. Each call gets its own independent copy instead.
+  // -> Cloned, not handed over: `Graph.vue` `markRaw()`s the response's nodes/edges without copying
+  //    them, so a test that mutates a node in place to pin a radius would otherwise corrupt this
+  //    shared fixture constant for every later test in the same file.
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(structuredClone(graph)) })
   if (authenticated) {
     API_CLIENT.get.mockReturnValueOnce({
@@ -238,9 +197,3 @@ export async function mountGraph({
   await flushPromises()
   return wrapper
 }
-
-/*
- * Asserting actual pixel output is out of practical reach for a unit test -- a real
- * testing-strategy limitation, not an oversight (per the design spec's own admission). This suite
- * checks the simulation initializes and the canvas element exists, without throwing.
- */

@@ -1,9 +1,4 @@
-/**
- * The tag and locale values a viewer can filter the graph by, derived from whichever nodes are
- * currently loaded — no separate endpoint (OpenProject #875's design). Folder depth has no
- * discrete "options" list the way tags/locale do (it's a numeric range), so it isn't part of this
- * function; see `deriveMaxFolderDepth` below for the graph's actual max folder depth instead.
- */
+/** Derived from whichever nodes are loaded -- there is deliberately no endpoint for these. */
 export function deriveFilterOptions(nodes) {
   const tags = new Set()
   const locales = new Set()
@@ -22,30 +17,18 @@ export function deriveFilterOptions(nodes) {
 }
 
 /**
- * Mirrors `backend/models/tree.ts`'s `MAX_DEPTH = 10` -- the folder-nesting ceiling
- * `createFolder`/`moveFolder` enforce there. `frontend/` and `backend/` are independently-installed
- * workspaces with no shared import path, so this is a hand-kept frontend-side copy, the same
- * convention `frontend/src/helpers/systemIds.js` already uses for mirroring `backend/base.yml`'s
- * `systemIds` -- it must be kept in step by hand if the backend value ever changes (OpenProject
- * #2514/#2520).
+ * Hand-kept mirror of `backend/models/tree.ts`'s `MAX_DEPTH` -- the two workspaces share no import
+ * path, so changing the backend ceiling means changing this too.
  */
 export const MAX_DEPTH = 10
 
 /**
- * The deepest folder actually present in `nodes` (OpenProject #2514/#2520's Feature: replacing the
- * graph's folder-depth number input with a slider) -- reality, capped at the `MAX_DEPTH` ceiling
- * above, so a graph deep enough to hit it never offers more slots than the reasonable maximum, and
- * a shallower graph never offers more slots than it could possibly use. Uses the same `path`-based
- * depth definition `computeVisibleSubset`'s folder-depth filter already applies (`folderDepthOf`
- * below) -- a root-level page (`path` with no `/`) is depth `0`.
+ * Sizes the depth slider: reality, capped at `MAX_DEPTH`, so the control never offers more slots
+ * than either the ceiling or the graph itself could use. Feed it the FULL loaded node set, not the
+ * filtered one -- narrowing one filter must not shrink another's range.
  *
- * An empty `nodes` array (nothing loaded yet, or a graph with genuinely zero pages) returns `0` --
- * indistinguishable, by design, from a real, fully-flat graph. `Graph.vue`'s `actualMaxFolderDepth`
- * computed wraps this over `allNodes.value` (the full loaded graph, not the currently-filtered
- * `nodes.value` -- same "narrowing one filter shouldn't shrink another's own range" reasoning
- * `deriveFilterOptions` above documents), so before the initial graph fetch resolves it also reads
- * `0`. A caller building a UI control off this value (the depth slider, #2521) must gate on the
- * page's own loading state rather than trust `0` alone as meaning "this graph has no folders."
+ * `0` is ambiguous: an unloaded graph and a genuinely flat one both produce it, so a caller must
+ * gate on its own loading state rather than read `0` as "this graph has no folders".
  */
 export function deriveMaxFolderDepth(nodes) {
   let max = 0
@@ -59,43 +42,23 @@ export function deriveMaxFolderDepth(nodes) {
 }
 
 /**
- * The composite node id every function below keys nodes and edges by: `${locale}:${path}`
- * (OpenProject #1629/#1632). A bare `path` alone is not unique -- two locales' translations of the
- * same page share it by design ("same-path-by-convention") -- so filtering, d3-force's `nodeById`
- * map, or hierarchy-building on
- * `path` alone would collapse them onto whichever the map kept last, with no error: N duplicate
- * dots on top of each other, all edges attached to just one of them. A real node (one carrying a
- * `locale`) is therefore keyed on `${locale}:${path}`, matching what the graph API already emits
- * (`backend/api/graph.ts#assembleGraph`, OpenProject #1626) and what `Graph.vue`'s d3-force layout
- * resolves nodes by (OpenProject #1629). A synthetic node (tag/classification hub) has no `locale`
- * of its own and keeps its already-unique synthetic `path` as its id, unchanged -- which is also
- * why a node fixture with no `locale` field round-trips through this function as its own bare
- * `path`, byte-for-byte.
+ * The composite id every function below keys nodes and edges by. A bare `path` is not unique --
+ * two locales' translations of a page share it by design -- so keying on it silently collapses them
+ * onto whichever the map kept last: duplicate dots stacked, all edges attached to one. A synthetic
+ * node has no `locale` and keeps its already-unique `path` as its id.
  */
 export function nodeId(node) {
   return node.locale ? `${node.locale}:${node.path}` : node.path
 }
 
 /**
- * The node named by a `path`/`locale` pair, or `null` when nothing matches (OpenProject #3312,
- * Feature #3311) -- `Graph.vue`'s resolution for the `/_graph?path=` query param that centers and
- * highlights the page (or, per OpenProject #3337, the folder/root anchor) the reader arrived from.
- * `path` alone is ambiguous on a multi-locale site (see `nodeId()`'s own doc comment above: two
- * locales' translations of a page share a `path` by design), so this always scopes the match to the
- * given `locale` too, rather than returning the first node whose `path` happens to match.
+ * Resolves the `/_graph?path=` anchor. Scoped to `locale` because `path` alone is ambiguous across
+ * locales (see `nodeId`). A synthetic folder/root node is not a match by default -- it is no page a
+ * reader could have arrived from -- so a caller anchoring on a containing folder opts in with
+ * `includeSynthetic`.
  *
- * By default a synthetic folder/root node (`node.synthetic`) is never a valid match: it has no page
- * of its own for a reader to have arrived from, the same reasoning `navigateToNode()`/`fallbackNodes`
- * already apply. `Graph.vue#applyRouteFocus()` opts into matching one too, via `includeSynthetic:
- * true` (OpenProject #3337) -- the header's Graph button now anchors on the current page's nearest
- * containing folder (root for a top-level page), which is commonly a synthetic node rather than a
- * real page. Any other/future caller not passing the option keeps today's page-only behavior.
- *
- * `path` missing entirely (`null`/`undefined`, i.e. no query param at all) returns `null` with no
- * further work, same as "no match" -- but a `path` of `''` is a DELIBERATE, distinct request (the
- * synthetic root node's own path) and is not short-circuited the same way, unlike a plain falsy
- * check would. `nodes` empty (the graph hasn't loaded yet) also returns `null`, same as any other
- * no-match case.
+ * The explicit null/undefined check is load-bearing: `''` is the synthetic root's own path and a
+ * real request, which a falsy check would swallow.
  */
 export function resolveFocusNode(nodes, path, locale, { includeSynthetic = false } = {}) {
   if (path === null || path === undefined) {
@@ -110,62 +73,39 @@ export function resolveFocusNode(nodes, path, locale, { includeSynthetic = false
 }
 
 /**
- * An edge's endpoint as fetched is already the composite id string above, but `d3-force`'s
- * `forceLink` mutates `edge.source`/`edge.target` in place into a reference to the actual node
- * object the moment `.links()` resolves ids against `.nodes()` (Task 26 feeds `Graph.vue`'s live
- * `allEdges`/`edges` arrays straight into it, so this same edge array is what the simulation
- * mutates) -- normalizing both shapes here is what keeps a re-filter after the first tick from
- * comparing a node object against a Set of id strings and dropping every edge.
+ * An endpoint arrives as a composite id string, but `d3-force`'s `forceLink` rewrites
+ * `edge.source`/`edge.target` in place into node object references as soon as it resolves links
+ * against nodes -- and it is handed these very arrays. Without normalizing both shapes, a re-filter
+ * after the first tick compares objects against a Set of strings and drops every edge.
  */
 function endpointId(endpoint) {
   return typeof endpoint === 'object' && endpoint !== null ? nodeId(endpoint) : endpoint
 }
 
-// -> Depth is the number of DIRECTORY segments in a node's full `path`, not `node.folder`.
-//    `node.folder` (backend `folderOf()`) is deliberately just the path's first segment, coarse on
-//    purpose for Feature 874's clustering buckets -- it can only ever be "empty" or "non-empty" and
-//    can't distinguish `guides/one` from `guides/deep/two`. The depth filter (and `MAX_DEPTH`/
-//    `deriveMaxFolderDepth` above) is a different concept (progressive reveal by path depth), so it
-//    derives depth from `path` directly: `guides/deep/two` has 2 directory segments (depth 2), a
-//    root-level page like `standalone` has 0 (depth 0). `node.folder` itself stays untouched for
-//    grouping. Module-scope (not local to `computeVisibleSubset`) so `deriveMaxFolderDepth` shares
-//    this one definition rather than re-deriving it.
+// -> Derived from `path`, deliberately NOT from `node.folder`: the backend's `folder` is only the
+//    path's first segment, coarse on purpose for clustering buckets, and cannot distinguish
+//    `guides/one` from `guides/deep/two`.
 function folderDepthOf(node) {
   return node.path.split('/').length - 1
 }
 
 /**
- * Whether `node` is the anchor itself or nested under it (OpenProject #3333) -- `anchorPath` is a
- * directory-style prefix match against `node.path`, the same "path segments" notion `folderDepthOf`
- * already uses, not a substring match: `guides/one` is a descendant of `guides`, but `guides-other`
- * is not. `anchorPath === ''` (the site/locale root) matches every path -- a root anchor's
- * "descendants" is the entire tree, which is also why anchoring at the root is a no-op compared to
- * having no anchor at all (see `computeVisibleSubset`'s own doc comment).
+ * A segment-wise prefix match, not a substring one: `guides/one` is a descendant of `guides`,
+ * `guides-other` is not. `''` is the root, whose descendants are the whole tree.
  */
 function isDescendantPath(path, anchorPath) {
   return anchorPath === '' || path === anchorPath || path.startsWith(`${anchorPath}/`)
 }
 
 /**
- * The AND of every active filter (OpenProject #875's design) — a node passes only if it passes
- * every non-empty filter, and an edge survives only if both endpoints do. `null`/`undefined` on
- * any filter means "no restriction" for that dimension -- `folderDepth` in particular must use
- * this explicit check rather than truthiness, because `0` (root-only) is itself a real, active
- * filter value and must not be treated the same as "unset" (OpenProject #898/#900).
+ * The AND of every active filter; an edge survives only if both endpoints do. `null`/`undefined`
+ * means "no restriction", and `folderDepth` must be checked that way rather than by truthiness --
+ * `0` (root only) is a real, active filter value.
  *
- * `anchor` (OpenProject #3333, Task #3312's own follow-up scope correction) is `{ path, locale }`
- * naming the page the graph is currently anchored to via `?path=` (`Graph.vue#applyRouteFocus()`),
- * or `null`/`undefined` when no anchor is active -- matching every pre-#3333 call site unchanged.
- * With an anchor active, the visible set is additionally restricted to the anchor node itself plus
- * its descendants (same-locale nodes nested under its path, `isDescendantPath` above) -- a node in a
- * different locale, or outside the anchor's own subtree, never passes regardless of the other
- * filters. `folderDepth` is reinterpreted alongside it: instead of measuring path segments from the
- * site root, it measures hops from the anchor (`folderDepthOf(node) - folderDepthOf(anchor)`, valid
- * because a descendant's path is always the anchor's path plus whole extra segments). Anchoring at
- * the root (`anchor.path === ''`) leaves both of these unchanged from the no-anchor case: every node
- * is a "descendant" of the root, and hops-from-root-anchor is the same number `folderDepthOf` always
- * computed, so root-anchored and un-anchored behavior are computed identically on purpose, not as a
- * special case.
+ * With an `anchor` (`{ path, locale }`), `folderDepth` is reinterpreted as hops from the anchor
+ * rather than segments from the site root -- valid because a descendant's path is always the
+ * anchor's plus whole extra segments. A root anchor therefore computes identically to no anchor at
+ * all, by construction rather than by a special case.
  */
 export function computeVisibleSubset(nodes, edges, filters, anchor = null) {
   const passesTag = (node) =>
@@ -189,37 +129,21 @@ export function computeVisibleSubset(nodes, edges, filters, anchor = null) {
 }
 
 /**
- * Node ids to highlight in the graph render (OpenProject #2480, Feature #2414's third task): the
- * composite `${locale}:${path}` id (`nodeId()`) of every keyword search match, as a `Set` for O(1)
- * membership checks per node drawn (`graphDraw.js#drawNodes`/`drawLabels`). Distinct from
- * `computeVisibleSubset` above -- this never removes a node from what's visible, it only tells the
- * canvas layer which already-visible nodes to draw emphasized, per Feature #2414's scope ("highlight
- * matching nodes rather than filtering them out of view"). `matches` needs only `path`/`locale` on
- * each entry, the same two fields `GET sites/:siteId/pages/search` returns per result
- * (`backend/modules/search/shared.ts#SearchDocument`), so the keyword input's search results
- * (OpenProject #2478/#2479) can be passed straight through with no reshaping. `null`/`undefined`
- * (no active search yet) and `[]` (a search that matched nothing) both yield an empty `Set` --
- * callers distinguish "no search active" from "search matched nothing" by other means if they need
- * to; this function only ever answers "which ids, if any, should draw highlighted."
+ * A keyword search emphasizes rather than filters, so unlike `computeVisibleSubset` this never
+ * removes a node -- it only tells the canvas layer which visible ones to draw highlighted. Only
+ * `path`/`locale` are read, so a search response passes straight through unreshaped. "No search
+ * active" and "search matched nothing" both answer an empty `Set`; a caller needing to tell them
+ * apart must do so elsewhere.
  */
 export function computeHighlightedNodeIds(matches) {
   return new Set((matches ?? []).map((match) => nodeId(match)))
 }
 
 /**
- * The composite ids of every currently-loaded node whose `title` case-insensitively CONTAINS
- * `query` (OpenProject #2533) -- a thin, purely client-side second pass alongside the backend
- * full-text search `computeHighlightedNodeIds` above draws from. The backend's
- * `websearch_to_tsquery` engine matches stemmed lexemes, not substrings, so typing a partial word
- * (e.g. "onboard" against a page titled "Onboarding Guide") doesn't reliably highlight a page whose
- * title plainly contains it -- this fills exactly that gap, unioned into the same highlighted set
- * by the caller (`Graph.vue`'s `highlightedNodeIds`), never replacing the backend pass. Takes
- * `nodes` (the caller's `allNodes.value`, already in memory -- no extra request) rather than
- * `matches`, since there is no search response here to draw ids from; a node with no `title` at all
- * (synthetic hub nodes never carry one) simply never matches. `query` is trimmed the same way
- * `searchKeyword`'s own watcher trims `keywordQuery` before firing (`Graph.vue`, ~line 511), so an
- * empty or whitespace-only query yields an empty `Set` here too, same as the backend pass does for
- * an unfired search.
+ * A client-side substring pass to be UNIONED with the backend search, never to replace it: the
+ * backend's `websearch_to_tsquery` matches stemmed lexemes, so a partial word ("onboard" against
+ * "Onboarding Guide") does not reliably highlight a title that plainly contains it. Works off
+ * already-loaded nodes, so it costs no request.
  */
 export function computeTitleMatchNodeIds(nodes, query) {
   const trimmed = (query ?? '').trim().toLowerCase()
@@ -234,17 +158,10 @@ export function computeTitleMatchNodeIds(nodes, query) {
 }
 
 /**
- * Reuses a previously-synthesized folder/root node across `applyFilters()` calls instead of always
- * building a fresh literal (OpenProject #2538): a synthetic node that's still visible after a filter
- * change keeps the same object identity, so it keeps whatever `x`/`y`/`vx`/`vy` d3-force has since
- * assigned it rather than being handed back to `initializeNodes()`'s origin-centered phyllotaxis
- * spiral and yanked back into place over the first several ticks (the "flash-jitter" this bug
- * describes). `cache` is keyed by the synthetic node's own id and is the caller's responsibility to
- * create once and pass into `buildPathHierarchyEdges` on every call, then discard on a wholesale
- * reload -- see `Graph.vue`'s `syntheticNodeCache`. A key not yet in the cache still gets a
- * brand-new object with no `x`/`y`, which falls through to d3-force's default placement exactly as
- * before -- matching the already-accepted behavior for a real node that reappears after being
- * filtered out.
+ * Object identity is what carries a synthetic node's d3-assigned `x`/`y`/`vx`/`vy` across a
+ * re-filter. Rebuilding the literal each time sends a still-visible folder marker back to
+ * d3-force's default origin-centered spiral placement, which reads on screen as a flash-jitter.
+ * The caller owns the cache: create it once, pass it on every call, discard it on a full reload.
  */
 function internSyntheticNode(cache, id, factory) {
   let node = cache.get(id)
@@ -256,42 +173,18 @@ function internSyntheticNode(cache, id, factory) {
 }
 
 /**
- * Path-hierarchy synthetic nodes/edges (OpenProject #998, later made the graph's sole edge source
- * by OpenProject #2580, which removed the sibling `'tags'`/`'classification'` hub builders that used
- * to live alongside this one): every node connects to its immediate parent path segment, climbed all
- * the way up to a synthetic root (`''`) -- "root fans out to everything," so even a wiki with zero
- * authored relations/links renders a fully connected graph, and every non-root node has exactly one
- * incoming `type: 'path'` edge, making the result a strict tree. A real page is reused as a folder's
- * node when one exists at that exact path (so an index-style page at `docs` doesn't get a duplicate
- * dot next to a synthetic `docs` marker); otherwise a bare `{ path, locale, title, synthetic: true }`
- * stand-in is synthesized -- reused by identity across calls via `cache` (`internSyntheticNode`,
- * OpenProject #2538) rather than always freshly built, so an already-settled folder/root marker
- * doesn't jitter on the next `activeFilters` change. Edges are de-duped via a `Set` keyed on "parent
- * target" composite ids, since many sibling pages under the same folder all climb through the same
- * parent segment -- cheap to always climb every node fully to root rather than short-circuiting on
- * "already wired," given the graph's confirmed real-world scale (low hundreds to low thousands of
- * pages).
+ * The graph's sole edge source: every node climbs to its parent path segment, up to a synthetic
+ * root, so a wiki with zero authored relations still renders as one connected, strict tree. An
+ * existing real page at a folder's exact path is reused as that folder's node, so an index-style
+ * page at `docs` gets no duplicate dot beside a synthetic `docs` marker.
  *
- * Everything here -- the `byId` reuse lookup, the de-dupe key, the synthesized folder nodes
- * (including the root) and the emitted edges -- is keyed on the composite `${locale}:${path}` id,
- * not the bare path (OpenProject #1632): two locales sharing a folder path must climb to two
- * distinct folder nodes and a locale-qualified root each, not merge into one shared tree. A
- * synthetic folder node therefore carries its climbing node's `locale`, same as a real page node.
+ * Every key here -- reuse lookup, de-dupe, synthesized folders, emitted edges -- is the composite
+ * `${locale}:${path}`, never the bare path: two locales sharing a folder path must climb to two
+ * distinct folder nodes and their own roots rather than merge into one tree.
  *
- * `cache` defaults to a fresh, empty `Map` when the caller doesn't pass one (e.g. every existing
- * unit test call site) -- with nothing to reuse, behavior is identical to before this cache existed.
- *
- * `anchorPath` (OpenProject #3361) caps how far the climb goes: it stops the moment `current`
- * reaches `anchorPath` itself, rather than always continuing to the true root (`''`). Without this,
- * calling this function against an already anchor-restricted node set (`Graph.vue#applyFilters()`)
- * would still climb every one of those nodes' full ancestor chains and re-synthesize everything
- * above the anchor -- including true root -- right back into the rendered set, silently defeating
- * `computeVisibleSubset`'s own anchor+descendants restriction (#3333) for exactly the nodes that
- * restriction exists to keep out. Defaults to `''` (true root), so a caller with no active anchor
- * (or the deliberately-unanchored resolution pass in `Graph.vue#applyRouteFocus()`, which needs the
- * full, unrestricted hierarchy to resolve a focus target outside the current subtree) climbs exactly
- * as far as before this parameter existed -- `current !== anchorPath` is then always true until
- * `current` reaches `''`, the loop's other, pre-existing terminus.
+ * `anchorPath` stops the climb there instead of at true root. Without it, calling this against an
+ * already anchor-restricted node set re-synthesizes every ancestor above the anchor straight back
+ * into the rendered set, silently defeating `computeVisibleSubset`'s anchor restriction.
  */
 export function buildPathHierarchyEdges(nodes, cache = new Map(), anchorPath = '') {
   const byId = new Map(nodes.map((n) => [nodeId(n), n]))
@@ -316,11 +209,9 @@ export function buildPathHierarchyEdges(nodes, cache = new Map(), anchorPath = '
         locale,
         title: path === '' ? '(root)' : path.split('/').at(-1),
         synthetic: true,
-        // -> Marks the one synthetic node per locale that is the climb's terminus (OpenProject
-        //    #2563), so `graphDraw.js#drawNodes` can give it a distinct, always-visible ring
-        //    without re-deriving "is this the root" from `path === ''` at the draw layer. Every
-        //    other synthetic folder node has no `root` key at all (not `root: false`), so this
-        //    stays invisible to `toEqual` fixtures asserting the non-root shape.
+        // -> Lets `drawNodes` ring the climb's terminus without re-deriving "is this the root" at
+        //    the draw layer. Absent entirely (not `false`) on every other synthetic node, so a
+        //    `toEqual` fixture for the non-root shape need not mention it.
         ...(path === '' ? { root: true } : {})
       }))
     )

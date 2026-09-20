@@ -82,8 +82,7 @@ describe('deriveMaxFolderDepth (OpenProject #2514/#2520)', () => {
   })
 
   it('reports exactly MAX_DEPTH when a graph is precisely that deep, not off by one', () => {
-    // -> Depth is segment count minus 1 (`folderDepthOf`), so MAX_DEPTH segments after the first
-    //    means MAX_DEPTH + 1 total path segments.
+    // -> Depth is segment count minus 1, so MAX_DEPTH needs MAX_DEPTH + 1 segments.
     const exactPath = Array.from({ length: MAX_DEPTH + 1 }, (_, i) => `level${i}`).join('/')
     expect(deriveMaxFolderDepth([{ path: exactPath }])).toBe(MAX_DEPTH)
   })
@@ -140,8 +139,6 @@ describe('computeTitleMatchNodeIds (OpenProject #2533)', () => {
 
   it('matches every node whose title contains the query, across locales', () => {
     const ids = computeTitleMatchNodeIds(TITLED_NODES, 'api')
-    // -> 'API Reference' matches directly; 'guides/onboarding' doesn't contain 'api' in either
-    //    locale's title, so only the one real match comes back.
     expect(ids).toEqual(new Set(['en:reference/api']))
   })
 
@@ -186,8 +183,6 @@ describe('resolveFocusNode (OpenProject #3312)', () => {
   })
 
   it('scopes the match to the given locale -- a path match in a DIFFERENT locale is not returned', () => {
-    // -> `guides/onboarding` exists in both `en` and `fr`; asking for `de` (neither) matches nothing,
-    //    and asking for `fr` returns the `fr` node specifically, not whichever the array lists first.
     expect(resolveFocusNode(FOCUS_NODES, 'guides/onboarding', 'de')).toBeNull()
     expect(resolveFocusNode(FOCUS_NODES, 'guides/onboarding', 'fr')).toBe(FOCUS_NODES[1])
     expect(resolveFocusNode(FOCUS_NODES, 'guides/onboarding', 'en')).toBe(FOCUS_NODES[0])
@@ -207,8 +202,7 @@ describe('resolveFocusNode (OpenProject #3312)', () => {
   })
 
   it('returns null for an empty path when nothing has that path, distinct from the no-param case', () => {
-    // -> No node in this fixture has `path: ''`, so this stays null -- but unlike `null`/`undefined`,
-    //    an empty string is not short-circuited before the search runs (see the root case below).
+    // -> Null because nothing in this fixture has `path: ''` -- not because `''` short-circuits.
     expect(resolveFocusNode(FOCUS_NODES, '', 'en')).toBeNull()
   })
 
@@ -236,16 +230,13 @@ describe('resolveFocusNode (OpenProject #3312)', () => {
   })
 })
 
-// Paths are deliberately nested at different depths (unlike `folder`, which the backend keeps to a
-// single segment for Feature 874's clustering) -- the depth filter derives depth from `path`, so the
-// fixture needs real multi-level paths to exercise that (OpenProject #898/#900).
+// Deliberately nested at three different depths: the depth filter derives depth from `path`, not
+// from the single-segment `folder`, so only real multi-level paths exercise it.
 const NODES2 = [
   { path: 'a', locale: 'en', tags: ['foo'], folder: '' },
   { path: 'docs/b', locale: 'fr', tags: ['bar'], folder: 'docs' },
   { path: 'docs/deep/c', locale: 'en', tags: [], folder: 'docs' }
 ]
-// Sources/targets are composite `${locale}:${path}` ids, matching what the graph API emits
-// (OpenProject #1626) and what `computeVisibleSubset` now keys visibility by (OpenProject #1632).
 const EDGES2 = [
   { source: 'en:a', target: 'fr:docs/b', type: 'link' },
   { source: 'en:a', target: 'en:docs/deep/c', type: 'link' }
@@ -286,7 +277,6 @@ describe('computeVisibleSubset (OpenProject #900)', () => {
       folderDepth: 1,
       locale: null
     })
-    // 'a' is depth 0, 'docs/b' is depth 1, 'docs/deep/c' is depth 2 -- only the latter is excluded.
     expect(visibleNodes.map((n) => n.path)).toEqual(['a', 'docs/b'])
   })
 
@@ -350,8 +340,7 @@ describe('computeVisibleSubset (OpenProject #900)', () => {
       { path: 'shared', locale: 'en', tags: [] },
       { path: 'shared', locale: 'fr', tags: [] }
     ]
-    // The edge's real target is the `fr` copy of 'shared' -- bare-path matching would have wrongly
-    // kept this edge once the `en` copy of 'shared' also passed the filter.
+    // Bare-path matching would wrongly keep this edge once the `en` copy of 'shared' passes.
     const edges = [{ source: 'en:a', target: 'fr:shared', type: 'link' }]
 
     const { visibleNodes, visibleEdges } = computeVisibleSubset(nodes, edges, {
@@ -364,17 +353,16 @@ describe('computeVisibleSubset (OpenProject #900)', () => {
   })
 })
 
-// Anchor fixture (OpenProject #3333): a folder tree deep enough to exercise ancestor/sibling/
-// descendant/cross-locale exclusion all at once, plus enough depth to exercise the anchor-relative
-// `folderDepth` reinterpretation. `guides/onboarding` (en) is the anchor most tests below use.
+// `guides/onboarding` (en) is the anchor below; the tree covers ancestor, sibling, descendant and
+// cross-locale exclusion at once, and is deep enough for anchor-relative `folderDepth`.
 const ANCHOR_NODES = [
-  { path: 'guides', locale: 'en', tags: [] }, // ancestor of the anchor -- must be excluded
-  { path: 'guides/onboarding', locale: 'en', tags: [] }, // the anchor itself -- must be included
-  { path: 'guides/onboarding/step1', locale: 'en', tags: ['x'] }, // direct child -- hop 1
-  { path: 'guides/onboarding/step1/detail', locale: 'en', tags: [] }, // grandchild -- hop 2
-  { path: 'guides/other', locale: 'en', tags: [] }, // sibling -- must be excluded
-  { path: 'reference', locale: 'en', tags: [] }, // unrelated tree -- must be excluded
-  { path: 'guides/onboarding', locale: 'fr', tags: [] }, // same path, OTHER locale -- must be excluded
+  { path: 'guides', locale: 'en', tags: [] }, // ancestor of the anchor
+  { path: 'guides/onboarding', locale: 'en', tags: [] }, // the anchor itself
+  { path: 'guides/onboarding/step1', locale: 'en', tags: ['x'] }, // hop 1
+  { path: 'guides/onboarding/step1/detail', locale: 'en', tags: [] }, // hop 2
+  { path: 'guides/other', locale: 'en', tags: [] }, // sibling
+  { path: 'reference', locale: 'en', tags: [] }, // unrelated tree
+  { path: 'guides/onboarding', locale: 'fr', tags: [] }, // same path, other locale
   { path: 'guides/onboarding/step1', locale: 'fr', tags: [] }
 ]
 const ANCHOR_EDGES = [
@@ -437,8 +425,6 @@ describe('computeVisibleSubset: anchor + descendants restriction (OpenProject #3
   })
 
   it('does not match a sibling whose path merely shares the anchor as a string prefix', () => {
-    // 'guides/onboarding-legacy' starts with 'guides/onboarding' as a bare string but is not nested
-    // under it as a path segment -- must not be swept in by a naive startsWith(anchorPath) check.
     const nodes = [...ANCHOR_NODES, { path: 'guides/onboarding-legacy', locale: 'en', tags: [] }]
     const anchor = { path: 'guides/onboarding', locale: 'en' }
     const { visibleNodes } = computeVisibleSubset(nodes, ANCHOR_EDGES, NO_ACTIVE_FILTERS, anchor)
@@ -453,7 +439,6 @@ describe('computeVisibleSubset: anchor + descendants restriction (OpenProject #3
       NO_ACTIVE_FILTERS,
       anchor
     )
-    // Only the two edges wholly inside `guides/onboarding`'s own subtree survive.
     expect(visibleEdges).toEqual([
       { source: 'en:guides/onboarding', target: 'en:guides/onboarding/step1', type: 'path' },
       {
@@ -506,8 +491,8 @@ describe('computeVisibleSubset: anchor + descendants restriction (OpenProject #3
       { tags: [], folderDepth: 1, locale: null },
       anchor
     )
-    // Depth 0 relative to the anchor is the anchor alone -- despite it sitting two path segments
-    // below the actual site root, which is what a root-relative depth 0 would have excluded it at.
+    // Depth 0 is the anchor alone, even though a root-relative depth 0 would have excluded it --
+    // it sits two segments below the site root.
     expect(depth0.visibleNodes.map((n) => n.path)).toEqual(['guides/onboarding'])
     expect(depth1.visibleNodes.map((n) => n.path).sort()).toEqual([
       'guides/onboarding',
@@ -554,8 +539,7 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
     const nonRoots = syntheticNodes.filter((n) => n.path !== '')
 
     expect(root.root).toBe(true)
-    // -> Every other synthetic folder node has no `root` key at all -- not `root: false` -- so a
-    //    plain `for...in`/`Object.keys` scan over a non-root node never even sees the key.
+    // -> Absent, not `false`: hence `in` rather than a value comparison.
     expect(nonRoots).toHaveLength(2)
     for (const node of nonRoots) {
       expect('root' in node).toBe(false)
@@ -620,9 +604,7 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
         new Map(),
         'docs'
       )
-      // -> 'docs' (the anchor itself) and 'docs/child' (the intermediate folder) are still
-      //    synthesized -- they need to draw. No '' (root) entry: the pre-#3361 behavior synthesized
-      //    ['', 'docs', 'docs/child'] here.
+      // -> The anchor and the intermediate folder are still synthesized; they need to draw.
       expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['docs', 'docs/child'])
       expect(edges).toEqual([
         { source: 'en:docs/child', target: 'en:docs/child/page', type: 'path' },
@@ -668,8 +650,6 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
       { path: 'docs/intro', locale: 'en' },
       { path: 'docs/intro', locale: 'fr' }
     ])
-    // -> Each locale climbs its OWN folder chain (composite-id ids throughout, OpenProject #1632),
-    //    so neither the synthetic 'docs' node nor the leaf edge's target collides across locales.
     expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', '', 'docs', 'docs'])
     expect(edges).toEqual(
       expect.arrayContaining([
@@ -691,7 +671,6 @@ describe('buildPathHierarchyEdges: locale-qualified hierarchy (OpenProject #1632
     ]
     const { syntheticNodes, edges } = buildPathHierarchyEdges(nodes)
 
-    // One root and one 'docs' folder node per locale -- not one shared pair merging both trees.
     expect(syntheticNodes).toHaveLength(4)
     expect(syntheticNodes).toEqual(
       expect.arrayContaining([
@@ -714,8 +693,7 @@ describe('buildPathHierarchyEdges: locale-qualified hierarchy (OpenProject #1632
   })
 
   it('a real page in one locale does not suppress synthesizing the same folder path in another locale', () => {
-    // A real page sits at path 'docs' in `en`; `fr`'s 'docs' has no real page at all -- the two
-    // locales must not share one `byId` lookup that decides whether to synthesize it.
+    // The two locales must not share one `byId` lookup deciding whether to synthesize 'docs'.
     const nodes = [
       { path: 'docs', title: 'Docs Index', locale: 'en' },
       { path: 'docs/child', locale: 'en' },
@@ -730,7 +708,6 @@ describe('buildPathHierarchyEdges: locale-qualified hierarchy (OpenProject #1632
         { path: 'docs', locale: 'fr', title: 'docs', synthetic: true }
       ])
     )
-    // 'docs' is NOT synthesized for `en` -- the real Docs Index page is reused instead.
     expect(syntheticNodes.some((n) => n.locale === 'en' && n.path === 'docs')).toBe(false)
   })
 })
@@ -755,9 +732,8 @@ describe('buildPathHierarchyEdges: combined scenario (OpenProject #1002)', () =>
         { source: 'en:', target: 'en:about', type: 'path' }
       ])
     )
-    // -> One edge per distinct parent-child pair, no more: 4 real pages climbing a shared tree
-    //    produce exactly 5 edges once the shared `docs -> docs/guides` and `'' -> docs` legs are
-    //    de-duped across every page that climbs through them.
+    // -> 5, not 7: the shared `docs -> docs/guides` and `'' -> docs` legs de-dupe across every
+    //    page that climbs through them.
     expect(edges).toHaveLength(5)
   })
 })
