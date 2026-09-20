@@ -76,6 +76,18 @@ function mockGetEndpoints() {
   })
 }
 
+function endpointsWithMeta(meta) {
+  return () => {
+    mockGetEndpoints()
+    const base = globalThis.API_CLIENT.get.getMockImplementation()
+    globalThis.API_CLIENT.get.mockImplementation((url) =>
+      String(url).includes('/history/')
+        ? { json: () => Promise.resolve({ ...FULL_VERSION, meta }) }
+        : base(url)
+    )
+  }
+}
+
 /*
   `messages` is left undefined by default on purpose: with no catalogue the test i18n renders each
   key as its own path, which is what almost every assertion below matches on. Only the real-layout
@@ -166,6 +178,88 @@ describe('PageHistoryOverlay: branchFrom', () => {
       'sites/site-1/pages',
       expect.objectContaining({ json: expect.objectContaining({ locale: 'fr' }) })
     )
+  })
+
+  it('carries the versions page properties through the shared duplicate list', async () => {
+    await mountOverlay({
+      mockEndpoints: endpointsWithMeta({
+        editor: 'html',
+        description: 'About',
+        icon: 'mdi:home',
+        tags: ['a', 'b'],
+        relations: [{ id: 'r1', target: 'other' }],
+        classification: 'level-2',
+        publishState: 'scheduled',
+        publishStartDate: '2026-10-01T00:00:00.000Z',
+        publishEndDate: '2026-11-01T00:00:00.000Z',
+        isBrowsable: false,
+        isSearchable: false,
+        password: 'bcrypt-verifier',
+        alias: 'taken',
+        scripts: { jsLoad: 'x()', jsUnload: '', css: 'a{}' },
+        config: {
+          allowComments: false,
+          allowContributions: false,
+          showSidebar: false,
+          showTags: false,
+          showToc: false,
+          tocDepth: { min: 2, max: 3 }
+        }
+      })
+    })
+    await clickRowAction('history.branchOff')
+    const opened = openDialogs.at(-1)
+
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ page: { id: 'page-2', path: 'my-page-2' } })
+    })
+    opened.handlers.ok[0]({ title: 'My Page', path: 'my-page-2' })
+    await flushPromises()
+
+    const [, { json }] = globalThis.API_CLIENT.post.mock.calls.at(-1)
+    expect(json).toMatchObject({
+      description: 'About',
+      icon: 'mdi:home',
+      tags: ['a', 'b'],
+      relations: [{ id: 'r1', target: 'other' }],
+      classification: 'level-2',
+      publishState: 'scheduled',
+      publishStartDate: '2026-10-01T00:00:00.000Z',
+      publishEndDate: '2026-11-01T00:00:00.000Z',
+      isBrowsable: false,
+      isSearchable: false,
+      allowComments: false,
+      allowContributions: false,
+      showSidebar: false,
+      showTags: false,
+      showToc: false,
+      tocDepth: { min: 2, max: 3 }
+    })
+    for (const key of ['password', 'alias', 'scriptCss', 'scriptJsLoad', 'scriptJsUnload']) {
+      expect(json).not.toHaveProperty(key)
+    }
+  })
+
+  it('drops a schedule that has no scheduled state to go with', async () => {
+    await mountOverlay({
+      mockEndpoints: endpointsWithMeta({
+        editor: 'html',
+        publishState: 'draft',
+        publishStartDate: '2026-10-01T00:00:00.000Z'
+      })
+    })
+    await clickRowAction('history.branchOff')
+    const opened = openDialogs.at(-1)
+
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ page: { id: 'page-2', path: 'my-page-2' } })
+    })
+    opened.handlers.ok[0]({ title: 'My Page', path: 'my-page-2' })
+    await flushPromises()
+
+    const [, { json }] = globalThis.API_CLIENT.post.mock.calls.at(-1)
+    expect(json.publishState).toBe('draft')
+    expect(json).not.toHaveProperty('publishStartDate')
   })
 
   it('surfaces a write:pages 403 as its own actionable message, not a bare failure toast', async () => {

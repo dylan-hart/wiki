@@ -261,6 +261,106 @@ describe('page store: pageDuplicate() (OpenProject #1787)', () => {
       pageStore.pageDuplicate({ sourcePageId: 'page-1', title: 'Copy', path: 'copy' })
     ).rejects.toThrow('network down')
   })
+
+  async function duplicate(source) {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    useEditorStore().$patch({ configIsLoaded: true })
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    API_CLIENT.get.mockReturnValueOnce(stubPageResponse({ editor: 'markdown', ...source }))
+    await pageStore.pageDuplicate({ sourcePageId: 'page-1', title: 'Copy', path: 'copy' })
+    return pageStore
+  }
+
+  it('starts a duplicate of a draft, hidden page as a draft, hidden page', async () => {
+    const pageStore = await duplicate({
+      content: 'hello',
+      description: 'About',
+      icon: 'mdi:home',
+      tags: ['a'],
+      relations: [{ id: 'r1', target: 'other' }],
+      classification: 'level-2',
+      publishState: 'draft',
+      isBrowsable: false,
+      isSearchable: false,
+      allowComments: false,
+      allowContributions: false,
+      showSidebar: false,
+      showTags: false,
+      showToc: false,
+      tocDepth: { min: 2, max: 4 }
+    })
+
+    expect(pageStore).toMatchObject({
+      content: 'hello',
+      title: 'Copy',
+      path: 'copy',
+      description: 'About',
+      icon: 'mdi:home',
+      tags: ['a'],
+      relations: [{ id: 'r1', target: 'other' }],
+      classification: 'level-2',
+      publishState: 'draft',
+      isBrowsable: false,
+      isSearchable: false,
+      allowComments: false,
+      allowContributions: false,
+      showSidebar: false,
+      showTags: false,
+      showToc: false,
+      tocDepth: { min: 2, max: 4 }
+    })
+  })
+
+  it('carries a schedule with a scheduled state and drops one that has no such state', async () => {
+    const scheduled = await duplicate({
+      publishState: 'scheduled',
+      publishStartDate: '2026-10-01T00:00:00Z',
+      publishEndDate: '2026-11-01T00:00:00Z'
+    })
+    expect(scheduled.publishState).toBe('scheduled')
+    expect(scheduled.publishStartDate).toBe('2026-10-01T00:00:00Z')
+    expect(scheduled.publishEndDate).toBe('2026-11-01T00:00:00Z')
+
+    setActivePinia(createPinia())
+    const draft = await duplicate({
+      publishState: 'draft',
+      publishStartDate: '2026-10-01T00:00:00Z'
+    })
+    expect(draft.publishState).toBe('draft')
+    expect(draft.publishStartDate).toBe('')
+  })
+
+  it('starts unprotected and without the source page scripts or alias', async () => {
+    const pageStore = await duplicate({
+      hasPassword: true,
+      alias: 'taken',
+      scriptCss: 'a{}',
+      scriptJsLoad: 'x()',
+      scriptJsUnload: 'y()'
+    })
+
+    expect(pageStore).toMatchObject({
+      password: '',
+      hasPassword: false,
+      alias: '',
+      scriptCss: '',
+      scriptJsLoad: '',
+      scriptJsUnload: ''
+    })
+  })
+
+  it('keeps the create defaults for what the source does not say', async () => {
+    const pageStore = await duplicate({})
+
+    expect(pageStore).toMatchObject({
+      publishState: 'published',
+      isBrowsable: true,
+      isSearchable: true,
+      tags: []
+    })
+  })
 })
 
 /**

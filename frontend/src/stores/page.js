@@ -9,6 +9,7 @@ import { useUserStore } from './user'
 import { isHomePath, localizedPagePath, normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
 import { apiErrorBody, apiErrorMessage } from '@/helpers/apiError'
 import { log } from '@/helpers/log'
+import { duplicatedPageProps } from '@/helpers/duplicatedPageProps'
 import { usePathDisplay } from '@/composables/pathDisplay'
 
 /**
@@ -412,6 +413,7 @@ export const usePageStore = defineStore('page', {
       description = '',
       tags = [],
       content = '',
+      carry = {},
       fromNavigate = false
     } = {}) {
       const editorStore = useEditorStore()
@@ -464,6 +466,11 @@ export const usePageStore = defineStore('page', {
         newPath = parentPath ? `${parentPath}/new-page` : 'new-page'
       }
 
+      const carriedProps = { ...carry }
+      if (!carriedProps.icon) {
+        delete carriedProps.icon
+      }
+
       this.$patch({
         ...BLANK_PAGE,
         id: 0,
@@ -496,7 +503,8 @@ export const usePageStore = defineStore('page', {
           and last-saved times as its own in the breadcrumb bar, which stays up during editing.
         */
         updatedAt: '',
-        createdAt: ''
+        createdAt: '',
+        ...carriedProps
       })
     },
     async pageDuplicate({ sourcePageId, title, path }) {
@@ -517,7 +525,7 @@ export const usePageStore = defineStore('page', {
           title,
           path,
           content: pageData.content,
-          description: pageData.description
+          carry: duplicatedPageProps(pageData)
         })
       } catch (err) {
         log.warn('page', 'could not duplicate the page', err)
