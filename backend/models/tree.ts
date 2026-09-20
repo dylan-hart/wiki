@@ -1,8 +1,27 @@
-import { and, asc, desc, eq, exists, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNotNull,
+  ne,
+  not,
+  notExists,
+  or,
+  sql,
+  type SQL
+} from 'drizzle-orm'
 import { alias, type PgColumn } from 'drizzle-orm/pg-core'
 import { chunk } from 'es-toolkit/array'
 import type { WikiDbOrTx } from '../core/db.ts'
-import { assets as assetsTable, pages as pagesTable, tree as treeTable } from '../db/schema.ts'
+import {
+  assets as assetsTable,
+  navigation as navigationTable,
+  pages as pagesTable,
+  tree as treeTable
+} from '../db/schema.ts'
 import {
   CustomError,
   decodeTreePath,
@@ -11,6 +30,7 @@ import {
   isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
+import type { NavigationItem } from './navigation.ts'
 
 export const TREE_UPDATE_CHUNK_SIZE = 200
 
@@ -155,6 +175,18 @@ export interface MovedDescendantAsset {
   fileSize: number | null
 }
 
+export interface PurgedFolder {
+  id: string
+  path: string
+  locale: string
+}
+
+export interface PurgeEmptyFoldersResult {
+  folders: PurgedFolder[]
+  count: number
+  dryRun: boolean
+}
+
 export interface TreeRow {
   id: string
   folderPath: string | null
@@ -262,6 +294,13 @@ function childPathOf(folder: { folderPath?: string | null; fileName: string }): 
   return folder.folderPath ? `${folder.folderPath}.${folder.fileName}` : folder.fileName
 }
 
+function navTargetPath(target: string): string | null {
+  if (!target.startsWith('/') || target.startsWith('//')) {
+    return null
+  }
+  return normalizePagePath(target.split(/[?#]/)[0])
+}
+
 /**
  * Exported so `Navigation.generateFromTree` reuses `browse()`'s order: an auto-generated menu reads
  * the same way the folder it was built from does.
@@ -348,6 +387,175 @@ export function pageIsVisible(
  * to know about the dotted form.
  */
 class Tree {
+  async purgeEmptyFolders(
+    siteId: string,
+    { dryRun = false }: { dryRun?: boolean } = {}
+  ): Promise<PurgeEmptyFoldersResult> {
+    const referenced = await this.navigationReferencedFolderIds(siteId)
+    const purgeable = this.purgeableFolderCondition(siteId, referenced)
+
+    const toResult = (
+      rows: { id: string; folderPath: string | null; fileName: string; locale: string }[]
+    ): PurgedFolder[] =>
+      rows
+        .map((row) => {
+          const folderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+          return {
+            id: row.id,
+            path: folderPath ? `${folderPath}/${row.fileName}` : row.fileName,
+            locale: row.locale,
+            depth: folderPath ? folderPath.split('/').length : 0
+          }
+        })
+        .toSorted((a, b) => b.depth - a.depth || a.path.localeCompare(b.path))
+        .map(({ depth: _depth, ...folder }) => folder)
+
+    if (dryRun) {
+      const found = await CARDINAL.db
+        .select({
+          id: treeTable.id,
+          folderPath: treeTable.folderPath,
+          fileName: treeTable.fileName,
+          locale: treeTable.locale
+        })
+        .from(treeTable)
+        .where(purgeable)
+      const folders = toResult(found)
+      return { folders, count: folders.length, dryRun: true }
+    }
+
+    const removed = await CARDINAL.db.transaction(async (tx) => {
+      const deleted = await tx
+        .delete(treeTable)
+        .where(
+          inArray(treeTable.id, tx.select({ id: treeTable.id }).from(treeTable).where(purgeable))
+        )
+        .returning({
+          id: treeTable.id,
+          folderPath: treeTable.folderPath,
+          fileName: treeTable.fileName,
+          locale: treeTable.locale
+        })
+
+      const gone = new Set(deleted.map((row) => `${row.locale}\0${childPathOf(row)}`))
+      const perParent = new Map<string, { locale: string; path: string; count: number }>()
+      for (const row of deleted) {
+        const path = row.folderPath ?? ''
+        const key = `${row.locale}\0${path}`
+        if (!path || gone.has(key)) {
+          continue
+        }
+        const entry = perParent.get(key) ?? { locale: row.locale, path, count: 0 }
+        entry.count++
+        perParent.set(key, entry)
+      }
+      for (const { locale, path, count } of perParent.values()) {
+        await this.countTowardsFolderAt(siteId, locale, path, -count, tx)
+      }
+
+      return deleted
+    })
+
+    await CARDINAL.models.navigation.deleteNavForEntries(
+      siteId,
+      removed.map((row) => row.id)
+    )
+
+    const folders = toResult(removed)
+    CARDINAL.logger.debug('pages', 'purged empty folders', { siteId, count: folders.length })
+    return { folders, count: folders.length, dryRun: false }
+  }
+
+  private purgeableFolderCondition(siteId: string, referencedIds: string[]): SQL {
+    const under = alias(treeTable, 'under')
+    const ownedMenus = CARDINAL.db
+      .select({ id: navigationTable.id })
+      .from(navigationTable)
+      .where(eq(navigationTable.siteId, siteId))
+    const keepsFolder = (row: { id: PgColumn; navigationMode: PgColumn; navigationId: PgColumn }) =>
+      or(
+        ne(row.navigationMode, 'inherit'),
+        isNotNull(row.navigationId),
+        inArray(row.id, ownedMenus),
+        referencedIds.length > 0 ? inArray(row.id, referencedIds) : undefined
+      )!
+
+    return and(
+      eq(treeTable.siteId, siteId),
+      eq(treeTable.type, 'folder'),
+      not(keepsFolder(treeTable)),
+      notExists(
+        CARDINAL.db
+          .select({ one: sql`1` })
+          .from(under)
+          .where(
+            and(
+              eq(under.siteId, treeTable.siteId),
+              eq(under.locale, treeTable.locale),
+              sql`${under.folderPath} <@ (${treeTable.folderPath} || ${treeTable.fileName})`,
+              or(ne(under.type, 'folder'), keepsFolder(under))
+            )
+          )
+      )
+    )!
+  }
+
+  private async navigationReferencedFolderIds(siteId: string): Promise<string[]> {
+    const menus = await CARDINAL.db
+      .select({ items: navigationTable.items })
+      .from(navigationTable)
+      .where(eq(navigationTable.siteId, siteId))
+
+    const targets = new Set<string>()
+    const folderIds = new Set<string>()
+    const walk = (items: unknown): void => {
+      if (!Array.isArray(items)) {
+        return
+      }
+      for (const item of items as Partial<NavigationItem>[]) {
+        if (typeof item?.target === 'string') {
+          const path = navTargetPath(item.target)
+          if (path) {
+            targets.add(path)
+          }
+        }
+        if (typeof item?.folderId === 'string') {
+          folderIds.add(item.folderId)
+        }
+        walk(item?.children)
+      }
+    }
+    for (const menu of menus) {
+      walk(menu.items)
+    }
+    if (targets.size === 0 && folderIds.size === 0) {
+      return []
+    }
+
+    const folders = await CARDINAL.db
+      .select({
+        id: treeTable.id,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        locale: treeTable.locale
+      })
+      .from(treeTable)
+      .where(and(eq(treeTable.siteId, siteId), eq(treeTable.type, 'folder')))
+
+    return folders
+      .filter((folder) => {
+        if (folderIds.has(folder.id)) {
+          return true
+        }
+        const folderPath = decodeTreePath(folder.folderPath ?? '') ?? ''
+        const path = (
+          folderPath ? `${folderPath}/${folder.fileName}` : folder.fileName
+        ).toLowerCase()
+        return targets.has(path) || targets.has(`${folder.locale.toLowerCase()}/${path}`)
+      })
+      .map((folder) => folder.id)
+  }
+
   /**
    * @param parentId Takes precedence over `parentPath`.
    * @param parentPath The site root when both are absent.
