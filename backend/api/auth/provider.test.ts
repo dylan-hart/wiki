@@ -668,3 +668,141 @@ describe('GET/POST /auth/:strategyId/callback — login.failed audit recording',
     assert.deepEqual(entry.detail, { strategyId: STRATEGY_ID, reason: 'ERR_LOGIN_FAILED' })
   })
 })
+
+describe('GET /auth/:strategyId/metadata', () => {
+  const SAML_ID = 'c1111111-1111-1111-1111-111111111111'
+  const DISABLED_ID = 'c2222222-2222-2222-2222-222222222222'
+  const OIDC_ID = 'c3333333-3333-3333-3333-333333333333'
+  const BROKEN_ID = 'c4444444-4444-4444-4444-444444444444'
+  const CRASHING_ID = 'c5555555-5555-5555-5555-555555555555'
+  const PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----SECRETKEYMATERIAL-----END PRIVATE KEY-----'
+
+  let app: FastifyInstance
+  let metadataArgs: string[]
+
+  /** Shaped like `SamlAuthentication`: the private key sits in the instance's config, not its output. */
+  function samlInstance(id: string) {
+    return {
+      module: 'saml',
+      conf: { privateKey: PRIVATE_KEY },
+      metadata(acsUrl: string) {
+        metadataArgs.push(acsUrl)
+        return `<EntityDescriptor entityID="urn:cardinal:${id}"><AssertionConsumerService Location="${acsUrl}"/></EntityDescriptor>`
+      }
+    }
+  }
+
+  before(async () => {
+    wikiHandle = installTestWiki({
+      config: { security: { authRateLimitEnabled: true } },
+      models: {
+        flags: { authDebug: () => {} },
+        authentication: {
+          getStrategyById: async (id: string) =>
+            ({
+              [SAML_ID]: { id: SAML_ID, module: 'saml', isEnabled: true },
+              [DISABLED_ID]: { id: DISABLED_ID, module: 'saml', isEnabled: false },
+              [OIDC_ID]: { id: OIDC_ID, module: 'oidc', isEnabled: true },
+              [BROKEN_ID]: { id: BROKEN_ID, module: 'saml', isEnabled: true },
+              [CRASHING_ID]: { id: CRASHING_ID, module: 'saml', isEnabled: true }
+            })[id] ?? null
+        }
+      },
+      auth: {
+        strategies: {
+          [SAML_ID]: samlInstance(SAML_ID),
+          [DISABLED_ID]: samlInstance(DISABLED_ID),
+          [OIDC_ID]: {
+            module: 'oidc',
+            conf: { clientSecret: PRIVATE_KEY },
+            authorizationUrl: async () => 'https://provider.example/authorize'
+          },
+          [BROKEN_ID]: {
+            module: 'saml',
+            metadata() {
+              throw new Error('ERR_STRATEGY_MISCONFIGURED')
+            }
+          },
+          [CRASHING_ID]: {
+            module: 'saml',
+            metadata() {
+              throw new Error('boom')
+            }
+          }
+        }
+      },
+      sitesMappings: {}
+    })
+
+    app = await buildTestApp({ routes: authenticationRoutes, ajv: true })
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  beforeEach(() => {
+    metadataArgs = []
+  })
+
+  test('answers 200 XML for an enabled SAML strategy, built for the request host', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${SAML_ID}/metadata`,
+      headers: { host: 'wiki.example.com' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.match(String(res.headers['content-type']), /^application\/samlmetadata\+xml/)
+    assert.deepEqual(metadataArgs, [`http://wiki.example.com/_api/auth/${SAML_ID}/callback`])
+    assert.match(res.body, new RegExp(`entityID="urn:cardinal:${SAML_ID}"`))
+    assert.match(
+      res.body,
+      new RegExp(`Location="http://wiki\\.example\\.com/_api/auth/${SAML_ID}/callback"`)
+    )
+  })
+
+  test('is not refused by the login-attempt rate limit, however often it is fetched', async () => {
+    for (let i = 0; i < 40; i++) {
+      const res = await app.inject({ method: 'GET', url: `/auth/${SAML_ID}/metadata` })
+      assert.equal(res.statusCode, 200)
+    }
+  })
+
+  test('never puts the configured private key in the response', async () => {
+    const res = await app.inject({ method: 'GET', url: `/auth/${SAML_ID}/metadata` })
+
+    assert.equal(res.statusCode, 200)
+    assert.doesNotMatch(res.body, /SECRETKEYMATERIAL/)
+  })
+
+  for (const [label, id] of [
+    ['a disabled strategy', DISABLED_ID],
+    ['an unknown strategy id', 'c9999999-9999-9999-9999-999999999999'],
+    ['a strategy whose module has no metadata (OIDC)', OIDC_ID]
+  ] as const) {
+    test(`answers 404 for ${label}`, async () => {
+      const res = await app.inject({ method: 'GET', url: `/auth/${id}/metadata` })
+
+      assert.equal(res.statusCode, 404)
+      assert.equal(res.json().message, 'There is no such login provider.')
+      assert.deepEqual(metadataArgs, [])
+      assert.doesNotMatch(res.body, /SECRETKEYMATERIAL/)
+    })
+  }
+
+  test('a misconfigured strategy answers the same 404, without naming what is wrong', async () => {
+    const res = await app.inject({ method: 'GET', url: `/auth/${BROKEN_ID}/metadata` })
+
+    assert.equal(res.statusCode, 404)
+    assert.equal(res.json().message, 'There is no such login provider.')
+    assert.doesNotMatch(res.body, /MISCONFIGURED/)
+  })
+
+  test('an unexpected failure is not swallowed into a 404', async () => {
+    const res = await app.inject({ method: 'GET', url: `/auth/${CRASHING_ID}/metadata` })
+
+    assert.equal(res.statusCode, 500)
+  })
+})

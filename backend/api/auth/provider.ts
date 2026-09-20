@@ -367,6 +367,62 @@ async function routes(app: FastifyInstance) {
       })
     }
   )
+
+  app.get<{
+    Params: { strategyId: string }
+  }>(
+    '/auth/:strategyId/metadata',
+    {
+      config: {
+        publicAccess: true
+      },
+      schema: {
+        summary: 'Fetch the service provider metadata of a login provider',
+        description:
+          "The XML an identity provider's administrator imports to register this wiki — entity ID, assertion consumer service URL and public certificates. Only a strategy whose module has service provider metadata to give (SAML) answers; every other case, including a strategy that is disabled or misconfigured, is the same 404.\n\nThe consumer service URL is built from the request's own host, so fetch it at the address the identity provider will reach the wiki on.",
+        tags: ['Authentication'],
+        params: {
+          type: 'object',
+          properties: {
+            strategyId: { type: 'string', format: 'uuid' }
+          },
+          required: ['strategyId']
+        },
+        response: {
+          200: {
+            description: 'SAML service provider metadata',
+            type: 'string'
+          },
+          404: {
+            $ref: 'ApiError#',
+            description: 'No such strategy, or it has no metadata to give.'
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const strategy = await CARDINAL.models.authentication.getStrategyById(req.params.strategyId)
+      const instance = CARDINAL.auth.strategies[req.params.strategyId] as any
+      if (!strategy?.isEnabled || typeof instance?.metadata !== 'function') {
+        return reply.notFound('There is no such login provider.')
+      }
+
+      try {
+        const xml: string = instance.metadata(callbackUrl(req, strategy.id))
+        return reply.type('application/samlmetadata+xml; charset=utf-8').send(xml)
+      } catch (err: any) {
+        if (err?.message !== 'ERR_STRATEGY_MISCONFIGURED') {
+          throw err
+        }
+        CARDINAL.logger.warn('auth', 'could not build service provider metadata', {
+          module: strategy.module,
+          strategy: strategy.id,
+          error: err
+        })
+        return reply.notFound('There is no such login provider.')
+      }
+    }
+  )
 }
 
 export default routes
