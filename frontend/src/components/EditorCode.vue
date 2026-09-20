@@ -25,6 +25,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useAesthetic } from '@/composables/aesthetic'
+import { requestSave } from '@/composables/saveShortcut'
 import { defineMonacoThemes, monacoThemeName } from '@/helpers/monacoTheme'
 import { assetPath } from '@/helpers/assets'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
@@ -172,6 +173,17 @@ onMounted(() => {
     flushEditorContent()
   }, 500)
   editor.onDidChangeModelContent(debouncedContentChange)
+
+  editor.addAction({
+    id: 'save',
+    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+    label: 'Save',
+    precondition: '',
+    run() {
+      debouncedContentChange?.flush()
+      requestSave()
+    }
+  })
 
   editor.focus()
 

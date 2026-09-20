@@ -17,6 +17,7 @@ const fakeEditor = {
   getPosition: vi.fn(() => ({ lineNumber: 3, column: 5 })),
   executeEdits: vi.fn(),
   onDidChangeModelContent: vi.fn(),
+  addAction: vi.fn(),
   focus: vi.fn(),
   dispose: vi.fn()
 }
@@ -29,6 +30,8 @@ vi.mock('monaco-editor', () => ({
       return fakeEditor
     })
   },
+  KeyMod: { CtrlCmd: 1 },
+  KeyCode: { KeyS: 3 },
   Range: class Range {
     constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
       this.startLineNumber = startLineNumber
