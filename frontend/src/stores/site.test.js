@@ -32,6 +32,33 @@ function siteInfoFixture(overrides = {}) {
   }
 }
 
+describe('site store: applySiteInfo() banner', () => {
+  it('exposes the empty default before any site loads', () => {
+    const store = useSiteStore()
+
+    expect(store.banner).toEqual({ isEnabled: false, title: '', content: '' })
+  })
+
+  it('adopts the banner from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(
+      siteInfoFixture({ banner: { isEnabled: true, title: 'Notice', content: 'Hello' } })
+    )
+
+    expect(store.banner).toEqual({ isEnabled: true, title: 'Notice', content: 'Hello' })
+  })
+
+  it('falls back to the empty default when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(
+      siteInfoFixture({ banner: { isEnabled: true, title: 'Old', content: 'x' } })
+    )
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.banner).toEqual({ isEnabled: false, title: '', content: '' })
+  })
+})
+
 describe('site store: applySiteInfo() pdfExportAvailable', () => {
   it('adopts pdfExportAvailable: true from the site payload', () => {
     const store = useSiteStore()
