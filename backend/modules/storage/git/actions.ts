@@ -133,10 +133,6 @@ export async function importAll(target: StorageTarget): Promise<void> {
   const { repoPath } = await ensureRepo(target)
 
   const actor = await resolveImportActor(target)
-  if (!actor) {
-    log.warn('no user matches the configured default author email, skipping the import')
-    return
-  }
 
   log.info('importing all content from the local repo')
   const relPaths = await walkFiles(repoPath)

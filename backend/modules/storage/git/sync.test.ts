@@ -20,6 +20,7 @@ import type { StorageTarget } from '../../../models/storage.ts'
 const SITE_ID = 'site-1'
 const PRIMARY_LOCALE = 'en'
 const ADMIN_EMAIL = 'admin@example.com'
+const SYSTEM_USER_ID = 'system-user-1'
 
 async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix))
@@ -60,7 +61,8 @@ function installWiki(
       users: {
         getByEmail: mock.fn(async (email: string) =>
           email === ADMIN_EMAIL ? { id: 'admin-1', email } : null
-        )
+        ),
+        ensureSystemUser: mock.fn(async () => SYSTEM_USER_ID)
       },
       pages: {
         getPage: mock.fn(async ({ hash, locale }: { hash: string; locale: string }) => {
@@ -391,6 +393,46 @@ describe('git storage: sync', () => {
     assert.equal(calls.createPage[0].input.content, '# Hello there')
     assert.equal(calls.createPage[0].input.editor, 'markdown')
     assert.equal(calls.createPage[0].actor.id, 'admin-1')
+  })
+
+  test('attributes a pulled page to the system user when no user matches the default author email', async () => {
+    installWiki(localPath, { pages: [] })
+    const { git: localGit } = await ensureRepo(target)
+    await localGit.pull('origin', 'main')
+
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'welcome.md'), '# Hello there')
+    await peer.add('welcome.md')
+    await peer.commit('docs: create welcome')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, { pages: [] })
+    const noMatch = makeTarget({
+      config: { ...target.config, defaultEmail: 'nobody@example.com' }
+    })
+    await sync(noMatch)
+
+    assert.equal(calls.createPage.length, 1)
+    assert.equal(calls.createPage[0].actor.id, SYSTEM_USER_ID)
+    assert.deepEqual(calls.createPage[0].actor.permissions, ['manage:system'])
+  })
+
+  test('attributes a pulled page to the system user when no default author email is configured', async () => {
+    installWiki(localPath, { pages: [] })
+    const { git: localGit } = await ensureRepo(target)
+    await localGit.pull('origin', 'main')
+
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'welcome.md'), '# Hello there')
+    await peer.add('welcome.md')
+    await peer.commit('docs: create welcome')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, { pages: [] })
+    await sync(makeTarget({ config: { ...target.config, defaultEmail: undefined } }))
+
+    assert.equal(calls.createPage.length, 1)
+    assert.equal(calls.createPage[0].actor.id, SYSTEM_USER_ID)
   })
 
   test('pulls an update to a page already tracked in the DB', async () => {

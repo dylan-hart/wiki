@@ -61,7 +61,8 @@ function installWiki(
         getById: mock.fn(async () => null),
         getByEmail: mock.fn(async (email: string) =>
           email === ADMIN_EMAIL ? { id: 'admin-1', email } : null
-        )
+        ),
+        ensureSystemUser: mock.fn(async () => 'system-user-1')
       },
       pages: {
         listAllForSite: mock.fn(async () =>
@@ -404,7 +405,7 @@ describe('git storage: importAll', () => {
     assert.equal(calls.createPage.length, 0)
   })
 
-  test('does nothing when no user matches the configured default author email', async () => {
+  test('attributes the import to the system user when no user matches the default author email', async () => {
     const calls = installWiki(rootPath, { pages: [] })
     ;(globalThis as any).CARDINAL.models.users.getByEmail = mock.fn(async () => null)
     const { repoPath } = await ensureRepo(target)
@@ -412,7 +413,8 @@ describe('git storage: importAll', () => {
 
     await importAll(target)
 
-    assert.equal(calls.createPage.length, 0)
+    assert.equal(calls.createPage.length, 1)
+    assert.equal(calls.createPage[0].actor.id, 'system-user-1')
   })
 })
 
