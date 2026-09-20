@@ -4,7 +4,7 @@ import { fetchIcon, iconImageUrl } from '../shared/icons.js'
 import { boolean } from '../shared/props.js'
 import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
-import { getSiteId, getSiteLocales, getCurrentPage } from '../shared/site.js'
+import { getSiteId, getSiteLocales, getCurrentPage, localeUrlSegment } from '../shared/site.js'
 
 /** Mirrors the page store's own `DEFAULT_PAGE_ICON`, so a listing does not mix two defaults. */
 const DEFAULT_PAGE_ICON = 'tabler:file-text'
@@ -332,7 +332,7 @@ export class BlockIndexElement extends LitElement {
         locales?.active?.length > 1 &&
         pageLocale &&
         (pageLocale !== locales.primary || locales.forcePrefix)
-          ? `/${pageLocale}`
+          ? `/${localeUrlSegment(pageLocale, locales.aliases)}`
           : ''
       this._pages = pages.map((p) => ({ ...p, href: `${prefix}/${p.path}` }))
       if (this.showIcons) {

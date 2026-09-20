@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-import { enterCreateMode, enterEditMode } from './pageRouting'
+import { enterCreateMode, enterEditMode, loadPageForRoute } from './pageRouting'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -129,5 +129,45 @@ describe('enterEditMode() fetches page permissions for the loaded page (OpenProj
 
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(router.replace).toHaveBeenCalledWith('/')
+  })
+})
+
+describe('loadPageForRoute() resolves a locale URL alias to the canonical locale', () => {
+  async function load(path) {
+    const siteStore = useSiteStore()
+    siteStore.locales = {
+      primary: 'en',
+      forcePrefix: false,
+      aliases: { 'zh-CN': 'zh' },
+      active: [
+        { code: 'en', name: 'English', nativeName: 'English' },
+        { code: 'zh-CN', name: 'Chinese', nativeName: '中文' }
+      ]
+    }
+    const pageLoad = vi.spyOn(usePageStore(), 'pageLoad').mockResolvedValue()
+    await loadPageForRoute({ path, hash: '' }, 1, {
+      router: fakeRouter(),
+      state: { tocPanelOpen: false },
+      pageContents: { value: null },
+      scrollPageToTop: vi.fn(),
+      currentGeneration: () => 1
+    })
+    return pageLoad
+  }
+
+  it('loads locale zh-CN at the page `page` for /zh/page', async () => {
+    const pageLoad = await load('/zh/page')
+
+    expect(pageLoad).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/page', locale: 'zh-CN' })
+    )
+  })
+
+  it('still loads locale zh-CN at the page `page` for the canonical /zh-CN/page', async () => {
+    const pageLoad = await load('/zh-CN/page')
+
+    expect(pageLoad).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/page', locale: 'zh-CN' })
+    )
   })
 })

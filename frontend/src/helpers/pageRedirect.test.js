@@ -146,4 +146,17 @@ describe('resolveRedirectTarget', () => {
   it('passes an empty target through untouched', () => {
     expect(resolveRedirectTarget('', activeLocaleCodes, 'en', siteLocales)).toBe('')
   })
+
+  describe('with a locale URL alias', () => {
+    const aliased = { ...siteLocales, aliases: { 'zh-CN': 'zh' } }
+    const codes = ['en', 'zh-CN']
+
+    it('leaves a target already carrying the alias prefix exactly as written', () => {
+      expect(resolveRedirectTarget('/zh/foo/bar', codes, 'en', aliased)).toBe('/zh/foo/bar')
+    })
+
+    it("localizes a bare target to the reader's locale using its alias segment", () => {
+      expect(resolveRedirectTarget('/foo/bar', codes, 'zh-CN', aliased)).toBe('/zh/foo/bar')
+    })
+  })
 })

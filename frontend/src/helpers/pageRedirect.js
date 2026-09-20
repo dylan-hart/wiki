@@ -50,7 +50,11 @@ export function serializeRedirect({ kind, target, showInterstitial } = {}) {
  * and `isFollowable` refuses it either way.
  */
 export function resolveRedirectTarget(target, activeLocaleCodes, currentLocale, siteLocales) {
-  if (!target || parseLocalePrefix(target, activeLocaleCodes) || !target.startsWith('/')) {
+  if (
+    !target ||
+    parseLocalePrefix(target, activeLocaleCodes, siteLocales?.aliases) ||
+    !target.startsWith('/')
+  ) {
     return target
   }
   return localizedPagePath(target.slice(1), currentLocale, siteLocales)

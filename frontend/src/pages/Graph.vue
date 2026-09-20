@@ -916,11 +916,7 @@ function findNodeAt(clientX, clientY) {
  *  in-page find for it. This is the ONE place that decides whether the param is added, so the real
  *  `<a href>` and `navigateToNode()`'s `router.push()` target cannot disagree. */
 function fallbackHref(node) {
-  const path = localizedPagePath(node.path, node.locale, {
-    useLocales: siteStore.useLocales,
-    primary: siteStore.locales.primary,
-    forcePrefix: siteStore.locales.forcePrefix
-  })
+  const path = localizedPagePath(node.path, node.locale, siteStore.localeRouting)
   const keyword = keywordQuery.value.trim()
   return keyword ? `${path}?highlight=${encodeURIComponent(keyword)}` : path
 }

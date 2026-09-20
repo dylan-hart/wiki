@@ -391,7 +391,8 @@ router.beforeEach(async (to, from) => {
       to.path,
       to.query,
       siteStore.locales.active.map((l) => l.code),
-      siteStore.locales.primary
+      siteStore.locales.primary,
+      siteStore.locales.aliases
     )
   }
 
@@ -405,7 +406,8 @@ router.beforeEach(async (to, from) => {
   routeLocale = siteStore.useLocales
     ? (parseLocalePrefix(
         to.path,
-        siteStore.locales.active.map((l) => l.code)
+        siteStore.locales.active.map((l) => l.code),
+        siteStore.locales.aliases
       )?.locale ?? null)
     : null
 
