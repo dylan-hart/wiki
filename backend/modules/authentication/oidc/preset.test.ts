@@ -126,8 +126,10 @@ describe('OidcPreset', () => {
       assert.deepEqual(profile, { id: 'sub-123', email: 'person@example.com', name: 'A Person' })
       assert.equal(profileMock.mock.callCount(), 1)
 
-      assert.equal(preset.logoutUrl(), null)
+      const logoutParams = { idTokenHint: 'tok', postLogoutRedirectUri: 'https://wiki.example/' }
+      assert.equal(preset.logoutUrl(logoutParams), null)
       assert.equal(logoutUrlMock.mock.callCount(), 1)
+      assert.deepEqual(logoutUrlMock.mock.calls[0].arguments[0], logoutParams)
     } finally {
       authorizationUrlMock.mock.restore()
       profileMock.mock.restore()

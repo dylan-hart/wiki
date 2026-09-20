@@ -1,4 +1,5 @@
 import * as client from 'openid-client'
+import { buildEndSessionUrl, type EndSessionParams } from '../../../helpers/endSessionUrl.ts'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 import { providerNameHalves } from '../../../models/authentication.ts'
 
@@ -197,7 +198,7 @@ export default class OidcAuthentication {
     return client.authorizationCodeGrant(config, new URL(currentUrl), checks)
   }
 
-  logoutUrl(): string | null {
-    return this.conf.logoutURL || null
+  logoutUrl(params: EndSessionParams = {}): string | null {
+    return buildEndSessionUrl(this.conf.logoutURL, params)
   }
 }
