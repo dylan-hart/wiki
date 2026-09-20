@@ -45,6 +45,15 @@ function sessionUserId(req: FastifyRequest): string {
   return sessionUserIdOrNull(req)!
 }
 
+const PROFILE_IDENTITY_FIELDS = [
+  'name',
+  'firstName',
+  'lastName',
+  'location',
+  'jobTitle',
+  'pronouns'
+] as const
+
 /**
  * A per-site feature, turned off where user data comes from an external identity provider. An
  * unresolvable hostname leaves it enabled.
@@ -117,7 +126,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Update the logged in user's own profile",
         description:
-          'Updates any subset of the profile fields; omitted ones are left unchanged. Requires the current site to have the `profile` feature enabled. The email cannot be changed here, and neither can any field an administrator owns.',
+          'Updates any subset of the profile fields; omitted ones are left unchanged. Where the current site has the `profile` feature disabled, the identity fields (`name`, `firstName`, `lastName`, `location`, `jobTitle`, `pronouns`) are refused with a 403 while the display preferences stay writable. The email cannot be changed here, and neither can any field an administrator owns.',
         tags: ['Users'],
         body: {
           $ref: 'UserProfileUpdate#'
@@ -146,7 +155,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      if (!(await isProfileEditable(req))) {
+      if (
+        !(await isProfileEditable(req)) &&
+        PROFILE_IDENTITY_FIELDS.some((key) => req.body[key] !== undefined)
+      ) {
         return reply.forbidden('Profile editing is disabled on this site.')
       }
 
@@ -269,7 +281,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      if (!(await isProfileEditable(req))) {
+      if (
+        !(await isProfileEditable(req)) &&
+        PROFILE_IDENTITY_FIELDS.some((key) => req.body[key] !== undefined)
+      ) {
         return reply.forbidden('Profile editing is disabled on this site.')
       }
 
@@ -324,7 +339,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      if (!(await isProfileEditable(req))) {
+      if (
+        !(await isProfileEditable(req)) &&
+        PROFILE_IDENTITY_FIELDS.some((key) => req.body[key] !== undefined)
+      ) {
         return reply.forbidden('Profile editing is disabled on this site.')
       }
 

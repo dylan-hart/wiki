@@ -3529,7 +3529,7 @@
   "profile.dateFormatHint": "Set your preferred format to display dates.",
   "profile.displayName": "Display Name",
   "profile.displayNameHint": "How you are shown when authoring content (pages, comments, etc.). Derived from your first and last name; edit it to author your own instead.",
-  "profile.editDisabledDescription": "Your wiki administrator has disabled profile editing.",
+  "profile.editDisabledDescription": "Your wiki administrator has disabled editing of your name, avatar and other profile details. Your display preferences can still be changed.",
   "profile.editDisabledTitle": "Profile info is managed by your organization.",
   "profile.email": "Email Address",
   "profile.emailHint": "The email address used for login.",
