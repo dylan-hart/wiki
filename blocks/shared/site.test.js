@@ -148,6 +148,19 @@ describe('shared/site.js', () => {
       expect(await getCurrentPage()).toEqual({ locale: 'fr', path: 'docs/intro' })
     })
 
+    it('reads a locale URL alias as its canonical locale, stripped from the path', async () => {
+      window.history.pushState({}, '', '/zh/docs/intro')
+      stubFetch(async () => ({
+        ok: true,
+        json: async () => ({
+          id: SITE_ID,
+          locales: { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+        })
+      }))
+
+      expect(await getCurrentPage()).toEqual({ locale: 'zh-CN', path: 'docs/intro' })
+    })
+
     it("does not mistake an ordinary path's first segment for a locale it isn't", async () => {
       window.history.pushState({}, '', '/de/docs/intro')
       stubFetch(async () => ({

@@ -148,7 +148,8 @@ export async function loadPageForRoute(
   const parsedLocale = siteStore.useLocales
     ? parseLocalePrefix(
         newValue,
-        siteStore.locales.active.map((l) => l.code)
+        siteStore.locales.active.map((l) => l.code),
+        siteStore.locales.aliases
       )
     : null
   const pagePath = parsedLocale?.path ?? newValue

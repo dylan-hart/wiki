@@ -92,6 +92,26 @@ describe('usePageSaveFlow() discardChanges()', () => {
    * set once that create session ends, a later edit-mode discard picks it up and navigates the
    * reader to a stale page instead of the one they were editing.
    */
+  it('returns a discarded create session to the locale root under its URL alias', async () => {
+    const { wrapper, pageStore, siteStore, editorStore } = mountFlow(router)
+    siteStore.locales = {
+      primary: 'en',
+      forcePrefix: false,
+      aliases: { 'zh-CN': 'zh' },
+      active: [
+        { code: 'en', name: 'English', nativeName: 'English' },
+        { code: 'zh-CN', name: 'Chinese', nativeName: '中文' }
+      ]
+    }
+    pageStore.locale = 'zh-CN'
+    editorStore.$patch({ isActive: true, mode: 'create' })
+    const replace = vi.spyOn(router, 'replace')
+
+    await wrapper.vm.discardChanges()
+
+    expect(replace).toHaveBeenCalledWith('/zh')
+  })
+
   it('resets originPageId when discarding a create-mode session, so it cannot leak into a later edit session', async () => {
     const { wrapper, editorStore } = mountFlow(router)
     editorStore.$patch({ isActive: true, mode: 'create', originPageId: 'origin-page-1' })

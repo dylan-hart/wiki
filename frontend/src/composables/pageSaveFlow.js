@@ -6,7 +6,7 @@ import { dialog } from '@/composables/dialog'
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
 import { log } from '@/helpers/log'
-import { shouldPrefixLocale } from '@/helpers/pagePaths'
+import { localeUrlSegment, shouldPrefixLocale } from '@/helpers/pagePaths'
 
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
@@ -67,7 +67,9 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
       }
 
       router.replace(
-        shouldPrefixLocale(pageStore.locale, siteStore.localeRouting) ? `/${pageStore.locale}` : '/'
+        shouldPrefixLocale(pageStore.locale, siteStore.localeRouting)
+          ? `/${localeUrlSegment(pageStore.locale, siteStore.localeRouting.aliases)}`
+          : '/'
       )
       return
     }
