@@ -125,6 +125,25 @@ describe('UserProfilePopover', () => {
     expect(card().textContent).not.toContain('ada@example.com')
   })
 
+  it('draws no row for a key outside the closed public set, even if the response carries one', async () => {
+    stubProfile(
+      profile({
+        fields: { location: 'London', phone: '555-0100', timezone: 'Europe/London' },
+        email: 'ada@example.com',
+        phone: '555-0100'
+      })
+    )
+    await openCard()
+
+    const rows = [...card().querySelectorAll('[data-testid^="user-profile-field-"]')].map((row) =>
+      row.getAttribute('data-testid')
+    )
+    expect(rows).toEqual(['user-profile-field-location'])
+    expect(card().textContent).not.toContain('555-0100')
+    expect(card().textContent).not.toContain('Europe/London')
+    expect(card().innerHTML).not.toContain('ada@example.com')
+  })
+
   it('never draws an empty field row', async () => {
     stubProfile(profile({ fields: { location: '' } }))
     await openCard()

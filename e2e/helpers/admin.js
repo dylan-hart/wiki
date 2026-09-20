@@ -53,8 +53,12 @@ export async function submitLogin(page, email, password) {
  * @param {import('@playwright/test').Page} page
  */
 export async function loginAsAdmin(page) {
+  await loginAs(page, ADMIN_EMAIL, ADMIN_PASSWORD)
+}
+
+export async function loginAs(page, email, password) {
   await page.goto('/login')
-  await submitLogin(page, ADMIN_EMAIL, ADMIN_PASSWORD)
+  await submitLogin(page, email, password)
   await expect(authenticatedShellMarker(page)).toBeVisible({ timeout: AUTHENTICATED_SHELL_TIMEOUT })
 }
 

@@ -58,7 +58,9 @@ npm test`. In CI, a fresh `postgres:18` service container per run is what makes 
 - **File convention**: specs are `tests/*.spec.js`, one per flow — `auth.spec.js` (flow 1),
   `page-publish.spec.js` (flow 2), `multi-site.spec.js` (flow 3), `rtl.spec.js` (Feature 413's RTL
   support, seeding a synthetic RTL test locale straight into the database under test before its
-  suite runs), and `scheduler.spec.js` (the admin Scheduler UI's Upcoming/Active/Failed tabs).
+  suite runs), `scheduler.spec.js` (the admin Scheduler UI's Upcoming/Active/Failed tabs), and
+  `profile-popover.spec.js` (the readonly profile popover and per-field visibility, with its API setup in
+  `helpers/profile.js`).
   `helpers/admin.js` holds what more than one spec needs (`loginAsAdmin`, `createAndPublishPage`,
   `expectAuthenticatedShell`/`expectGuestShell`, `uniqueSlug` for collision-free paths/hostnames
   across repeated runs against a database that already has a prior run's data in it).
