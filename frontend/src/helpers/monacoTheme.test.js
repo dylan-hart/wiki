@@ -7,15 +7,6 @@ import {
   monacoThemeName
 } from './monacoTheme.js'
 
-/*
-  Monaco is the one surface the design-token layer cannot reach -- `defineTheme()` takes plain hex
-  strings and never resolves a CSS custom property -- so the aesthetic is applied by registering a
-  second theme and switching to it. What is worth pinning here is that the second theme is DERIVED
-  rather than re-typed: each surface writes only its Ledger definition, and this maps every tone onto
-  Cobalt's answer for the same role. A role with no answer passes through unchanged, which is right
-  for the colours that are not aesthetic at all -- and is also the thing most likely to go unnoticed,
-  so it is asserted deliberately rather than assumed.
-*/
 function fakeMonaco() {
   return { editor: { defineTheme: vi.fn() } }
 }
@@ -60,7 +51,6 @@ describe('defineMonacoThemes', () => {
 
     defineMonacoThemes(monaco, LEDGER)
 
-    // -> A diff's own inserted-line wash is not an aesthetic tone; nothing should touch it
     expect(
       monaco.editor.defineTheme.mock.calls[1][1].colors['diffEditor.insertedLineBackground']
     ).toBe('#5f9c862e')
@@ -80,7 +70,6 @@ describe('monacoThemeName', () => {
   it('names the Cobalt theme for the Cobalt aesthetic and the Ledger one otherwise', () => {
     expect(monacoThemeName('cobalt')).toBe(MONACO_THEME_COBALT)
     expect(monacoThemeName('ledger')).toBe(MONACO_THEME_LEDGER)
-    // -> An unresolved aesthetic is Ledger, the default, never an unregistered id
     expect(monacoThemeName(undefined)).toBe(MONACO_THEME_LEDGER)
   })
 })

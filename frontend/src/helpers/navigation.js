@@ -1,27 +1,16 @@
 import { pick } from 'es-toolkit/object'
 
 /**
- * Pure data-shaping logic for `NavItemEditor.vue`'s menu editor (the item-list-plus-detail-panel
- * shared by `NavEditOverlay.vue`'s per-page editing and `AdminNavigation.vue`'s site-wide editing).
- *
- * The editor keeps the menu it edits as a flat list (`state.items`) so drag-reorder and the nested
- * indicator can treat every row the same way, while the API speaks a nested shape — a top-level item
- * carries its `children` inline. These functions are the two directions of that translation, plus the
- * per-item field whitelist both directions share. None of them touch Vue reactivity, the DOM, or
- * component state — they take and return plain objects, which is what makes them testable without
- * mounting the component.
+ * The menu editor holds a menu as a flat list so drag-reorder and the nested indicator can treat
+ * every row alike, while the API speaks a nested shape — a top-level item carries its `children`
+ * inline. These functions are the two directions of that translation.
  */
 
 /**
- * Flattens one server-shaped menu item — and its nested `children`, if any — onto a flat array.
+ * `visibilityLimited` is derived here rather than read off the server: the server sends only the
+ * groups themselves, and a non-empty array is what makes an item limiting.
  *
- * Mirrors the loop in `loadMenuItems()`: a top-level item is pushed first, then each of its children
- * immediately after with `isNested: true`. `visibilityLimited` is derived here rather than read off
- * the server, because the server only ever sends the groups themselves — whether they're limiting is
- * implied by the array being non-empty.
- *
- * @param {object} item A server-shaped menu item, possibly carrying a `children` array
- * @param {object[]} out The flat array to push onto — mutated in place, matching the call site's loop
+ * @param {object[]} out The flat array to push onto — mutated in place
  */
 export function flattenMenuItem(item, out) {
   out.push({
@@ -34,9 +23,8 @@ export function flattenMenuItem(item, out) {
       'openInNewWindow',
       'expandByDefault',
       'visibilityGroups',
-      // -> `getNav`-only, never sent back on save — see `cleanMenuItem`/`reconstructMenuItems`.
-      //    `isFolder` is what OpenProject #2885 gives `NavItemEditor.vue`'s own icon fallback to
-      //    read, same as `NavSidebarItem.vue#iconFor()` already does with the sidebar's copy of it.
+      // -> Read-only display fields the server derives: carried onto the row for the editor's icon
+      //    fallback, never sent back on save (see `cleanMenuItem`).
       'generated',
       'isFolder'
     ]),
@@ -61,13 +49,6 @@ export function flattenMenuItem(item, out) {
   }
 }
 
-/**
- * Flattens a whole server-shaped menu (top-level items, each possibly carrying `children`) into the
- * flat array shape `state.items` holds.
- *
- * @param {object[]} items The server response — top-level menu items
- * @returns {object[]} The flat, editor-shaped list
- */
 export function flattenMenuItems(items) {
   const out = []
   for (const item of items ?? []) {
@@ -77,18 +58,12 @@ export function flattenMenuItems(items) {
 }
 
 /**
- * The save-shaped form of one editor row: the type-dependent field whitelist, with
- * `visibilityGroups` cleared unless the item is actually visibility-limited.
+ * `children` and `expandByDefault` go on a `link` only when it is not itself nested: nesting is one
+ * level deep, so a nested item carrying either would be a setting nothing reads.
  *
- * `children` and `expandByDefault` are attached to a `link` only when it is NOT itself nested — only
- * a top-level link can hold children, so only one of those can be a parent, and a nested item
- * carrying an expand flag would be a setting nothing ever reads.
- *
- * @param {object} item An editor-shaped row from `state.items`
- * @param {boolean} [isNested] Whether this row is itself a nested child
- * @param {'before'|'after'} [pinned] A `mixed`-menu top-level item's placement relative to the
- *   generated block — see `reconstructMenuItems`. Never set on a nested item.
- * @returns {object|undefined} The save-shaped item, or `undefined` for an unrecognized type
+ * @param {'before'|'after'} [pinned] Placement relative to the generated block, on a `mixed` menu
+ *   only. Never set on a nested item.
+ * @returns {object|undefined} `undefined` for an unrecognized type
  */
 export function cleanMenuItem(item, isNested = false, pinned) {
   switch (item.type) {
@@ -118,32 +93,19 @@ export function cleanMenuItem(item, isNested = false, pinned) {
 }
 
 /**
- * Reconstructs the flat editor list (`state.items`) back into the nested, save-shaped menu the API
- * expects.
+ * A `generated` item (and every nested child of one, always also `generated`) is dropped: `getNav`
+ * rebuilds it from the tree on every read, so writing it back would freeze today's snapshot into
+ * the stored `items` column.
  *
- * Mirrors the loop in `save()`: a non-nested row starts a new top-level item, and a nested row is
- * appended to the most recently pushed item's `children`. A nested row with no preceding top-level
- * `link` — the list starts nested, or a nested row follows a header/separator — cannot be attached to
- * anything, and is the one case this raises on rather than silently drops or misfiles, since either of
- * those would save a menu different from the one on screen.
+ * On a `mixed` menu a surviving top-level item's `pinned` is recomputed from where it now sits
+ * rather than trusting what it loaded with: dragging cannot cross the generated block, but a stored
+ * item can still move relative to other stored items on the same side, and a stale `pinned` would
+ * silently revert that drag on save.
  *
- * A `generated` item (and every nested child of one — always also `generated`, see `markGenerated` on
- * the server) is skipped entirely: it is not this menu's own, `getNav` builds it fresh from the tree on
- * every read, and writing it back would freeze today's snapshot into the stored `items` column exactly
- * as the merge-rule note on the server's `getNav` warns against.
- *
- * On a `mixed` menu, a surviving top-level item's own `pinned` is recomputed from where it currently
- * sits relative to the generated block, rather than trusting whatever it loaded with: dragging is
- * fenced off from crossing that block (see `NavItemEditor.vue`'s `sortableOptions`), but a stored item
- * can still move relative to OTHER stored items on the same side, and this is what keeps a save from
- * silently reverting a drag the fence allowed.
- *
- * @param {object[]} items The flat, editor-shaped list (`state.items`)
  * @param {object} [opts]
- * @param {string} [opts.menuMode] The resolved menu's own source (`static`/`auto`/`mixed`) — only a
- *   `mixed` menu computes `pinned` on its surviving top-level items.
- * @returns {object[]} The nested, save-shaped menu
- * @throws {Error} If a nested item has no preceding top-level `link` to attach to
+ * @param {string} [opts.menuMode] The menu's source — `static`/`auto`/`mixed`
+ * @throws {Error} If a nested item has no preceding top-level `link` to attach to — dropping or
+ *   misfiling it would save a menu different from the one on screen
  */
 export function reconstructMenuItems(items, { menuMode } = {}) {
   const out = []
@@ -155,13 +117,10 @@ export function reconstructMenuItems(items, { menuMode } = {}) {
     }
     if (item.isNested) {
       if (out.length < 1 || out.at(-1)?.type !== 'link') {
-        // -> A plain error code, not a translated string: this module is deliberately pure (see the
-        //    file header) so it stays testable with no app/i18n context. The two hosts that call
-        //    `reconstructMenuItems()` (`AdminNavEditDialog.vue`, `NavEditOverlay.vue`) translate this
-        //    specific code to `t('navEdit.nestedItemWithoutParent')` before showing it.
+        // -> A code, not a translated string: this module stays free of app/i18n context, so its
+        //    hosts map the code to their own message.
         throw new Error('ERR_NESTED_LINK_WITHOUT_PARENT')
       }
-      // -> `pinned` is a top-level-only placement, meaningless (and never set) on a nested item
       out[out.length - 1].children.push(cleanMenuItem(item, true))
     } else {
       const pinned = menuMode === 'mixed' ? (sawGeneratedBlock ? 'after' : 'before') : undefined

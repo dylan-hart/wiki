@@ -165,8 +165,7 @@ describe('shouldPrefixLocale', () => {
 
 describe('pagePathHash', () => {
   it('matches known output from the backend implementation it mirrors', () => {
-    // -> Fixed values from `backend/helpers/common.ts`'s `generatePathHash` — a regression guard
-    //    against the two drifting apart, not just an internal self-consistency check.
+    // -> Fixed values taken from `backend/helpers/common.ts`'s `generatePathHash`
     expect(pagePathHash('docs/getting-started')).toBe('19df0d1c3f8026')
     expect(pagePathHash('home')).toBe('1867eaf483ceab')
   })

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { cleanMenuItem, flattenMenuItems, reconstructMenuItems } from './navigation.js'
 
-/** A server-shaped menu covering every item type, plus one nested child under a link. */
 function serverMenu() {
   return [
     { id: 'h1', type: 'header', label: 'Section', visibilityGroups: [] },
@@ -46,7 +45,6 @@ describe('flattenMenuItems() / reconstructMenuItems() round trip', () => {
     const menu = serverMenu()
     const flat = flattenMenuItems(menu)
 
-    // Flattened onto one array: header, parent link, its nested child, separator, limited link
     expect(flat.map((i) => i.id)).toEqual(['h1', 'l1', 'c1', 's1', 'l2'])
     expect(flat.find((i) => i.id === 'c1').isNested).toBe(true)
     expect(flat.find((i) => i.id === 'l1').isNested).toBeUndefined()
@@ -60,7 +58,6 @@ describe('flattenMenuItems() / reconstructMenuItems() round trip', () => {
     expect(parent).toMatchObject({ id: 'l1', type: 'link', expandByDefault: true })
     expect(parent.children).toHaveLength(1)
     expect(parent.children[0]).toMatchObject({ id: 'c1', type: 'link' })
-    // A nested child never carries children/expandByDefault of its own
     expect(parent.children[0]).not.toHaveProperty('children')
     expect(parent.children[0]).not.toHaveProperty('expandByDefault')
   })
@@ -91,9 +88,8 @@ describe('visibilityGroups vs. visibilityLimited', () => {
   })
 
   it('is cleared to [] when visibilityLimited is false, even if groups are still set on the item', () => {
-    // Matches actual saved-menu semantics: an item that toggled visibility back to "all" but still
-    // has stale `visibilityGroups` sitting in editor state must save as unrestricted, not silently
-    // keep limiting itself to a group list nothing shows any more.
+    // Toggling visibility back to "all" leaves the group list sitting in editor state; the save
+    // must be unrestricted anyway.
     const notLimited = cleanMenuItem({
       id: 'x',
       type: 'link',
@@ -166,11 +162,6 @@ describe('generated items and mixed-menu pinned placement', () => {
     expect(flat.find((i) => i.id === 'm1').generated).toBeUndefined()
   })
 
-  /*
-    OpenProject #2885: `getNav` puts `isFolder` on a generated folder item (OpenProject #2826), but
-    it was missing from `flattenMenuItem`'s field whitelist, so it never survived onto the flat
-    editor row `NavItemEditor.vue`'s own icon fallback reads it off -- top-level and nested.
-  */
   it('flattenMenuItems carries isFolder through, top-level and nested', () => {
     const flat = flattenMenuItems([
       {
