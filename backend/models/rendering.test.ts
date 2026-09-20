@@ -535,6 +535,37 @@ describe('rendering.postProcess: fence line rows survive sanitization (OpenProje
   })
 })
 
+describe('rendering.postProcess: fence title bar survives sanitization (OpenProject #3583)', () => {
+  const titled =
+    '<div class="codeblock-titled hljs"><div class="codeblock-title">config.yml</div>' +
+    '<pre class="codeblock hljs line-numbers" data-line-start="3"><code class="language-yaml">a\nb\nc\n' +
+    '<span aria-hidden="true" class="line-numbers-rows"><span></span><span class="is-highlighted"></span><span></span></span></code></pre></div>'
+
+  test('keeps .codeblock-titled, .codeblock-title and the sibling pre without write:styles or write:scripts', async () => {
+    const result = await rendering.postProcess('site-1', titled, { scripts: false, styles: false })
+
+    assert.match(
+      result.render,
+      /<div class="codeblock-titled hljs"><div class="codeblock-title">config\.yml<\/div><pre class="codeblock hljs line-numbers" data-line-start="3">/
+    )
+    assert.match(result.render, /<\/code><\/pre><\/div>/)
+  })
+
+  test('keeps an escaped title inert', async () => {
+    const result = await rendering.postProcess(
+      'site-1',
+      '<div class="codeblock-titled hljs"><div class="codeblock-title">&lt;script&gt;alert(1)&lt;/script&gt;</div><pre class="codeblock hljs"><code class="language-yaml">a</code></pre></div>',
+      { scripts: false, styles: false }
+    )
+
+    assert.doesNotMatch(result.render, /<script/)
+    assert.match(
+      result.render,
+      /<div class="codeblock-title">&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/div>/
+    )
+  })
+})
+
 describe('rendering.postProcess: visible callout for a permission-gated tag (OpenProject #2911)', () => {
   test('replaces an <iframe> with a "write:scripts" callout when the actor lacks the permission', async () => {
     const html = '<p>before</p><iframe src="https://example.com"></iframe><p>after</p>'

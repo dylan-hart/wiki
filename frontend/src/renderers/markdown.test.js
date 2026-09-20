@@ -1093,12 +1093,6 @@ describe('MarkdownRenderer -- fence info-string attributes (OpenProject #3578)',
     expect(html).toContain('class="codeblock hljs"')
   })
 
-  it('parses title without rendering title markup', () => {
-    const html = render('yaml title="Some title" linesStart=3')
-    expect(html).not.toContain('Some title')
-    expect(html).toContain('data-line-start="3"')
-  })
-
   it('keeps an escaped quote inside a quoted value from ending it', () => {
     const html = render('yaml title="Say \\"hi\\"" linesStart=4')
     expect(html).toContain('data-line-start="4"')
@@ -1128,6 +1122,83 @@ describe('MarkdownRenderer -- fence info-string attributes (OpenProject #3578)',
       expect(html).toBe(`<pre class="codeblock-${lang}"><code>A --&gt; B\n</code></pre>\n`)
     }
   )
+})
+
+describe('MarkdownRenderer -- fence title bar (OpenProject #3583)', () => {
+  const render = (info, body = 'a\nb\nc') =>
+    new MarkdownRenderer({}).render('```' + info + '\n' + body + '\n```')
+  const plain = render('yaml')
+
+  it('wraps the block in a titled hljs container with the bar as a sibling of the pre', () => {
+    const html = render('yaml title="Some title"')
+    expect(html).toMatch(
+      /^<div class="codeblock-titled hljs"><div class="codeblock-title">Some title<\/div><pre class="codeblock hljs line-numbers"><code class="language-yaml">/
+    )
+    expect(html).toMatch(/<\/code><\/pre><\/div>\n$/)
+    expect(html.match(/<pre/g)).toHaveLength(1)
+  })
+
+  it('accepts a bare or single-quoted title', () => {
+    expect(render('yaml title=config.yml')).toContain(
+      '<div class="codeblock-title">config.yml</div>'
+    )
+    expect(render("yaml title='a b'")).toContain('<div class="codeblock-title">a b</div>')
+  })
+
+  it('trims the title', () => {
+    expect(render('yaml title="  padded  "')).toContain('<div class="codeblock-title">padded</div>')
+  })
+
+  it('HTML-escapes the title and renders a script in it inert', () => {
+    const html = render('yaml title="<script>alert(1)</script> & \\"q\\""')
+    expect(html).not.toContain('<script>')
+    expect(html).toContain(
+      '<div class="codeblock-title">&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;q&quot;</div>'
+    )
+  })
+
+  it('renders an empty title exactly as no title', () => {
+    expect(render('yaml title=""')).toBe(plain)
+  })
+
+  it('renders a whitespace-only title exactly as no title', () => {
+    expect(render('yaml title="   "')).toBe(plain)
+    expect(render("yaml title='\t '")).toBe(plain)
+  })
+
+  it('renders a fence without a title with no wrapper', () => {
+    expect(plain).not.toContain('codeblock-titled')
+    expect(plain).not.toContain('codeblock-title')
+  })
+
+  it.each(['drawio', 'kroki', 'mermaid', 'plantuml'])(
+    'never draws a bar on a %s diagram',
+    (lang) => {
+      const html = render(`${lang} title="Ignored"`, 'A --> B')
+      expect(html).not.toContain('Ignored')
+      expect(html).not.toContain('codeblock-title')
+      expect(html).toBe(`<pre class="codeblock-${lang}"><code>A --&gt; B\n</code></pre>\n`)
+    }
+  )
+
+  it('combines with linesHighlight and linesStart on the pre inside the wrapper', () => {
+    const html = render('yaml title="T" linesStart=10 linesHighlight="11"')
+    expect(html).toContain(
+      '<div class="codeblock-titled hljs"><div class="codeblock-title">T</div><pre class="codeblock hljs line-numbers" data-line-start="10">'
+    )
+    expect(html).toContain('<span></span><span class="is-highlighted"></span><span></span>')
+  })
+
+  it('titles a single-line block with no gutter', () => {
+    const html = render('yaml title="One"', 'only: one')
+    expect(html).toContain('<div class="codeblock-title">One</div><pre class="codeblock hljs">')
+  })
+
+  it('titles a block whose language is unknown', () => {
+    const html = render('nosuchlang title="T"')
+    expect(html).toContain('<div class="codeblock-title">T</div>')
+    expect(html).toContain('class="language-nosuchlang"')
+  })
 })
 
 /**

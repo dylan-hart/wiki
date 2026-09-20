@@ -277,7 +277,11 @@ function codeBlock(str, lang, attributes) {
   // -> A ternary, not `&&`: for a single-line block `&&` short-circuits to the boolean
   //    `false`, which interpolates as the literal string "false" into the class attribute --
   //    and this render is both the preview AND what gets saved
-  return `<pre class="codeblock hljs${numbered ? ' line-numbers' : ''}"${start}><code class="language-${escape(lang ?? '')}">${highlighted.value}${rows}</code></pre>`
+  const pre = `<pre class="codeblock hljs${numbered ? ' line-numbers' : ''}"${start}><code class="language-${escape(lang ?? '')}">${highlighted.value}${rows}</code></pre>`
+  const title = (attributes.title ?? '').trim()
+  return title
+    ? `<div class="codeblock-titled hljs"><div class="codeblock-title">${escape(title)}</div>${pre}</div>`
+    : pre
 }
 
 export class MarkdownRenderer {
