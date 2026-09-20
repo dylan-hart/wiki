@@ -10,12 +10,16 @@ import { load } from 'js-yaml'
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import configSvc, { CONFIG_OVERRIDE_VARS } from './config.ts'
 import { AdvisoryLockAcquisitionError } from '../helpers/advisoryLock.ts'
 import { resolvePoolSizeOptions } from './db.ts'
 import { relations } from '../db/relations.ts'
-import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
+import {
+  groups as groupsTable,
+  jobSchedule as jobScheduleTable,
+  sites as sitesTable
+} from '../db/schema.ts'
 import { createExtensionsSerialized, hasTestDatabase } from '../test/db.ts'
 import {
   createCacheStub,
@@ -524,6 +528,18 @@ describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(groupRows.length, 3, 'expected exactly the three standard groups')
 
     assert.equal(await configSvc.loadFromDb(), true)
+  })
+
+  test('a later boot backfills a system task missing from an already-seeded jobSchedule', async () => {
+    await db.delete(jobScheduleTable).where(eq(jobScheduleTable.task, 'purgePageDrafts'))
+
+    assert.equal(await configSvc.ensureSeeded(), false)
+
+    const rows = await db
+      .select({ task: jobScheduleTable.task })
+      .from(jobScheduleTable)
+      .where(eq(jobScheduleTable.task, 'purgePageDrafts'))
+    assert.equal(rows.length, 1)
   })
 })
 
