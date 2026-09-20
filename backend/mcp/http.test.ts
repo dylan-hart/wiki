@@ -457,3 +457,38 @@ describe('mcp/http session eviction (OpenProject #2207)', () => {
     )
   })
 })
+
+describe('mcp/http session eviction, active-session liveness (OpenProject #2207)', () => {
+  let harness: Awaited<ReturnType<typeof createMcpSessionHarness>>
+  let nowMs: number
+
+  beforeEach(async () => {
+    nowMs = 1000
+    harness = await createMcpSessionHarness({
+      sessionIdleTtlMs: 30,
+      sessionCap: 2,
+      clock: { now: () => nowMs }
+    })
+  })
+
+  afterEach(async () => {
+    await harness.close()
+  })
+
+  test('an active session is not evicted while it is still being used', async () => {
+    const sessionId = await harness.openSession()
+    for (let i = 0; i < 5; i++) {
+      nowMs += 20
+      const res = await harness.pollSession(sessionId)
+      assert.equal(res.statusCode, 200, `expected the session to still be live on touch #${i}`)
+    }
+  })
+
+  test('the same session is evicted once it goes idle past the ttl', async () => {
+    const sessionId = await harness.openSession()
+    nowMs += 20
+    assert.equal((await harness.pollSession(sessionId)).statusCode, 200)
+    nowMs += 31
+    assert.equal((await harness.pollSession(sessionId)).statusCode, 404)
+  })
+})

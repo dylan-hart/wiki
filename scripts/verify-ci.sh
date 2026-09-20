@@ -91,8 +91,7 @@ THE QUARANTINE LANE
   After the gate passes, `npm run test:flaky` runs in all four workspaces REPORT-ONLY: its result is
   printed and NEVER changes this command's exit code. That mirrors the report-only lane step in
   quality.yml (OpenProject #2692) -- report-only on both sides is what makes the two agree on the
-  pass/fail verdict regardless of which landed first. The lane holds one test today
-  (backend/mcp/http.flaky.test.ts, expiry 2026-12-06); the other three lanes are empty and exit 0.
+  pass/fail verdict regardless of which landed first. The lane is empty in all four workspaces today and exits 0.
 
 WHAT THIS COMMAND DOES *NOT* COVER
 
