@@ -177,6 +177,7 @@ defaults:
     update:
       # Whether the daily updateLocales job may pull the latest strings from requarks/wiki-locales.
       locales: true
+      releasesUrl: 'https://api.github.com/repos/dylan-hart/wiki/releases'
     # Upstream Wiki.js's docs site, prepended to every in-app "view docs" / help link
     # (`siteStore.docsBase` on the frontend).
     docsBase: 'https://beta.js.wiki/docs'
