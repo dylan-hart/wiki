@@ -10,7 +10,7 @@ import {
 import { requestOrigin, stripPageExtension } from '../../helpers/common.ts'
 import { analyticsShellFragments } from '../../helpers/analyticsSnippets.ts'
 import { pageShellFragments, withShellTitle } from '../../helpers/shellHead.ts'
-import { lookupShellPage } from '../../helpers/shellPage.ts'
+import { lookupShellPage, type ShellPage } from '../../helpers/shellPage.ts'
 import { themeShellFragments } from '../../helpers/shellTheme.ts'
 import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
 import {
@@ -75,6 +75,21 @@ export function isPageUrl(urlPath: string): boolean {
  * obtain the session `/_admin` requires.
  */
 const SITE_RESOLUTION_EXEMPT_SEGMENTS = new Set(['login'])
+
+const SPA_APP_ROUTES: readonly RegExp[] = [
+  /^\/login(\/reset-password\/[^/]+)?$/,
+  /^\/a\/[^/]+$/,
+  /^\/_(search|tags|graph)$/,
+  /^\/_admin(\/.*)?$/,
+  /^\/_error(\/[^/]+)?$/,
+  /^\/_create(\/[^/]+)?$/,
+  /^\/_edit(\/.*)?$/
+]
+
+export function isSpaAppRoute(urlPath: string): boolean {
+  const trimmed = trimTrailingSlash(urlPath)
+  return SPA_APP_ROUTES.some((route) => route.test(trimmed))
+}
 
 function trimTrailingSlash(urlPath: string): string {
   return urlPath.length > 1 && urlPath.endsWith('/') ? urlPath.slice(0, -1) : urlPath
@@ -201,16 +216,22 @@ export function registerAppShellFallback(app: FastifyInstance): void {
         const locales = await CARDINAL.models.locales.getLocales()
         return locales.find((l: any) => l.code === lang)?.isRTL ?? false
       })
-      const analyticsFragments = analyticsShellFragments(siteConfig?.analytics)
-      const shellPage = siteId
-        ? await lookupShellPage({ siteId, urlPath: urlPath!, locale: lang }).catch((err: any) => {
-            CARDINAL.logger.error('http', 'cannot look up page metadata for the app shell', {
-              path: urlPath,
+      let shellPage: ShellPage | null = null
+      let status = 200
+      if (!isSpaAppRoute(urlPath!)) {
+        status = 404
+        if (siteId && isPageUrl(urlPath!)) {
+          try {
+            shellPage = await lookupShellPage({ siteId, urlPath: urlPath!, locale: lang })
+            status = shellPage ? 200 : 404
+          } catch (err: any) {
+            status = 200
+            CARDINAL.logger.warn('http', 'cannot look up the page for the app shell', {
               error: err
             })
-            return null
-          })
-        : null
+          }
+        }
+      }
       const pageFragments = shellPage
         ? pageShellFragments(shellPage, {
             origin: requestOrigin(req.protocol, req.hostname),
@@ -220,12 +241,16 @@ export function registerAppShellFallback(app: FastifyInstance): void {
       const shell = insertIntoAppShell(
         shellPage ? withShellTitle(template, shellPage.title) : template,
         mergeShellFragments(
-          analyticsFragments,
+          analyticsShellFragments(siteConfig?.analytics),
           pageFragments,
           themeShellFragments(siteConfig?.theme)
         )
       )
-      return reply.header('Cache-Control', 'no-store').type('text/html; charset=utf-8').send(shell)
+      return reply
+        .code(status)
+        .header('Cache-Control', 'no-store')
+        .type('text/html; charset=utf-8')
+        .send(shell)
     } catch (err: any) {
       // -> Nothing to serve means the frontend was never built, which is a setup step rather than a
       //    fault of this request: say which one, since a bare 500 sends people looking in the server
