@@ -493,7 +493,7 @@ class UserCredentials {
    * @returns The recovery codes in plaintext. Only their hashes are stored, so this is the one and
    *          only time the caller can get at them — display or offer them for download immediately.
    */
-  async enableTfa(user: any, strategyId: string, siteId?: string): Promise<string[]> {
+  async enableTfa(user: any, strategyId: string, siteId?: string, ip?: string): Promise<string[]> {
     const { plaintext, entries } = await issueRecoveryCodes()
     await this.patchStrategyAuth(
       user.id,
@@ -502,6 +502,15 @@ class UserCredentials {
       { mirrorInto: user }
     )
     CARDINAL.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
+    await CARDINAL.models.auditLog.record({
+      event: 'user.tfaEnabled',
+      actor: { id: user.id, name: user.name, email: user.email, ip },
+      targetType: 'user',
+      targetId: user.id,
+      targetLabel: user.email,
+      detail: { strategyId },
+      siteId: siteId ?? null
+    })
 
     await notifyRecoveryCodesGenerated(user, siteId)
 
@@ -527,7 +536,7 @@ class UserCredentials {
   /**
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`, `ERR_TFA_NOT_ACTIVE` or `ERR_TFA_ENFORCED`
    */
-  async disableTfa(userId: string, strategyId: string): Promise<void> {
+  async disableTfa(userId: string, strategyId: string, ip?: string): Promise<void> {
     const { user, entry } = await this.requireStrategyAuth(userId, strategyId, { tfaActive: true })
 
     // -> Turning it off would be undone at the next login, which is worth an error rather than a
@@ -539,6 +548,14 @@ class UserCredentials {
 
     await this.patchStrategyAuth(userId, strategyId, clearedTfa)
     CARDINAL.models.flags.authDebug(`User ${userId} <${user.email}> disabled 2FA`)
+    await CARDINAL.models.auditLog.record({
+      event: 'user.tfaDisabled',
+      actor: { id: userId, name: user.name, email: user.email, ip },
+      targetType: 'user',
+      targetId: userId,
+      targetLabel: user.email,
+      detail: { strategyId }
+    })
     await this.notifyTfaDisabled(user)
   }
 

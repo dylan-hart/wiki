@@ -930,6 +930,19 @@
       "table": "auditLog"
     },
     {
+      "type": "varchar(255)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "actorEmail",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "auditLog"
+    },
+    {
       "type": "varchar(64)",
       "typeSchema": null,
       "notNull": true,

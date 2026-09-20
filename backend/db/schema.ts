@@ -92,6 +92,7 @@ export const auditLog = pgTable(
     actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
     // -> Snapshotted at write time: a renamed or deleted account must not rewrite history.
     actorName: varchar({ length: 255 }).notNull().default(''),
+    actorEmail: varchar({ length: 255 }).notNull().default(''),
     actorIp: varchar({ length: 64 }).notNull().default(''),
     // -> What the event happened to, and its id/label at the time. Not a foreign key: a deleted
     //    target's history is exactly what this table keeps.

@@ -2,6 +2,7 @@ import { after, afterEach, before, beforeEach, describe, mock, test } from 'node
 import assert from 'node:assert/strict'
 import { login, LOGIN_REFUSAL_REASONS } from './login.ts'
 import { userCredentials } from './userCredentials.ts'
+import { auditLog } from './auditLog.ts'
 import { createWikiStub, installTestWiki } from '../test/mocks.ts'
 import { users } from './users.ts'
 import { ProvisionableLoginError } from './authentication.ts'
@@ -1120,5 +1121,137 @@ describe('login outcome logging', () => {
       warnCalls().map(([, fields]) => fields.ip),
       [ip, ip, ip, '198.51.100.22']
     )
+  })
+})
+
+describe('login self-service audit events', () => {
+  const strategyId = 'strategy-1'
+  const user = {
+    id: 'user-1',
+    name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    isActive: true,
+    auth: { [strategyId]: { password: 'hash' } },
+    prefs: {}
+  }
+
+  let record: ReturnType<typeof mock.fn>
+  let wiki: { restore(): void }
+
+  beforeEach(() => {
+    record = mock.fn(async () => {})
+    wiki = installTestWiki({
+      logger: { warn: mock.fn(), info: mock.fn(), debug: mock.fn() },
+      models: {
+        flags: { authDebug: () => {} },
+        authentication: {
+          getStrategyById: async () => ({
+            id: strategyId,
+            isEnabled: true,
+            config: { allowForgotPassword: true }
+          })
+        },
+        users: { getByEmail: async (email: string) => (email === user.email ? user : null) },
+        mail: {
+          sendForgotPassword: async () => {},
+          sendPasswordResetConfirmed: async () => {}
+        },
+        userCredentials,
+        auditLog: { record }
+      }
+    })
+  })
+
+  afterEach(() => wiki.restore())
+
+  test('forgotPassword records user.passwordResetRequested once a token is minted, with no token in the entry', async (t) => {
+    t.mock.method(userCredentials, 'generateToken', async () => 'SECRET-TOKEN')
+
+    await login.forgotPassword({
+      strategyId,
+      email: 'Ada@Example.com',
+      siteId: 'site-1',
+      ip: '203.0.113.5'
+    })
+
+    assert.equal(record.mock.calls.length, 1)
+    const entry = record.mock.calls[0]!.arguments[0] as any
+    assert.equal(entry.event, 'user.passwordResetRequested')
+    assert.deepEqual(entry.actor, {
+      id: 'user-1',
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      ip: '203.0.113.5'
+    })
+    assert.deepEqual(entry.detail, { strategyId })
+    assert.ok(!JSON.stringify(entry).includes('SECRET-TOKEN'))
+  })
+
+  test('forgotPassword for an unknown address records nothing, so the log cannot be filled with attacker-chosen addresses', async () => {
+    await login.forgotPassword({ strategyId, email: 'nobody@example.com', ip: '203.0.113.5' })
+
+    assert.equal(record.mock.calls.length, 0)
+  })
+
+  test('resetPassword records user.passwordResetCompleted without the token or the new password', async (t) => {
+    t.mock.method(userCredentials, 'validateToken', async () => ({ user, strategyId }))
+    t.mock.method(userCredentials, 'patchStrategyAuth', async () => {})
+    t.mock.method(login, 'afterLoginChecks', async () => ({
+      nextAction: 'redirect',
+      redirect: '/'
+    }))
+
+    await login.resetPassword(
+      {
+        strategyId,
+        siteId: 'site-1',
+        token: 'SECRET-TOKEN',
+        newPassword: 'hunter2hunter2',
+        ip: '203.0.113.6'
+      },
+      {}
+    )
+
+    assert.equal(record.mock.calls.length, 1)
+    const entry = record.mock.calls[0]!.arguments[0] as any
+    assert.equal(entry.event, 'user.passwordResetCompleted')
+    assert.equal(entry.actor.email, 'ada@example.com')
+    assert.equal(entry.actor.ip, '203.0.113.6')
+    const serialised = JSON.stringify(entry)
+    assert.ok(!serialised.includes('SECRET-TOKEN'))
+    assert.ok(!serialised.includes('hunter2hunter2'))
+  })
+
+  test('a failing audit write does not fail the reset', async (t) => {
+    wiki.restore()
+    wiki = installTestWiki({
+      logger: { warn: mock.fn(), info: mock.fn(), debug: mock.fn() },
+      db: {
+        insert: () => ({
+          values: async () => {
+            throw new Error('db down')
+          }
+        })
+      },
+      models: {
+        flags: { authDebug: () => {} },
+        mail: { sendPasswordResetConfirmed: async () => {} },
+        userCredentials,
+        auditLog
+      }
+    })
+    t.mock.method(userCredentials, 'validateToken', async () => ({ user, strategyId }))
+    t.mock.method(userCredentials, 'patchStrategyAuth', async () => {})
+    t.mock.method(login, 'afterLoginChecks', async () => ({
+      nextAction: 'redirect',
+      redirect: '/'
+    }))
+
+    const result = await login.resetPassword(
+      { strategyId, siteId: 'site-1', token: 't', newPassword: 'hunter2hunter2' },
+      {}
+    )
+
+    assert.equal(result.nextAction, 'redirect')
   })
 })

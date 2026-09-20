@@ -126,6 +126,9 @@
           <template v-slot:body-cell-actor="props">
             <w-td :props="props">
               <span>{{ props.row.actor.name || t('admin.audit.systemActor') }}</span>
+              <div v-if="props.row.actor.email">
+                <small class="text-grey">{{ props.row.actor.email }}</small>
+              </div>
               <div v-if="props.row.actorIp">
                 <small class="text-grey">{{ props.row.actorIp }}</small>
               </div>
@@ -260,6 +263,14 @@ const AUDIT_EVENTS = [
   'user.deleted',
   'user.passwordReset',
   'user.tfaDisabledByAdmin',
+  'user.registered',
+  'user.passwordResetRequested',
+  'user.passwordResetCompleted',
+  'user.tfaEnabled',
+  'user.tfaDisabled',
+  'user.passkeyEnrolled',
+  'user.passkeyRemoved',
+  'user.loggedOut',
   'group.created',
   'group.updated',
   'group.deleted',
