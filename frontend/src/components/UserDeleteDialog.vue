@@ -18,9 +18,8 @@
           </i18n-t>
         </div>
         <!--
-          Said before the attempt rather than only when it fails: a user who has written anything
-          cannot be deleted at all, and finding that out from an error after confirming is finding it
-          out too late to have chosen deactivation instead.
+          Said up front, not only on failure: a user who has written anything cannot be deleted at
+          all, and an error after confirming comes too late to choose deactivation instead.
         -->
         <div class="text-body2 mt-4">{{ t(`admin.users.deleteConfirmForeignNotice`) }}</div>
         <div class="text-body2 mt-4">{{ t(`admin.users.deleteConfirmReplaceWarn`) }}</div>
@@ -73,8 +72,6 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { localizeError } from '@/helpers/localization'
 import UserSearchDialog from '@/components/UserSearchDialog.vue'
 
-// PROPS
-
 const props = defineProps({
   user: {
     type: Object,
@@ -82,28 +79,18 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   isDeleting: false,
-  /** The user picked to inherit `props.user`'s pages and assets, if any. Optional: a user who owns
-   *  nothing needs no target, and the delete route only actually requires one when it doesn't. */
+  /** Who inherits this user's pages and assets. Optional: the delete route demands one only from a
+   *  user who actually owns something. */
   targetUser: null
 })
-
-// METHODS
 
 function chooseTargetUser() {
   dialog({
@@ -122,10 +109,8 @@ async function confirm() {
   state.isDeleting = true
   try {
     /*
-      Reassignment happens first and only when a target was picked: skipping it for a user who owns
-      nothing is what keeps a plain delete a one-step action, same as before this dialog could reassign
-      anything at all. A reassignment failure stops here, before the delete is even attempted -- content
-      left half-reassigned is a worse outcome than the delete simply not having happened yet.
+      A reassignment failure stops here, before the delete is attempted: content left half-reassigned
+      is worse than a delete that has not happened yet.
     */
     if (state.targetUser) {
       await API_CLIENT.post(`users/${props.user.id}/reassignContent`, {
@@ -141,10 +126,9 @@ async function confirm() {
     onDialogOK()
   } catch (err) {
     /*
-      ky throws for statuses above 400, and this endpoint has several things to say through one: the
-      account owns pages, it is the last root administrator, it is a system user, it is the caller's
-      own. The reason is in the body, so the dialog stays open with it rather than closing on a
-      failure it did not report.
+      This endpoint refuses for several distinct reasons -- owned pages, last root administrator,
+      system user, the caller's own account -- all as one status, with the reason in the body. The
+      dialog stays open showing it rather than closing on a failure it did not report.
     */
     notify({
       type: 'negative',

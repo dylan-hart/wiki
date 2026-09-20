@@ -10,34 +10,19 @@ import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2698's two claims that are measurements rather than markup, answered in a real
- * headless Chromium page because neither `happy-dom` nor `jsdom` runs a layout engine — see
- * `test/realGridLayout.js`, which owns the Chromium probe and the app-CSS build both of these use.
+ * Claims about where the browser actually puts a box — a `minmax(max(…), 1fr)` track count, and
+ * selection costing no layout — which no DOM stand-in can answer because none runs a layout engine.
+ * A static reading of the stylesheet gets exactly these wrong, so they are measured instead.
  *
- *   1. The catalog holds exactly TWO cards to a row however wide the overlay gets, dropping to one
- *      below the 280px-track breakpoint. The rule that does it —
- *      `minmax(max(280px, calc(50% - 6px)), 1fr)` — caps the count by asking each track for half the
- *      row less its share of the gap, which nothing can fit three of. That is reasoning about a
- *      `calc()` inside a `max()` inside a `minmax()`, and reasoning is exactly what a test should
- *      not be standing in for.
- *   2. NOTHING reflows as selection moves between cards. Selection here is an accent hairline, four
- *      corner marks and a tinted icon plate, all drawn in line weight; the geometry that makes it
- *      free is that an unselected card already carries a 1px border, the selected one's extra weight
- *      is an INSET shadow, and the marks are absolutely positioned. Every one of those is a
- *      property a static reading of the stylesheet can get wrong, so this measures the boxes
- *      instead: every card's rect, and every corner mark's rect, before and after selection moves.
- *
- * `BlockPickerOverlay.vue`'s own `<style>` block is read alongside the app's stylesheet.
- * `buildAppCss()` compiles `src/css/tailwind.css` only, which is where the reset, the utilities and
- * every `--color-*` token live but NOT a single SFC's scoped rules — and this card is drawn entirely
- * by the SFC. No compile step is needed for it: the block is already plain, valid CSS (OpenProject
- * #3254 dropped the Sass pipeline this used to run through).
+ * `BlockPickerOverlay.vue`'s own `<style>` block is read alongside the app's stylesheet because
+ * `buildAppCss()` compiles `src/css/tailwind.css` only — the reset, the utilities and the
+ * `--color-*` tokens — and this card is drawn entirely by the SFC.
  */
 
 const selfDir = dirname(fileURLToPath(import.meta.url))
 const componentPath = join(selfDir, 'BlockPickerOverlay.vue')
 
-/** Enough blocks to fill three rows at two per row, so a third column would be visible as a shortfall. */
+/** Enough blocks for three rows at two per row, so a third column would show up as a shortfall. */
 const BLOCKS = ['tabs', 'kroki', 'live-data', 'callout', 'diagram'].map((block, index) => ({
   id: `block-${index}`,
   block,
@@ -64,10 +49,8 @@ async function mountPicker() {
 }
 
 /**
- * Renders the catalog grid exactly as mounted, at a fixed track width, and reads back where the
- * browser actually put every card and every corner mark. Rounded to a hundredth of a pixel: two
- * renders of identical markup agree exactly, and sub-hundredth noise would only ever be a
- * sub-pixel rounding artefact, never the whole-pixel shift a border adds.
+ * Rects are rounded to a hundredth of a pixel: two renders of identical markup agree exactly, and
+ * sub-hundredth noise could only be a sub-pixel artefact, never the whole-pixel shift a border adds.
  */
 async function measure({ browser, css, gridHtml, width }) {
   const page = await browser.newPage()
@@ -94,7 +77,6 @@ async function measure({ browser, css, gridHtml, width }) {
   }
 }
 
-/** How many distinct rows the cards landed on, and the widest row's card count. */
 function rowShape(cards) {
   const rows = new Map()
   for (const card of cards) {
@@ -105,8 +87,7 @@ function rowShape(cards) {
 
 /*
  * Launching a real Chromium and compiling the app's whole stylesheet are both slow next to the rest
- * of the suite, which vitest runs across eight workers beside this one -- hence the raised
- * describe-level and per-test timeouts, matching what `ApiKeyCreateDialog.test.js` already needs.
+ * of the suite, which vitest runs in parallel beside this one -- hence the raised timeouts.
  */
 describe(
   'the block picker catalog, measured in a real browser',
@@ -128,9 +109,9 @@ describe(
     })
 
     /*
-     * Mounted from inside a test rather than in `beforeAll`: `test/setup.js` rebuilds the `API_CLIENT`
-     * stub in a `beforeEach`, so it does not exist yet while `beforeAll` runs. Memoized, because the
-     * markup is identical for every measurement below and mounting it once is the point.
+     * Mounted from inside a test rather than in `beforeAll`: `test/setup.js` rebuilds the
+     * `API_CLIENT` stub in a `beforeEach`, so it does not exist yet while `beforeAll` runs.
+     * Memoized, because the markup is identical for every measurement below.
      */
     function markup() {
       markupPromise ??= (async () => {
@@ -150,10 +131,9 @@ describe(
     }
 
     /*
-     * 940px is roughly the catalog's track inside a full-bleed overlay on a 1440px screen, 640px what
-     * it gets on a laptop, and 580px the narrowest width that still holds two 280px tracks plus the
-     * gap. All three must be two-up: the whole point of the `max()` is that widening the overlay adds
-     * width to the two cards rather than a third column.
+     * 580px is the narrowest width that still holds two 280px tracks plus the gap; the rest span
+     * laptop to full-bleed. All must be two-up: the point of the `max()` is that widening the
+     * overlay adds width to the two cards rather than a third column.
      */
     it.each([1600, 940, 640, 580])(
       'holds exactly two cards per row at %ipx of catalog track',
@@ -175,9 +155,8 @@ describe(
     }, 60000)
 
     /**
-     * The hard requirement. `selectedFirstHtml` and `selectedSecondHtml` differ only in which card
-     * carries `is-selected`, so any difference in the rects is the selection treatment costing
-     * layout — which is precisely what the 2.x glow-to-hairline change had to avoid reintroducing.
+     * The three markup states differ only in which card carries `is-selected`, so any difference in
+     * the rects is the selection treatment costing layout.
      */
     it('moves nothing at all as selection travels between cards', async () => {
       const html = await markup()
@@ -189,23 +168,18 @@ describe(
 
       expect(first.cards).toEqual(unpicked.cards)
       expect(second.cards).toEqual(unpicked.cards)
-      // -> The marks are out of flow in every state, so they sit in the same 20 places throughout
+      // -> The marks are out of flow in every state, so they sit in the same places throughout
       expect(first.marks).toEqual(unpicked.marks)
       expect(second.marks).toEqual(unpicked.marks)
       expect(unpicked.marks).toHaveLength(BLOCKS.length * 4)
     }, 60000)
 
     /**
-     * The corner marks overhang the card, and must land OUTSIDE its box without being clipped by, or
-     * pushing aside, anything around them — which is what the catalog's own 16px inset and the grid's
-     * 12px gap are big enough to absorb.
-     *
-     * The `-4px` each corner is offset by is measured from the card's PADDING box, since that is the
-     * containing block an absolutely-positioned child of a `position: relative` element resolves
-     * against. The card's hairline is 1px, so the mark clears its BORDER box — the edge a reader
-     * actually sees, and the one `getBoundingClientRect` reports — by 3px. Asserted at that number
-     * rather than at 4 because 3 is the true measurement; a test written to the CSS literal instead
-     * of to the rendered result is the thing a real browser is here to prevent.
+     * The `-4px` each corner is offset by resolves against the card's PADDING box, the containing
+     * block for an absolutely-positioned child of a `position: relative` element. The card's
+     * hairline is 1px, so the mark clears the BORDER box — the edge `getBoundingClientRect` reports
+     * — by 3px, and 3 is what this asserts: writing the CSS literal instead of the rendered result
+     * is what a real browser is here to prevent.
      */
     it('draws each corner mark clear of its card, outside the hairline it decorates', async () => {
       const html = await markup()
@@ -228,12 +202,10 @@ describe(
     }, 60000)
 
     /**
-     * OpenProject #2873's real pixel claim: the 8px gap between Cancel and Insert. `happy-dom`/`jsdom`
-     * neither run layout nor resolve the logical `border-inline-end` seam property `WBtnGroup` draws
-     * by default (see `BlockPickerOverlay.test.js`'s own jsdom-level coverage of the `gap` value
-     * itself), so the actual on-screen distance between the two header buttons needs this real
-     * headless Chromium page, same as the grid claims above. Uses the whole mounted component's HTML
-     * (not just the catalog grid `markup()` extracts) since the header sits outside `.block-picker`.
+     * A DOM stand-in resolves neither layout nor the logical `border-inline-end` seam property
+     * `WBtnGroup` draws by default, so the on-screen distance between the two header buttons needs
+     * the real browser too. Measured off the whole mounted component's HTML rather than `markup()`'s
+     * catalog grid, since the header sits outside `.block-picker`.
      */
     it('takes an 8px gap between Cancel and Insert under Cobalt, and none outside it', async () => {
       const wrapper = await mountPicker()

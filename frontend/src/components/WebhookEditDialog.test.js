@@ -8,22 +8,12 @@ import { useAdminStore } from '@/stores/admin'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * `POST /_api/hooks/test` lets an admin validate whatever is currently typed into this form -- via a
- * "Send Test Event" button -- before the webhook is ever saved. Covers the three things task 644
- * actually specifies: the button is gated on the same URL validation the form itself enforces, it
- * posts `{ url, authHeader, acceptUntrusted }` (not a hookId) straight from the form fields, and the
- * result (HTTP status or connection error) lands in a `notify()` toast. Exercised for both the
- * create (`hookId: null`) and edit (`hookId` set) forms, since the task requires it stay available
- * in both.
- */
-
 function mountDialog(hookId = null, { sites = [], siteId = null } = {}) {
   setActivePinia(createPinia())
   useAdminStore().sites = sites
 
-  // -> `onMounted` calls `fetchEmittedEvents()` (hits `hooks/events`) before `fetchHook()` (hits
-  //    `hooks/:id`), so the stubbed `get` calls have to be queued in that same order.
+  // -> `onMounted` fetches `hooks/events` before `hooks/:id`, so the stubbed `get` calls have to be
+  //    queued in that same order.
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
   if (hookId) {
     API_CLIENT.get.mockReturnValueOnce({
@@ -52,7 +42,7 @@ function mountDialog(hookId = null, { sites = [], siteId = null } = {}) {
   })
 }
 
-/** The "Send Test Event" button -- found by its i18n key, since the test i18n has no messages. */
+/** Found by its i18n key, since the test i18n has no messages. */
 function testButton() {
   return Array.from(document.body.querySelectorAll('button')).find((btn) =>
     btn.textContent.includes('admin.webhooks.testSend')
@@ -60,12 +50,8 @@ function testButton() {
 }
 
 /**
- * OpenProject #2356: `WDialog`'s `aria-label` (WP #1617) was never wired up here, so the dialog's
- * `role="dialog"` panel stayed unnamed for assistive tech regardless of which of the two headers
- * (`admin.webhooks.new` / `admin.webhooks.edit`) the `v-if="props.hookId"` template branch shows. The
- * fix mirrors that same branch as a plain ternary on `:aria-label`, so both forms get a real,
- * matching accessible name. Each test unmounts its own wrapper -- `WDialog` teleports into the real
- * `document.body`, which nothing in this file otherwise clears between tests.
+ * Each test here unmounts its own wrapper: `WDialog` teleports into the real `document.body`, which
+ * nothing in this file otherwise clears between tests.
  */
 describe('WebhookEditDialog accessible name', () => {
   it("gives the panel a non-empty aria-label matching the create form's visible header", async () => {
@@ -105,10 +91,9 @@ describe('WebhookEditDialog - send test event', () => {
     mountDialog(null)
     await flushPromises()
 
-    // -> `w-dialog` teleports its content to `document.body`, so the input has to be found and
-    //    driven there rather than through the mount wrapper's own element tree. `aria-label` falls
-    //    through to `<w-input>`'s wrapper div rather than the `<input>` itself, so the URL field is
-    //    found by its placeholder instead.
+    // -> `w-dialog` teleports its content to `document.body`, so the input is driven there rather
+    //    than through the wrapper. Found by placeholder because this field's `aria-label` lands on
+    //    `<w-input>`'s wrapper div, not the `<input>`.
     const urlInput = document.body.querySelector('input[placeholder="https://"]')
     urlInput.value = 'https://example.com/hook'
     urlInput.dispatchEvent(new Event('input'))
@@ -183,10 +168,9 @@ describe('WebhookEditDialog - send test event', () => {
   })
 
   it('rejects a scheme that merely starts with "http" (httpfoo://), matching the API (OpenProject #1940)', async () => {
-    // -> Placed last in this describe block: `testButton()`'s `document.body` lookup returns the
-    //    FIRST matching button across every dialog mounted so far in this file (nothing here calls
-    //    `wrapper.unmount()`), so a new mount+assert pair earlier in the block would shift which
-    //    stale button the tests after it resolve to. Appending avoids disturbing that ordering.
+    // -> Must stay last in this block: `testButton()` returns the FIRST matching button across
+    //    every dialog mounted so far in the file (nothing here unmounts), so inserting a mount
+    //    earlier would shift which stale button the tests after it resolve to.
     mountDialog(null)
     await flushPromises()
 
@@ -201,9 +185,8 @@ describe('WebhookEditDialog - send test event', () => {
 })
 
 /**
- * Task 1940: `hookUrlValidation` must reject everything `invalidReason()` (`backend/api/hooks.ts`)
- * rejects, so a URL the form accepts is never refused by the API with a 400 the admin sees as a
- * server error.
+ * `hookUrlValidation` must reject everything the backend's own `invalidReason()` rejects, or a URL
+ * the form accepts comes back as a 400 the admin reads as a server error.
  */
 describe('WebhookEditDialog - url validation', () => {
   it('rejects a URL with a non-http(s) protocol, matching the API', async () => {
@@ -220,12 +203,6 @@ describe('WebhookEditDialog - url validation', () => {
   })
 })
 
-/**
- * The site picker (task 651) -- sourced off `adminStore.sites` the same way `AdminLayout.vue`'s own
- * site picker and `UserCreateDialog.vue`'s per-site fields are, defaulting to "All sites" (`siteId:
- * null`) so a webhook created without touching the field keeps today's fires-for-every-site
- * behavior.
- */
 describe('WebhookEditDialog - site scoping', () => {
   const SITES = [
     { id: 'site-1', title: 'Site One' },

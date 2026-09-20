@@ -12,9 +12,8 @@
           icon="tabler:plus"
           @click="onCreateHomeClick">
           <!--
-            -> With exactly one editor enabled there is nothing to pick, so the menu is skipped
-               entirely (onCreateHomeClick creates the page directly) rather than making the visitor
-               open a one-item menu just to click its only entry.
+            -> No menu when exactly one editor is enabled: the button creates the page directly
+               rather than making the visitor open a one-item menu to click its only entry.
           -->
           <w-menu
             v-if="enabledEditors.length !== 1"
@@ -51,9 +50,9 @@
           </w-menu>
         </w-btn>
         <!--
-          -> Same test the admin area itself makes on arrival: this screen greets whoever may write the
-             first page, which on a wiki with an editors group is not necessarily somebody who may
-             administer it -- and the button would land them on the unauthorized screen.
+          -> Same test the admin area makes on arrival: this screen greets whoever may write the
+             first page, who is not necessarily somebody who may administer it, and the button would
+             otherwise land them on the unauthorized screen.
         -->
         <w-btn
           v-if="userStore.can(`access:admin`)"
@@ -82,44 +81,27 @@ import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// PROPS
-
 /**
- * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this prop
- * (OpenProject #2530). Declared here even though this overlay opens with no initial state to read --
- * without a declared prop, the value would fall through onto this component's DOM root instead.
+ * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts. Unread here,
+ * but declared anyway: an undeclared prop falls through onto this component's DOM root instead.
  */
 defineProps({
   overlayOpts: { type: Object, default: () => ({}) }
 })
-
-// STORES
 
 const flagsStore = useFlagsStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('welcome.title')
 }))
 
-// COMPUTED
-
-/**
- * Same per-editor gating the menu items use, collected once so the trigger button can decide
- * whether there is anything to pick between.
- */
 const enabledEditors = computed(() => {
   const editors = []
   if (flagsStore.experimental && siteStore.editors.wysiwyg) {
@@ -134,12 +116,9 @@ const enabledEditors = computed(() => {
   return editors
 })
 
-// METHODS
-
 /**
- * With exactly one editor enabled, skip the picker and create the page with it directly. With
- * zero or several enabled, the menu (rendered alongside this button) handles the click itself via
- * its own trigger listener, so there is nothing to do here.
+ * Deliberately a no-op unless exactly one editor is enabled: with zero or several, the menu
+ * rendered inside this button handles the click through its own trigger listener.
  */
 function onCreateHomeClick() {
   if (enabledEditors.value.length === 1) {
@@ -160,8 +139,8 @@ async function createHomePage(editor) {
       content: t('welcome.homeDefault.content')
     })
   } catch (err) {
-    // -> Opening the editor is what this button does, so a failure has to be said out loud rather
-    //    than leaving the spinner up over a screen that never changed
+    // -> Put the overlay back: without it a failure leaves a blank screen behind the dismissed
+    //    spinner, with nothing saying why
     siteStore.overlay = 'Welcome'
     notify({
       type: 'negative',
@@ -179,11 +158,6 @@ function loadAdmin() {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .welcome {
   background: #fff radial-gradient(ellipse, #fff, #ddd);
   color: var(--color-grey-9);

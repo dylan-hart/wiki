@@ -7,9 +7,8 @@
       </w-card-section>
       <w-form ref="createUserForm" class="py-2" @submit="create">
         <!--
-          Two authored halves, no display name: an account this instance creates has one derived
-          from them server-side (`models/users.ts#resolveNameFields`, Feature #2608), and stays on
-          derivation until somebody edits the display name in the user editor.
+          Two authored halves and no display name: it derives from them server-side and stays
+          derived until somebody overrides it in the user editor.
         -->
         <w-item>
           <blueprint-icon icon="tabler:user" />
@@ -154,8 +153,8 @@
       </w-form>
       <w-card-actions class="card-actions">
         <!--
-          -> `ms-2` lines the checkbox up with the blueprint icons above it: the rows are `w-item`s,
-             padded 16px, while this action bar is padded 8px, so it started 8px to their left
+          -> `ms-2` lines the checkbox up with the blueprint icons above: the rows are `w-item`s
+             padded 16px, this action bar 8px.
         -->
         <w-checkbox
           class="ms-2"
@@ -194,25 +193,15 @@ import { computed, onMounted, reactive, ref } from 'vue'
 
 import { useAdminStore } from '@/stores/admin'
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptFirstName.value
 })
 
-// STORES
-
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   userFirstName: '',
@@ -229,27 +218,21 @@ const state = reactive({
   loading: false
 })
 
-// REFS
-
 const createUserForm = ref(null)
 const iptFirstName = ref(null)
-
-// COMPUTED
 
 const passwordStrength = computed(() => passwordStrengthBadge(state.userPassword, t))
 const selectedGroupName = computed(() => {
   return state.groups.filter((g) => g.id === state.userGroups[0])[0]?.name
 })
 
-// VALIDATION RULES
-
 const userFirstNameValidation = [
   (val) => val.length > 0 || t('admin.users.firstNameMissing'),
   (val) => /^[^<>"]+$/.test(val) || t('admin.users.nameInvalidChars')
 ]
 
-// -> Optional, unlike the first name: a mononym has no surname, and nothing here fabricates one.
-//    An empty value therefore passes the character rule rather than tripping it.
+// -> Optional, unlike the first name: a mononym has no surname, so an empty value passes the
+//    character rule rather than tripping it.
 const userLastNameValidation = [
   (val) => val.length === 0 || /^[^<>"]+$/.test(val) || t('admin.users.nameInvalidChars')
 ]
@@ -265,8 +248,6 @@ const userPasswordValidation = [
 ]
 
 const userGroupsValidation = [(val) => val.length > 0 || t('admin.users.groupsMissing')]
-
-// METHODS
 
 async function loadGroups() {
   state.loading++
@@ -287,8 +268,7 @@ async function loadGroups() {
 
 function randomizePassword() {
   const withSymbols = `${PASSWORD_CHARSET_UNAMBIGUOUS}_*=?#!()+-$%&.`
-  // -> The first character is drawn without symbols, so a password mailed to a new user never opens
-  //    with one
+  // -> The first character is drawn without symbols, so a mailed password never opens with one.
   state.userPassword = `${randomPassword(1, PASSWORD_CHARSET_UNAMBIGUOUS)}${randomPassword(15, withSymbols)}`
 }
 
@@ -330,13 +310,11 @@ async function create() {
       onDialogOK()
     }
   } catch (err) {
-    // -> ky throws for a non-2xx response (e.g. the duplicate-email guard) before this catch is
-    //    ever reached, so the reason the API gave lives in the response body, not `err.message`.
     notify({
       type: 'negative',
-      // -> A refused create carries a server error code in `err.data.error`, which some codes have
-      //    a nicer translation for; a client-side validation failure above is a plain Error with no
-      //    `.data`, and its own message is already the text to show.
+      // -> ky parses a non-2xx body into `err.data` before throwing, so a refused create carries a
+      //    server error code some codes have a nicer translation for. A client-side validation
+      //    failure above is a plain Error with no `.data` and its own message to show.
       message: err.data
         ? t(`admin.users.${err.data.error}`, apiErrorMessage(err, t('common.error.unexpected')))
         : apiErrorMessage(err)
@@ -344,8 +322,6 @@ async function create() {
   }
   state.loading--
 }
-
-// MOUNTED
 
 onMounted(() => {
   state.userSendWelcomeEmailFromSiteId = adminStore.currentSiteId

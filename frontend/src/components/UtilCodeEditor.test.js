@@ -4,13 +4,9 @@ import { mount } from '@vue/test-utils'
 import UtilCodeEditor from './UtilCodeEditor.vue'
 
 /**
- * Regression coverage for upstream requarks/wiki #2150 (closed): the code-injection editor silently
- * stripped `<script>` tags out of some inputs before saving them. This field is Admin → Theme's
- * `injectHead`/`injectBody` editor — admin-trusted input, not user content, and a `<script>` tag is
- * the entire point of it (see `helpers/injectHtml.js`). `UtilCodeEditor` is a real `<textarea>`
- * driving a v-model, not a rich-text/contenteditable surface run through a sanitizer, so there is
- * nothing here that parses the value as HTML on its way through — this locks that down as a
- * regression test rather than leaving it as an inference from reading the component.
+ * Guards upstream requarks/wiki #2150, where a code-injection editor silently stripped `<script>`
+ * tags before saving. This field backs Admin → Theme's `injectHead`/`injectBody`, where a `<script>`
+ * tag is the entire point, so the value must survive byte-for-byte.
  */
 describe('UtilCodeEditor raw script tag round-trip', () => {
   it('renders a raw <script> value in the textarea unmodified', () => {

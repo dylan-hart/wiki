@@ -15,7 +15,6 @@
         </template>
       </w-card-section>
 
-      <!-- STATE INFO BAR -->
       <w-card-section
         v-if="props.hookId && state.hook.state === `pending`"
         class="flex flex-nowrap items-center bg-indigo text-white">
@@ -38,7 +37,6 @@
         <div class="text-caption text-red-2 ps-6 ms-1">{{ state.hook.lastErrorMessage }}</div>
       </w-card-section>
 
-      <!-- FORM -->
       <w-form ref="editWebhookForm" class="py-2">
         <w-item>
           <blueprint-icon icon="tabler:info-circle" />
@@ -85,7 +83,6 @@
                   <w-chip size="sm" color="positive" text-color="white">{{ opt.type }}</w-chip>
                   <span class="min-w-0 flex-1">
                     <w-item-label>{{ opt.name }}</w-item-label>
-                    <!-- Subscribing is allowed, but say plainly that nothing fires it yet -->
                     <w-item-label v-if="!opt.isEmitted" caption>{{
                       t('admin.webhooks.eventNotEmitted')
                     }}</w-item-label>
@@ -233,8 +230,6 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { useAdminStore } from '@/stores/admin'
 
-// PROPS
-
 const props = defineProps({
   hookId: {
     type: String,
@@ -242,25 +237,15 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptName.value
 })
 
-// I18N
-
 const { t } = useI18n()
 
-// STORES
-
 const adminStore = useAdminStore()
-
-// DATA
 
 const state = reactive({
   isLoading: false,
@@ -277,12 +262,10 @@ const state = reactive({
     includeContent: false,
     state: 'pending',
     lastErrorMessage: '',
-    // -> Null means "fires for every site" -- the default, and today's only behavior
+    // -> Null means "fires for every site"
     siteId: null
   }
 })
-
-// COMPUTED
 
 const EVENT_DEFINITIONS = computed(() => [
   {
@@ -356,19 +339,13 @@ const events = computed(() =>
   }))
 )
 
-/** `All sites` (null, the default) followed by every site, sourced the same way `AdminLayout.vue`'s
- *  own site picker is: straight off `adminStore.sites`. */
 const siteOptions = computed(() => [
   { id: null, title: t('admin.webhooks.siteAll') },
   ...adminStore.sites
 ])
 
-// REFS
-
 const editWebhookForm = ref(null)
 const iptName = ref(null)
-
-// VALIDATION RULES
 
 const hookNameValidation = [
   (val) => val.length > 0 || t('admin.webhooks.nameMissing'),
@@ -376,9 +353,8 @@ const hookNameValidation = [
 ]
 const hookEventsValidation = [(val) => val.length > 0 || t('admin.webhooks.eventsMissing')]
 /**
- * Whether `val` is an http(s) URL the backend's own `invalidReason()` (`backend/api/hooks.ts`) would
- * accept too -- `new URL()` plus a protocol check, not a bare `startsWith('http')`, so a scheme like
- * `httpfoo://x` is refused here exactly as it already is server-side (OpenProject #1940).
+ * Must stay as strict as the backend's own `invalidReason()`, or the form accepts URLs the API then
+ * rejects with a 400: a protocol check rather than `startsWith('http')`, which lets `httpfoo://x` by.
  */
 function isHttpUrl(val) {
   try {
@@ -393,12 +369,9 @@ const hookUrlValidation = [
   (val) => /^[^<>"]+$/.test(val) || t('admin.webhooks.urlInvalidChars')
 ]
 
-/** Whether the URL currently typed in passes the same rules the form itself enforces on submit. */
 const urlIsValid = computed(() => hookUrlValidation.every((rule) => rule(state.hook.url) === true))
 
-// METHODS
-
-/** The fields the API accepts — `state` and `lastErrorMessage` are the server's to set, not ours. */
+/** `state` and `lastErrorMessage` are omitted deliberately: they are the server's to set. */
 function writableFields() {
   return {
     name: state.hook.name,
@@ -481,10 +454,8 @@ async function save() {
 }
 
 /**
- * Sends a synthetic test delivery to whatever is currently typed into the form -- via
- * `POST /_api/hooks/test`, which takes the destination directly rather than a hookId, so this works
- * before the webhook has ever been saved. Never touches `create`/`save`: the outcome is reported in a
- * toast, not written into `state.hook`.
+ * `hooks/test` takes the destination directly rather than a hookId, so an unsaved form can be tried
+ * out. The outcome is reported in a toast only, never written into `state.hook`.
  */
 async function sendTestEvent() {
   state.isTesting = true
@@ -518,8 +489,6 @@ async function fetchEmittedEvents() {
     state.emittedEvents = null
   }
 }
-
-// MOUNTED
 
 onMounted(() => {
   fetchEmittedEvents()

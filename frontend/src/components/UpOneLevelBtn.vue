@@ -1,20 +1,14 @@
 <template>
   <!--
-    Absent at the root rather than sitting disabled: a control that can never be used from where the
-    reader is standing is noise, and one that is only ever disabled AT the root is a control that
-    spends the whole of the root level saying nothing. `v-if` inside the transition is what makes it
-    genuinely absent from the DOM, not merely hidden -- so nothing focusable, nothing readable and
-    nothing measurable is left behind.
-
-    It slides in from the inline start as its own space opens up, and back out the same way, so the
-    name beside it moves WITH it rather than jumping the moment the level changes.
+    Absent at the root rather than disabled: `v-if` inside the transition leaves nothing focusable
+    or readable behind, where a hidden control would still be both. It slides in as its own space
+    opens up so the name beside it moves with it rather than jumping.
   -->
   <transition name="up-one-level">
     <div v-if="props.show" class="up-one-level-slot">
       <!--
-        The glyph comes through the slot rather than through WBtn's `icon` prop, which is the only
-        way to size it: WBtn draws a prop icon at WIcon's own default of 24px, which does not fit a
-        28px plate.
+        The glyph goes through the slot, not WBtn's `icon` prop: a prop icon draws at WIcon's
+        default 24px, which does not fit a 28px plate.
       -->
       <w-btn
         class="up-one-level-btn"
@@ -38,48 +32,34 @@
 import { useI18n } from 'vue-i18n'
 
 /**
- * Go up one level.
+ * The plate, the absent-at-the-root rule, the slide-in, the dimmed glyph and the accent focus ring
+ * all live here so every call site carries the same control; a caller supplies only placement,
+ * disabled state and the click handler.
  *
- * One control, three call sites -- `NavBrowseMenu.vue`'s Browse panel header, `FileManager.vue`'s
- * toolbar and `TreeBrowserDialog.vue`'s folder row. The design (`docs/ui-redesign-supplementary/
- * Cardinal Wiki - Menus 3x.dc.html`, "03 -- Up one level") calls for the same 28px plate carrying the
- * same meaning at all three, so the plate, the absent-at-the-root rule, the slide-in, the 70%-at-rest
- * glyph and the accent focus ring all live here; a caller supplies only where it sits, whether it is
- * currently disabled, and what happens on click.
- *
- * NOT in `components/shared/`, deliberately. Every member of that library is a generic `W*` primitive
- * -- a button, an input, an icon -- registered globally by `boot/components.js` and again by
- * `test/setup.js`, with no vocabulary of its own. This control hard-codes an app glyph, an app locale
- * key and a tooltip; it is a piece of this application, not a piece of its component library, and
- * three named importers do not justify handing every component and every test suite in the app a new
- * global tag.
+ * Deliberately not in `components/shared/`: that library is generic `W*` primitives with no
+ * vocabulary of their own, registered globally for every component and test. This hard-codes an app
+ * glyph, locale key and tooltip, so it stays an ordinary import.
  */
 const props = defineProps({
-  /**
-   * Whether there is a level above the one being shown. `false` removes the control from the DOM --
-   * see the template comment: the design asks for absent, not disabled.
-   */
+  /** Whether there is a level above the one being shown. */
   show: {
     type: Boolean,
     default: false
   },
-  /** Disabled while the level it would leave is still loading. Distinct from `show`. */
+  /** For a level that is still loading -- distinct from `show`, which removes the control. */
   disabled: {
     type: Boolean,
     default: false
   },
   /**
-   * Surface-specific treatment for the plate, composed onto the button.
-   *
-   * `acrylic-btn` (`css/_base.css`) travels this way rather than being baked in: it is the
-   * translucent-menu treatment, correct in the Browse panel and wrong on the two opaque surfaces the
-   * other two call sites sit on.
+   * Surface-specific treatment, composed onto the button. `acrylic-btn` travels this way rather
+   * than being baked in: it is correct on a translucent menu and wrong on an opaque toolbar.
    */
   plateClass: {
     type: [String, Array, Object],
     default: null
   },
-  /** Passed straight to the tooltip, for a call site whose default placement would be clipped. */
+  /** For a call site whose default tooltip placement would be clipped. */
   tooltipAnchor: {
     type: String,
     default: undefined
@@ -93,9 +73,8 @@ const props = defineProps({
 const emit = defineEmits(['click'])
 
 /*
-  The transition wraps a single child, so a fallthrough `class` would land on the SLOT rather than on
-  the plate inside it -- silently styling the animated footprint instead of the button. `plateClass`
-  is the supported way in, and this is what keeps the two from being confusable.
+  A fallthrough `class` would land on the animated slot, not the plate inside it, silently styling
+  the footprint instead of the button. `plateClass` is the way in.
 */
 defineOptions({ inheritAttrs: false })
 
@@ -104,21 +83,17 @@ const { t } = useI18n()
 
 <style>
 /*
-  A 28px square plate.
-
-  `dense` already lands WBtn on 28px tall -- `min-height: 2.24em` against the 12.5px it sets on itself
-  -- but its dense padding (`0 0.8em`, 10px a side) makes the box 38px wide around an 18px glyph, so
-  the plate is not actually square. The padding goes through the `padding` prop rather than a rule
-  here, because WBtn writes both as inline styles that a stylesheet could not beat; `width`/`height`
-  then state the square outright, since neither of those two is what WBtn sets inline.
+  `dense` alone lands WBtn on 28px tall but 38px wide, so the plate is not square. Its padding is
+  killed through the `padding` prop rather than a rule here, because WBtn writes padding inline
+  where a stylesheet cannot beat it; `width`/`height` it does not set inline, so they state the
+  square outright.
 */
 .up-one-level-btn.w-btn {
   width: 28px;
   height: 28px;
 }
 
-/* -> Dimmed at rest: it is the one control up here, and it should not compete with the name beside
-      it. Full strength once the pointer is on it. */
+/* -> Dimmed at rest so it does not compete with the name beside it. */
 .up-one-level-btn .w-icon {
   opacity: 0.7;
 }
@@ -128,9 +103,8 @@ const { t } = useI18n()
 }
 
 /*
-  The accent focus ring. WBtn already draws a 2px ring 2px clear of its own box
-  (`outline-offset-2 focus-visible:outline-2`); only the colour is stated here, since the ring's
-  default is `currentColor` -- the same dimmed glyph tone the plate is trying not to compete with.
+  WBtn already draws the 2px ring 2px clear of its box; only the colour is stated here, since the
+  default `currentColor` would be the dimmed glyph tone.
 */
 .up-one-level-btn:focus-visible {
   outline-color: var(--color-accent);
@@ -141,9 +115,9 @@ const { t } = useI18n()
 }
 
 /*
-  The plate's footprint, as its own element: `width` is what animates, so the space closes up WITH the
-  button rather than after it. Sized to match the plate, which fills it exactly, plus the gap that
-  separates it from whatever is beside it -- which belongs to the button, and so goes when it goes.
+  The footprint is its own element so `width` can animate, closing the space up with the button
+  rather than after it. It carries the trailing gap too, which belongs to the button and goes with
+  it.
 */
 .up-one-level-slot {
   flex: none;
@@ -152,8 +126,8 @@ const { t } = useI18n()
 }
 
 /*
-  Clipped only while it moves. At rest the slot must not clip, or it would cut off the focus ring the
-  button draws just outside its own box.
+  Clipped only while moving: at rest the slot must not clip, or it cuts off the focus ring the
+  button draws outside its own box.
 */
 .up-one-level-enter-active,
 .up-one-level-leave-active {
@@ -164,8 +138,8 @@ const { t } = useI18n()
     opacity 0.18s var(--ease-standard);
 }
 
-/* -> The slide itself is on the button: a percentage transform on the slot would resolve against a
-      width that is zero at exactly that moment, and move nothing */
+/* -> The slide is on the button: a percentage transform on the slot resolves against a width that
+      is zero at exactly that moment, and moves nothing. */
 .up-one-level-enter-active .up-one-level-btn,
 .up-one-level-leave-active .up-one-level-btn {
   transition: transform 0.18s var(--ease-standard);
@@ -178,9 +152,9 @@ const { t } = useI18n()
   opacity: 0;
 }
 
-/* -> A physical translate, unlike everything else here: CSS has no logical equivalent, and the slot's
-      own width/margin animation (which IS logical) is what actually opens and closes the space. Under
-      `dir="rtl"` the plate therefore travels the same 28px, just from the other side of its slot. */
+/* -> Physical, unlike everything else here: CSS has no logical translate. The slot's own
+      width/margin animation is logical, so under `dir="rtl"` the plate travels the same distance
+      from the other side. */
 .up-one-level-enter-from .up-one-level-btn,
 .up-one-level-leave-to .up-one-level-btn {
   transform: translateX(-100%);

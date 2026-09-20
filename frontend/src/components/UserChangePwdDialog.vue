@@ -34,9 +34,8 @@
           </w-item-section>
         </w-item>
         <!--
-          The whole row is the toggle's hit area, as it was when this was a <label>-tagged item.
-          `@click.stop` on the toggle keeps a direct hit on the switch from also firing the row
-          handler and cancelling itself out.
+          The whole row is the toggle's hit area. `@click.stop` on the switch keeps a direct hit on
+          it from also firing the row handler and cancelling itself out.
         -->
         <w-item clickable @click="state.userMustChangePassword = !state.userMustChangePassword">
           <blueprint-icon icon="tabler:lock-cog" />
@@ -82,8 +81,6 @@ import { passwordStrengthBadge } from '@/helpers/passwordStrength'
 import { PASSWORD_CHARSET, randomPassword } from '@/helpers/randomPassword'
 import { computed, reactive, ref } from 'vue'
 
-// PROPS
-
 const props = defineProps({
   userId: {
     type: String,
@@ -91,21 +88,13 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptPassword.value
 })
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   userPassword: '',
@@ -113,23 +102,15 @@ const state = reactive({
   isLoading: false
 })
 
-// REFS
-
 const changeUserPwdForm = ref(null)
 const iptPassword = ref(null)
 
-// COMPUTED
-
 const passwordStrength = computed(() => passwordStrengthBadge(state.userPassword, t))
-
-// VALIDATION RULES
 
 const userPasswordValidation = [
   (val) => val.length > 0 || t('admin.users.passwordMissing'),
   (val) => val.length >= 8 || t('admin.users.passwordTooShort')
 ]
-
-// METHODS
 
 function randomizePassword() {
   state.userPassword = randomPassword(16, PASSWORD_CHARSET)
@@ -156,8 +137,8 @@ async function save() {
       mustChangePassword: state.userMustChangePassword
     })
   } catch (err) {
-    // -> ky throws above 400 with the reason in the body, which is where the server explains itself;
-    //    some error codes have a nicer translation under `admin.users.*`
+    // -> ky throws above 400 with the reason in the body; some error codes have a nicer
+    //    translation under `admin.users.*`, falling back to the server's own message.
     notify({
       type: 'negative',
       message: t(

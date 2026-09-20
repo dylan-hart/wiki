@@ -100,10 +100,9 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <!--
-                  Shown, not hidden: the display name is derived from the two halves above on every
-                  save, and editing it here is the only way to reach the override Feature #2608
-                  grants. The server decides -- writing back exactly what the halves derive to puts
-                  the account on derivation again, anything else authors it.
+                  Editable although it is derived from the two halves above: this field is the only
+                  way to author an override. The server decides -- saving exactly what the halves
+                  derive to puts the account back on derivation, anything else authors it.
                 -->
                 <w-item>
                   <blueprint-icon icon="tabler:address-book" />
@@ -740,26 +739,16 @@ import UserChangePwdDialog from './UserChangePwdDialog.vue'
 import UserDeleteDialog from './UserDeleteDialog.vue'
 import UtilCodeEditor from './UtilCodeEditor.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 const flagsStore = useFlagsStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
 const route = useRoute()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   invalidCharsRegex: /^[^<>"]+$/,
@@ -770,8 +759,7 @@ const state = reactive({
   },
   groups: [],
   groupToAdd: null,
-  /** groupId -> the enabled, mapGroups-on strategies that could revoke it -- see
-   *  `groupToAddSyncStrategies` and `fetchGroupSyncWarnings()`. */
+  /** groupId -> the enabled, mapGroups-on strategies that could revoke that group. */
   groupSyncWarnings: {},
   passkeys: [],
   loading: 0,
@@ -790,41 +778,25 @@ const sections = [
 const timezones = Intl.supportedValuesOf('timeZone')
 
 /*
-  Keeps the display name in step with the two halves until an administrator overrides it. Without it,
-  editing a half alone would leave a stale `name` in the patch -- which the server reads as a
-  deliberate override and would freeze this user's display name for good. A getter because
-  `fetchUser()` REPLACES `state.user` wholesale. See the composable's own doc.
+  Editing a half alone would otherwise leave a stale `name` in the patch, which the server reads as
+  a deliberate override and would freeze this user's display name for good. A getter because
+  `fetchUser()` REPLACES `state.user` wholesale.
 */
 const { syncFromStored: syncDisplayName } = useDerivedDisplayName(() => state.user)
 
-/**
- * The first-name and display-name rule: a value must be there and must not contain the characters
- * a name has always refused.
- *
- * A named function rather than the inline array both fields used to declare. That inline rule read
- * a bare `invalidCharsRegex`, which is a `state` member and so resolved to `undefined` in the
- * template -- the rule threw `Cannot read properties of undefined (reading 'test')` the moment it
- * ran, which is any validation of the Overview tab's name field. Nothing covered that tab, so it
- * went unnoticed; Task #2642's own coverage is what surfaced it.
- */
 function requiredNameRule(val) {
   return (val && state.invalidCharsRegex.test(val)) || t('admin.users.nameInvalidChars')
 }
 
-/**
- * The last-name rule. Unlike the two above it accepts an empty value: a mononym has no surname and
- * nothing fabricates one, so only a value that IS there is checked for the same characters.
- */
+/** Empty is valid: a mononym has no surname and nothing fabricates one. */
 function optionalNameRule(val) {
   return !val || state.invalidCharsRegex.test(val) || t('admin.users.nameInvalidChars')
 }
 
-// COMPUTED
-
 /*
-  `read:users` opens this overlay read-only: every write below needs `manage:users` (see
-  `api/users/admin.ts`), so the actions that perform one are hidden rather than left to fail at the API.
-  The fields stay as they are -- without Save there is nowhere for a typed change to go.
+  `read:users` opens this overlay read-only: every write below needs `manage:users`, so the actions
+  that perform one are hidden rather than left to fail at the API. The fields stay editable --
+  without Save there is nowhere for a typed change to go.
 */
 const canManage = computed(() => userStore.can('manage:users'))
 
@@ -854,9 +826,8 @@ const localAuth = computed({
 })
 
 /**
- * Which enabled, provider-sync strategies could revoke `state.groupToAdd` on the user's next login
- * (WP #2440), so the picker can warn before a manual grant is made. Empty whenever no group is
- * selected, or the selected one is not on any strategy's `mappableGroups` allow-list.
+ * Strategies that could revoke `state.groupToAdd` on the user's next login, so the picker can warn
+ * before a manual grant is made.
  */
 const groupToAddSyncStrategies = computed(() => {
   if (!state.groupToAdd) {
@@ -873,11 +844,7 @@ const linkedAuthProviders = computed(() => {
   return state.user.auth.filter((prv) => prv.strategyKey !== 'local')
 })
 
-// WATCHERS
-
 watch(() => route.params.section, checkRoute)
-
-// METHODS
 
 async function fetchUser() {
   state.loading++
@@ -910,9 +877,8 @@ async function fetchUser() {
 }
 
 /**
- * groupId -> the strategies that could revoke it, for `groupToAddSyncStrategies`'s warning.
- * Best-effort: a viewer who cannot reach this route for any reason simply sees no warning rather
- * than a broken Groups tab, since the warning is a courtesy, not a requirement.
+ * Best-effort: a viewer who cannot reach this route sees no warning rather than a broken Groups
+ * tab, since the warning is a courtesy, not a requirement.
  */
 async function fetchGroupSyncWarnings() {
   try {
@@ -980,9 +946,9 @@ async function save(patch, { silent, keepOpen } = { silent: false, keepOpen: fal
   loading.show()
   if (!patch) {
     patch = {
-      // -> All three go every time; `models/users.ts#updateUser` owns which of them wins. A `name`
-      //    equal to what the halves derive to reads as "keep deriving", so saving the form does not
-      //    mark an untouched account as having a hand-authored display name.
+      // -> All three go every time; the server owns which of them wins. A `name` equal to what the
+      //    halves derive to reads as "keep deriving", so saving the form does not mark an untouched
+      //    account as having a hand-authored display name.
       name: state.user.name,
       firstName: state.user.firstName,
       lastName: state.user.lastName,
@@ -1013,8 +979,8 @@ async function save(patch, { silent, keepOpen } = { silent: false, keepOpen: fal
       close()
     }
   } catch (err) {
-    // -> ky throws above 400 with the reason in the body, which is where the server explains itself;
-    //    some error codes have a nicer translation under `admin.users.*`
+    // -> Some server error codes have a nicer translation under `admin.users.*`; the server's own
+    //    message from the response body is the fallback.
     notify({
       type: 'negative',
       message: t(
@@ -1121,9 +1087,6 @@ function toggleBan() {
   )
 }
 
-// -> Opens the same `UserDeleteDialog` the users list opens (`pages/AdminUsers.vue`), which owns the
-//    confirmation, the optional content reassignment and the DELETE itself. On success the user this
-//    overlay is editing no longer exists, so the overlay closes -- the list page reloads off that.
 function deleteUser() {
   dialog({
     component: UserDeleteDialog,
@@ -1133,15 +1096,8 @@ function deleteUser() {
   }).onOk(close)
 }
 
-// MOUNTED
-
 onMounted(() => {
   checkRoute()
   fetchUser()
 })
 </script>
-
-<!--
-  -> The `.metadata-codemirror` rules that were here targeted `.cm-editor`, a CodeMirror 6 class this
-     app never had, from a class no element in this file carries. Dead twice over.
--->

@@ -88,8 +88,6 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDateWithSeconds } from '@/helpers/datetime'
 
-// PROPS
-
 const props = defineProps({
   hook: {
     type: Object,
@@ -97,27 +95,17 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogCancel } = useDialogComponent()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   isLoading: false,
   total: 0,
   deliveries: []
 })
-
-// METHODS
 
 async function load() {
   state.isLoading = true
@@ -133,8 +121,6 @@ async function load() {
   }
   state.isLoading = false
 }
-
-// MOUNTED
 
 onMounted(() => {
   load()

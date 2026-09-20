@@ -16,9 +16,8 @@ const MESSAGES = {
 }
 
 /**
- * The component's own `onMounted` (not `useDialogComponent`'s) awaits a fixed 500ms delay before
- * uploading anything -- fake timers stand in for that, same as `EditorMarkdown.test.js`'s debounce
- * suite, so a test does not actually wait half a second per case.
+ * The component awaits a fixed 500ms delay before uploading anything; fake timers stand in for it
+ * so no case actually waits half a second.
  */
 async function mountDialog({ path, pendingAssets }) {
   setActivePinia(createPinia())
@@ -153,18 +152,15 @@ describe('UploadPendingAssetsDialog: mid-batch failure (OpenProject #945)', () =
       pendingAssets: [pendingAsset('one.png'), pendingAsset('two.png')]
     })
 
-    // -> The first item's replacement was applied to the editor's own model immediately, not
-    //    batched until the (never-reached) end of the loop.
+    // -> Applied as it landed, not batched until the loop's never-reached end.
     expect(reloadSpy).toHaveBeenCalledWith({
       replacements: [{ from: 'blob:one.png', to: '/one.png' }]
     })
-    // -> Pruned as it landed: only the failed item is left pending, so a retry re-uploads just that
-    //    one rather than re-sending the one that already succeeded.
+    // -> Only the failed item stays pending, so a retry re-uploads that one alone.
     expect(editorStore.pendingAssets).toHaveLength(1)
     expect(editorStore.pendingAssets[0].fileName).toBe('two.png')
-    // -> The failure path never emits `ok` -- `onDialogCancel()` only flips `dialogVisible`, so
-    //    `PageHeader.vue`'s own `.onCancel(...)` handler (not this component's own emitted events)
-    //    is what observes the cancellation; see `PageHeader.test.js`'s coverage of that half.
+    // -> The failure path emits no `ok`: `onDialogCancel()` only flips `dialogVisible`, and the
+    //    caller's own cancel handler is what observes it.
     expect(wrapper.emitted('ok')).toBeFalsy()
     expect(queue.at(-1)).toMatchObject({ type: 'negative', message: 'Disk full' })
 
@@ -220,8 +216,8 @@ describe('UploadPendingAssetsDialog: unbounded timeout + cancel (OpenProject #17
   })
 
   it('reports a cancelled upload distinctly from a real server failure, via the Cancel button', async () => {
-    // -> The mocked post never resolves on its own; the component's own `AbortController` is what
-    //    ends it, by rejecting with a DOMException named AbortError, same as a real aborted `fetch`.
+    // -> The mocked post never resolves on its own: the component's `AbortController` ends it,
+    //    rejecting with an AbortError DOMException the way a real aborted `fetch` does.
     let capturedSignal
     API_CLIENT.post.mockImplementationOnce((url, opts) => {
       capturedSignal = opts.signal
@@ -246,8 +242,7 @@ describe('UploadPendingAssetsDialog: unbounded timeout + cancel (OpenProject #17
     await flushPromises()
 
     expect(capturedSignal.aborted).toBe(true)
-    // -> Distinct from the generic negative failure toast covered by the mid-batch-failure suite
-    //    above: a cancel is the user's own action, not an unexplained server error.
+    // -> `warning`, not the `negative` a server failure raises: a cancel is the reader's own doing.
     expect(queue.at(-1)).toMatchObject({ type: 'warning', message: 'Upload cancelled.' })
     expect(wrapper.emitted('ok')).toBeFalsy()
   })

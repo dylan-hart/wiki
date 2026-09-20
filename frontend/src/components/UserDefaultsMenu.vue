@@ -85,11 +85,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   loading: 0,
@@ -113,8 +109,6 @@ const timeFormats = [
   { value: '24h', label: t('admin.general.defaultTimeFormat24h') }
 ]
 const timezones = Intl.supportedValuesOf('timeZone')
-
-// METHODS
 
 async function save() {
   state.loading++
@@ -143,8 +137,6 @@ async function save() {
   }
   state.loading--
 }
-
-// MOUNTED
 
 onMounted(async () => {
   state.loading++

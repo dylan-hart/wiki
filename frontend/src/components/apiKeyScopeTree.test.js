@@ -8,20 +8,12 @@ import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
 /**
- * The scope picker is one component (`components/shared/`-adjacent markup inside both dialogs) driven
- * by one closed vocabulary (`helpers/apiKeyScopes.js`), so how it groups, toggles and narrows is the
- * same claim about both the admin-issued and the profile-issued key form. Three assertions about it
- * were byte-identical between `ApiKeyCreateDialog.test.js` and `ProfileApiKeyCreateDialog.test.js`
- * (TEST-F13.9); they live once here, as a `describe.each` over the two dialogs, so both are still
- * exercised and each still reports under its own component's name.
+ * The "mixed group checkbox, then the narrowed list on create" assertion stays in each dialog's own
+ * suite rather than moving here: the two POST different bodies (the admin form carries `groups`, the
+ * profile form does not), which is the thing that assertion exists to pin down.
  *
- * The fourth scope-tree assertion in each suite -- "shows the group checkbox as mixed ... and sends
- * the narrowed list on create" -- is NOT shared: the two dialogs POST to different routes with
- * different bodies (the admin form carries `groups`, the profile form does not), which is exactly the
- * thing that assertion exists to pin down. It stays in each suite.
- *
- * Both dialogs opt out of `mountWithApp`'s default `teleport: true` stub, since `w-dialog` really
- * teleports its body to `document.body` -- which is where every lookup below reads.
+ * Both dialogs opt out of the default `teleport: true` stub, since `w-dialog` really teleports its
+ * body to `document.body` -- which is where every lookup below reads.
  */
 const DIALOGS = [
   ['ApiKeyCreateDialog', ApiKeyCreateDialog],
@@ -48,11 +40,9 @@ function leafCheckbox(scope) {
 
 describe.each(DIALOGS)('%s scope tree', (_name, Dialog) => {
   /*
-    Every dialog here teleports into `document.body` and nothing takes it back out on its own, so a
-    second mount would leave the first one's checkboxes as the FIRST match for every lookup above --
-    the clicks would land on a wrapper the test is no longer asserting against. Unmounting is what
-    keeps each test looking at its own dialog; the two suites this was lifted from mounted once per
-    test and never had two live at the same time.
+    Every dialog teleports into `document.body` and nothing takes it back out on its own, so with a
+    second one live the first one's checkboxes stay the FIRST match for every lookup above and the
+    clicks land on a wrapper the test is no longer asserting against.
   */
   let mounted = null
 
@@ -74,7 +64,6 @@ describe.each(DIALOGS)('%s scope tree', (_name, Dialog) => {
 
     expect(groupCheckbox('manage').exists()).toBe(true)
     expect(groupCheckbox('read').exists()).toBe(true)
-    // -> `review:pages` is the only `review:*` scope today -- still its own group, not folded away
     expect(groupCheckbox('review').exists()).toBe(true)
   })
 

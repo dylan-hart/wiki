@@ -6,14 +6,6 @@ import UserSearchDialog from './UserSearchDialog.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * OpenProject #986: `singleSelect` and `excludeUserIds` are additive props for the reassignment
- * target picker (`UserDeleteDialog.vue`) — this covers their own behavior directly, so
- * `UserDeleteDialog.test.js` doesn't have to mount the real search dialog just to prove them. The
- * pre-existing multi-select behavior `GroupEditOverlay.test.js` already exercises end-to-end is left
- * untouched by either prop's default.
- */
-
 let currentWrapper = null
 afterEach(() => {
   currentWrapper?.unmount()
@@ -150,10 +142,6 @@ describe('UserSearchDialog avatar images', () => {
   })
 })
 
-/**
- * Task #3264: a manually-uploaded avatar (`hasAvatar`) always wins; the provider-synced picture
- * (`avatarProviderUrl`) is only a fallback, and the generic plate is the last resort.
- */
 describe('UserSearchDialog avatar fallback', () => {
   it('renders the uploaded avatar when hasAvatar is set, ignoring avatarProviderUrl', async () => {
     API_CLIENT.get.mockReturnValueOnce({
