@@ -93,6 +93,9 @@ export interface Asset {
   folderPath: string
   title: string
   hasPreview: boolean
+  /** Only for an image Sharp could read, so absent where Sharp is not installed. */
+  width?: number
+  height?: number
   createdAt: Date
   updatedAt: Date
   /**
@@ -120,12 +123,21 @@ const assetSelection = {
   title: treeTable.title,
   locale: treeTable.locale,
   // -> Only whether there is one: the preview itself can be megabytes, and no caller wants it inlined
-  hasPreview: sql<boolean>`${assetsTable.preview} IS NOT NULL`
+  hasPreview: sql<boolean>`${assetsTable.preview} IS NOT NULL`,
+  meta: assetsTable.meta
 }
 
-function toAsset(row: Record<string, any>): Asset {
+function dimensionsOf(meta: unknown): { width?: number; height?: number } {
+  const { width, height } = (meta ?? {}) as Record<string, unknown>
+  return Number.isInteger(width) && Number.isInteger(height)
+    ? { width: width as number, height: height as number }
+    : {}
+}
+
+function toAsset({ meta, ...row }: Record<string, any>): Asset {
   return {
     ...row,
+    ...dimensionsOf(meta),
     fileSize: row.fileSize ?? 0,
     folderPath: decodeTreePath(row.folderPath ?? '') ?? '',
     hasPreview: Boolean(row.hasPreview)
@@ -251,10 +263,12 @@ class Assets {
         ? sanitizeSvg(data)
         : data
 
-    const preview =
+    const thumbnail =
       kind === 'image'
         ? await makeImageThumbnail(fileData, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
         : null
+    const preview = thumbnail?.data ?? null
+    const dimensions = dimensionsOf(thumbnail)
 
     const behavior = this.conflictBehaviorFor(siteId)
     const occupant =
@@ -297,6 +311,7 @@ class Assets {
         mimeType: resolvedMime,
         data: fileData,
         preview,
+        dimensions,
         authorId
       })
     }
@@ -327,6 +342,7 @@ class Assets {
         fileSize: fileData.length,
         data: fileData,
         preview,
+        meta: dimensions,
         authorId,
         siteId,
         ...(createdAt ? { createdAt: new Date(createdAt) } : {}),
@@ -377,6 +393,7 @@ class Assets {
       folderPath,
       title: entry.title,
       hasPreview: Boolean(preview),
+      ...dimensions,
       // -> Only the `assets` row receives the override, and `assetSelection` reads these two from
       //    there, so echoing it back rather than `entry.createdAt` is what a follow-up read shows.
       createdAt: createdAt ? new Date(createdAt) : entry.createdAt,
@@ -406,6 +423,7 @@ class Assets {
     mimeType,
     data,
     preview,
+    dimensions,
     authorId
   }: {
     id: string
@@ -419,6 +437,7 @@ class Assets {
     mimeType: string
     data: Buffer
     preview: Buffer | null
+    dimensions: { width?: number; height?: number }
     authorId: string
   }): Promise<Asset> {
     await CARDINAL.db
@@ -430,6 +449,7 @@ class Assets {
         fileSize: data.length,
         data,
         preview,
+        meta: sql`(coalesce(${assetsTable.meta}, '{}'::jsonb) - 'width' - 'height') || ${JSON.stringify(dimensions)}::jsonb`,
         authorId,
         updatedAt: sql`now()`
       })
@@ -482,6 +502,7 @@ class Assets {
         folderPath,
         title,
         hasPreview: Boolean(preview),
+        ...dimensions,
         locale,
         createdAt: new Date(),
         updatedAt: new Date()

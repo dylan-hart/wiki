@@ -126,6 +126,12 @@ export async function normalizeImage(
   }
 }
 
+export type ImageThumbnail = {
+  data: Buffer
+  width?: number
+  height?: number
+}
+
 /**
  * A thumbnail has no fallback, unlike an avatar: the file manager just shows the file-type icon, so
  * `null` is an ordinary outcome here rather than a degraded one — hence the `debug`, not `warn`.
@@ -134,7 +140,7 @@ export async function makeImageThumbnail(
   data: Buffer,
   width: number,
   height: number
-): Promise<Buffer | null> {
+): Promise<ImageThumbnail | null> {
   const definition = CARDINAL.models.extensions.getDefinition('sharp')
   if (!definition || !(await CARDINAL.models.extensions.isInstalled(definition))) {
     return null
@@ -151,13 +157,38 @@ export async function makeImageThumbnail(
     return null
   }
   try {
-    return await sharp(data)
+    const thumbnail = await sharp(data)
       .resize(width, height, { fit: 'cover', position: 'centre', withoutEnlargement: true })
       .webp({ quality: 80 })
       .toBuffer()
+    return { data: thumbnail, ...(await readImageDimensions(sharp, data)) }
   } catch (err: any) {
     CARDINAL.logger.debug('assets', 'could not generate a thumbnail for an upload', { error: err })
     return null
+  }
+}
+
+async function readImageDimensions(
+  sharp: any,
+  data: Buffer
+): Promise<{ width?: number; height?: number }> {
+  try {
+    const { width, height, pageHeight, orientation } = await sharp(data).metadata()
+    const frameHeight = pageHeight ?? height
+    if (
+      !Number.isInteger(width) ||
+      !Number.isInteger(frameHeight) ||
+      width < 1 ||
+      frameHeight < 1
+    ) {
+      return {}
+    }
+    return orientation >= 5 && orientation <= 8
+      ? { width: frameHeight, height: width }
+      : { width, height: frameHeight }
+  } catch (err: any) {
+    CARDINAL.logger.debug('assets', 'could not read the dimensions of an upload', { error: err })
+    return {}
   }
 }
 

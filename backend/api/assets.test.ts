@@ -1020,3 +1020,61 @@ describe('UPLOAD ASSET route: rate limit (OpenProject #3234)', () => {
     assert.equal(consumeCalls.length, 1)
   })
 })
+
+describe('GET asset route: image dimensions', () => {
+  const SITE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const ASSET_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+
+  const baseAsset = {
+    id: ASSET_ID,
+    fileName: 'photo.png',
+    fileExt: 'png',
+    kind: 'image',
+    mimeType: 'image/png',
+    fileSize: 3,
+    folderPath: '',
+    title: 'photo',
+    hasPreview: true,
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+    updatedAt: new Date('2024-01-01T00:00:00Z'),
+    locale: 'en'
+  }
+
+  let resolvedAsset: any
+  let app: FastifyInstance
+
+  before(async () => {
+    app = await buildTestApp({
+      routes,
+      wiki: {
+        sites: { [SITE_ID]: { id: SITE_ID, isEnabled: true } },
+        config: { security: {} },
+        models: {
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            checkAccess: () => true
+          },
+          assets: { getAsset: async () => resolvedAsset }
+        }
+      }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  test('carries width and height in the response when the asset has them', async () => {
+    resolvedAsset = { ...baseAsset, width: 640, height: 480 }
+    const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/assets/${ASSET_ID}` })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().width, 640)
+    assert.equal(res.json().height, 480)
+  })
+
+  test('carries neither key when the asset has no stored dimensions', async () => {
+    resolvedAsset = { ...baseAsset, hasPreview: false }
+    const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/assets/${ASSET_ID}` })
+    assert.equal(res.statusCode, 200)
+    assert.equal('width' in res.json(), false)
+    assert.equal('height' in res.json(), false)
+  })
+})
