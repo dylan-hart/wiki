@@ -58,6 +58,8 @@ export const AUDIT_EVENTS = [
   'system.contentExported',
   'system.contentImported',
   'system.wysiwygJsonConverted',
+  'system.sampleContentGenerated',
+  'system.sampleContentPurged',
   // -> The whole instance in the replication archive format, not `system.contentExported`'s
   //   per-site "Export content" utility.
   'system.replicationSnapshotExported',
