@@ -174,6 +174,111 @@ export function sanitizeForPreview(html, permissions) {
   return holder.innerHTML
 }
 
+const FENCE_ATTRIBUTE =
+  /([a-z][\w-]*)\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s"']+))/gi
+
+export function parseFenceAttributes(source, unescape = (value) => value) {
+  const attributes = {}
+  for (const match of (source ?? '').matchAll(FENCE_ATTRIBUTE)) {
+    attributes[match[1].toLowerCase()] = unescape(match[2] ?? match[3] ?? match[4])
+  }
+  return attributes
+}
+
+export function parseFenceInfo(info, unescape = (value) => value) {
+  const trimmed = (info ?? '').trim()
+  const boundary = trimmed.search(/\s/)
+  return {
+    lang: unescape(boundary < 0 ? trimmed : trimmed.slice(0, boundary)),
+    attributes: parseFenceAttributes(boundary < 0 ? '' : trimmed.slice(boundary + 1), unescape)
+  }
+}
+
+const LINE_RANGE = /^(\d+)(?:\s*-\s*(\d+))?$/
+
+export function parseLineRanges(value) {
+  const ranges = []
+  for (const entry of (value ?? '').split(',')) {
+    const match = LINE_RANGE.exec(entry.trim())
+    if (!match) {
+      continue
+    }
+    const from = Number(match[1])
+    const to = match[2] === undefined ? from : Number(match[2])
+    if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to)) {
+      continue
+    }
+    ranges.push([Math.min(from, to), Math.max(from, to)])
+  }
+  return ranges
+}
+
+export function parseLineStart(value) {
+  if (!/^\d+$/.test((value ?? '').trim())) {
+    return 1
+  }
+  const parsed = Number.parseInt(value, 10)
+  return Number.isSafeInteger(parsed) ? parsed : 1
+}
+
+function inRanges(ranges, line) {
+  return ranges.some(([from, to]) => line >= from && line <= to)
+}
+
+function lineRows(lineCount, lineStart, highlights) {
+  const rows = []
+  for (let index = 0; index < lineCount; index++) {
+    rows.push(
+      inRanges(highlights, lineStart + index)
+        ? '<span class="is-highlighted"></span>'
+        : '<span></span>'
+    )
+  }
+  return `<span aria-hidden="true" class="line-numbers-rows">${rows.join('')}</span>`
+}
+
+function codeBlock(str, lang, attributes) {
+  if (['drawio', 'kroki', 'mermaid', 'plantuml'].includes(lang)) {
+    /*
+      Left as source, deliberately: the diagram is drawn by the block whose body this fence is
+      (`block-diagram`, `block-plantuml`, `block-kroki`, `block-drawio`), each of which reads
+      the text back out of this `pre`. A fence outside any block keeps the panel the stylesheet
+      gives it, which reads as "a diagram nobody has drawn" rather than as a code sample.
+    */
+    return `<pre class="codeblock-${lang}"><code>${escape(str)}</code></pre>`
+  }
+
+  /*
+    `getLanguage` first, because `hljs.highlight` THROWS on a language it does not know --
+    `ignoreIllegals` only forgives illegal syntax within a language it does. markdown-it takes
+    the first word of a fence's info string as the language name, so a fence whose code starts
+    on the opening line asks for a language called `<!DOCTYPE`, and the throw takes the whole
+    render with it -- an empty preview, and an empty render saved over the stored HTML.
+
+    The fallback must ESCAPE: `str` is the author's raw source, and only hljs escapes what it
+    emits.
+  */
+  const highlighted =
+    lang && hljs.getLanguage(lang)
+      ? hljs.highlight(str, { language: lang, ignoreIllegals: true })
+      : { value: escape(str) }
+  // -> `match` is null, not empty, when the code is a single line with no trailing newline
+  const lineCount = (highlighted.value.match(/\n/g) ?? []).length
+
+  const lineStart = parseLineStart(attributes.linesstart)
+  const highlights = parseLineRanges(attributes.lineshighlight)
+  const numbered = lineCount > 1
+  const rows =
+    numbered || highlights.length > 0 ? lineRows(Math.max(lineCount, 1), lineStart, highlights) : ''
+  const start = lineStart === 1 ? '' : ` data-line-start="${lineStart}"`
+  // -> `lang` is escaped too: it is whatever the author typed after the backticks, and a quote
+  //    in it would otherwise close the attribute and inject markup into the preview
+  // -> A ternary, not `&&`: for a single-line block `&&` short-circuits to the boolean
+  //    `false`, which interpolates as the literal string "false" into the class attribute --
+  //    and this render is both the preview AND what gets saved
+  return `<pre class="codeblock hljs${numbered ? ' line-numbers' : ''}"${start}><code class="language-${escape(lang ?? '')}">${highlighted.value}${rows}</code></pre>`
+}
+
 export class MarkdownRenderer {
   constructor(config = {}) {
     this.md = new MarkdownIt({
@@ -181,45 +286,7 @@ export class MarkdownRenderer {
       breaks: config.lineBreaks,
       linkify: config.linkify,
       typographer: config.typographer,
-      quotes: quoteStyles[config.quotes] ?? quoteStyles.english,
-      highlight(str, lang) {
-        if (['drawio', 'kroki', 'mermaid', 'plantuml'].includes(lang)) {
-          /*
-            Left as source, deliberately: the diagram is drawn by the block whose body this fence is
-            (`block-diagram`, `block-plantuml`, `block-kroki`, `block-drawio`), each of which reads
-            the text back out of this `pre`. A fence outside any block keeps the panel the stylesheet
-            gives it, which reads as "a diagram nobody has drawn" rather than as a code sample.
-          */
-          return `<pre class="codeblock-${lang}"><code>${escape(str)}</code></pre>`
-        } else {
-          /*
-            `getLanguage` first, because `hljs.highlight` THROWS on a language it does not know --
-            `ignoreIllegals` only forgives illegal syntax within a language it does. markdown-it takes
-            the first word of a fence's info string as the language name, so a fence whose code starts
-            on the opening line asks for a language called `<!DOCTYPE`, and the throw takes the whole
-            render with it -- an empty preview, and an empty render saved over the stored HTML.
-
-            The fallback must ESCAPE: `str` is the author's raw source, and only hljs escapes what it
-            emits.
-          */
-          const highlighted =
-            lang && hljs.getLanguage(lang)
-              ? hljs.highlight(str, { language: lang, ignoreIllegals: true })
-              : { value: escape(str) }
-          // -> `match` is null, not empty, when the code is a single line with no trailing newline
-          const lineCount = (highlighted.value.match(/\n/g) ?? []).length
-          const lineNums =
-            lineCount > 1
-              ? `<span aria-hidden="true" class="line-numbers-rows">${'<span></span>'.repeat(lineCount)}</span>`
-              : ''
-          // -> `lang` is escaped too: it is whatever the author typed after the backticks, and a quote
-          //    in it would otherwise close the attribute and inject markup into the preview
-          // -> A ternary, not `&&`: for a single-line block `&&` short-circuits to the boolean
-          //    `false`, which interpolates as the literal string "false" into the class attribute --
-          //    and this render is both the preview AND what gets saved
-          return `<pre class="codeblock hljs${lineCount > 1 ? ' line-numbers' : ''}"><code class="language-${escape(lang ?? '')}">${highlighted.value}${lineNums}</code></pre>`
-        }
-      }
+      quotes: quoteStyles[config.quotes] ?? quoteStyles.english
     })
       .use(mdAttrs, {
         // -> `style` is here for the WYSIWYG editor's text-colour/highlight-colour/font-family/
@@ -360,6 +427,13 @@ export class MarkdownRenderer {
           return `/_assets/svg/twemoji/${icon}.svg`
         }
       })
+    }
+
+    this.md.renderer.rules.fence = (tokens, idx) => {
+      const { lang, attributes } = parseFenceInfo(tokens[idx].info, (value) =>
+        this.md.utils.unescapeAll(value)
+      )
+      return `${codeBlock(tokens[idx].content, lang, attributes)}\n`
     }
 
     // -> For the editor preview's scroll sync

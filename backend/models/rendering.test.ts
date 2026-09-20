@@ -452,6 +452,33 @@ describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #21
  * what belongs here is that `postProcess` wires it in ahead of the real `sanitizeHtml()` pass, so a
  * tag stripped for a missing permission leaves a visible callout rather than silently vanishing.
  */
+describe('rendering.postProcess: fence line rows survive sanitization (OpenProject #3578)', () => {
+  const fence =
+    '<pre class="codeblock hljs line-numbers" data-line-start="30"><code class="language-yaml">a\nb\nc\n' +
+    '<span aria-hidden="true" class="line-numbers-rows"><span></span><span class="is-highlighted"></span><span></span></span></code></pre>'
+
+  test('keeps is-highlighted rows, the line-numbers class and data-line-start without write:styles', async () => {
+    const result = await rendering.postProcess('site-1', fence, { scripts: false, styles: false })
+
+    assert.match(result.render, /<pre class="codeblock hljs line-numbers" data-line-start="30">/)
+    assert.match(result.render, /<span aria-hidden="true" class="line-numbers-rows">/)
+    assert.match(
+      result.render,
+      /<span><\/span><span class="is-highlighted"><\/span><span><\/span><\/span><\/code><\/pre>/
+    )
+  })
+
+  test('strips the inline custom property that data-line-start replaces, so the pin is not a tautology', async () => {
+    const result = await rendering.postProcess(
+      'site-1',
+      '<pre class="codeblock hljs line-numbers" style="--code-line-start: 29"><code>a</code></pre>',
+      { scripts: false, styles: false }
+    )
+
+    assert.doesNotMatch(result.render, /--code-line-start/)
+  })
+})
+
 describe('rendering.postProcess: visible callout for a permission-gated tag (OpenProject #2911)', () => {
   test('replaces an <iframe> with a "write:scripts" callout when the actor lacks the permission', async () => {
     const html = '<p>before</p><iframe src="https://example.com"></iframe><p>after</p>'
