@@ -13,6 +13,14 @@ export const AUDIT_EVENTS = [
   'user.deleted',
   'user.passwordReset',
   'user.tfaDisabledByAdmin',
+  'user.registered',
+  'user.passwordResetRequested',
+  'user.passwordResetCompleted',
+  'user.tfaEnabled',
+  'user.tfaDisabled',
+  'user.passkeyEnrolled',
+  'user.passkeyRemoved',
+  'user.loggedOut',
   'group.created',
   'group.updated',
   'group.deleted',
@@ -110,6 +118,7 @@ export type AuditLogEntry = {
   actor: {
     id: string | null
     name: string
+    email: string
   }
   actorIp: string
   targetType: string
@@ -129,6 +138,7 @@ export type AuditLogPage = {
 export type AuditActor = {
   id: string | null
   name: string
+  email?: string
   ip?: string
 }
 
@@ -139,7 +149,8 @@ export type AuditActor = {
  */
 export function actorFromRequest(req: FastifyRequest): AuditActor {
   if (req.session?.user) {
-    return { id: req.session.user.id, name: req.session.user.name, ip: req.ip }
+    const { id, name, email } = req.session.user
+    return { id, name, ...(email ? { email } : {}), ip: req.ip }
   }
   if (req.apiKey) {
     return { id: null, name: `API Key ${req.apiKey.id}`, ip: req.ip }
@@ -182,6 +193,7 @@ class AuditLog {
         event,
         actorId: actor.id,
         actorName: actor.name,
+        actorEmail: actor.email ?? '',
         actorIp: actor.ip ?? '',
         targetType,
         targetId,
@@ -209,6 +221,7 @@ class AuditLog {
           event: entry.event,
           actorId: entry.actor.id,
           actorName: entry.actor.name,
+          actorEmail: entry.actor.email ?? '',
           actorIp: entry.actor.ip ?? '',
           targetType: entry.targetType ?? '',
           targetId: entry.targetId ?? '',
@@ -256,6 +269,7 @@ class AuditLog {
             event: auditLogTable.event,
             actorId: auditLogTable.actorId,
             actorName: auditLogTable.actorName,
+            actorEmail: auditLogTable.actorEmail,
             actorIp: auditLogTable.actorIp,
             targetType: auditLogTable.targetType,
             targetId: auditLogTable.targetId,
@@ -279,7 +293,8 @@ class AuditLog {
         event: row.event,
         actor: {
           id: row.actorId,
-          name: row.actorName
+          name: row.actorName,
+          email: row.actorEmail
         },
         actorIp: row.actorIp,
         targetType: row.targetType,

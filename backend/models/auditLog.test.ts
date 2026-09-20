@@ -28,9 +28,29 @@ const NEW_EVENTS = [
   'auditLog.purged'
 ] as const satisfies readonly AuditEvent[]
 
+const SELF_SERVICE_EVENTS = [
+  'user.registered',
+  'user.passwordResetRequested',
+  'user.passwordResetCompleted',
+  'user.tfaEnabled',
+  'user.tfaDisabled',
+  'user.passkeyEnrolled',
+  'user.passkeyRemoved',
+  'user.loggedOut'
+] as const satisfies readonly AuditEvent[]
+
 describe('AUDIT_EVENTS / AUDIT_TARGET_TYPES vocabulary (pure)', () => {
   test('AUDIT_EVENTS includes every new system/security/flags/auditLog event', () => {
     for (const event of NEW_EVENTS) {
+      assert.ok(
+        (AUDIT_EVENTS as readonly string[]).includes(event),
+        `AUDIT_EVENTS is missing ${event}`
+      )
+    }
+  })
+
+  test('AUDIT_EVENTS includes every self-service account security event', () => {
+    for (const event of SELF_SERVICE_EVENTS) {
       assert.ok(
         (AUDIT_EVENTS as readonly string[]).includes(event),
         `AUDIT_EVENTS is missing ${event}`
@@ -65,6 +85,20 @@ describe('actorFromRequest (pure)', () => {
     assert.deepEqual(actorFromRequest(req), {
       id: 'user-1',
       name: 'Jane Doe',
+      ip: '203.0.113.5'
+    })
+  })
+
+  test('carries the session user email as the snapshot', () => {
+    const req = {
+      session: { user: { id: 'user-1', name: 'Jane Doe', email: 'jane@example.com' } },
+      apiKey: null,
+      ip: '203.0.113.5'
+    } as unknown as FastifyRequest
+    assert.deepEqual(actorFromRequest(req), {
+      id: 'user-1',
+      name: 'Jane Doe',
+      email: 'jane@example.com',
       ip: '203.0.113.5'
     })
   })
@@ -133,6 +167,22 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
     assert.equal(entries[0]!.actor.name, 'Fixture User')
     assert.equal(entries[0]!.actorIp, '203.0.113.10')
     assert.deepEqual(entries[0]!.detail, { groups: [fixtures.groupId] })
+  })
+
+  test('record() snapshots the actor email, defaulting to an empty string', async () => {
+    await auditLogModel.record({
+      event: 'user.loggedOut',
+      actor: { id: fixtures.userId, name: 'Fixture User', email: 'fixture@example.com' }
+    })
+    await auditLogModel.record({
+      event: 'user.registered',
+      actor: { id: fixtures.userId, name: 'Fixture User' }
+    })
+
+    const withEmail = await auditLogModel.list({ event: 'user.loggedOut' })
+    assert.equal(withEmail.entries[0]!.actor.email, 'fixture@example.com')
+    const without = await auditLogModel.list({ event: 'user.registered' })
+    assert.equal(without.entries[0]!.actor.email, '')
   })
 
   test('list() filters by event and by actor', async () => {

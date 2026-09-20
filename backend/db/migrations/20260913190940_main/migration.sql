@@ -59,6 +59,7 @@ CREATE TABLE "auditLog" (
 	"event" varchar(64) NOT NULL,
 	"actorId" uuid,
 	"actorName" varchar(255) DEFAULT '' NOT NULL,
+	"actorEmail" varchar(255) DEFAULT '' NOT NULL,
 	"actorIp" varchar(64) DEFAULT '' NOT NULL,
 	"targetType" varchar(32) DEFAULT '' NOT NULL,
 	"targetId" varchar(255) DEFAULT '' NOT NULL,

@@ -1018,7 +1018,8 @@ async function routes(app: FastifyInstance) {
           userId,
           strategyId: req.body.strategyId,
           continuationToken: req.body.continuationToken,
-          securityCode: req.body.securityCode
+          securityCode: req.body.securityCode,
+          ip: req.ip
         })
         return {
           ok: true,
@@ -1059,7 +1060,7 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
 
       try {
-        await CARDINAL.models.userCredentials.disableTfa(userId, req.params.strategyId)
+        await CARDINAL.models.userCredentials.disableTfa(userId, req.params.strategyId, req.ip)
       } catch (err: any) {
         rethrowAsBadRequest(err)
       }
@@ -1257,6 +1258,14 @@ async function routes(app: FastifyInstance) {
           registrationResponse: req.body.registrationResponse as any,
           pending: req.session.passkeyRegistration
         })
+        await CARDINAL.models.auditLog.record({
+          event: 'user.passkeyEnrolled',
+          actor: actorFromRequest(req),
+          targetType: 'user',
+          targetId: userId,
+          targetLabel: passkey.name.slice(0, 255),
+          detail: { passkeyId: passkey.id }
+        })
         return {
           ok: true,
           passkey
@@ -1299,9 +1308,20 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
+      const removed = (await CARDINAL.models.passkeys.list(userId)).find(
+        (pk) => pk.id === req.params.passkeyId
+      )
       if (!(await CARDINAL.models.passkeys.remove(userId, req.params.passkeyId))) {
         return reply.notFound('You have no passkey with this ID.')
       }
+      await CARDINAL.models.auditLog.record({
+        event: 'user.passkeyRemoved',
+        actor: actorFromRequest(req),
+        targetType: 'user',
+        targetId: userId,
+        targetLabel: (removed?.name ?? '').slice(0, 255),
+        detail: { passkeyId: req.params.passkeyId }
+      })
       return reply.code(204).send()
     }
   )

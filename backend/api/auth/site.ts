@@ -444,7 +444,8 @@ async function routes(app: FastifyInstance) {
         await CARDINAL.models.login.forgotPassword({
           strategyId: req.body.strategyId,
           email: req.body.email,
-          siteId: req.params.siteId
+          siteId: req.params.siteId,
+          ip: req.ip
         })
       } catch (err: any) {
         // -> Swallowed: even an unexpected failure must be indistinguishable from success, or this
@@ -866,6 +867,13 @@ async function routes(app: FastifyInstance) {
         )
         // -> No site context: `req.params.siteId` is only the login page the user logged out from,
         //    not a scope for the account, and a site-scoped hook must not receive this
+        await CARDINAL.models.auditLog.record({
+          event: 'user.loggedOut',
+          actor: { id: user.id, name: user.name, email: user.email, ip: req.ip },
+          targetType: 'user',
+          targetId: user.id,
+          targetLabel: user.email
+        })
         await CARDINAL.models.hooks.emit('user:logout', null, {
           userId: user.id,
           ip: req.ip,

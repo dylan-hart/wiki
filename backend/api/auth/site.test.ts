@@ -275,7 +275,8 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
       strategyId: '11111111-1111-1111-1111-111111111111',
       email: 'ada@example.com',
       // -> So the mailed link can point at the requesting site's own hostname
-      siteId: '22222222-2222-2222-2222-222222222222'
+      siteId: '22222222-2222-2222-2222-222222222222',
+      ip: '127.0.0.1'
     })
   })
 
@@ -497,6 +498,71 @@ describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
     assert.match(header, /Path=\//)
     assert.match(header, /SameSite=Lax/i)
     assert.ok(!header.includes('Secure'), 'plain-HTTP mode must not mark the cookie Secure')
+  })
+})
+
+describe('POST /sites/:siteId/auth/logout — audit log', () => {
+  let app: FastifyInstance
+  let record: ReturnType<typeof mock.fn>
+
+  async function buildApp(session: Record<string, any>) {
+    record = mock.fn(async () => {})
+    wikiHandle = installTestWiki({
+      config: { security: { cookieSecure: true } },
+      models: {
+        flags: { authDebug: () => {} },
+        login: { getLogoutRedirect: async () => '/' },
+        hooks: { emit: async () => 0 },
+        auditLog: { record }
+      }
+    })
+    return buildTestApp({
+      routes: withCookies,
+      session: () => ({ ...session, destroy: async () => {} })
+    })
+  }
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  test('a logged-in session records user.loggedOut for the account, with its email snapshot', async () => {
+    app = await buildApp({
+      authenticated: true,
+      user: { id: 'user-1', name: 'Ada Lovelace', email: 'ada@example.com' }
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sites/11111111-1111-1111-1111-111111111111/auth/logout'
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(record.mock.calls.length, 1)
+    const entry = record.mock.calls[0]!.arguments[0] as any
+    assert.equal(entry.event, 'user.loggedOut')
+    assert.deepEqual(entry.actor, {
+      id: 'user-1',
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      ip: '127.0.0.1'
+    })
+    assert.equal(entry.targetId, 'user-1')
+  })
+
+  test('a request with no session records nothing', async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+    app = await buildApp({ authenticated: false })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sites/11111111-1111-1111-1111-111111111111/auth/logout'
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(record.mock.calls.length, 0)
   })
 })
 
