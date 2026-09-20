@@ -27,44 +27,33 @@ export const useEditorStore = defineStore('editor', {
     editors: {},
     configIsLoaded: false,
     /*
-      Per-user editor preferences (Markdown's `previewShown` / `fontSize` today), keyed by editor.
-      Deliberately its own slice rather than folded into `editors` above: that one is site-level
-      config, the same for every user editing this site, where this is a single user's own choices.
+      Keyed by editor. Its own slice rather than folded into `editors` above: that one is site-level
+      config, the same for every user editing this site, where this is one user's own choices.
     */
     userSettings: {},
     reasonForChange: '',
     ignoreRouteChange: false,
     pendingAssets: [],
     /**
-     * A synchronous read-through into the mounted editor's own live content, set by the editor
-     * component (`EditorMarkdown.vue`) on mount and cleared on unmount. Null whenever no editor is
-     * mounted -- a scripted `pageSave()` call, for instance.
+     * A synchronous read-through into the mounted editor's live content, set by the editor component
+     * on mount and cleared on unmount. Null whenever no editor is mounted.
      *
-     * `pageStore.pageSave()` calls this before building its save payload rather than trusting
-     * `content`/`render` as this store already has them: the editor only syncs those in on a 500ms
-     * debounce (see `EditorMarkdown.vue`'s `onDidChangeModelContent` handler), so a save issued right
-     * after an edit -- pasting an image and saving immediately, before that debounce has fired, is what
-     * surfaced this (OpenProject #806) -- could otherwise read a stale pair and send a dead `blob:` URL
-     * to the server. Deliberately a bare function reference rather than an action: what it does is
-     * entirely the mounted editor's own business, not this store's.
+     * `pageStore.pageSave()` calls it before building its payload rather than trusting
+     * `content`/`render` as this store has them: the editor only syncs those in on a 500ms debounce,
+     * so a save issued right after an edit could otherwise send a dead `blob:` URL to the server.
+     * A bare function reference rather than an action -- what it does is the editor's own business.
      */
     contentFlusher: null,
     /**
-     * The page as the server now has it, when a save was refused because somebody else saved first.
-     *
-     * Set by `pageSave()` in `stores/page.js` on a 409 reply, whose body is `{ updatedAt, title,
-     * content, authorName }` -- and read by `EditorMarkdown.vue`, which watches it to put up the
-     * resolution dialog. Null the rest of the time, which is what the watcher gates on.
+     * The server's copy of the page, set on a 409 save reply (body: `{ updatedAt, title, content,
+     * authorName }`) and watched by `EditorMarkdown.vue` to raise the resolution dialog. Null the
+     * rest of the time, which is what that watcher gates on.
      */
     saveConflict: null,
     /**
-     * The author's own pending content, stashed immediately before a save-conflict "Discard" choice
-     * overwrites it with the server's snapshot (OpenProject #2073) -- a sibling of `saveConflict`
-     * above: that field is the server's copy offered during the choice, this is the author's copy
-     * discarded by it. `EditorMarkdown.vue` stashes it via `stashDiscardedContent()` right before the
-     * overwrite, and offers it back through an "undo" action on the toast that follows -- restoring
-     * it into both `pageStore.content` and the live Monaco model, then clearing it via
-     * `clearDiscardedContent()`. Null whenever nothing is currently offered back.
+     * Sibling of `saveConflict`: that is the server's copy offered during a save conflict, this is
+     * the author's copy a "Discard" choice overwrote, held so the follow-up toast can offer an undo.
+     * Null whenever nothing is on offer.
      */
     discardedContent: null
   }),
@@ -75,40 +64,28 @@ export const useEditorStore = defineStore('editor', {
   },
   actions: {
     /**
-     * Record that the editor holds nothing the reader has not saved.
+     * `hasPendingChanges` is exactly "these two timestamps differ", so equalizing them IS the editor
+     * being clean.
      *
-     * `hasPendingChanges` above is exactly "these two timestamps differ", so equalizing them IS the
-     * editor being clean -- which is what starting a session (`pageLoad`, `pageCreate`,
-     * `pageSuggest`) and finishing a save (`pageSave`) each mean by it. Every one of those has some
-     * further patch of its own to make in the same breath, which `extra` carries so the session's
-     * mode and the timestamps land together rather than as two renders.
-     *
-     * @param {object} [extra] Merged into the same `$patch`.
+     * @param {object} [extra] Merged into the same `$patch`, so a caller's own state change lands
+     *   with the timestamps in one render rather than two.
      */
     markClean(extra) {
       const curDate = Temporal.Now.instant()
       this.$patch({ lastChangeTimestamp: curDate, lastSaveTimestamp: curDate, ...extra })
     },
     /**
-     * Record that the reader has changed something since the last save.
-     *
-     * The counterpart to `markClean`, and what every editor component calls when its own content,
-     * title, tags or path changed -- rather than writing `lastChangeTimestamp` bare, which leaves
-     * eight files each having to know which of the two timestamps means "dirty".
+     * What an editor component calls when content, title, tags or path changed -- rather than
+     * writing `lastChangeTimestamp` bare, which would spread "which timestamp means dirty" around.
      */
     markDirty() {
       this.lastChangeTimestamp = Temporal.Now.instant()
     },
     /**
-     * Fetch the editor configs unless they are already loaded, but always refresh the glossary term
-     * list regardless (OpenProject #2789).
-     *
-     * Every editor-session entry point in `stores/page.js` needs them and none of them wants a
-     * second request for a site whose configs are already in hand -- but a glossary term added or
-     * edited after this session's first editor open must still show up the next time an editor
-     * session starts, not only after a full page reload. `configIsLoaded` intentionally gates only
-     * the rest of the markdown editor's config (tab width, quote style, ...), which changes far less
-     * often and is not worth a request on every editor open.
+     * `configIsLoaded` deliberately gates only the editor config proper (tab width, quote style,
+     * ...), which rarely changes. The glossary term list refreshes on every call regardless: a term
+     * added or edited mid-session has to show up the next time an editor opens, not only after a
+     * full page reload.
      */
     async ensureConfigs() {
       if (!this.configIsLoaded) {
@@ -118,16 +95,11 @@ export const useEditorStore = defineStore('editor', {
       }
     },
     /**
-     * `generateUniqueName` forces a fresh, collision-proof name even for a `File` instance whose own
-     * `name` would otherwise be trusted verbatim.
-     *
-     * Needed for a pasted image specifically (OpenProject #806 follow-up): every browser hands a
-     * clipboard-pasted image file the same literal name, "image.png", regardless of what it actually
-     * is -- so trusting `data.name` there means every paste on every page uploads to the same asset
-     * path, and the site's default overwrite conflict behavior makes each one clobber the last. A
-     * dropped file's name IS meaningful user intent (e.g. "quarterly-report.pdf") and must still be
-     * preserved, which is why this defaults to off and is opt-in per call rather than keyed off
-     * `data instanceof File` the way `kind` already is.
+     * `generateUniqueName` overrides a `File`'s own `name`, which is otherwise trusted verbatim.
+     * Browsers name every clipboard-pasted image "image.png", so trusting that name would upload
+     * every paste in the wiki to one asset path, each clobbering the last. It is opt-in per call
+     * rather than keyed off `data instanceof File`, because a DROPPED file's name is real user
+     * intent and must be preserved.
      */
     addPendingAsset(data, { generateUniqueName = false } = {}) {
       const blobUrl = URL.createObjectURL(data)
@@ -140,8 +112,7 @@ export const useEditorStore = defineStore('editor', {
           blobUrl
         })
       } else if (data instanceof File) {
-        // -> Trust only the extension off the browser-supplied name (or fall back to the mime table,
-        //    same as the blob branch below), mint a fresh unique name for everything else
+        // -> Only the extension is taken from the browser-supplied name; the rest is minted fresh
         const dotIndex = data.name.lastIndexOf('.')
         const ext = dotIndex > 0 ? data.name.slice(dotIndex + 1) : imgMimeExt[data.type] || 'dat'
         const fileId = uuid()
@@ -159,10 +130,8 @@ export const useEditorStore = defineStore('editor', {
         this.pendingAssets.push({
           id: fileId,
           kind: 'blob',
-          // -> The `File` constructor takes an ITERABLE of BlobParts, not a bare `Blob` -- `data`
-          //    wrapped in an array is what a raw Blob (e.g. canvas `toBlob` output) needs here;
-          //    passing it directly threw `The "sources" argument must be a sequence`
-          //    (OpenProject #952).
+          // -> The `File` constructor takes an ITERABLE of BlobParts: passing a bare `Blob` throws
+          //    `The "sources" argument must be a sequence`
           file: new File([data], fileName, { type: data.type }),
           fileName,
           blobUrl
@@ -176,8 +145,7 @@ export const useEditorStore = defineStore('editor', {
         if (!siteStore.id) {
           throw new Error('ERR_MISSING_SITE_ID')
         }
-        // -> The editor configs are part of the site config, which is one request rather than a
-        //    dedicated endpoint
+        // -> The editor configs come back inside the site config; there is no dedicated endpoint
         const siteInfo = await API_CLIENT.get(`sites/${siteStore.id}`).json()
         this.$patch({
           editors: {
@@ -187,7 +155,6 @@ export const useEditorStore = defineStore('editor', {
           },
           configIsLoaded: true
         })
-        // -> Folded in separately, but as part of the same initial load -- see `refreshGlossaryTerms`
         await this.refreshGlossaryTerms()
       } catch (err) {
         log.warn('editor', 'could not load the editor configuration', err)
@@ -195,16 +162,9 @@ export const useEditorStore = defineStore('editor', {
       }
     },
     /**
-     * Re-fetches the resolved glossary term list and folds it into the markdown editor's own config
-     * bag, independent of `configIsLoaded` (OpenProject #870, #2789).
-     *
-     * Not fetched separately at each `MarkdownRenderer` call site, since every one of those already
-     * reads `editorStore.editors.markdown` for its config -- but also not gated behind
-     * `configIsLoaded` the way the rest of that config is: a term added, edited or deleted after this
-     * SPA session's first editor open has to be visible the next time an editor session starts
-     * (`ensureConfigs()`, called by every entry point in `stores/page.js`), not only after a full page
-     * reload. The backend route this calls is itself cached and invalidated on every glossary write,
-     * so this is a cheap request, not a full re-fetch of the term list from the database each time.
+     * Folded into the markdown editor's config bag, because every renderer call site already reads
+     * that for its config. The route behind it is cached server-side and invalidated on each
+     * glossary write, so calling this on every editor open is cheap rather than a full re-read.
      */
     async refreshGlossaryTerms() {
       const siteStore = useSiteStore()
@@ -218,18 +178,15 @@ export const useEditorStore = defineStore('editor', {
           glossaryTerms: glossaryTerms ?? []
         }
       } catch (err) {
-        // -> Not fatal to opening the editor: worst case the term list is whatever this session
-        //    already had (possibly none), the same degrade-to-plain-text behavior an empty glossary
-        //    always has.
+        // -> Not fatal to opening the editor: the term list stays whatever this session already had,
+        //    which degrades to plain text exactly as an empty glossary does
         log.warn('editor', 'could not refresh the glossary term list', err)
       }
     },
     /**
-     * This user's saved preferences for one editor, e.g. Markdown's `previewShown` / `fontSize`.
-     *
-     * Session-scoped like the endpoint it calls: no site id to pass, and nothing to wait on before
-     * asking, unlike `fetchConfigs()` above. An empty object is the correct answer for a user who has
-     * never saved anything for this editor, so it patches in as-is rather than being special-cased.
+     * Session-scoped like the endpoint it calls: no site id to pass and nothing to wait on, unlike
+     * `fetchConfigs()`. An empty object is the right answer for a user who has saved nothing for
+     * this editor, so it patches in as-is.
      */
     async fetchUserSettings(editor = 'markdown') {
       try {
@@ -247,18 +204,10 @@ export const useEditorStore = defineStore('editor', {
         throw err
       }
     },
-    /**
-     * Stashes the author's pending content before a save-conflict "Discard" choice overwrites it --
-     * see `discardedContent` above. Overwrites any content already stashed: only the most recent
-     * discard is ever offered back.
-     */
+    /** Overwrites anything already stashed: only the most recent discard is ever offered back. */
     stashDiscardedContent(content) {
       this.discardedContent = content
     },
-    /**
-     * Clears the stashed content -- called once it has been restored via the undo action, or once a
-     * fresh discard/save has made offering it back stale.
-     */
     clearDiscardedContent() {
       this.discardedContent = null
     }

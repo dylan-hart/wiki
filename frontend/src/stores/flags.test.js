@@ -27,9 +27,9 @@ describe('flags store: load()', () => {
     const store = useFlagsStore()
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(null) })
 
-    // -> The KEY, not the English behind it: `boot/i18n.js` boots with no messages loaded, so a
-    //    store translating outside the app resolves to the key -- which is what a reader would see
-    //    on any screen drawn before the locale has landed, and is what this path must not crash on.
+    // -> The KEY, not the English behind it: `boot/i18n.js` starts with no messages loaded, so a
+    //    store translating outside the app resolves to the key -- what a reader sees on any screen
+    //    drawn before the locale has landed
     await expect(store.load()).rejects.toThrow('admin.flags.loadFailed')
     expect(store.loaded).toBe(false)
   })
@@ -53,7 +53,6 @@ describe('flags store: apply()', () => {
 
     expect(store.loaded).toBe(true)
     expect(store.experimental).toBe(true)
-    // -> Flags not present in the payload keep their prior (default) value
     expect(store.authDebug).toBe(false)
   })
 })

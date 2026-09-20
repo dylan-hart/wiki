@@ -1,14 +1,11 @@
 // Vendored from markdown-it-task-lists 2.1.1 (https://github.com/revin/markdown-it-task-lists),
-// converted to ESM (OpenProject #3168 -- see docs/decisions/markdown-it-task-lists-vendoring.md).
-// Upstream is abandoned (last published 2018-03-06, repo last pushed 2022-06) but its checkbox
-// markup is load-bearing for this fork's styling and tiptap task-list extensions, per the
-// 2026-08-22 #1180 decision to keep it rather than switch to `@mdit/plugin-tasklist`.
+// converted to ESM. Upstream is abandoned, but its checkbox markup is load-bearing for this fork's
+// styling and tiptap task-list extensions.
 //
 // One functional change from upstream: `disableCheckboxes` / `useLabelWrapper` / `useLabelAfter`
-// were module-level `var`s shared by every MarkdownIt instance that `.use()`d this plugin -- two
-// renderer instances configured with different options would silently share whichever instance
-// was configured LAST. Moved into the plugin closure below so each `.use(taskLists, options)` call
-// gets its own. Everything else -- including the exact HTML each helper emits -- is unchanged.
+// live in the plugin closure rather than at module level, so two MarkdownIt instances `.use()`-ing
+// this plugin with different options no longer share whichever was configured LAST. The HTML each
+// helper emits is unchanged.
 //
 // ---
 // ISC License
@@ -103,8 +100,6 @@ export default function markdownItTaskLists(md, options) {
     return checkbox
   }
 
-  // these next two functions are kind of hacky; probably should really be a
-  // true block-level token with .tag=='label'
   function beginLabel(TokenConstructor) {
     const token = new TokenConstructor('html_inline', '', 0)
     token.content = '<label>'
@@ -133,7 +128,6 @@ export default function markdownItTaskLists(md, options) {
       if (useLabelAfter) {
         token.children.pop()
 
-        // Use large random number as id property of the checkbox.
         const id = 'task-item-' + Math.ceil(Math.random() * (10000 * 1000) - 1000)
         token.children[0].content = token.children[0].content.slice(0, -1) + ' id="' + id + '">'
         token.children.push(afterLabel(token.content, id, TokenConstructor))

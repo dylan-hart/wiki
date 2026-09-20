@@ -1,64 +1,32 @@
 /**
- * A purpose-built replacement for `markdown-it-multimd-table` (OpenProject #3110). That plugin has
- * had no release since Aug 2023 and calls a `md.utils.assign` helper markdown-it itself dropped in
- * v14 -- `.use()`-ing it at all used to require a process-wide `md.utils.assign ??= Object.assign`
- * shim just to keep the constructor from throwing. This module needs no shim: it is written directly
- * against markdown-it 15's own block-rule API (`state.push`, `token.attrSet`, `md.block.ruler`).
+ * Replaces `markdown-it-multimd-table`, unmaintained and calling a `md.utils.assign` helper
+ * markdown-it dropped in v14. Written against markdown-it 15's own block-rule API instead.
  *
- * Covers exactly the three MultiMarkdown table features `renderers/markdown.js` turns on
- * (`multiline`/`rowspan`/`headerless`, each individually toggleable via `options` though the caller
- * always enables all three) -- a plain pipe table with none of them is already handled by
- * markdown-it's own built-in `table` rule, which is why this plugin only runs at all when
- * `config.multimdTable` is on, and disables that built-in rule for the whole instance the moment it
- * does (see the constructor comment below): the two must never both try to claim the same lines.
+ * MultiMarkdown table syntax, which the code alone does not spell out:
  *
- * Syntax, in the order a table is read:
+ * - **colspan**: extra empty pipe cells after the spanning one (`| A |||`). Every row must still
+ *   declare the same NUMBER of cells, placeholders included, so column positions line up.
+ * - **rowspan**: `^^` in the row below, tied to the cell above by column position (not rendered
+ *   position, since a colspan placeholder keeps its slot). Chains further down.
+ * - **multiline**: an unescaped trailing `\` continues the WHOLE row, not one cell -- each column's
+ *   piece on the next physical line is appended to the SAME column's, joined by `\n`. A cell that
+ *   ends up with an embedded newline renders as a real `<p>`; every other cell stays bare inline
+ *   content, as markdown-it's built-in rule does.
+ * - **headerless**: the table's very first row is the separator.
+ * - **caption**: a lone `[Some text]` line above or below the table, emitted in that authored
+ *   position. `_page-contents.css` places a bottom caption visually last off the
+ *   `caption-side: bottom` style set here, so token order need not match.
  *
- * - **A cell spanning several columns** is written as extra, otherwise-empty pipe cells immediately
- *   after the spanning one -- `| A |||` is one 3-column header row whose only real cell is "A". Every
- *   row in the table (header, separator, and every body row) must still declare the same NUMBER of
- *   pipe-delimited cells, empty placeholders included, so a later row's column position lines up with
- *   the header's regardless of how many of its neighbours it has swallowed.
- * - **A cell spanning several rows** is written as `^^` in the row below the one it extends -- the
- *   column position (not the rendered position, since colspan doesn't remove a placeholder's slot)
- *   is what ties it to the cell directly above. A `^^` may itself be followed by another `^^` one row
- *   further down, extending the same top cell again.
- * - **A cell continuing onto the next line** is signalled by an unescaped `\` as the very last
- *   character of an otherwise-finished row -- MultiMarkdown's own "this row isn't done yet" marker.
- *   It continues the WHOLE row, not one cell: every column's piece on the next physical line is
- *   appended to the SAME column's piece already read, joined by `\n`. A cell that ends up with an
- *   embedded newline this way renders as a real `<p>`, exactly as authoring two lines inside a real
- *   `<td>` would -- every other cell (the overwhelmingly common case) renders as bare inline content,
- *   with no paragraph wrapper, the same as markdown-it's own built-in table rule.
- * - **A table with no header row** is one whose very FIRST row is the separator (`---|---`) rather
- *   than a row of header text above it -- there is no ambiguity to resolve, since a separator row's
- *   own shape (only `-`, `:` and whitespace in every cell) never collides with real cell content.
- * - **A caption** is a single line reading `[Some text]` and nothing else, authored either
- *   immediately above the table's first line or immediately below its last row. It renders as
- *   `caption_open`/`inline`/`caption_close` in that same authored position -- naturally above the
- *   rows for a top caption, naturally after them for a bottom one -- rather than the old plugin's own
- *   quirk of always emitting it as the table's first child regardless of which end it was authored
- *   on. That was a limitation of the old plugin, not a shape `renderers/markdown.js`'s retagging (or
- *   `_page-contents.css`'s `order: 1` rule for a bottom caption, keyed off the `caption-side: bottom`
- *   style this plugin still sets) actually needs: both already place a bottom caption at the visual
- *   end of the grid by CSS order, regardless of where its own tokens sit in the document.
- *
- * Token shape matches markdown-it's own built-in `table` rule exactly --
- * `table_open`/`thead_open`/`tr_open`/`th_open`/`td_open`/`tbody_open`/`table_close`, each with a
- * `.map` source line range -- so `renderers/markdown.js`'s CSS-Grid retagging rules (`table_open` ->
- * `<div role="table">`, `th_open`/`td_open` -> `<div role="columnheader"/"cell">`, the
- * `colspan`/`rowspan` -> `aria-colspan`/`aria-rowspan` rename, the `caption_open` -> `.table-caption`
- * rule) all apply unchanged, having no idea which rule produced the tokens underneath them.
+ * Token shape matches markdown-it's built-in `table` rule exactly, so `renderers/markdown.js`'s
+ * CSS-Grid retagging applies unchanged, unaware of which rule produced the tokens.
  */
 
 const CAPTION_RE = /^\[(.+)\]\s*$/
 const SEPARATOR_CELL_RE = /^:?-+:?$/
 
 /**
- * Splits a table row's already-fetched line text on unescaped `|` -- ported directly from
- * markdown-it's own built-in `table` rule (`escapedSplit`), since a cell containing a literal `\|`
- * (an escaped pipe, meant as content rather than a column boundary) has to keep working the same way
- * it always has for a plain pipe table.
+ * Ported from markdown-it's own built-in `table` rule, so an escaped `\|` inside a cell keeps
+ * behaving the way it does for a plain pipe table.
  */
 function escapedSplit(str) {
   const result = []
@@ -92,8 +60,7 @@ function getLine(state, line) {
 }
 
 /**
- * One physical line's cells, trimmed -- a leading/trailing pipe (the normal, but optional, way to
- * bound a row) is dropped; an EMPTY middle cell is kept, since that is exactly what a colspan
+ * A leading/trailing pipe is dropped; an EMPTY middle cell is kept -- that is what a colspan
  * placeholder looks like once split.
  */
 function splitCells(text) {
@@ -128,19 +95,15 @@ export default function markdownItTable(md, options = {}) {
   const headerlessEnabled = options.headerless !== false
 
   /*
-    The built-in `table` rule and this one must never both try to own the same lines -- there is no
-    scenario where a headered, non-spanning, single-line-cell table (the only shape the built-in rule
-    understands) shouldn't ALSO be readable by this superset. Disabling it for the whole markdown-it
-    instance is what `renderers/markdown.js`'s own `if (config.multimdTable)` branch already
-    guarantees only happens when this plugin is actually `.use()`-d.
+    The built-in `table` rule and this one must never both claim the same lines, and this rule is a
+    superset of it. Disabling it instance-wide is safe because `renderers/markdown.js` only
+    `.use()`s this plugin when `config.multimdTable` is on.
   */
   md.block.ruler.disable('table')
 
   /**
-   * Whether `line` begins a valid table (headered or headerless), without consuming anything -- used
-   * both for the real parse and, one line further ahead, to decide whether a `[Caption]` line is
-   * genuinely a caption authored above a table or just a paragraph that happens to start with
-   * brackets.
+   * Consumes nothing, so a `[Caption]` line can be tested one line ahead against a real table
+   * rather than being mistaken for a paragraph that merely starts with brackets.
    */
   function detectTableShape(state, line, endLine) {
     if (line >= endLine) return null
@@ -179,10 +142,8 @@ export default function markdownItTable(md, options = {}) {
   }
 
   /**
-   * One logical row starting at `line`, following a trailing, unescaped `\` onto as many following
-   * physical lines as keep ending in one. Each physical line's cells are trimmed before being joined
-   * with `\n`, so a genuinely continued cell never has stray trailing whitespace sitting in front of
-   * the line break.
+   * Each physical line's cells are trimmed before being joined with `\n`, so a continued cell never
+   * carries stray trailing whitespace in front of the line break.
    */
   function readLogicalRow(state, line, endLine) {
     let merged = null
@@ -213,8 +174,6 @@ export default function markdownItTable(md, options = {}) {
 
   function pushCellContent(state, content) {
     if (content.includes('\n')) {
-      // -> A cell that grew from more than one physical line renders as a real paragraph, the same as
-      //    authoring two lines inside a real `<td>` would -- see the module doc comment.
       state.push('paragraph_open', 'p', 1)
       const inline = state.push('inline', '', 0)
       inline.content = content
@@ -228,12 +187,9 @@ export default function markdownItTable(md, options = {}) {
   }
 
   /**
-   * Emits one row's `th_open`/`td_open` cells, resolving `|||`-style colspan placeholders and (for a
-   * body row, when `previousColumnMap` is given) `^^` rowspan markers against it.
-   *
-   * @returns {Array} This row's own column map -- index `i` holds the `{ token, colspan, rowspan }`
-   *          of whichever cell visually occupies column `i`, whether it was created in this row or
-   *          inherited via `^^` -- for the NEXT row's own `^^` lookups to chain against.
+   * @returns {Array} Column map: index `i` holds the `{ token, colspan, rowspan }` of whichever cell
+   *          visually occupies column `i`, created here or inherited via `^^`, for the NEXT row's
+   *          own `^^` lookups to chain against.
    */
   function pushRow(state, cells, aligns, tag, colCount, previousColumnMap) {
     const columnMap = Array.from({ length: colCount }, () => null)

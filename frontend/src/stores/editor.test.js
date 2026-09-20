@@ -67,10 +67,6 @@ describe('editor store: fetchUserSettings()', () => {
   })
 })
 
-/**
- * OpenProject #870: the resolved glossary term list is fetched alongside the site's editor config and
- * folded into `editors.markdown`, since that is what every `MarkdownRenderer` call site already reads.
- */
 describe('editor store: fetchConfigs() glossary terms (OpenProject #870)', () => {
   it("folds the resolved glossary terms into the markdown editor's config", async () => {
     const siteStore = useSiteStore()
@@ -113,14 +109,6 @@ describe('editor store: fetchConfigs() glossary terms (OpenProject #870)', () =>
   })
 })
 
-/*
- * OpenProject #2789: a glossary term added or edited after this SPA session's first editor open used
- * to never appear in that session again, however many times an editor was subsequently opened --
- * `ensureConfigs()` treated the whole editor config bag, glossary terms included, as a one-time-per-
- * session fetch behind `configIsLoaded`. `refreshGlossaryTerms()` is fetched every time instead, since
- * the backend route it calls is itself cached and cheap, and a stale term list here is indistinguishable
- * from "zero rendered markup" to a reader -- the very symptom reported.
- */
 describe('editor store: ensureConfigs() keeps the glossary term list fresh (OpenProject #2789)', () => {
   it('fetches the full config on the first call, when nothing is loaded yet', async () => {
     const siteStore = useSiteStore()
@@ -178,7 +166,7 @@ describe('editor store: ensureConfigs() keeps the glossary term list fresh (Open
     await store.ensureConfigs()
     expect(store.editors.markdown.glossaryTerms).toEqual([])
 
-    // -> An administrator adds a term to the glossary, in the same SPA session, no page reload
+    // -> A term is added to the glossary in the same SPA session, with no page reload
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve([
@@ -219,14 +207,6 @@ describe('editor store: ensureConfigs() keeps the glossary term list fresh (Open
   })
 })
 
-/*
-  OpenProject #806 follow-up: every browser hands a clipboard-pasted file the same literal name,
-  "image.png", so every paste on every page used to upload to the same asset path -- and the site's
-  default overwrite conflict behavior made each one clobber the last, leaving every pasted image
-  rendering as whichever one was pasted most recently. `generateUniqueName` is the paste path's opt-in
-  into the unique-naming the sibling non-File (raw blob) branch already had; a drop must NOT opt in,
-  since a dropped file's name is real user intent ("quarterly-report.pdf") worth keeping.
-*/
 describe('editor store: addPendingAsset() (OpenProject #806 follow-up)', () => {
   it('mints a unique fileName for each pasted File, ignoring the identical browser-supplied name', () => {
     const store = useEditorStore()
@@ -264,12 +244,9 @@ describe('editor store: addPendingAsset() (OpenProject #806 follow-up)', () => {
 })
 
 /**
- * OpenProject #952: the `File` constructor takes an ITERABLE of BlobParts, not a bare `Blob` --
- * `new File(data, fileName, ...)` with a raw Blob threw `The "sources" argument must be a sequence`
- * rather than queuing it. This branch is currently dead in the app (the only caller,
- * `EditorMarkdown.vue`'s paste/drop handling, always passes real `File` instances), but the moment
- * any future caller hands it a raw Blob (e.g. canvas `toBlob()` output), it must queue successfully
- * rather than throw.
+ * This branch is unreachable from the app today -- the only caller always passes real `File`
+ * instances -- so these are the only thing keeping it working for a caller that hands it a raw Blob
+ * (canvas `toBlob()` output, say).
  */
 describe('editor store: addPendingAsset() Blob branch (OpenProject #952)', () => {
   it('queues a raw (non-File) Blob without throwing', () => {
@@ -305,11 +282,6 @@ describe('editor store: addPendingAsset() Blob branch (OpenProject #952)', () =>
   })
 })
 
-/**
- * OpenProject #2073: a save-conflict "Discard" choice must not make the author's own pending content
- * unrecoverable. `discardedContent` is where `EditorMarkdown.vue` stashes it right before overwriting
- * the editor with the server's snapshot, so the toast that follows can offer it straight back.
- */
 describe('editor store: discardedContent (OpenProject #2073)', () => {
   it('defaults to null, so no toast offers an undo with nothing behind it', () => {
     const store = useEditorStore()

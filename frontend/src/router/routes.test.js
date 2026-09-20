@@ -4,12 +4,6 @@ import routes from './routes.js'
 
 import { buildTestRouter } from '../../test/router.js'
 
-/**
- * Regression test for wiring the admin Comments page into the router (Task 614, Feature 394 --
- * "Admin comments management UI rebuild"). Before this the `:siteid/comments` child route did not
- * exist at all, so the sidebar link in `AdminLayout.vue` pointed at a path Vue Router had no match
- * for -- following it landed on the catch-all rather than a rendering page.
- */
 describe('admin routes', () => {
   const adminRoute = routes.find((route) => route.path === '/_admin')
   const siteChildren = adminRoute.children
@@ -25,24 +19,11 @@ describe('admin routes', () => {
 
     const loaded = await commentsRoute.component()
 
-    // -> `typeof loaded.default.setup` (a `<script setup>` component), not `.data` (the pre-3.x
-    //    Options API shape this page was rewritten out of by Task 621) -- updated here since Task
-    //    621 changed the component's shape without touching this assertion.
     expect(typeof loaded.default).toBe('object')
     expect(typeof loaded.default.setup).toBe('function')
   })
 })
 
-/**
- * Regression test for OpenProject #812: `/_edit/:pagePath?` had no wildcard, so vue-router only ever
- * captured one path segment -- editing a page at a nested path (e.g. "docs/setup") fell through to the
- * catch-all route instead, with `route.params.pagePath` coming back `undefined`.
- *
- * `pagePath` is handed straight to `pageStore.pageEdit({ path })` as a plain string (see `Index.vue`'s
- * route watcher), so the fix uses a custom regex (`(.*)`) rather than the `*` repeat modifier the
- * standard page catch-all route uses below -- `*` would turn the param into an array of segments
- * instead, which `pageEdit` does not expect.
- */
 describe('edit route', () => {
   const router = buildTestRouter(routes)
 
@@ -68,12 +49,9 @@ describe('edit route', () => {
 })
 
 /**
- * Regression coverage for OpenProject #3343: `AdminPageEyebrow.vue`'s sectionKey used to infer
- * site-scoping from `route.path`'s segment count, which misread `groups/:id?/:section?` and
- * `users/:id?/:section?` as site-scoped once their optional params were populated (e.g.
- * `/_admin/groups/5/members`). The fix is `meta.siteScoped`, declared explicitly on each `:siteid/...`
- * child route -- this asserts every one of the 13 carries it, and that the three Users routes with
- * their own optional segments (`groups`, `users`, and `auth` for good measure) do not.
+ * `groups/:id?/:section?` and `users/:id?/:section?` carry as many path segments as a `:siteid/...`
+ * route once their optional params are populated, so the negative cases below matter as much as the
+ * positive ones: site-scoping must come from `meta.siteScoped`, never from path shape.
  */
 describe('admin site-scoped route meta (OpenProject #3343)', () => {
   const adminRoute = routes.find((route) => route.path === '/_admin')
@@ -113,18 +91,10 @@ describe('admin site-scoped route meta (OpenProject #3343)', () => {
 })
 
 /**
- * Regression coverage for OpenProject #2512: `MainLayout.vue`'s `isSidebarMini` scopes its
- * `!pageStore.navigationId` fallback to `route.meta.contentPage`, so this flag has to actually be
- * true on every route that renders `Index.vue` (and therefore runs a page through
- * `pageStore.pageLoad()`, which is what sets `navigationId`) and false/absent everywhere else --
- * getting either direction wrong would either bring back the mini-sidebar bug the WP fixed, or wrongly
- * apply the content-page fallback to a route that never sets `navigationId` at all.
- *
- * `buildTestRouter(routes)` (not a per-route object lookup) is what's actually asserted against: Vue
- * Router merges `meta` across every matched record for a resolved path, and each of these routes
- * nests its real component a level below the `MainLayout.vue` wrapper as an empty-path child -- so the
- * meta that matters is what `route.meta` resolves to once matched, not merely what's declared on the
- * parent route object in `routes.js`.
+ * Asserted through `buildTestRouter(routes)` rather than a per-route object lookup: Vue Router
+ * merges `meta` across every matched record, and each of these routes nests its real component a
+ * level below the `MainLayout.vue` wrapper as an empty-path child -- so what matters is the resolved
+ * `route.meta`, not what is declared on the parent route object.
  */
 describe('content page route meta (OpenProject #2512)', () => {
   const router = buildTestRouter(routes)

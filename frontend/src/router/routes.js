@@ -9,10 +9,9 @@ const routes = [
     children: [
       { path: '', component: () => import('@/pages/Login.vue') },
       /*
-        Where `mail.ts`'s forgot-password email points (`buildLink('/login/reset-password/:token')`).
-        Same page as plain `/login` -- `AuthLoginPanel.vue` reads the token straight off
-        `window.location.pathname` in its mount logic and switches itself to the reset screen, so this
-        route exists only to stop the path from falling through to the wiki-page catch-all below.
+        Where the forgot-password email points. `AuthLoginPanel.vue` reads the token straight off
+        `window.location.pathname` and switches itself to the reset screen, so this route exists
+        only to stop the path falling through to the wiki-page catch-all below.
       */
       { path: 'reset-password/:token', component: () => import('@/pages/Login.vue') }
     ]
@@ -47,11 +46,10 @@ const routes = [
       { path: '', redirect: '/_admin/dashboard' },
       { path: 'dashboard', component: () => import('@/pages/AdminDashboard.vue') },
       { path: 'sites', component: () => import('@/pages/AdminSites.vue') },
-      // -> Site
       /*
-        `meta.siteScoped` is what `AdminPageEyebrow.vue`'s sectionKey reads to know a page is
-        site-scoped -- explicit here rather than inferred from path shape, since `groups/:id?/:section?`
-        and `users/:id?/:section?` below can carry just as many path segments without being site-scoped.
+        `AdminPageEyebrow.vue`'s sectionKey reads `meta.siteScoped` -- explicit here rather than
+        inferred from path shape, since `groups/:id?/:section?` and `users/:id?/:section?` below can
+        carry just as many path segments without being site-scoped.
       */
       {
         path: ':siteid/general',
@@ -123,11 +121,9 @@ const routes = [
         component: () => import('@/pages/AdminTheme.vue'),
         meta: { siteScoped: true }
       },
-      // -> Users
       { path: 'auth', component: () => import('@/pages/AdminAuth.vue') },
       { path: 'groups/:id?/:section?', component: () => import('@/pages/AdminGroups.vue') },
       { path: 'users/:id?/:section?', component: () => import('@/pages/AdminUsers.vue') },
-      // -> System
       { path: 'api', component: () => import('@/pages/AdminApi.vue') },
       { path: 'audit', component: () => import('@/pages/AdminAuditLog.vue') },
       { path: 'classification', component: () => import('@/pages/AdminClassification.vue') },
@@ -158,47 +154,31 @@ const routes = [
     children: [{ path: '', component: () => import('../pages/Graph.vue') }]
   },
 
-  // --------------------------------
-  // CREATE
-  // --------------------------------
   {
     path: '/_create/:editor?',
-    // -> See the STANDARD PAGE CATCH-ALL route below for what this meta flag is for.
     meta: { contentPage: true },
     component: () => import('../layouts/MainLayout.vue'),
     children: [{ path: '', component: () => import('../pages/Index.vue') }]
   },
-  // --------------------------------
-  // EDIT
-  // --------------------------------
   {
     /*
-      A custom regex rather than the `*` repeat modifier `/:catchAll(.*)*` uses below: `*` turns the
-      param into an array of segments, but `pagePath` is handed straight to `pageEdit({ path })` as a
-      single string (see `Index.vue`'s route watcher) -- `(.*)` matches every segment of a nested path
-      in one capture without changing that shape, and the trailing `?` keeps `/_edit` alone valid too.
+      A custom regex rather than the `*` repeat modifier `/:catchAll(.*)*` uses below: `*` would turn
+      the param into an array of segments, but `pagePath` is handed straight to `pageEdit({ path })`
+      as a single string. The trailing `?` keeps a bare `/_edit` valid too.
     */
     path: '/_edit/:pagePath(.*)?',
-    // -> See the STANDARD PAGE CATCH-ALL route below for what this meta flag is for.
     meta: { contentPage: true },
     component: () => import('../layouts/MainLayout.vue'),
     children: [{ path: '', component: () => import('../pages/Index.vue') }]
   },
-  // -----------------------
-  // STANDARD PAGE CATCH-ALL
-  // -----------------------
   {
     path: '/:catchAll(.*)*',
     /*
-      OpenProject #2512: `meta.contentPage` marks the three routes that actually render `Index.vue`
-      and therefore run a page through `pageStore.pageLoad()` -- this one, `/_create`, and `/_edit`
-      above. `MainLayout.vue`'s `effectiveNavigationId` (read by both `isSidebarMini` and
-      `NavSidebar.vue`'s own nav-loading watcher) reads this flag to decide whether to trust
-      `pageStore.navigationId` at all: only these three routes ever call `pageLoad()`, so on every
-      OTHER `/_`-prefixed route (the knowledge graph, tags browse, admin, profile, ...)
-      `pageStore.navigationId` is either `null` on a fresh store or whatever a previously-viewed
-      content page left behind -- neither of which says anything about that route's own navigation.
-      Those non-content routes fall back to the site's own default id instead (OpenProject #2527).
+      `meta.contentPage` marks the routes that render `Index.vue` and therefore run a page through
+      `pageStore.pageLoad()` -- this one, `/_create` and `/_edit`. `MainLayout.vue`'s
+      `effectiveNavigationId` reads the flag to decide whether `pageStore.navigationId` means
+      anything: on any other route it is null or left over from a previously-viewed content page, so
+      those routes fall back to the site's own default id.
     */
     meta: { contentPage: true },
     component: () => import('../layouts/MainLayout.vue'),
