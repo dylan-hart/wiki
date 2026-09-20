@@ -482,3 +482,13 @@ describe('gatedContentPlaceholder (OpenProject #2911)', () => {
     assert.match(html, /write:styles permission and was not rendered/)
   })
 })
+
+describe('sanitizeOptions -- definition lists', () => {
+  test('keeps dl, dt and dd without any render permission', () => {
+    const html = '<dl><dt>Apple</dt><dd>A red fruit</dd><dd><p>A technology company</p></dd></dl>'
+
+    const clean = sanitize(html, {}, new Set())
+
+    assert.equal(clean, html)
+  })
+})

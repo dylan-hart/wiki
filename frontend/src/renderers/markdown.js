@@ -6,6 +6,7 @@ import mdSup from 'markdown-it-sup'
 import mdSub from 'markdown-it-sub'
 import mdMark from 'markdown-it-mark'
 import mdFootnote from 'markdown-it-footnote'
+import mdDeflist from 'markdown-it-deflist'
 import mdUnderline from './modules/markdown-it-underline'
 import mdExpandTabs from './modules/markdown-it-expand-tabs'
 import mdTable from './modules/markdown-it-table'
@@ -237,6 +238,7 @@ export class MarkdownRenderer {
       .use(mdSub)
       .use(mdMark)
       .use(mdFootnote)
+      .use(mdDeflist)
       .use(mdImsize)
       .use(mdGithubAlerts)
       .use(mdGlossary, { terms: config.glossaryTerms })
