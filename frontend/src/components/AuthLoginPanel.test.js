@@ -438,10 +438,11 @@ describe('AuthLoginPanel forgot password', () => {
     await wrapper.find('form').trigger('submit')
     await vi.waitFor(() => expect(API_CLIENT.post).toHaveBeenCalled())
 
-    await vi.waitFor(() => expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true))
-    expect(notifyQueue.find((n) => n.type === 'negative')?.message).toBe(
+    await vi.waitFor(() => expect(wrapper.find('[role="alert"]').exists()).toBe(true))
+    expect(wrapper.find('[role="alert"]').text()).toContain(
       'Too many attempts. Try again in 5 minute(s).'
     )
+    expect(notifyQueue.some((n) => n.type === 'negative')).toBe(false)
   })
 })
 
@@ -575,5 +576,170 @@ describe('AuthLoginPanel redirect handling (OpenProject #2208)', () => {
     await vi.advanceTimersByTimeAsync(1000)
 
     expect(replace).toHaveBeenCalledWith('/')
+  })
+})
+
+/**
+ * A failure is a persistent `role="alert"` block above the fields rather than a toast: it stays
+ * until the next submit, an edit to a field, or a change of screen.
+ */
+describe('AuthLoginPanel inline errors', () => {
+  const FORGOT_STRATEGY = {
+    ...LOCAL_STRATEGY,
+    activeStrategy: { ...LOCAL_STRATEGY.activeStrategy, allowForgotPassword: true }
+  }
+
+  function serverError(message) {
+    return Object.assign(new Error('Request failed with status code 401'), { data: { message } })
+  }
+
+  function alertOf(wrapper) {
+    return wrapper.find('[role="alert"]')
+  }
+
+  function expectNoNegativeToast() {
+    expect(notifyQueue.some((n) => n.type === 'negative')).toBe(false)
+  }
+
+  async function mountPanelWith(strategy = LOCAL_STRATEGY) {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([strategy]) })
+    const { wrapper } = mountWithApp(AuthLoginPanel, { stores: { site: { id: 'site-1' } } })
+    await flushPromises()
+    return wrapper
+  }
+
+  async function submitLogin(wrapper, putResult) {
+    const inputs = wrapper.findAll('input')
+    await inputs[0].setValue('reader@example.com')
+    await inputs[1].setValue('correct horse battery staple')
+    API_CLIENT.put.mockReturnValueOnce(putResult)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+  }
+
+  const failWith = (message) => ({ json: () => Promise.reject(serverError(message)) })
+
+  it('shows a failed login in an alert with the localized text and no negative toast', async () => {
+    const wrapper = await mountPanelWith()
+    await submitLogin(wrapper, failWith('Invalid credentials.'))
+
+    expect(alertOf(wrapper).exists()).toBe(true)
+    expect(alertOf(wrapper).text()).toContain('Invalid credentials.')
+    expectNoNegativeToast()
+  })
+
+  it('localizes an ERR_ code from the backend through the error namespace', async () => {
+    const wrapper = await mountPanelWith()
+    await submitLogin(wrapper, failWith('ERR_INVALID_LOGIN'))
+
+    expect(alertOf(wrapper).text()).toContain('error.ERR_INVALID_LOGIN')
+  })
+
+  it('shows a login the backend refuses with ok: false the same way', async () => {
+    const wrapper = await mountPanelWith()
+    await submitLogin(wrapper, {
+      json: () => Promise.resolve({ ok: false, message: 'Account disabled.' })
+    })
+
+    expect(alertOf(wrapper).text()).toContain('Account disabled.')
+    expectNoNegativeToast()
+  })
+
+  it('clears the alert when the next submit starts', async () => {
+    const wrapper = await mountPanelWith()
+    await submitLogin(wrapper, failWith('Invalid credentials.'))
+    expect(alertOf(wrapper).exists()).toBe(true)
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => new Promise(() => {}) })
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(alertOf(wrapper).exists()).toBe(false)
+  })
+
+  it('clears the alert when the user edits a field', async () => {
+    const wrapper = await mountPanelWith()
+    await submitLogin(wrapper, failWith('Invalid credentials.'))
+    expect(alertOf(wrapper).exists()).toBe(true)
+
+    await wrapper.findAll('input')[1].setValue('another attempt')
+
+    expect(alertOf(wrapper).exists()).toBe(false)
+  })
+
+  it('shows an unrecognised next action as an alert that survives the password being blanked', async () => {
+    const wrapper = await mountPanelWith()
+    await submitLogin(wrapper, {
+      json: () => Promise.resolve({ ok: true, nextAction: 'unheard-of', continuationToken: '' })
+    })
+
+    expect(alertOf(wrapper).text()).toContain('auth.errors.unexpectedResponse')
+    expectNoNegativeToast()
+  })
+
+  it('shows a failed forgot-password request in an alert and clears it on screen switch', async () => {
+    const wrapper = await mountPanelWith(FORGOT_STRATEGY)
+    await findButtonByText(wrapper, 'auth.forgotPasswordLink').trigger('click')
+    await flushPromises()
+
+    API_CLIENT.post.mockReturnValueOnce(failWith('Too many attempts.'))
+    await wrapper.find('input[autocomplete="email"]').setValue('ada@example.com')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(alertOf(wrapper).text()).toContain('Too many attempts.')
+    expectNoNegativeToast()
+
+    await findButtonByText(wrapper, 'auth.forgotPasswordCancel').trigger('click')
+    await flushPromises()
+
+    expect(alertOf(wrapper).exists()).toBe(false)
+  })
+
+  it('shows a failed reset-password request in an alert', async () => {
+    window.history.replaceState(null, '', '/login/reset-password/tok-abc')
+    const wrapper = await mountPanelWith()
+    await vi.waitFor(() =>
+      expect(wrapper.find('input[autocomplete="new-password"]').exists()).toBe(true)
+    )
+
+    const pwdInputs = wrapper.findAll('input[autocomplete="new-password"]')
+    await pwdInputs[0].setValue('supersecret1')
+    await pwdInputs[1].setValue('supersecret1')
+    API_CLIENT.put.mockReturnValueOnce(failWith('This reset link has expired.'))
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(alertOf(wrapper).text()).toContain('This reset link has expired.')
+    expectNoNegativeToast()
+  })
+
+  it('shows a failed change-password request in an alert', async () => {
+    const wrapper = await mountPanelWith()
+    await submitLogin(wrapper, {
+      json: () =>
+        Promise.resolve({ ok: true, nextAction: 'changePassword', continuationToken: 'ct-1' })
+    })
+    expect(alertOf(wrapper).exists()).toBe(false)
+
+    const pwdInputs = wrapper.findAll('input[autocomplete="new-password"]')
+    await pwdInputs[0].setValue('supersecret1')
+    await pwdInputs[1].setValue('supersecret1')
+    API_CLIENT.put.mockReturnValueOnce(failWith('Password too weak.'))
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(alertOf(wrapper).text()).toContain('Password too weak.')
+    expectNoNegativeToast()
+  })
+
+  it('shows a provider redirect failure with its caption and strips the query param', async () => {
+    window.history.replaceState(null, '', '/login?error=ERR_AUTH_FAILED')
+    const wrapper = await mountPanelWith()
+
+    expect(alertOf(wrapper).text()).toContain('auth.errors.loginError')
+    expect(alertOf(wrapper).text()).toContain('error.ERR_AUTH_FAILED')
+    expect(window.location.search).toBe('')
+    expectNoNegativeToast()
   })
 })
