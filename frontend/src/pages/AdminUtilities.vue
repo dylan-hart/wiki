@@ -170,6 +170,20 @@
             :label="t(`common.actions.proceed`)" />
         </w-settings-row>
         <w-settings-row
+          icon="la:trash"
+          control-width="auto"
+          :label="t(`admin.utilities.purgeEmptyFolders`)"
+          :hint="t(`admin.utilities.purgeEmptyFoldersHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            :aria-label="t(`admin.utilities.purgeEmptyFolders`)"
+            @click="purgeEmptyFolders"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+        <w-settings-row
           icon="tabler:file-search"
           control-width="auto"
           :label="t(`admin.utilities.scanPageProblems`)"
@@ -563,6 +577,57 @@ function purgeRevokedKeys() {
       notify({
         type: 'negative',
         message: t('admin.utilities.purgeRevokedKeysFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+    loading.hide()
+  })
+}
+
+async function purgeEmptyFolders() {
+  const url = `sites/${siteStore.id}/tree/folders/purge-empty`
+  loading.show()
+  let found
+  try {
+    const dryRun = await API_CLIENT.post(url, { json: { dryRun: true } }).json()
+    found = dryRun.count ?? 0
+  } catch (err) {
+    loading.hide()
+    notify({
+      type: 'negative',
+      message: t('admin.utilities.purgeEmptyFoldersFailed'),
+      caption: apiErrorMessage(err)
+    })
+    return
+  }
+  loading.hide()
+
+  if (found === 0) {
+    notify({ type: 'info', message: t('admin.utilities.purgeEmptyFoldersNone') })
+    return
+  }
+
+  confirm({
+    title: t('admin.utilities.purgeEmptyFolders'),
+    message: t('admin.utilities.purgeEmptyFoldersConfirm', found, { count: found }),
+    caption: t('admin.utilities.purgeEmptyFoldersConfirmWarn'),
+    cancel: true,
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.proceed')
+  }).onOk(async () => {
+    loading.show()
+    try {
+      const resp = await API_CLIENT.post(url, { json: { dryRun: false } }).json()
+      const count = resp.count ?? 0
+      notify({
+        type: 'positive',
+        message: t('admin.utilities.purgeEmptyFoldersSuccess', count, { count })
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.utilities.purgeEmptyFoldersFailed'),
         caption: apiErrorMessage(err)
       })
     }

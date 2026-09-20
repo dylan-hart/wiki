@@ -5,9 +5,10 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `npm run icons:check` fails the build if this drifts.
 
-  368 icons.
+  369 icons.
 */
 export const BUNDLED_ICONS = {
+  "la:trash": {"body":"<path fill=\"currentColor\" d=\"M14 4c-.523 0-1.059.184-1.438.563C12.184 4.94 12 5.476 12 6v1H5v2h1.094L8 27.094l.094.906h15.812l.094-.906L25.906 9H27V7h-7V6c0-.523-.184-1.059-.563-1.438C19.06 4.184 18.523 4 18 4zm0 2h4v1h-4zM8.125 9h15.75l-1.781 17H9.906zM12 12v11h2V12zm3 0v11h2V12zm3 0v11h2V12z\"/>","width":32,"height":32},
   "mdi:check": {"body":"<path fill=\"currentColor\" d=\"M21 7L9 19l-5.5-5.5l1.41-1.41L9 16.17L19.59 5.59z\"/>","width":24,"height":24},
   "tabler:activity": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M3 12h4l3 8l4-16l3 8h4\"/>","width":24,"height":24},
   "tabler:address-book": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M20 6v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2M10 16h6\"/><path d=\"M11 11a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 8h3m-3 4h3m-3 4h3\"/></g>","width":24,"height":24},

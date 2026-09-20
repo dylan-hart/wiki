@@ -53,6 +53,15 @@ const messages = {
   'admin.utilities.purgeHistory': 'Purge Page History',
   'admin.utilities.purgeHistoryHint': 'Delete page history older than the selected timeframe.',
   'admin.utilities.purgeHistoryTimeframe': 'Timeframe',
+  'admin.utilities.purgeEmptyFolders': 'Purge Empty Folders',
+  'admin.utilities.purgeEmptyFoldersHint': 'Delete folders that hold no pages, files or folders.',
+  'admin.utilities.purgeEmptyFoldersConfirm':
+    '1 empty folder will be deleted. | {count} empty folders will be deleted.',
+  'admin.utilities.purgeEmptyFoldersConfirmWarn': 'This cannot be undone.',
+  'admin.utilities.purgeEmptyFoldersSuccess':
+    'No empty folders deleted. | 1 empty folder deleted. | {count} empty folders deleted.',
+  'admin.utilities.purgeEmptyFoldersNone': 'There are no empty folders to purge.',
+  'admin.utilities.purgeEmptyFoldersFailed': 'Failed to purge the empty folders.',
   'common.actions.proceed': 'Proceed',
   'common.actions.viewDocs': 'View docs'
 }
@@ -430,12 +439,135 @@ describe('AdminUtilities convertWysiwygJson', () => {
   })
 })
 
+describe('AdminUtilities purgeEmptyFolders', () => {
+  const SITE_ID = 'aaaaaaaa-0000-4000-8000-000000000001'
+  const URL = `sites/${SITE_ID}/tree/folders/purge-empty`
+
+  beforeEach(() => {
+    notifyQueue.length = 0
+  })
+
+  async function clickPurge(wrapper) {
+    const row = wrapper
+      .findAll('.w-settings-row')
+      .find((r) => r.find('.w-settings-row__label').text() === 'Purge Empty Folders')
+    await row.find('button').trigger('click')
+    await flushPromises()
+  }
+
+  function respondWith(...bodies) {
+    for (const body of bodies) {
+      API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve(body) })
+    }
+  }
+
+  it('draws the row with a hint and a trailing control', async () => {
+    const wrapper = await mountUtilities()
+    const row = wrapper
+      .findAll('.w-settings-row')
+      .find((r) => r.find('.w-settings-row__label').text() === 'Purge Empty Folders')
+
+    expect(row).toBeTruthy()
+    expect(row.find('.w-settings-row__hint').text()).toBe(
+      'Delete folders that hold no pages, files or folders.'
+    )
+    expect(row.find('.w-settings-row__control').text()).toContain('Proceed')
+  })
+
+  it('runs a dry run first, notifies and opens no confirmation when nothing is empty', async () => {
+    const wrapper = await mountUtilities()
+    respondWith({ dryRun: true, count: 0, folders: [] })
+
+    await clickPurge(wrapper)
+
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.post).toHaveBeenCalledWith(URL, { json: { dryRun: true } })
+    expect(openDialogs.length).toBe(0)
+    expect(notifyQueue).toHaveLength(1)
+    expect(notifyQueue[0]).toMatchObject({ message: 'There are no empty folders to purge.' })
+  })
+
+  it('confirms with the dry-run count, before deleting anything', async () => {
+    const wrapper = await mountUtilities()
+    respondWith({ dryRun: true, count: 3, folders: [] })
+
+    await clickPurge(wrapper)
+
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(1)
+    expect(openDialogs.length).toBe(1)
+    expect(openDialogs[0].props.title).toBe('Purge Empty Folders')
+    expect(openDialogs[0].props.message).toBe('3 empty folders will be deleted.')
+    expect(openDialogs[0].props.caption).toBe('This cannot be undone.')
+    expect(openDialogs[0].props.color).toBe('negative')
+    expect(openDialogs[0].props.persistent).toBe(true)
+
+    closeDialog(openDialogs[0].id, false)
+  })
+
+  it('sends dryRun false once confirmed and reports what was removed', async () => {
+    const wrapper = await mountUtilities()
+    respondWith({ dryRun: true, count: 3, folders: [] }, { dryRun: false, count: 2, folders: [] })
+
+    await clickPurge(wrapper)
+    closeDialog(openDialogs[0].id, true)
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(2)
+    expect(API_CLIENT.post).toHaveBeenLastCalledWith(URL, { json: { dryRun: false } })
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: '2 empty folders deleted.'
+    })
+  })
+
+  it('sends no second call when the confirmation is cancelled', async () => {
+    const wrapper = await mountUtilities()
+    respondWith({ dryRun: true, count: 3, folders: [] })
+
+    await clickPurge(wrapper)
+    closeDialog(openDialogs[0].id, false)
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the failed message when the dry run fails', async () => {
+    const wrapper = await mountUtilities()
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.reject(new Error('boom')) })
+
+    await clickPurge(wrapper)
+
+    expect(openDialogs.length).toBe(0)
+    expect(notifyQueue).toHaveLength(1)
+    expect(notifyQueue[0]).toMatchObject({
+      type: 'negative',
+      message: 'Failed to purge the empty folders.'
+    })
+  })
+
+  it('shows the failed message when the confirmed purge fails', async () => {
+    const wrapper = await mountUtilities()
+    respondWith({ dryRun: true, count: 3, folders: [] })
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.reject(new Error('boom')) })
+
+    await clickPurge(wrapper)
+    closeDialog(openDialogs[0].id, true)
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(2)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to purge the empty folders.'
+    })
+  })
+})
+
 describe('AdminUtilities settings pattern', () => {
   it('draws every tool as a settings row with a plate, a label and one trailing control', async () => {
     const wrapper = await mountUtilities()
     const rows = wrapper.findAll('.w-settings-row')
 
-    expect(rows).toHaveLength(11)
+    expect(rows).toHaveLength(12)
     for (const row of rows) {
       expect(row.find('.blueprint-icon').exists()).toBe(true)
       expect(row.find('.w-settings-row__label').text()).not.toBe('')
