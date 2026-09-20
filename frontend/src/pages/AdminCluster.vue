@@ -99,17 +99,11 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate, relativeDate } from '@/helpers/datetime'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.cluster.title')
 }))
-
-// DATA
 
 const state = reactive({
   nodes: [],
@@ -163,8 +157,6 @@ const nodesHeaders = [
   }
 ]
 
-// METHODS
-
 async function load() {
   state.loading++
   try {
@@ -178,8 +170,6 @@ async function load() {
   }
   state.loading--
 }
-
-// MOUNTED
 
 onMounted(() => {
   load()

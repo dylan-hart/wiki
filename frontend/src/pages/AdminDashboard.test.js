@@ -7,9 +7,8 @@ import { stubApi } from '../../test/mocks.js'
 import { seedAdmin, seedSite, seedUser } from '../../test/fixtures.js'
 
 /*
-  Every destination a card's footer button links to. Registered so the router resolves them: an
-  unmatched `to` logs a warning per button and renders the anchor without an `href`, which changes
-  nothing about the box being measured but buries the run in router noise.
+  Registered so the router resolves every card's `to`: an unmatched one logs a warning per button and
+  buries the run in router noise.
 */
 const CARD_ROUTES = [
   '/',
@@ -58,10 +57,8 @@ function mountDashboard({ permissions = ['manage:system'] } = {}) {
 }
 
 /*
-  The Analytics card button has no unique test id, so it's found the same way `NavEditOverlay.test.js`
-  finds its Save button: by the rendered label text. No `messages` are seeded here (see `mountDashboard`),
-  so `t('admin.analytics.title')` resolves to the key itself -- that's fine, the text is still unique
-  among the dashboard's buttons.
+  The button carries no test id, so it is found by its label text: no `messages` are seeded, so
+  `t('admin.analytics.title')` resolves to the key itself, which is still unique on this page.
 */
 function findAnalyticsButton(wrapper) {
   return wrapper.findAll('a, button').find((el) => el.text().includes('admin.analytics.title'))
@@ -86,23 +83,18 @@ describe('AdminDashboard Analytics button', () => {
 })
 
 /*
-  The grid rule under test lives in `AdminDashboard.vue`'s own (unscoped) `<style>`
-  block, which `buildAppCss()` knows nothing about -- that compiles `src/css/tailwind.css` alone.
-  Vitest's `css: true` does inject every mounted SFC's style block into the test document's `<head>`,
-  so lifting those `<style>` elements out AFTER mounting is what gets the page's own rules in front
-  of the browser. Measured without them, the cards are an unstyled stack of divs and the assertion
-  below would pass while proving nothing.
+  The grid rule under test lives in `AdminDashboard.vue`'s own `<style>` block, which `buildAppCss()`
+  knows nothing about -- it compiles `src/css/tailwind.css` alone. Vitest's `css: true` injects a
+  mounted SFC's style block into the test document, so lifting those `<style>` elements out AFTER
+  mounting is what gets the page's own rules in front of the browser.
 */
 function mountedStyles() {
   return [...document.querySelectorAll('style')].map((el) => el.textContent).join('\n')
 }
 
 /**
- * Renders the dashboard's real markup at `containerWidth` in a headless Chromium page and reports
- * every direct child of `.admin-dashboard-grid`. Neither `jsdom` nor `happy-dom` runs a layout
- * engine (see `test/realGridLayout.js`), and "does a stretched grid item pass its height down to the
- * card inside it" is a pure layout question -- the exact class of defect PR #43 proved code review
- * and an emulated DOM both get wrong.
+ * Real Chromium: neither `jsdom` nor `happy-dom` runs a layout engine, and "does a stretched grid
+ * item pass its height down to the card inside it" is a pure layout question.
  */
 async function measureGridChildren({ browser, html, css, containerWidth }) {
   const page = await browser.newPage()
@@ -120,11 +112,7 @@ async function measureGridChildren({ browser, html, css, containerWidth }) {
         return {
           label: el.querySelector('strong, .admin-dashboard-panel span')?.textContent.trim() ?? '',
           isLoginsPanel: el.classList.contains('admin-dashboard-logins'),
-          /*
-            Which of the two figure shapes this card carries. `<span>` is the 30px counter figure,
-            `<small>` the 26px figure Logins and Wiki Version use -- the pair Dylan named, and
-            the reason a card is short in the first place.
-          */
+          /* `<span>` is the counter figure; `<small>` is the smaller one Logins and Version use. */
           figureKind: el.querySelector('.admin-dashboard-card small')
             ? 'small'
             : el.querySelector('.admin-dashboard-card span')
@@ -135,10 +123,9 @@ async function measureGridChildren({ browser, html, css, containerWidth }) {
           width: Math.round(rect.width),
           cardHeight: Math.round(cardRect.height),
           /*
-            Where the footer strip sits relative to the card's own bottom content edge (the card
-            draws a 1px hairline all the way round, which is outside everything it contains). A card
-            that merely grew, without its body band absorbing the extra height, leaves the strip
-            stranded mid-box -- which looks no better than the short card it replaced.
+            Distance from the footer strip to the card's bottom content edge; the hairline border
+            sits outside everything the card contains, so it is subtracted. A card that grew without
+            its body band absorbing the extra height leaves the strip stranded mid-box.
           */
           actionsGapFromBottom: (() => {
             const actions = card.querySelector('.w-card-actions')
@@ -168,9 +155,8 @@ function rowsOf(items) {
 }
 
 /*
-  Chromium's launch, plus `buildAppCss()`'s full Tailwind compile, are both paid for once here while
-  the rest of the suite's files are transforming across eight workers -- the same reason
-  `ApiKeyCreateDialog.test.js`'s real-layout describe raises its timeout well past the 5s default.
+  Chromium's launch and `buildAppCss()`'s full Tailwind compile are both paid for here, which is why
+  the timeout sits well past the 5s default.
 */
 describe(
   'AdminDashboard counter grid — real layout',
@@ -188,10 +174,9 @@ describe(
     })
 
     /*
-      Measured once, lazily, from inside a test rather than in `beforeAll`: `test/setup.js` rebuilds
-      the `API_CLIENT` stub in a `beforeEach`, which has not run yet while a `beforeAll` body is
-      executing, so mounting there throws before the dashboard's own `loadLastLogins()` can be
-      stubbed at all.
+      Measured lazily from inside a test rather than in `beforeAll`: `test/setup.js` rebuilds the
+      `API_CLIENT` stub in a `beforeEach`, which has not run while a `beforeAll` body executes, so
+      mounting there throws before `loadLastLogins()` can be stubbed at all.
     */
     async function items() {
       if (!measured) {
@@ -201,12 +186,9 @@ describe(
         const css = (await buildAppCss()) + mountedStyles()
 
         /*
-          1200px is a routine desktop admin width, and it is what makes the assertion mean
-          something: less the grid's own 24px side padding, `repeat(auto-fit, minmax(230px, 1fr))`
-          with a 12px gap resolves to four columns, so a measured row mixes both card shapes -- the
-          `<span>` counters (30px figure) alongside a `<small>` one (26px). A row of a single shape
-          would report equal heights whether the card stretched or not, which is what the
-          "not free" test below stands guard over.
+          1200px is what makes the assertion mean something: the grid's `auto-fit`/`minmax()` track
+          resolves to four columns at this width, so a measured row mixes both card shapes. A row of
+          a single shape would report equal heights whether the card stretched or not.
         */
         measured = await measureGridChildren({ browser, html, css, containerWidth: 1200 })
         wrapper.unmount()
@@ -223,8 +205,8 @@ describe(
     it('gives every counter card in a row the same height', async () => {
       const grid = await items()
       /*
-        Nine counters over a four-column track leaves a one-card final row, which is trivially the
-        same height as itself -- the assertion is about the rows that actually hold a comparison.
+        The final row holds a single card, trivially the same height as itself -- the assertion is
+        about the rows that actually hold a comparison.
       */
       const rows = rowsOf(grid.filter((item) => !item.isLoginsPanel)).filter(
         (row) => row.length > 1
@@ -257,9 +239,8 @@ describe(
     })
 
     /*
-      The recent-logins panel is a reading panel, not a counter: `grid-column: 1 / -1` puts it on a
-      row of its own and `max-width: 640px` caps it at a readable measure. Stretching the counters
-      must not drag it to their height or widen it.
+      A reading panel, not a counter: `grid-column: 1 / -1` puts it on a row of its own and
+      `max-width` caps it at a readable measure. Stretching the counters must not disturb either.
     */
     it('leaves the recent-logins panel on its own row, capped at its reading measure', async () => {
       const grid = await items()

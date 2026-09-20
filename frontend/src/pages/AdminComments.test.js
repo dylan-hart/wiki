@@ -10,14 +10,6 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { createTestI18n } from '../../test/i18n.js'
 import { buildTestRouter } from '../../test/router.js'
 
-/**
- * Task 621 (Feature 394, "Admin comments management UI rebuild"): the provider selection &
- * configuration panel. Rewrites `AdminComments.vue` from its pre-3.x Vuetify/pug/Apollo body (see
- * Task 614's regression test, `AdminLayout.test.js`, for that history) into a `<script setup>` +
- * `<w-page>` component modeled on `AdminStorage.vue`'s left-list/right-detail layout, simplified to
- * single-active-selection semantics.
- */
-
 const messages = {
   admin: {
     comments: {
@@ -199,10 +191,6 @@ describe('AdminComments', () => {
   })
 
   it('renders a non-available provider as a disabled row that cannot be selected', async () => {
-    // A provider forced unavailable/unselectable (a module removed from disk, or one an admin
-    // disables) must render as a disabled row nobody can click into -- true of any module, not
-    // specific to Disqus/Commento/Artalk (which, since #3303, ship `isAvailable`/`isSelectable: true`
-    // by default -- see the `PROVIDERS` fixture above).
     const providers = PROVIDERS.map((p) =>
       p.module === 'disqus'
         ? { ...p, isEnabled: false, isAvailable: false, isSelectable: false }
@@ -218,10 +206,9 @@ describe('AdminComments', () => {
     expect(disqusItem.attributes('aria-disabled')).toBe('true')
     expect(defaultItem.attributes('aria-disabled')).toBeUndefined()
 
-    // -> Selection defaults to the enabled (Default) provider
+    // -> Selection defaults to the enabled (Default) provider, which declares no config props
     expect(wrapper.text()).toContain('This provider has no configuration options you can modify.')
 
-    // -> Clicking the disabled row must not select it
     await disqusItem.trigger('click')
     await flushPromises()
     expect(wrapper.text()).not.toContain('Shortname')
@@ -232,7 +219,7 @@ describe('AdminComments', () => {
     const { wrapper } = mountPage()
     await flushPromises()
 
-    // -> The enabled provider's own config field should be rendered on the right
+    // -> 'Shortname' is the enabled provider's own config field
     expect(wrapper.text()).toContain('Shortname')
   })
 
@@ -245,7 +232,7 @@ describe('AdminComments', () => {
     await defaultItem.trigger('click')
     await flushPromises()
 
-    // -> `default` has no config props, so the "no config" message should now show instead
+    // -> `default` declares no config props
     expect(wrapper.text()).toContain('This provider has no configuration options you can modify.')
   })
 
@@ -253,7 +240,7 @@ describe('AdminComments', () => {
     const { wrapper } = mountPage()
     await flushPromises()
 
-    // -> Defaults to the enabled provider (Disqus, codeTemplate: true)
+    // -> Defaults to the enabled provider, Disqus, which is `codeTemplate: true`
     expect(wrapper.text()).toContain(
       'This is an external, client-embedded comment provider, rendered on page views for readers with read:comments.'
     )
@@ -315,15 +302,11 @@ describe('AdminComments', () => {
         json: { module: 'disqus', config: { shortname: 'my-site' } }
       })
     )
-    // -> save() reloads on success
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site1/comments/providers')
   })
 
-  // -> `boot/api.js`'s `throwHttpErrors` does not throw for exactly HTTP 400, so
-  //    `WIKI.models.commentProviders.setActiveProvider`'s validation failure
-  //    (`backend/api/comments.ts`'s `reply.badRequest(err.message)`) resolves with a parsed
-  //    `{ ok: false, message }` envelope rather than rejecting. Without an explicit check, that
-  //    envelope is indistinguishable from the saved provider and the failure reads as success.
+  // -> The mock resolves rather than rejects: the guard under test is the one for an error envelope
+  //    arriving without an HTTP failure, which would otherwise read as a saved provider.
   it('shows saveFailed with the server message, and does not reload, on a 400 refusal to save', async () => {
     const put = vi.fn(() => ({
       json: () =>
@@ -348,7 +331,6 @@ describe('AdminComments', () => {
       message: 'Failed to save the comment provider configuration.',
       caption: 'Invalid config.'
     })
-    // -> save() only reloads on success
     expect(API_CLIENT.get).not.toHaveBeenCalledWith('sites/site1/comments/providers')
   })
 
@@ -359,12 +341,7 @@ describe('AdminComments', () => {
     expect(wrapper.text()).toContain('No comment provider modules are installed.')
   })
 
-  /**
-   * OpenProject #1962: a picker row for a non-selectable provider must genuinely refuse a click, not
-   * just look disabled -- `WItem`'s own `disabled` prop already blocks its click emit, but only when
-   * the row is bound to the field that actually reflects backend selectability (`isSelectable`), not
-   * `isAvailable` alone.
-   */
+  /** `WItem`'s `disabled` blocks the click emit, but only when bound to `isSelectable` as well. */
   it('does not select a non-selectable provider when its picker row is clicked', async () => {
     const providers = [
       ...PROVIDERS,
@@ -393,8 +370,8 @@ describe('AdminComments', () => {
     await artalkItem.trigger('click')
     await flushPromises()
 
-    // -> Selection stays on the default (enabled, selectable) provider: Disqus's own config field is
-    //    still showing, proving the disabled row refused the click rather than merely looking inert.
+    // -> Disqus's own config field still showing means the disabled row refused the click rather
+    //    than merely looking inert.
     expect(wrapper.text()).toContain('Shortname')
   })
 
@@ -410,12 +387,6 @@ describe('AdminComments', () => {
   })
 })
 
-/**
- * Task 627 (Feature 394): the moderation list view, a second tab on this same page. Modeled on
- * `AdminUsers.vue`'s list -- search, refresh, `loading` composable, `w-table` + `w-pagination` --
- * wired to `GET/DELETE sites/:siteId/comments` (Task 625). Delete goes through the `confirm()`
- * composable, matching `AdminStorage.vue`'s `setupDestroy` confirm-before-destroy pattern.
- */
 async function switchToModeration(wrapper) {
   const tab = wrapper.findAll('[role="tab"]').find((t) => t.text() === 'Moderation')
   await tab.trigger('click')
@@ -482,7 +453,6 @@ describe('AdminComments moderation panel', () => {
     const authorInput = wrapper.find('input[placeholder="Filter by author..."]')
     await authorInput.setValue('Alice')
 
-    // -> debounced: nothing yet
     expect(API_CLIENT.get).not.toHaveBeenCalled()
 
     await new Promise((resolve) => setTimeout(resolve, 450))
@@ -508,7 +478,6 @@ describe('AdminComments moderation panel', () => {
     await deleteBtn.trigger('click')
     await flushPromises()
 
-    // -> Nothing happens until the dialog is confirmed
     expect(del).not.toHaveBeenCalled()
     expect(openDialogs.length).toBe(1)
     expect(openDialogs[0].props.title).toBe('Delete Comment?')
@@ -537,10 +506,8 @@ describe('AdminComments moderation panel', () => {
     expect(del).not.toHaveBeenCalled()
   })
 
-  // -> This DELETE route never calls `.json()` on success, so the check is against the raw
-  //    `Response`'s own `ok` flag (`boot/api.js`'s `throwHttpErrors` does not throw for exactly
-  //    HTTP 400) rather than a parsed envelope. Without it, a refusal is indistinguishable from a
-  //    real delete and the row would vanish from the list along with a false success toast.
+  // -> This DELETE route sends no JSON on success, so the component checks the raw `Response`'s own
+  //    `ok` flag rather than a parsed envelope; the mock is shaped to match.
   it('shows deleteFailed with the server message, and does not remove the row, on a 400 refusal to delete', async () => {
     const del = vi.fn(() => ({
       ok: false,

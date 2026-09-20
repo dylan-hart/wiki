@@ -107,12 +107,7 @@
           :class="dark.isActive ? `bg-dark-4 text-white` : `bg-blue-1 text-dark`">
           {{ t('admin.classification.hint') }}
         </w-banner>
-        <!--
-          OpenProject #1081: "everything currently classified as X" -- the auditability half of the
-          epic, alongside the classificationChanged events now feeding the audit log
-          (`AdminAuditLog.vue`). Every level shown even at zero, matching the report endpoint's own
-          reasoning: a level nothing is classified as is itself worth seeing.
-        -->
+        <!-- Every level listed even at zero: a level nothing is classified as is worth seeing. -->
         <w-card>
           <w-card-header>{{ t('admin.classification.coverageTitle') }}</w-card-header>
           <w-list separator>
@@ -149,21 +144,13 @@ import { confirm, dialog } from '@/composables/dialog'
 import { apiErrorMessage } from '@/helpers/apiError'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.classification.title')
 }))
-
-// DATA
 
 const state = reactive({
   levels: [],
@@ -174,14 +161,10 @@ const state = reactive({
 })
 
 /**
- * The active rename field's `w-input` instance, set by the callback `:ref` in the template -- there
- * is at most one at a time (`state.editingId` is a single id, not a set), so a plain variable rather
- * than a ref-per-row map is enough. Not a Vue `ref()`: nothing reads it reactively, it only exists to
- * be imperatively `.focus()`-ed once `startRename` puts it on screen.
+ * At most one rename field is open at a time (`state.editingId` is a single id), so a plain variable
+ * beats a ref-per-row map. Not a `ref()`: nothing reads it reactively, it is only `.focus()`-ed.
  */
 let renameInput = null
-
-// METHODS
 
 async function load() {
   state.isLoading = true
@@ -238,10 +221,8 @@ async function createLevel() {
 }
 
 /*
-  Focusing here is safe from the "don't scroll a keyboard user out from under themselves" concern the
-  task calls out: this swaps the field in at the exact spot the rename button the reader just clicked
-  already sits, inside a list that was already on screen -- there is nowhere new for the browser to
-  scroll to.
+  Focusing scrolls nobody out from under themselves: the field swaps in where the rename button the
+  reader just clicked already sits, so there is nowhere new to scroll to.
 */
 function startRename(level) {
   state.editingId = level.id
@@ -273,7 +254,6 @@ async function commitRename(level) {
   }
 }
 
-/** Swaps `idx` with its neighbor `dir` (-1 up / +1 down) and persists the whole new order. */
 async function move(idx, dir) {
   const target = idx + dir
   if (target < 0 || target >= state.levels.length) {
@@ -317,8 +297,6 @@ function deleteLevel(level) {
     }
   })
 }
-
-// MOUNTED
 
 onMounted(() => {
   load()

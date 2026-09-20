@@ -6,21 +6,9 @@ import WTable from '@/components/shared/WTable.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Task 605 verification pass, ported to this file's task-711 rename (AdminInstances.vue ->
- * AdminCluster.vue, state.instances -> state.nodes, admin.instances.* -> admin.cluster.*).
- *
- * `<w-table row-key="name">` was wired to a property no row object has — `getClusterNodes()` in
- * `backend/api/system/info.ts` returns `id`/`activeConnections`/`dbUser`/... with no `name` field at all.
- * Every row therefore keyed on the same `undefined`.
- *
- * That is a real bug of intent (the prop's own docstring says it wants "a row property holding a
- * stable identity"), but it is NOT a duplicate-key warning: Vue's keyed-diff algorithm only compares
- * keys that are `!= null` (`runtime-core`'s `patchKeyedChildren`), so an `undefined` key is treated as
- * "no key" and the row falls back to positional patching rather than tripping the dev-mode duplicate
- * check — confirmed by running this suite against the unfixed `row-key="name"` and observing it stays
- * green either way. So this suite does not assert on a console warning (there isn't one); it asserts
- * on the fix itself (the prop now names a field that exists) and on the table rendering sensibly at
- * zero, one, and multiple rows, which is the actual behavior the task asked to be confirmed.
+ * Vue's keyed diff only compares keys that are `!= null` (`runtime-core`'s `patchKeyedChildren`), so
+ * a `row-key` naming a field no row has degrades silently to positional patching — no dev-mode
+ * duplicate-key warning to assert on, hence the assertion on `rowKey` itself.
  */
 function mountPage() {
   return mountWithApp(AdminCluster, {
@@ -110,9 +98,8 @@ describe('AdminCluster table', () => {
   })
 })
 
-// -> OpenProject #1929: `/admin/cluster` names a concept this fork invented (cluster monitoring is not
-//    an upstream Wiki.js feature), so no docs site can describe it -- the help button was deleted
-//    rather than left pointing at a page that does not exist.
+// -> Cluster monitoring is a fork-invented surface, so no docs site describes it: a help button here
+//    would point at a page that does not exist.
 describe('AdminCluster help link', () => {
   it('has no help/docs button', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })

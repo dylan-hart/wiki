@@ -8,25 +8,10 @@ import { dismiss as dismissNotification, queue as notifyQueue } from '@/composab
 
 import { mountWithApp } from '../../test/mount.js'
 
-/** OpenProject #1922: `siteStore.docsBase` is server-provided, with no hardcoded frontend default --
- *  set it explicitly here so `mountWithExtensions`'s tests exercise a real base rather than `''`. */
+/** `siteStore.docsBase` is server-provided with no frontend default, so it is set explicitly here
+ *  rather than leaving these tests to exercise `''`. */
 const TEST_DOCS_BASE = 'https://docs.example.test'
 
-/**
- * Task 661: the extensions list now surfaces two things `AdminExtensions.vue` used to only learn from
- * a one-shot install-response toast.
- *
- * - `needsRestart` (computed server-side from `extensions.hasLoadFailed()` on every `getExtensions()`
- *   call) must show a persistent warning badge on the row, independent of whether the admin touched
- *   the install button this session at all — e.g. a module that failed to load during a page render.
- * - `incompatibleReason` must be surfaced as a tooltip on the disabled "not compatible" button, naming
- *   what this server actually reports.
- *
- * `WTooltip` is stubbed to a plain pass-through: it only renders its slot into the DOM on hover
- * (teleported to `<body>`, gated on a timer-delayed `shown` ref — see its own file), which is real
- * behavior worth trusting rather than re-driving here. Stubbing it turns this into a test of what
- * `AdminExtensions.vue` PASSES to the tooltip, which is what this task actually changed.
- */
 const messages = {
   'admin.extensions.needsRestart':
     'This extension failed to load and needs the server restarted before it can be used.',
@@ -57,6 +42,8 @@ async function mountWithExtensions(extensions) {
     messages,
     stores: { site: { docsBase: TEST_DOCS_BASE } },
     stubs: {
+      // -> `WTooltip` teleports its panel to <body> and only renders it once a hover timer fires, so
+      //    stubbing it is what makes what this page passes a tooltip assertable at all.
       WTooltip: { template: '<div class="stub-tooltip"><slot /></div>' }
     }
   })
@@ -111,15 +98,7 @@ describe('AdminExtensions needsRestart badge', () => {
   })
 })
 
-/**
- * Task 663: the per-row "Instructions" button used to hardcode
- * `https://docs.js.wiki/admin/extensions/${ext.key}` -- the only doc link on this page (and in the
- * whole admin area) that bypassed `siteStore.docsBase`, and a path with no real page behind it (no
- * per-extension doc page exists, in either the live 3.0 docs or the 2.x docs it inherits its
- * structure from -- verified against docs.requarks.io, whose "Modules" section is one page per
- * topic, not one page per extension key). It must instead link into the anchor within the
- * `/system/extensions` page that this page's own header "view docs" button already points at.
- */
+/** An anchor within the one `/system/extensions` page: the docs carry no page per extension key. */
 describe('AdminExtensions per-row instructions link', () => {
   it('builds the Instructions button href from siteStore.docsBase, anchored to the extension key', async () => {
     const wrapper = await mountWithExtensions([
@@ -163,16 +142,6 @@ describe('AdminExtensions incompatible button tooltip', () => {
   })
 })
 
-/**
- * Task 662: `install()` used to call `loading.show({ message, html: true })` -- a full-screen overlay
- * whose composable (`show()`, no params) silently drops both arguments, so the "this may take a
- * while" copy never rendered anywhere, visually or in the accessibility tree, for as long as the
- * 20-minute Puppeteer download `INSTALL_TIMEOUT` allows for.
- *
- * These tests cover the page-local replacement instead: an inline per-row status (no global overlay
- * at all for this action), a ticking elapsed-time readout, and a distinct timeout caption so a slow
- * download that hits the client timeout doesn't read identically to a real install failure.
- */
 const installableExt = {
   key: 'sharp',
   title: 'Sharp',

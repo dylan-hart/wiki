@@ -18,23 +18,14 @@ vi.mock('@/composables/loading', async (importOriginal) => ({
   loading: { show: vi.fn(), hide: vi.fn() }
 }))
 
-/**
- * Regression coverage for task 489: `AdminEditors.vue` needs a `code` row that is enabled by default
- * (not gated behind `flagsStore.experimental`, the way `asciidoc`/`blog`/`channel`/`redirect`/
- * `wysiwyg` still are) and whose toggle actually round-trips through `GET`/`PUT sites/:siteId` the
- * same way `asciidoc`/`markdown`/`wysiwyg` already do — a row present only in `state.config`'s
- * initial value but missing from `load()`/`save()` would silently reset to off on every page visit
- * and never actually reach the server.
- */
 async function mountPage(siteId = 'site-1') {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
   adminStore.currentSiteId = siteId
   const siteStore = useSiteStore()
 
-  // -> useSiteAdminAccess('site:editors') needs a real route (for its `siteid` param) and a
-  //    permission that satisfies GLOBAL_FALLBACKS['site:editors'], so this mount neither warns on a
-  //    missing router injection nor redirects away mid-test.
+  // -> `useSiteAdminAccess('site:editors')` needs a real route for its `siteid` param and a
+  //    permission that satisfies it, or the mount warns and redirects away mid-test.
   const userStore = useUserStore()
   userStore.permissions = ['manage:sites']
 
@@ -49,13 +40,6 @@ async function mountPage(siteId = 'site-1') {
   return { wrapper, adminStore, siteStore }
 }
 
-/**
- * Regression coverage for task 491: before this task `asciidoc` was `isDisabled: true` with a
- * description implying real-time preview, even though no `EditorAsciidoc.vue` existed -- a
- * disabled-but-visible-under-experimental-flag row that misrepresented what actually worked. Now that
- * a real (if minimal) AsciiDoc editor exists, its row and copy should match `code`'s: visible without
- * the experimental flag, its toggle enabled, and its description honest about there being no preview.
- */
 describe('AdminEditors', () => {
   it('shows the asciidoc editor row without requiring the experimental flag, with an enabled toggle', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ editors: {} }) })
@@ -68,13 +52,7 @@ describe('AdminEditors', () => {
     expect(asciidocEditor.isDisabled).toBeFalsy()
   })
 
-  /**
-   * Regression coverage for OpenProject #988: `asciidoc`'s row flipped `useRendering` on when the
-   * real AsciiDoc-to-HTML pipeline (`renderers/asciidoc.js`) landed -- before that it was `false`
-   * because there was nothing to render with. `useRendering` is what shows the "uses the rendering
-   * pipeline" caption on the row (see the template just above `editors` in `AdminEditors.vue`), so a
-   * regression here would silently misrepresent AsciiDoc as still raw-source-only again.
-   */
+  /** `useRendering` is what draws the rendering-pipeline caption on a row. */
   it('flags the asciidoc row as using the rendering pipeline (OpenProject #988)', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ editors: {} }) })
     const { wrapper } = await mountPage()
@@ -148,16 +126,9 @@ describe('AdminEditors', () => {
         })
       })
     )
-    // -> The current site's own store follows the saved config, the same as the other editors
     expect(siteStore.editors.code).toBe(true)
   })
 
-  /**
-   * Regression coverage for task 492: `api`/`blog`/`channel` were unbacked speculation — no
-   * `EDITOR_CONTENT_TYPES` entry, no schema property, no reachable `editorComponents` registration —
-   * and were removed rather than left as functionless toggles. This must hold even with the
-   * experimental flag on, since that flag is what previously made them visible at all.
-   */
   it('never renders api/blog/channel rows, even with the experimental flag enabled', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ editors: {} }) })
     const { wrapper } = await mountPage()
@@ -178,12 +149,7 @@ describe('AdminEditors', () => {
   })
 })
 
-/**
- * OpenProject #1736: `onMounted` used to call `loading.show()` unconditionally, before the
- * `if (adminStore.currentSiteId)` test that gates the `load()` call which would hide it again. On a
- * zero-site instance (`currentSiteId` null) that left the full-screen overlay stuck on forever, with
- * nothing in the UI explaining why. `loading.show()` must now be inside that branch.
- */
+/** With no site to load, an overlay raised on mount would never be lowered again. */
 describe('AdminEditors: loading overlay on mount (OpenProject #1736)', () => {
   it('does not show the loading overlay when adminStore.currentSiteId is null', async () => {
     loading.show.mockClear()

@@ -52,9 +52,6 @@
       </w-tabs>
     </div>
     <div class="flex flex-wrap p-4 gap-4" v-if="state.mode === `provider`">
-      <!-- ----------------------- -->
-      <!-- Provider picker -->
-      <!-- ----------------------- -->
       <div class="flex-none">
         <w-card class="rounded bg-dark">
           <w-list style="min-width: 300px" padding dark>
@@ -96,9 +93,6 @@
           </w-list>
         </w-card>
       </div>
-      <!-- ----------------------- -->
-      <!-- Selected provider -->
-      <!-- ----------------------- -->
       <div class="min-w-0 flex-1" v-if="selectedProvider">
         <w-banner
           class="mb-4"
@@ -113,23 +107,12 @@
               :to="`/_admin/` + adminStore.currentSiteId + `/general`" />
           </template>
         </w-banner>
-        <!-- -> Disqus/Commento/Artalk are pure client-side embeds, rendered by PageCommentsEmbed.vue
-             instead of PageComments.vue's native list once activated -- see the permission/canonical-URL
-             boundary notes on CommentProviders in backend/models/commentProviders.ts, and
-             PageCommentsEmbed.vue's own doc comment, for what actually enforces them. -->
         <w-banner
           class="mb-4"
           v-if="selectedProvider.codeTemplate"
           :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`">
           {{ t('admin.comments.externalProviderNotice') }}
         </w-banner>
-        <!-- ----------------------- -->
-        <!-- Description -->
-        <!-- ----------------------- -->
-        <!--
-          Prose about the chosen provider, not a setting: it keeps a plain section under the strip
-          rather than becoming a row with a plate and nothing at its trailing edge.
-        -->
         <w-settings-card class="mb-4" :title="selectedProvider.title">
           <w-card-section>
             <div class="text-body2">{{ selectedProvider.description }}</div>
@@ -140,9 +123,6 @@
             </div>
           </w-card-section>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Configuration -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.comments.providerConfig')">
           <w-card-section
             v-if="!selectedProvider.config || Object.keys(selectedProvider.config).length < 1">
@@ -151,19 +131,14 @@
             }}</w-banner>
           </w-card-section>
           <!--
-            Generic per-prop config form, shared with `AdminAnalytics.vue`, `AdminAuth.vue`,
-            `AdminSearch.vue` and `AdminStorage.vue` -- see `ModuleConfigForm.vue`.
-            `selectedProvider.config` is the `buildConfigEditor()`-built editable structure, not the
-            raw stored values; mutating a field's `.value` there, which this component does in place,
-            is what `buildConfigPayload()` in `payloadFor()` below reads back.
+            `selectedProvider.config` is `buildConfigEditor()`'s editable structure, not the raw
+            stored values: the form mutates each field's `.value` in place, and `payloadFor()` reads
+            it back through `buildConfigPayload()`.
           -->
           <module-config-form v-if="selectedProvider.config" :config="selectedProvider.config" />
         </w-settings-card>
       </div>
     </div>
-    <!-- ----------------------- -->
-    <!-- Moderation -->
-    <!-- ----------------------- -->
     <div class="p-4" v-if="state.mode === `moderation`">
       <w-banner
         v-if="moderationUnavailable"
@@ -278,32 +253,21 @@ import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.comments.title')
 }))
 
-// DATA
-
 const state = reactive({
   loading: 0,
   selectedModule: '',
   providers: [],
-  // -> `provider` (selection/config, Task 621) or `moderation` (this task's listing)
   mode: 'provider',
   comments: [],
   searchPath: '',
@@ -352,19 +316,12 @@ const commentHeaders = [
   }
 ]
 
-// COMPUTED
-
 const selectedProvider = computed(
   () => state.providers.find((prov) => prov.module === state.selectedModule) ?? null
 )
 
 const activeSite = computed(() => adminStore.sites.find((s) => s.id === adminStore.currentSiteId))
 
-/**
- * Comments are on for this site (`AdminGeneral.vue`'s `features.comments` toggle) but nothing is
- * active yet -- the reader-facing side of the feature will render nothing until an administrator
- * picks a provider here.
- */
 const showEnabledNoProviderHint = computed(() => {
   return (
     Boolean(activeSite.value?.features?.comments) && !state.providers.some((prov) => prov.isEnabled)
@@ -372,16 +329,12 @@ const showEnabledNoProviderHint = computed(() => {
 })
 
 /**
- * Whether the moderation tab has anything to show at all: either the feature is off for this site,
- * or no provider has ever been activated -- in which case there is no comment surface for readers,
- * so the list would only ever be empty. A banner pointing at `AdminGeneral.vue`'s toggle and this
- * page's own provider tab explains why, rather than rendering a table with no rows and no context.
+ * With no comment surface for readers the list could only ever be empty, so the tab shows a banner
+ * pointing at the site toggle and the provider tab rather than a table with no rows and no context.
  */
 const moderationUnavailable = computed(() => {
   return !activeSite.value?.features?.comments || !state.providers.some((prov) => prov.isEnabled)
 })
-
-// WATCHERS
 
 watch(
   () => adminStore.currentSiteId,
@@ -395,7 +348,6 @@ watch(
   }
 )
 
-/** Lazy-loads the moderation list the first time its tab is opened, or once it becomes available. */
 watch(
   () => [state.mode, moderationUnavailable.value],
   ([mode, unavailable]) => {
@@ -409,7 +361,7 @@ watch(
   () => [state.searchPath, state.searchAuthor],
   debounce(() => {
     if (state.currentPage !== 1) {
-      // -> Reassigning triggers the currentPage watcher below, which reloads
+      // -> The currentPage watcher below is what reloads
       state.currentPage = 1
     } else {
       loadComments({ page: 1 })
@@ -426,9 +378,6 @@ watch(
   }
 )
 
-// METHODS
-
-/** A single-line preview of a comment's content, collapsing whitespace and capping the length. */
 function excerptOf(content) {
   const flat = (content ?? '').replace(/\s+/g, ' ').trim()
   return flat.length > 140 ? `${flat.slice(0, 140)}…` : flat
@@ -461,15 +410,10 @@ async function load() {
   state.loading--
 }
 
-/**
- * A provider as the API expects it. Read-only props are left out: the server keeps whatever is
- * stored for them, so sending them back would be pretending they can be set.
- */
 function payloadFor(prov) {
   return { module: prov.module, config: buildConfigPayload(prov.config) }
 }
 
-/** Activates the selected provider and stores its config, then reloads to pick up the server truth. */
 async function save() {
   if (!selectedProvider.value) {
     return
@@ -480,8 +424,8 @@ async function save() {
     const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}/comments/providers`, {
       json: payloadFor(selectedProvider.value)
     }).json()
-    // -> The API client does not throw for a 400, so a refusal comes back as a parsed error
-    //    envelope rather than a rejection: without this check it reads as a successful save.
+    // -> Belt and braces: the client throws on a non-2xx, but an error envelope returned with a 2xx
+    //    status would otherwise read as a successful save.
     if (resp?.ok === false) {
       throw new Error(resp.message || t('admin.comments.saveFailed'))
     }
@@ -501,11 +445,7 @@ async function save() {
   state.loading--
 }
 
-/**
- * Fetches a page of the moderation listing (`GET sites/:siteId/comments`, Task 625), filtered by
- * whatever's currently in the two search boxes. `page` is 1-based, converted to the `offset`/`limit`
- * the endpoint actually takes.
- */
+/** `page` is 1-based; the endpoint itself takes `offset`/`limit`. */
 async function loadComments({ page } = {}) {
   if (moderationUnavailable.value) {
     return
@@ -535,10 +475,6 @@ async function loadComments({ page } = {}) {
   state.loading--
 }
 
-/**
- * Delete-with-confirmation, matching `AdminStorage.vue`'s `setupDestroy` pattern: nothing is deleted
- * until the `confirm()` dialog is explicitly accepted.
- */
 function confirmDelete(comment) {
   confirm({
     title: t('admin.comments.deleteConfirmTitle'),
@@ -554,8 +490,8 @@ function confirmDelete(comment) {
       const resp = await API_CLIENT.delete(
         `sites/${adminStore.currentSiteId}/comments/${comment.id}`
       )
-      // -> The API client does not throw for a 400, so a refusal comes back as a response with
-      //    `ok: false` rather than a rejection: without this check it reads as a successful delete.
+      // -> This route sends no JSON on success, so the check is on the raw `Response`'s own `ok`
+      //    flag rather than a parsed envelope.
       if (!resp?.ok) {
         throw new Error((await resp.json())?.message || t('admin.comments.deleteFailed'))
       }
@@ -575,8 +511,6 @@ function confirmDelete(comment) {
     state.loading--
   })
 }
-
-// MOUNTED
 
 onMounted(() => {
   load()

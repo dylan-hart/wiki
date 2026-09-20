@@ -14,11 +14,9 @@
       </div>
       <div class="flex-none flex">
         <!--
-          Kept behind the experimental flag even now that upload is real: an uploaded block is
-          arbitrary JS, served back to every reader of the page it's used on with no permission gate
-          of its own (see controllers/blocks.ts) once `manage:sites` on this site let someone in. That
-          is a materially bigger blast radius than the rest of this flag's surface, and deserves a
-          deliberate graduation rather than falling out of this task as a side effect.
+          Behind the experimental flag: an uploaded block is arbitrary JS, served to every reader of
+          the page it's used on with no permission gate of its own beyond `manage:sites` on this site
+          (controllers/blocks.ts) -- a bigger blast radius than the rest of this flag's surface.
         -->
         <template v-if="flagsStore.experimental">
           <w-btn
@@ -59,18 +57,9 @@
     </div>
     <div class="p-4 gap-4">
       <!--
-        OpenProject #829 item 5: upstream discussions #3275/#7258/#7229 all describe the same
-        dead end -- an author reaches for Kroki or PlantUML, the block draws against the public
-        demo server by default, and nothing on this page said that server exists, that it is a
-        third party, or that self-hosting one is an option -- until it rate-limits, goes down, or
-        the diagram source itself is sensitive. Shown once, above the whole list, rather than
-        repeated per block: both blocks share the exact same story.
-      -->
-      <!--
-        The design draws this note as Cardinal's informational banner and nothing else: a hairline
-        box on `--color-tint`, slate text, no fill of its own. That is exactly the variant
-        `WBanner`'s own header describes, so it is written as utilities here rather than as the
-        Material `grey-2`/`grey-9` pair this page was still painting it with.
+        Kroki and PlantUML both draw against a public third-party demo server by default, which
+        nothing else on this page discloses until it rate-limits, goes down, or the diagram source
+        turns out to be sensitive. Shown once above the list: both blocks share the same story.
       -->
       <w-banner
         v-if="hasServerConfigurableBlocks"
@@ -80,12 +69,7 @@
       <w-card>
         <w-list separator>
           <w-item v-for="block of state.blocks" :key="block.id">
-            <!--
-              A block's `icon` is an ordinary Iconify reference (`tabler:sitemap`), declared in its
-              own `static definition` and carried through the manifest -- so it is passed through
-              untouched here, exactly as `BlueprintIcon`'s contract asks for. A custom block brings
-              no in-repo definition to trust, so it draws the one fallback glyph instead.
-            -->
+            <!-- A custom block brings no in-repo definition, so there is no `icon` to trust. -->
             <blueprint-icon :icon="block.isCustom ? 'tabler:puzzle' : block.icon" />
             <w-item-section>
               <w-item-label
@@ -93,10 +77,6 @@
               >
               <w-item-label caption>{{ block.description }}</w-item-label>
               <w-item-label class="flex items-center" caption>
-                <!--
-                  A block's tag is a code, so Cardinal sets it in Roboto Mono on the accent wash --
-                  not in the proportional caption face on a Material pink, which is what it wore.
-                -->
                 <w-chip
                   class="m-0 font-mono"
                   dense
@@ -136,14 +116,6 @@
               </w-item-section>
               <w-separator class="ms-6" vertical />
             </template>
-            <!--
-              Configure never renders for a custom block: a custom block has no manifest entry, so
-              `getSiteBlocks()` (backend/models/blocks.ts) reports `configFields: []` for it, and this
-              guard hides the button rather than opening a form with nothing in it. It also stays
-              hidden for a block whose only config field is `server` when that field already has its
-              own dedicated input above (block-kroki, block-plantuml) -- `configurableFields` is what
-              keeps the same setting from getting two separate editors.
-            -->
             <template v-if="configurableFields(block).length > 0">
               <w-item-section side>
                 <w-btn
@@ -157,11 +129,9 @@
               <w-separator class="ms-4" vertical />
             </template>
             <!--
-              This screen puts the word before the switch, where `WToggle`'s own `label` -- and the
-              primitives sheet's switch specimen -- put it after. Drawn as a sibling caption rather
-              than by reordering the shared control, since every other toggle in the app follows the
-              primitives sheet. The toggle keeps its `aria-label`, so its accessible name is
-              unchanged either way.
+              Label before the switch, where `WToggle`'s own `label` puts it after. Drawn as a
+              sibling caption rather than by reordering the shared control, which every other toggle
+              in the app follows.
             -->
             <w-item-section side>
               <div class="flex flex-nowrap items-center gap-2 pe-2">
@@ -198,10 +168,8 @@
               >
               <w-item-label caption class="flex items-center">
                 <!--
-                  The id is a code too, and the design sets it on the plain tint rather than on the
-                  accent wash the block tag above wears -- the wash is reserved for the thing an
-                  author types into a page. `round` goes with it: Cardinal keeps `rounded-full` for
-                  genuinely round shapes, and a copy target is a small square.
+                  Plain tint, not the accent wash the block tag above wears: the wash is reserved for
+                  what an author types into a page.
                 -->
                 <w-chip
                   class="m-0 font-mono"
@@ -224,11 +192,7 @@
                   <w-tooltip>{{ t(`admin.blocks.credentialCopyId`) }}</w-tooltip>
                 </w-btn>
               </w-item-label>
-              <!--
-                Origins are hostnames, so the design sets them in mono. The globe goes accent WITH
-                the message when there are none: an empty allow-list means the credential can never
-                be used by anything, and a neutral glyph beside a red line understates that.
-              -->
+              <!-- Red when empty: a credential with no allowed origin can never be used at all. -->
               <w-item-label caption class="flex flex-wrap items-center gap-1 mt-1">
                 <w-icon
                   name="tabler:world"
@@ -353,24 +317,14 @@ import { copyToClipboard } from '@/helpers/clipboard'
 import BlockPropsForm from '@/components/BlockPropsForm.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-// -> Task #684: gates this page behind `site:blocks` (or `manage:sites`), redirecting away from a
-//    site the caller may not administer. See `composables/siteAdminAccess.js`.
 useSiteAdminAccess('site:blocks')
-
-// STORES
 
 const adminStore = useAdminStore()
 const flagsStore = useFlagsStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.blocks.title')
@@ -383,9 +337,9 @@ const { state, load, save } = useAdminSettings({
     credentials: [],
     configDialog: {
       open: false,
-      /** The block being configured -- the same object as in `state.blocks`, not a copy. */
+      /** The same object as in `state.blocks`, not a copy. */
       block: null,
-      /** Local reactive copy of `block.config`, edited by `BlockPropsForm` and merged back on save. */
+      /** A copy of `block.config`, merged back into the block on save. */
       values: {}
     }
   },
@@ -393,15 +347,14 @@ const { state, load, save } = useAdminSettings({
     try {
       return await API_CLIENT.get(`sites/${siteId}/blocks`).json()
     } finally {
-      // -> Loaded whether or not the blocks list came back, and with its own error handling: an
-      //    empty credentials table is its own thing to explain, not a consequence of the list above
-      //    having failed.
+      // -> Loaded even when the blocks list failed: an empty credentials table is its own thing to
+      //    explain, not a consequence of the list above having failed.
       await loadCredentials()
     }
   },
   onLoaded: (blocks) => {
-    // -> `config` is always an object from the API, but guarded here too so `v-model="block.config.server"`
-    //    never writes onto `undefined` if that ever stops being true
+    // -> Guarded although the API always sends an object: `v-model="block.config.server"` would
+    //    otherwise write onto `undefined`
     state.blocks = (blocks ?? []).map((block) => ({ ...block, config: block.config ?? {} }))
   },
   commit: (siteId) =>
@@ -412,9 +365,6 @@ const { state, load, save } = useAdminSettings({
     }).json()
 })
 
-// METHODS
-
-/** Whether this block declares a `server` prop — only block-kroki and block-plantuml do today. */
 function hasServerProp(block) {
   return Boolean(serverProp(block))
 }
@@ -424,11 +374,8 @@ function serverProp(block) {
 }
 
 /**
- * A block's admin-config fields that don't already have a dedicated control of their own.
- *
- * `server` is covered by the inline field above (`hasServerProp`) for block-kroki/block-plantuml, so
- * the generic "Configure" dialog has nothing left to add for either -- today `server` is their only
- * declared config field, so both simply never show the button (see WP #1745).
+ * `server` already has its own inline field for the blocks that declare it, so the generic
+ * "Configure" dialog must not offer a second editor for the same setting.
  */
 function configurableFields(block) {
   return (block?.configFields ?? []).filter(
@@ -436,17 +383,11 @@ function configurableFields(block) {
   )
 }
 
-/**
- * Whether the "self-host your own server" note is worth showing at all -- only when this site
- * actually has a block whose "Server" field it would be explaining, so the note never appears on a
- * site with neither Kroki nor PlantUML enabled.
- */
 const hasServerConfigurableBlocks = computed(() => state.blocks.some(hasServerProp))
 
 /**
- * Loaded separately from `load()`'s own error handling: a caller without `site:blocks` on this
- * site never reaches this page at all (`useSiteAdminAccess`), so a failure here is a genuine fault
- * rather than the expected shape for a caller with less access, same as the blocks list above.
+ * Reports its own failure rather than riding on `load()`'s: a caller without `site:blocks` never
+ * reaches this page (`useSiteAdminAccess`), so a failure here is a genuine fault.
  */
 async function loadCredentials() {
   try {
@@ -555,7 +496,7 @@ function deleteBlock(id) {
       })
       await load()
     } catch (err) {
-      // -> ky throws above 400 (e.g. 409 for a built-in block), with the reason in the body
+      // -> ky throws above 400 (409 for a built-in block), with the reason in the body
       notify({
         type: 'negative',
         message: apiErrorMessage(err)
@@ -565,13 +506,6 @@ function deleteBlock(id) {
   })
 }
 
-/**
- * Opens the config dialog for a block, seeding its form from whatever the site has already saved,
- * falling back to each field's own default where it never has (`seedConfigValues`).
- *
- * @param {object} block The block, from `state.blocks` -- kept by reference so `saveConfig` can
- *   write straight back into it.
- */
 function openConfig(block) {
   state.configDialog.block = block
   state.configDialog.values = seedConfigValues({
@@ -585,11 +519,7 @@ function closeConfig() {
   state.configDialog.open = false
 }
 
-/**
- * Commits the dialog's local values back into the block's own `config`, so the next `save()` picks
- * them up. Does not call the API itself -- the page's own Apply button is still what persists it,
- * same as every other field in this list.
- */
+/** Writes into the block's own `config` only; the page's Apply button is what persists it. */
 function saveConfig() {
   Object.assign(state.configDialog.block.config, state.configDialog.values)
   state.configDialog.open = false
@@ -598,18 +528,9 @@ function saveConfig() {
 
 <style scoped>
 /*
-  The heading over a second block of content on an admin page -- here "Block credentials", under the
-  card of blocks itself.
-
-  Cardinal sets it in Barlow Condensed at 20/600, uppercase and lightly tracked: the same display
-  face as the page title above it, one step down and in the chrome's own casing, so it reads as a
-  division of this page rather than as a second page title. `.text-h6`, which it replaces, is a
-  Material step -- Roboto metrics, sentence case, no tracking -- and drew the two headings on one
-  screen in two unrelated typefaces.
-
-  Scoped to this page rather than added to `AdminLayout.vue`'s unscoped admin-page rules: this is the
-  first screen compared against a design that draws a sub-heading at all, so there is exactly one
-  caller today. It belongs beside `.admin-page-title` the moment a second screen needs it.
+  The page title's display face, one step down and in the chrome's own casing, so a second heading on
+  the screen reads as a division of this page rather than as a second page title. Scoped rather than
+  sitting beside `.admin-page-title` in `AdminLayout.vue` while there is one caller.
 */
 .admin-subsection-title {
   font-family: var(--font-display);
@@ -626,21 +547,15 @@ function saveConfig() {
 }
 
 /*
-  A custom block's origin mark, in the muted purple the design draws it in (#7a4a86).
-
-  Written as a literal rather than as a token: `--color-purple` is Material's #9c27b0, a different
-  and far more saturated colour, and the token block in `css/tailwind.css` is read by every frontend
-  surface -- a one-caller colour has not earned a place in it. Tokenise it if a second surface ever
-  needs to mark something as custom or third-party.
+  A literal rather than a token: `--color-purple` is a different, far more saturated hue, and a
+  one-caller colour has not earned a place in `css/tailwind.css`'s token block. Tokenise it if a
+  second surface ever needs to mark something as custom or third-party.
 */
 .block-origin--custom {
   color: #7a4a86;
 }
 
-/*
-  Lightened for an ink ground the same way `--color-primary-light` is, rather than picking a second
-  hex out of the air for a tone none of the dark design sheets happen to draw.
-*/
+/* Lightened the way `--color-primary-light` is: no dark design sheet draws this tone. */
 :global(body.body--dark .block-origin--custom) {
   color: color-mix(in srgb, #7a4a86 55%, white);
 }

@@ -93,38 +93,19 @@ import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-// -> Task #684: gates this page behind `site:editors` (or `manage:sites`), redirecting away from a
-//    site the caller may not administer. See `composables/siteAdminAccess.js`.
 useSiteAdminAccess('site:editors')
-
-// STORES
 
 const adminStore = useAdminStore()
 const flagsStore = useFlagsStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.editors.title')
 }))
 
-// -> Task 492: `api`/`blog`/`channel` rows removed. None had a backing `EDITOR_CONTENT_TYPES` entry
-//    (backend/models/pages.ts), schema property (backend/api/schemas/site.ts), or reachable
-//    `editorComponents` registration (Index.vue) -- they were unbacked speculation, visible under the
-//    experimental flag but non-functional even when toggled on. `channel`'s only artifact,
-//    `EditorChannel.vue` (79 lines of Options-API mock data, never imported anywhere reachable), has
-//    been deleted outright. `channel`-style real-time discussion channels are filed as stretch-goal
-//    Feature #786 under the Comments epic (OpenProject #335) for a future cycle to pick up if it
-//    wants to; `api` (API-docs editor) and `blog` (a series-of-posts editor) had no plausible
-//    near-term epic home identified and are dropped with no follow-up.
 function defaultConfig() {
   return {
     asciidoc: false,
@@ -135,7 +116,6 @@ function defaultConfig() {
   }
 }
 
-/** The editors as the API expects them, and as `siteStore` holds them. */
 function activeFlags(config) {
   return {
     asciidoc: config.asciidoc,
@@ -147,7 +127,7 @@ function activeFlags(config) {
 
 const { state, load, save } = useAdminSettings({
   i18nPrefix: 'admin.editors',
-  // -> This page's own stem for the load failure, from before `loadFailed` was the convention
+  // -> This page's load-failure string does not follow the `loadFailed` convention
   keys: { loadFailed: 'admin.editors.fetchFailed' },
   defaults: defaultConfig,
   fetch: (siteId) => API_CLIENT.get(`sites/${siteId}?strict=true`).json(),
@@ -177,22 +157,14 @@ const { state, load, save } = useAdminSettings({
 })
 
 /*
-  `icon` is an Iconify reference written out as a literal here, so that `scripts/generate-icons.mjs`
-  can see it and inline the glyph (a name built by concatenation is invisible to that scanner). These
-  were asset names -- `asciidoc`, `html`, `markdown`, `advance`, `google-presentation` -- left behind
-  by the removal of the 2.x `ultraviolet-*` illustrations, and `WIcon` resolves anything without a
-  set prefix to `kind: 'none'`, so every plate on this page has been drawing empty.
+  Each `icon` is a literal Iconify reference so `scripts/generate-icons.mjs` can see it and inline
+  the glyph: a name built by concatenation is invisible to that scanner, and `WIcon` draws nothing
+  at all for a name carrying no set prefix.
 */
 const editors = reactive([
   {
     id: 'asciidoc',
     icon: 'tabler:file-text',
-    // -> Task 491: a real, if minimal, editor exists (`EditorAsciidoc.vue`) storing raw AsciiDoc
-    //    source with a matching `contentType` -- see `base.yml`/`models/pages.ts`. OpenProject #988
-    //    added the AsciiDoc-to-HTML render pipeline (`renderers/asciidoc.js`), so `useRendering` is on
-    //    like `markdown`'s and `code`'s. No `hasConfig`: it has no configuration overlay, matching the
-    //    equally no-frills `code` row -- and unlike `markdown`, still no live preview pane; the
-    //    description below says so.
     useRendering: true
   },
   {
@@ -219,8 +191,6 @@ const editors = reactive([
     useRendering: true
   }
 ])
-
-// METHODS
 
 function openConfig(editorId) {
   switch (editorId) {
