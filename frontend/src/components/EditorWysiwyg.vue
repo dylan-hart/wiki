@@ -144,8 +144,6 @@ import {
 
 const lowlight = createLowlight(common)
 
-// STORES
-
 const collabStore = useCollabStore()
 const commonStore = useCommonStore()
 const editorStore = useEditorStore()
@@ -154,25 +152,15 @@ const siteStore = useSiteStore()
 const userStore = useUserStore()
 const dark = useDark()
 
-// I18N
-
 const { t } = useI18n()
 
 /**
- * Inactive toolbar-button icon color, per theme (OpenProject #2498). The template hardcoded
- * `grey-10` (near-black, `#212121`) for every non-active menu entry, which is not itself a
- * theme-aware CSS custom property -- so once the toolbar's own background below picks up a dark
- * variant, an unchanged `grey-10` icon would go all but invisible against it. `grey-6` matches the
- * tone `EditorMarkdown.vue`'s own dark preview toolbar already uses on the same `$dark-2` panel.
+ * Neither tone is a theme-aware token, so the pair has to be picked per theme by hand: `grey-10`
+ * (near-black) is all but invisible against the dark toolbar background below.
  */
 const inactiveIconColor = computed(() => (dark.isActive ? 'grey-6' : 'grey-10'))
 
-// COMPUTED
-
-/**
- * Whether this edit is shared with whoever else has the page open. Mirrors `EditorMarkdown.vue`'s
- * own `collabEnabled` exactly -- see its doc comment for why each condition is there.
- */
+/** Kept identical to `EditorMarkdown.vue`'s own `collabEnabled`. */
 const collabEnabled = computed(
   () =>
     siteStore.features.collaborativeEditing &&
@@ -181,26 +169,19 @@ const collabEnabled = computed(
     Boolean(pageStore.id)
 )
 
-// STATE
-
 let editor = null
 /**
- * Stop handles for the two collab watchers started in `onMounted`, kept for the same reason
- * `EditorMarkdown.vue`'s own pair are (see its matching comment, OpenProject #942): both are
- * registered inside a callback Vue does not auto-bind to this component's effect scope the way it
- * does an unconditional top-level `watch()`, so left running past unmount they fire against a
- * disposed editor and duplicate "saved by X" notifications on a later mount of the same page.
+ * Both watchers start inside a callback, which Vue does not bind to this component's effect scope
+ * the way it does a top-level `watch()`, so they have to be stopped by hand: left running past
+ * unmount they fire against a disposed editor and duplicate "saved by X" on a later mount.
  */
 let stopCollabStatusWatch = null
 let stopCollabLastSaveWatch = null
 
 /**
- * The hex values behind the "Text Color" dropdown's named entries (OpenProject #944). `Color`
- * (`@tiptap/extension-color`) writes whatever string `setColor()` is given straight onto the
- * `textStyle` mark's `color` attribute as inline CSS, so any valid CSS color would work here --
- * these are picked as a small, legible-on-white set rather than reusing `collabStore`'s cursor
- * palette (`composables/collab.js`'s `USER_COLORS`), which exists for a different purpose (staying
- * distinguishable against each other as cursors) and was never chosen for text legibility.
+ * Any CSS color works -- `setColor()`'s argument lands on the `textStyle` mark verbatim. These are
+ * picked for legibility on white, deliberately not `composables/collab.js`'s `USER_COLORS`, which
+ * are chosen to stay distinguishable from each other as cursors.
  */
 const TEXT_COLORS = {
   blue: '#1976D2',
@@ -215,10 +196,8 @@ const TEXT_COLORS = {
 }
 
 /**
- * The hex values behind the "Highlight" dropdown's named entries (OpenProject #944). Lighter tints
- * than `TEXT_COLORS` on purpose: `Highlight` (`@tiptap/extension-highlight`) paints these as a mark's
- * *background*, and a highlighter is meant to sit behind text without swallowing it the way a
- * full-saturation background would.
+ * Lighter tints than `TEXT_COLORS` on purpose: these are painted as a mark's *background*, and have
+ * to sit behind text without swallowing it.
  */
 const HIGHLIGHT_COLORS = {
   blue: '#90CAF9',
@@ -229,13 +208,9 @@ const HIGHLIGHT_COLORS = {
 }
 
 /*
-  The toolbar itself is ~500 lines of static definition and lives in `helpers/wysiwygMenuBar.js`.
-  Everything it closes over is handed to it: the editor (as a getter -- `editor` is still null here,
-  and is assigned in `init()` on mount), the two palettes above, the two actions that are not editor
-  commands, and `t` (OpenProject #3206). Wrapped in `computed()` rather than a one-time `const` so a
-  live locale switch (`App.vue`'s `i18n.locale.value = locale`, e.g. navigating across a
-  locale-routed site without remounting this component) rebuilds every menu item's translated
-  `title` instead of leaving it stuck in whatever locale was active on mount.
+  The editor goes in as a getter because it is still null here -- `init()` assigns it on mount. And
+  this is a `computed()` rather than a one-time `const` so a live locale switch (navigating across a
+  locale-routed site without remounting) rebuilds every menu item's translated `title`.
 */
 const menuBar = computed(() =>
   buildMenuBar(() => editor, {
@@ -248,41 +223,27 @@ const menuBar = computed(() =>
   })
 )
 
-// METHODS
-
 /**
- * The TipTap extension list, parameterized by whether a live collaboration session is bound.
- *
- * Split out so the interim (non-collaborative) editor `init()` builds immediately and the
- * collaborative one `swapToCollabEditor()` builds once synced share every other option -- only the
- * `undoRedo`/`Collaboration`/`CollaborationCaret` entries differ (OpenProject #1124, wiring live
- * collaboration into this editor -- see that WP for why the deferral this comment used to explain no
- * longer applies).
+ * Shared so the interim editor `init()` builds and the collaborative one `swapToCollabEditor()`
+ * builds differ in nothing but the `undoRedo`/`Collaboration`/`CollaborationCaret` entries.
  */
 function buildExtensions(collab) {
   return [
     StarterKit.configure({
       codeBlock: false,
-      // -> Configured explicitly below instead, so its options (`openOnClick`) can be set for this
-      //    editing surface -- leaving it on here as well would register the `link` node twice and
-      //    emit a `[tiptap warn]: Duplicate extension names found` on every mount.
+      // -> The next four are each registered explicitly below instead, as a configured or wrapped
+      //    variant. Leaving them on here too registers the node twice and emits a
+      //    `[tiptap warn]: Duplicate extension names found` on every mount.
       link: false,
-      // -> `GithubAlert` (OpenProject #3397) extends the stock `blockquote` node in place -- adding
-      //    an optional `kind`/`title` pair rather than a second node under the same name -- so it is
-      //    registered explicitly below instead, the same reason `link` is.
+      // -> `GithubAlert` extends the stock `blockquote` node in place, adding an optional
+      //    `kind`/`title` pair rather than declaring a second node under the same name.
       blockquote: false,
-      // -> Also configured explicitly below, as `withTextAlignMarkdown()`-wrapped versions -- see
-      //    that helper's own doc comment (OpenProject #3398): `textAlign` (from `TextAlign` further
-      //    down) is a node attribute of these two, not a mark, and needs its own markdown
-      //    round-trip on the node types themselves.
+      // -> `withTextAlignMarkdown()`-wrapped: `textAlign` is a node attribute of these two, not a
+      //    mark, so it needs its own markdown round-trip on the node types themselves.
       paragraph: false,
       heading: false,
-      // -> `Collaboration`'s own undo/redo, backed by Yjs's `UndoManager`, replaces this once a
-      //    session is bound -- keeping both registered logs `Collaboration.onCreate()`'s "not
-      //    compatible with @tiptap/extension-undo-redo" warning, and only one of the two `undo`/
-      //    `redo` command definitions actually wins. (`history` was StarterKit's tiptap v2 key for
-      //    this; v3 renamed it to `undoRedo`, so the `{ depth: 500 }` written here before OpenProject
-      //    #1124 was a silent no-op that never actually capped the undo stack.)
+      // -> `Collaboration`'s own Yjs-backed undo/redo replaces this once a session is bound --
+      //    keeping both registered warns, and only one of the two `undo`/`redo` definitions wins.
       undoRedo: collab ? false : { depth: 500 }
     }),
     CodeBlockLowlight.configure({
@@ -305,13 +266,10 @@ function buildExtensions(collab) {
     }),
     Image,
     Link.configure({
-      // -> A click in the editor places the cursor, as in any other mark; without this, clicking
-      //    linked text navigates the browser away instead of letting it be edited.
+      // -> Otherwise clicking linked text navigates the browser away instead of placing the cursor.
       openOnClick: false,
-      // -> `insertFilesAsAssets` links a pasted/dropped non-image file's name to its pending asset's
-      //    `blob:` URL until the upload lands -- Link's own default `isAllowedUri` allowlist (http,
-      //    https, ftp, ftps, mailto, tel, callto, sms, cid, xmpp) does not include it, and would
-      //    otherwise silently refuse `setLink()` (OpenProject #2449).
+      // -> `insertFilesAsAssets` links a pending asset's `blob:` URL until its upload lands, and
+      //    Link's default `isAllowedUri` allowlist would silently refuse that `setLink()`.
       protocols: ['blob']
     }),
     Mention.configure({
@@ -328,20 +286,11 @@ function buildExtensions(collab) {
     TableCell,
     TaskList,
     TaskItem,
-    // -> Unconfigured, `types` defaults to `[]` and `setTextAlign()` maps over an empty node-type
-    //    list, so every alignment button was a silent no-op (OpenProject #944).
+    // -> `types` defaults to `[]`, which makes every `setTextAlign()` a silent no-op.
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     withStyleSpanMarkdown(TextStyle),
     Typography,
-    // -> Every Cardinal-specific `<block-*>` custom element, blocks and tabsets alike -- see
-    //    `editor/wysiwyg/wikiBlockNode.js` (OpenProject #3396). `loadBlock` resolves a not-yet-
-    //    upgraded tag against this site's own block list, the same way the read view's
-    //    `collectBlocksToLoad` scan does -- see `editor/wysiwyg/loadBlock.js`.
     WikiBlock.configure({ loadBlock: createBlockLoader(commonStore, siteStore) }),
-    // -> `@tiptap/markdown`'s `Markdown` extension is what gives every editor built from this list
-    //    `editor.getMarkdown()` (the save path below) and the `contentType: 'markdown'` option
-    //    `init()` loads with -- registered once here, shared by both the interim and collaborative
-    //    editor, the same as every other extension in this list.
     Markdown,
     ...(collab
       ? [
@@ -355,15 +304,6 @@ function buildExtensions(collab) {
   ]
 }
 
-/**
- * Writes the editor's current state into the page store on every change, local or remote alike -- the
- * same "the editor buffer feeds the store, the store feeds Save" flow this component has always had.
- * A CRDT changes who is allowed to originate a change, not who is responsible for keeping
- * `pageStore.content` in step with what the editor is showing right now: a change that arrived from
- * another collaborator is exactly as real as one typed locally, and `pageSave` still reads the current
- * buffer either way (OpenProject #1124). Shared between the interim and collaborative editors so both
- * behave identically here.
- */
 function handleEditorUpdate({ editor }) {
   editorStore.markDirty()
   pageStore.$patch({
@@ -376,36 +316,27 @@ function handleEditorUpdate({ editor }) {
 }
 
 /**
- * The lazy on-open fallback for a legacy row the run-once conversion job (OpenProject #3400,
- * `backend/tasks/simple/convert-wysiwyg-json.ts`) hasn't gotten to yet, or couldn't parse: a page
- * still holding the pre-#3395 WYSIWYG editor's raw, serialized Tiptap JSON under `content`, rather
- * than markdown. `startsWith('{')` is the same heuristic the backend job and
- * `helpers/wysiwygHeadlessMarkdown.ts#isLegacyWysiwygJson` use to tell it apart from real markdown --
- * kept in sync by hand since the two workspaces install separately and share no code.
+ * A legacy row holds serialized Tiptap JSON under `content` rather than markdown. The heuristic is
+ * duplicated in `backend/helpers/wysiwygHeadlessMarkdown.ts#isLegacyWysiwygJson` and kept in sync by
+ * hand -- the two workspaces install separately and share no code.
  */
 function isLegacyWysiwygJson(content) {
   return typeof content === 'string' && content.trimStart().startsWith('{')
 }
 
 function init() {
-  // -> Setup Editor View
   editorStore.$patch({
     hideSideNav: false
   })
 
   /*
-    A legacy row parses as JSON directly -- `contentType: 'json'` loads it the way TipTap always
-    loaded a JSON document, with no involvement from the `Markdown` extension at all -- rather than
-    being handed to the markdown parser as literal text (which would show the raw `{"type":"doc",…}`
-    source as the page's content). Malformed JSON falls back to the ordinary markdown path below: it
-    was never going to render correctly either way, and this at least keeps `useEditor()` from
-    throwing on a page that used to at least open.
+    A legacy row loads as `contentType: 'json'`; handing it to the markdown parser instead would
+    show the raw `{"type":"doc",…}` source as the page's content. Malformed JSON falls through to
+    the markdown path -- it was never going to render either way, and this keeps `useEditor()` from
+    throwing on a page that at least used to open.
 
-    Either path, saving from here writes real markdown into `content` -- `handleEditorUpdate()`'s
-    `editor.getMarkdown()` doesn't know or care which content type the page loaded as -- and
-    `updatePage()`'s own `isLegacyWysiwygConversionSave` check (`backend/models/pages.ts`) is what
-    flips `contentType` to `markdown` on that save, finishing the conversion this run-once job could
-    not.
+    Either path, saving writes real markdown into `content`, and `backend/models/pages.ts`'s
+    `isLegacyWysiwygConversionSave` check flips `contentType` to `markdown` on that save.
   */
   let content = pageStore.content
   let contentType = 'markdown'
@@ -414,14 +345,12 @@ function init() {
       content = JSON.parse(pageStore.content)
       contentType = 'json'
     } catch {
-      // -> Not valid JSON after all -- fall through to the markdown path above, content/contentType
-      //    already set to that.
+      // -> Not JSON after all; `content`/`contentType` already hold the markdown path.
     }
   }
 
-  // -> Initialize TipTap. Starts read-only when a collab session is about to be started -- see the
-  //    collaboration block in `onMounted` below for why, and `swapToCollabEditor()` for what replaces
-  //    this instance once that session has synced.
+  // -> Read-only when a collab session is about to start: `swapToCollabEditor()` replaces this
+  //    instance outright once that session has synced.
   editor = useEditor({
     content,
     contentType,
@@ -433,41 +362,26 @@ function init() {
 }
 
 /**
- * Hands the editor over to the shared document once collaboration has synced (OpenProject #1124).
+ * The whole editor is replaced rather than bound, because TipTap's `Collaboration` extension can
+ * only be attached at construction -- `Editor#registerPlugin` takes a raw ProseMirror plugin after
+ * the fact, but not a packaged Extension. It cannot simply be attached to the editor `init()` builds
+ * either: `y-tiptap`'s sync plugin overwrites the editor's content with whatever the shared document
+ * holds the instant it mounts, so constructing before sync would blank the page's just-loaded
+ * content. Hence the interim editor stays the only one until this runs, once, post-sync.
  *
- * TipTap's `Collaboration` extension can only be attached at construction: unlike
- * `composables/monacoYjsBinding.js`'s `MonacoYjsBinding`, which `EditorMarkdown.vue` constructs
- * against an already-live editor via `bindCollabEditor`, there is no supported way to register a
- * packaged Extension -- as opposed to a
- * raw ProseMirror plugin, which `Editor#registerPlugin` does allow after the fact -- onto an editor
- * that already exists. Attaching it at construction time unconditionally, instead of waiting for
- * `bindCollabEditor`'s post-sync gate the way this does, was considered and rejected: `y-tiptap`'s
- * sync plugin overwrites the editor's content with whatever the shared document currently holds the
- * instant it mounts, so building the collaborative editor before the session has synced would blank
- * the page's just-loaded content in favour of an empty document, with no equivalent of the read-only
- * guard `EditorMarkdown.vue` gets by delaying the *binding* rather than the whole editor. So the
- * interim editor `init()` builds stays the only one until this runs, once, and this one replaces it
- * outright rather than trying to reuse it.
+ * `ytext` is the session's flat-text field, sized for Monaco's markdown source and unusable here --
+ * TipTap's collaboration is a tree CRDT. This editor takes its own root type off the *same* shared
+ * `Y.Doc` (`ytext.doc`): same room, same participants, independent content type.
  *
- * `ytext` is `startCollabSession`'s plain-text `content` field, sized for Monaco's markdown source --
- * not usable here, since TipTap's collaboration is a tree CRDT (a `Y.XmlFragment`), not a flat-text
- * one. This editor gets its own root type on the *same* shared `Y.Doc` instead (`ytext.doc`, which
- * Yjs sets once a root type is first read off a document): same room, same participants, same
- * header-field and save-notification wiring, independent content type.
- *
- * Async since OpenProject #2516: the editor swap itself still happens synchronously, exactly as
- * before, but seeding an empty fragment now waits on `claimWysiwygSeed()` first -- see that
- * function's own doc comment for why. The caller (`bindCollabEditor`'s factory below) deliberately
- * does not return this function's promise, so `bindCollabEditor`'s own `binding` bookkeeping -- which
- * expects either a real teardown object or a falsy value -- never mistakes it for one.
+ * The caller deliberately does not return this promise: `bindCollabEditor` would mistake it for the
+ * teardown object it expects back from its factory.
  */
 async function swapToCollabEditor(ytext, awareness) {
   const fragment = ytext.doc.getXmlFragment('wysiwygBody')
   /*
-    Nobody has written to this field yet -- either this is the first person to open the page
-    collaboratively, or the room emptied out since. Either way, what this editor was just showing
-    (the page's saved content) becomes the room's starting state, the same way `core/collab.ts`'s
-    `buildSeed()` seeds a fresh room's markdown field from `page.content` server-side.
+    Nobody has written to this field yet -- first opener, or the room emptied out since -- so what
+    this editor is showing becomes the room's starting state, mirroring `core/collab.ts`'s
+    `buildSeed()` server-side.
   */
   const seedContent = fragment.length === 0 ? editor.value.getJSON() : null
   const previousEditor = editor.value
@@ -495,32 +409,20 @@ async function swapToCollabEditor(ytext, awareness) {
   }
 
   /*
-    Ask the room's server-side coordinator before actually writing anything (OpenProject #2516):
-    `fragment.length === 0` above only proves nobody had written to THIS client's own copy of the
-    shared document yet, which is exactly what used to race -- two people opening a brand new room's
-    WYSIWYG editor at the same instant would both see it empty and both seed, duplicating the content
-    once the two replicas merged. `claimWysiwygSeed` grants at most one caller across the whole
-    cluster, and never sees this editor's ProseMirror JSON at all -- only a boolean crosses that call.
-    `fragment.length` is re-checked after the round trip in case the room's real content (a peer's own
-    seed, or a draft restore) already landed while this one was in flight.
+    `fragment.length === 0` above only proves nobody had written to THIS client's copy yet, so two
+    people opening a brand new room at the same instant would both seed and duplicate the content
+    once the replicas merged. `claimWysiwygSeed` grants at most one caller cluster-wide (only a
+    boolean crosses that call). `fragment.length` is re-checked after the round trip in case a
+    peer's seed or a draft restore landed while this was in flight.
   */
   const granted = await claimWysiwygSeed({ siteId: siteStore.id, pageId: pageStore.id })
   if (granted && fragment.length === 0) {
-    // -> `emitUpdate: false`: nothing changed that `pageStore` doesn't already have from the interim
-    //    editor above -- `y-tiptap`'s sync plugin observes the dispatched transaction regardless of
-    //    the TipTap-level "update" event this flag gates.
+    // -> `emitUpdate: false`: `pageStore` already has this from the interim editor, and `y-tiptap`'s
+    //    sync plugin observes the dispatched transaction regardless of the event this flag gates.
     editor.value.commands.setContent(seedContent, { emitUpdate: false })
   }
 }
 
-/**
- * Opens `LinkPickerDialog` (the same component and result shape `EditorMarkdown.vue`'s own
- * `insertLink()` uses) and applies the answer as a `link` mark over the current selection.
- *
- * A real text selection keeps its own text as the label -- `setLink` marks it in place, nothing is
- * replaced. A collapsed cursor has no text to mark, so the label (`title`, falling back to `href`,
- * matching what `EditorMarkdown.vue` falls back to) is inserted first and the mark applied to it.
- */
 function insertLink() {
   const { from, to, empty } = editor.value.state.selection
   dialog({ component: LinkPickerDialog }).onOk(({ href, openInNewTab, title }) => {
@@ -547,10 +449,6 @@ function insertLink() {
   })
 }
 
-/**
- * Opens the same block picker (`BlockPickerOverlay.vue`) the plain-text editor's side toolbar opens
- * -- see `insertBlockClb` below for the other half, what happens once it hands back a choice.
- */
 function insertBlock() {
   siteStore.$patch({
     overlay: 'BlockPicker'
@@ -558,31 +456,14 @@ function insertBlock() {
 }
 
 /**
- * The block (or tabset) `BlockPickerOverlay.vue` built, as its own MDC markup, turned into a real
- * node at the cursor.
- *
- * `insertContent`'s own `contentType: 'markdown'` (from the `Markdown` extension registered in
- * `buildExtensions()`) is what parses it -- the same parse `WikiBlock`'s own markdown tokenizer
- * handles for the page's initial load, run here against just this one block's markup instead of the
- * whole document (OpenProject #3396). Unlike `EditorMarkdown.vue`'s own `insertBlockClb`, no manual
- * blank-line padding around the insertion point is needed: ProseMirror's schema places a block-level
- * node at a valid position on its own, splitting the surrounding paragraph if the cursor was inside
- * one.
+ * Unlike `EditorMarkdown.vue`'s counterpart, no blank-line padding around the insertion point is
+ * needed: ProseMirror's schema places a block-level node at a valid position on its own, splitting
+ * the surrounding paragraph if the cursor was inside one.
  */
 function insertBlockClb(markdown) {
   editor.value.chain().focus().insertContent(markdown, { contentType: 'markdown' }).run()
 }
 
-/**
- * What the file manager handed back, applied to the document at the cursor.
- *
- * `EditorMarkdown.vue`/`EditorCode.vue`/`EditorAsciidoc.vue` each write their own source syntax for
- * the same event; this editor's "source" is the TipTap document, so an image asset becomes a real
- * `image` node (`setImage`) and everything else (a non-image asset, or a page) becomes a `link` mark
- * over inserted text, the same image-vs-link distinction those editors draw (OpenProject #944 --
- * previously this editor registered no `insertAsset` listener at all, so the File Manager's pick was
- * silently dropped).
- */
 function insertAssetClb(opts) {
   const isImage = opts.type === 'asset' && opts.mimeType?.startsWith('image/')
   if (isImage) {
@@ -619,19 +500,12 @@ function insertAssetClb(opts) {
 }
 
 /**
- * Take files the author brought in — pasted or dropped — and write TipTap nodes for them at the
- * cursor (or `position`, for a drop landing somewhere other than wherever the cursor already was).
+ * Nothing is uploaded here: each file becomes a pending asset held against a `blob:` URL, and
+ * `UploadPendingAssetsDialog` sends it on save and reports back where it landed --
+ * `reloadEditorContent` below is this editor's half of applying that.
  *
- * Nothing is uploaded here, mirroring `EditorMarkdown.vue`'s own `insertFilesAsAssets` (OpenProject
- * #2449): each file becomes a pending asset held against a `blob:` URL via
- * `editorStore.addPendingAsset`, and `UploadPendingAssetsDialog` sends it on save and reports back
- * where it landed -- `reloadEditorContent` below is this editor's half of applying that.
- *
- * An image becomes a real `image` node, the same way `insertAssetClb` already draws one for a File
- * Manager pick; anything else becomes a `link` mark over the file's own name -- the same image-vs-link
- * split `insertAssetClb` draws, and the same "clipboard-pasted files all need a fresh name, a drop's
- * own name is real user intent" rule `generateUniqueName` documents on `addPendingAsset` itself. Only
- * the paste call site below sets it.
+ * `generateUniqueName` is for the paste path only; see `addPendingAsset` for why a drop's own
+ * filename is kept and a clipboard paste's is not.
  */
 function insertFilesAsAssets(files, { generateUniqueName = false, position = null } = {}) {
   if (position != null) {
@@ -656,11 +530,9 @@ function insertFilesAsAssets(files, { generateUniqueName = false, position = nul
 }
 
 /*
-  Pasting a file inserts it; pasting anything else (including the rich HTML paste this editor already
-  handles via ProseMirror/TipTap's own default paste rules) is left alone -- `shouldClaimPaste` is what
-  keeps text winning when an image rides alongside it on the clipboard, shared verbatim with
-  `EditorMarkdown.vue`. Returning `false` here is a genuine decline: ProseMirror falls through to its
-  normal paste handling (and TipTap's own HTML-to-document parsing) for anything not claimed.
+  Returning `false` is a genuine decline: ProseMirror falls through to its own paste handling (and
+  TipTap's HTML-to-document parsing) for anything not claimed. `shouldClaimPaste` is what keeps text
+  winning when an image rides alongside it on the clipboard.
 */
 function handlePaste(view, event) {
   if (!shouldClaimPaste(event.clipboardData)) {
@@ -672,10 +544,9 @@ function handlePaste(view, event) {
 }
 
 /*
-  A drop has to be claimed twice, the same as `EditorMarkdown.vue`'s Monaco pair: `dragover` is what
-  tells the browser this is a valid target -- without it there is no drop at all, just the browser
-  navigating away to the file -- and `drop` is where it arrives. See `shouldAcceptDrag`'s own doc
-  comment for why `dragover` cannot just check `hasFiles`.
+  A drop has to be claimed twice: `dragover` is what tells the browser this is a valid target --
+  without it there is no drop at all, just the browser navigating away to the file -- and `drop` is
+  where it arrives.
 */
 function handleDragOver(view, event) {
   if (!shouldAcceptDrag(event.dataTransfer)) {
@@ -691,18 +562,16 @@ function handleDrop(view, event) {
     return false
   }
   event.preventDefault()
-  // -> Dropped text lands where it was dropped, and so should a file: `posAtCoords` returns `null`
-  //    when the point is off the document (or, as in a test, when nothing has actually laid out) --
-  //    `insertFilesAsAssets` falls back to the current selection rather than crash on a null position.
+  // -> `posAtCoords` returns `null` when the point is off the document (or, as under test, when
+  //    nothing has laid out); `insertFilesAsAssets` falls back to the current selection.
   const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
   insertFilesAsAssets(pastedFiles(event.dataTransfer), { position: coords?.pos ?? null })
   return true
 }
 
 /**
- * The ProseMirror-level `editorProps` shared by both places this editor constructs a TipTap `Editor`
- * (`init()`'s interim editor and `swapToCollabEditor()`'s collaborative one) -- a fresh object per
- * call, since TipTap does not expect the same `editorProps` instance handed to two live editors.
+ * A fresh object per call: TipTap does not expect one `editorProps` instance handed to two live
+ * editors, and both `init()` and `swapToCollabEditor()` construct one.
  */
 function buildEditorProps() {
   return {
@@ -715,18 +584,12 @@ function buildEditorProps() {
 }
 
 /**
- * Rewrite the live document -- image `src` / link `href` attributes pointing at a pending asset's
- * `blob:` URL -- once `UploadPendingAssetsDialog` has uploaded it and knows the real path.
+ * `pageStore.content` is a one-way write from this editor, never read back in, so the dialog's own
+ * `.replaceAll` over it does not reach the live ProseMirror document -- that needs its own rewrite,
+ * node by node, once the pending assets' real paths are known.
  *
- * `pageStore.content` is a plain string here (the TipTap JSON document, already `.replaceAll`'d by the
- * dialog before this fires) and is a one-way write from this editor, never read back in -- so the live
- * ProseMirror document, what the reader is actually looking at, needs its own rewrite, node by node.
- * The counterpart to `EditorMarkdown.vue`'s own `reloadEditorContent`, which does the equivalent
- * find-and-replace against its Monaco text model instead.
- *
- * A single transaction of attribute-only edits (`setNodeMarkup`, `removeMark`/`addMark`) -- none of
- * which change any node's size -- so every position collected while walking the original,
- * not-yet-mutated `state.doc` stays valid for the whole transaction with no incremental remapping.
+ * One transaction of attribute-only edits, none of which change a node's size, so every position
+ * collected while walking the original `state.doc` stays valid with no incremental remapping.
  */
 function reloadEditorContent({ replacements = [] } = {}) {
   if (!editor.value || replacements.length === 0) {
@@ -760,8 +623,6 @@ function reloadEditorContent({ replacements = [] } = {}) {
   }
 }
 
-// MOUNTED
-
 onMounted(() => {
   EVENT_BUS.on('insertAsset', insertAssetClb)
   EVENT_BUS.on('reloadEditorContent', reloadEditorContent)
@@ -770,24 +631,16 @@ onMounted(() => {
 
 init()
 
-// -> Live collaboration. Registered as its own `onMounted`, and after `init()` above rather than
-//    before it, specifically so it runs *after* `useEditor()`'s own internal `onMounted` (which
-//    `init()` registers by calling `useEditor()`) has constructed `editor.value` -- `useEditor()`
-//    defers construction to its own mount hook rather than building synchronously the way
-//    `EditorMarkdown.vue`'s Monaco editor does, and Vue runs mount hooks in registration order, so
-//    this has to be registered after that one is.
+// -> Registered after `init()` on purpose: `useEditor()` defers construction to its own mount hook,
+//    and Vue runs mount hooks in registration order, so only a later-registered hook sees
+//    `editor.value`.
 onMounted(() => {
   if (!collabEnabled.value) {
     return
   }
 
-  /*
-    "Someone else already has this open" -- said once, before the collab session below has even
-    asked to connect. `pageStore.activeEditors` came with the page itself (`viewer.activeEditors` on
-    `GET .../pages/:id`, task 546), read off whatever room `core/collab.ts` already has for it on this
-    instance -- so this can be shown immediately, without waiting on a socket. Page-level, not
-    editor-specific, so this is identical to `EditorMarkdown.vue`'s own use of it.
-  */
+  // -> `activeEditors` came with the page itself, so "someone else has this open" can be said
+  //    before the collab session below has even asked to connect.
   if (pageStore.activeEditors.count > 0) {
     notify({
       type: 'info',
@@ -805,11 +658,9 @@ onMounted(() => {
     (status) => {
       const effects = collabStatusEffects(status, collabStore.hasSynced)
       if (effects.shouldBindEditor) {
-        // -> Not `(ytext, awareness) => swapToCollabEditor(ytext, awareness)`: `swapToCollabEditor`
-        //    is async now (OpenProject #2516), and `bindCollabEditor` treats its factory's return
-        //    value as a real teardown object to keep (or a falsy value if there is none) -- an
-        //    implicitly-returned Promise would be mistaken for one and later have `.destroy()`
-        //    called on it. This form fires it and deliberately returns nothing.
+        // -> Block body, not a concise arrow: `swapToCollabEditor` is async, and `bindCollabEditor`
+        //    treats its factory's return value as a teardown object to `.destroy()` later. This
+        //    form deliberately returns nothing.
         bindCollabEditor((ytext, awareness) => {
           swapToCollabEditor(ytext, awareness)
         })
@@ -824,10 +675,8 @@ onMounted(() => {
     }
   )
 
-  /*
-    Somebody else saved the page. The editor state has already been put back to "nothing pending" by
-    the session -- this is only so that the author is told why their Save button went quiet.
-  */
+  // -> The session has already cleared the pending state; this only tells the author why their Save
+  //    button went quiet.
   stopCollabLastSaveWatch = watch(
     () => collabStore.lastSave,
     (lastSave) => {
@@ -845,32 +694,24 @@ onBeforeUnmount(() => {
   EVENT_BUS.off('insertAsset', insertAssetClb)
   EVENT_BUS.off('reloadEditorContent', reloadEditorContent)
   EVENT_BUS.off('insertBlock', insertBlockClb)
-  // -> Stopped before `stopCollabSession()` below patches `collabStore.status` to `off` -- left
-  //    running they fire past unmount against a disposed editor (OpenProject #942).
+  // -> Before `stopCollabSession()` patches `collabStore.status` to `off`, or they fire past
+  //    unmount against a disposed editor.
   stopCollabStatusWatch?.()
   stopCollabLastSaveWatch?.()
   // -> Before the editor goes: leaving the room is what takes this author's avatar out of everyone
-  //    else's header
+  //    else's header.
   stopCollabSession()
   editor.value.destroy()
 })
 
-// -> Exposed for tests only, so a mounted instance can drive the TipTap editor directly (e.g.
-//    `wrapper.vm.editor.chain().focus().insertContent(...).run()`) the way the toolbar's own
-//    handlers above do, rather than trying to simulate real keystrokes through happy-dom.
-// -> `menuBar` is exposed alongside it for the same reason: several of its entries are nested one or
-//    two `w-menu`/`w-item` levels below any `aria-label`, which is not worth simulating a real click
-//    path through happy-dom for when the toolbar row's own template already drives every entry's
-//    `action`/`isActive` off nothing but the entry object itself.
+// -> Tests only: happy-dom runs no layout, so a suite drives the editor and the menu entries'
+//    `action`/`isActive` directly rather than simulating keystrokes and nested menu clicks.
 defineExpose({ editor, menuBar })
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Selectors are written flat rather than with native nesting: a `&-suffix` concatenation is a Sass
+   idiom the browser silently drops, never matching. */
 .wysiwyg-container {
   height: calc(100% - 41px);
 }
@@ -879,12 +720,6 @@ defineExpose({ editor, menuBar })
   display: flex;
   align-items: center;
   padding: 4px;
-  /*
-    OpenProject #2498: this bar had no dark-mode treatment at all, so it stayed a bright white/grey
-    band regardless of theme. Dark values reuse the same `var(--color-dark-2)`/`var(--color-dark-1)` panel-and-border pair
-    `EditorMarkdown.vue`'s own dark preview toolbar uses -- the closest sibling shape, even though
-    this toolbar (formatting buttons, not a rendered preview) has no exact structural twin.
-  */
 }
 .body--light .wysiwyg-container .wysiwyg-toolbar {
   background: linear-gradient(to top, var(--color-grey-1) 0%, #fff 100%);
@@ -897,10 +732,6 @@ defineExpose({ editor, menuBar })
 .wysiwyg-container .ProseMirror {
   padding: 16px;
   min-height: 75vh;
-  /*
-    The typed content itself, so a dark toolbar above isn't paired with the default (black-on-
-    whatever's-behind-it) text the rest of this rule otherwise never sets a color for.
-  */
 }
 .body--dark .wysiwyg-container .ProseMirror {
   color: rgba(255, 255, 255, 0.87);
@@ -1047,10 +878,8 @@ defineExpose({ editor, menuBar })
 }
 .wysiwyg-container .ProseMirror {
   /*
-    Remote collaborators' cursors (OpenProject #1124). `CollaborationCaret`'s default `render`/
-    `selectionRender` build these two classes with nothing but a per-user `border-color`/
-    `background-color` already inlined -- everything about their layout is left to CSS, matching
-    the shape of TipTap's own documented example for this extension.
+    Remote collaborators' cursors: `CollaborationCaret` inlines only a per-user color on these two
+    classes and leaves all of their layout to CSS.
   */
 }
 .wysiwyg-container .ProseMirror .collaboration-carets__caret {
@@ -1064,12 +893,9 @@ defineExpose({ editor, menuBar })
 }
 .wysiwyg-container .ProseMirror {
   /*
-    -> `left` stays physical on purpose (OpenProject #1601's repo-wide pass): the label is a flag
-       anchored to the caret's own left edge, and moving it to a logical offset without also moving
-       the caret line it points at would separate the two under RTL -- a coordinated redesign, not
-       a mechanical property swap. (The rounded corners that used to cut its point are gone with the
-       rest of the app's radii; the label is a square flag now.) See
-       `frontend/src/logicalSpacing.test.js`.
+    -> The caret label's `left` stays physical: it is a flag anchored to the caret's own left edge,
+       and moving it to a logical offset without also moving the caret line it points at would
+       separate the two under RTL. Allowlisted in `frontend/src/logicalSpacing.test.js`.
   */
 }
 .wysiwyg-container .ProseMirror .collaboration-carets__label {
@@ -1085,13 +911,9 @@ defineExpose({ editor, menuBar })
   user-select: none;
 }
 /*
-  OpenProject #3397 -- GitHub alerts, footnotes, TeX and glossary terms. A small, self-contained
-  palette rather than reusing the published page's own `--content-*` admonition tokens
-  (`css/_page-contents.css`): those are declared inside `.page-contents`'s own scope, which this
-  editor surface is not, and this editor already keeps its OWN separate palettes for a different
-  purpose (`TEXT_COLORS`/`HIGHLIGHT_COLORS` above) rather than reaching into the page's -- editing
-  chrome only needs to be legible and distinguishable while typing, not pixel-identical to the
-  published render.
+  Alerts, footnotes, TeX and glossary terms get their own palette rather than the published page's
+  `--content-*` admonition tokens: those are declared inside `.page-contents`'s scope, which this
+  editor surface is not, and editing chrome only has to be legible, not pixel-identical.
 */
 .wysiwyg-container .ProseMirror blockquote[data-alert-kind] {
   border-inline-start-width: 4px;

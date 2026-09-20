@@ -18,23 +18,15 @@ import { createTestI18n } from '../../test/i18n.js'
 import { buildTestRouter } from '../../test/router.js'
 
 /**
- * OpenProject #790: `FileManager.vue` had no drag-and-drop upload on-ramp, only the file-picker's
- * `multiple` input (`uploadNewFiles`, unchanged). These tests cover the drop zone added to close
- * that gap: the drag-state bookkeeping that drives the overlay, and that a drop feeds the SAME
- * `uploadFiles` path (same `sites/:siteId/assets`/`sites/:siteId/assets/batch` calls, same progress
- * state) the picker already used -- not a second upload implementation. A multi-file drop asserts
- * against the batch endpoint rather than N single-file POSTs (OpenProject #3233).
- * `handleDrop`/`handleDragEnter`/etc. are plain
- * `<script setup>` bindings, reachable on `wrapper.vm` because Vue's dev-mode compiler exposes them
- * for template refs/devtools; see `PageNewMenu.test.js` and others in this directory for the same
- * pattern already in use.
+ * `FileManager.vue`'s `<script setup>` bindings (`handleDrop`, `delItem`, `state`, ...) are reachable
+ * on `wrapper.vm` because Vue's dev-mode compiler exposes them for template refs/devtools, so these
+ * suites call them directly rather than simulating the full UI path.
  */
 
 const i18n = createTestI18n({
   common: {
     datetime: '{date} at {time}',
-    // -> The key-cap hint resolves through the SAME two keys `HeaderSearch` uses; see the design
-    //    conformance suite at the bottom of this file.
+    // -> The file manager's key-cap hint resolves through `HeaderSearch`'s own two keys.
     header: {
       searchShortcutMac: '\u2318K',
       searchShortcutOther: 'Ctrl+K'
@@ -48,8 +40,6 @@ const i18n = createTestI18n({
     dropFoldersRejected: "Folders can't be uploaded by drag-and-drop.",
     dropFoldersRejectedCount: '{count} folders were skipped',
     uploadSuccess: 'File(s) uploaded successfully.',
-    // -> WP #1610: these render through t() now rather than as literal template text, so the
-    //    "Duplicate..." assertion below needs its resolved string present here to keep matching.
     browseUsing: 'Browse using...',
     browseUsingPaths: 'Browse Using Paths',
     browseUsingTitles: 'Browse Using Titles',
@@ -59,8 +49,6 @@ const i18n = createTestI18n({
     duplicateItem: 'Duplicate...',
     renameItem: 'Rename...',
     renameMovePage: 'Rename / Move Page...',
-    // -> WP #2920's dedicated filetype column reads these through the same `fileman.*FileType`/
-    //    `*PageType`/`folderChildrenCount` keys the row already resolves `item.caption` from.
     pngFileType: 'PNG Image',
     markdownPageType: 'Markdown Page',
     folderChildrenCount: '{count} items'
@@ -89,8 +77,7 @@ async function mountFileManager({ overlayOpts } = {}) {
     props: overlayOpts ? { overlayOpts } : {},
     global: {
       plugins: [i18n, router],
-      // -> None of these are what this feature touches; stubbed to keep the mount to what the
-      //    drop zone actually needs (they each pull in their own child tree otherwise).
+      // -> Stubbed only to keep the mount small: each pulls in its own child tree.
       stubs: {
         Tree: true,
         NewMenu: true,
@@ -107,8 +94,8 @@ function makeFile(name, type = 'text/plain') {
   return new File(['x'], name, { type })
 }
 
-/** A `DataTransferItem`-shaped stand-in, wired to `webkitGetAsEntry` the way `collectDroppedFiles`
- *  reads it -- happy-dom's real `DataTransfer` has no such method. */
+/** happy-dom's real `DataTransfer` has no `webkitGetAsEntry`, which is how `collectDroppedFiles`
+ *  tells a folder from a file. */
 function fileItem(file) {
   return {
     kind: 'file',
@@ -126,9 +113,8 @@ function folderItem(name) {
 }
 
 /**
- * OpenProject #2050: `handleKeyPress` only ever tested `ev.ctrlKey`, so Cmd+K did nothing on macOS
- * while the file manager overlay was up. `mountFileManager` already attaches to `document.body`, so
- * `.focus()` here actually moves `document.activeElement`, same as in a real browser.
+ * `mountFileManager` attaches to `document.body`, so `.focus()` really does move
+ * `document.activeElement` here, the same as in a browser.
  */
 describe('FileManager keyboard shortcut (OpenProject #2050)', () => {
   it('focuses the search field on Ctrl+K', async () => {
@@ -152,11 +138,6 @@ describe('FileManager keyboard shortcut (OpenProject #2050)', () => {
   })
 })
 
-/**
- * OpenProject #2530: `insertMode` now reads off the `overlayOpts` prop `MainOverlayDialog.vue`
- * forwards, not `siteStore.overlayOpts` directly -- `siteStore.openFileManager(opts)` still sets the
- * store field, which is only the transport that prop is filled from in real use.
- */
 describe('FileManager insertMode (OpenProject #2530)', () => {
   it('defaults insertMode to false with no overlayOpts prop', async () => {
     const { wrapper } = await mountFileManager()
@@ -210,9 +191,8 @@ describe('FileManager drag-and-drop upload (OpenProject #790)', () => {
     const { wrapper } = await mountFileManager()
     const dropZone = wrapper.find('.fileman-droptarget')
 
-    // -> Entering the pane, then a child within it (e.g. crossing into the scroll area) without
-    //    ever truly leaving -- browsers fire dragenter/dragleave for every element boundary crossed,
-    //    which is what the depth counter in the component exists to net out.
+    // -> Browsers fire dragenter/dragleave for every element boundary crossed, which is what the
+    //    component's depth counter exists to net out.
     await dropZone.trigger('dragenter', { dataTransfer: { types: ['Files'] } })
     await dropZone.trigger('dragenter', { dataTransfer: { types: ['Files'] } })
     await dropZone.trigger('dragleave')
@@ -237,12 +217,10 @@ describe('FileManager drag-and-drop upload (OpenProject #790)', () => {
       }
     })
 
-    // -> The overlay closes immediately on drop, before the upload itself runs
     expect(wrapper.find('.fileman-dropoverlay').exists()).toBe(false)
 
-    // -> `uploadFiles` defers behind `nextTick` + a 400ms `setTimeout` (see the component); real
-    //    timers here rather than faking them, since faking interacts with the `matchMedia`
-    //    listeners `useScreen`/`useMinWidth` register on mount
+    // -> `uploadFiles` defers behind `nextTick` + a 400ms `setTimeout`. Real timers rather than fake
+    //    ones, which interfere with the `matchMedia` listeners `useScreen`/`useMinWidth` register.
     await new Promise((resolve) => setTimeout(resolve, 500))
     await flushPromises()
 
@@ -339,8 +317,7 @@ describe('FileManager drag-and-drop upload (OpenProject #790)', () => {
     const dropZone = wrapper.find('.fileman-droptarget')
     const file = makeFile('legacy.txt')
 
-    // -> No `items`, matching a browser without `DataTransferItemList` -- the fallback branch in
-    //    `collectDroppedFiles`
+    // -> No `items`: a browser without `DataTransferItemList`, `collectDroppedFiles`'s fallback.
     await dropZone.trigger('drop', { dataTransfer: { files: [file] } })
 
     await new Promise((resolve) => setTimeout(resolve, 500))
@@ -356,15 +333,9 @@ describe('FileManager drag-and-drop upload (OpenProject #790)', () => {
 })
 
 /**
- * OpenProject #859, #861, #862, #863, #864: `FileManager.vue`'s per-row context menu implemented
- * the asset "View" action, gated "Rerender Page" and "Duplicate..." to where they actually apply,
- * and removed three menu items ("Edit Image...", "Resize Image...", "Move to...") that called
- * nothing. These tests cover that shape directly rather than through the drop zone above.
- *
- * `WMenu` is stubbed to render its slot unconditionally -- in the real app a row's menu content
- * only mounts once its `w-item` trigger receives a real `contextmenu` event (see `WMenu.vue`), and
- * these tests care about which `<w-item>`s a row's menu holds, not that open/close mechanics WMenu
- * already owns -- the same pattern `PageNewMenu.test.js` uses.
+ * `WMenu` is stubbed to render its slot unconditionally: in the real app a row's menu content only
+ * mounts once its trigger receives a `contextmenu` event, and what is asserted here is which
+ * `<w-item>`s a row's menu holds, not the open/close mechanics `WMenu` already owns.
  */
 describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', () => {
   afterEach(() => {
@@ -474,11 +445,9 @@ describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', 
 })
 
 /**
- * WP #1728: the detail thumbnail `<img>` carried leftover `q-img`-era props (`width="100%"`,
- * `:ratio="16 / 10"`) that mean nothing on a plain `<img>` -- `ratio` lands as a dead DOM attribute
- * and `width` is non-conforming markup, while reserving no actual height, so the pane reflows once
- * the thumbnail loads. This asserts the markup is plain now: no `ratio`/`width` attributes, and the
- * aspect ratio reserved via a class instead (`object-cover`, already present, does the rest).
+ * `ratio`/`width` are `q-img`-era props that mean nothing on a plain `<img>`: `ratio` lands as a
+ * dead attribute and `width` reserves no height, so the pane reflows once the thumbnail loads. The
+ * aspect ratio has to come from a class instead.
  */
 describe('FileManager detail thumbnail markup (WP #1728)', () => {
   afterEach(() => {
@@ -528,13 +497,6 @@ describe('FileManager detail thumbnail markup (WP #1728)', () => {
   })
 })
 
-/**
- * WP #1149: extra confirmation before deleting or moving a site's homepage, from the file manager's
- * own delete/rename-move entry points (`delItem`/`renameMovePage`) -- the tree-item counterparts to
- * `PageActionsCol.test.js`'s "homepage guard" suite, which covers the page view's action rail. Calls
- * the exposed `<script setup>` functions directly on `wrapper.vm`, the same pattern
- * `openItem()`/`state.fileList` above already use.
- */
 describe('FileManager homepage guard (WP #1149)', () => {
   async function mountFileManagerForGuard() {
     setActivePinia(createPinia())
@@ -542,8 +504,8 @@ describe('FileManager homepage guard (WP #1149)', () => {
     siteStore.id = 'site-1'
 
     const pageStore = usePageStore()
-    // -> `initializeStore(router)` (stores/index.js) is what wires this up for real, at app boot; a
-    //    bare `createPinia()` never runs it, and `pageMove` dereferences it for the moved page
+    // -> A bare `createPinia()` never runs `initializeStore(router)`, and `pageMove` dereferences
+    //    this for the moved page.
     pageStore.router = { replace: vi.fn() }
 
     const router = buildTestRouter([])
@@ -688,12 +650,6 @@ describe('FileManager homepage guard (WP #1149)', () => {
   })
 })
 
-/**
- * OpenProject #1755: the page-detail panel's "Updated"/"Created" fields used to spell out their own
- * `toZonedDateTimeISO(Temporal.Now.timeZoneId())` + `commonStore.locale` formatting -- ignoring the
- * user's stored timezone/date/time preferences entirely. Converted to the shared
- * `helpers/datetime.js#humanizeDate`, which delegates to `userStore.formatDateTime`.
- */
 describe('FileManager page detail dates (OpenProject #1755)', () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -751,7 +707,7 @@ describe('FileManager page detail dates (OpenProject #1755)', () => {
     const updatedItemTokyo = wrapperTokyo.vm.currentFileDetails.items.find(
       (i) => i.label === 'fileman.detailsPageUpdated'
     )
-    // -> Same instant, nine hours ahead -- proof the stored zone (not the sandbox's own) is honoured
+    // -> Same instant, nine hours ahead: the stored zone, not the sandbox's own.
     expect(updatedItemTokyo.value).toContain('2026-03-05')
     expect(updatedItemTokyo.value).toContain('00:30')
     wrapperTokyo.unmount()
@@ -762,18 +718,16 @@ describe('FileManager page detail dates (OpenProject #1755)', () => {
     const createdItem = wrapper.vm.currentFileDetails.items.find(
       (i) => i.label === 'fileman.detailsPageCreated'
     )
-    // -> `commonStore.locale` formatting produced no literal "at" separator; the shared
-    //    `humanizeDate` -> `common.datetime` ("{date} at {time}") does.
+    // FIXME: this only asserts the value is non-empty, so it would still pass against a raw
+    // `toLocaleString()`. Assert the `common.datetime` separator ("{date} at {time}") instead.
     expect(createdItem.value).not.toBe('')
     wrapper.unmount()
   })
 })
 
 /**
- * OpenProject #2074: the toolbar's "New" button used to draw a ringed plus while every other
- * create/add affordance in the app drew a bare one. The add action is settled on `tabler:plus`, so
- * this button must not drift back to a ringed variant -- `tabler:circle-plus` is the one sitting
- * closest to it in the set.
+ * The add action is settled on the bare `tabler:plus` app-wide; `tabler:circle-plus` is the ringed
+ * variant it is closest to drifting back to.
  */
 describe('FileManager toolbar "New" icon (OpenProject #2074)', () => {
   it('uses the settled tabler:plus add glyph, not tabler:circle-plus', async () => {
@@ -787,13 +741,8 @@ describe('FileManager toolbar "New" icon (OpenProject #2074)', () => {
 })
 
 /**
- * WP #2625: the first full comparison of this screen against `ui-redesign/Cardinal Wiki - File
- * Manager 3x.dc.html`. Each assertion below names one line of that file, so a later change that
- * drifts back off it fails as the design disagreement it is rather than as an unexplained snapshot
- * diff. What the design draws but this pass deliberately did NOT change -- the file-type icon set
- * (`helpers/fileTypes.js`, four call sites), `.card-header`'s own title size, the folder tree's row
- * rhythm (`TreeNav.vue`, four call sites) and the Insert button's `#e4676b` fill (2.9:1 under a
- * white label) -- is recorded on the work package, not asserted here.
+ * Each assertion pins one line of the file manager design mockup, so a change that drifts off it
+ * fails as the design disagreement it is rather than as an unexplained snapshot diff.
  */
 describe('FileManager design conformance (WP #2625)', () => {
   it("draws the header glyph in the accent, not in the title's white", async () => {
@@ -827,7 +776,7 @@ describe('FileManager design conformance (WP #2625)', () => {
   it('advertises the Cmd/Ctrl+K shortcut it already answers, withdrawing the cap once typing starts', async () => {
     const { wrapper } = await mountFileManager()
 
-    // -> Resolved through `common.header.searchShortcut*`, whichever platform the suite runs on
+    // -> Either cap is correct: the hint resolves per platform, and the suite runs on both.
     const cap = wrapper.find('.fileman-search-kbd')
     expect(cap.exists()).toBe(true)
     expect(['⌘K', 'Ctrl+K']).toContain(cap.text())
@@ -836,7 +785,6 @@ describe('FileManager design conformance (WP #2625)', () => {
     await flushPromises()
     expect(wrapper.find('.fileman-search-kbd').exists()).toBe(false)
 
-    // -> ...and the key it advertises really is bound
     wrapper.vm.state.search = ''
     await flushPromises()
     const input = wrapper.find('.fileman-search-input').element
@@ -853,7 +801,7 @@ describe('FileManager design conformance (WP #2625)', () => {
     const upload = wrapper.find('.fileman-upload-btn')
     expect(upload.exists()).toBe(true)
     expect(upload.find('[data-icon="tabler:cloud-upload"]').exists()).toBe(true)
-    // -> `outline`, which is what `WBtn` turns into a `border` class; the class above recolours it
+    // -> `border` is what `WBtn` turns an `outline` button into; `.fileman-upload-btn` recolours it.
     expect(upload.classes()).toContain('border')
 
     wrapper.unmount()
@@ -878,7 +826,7 @@ describe('FileManager design conformance (WP #2625)', () => {
 
     const side = wrapper.find('.fileman-filelist-side')
     expect(side.exists()).toBe(true)
-    // -> `.text-caption` is the proportional scale; a measurement is set in the mono face instead
+    // -> `.text-caption` is the proportional scale; a measurement is set in the mono face instead.
     expect(side.html()).not.toContain('text-caption')
 
     wrapper.unmount()
@@ -887,7 +835,7 @@ describe('FileManager design conformance (WP #2625)', () => {
   it('draws the details preview as a framed plate with corner marks even with no thumbnail', async () => {
     const { wrapper } = await mountFileManager()
 
-    // -> A PDF: `currentFileDetails.thumbnail` is null, which used to mean no plate at all
+    // -> A PDF, so `currentFileDetails.thumbnail` is null.
     wrapper.vm.state.fileList = [
       {
         id: 'a2',
@@ -933,7 +881,7 @@ describe('FileManager design conformance (WP #2625)', () => {
     const img = wrapper.find('.fileman-thumb img')
     expect(img.exists()).toBe(true)
     expect(img.attributes('src')).toBe('/_thumb/a3.webp')
-    // -> `--radius-*` is zeroed repo-wide; the plate and its image are square
+    // -> `--radius-*` is zeroed repo-wide, so the plate and its image are square.
     expect(img.classes()).not.toContain('rounded')
     expect(wrapper.find('.fileman-thumb-placeholder').exists()).toBe(false)
 
@@ -980,24 +928,14 @@ describe('FileManager design conformance (WP #2625)', () => {
 })
 
 /**
- * OpenProject #2776 ("History + File manager: diff against Cobalt mockups, fix gaps"). Diffing this
- * screen against `Cardinal Wiki - File Manager 3x - Cobalt.dc.html` at the same width found two
- * kinds of gap, both left over from before a second aesthetic existed to tell Ledger's coincidences
- * apart from its actual roles:
+ * Guards two ways a surface stops following the site's aesthetic: a control reaching for the site
+ * brand `primary` where it means the white-text `accent` (the two coincide under Ledger and diverge
+ * under Cobalt), and a style block reading a frozen Sass-era constant instead of the custom property
+ * `css/tailwind.css` swaps per aesthetic.
  *
- * 1. The details-pane "Insert" button (`color="primary"`) and Ledger's own `#c14a52` are the SAME
- *    tone as Cobalt's white-text accent (`--q-accent`, `#c8303c`), but `--q-primary` (Cobalt's site
- *    brand blue, `#1f4fd6`) is not -- so the button rendered the wrong colour the moment the two
- *    aesthetics gave "primary" and "accent" different values. Covered directly through `WBtn`'s own
- *    resolved inline style, the same way `WBtn.test.js` does.
- * 2. Most of this file's `<style>` block read Sass compile-time constants
- *    (`$hairline`, `$dark-4`, `$tint`, ...) instead of the CSS custom properties `css/tailwind.css`
- *    actually swaps per aesthetic (`--color-hairline`, `--color-dark-4`, `--color-tint`, ...) --
- *    identical in Ledger, since a Sass constant and its custom-property twin start at the same
- *    value, but frozen there under Cobalt too. There is no compiled stylesheet in this test
- *    environment for a computed-style assertion to resolve `var()` cascades against (the same
- *    constraint `css/cobaltTokens.test.js` documents), so this is checked the same way that suite
- *    checks a hand-edited token file: against the component's own source text.
+ * The token half is asserted against the component's own source text because there is no compiled
+ * stylesheet in this environment for a computed-style assertion to resolve `var()` cascades against
+ * -- the same constraint `css/cobaltTokens.test.js` documents.
  */
 describe('FileManager Cobalt aesthetic conformance (OpenProject #2776)', () => {
   const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'FileManager.vue')
@@ -1029,8 +967,7 @@ describe('FileManager Cobalt aesthetic conformance (OpenProject #2776)', () => {
   })
 
   it('reads the aesthetic-aware color custom properties, not the frozen Ledger Sass constants', () => {
-    // -> One representative per role this pass converted; a regression on any of them means a
-    //    component-owned surface stopped following the site's aesthetic again.
+    // -> One representative per role, not an exhaustive list of the block's tokens.
     for (const token of [
       '--color-hairline',
       '--color-hairline-dark',
@@ -1065,15 +1002,10 @@ describe('FileManager Cobalt aesthetic conformance (OpenProject #2776)', () => {
 })
 
 /**
- * OpenProject #2742: the "+ New" trigger's `color` prop was a flat `slate`, with no dark-mode
- * counterpart. Because this is an OUTLINE `w-btn`, `WBtn.vue` turns a non-solid `color` into a bare
- * `color: var(--color-<name>)` inline style with nothing else drawing a foreground, so
- * `--color-slate` (`#38465f`, no dark override) is what both the label text and the `tabler:plus`
- * icon (inheriting `currentColor`) rendered in against a dark toolbar.
- *
- * OpenProject #2797: the dark-mode counterpart #2742 introduced was the ad-hoc `text-secondary-dark`
- * token rather than `slate-light`, the pairing this codebase uses everywhere else for slate's
- * dark-mode tone (see `AdminBlocks.vue` and `tailwind.css`'s `--color-slate`/`--color-slate-light`).
+ * This is an OUTLINE `w-btn`, so `WBtn.vue` turns its `color` into a bare inline text color with
+ * nothing else drawing a foreground -- a token with no dark override leaves both the label and the
+ * `currentColor` icon unreadable on a dark toolbar. `--color-slate`/`--color-slate-light` is this
+ * codebase's light/dark pairing for that tone.
  */
 describe('FileManager "+ New" trigger dark mode (OpenProject #2742, #2797)', () => {
   afterEach(() => {
@@ -1102,11 +1034,6 @@ describe('FileManager "+ New" trigger dark mode (OpenProject #2742, #2797)', () 
   })
 })
 
-/**
- * OpenProject #2920 ("File Manager: compact row height + dedicated filetype column"). The filetype
- * caption ("PNG Image", "5 items", ...) used to be a sub-line under the filename, hidden entirely in
- * compact mode; it now lives in its own column between the filename and the size.
- */
 describe('FileManager compact rows + filetype column (WP #2920)', () => {
   function seedRows(wrapper) {
     wrapper.vm.state.fileList = [
@@ -1141,7 +1068,7 @@ describe('FileManager compact rows + filetype column (WP #2920)', () => {
     expect(types[0].text()).toBe('5 items')
     expect(types[1].text()).toBe('PNG Image')
 
-    // -> The filename column is exclusive now -- no more sub-line caption under it
+    // -> The filetype caption belongs to its own column, never as a sub-line under the filename.
     const labels = wrapper.findAll('.fileman-filelist-label')
     for (const label of labels) {
       expect(label.find('.w-item-label--caption').exists()).toBe(false)
@@ -1151,17 +1078,6 @@ describe('FileManager compact rows + filetype column (WP #2920)', () => {
   })
 })
 
-/**
- * OpenProject #2940 ("File manager rows are 69px tall (should be 40px/compact-default), size
- * column misaligns, icons aren't 100% Tabler") and OpenProject #2960 ("restore comfortable row
- * density as a user preference, compact stays default; compact icons too large"). #2940 laid the
- * row out on CSS Grid rather than flex so the size column's width is reserved whether or not a
- * given row actually has one -- that part stands for both densities. It ALSO deleted comfortable
- * mode outright rather than merely defaulting away from it, which #2960 restores: `state.isCompact`
- * and the "Compact List" view-options toggle are back, `isCompact` now starting `true` so compact
- * still ships as the default, and its icon corrected from the oversized `md` (32px) #2940 shipped
- * to `sm` (24px) -- matching `TreeBrowserDialog.vue`'s own row icon for the same kind of list.
- */
 describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
   const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'FileManager.vue')
   const source = readFileSync(SOURCE_PATH, 'utf-8')
@@ -1203,9 +1119,6 @@ describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
     seedRows(wrapper)
     await flushPromises()
 
-    // -> `isCompact` starts `true` -- db2b0196a's over-correction deleted comfortable outright
-    //    rather than merely defaulting away from it; #2960 restores the choice but keeps compact
-    //    as what a reader sees with no preference saved yet.
     expect(wrapper.vm.state.isCompact).toBe(true)
     expect(wrapper.find('.fileman-filelist').classes()).toContain('is-compact')
 
@@ -1214,7 +1127,7 @@ describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
 
   it('draws the default compact row with the `sm` (24px) icon, not the oversized `md` (32px) db2b0196a shipped', async () => {
     expect(rowBlock).toMatch(/display:\s*grid/)
-    // -> The ~40px height lives under the `.is-compact` modifier now, not the base row
+    // -> The ~40px height belongs to the `.is-compact` modifier, not the base row.
     expect(rowBlock).toMatch(/is-compact[\s\S]*min-height:\s*40px/)
     expect(source).toContain('<w-icon :name="item.icon" :size="state.isCompact ? `sm` : `xl`" />')
 
@@ -1222,8 +1135,6 @@ describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
     seedRows(wrapper)
     await flushPromises()
 
-    // -> Both rows resolve a real icon -- a folder and a mapped file extension -- at the compact
-    //    default's `sm` (24px) size, matching `TreeBrowserDialog.vue`'s own row icon
     const icons = wrapper.findAll('.fileman-filelist-icon [data-icon]')
     expect(icons).toHaveLength(2)
     expect(icons[0].attributes('data-icon')).toBe('tabler:folder')
@@ -1252,10 +1163,9 @@ describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
   })
 
   it("reserves the size column's own grid track independent of whether item.side is populated", async () => {
-    // -> Four fixed/flexible tracks -- icon, name, type, size -- so a row with no `item.side` (a
-    //    folder or a page) still leaves the type column exactly where a sibling row WITH a size
-    //    puts it, rather than letting the name column grow to swallow the gap. Checked against the
-    //    default compact density's own track widths.
+    // -> Four tracks -- icon, name, type, size -- so a row with no `item.side` still puts its type
+    //    column where a sibling row WITH a size does, rather than letting the name column swallow
+    //    the gap.
     expect(rowBlock).toMatch(
       /is-compact[\s\S]*grid-template-columns:\s*40px minmax\(0,\s*1fr\)\s*110px\s*90px/
     )
@@ -1264,10 +1174,9 @@ describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
     seedRows(wrapper)
     await flushPromises()
 
-    // -> The folder row (no size) still renders its type column
     const types = wrapper.findAll('.fileman-filelist-type')
     expect(types).toHaveLength(2)
-    // -> Only the file row renders a size cell at all -- the folder row's fourth track sits empty
+    // -> One size cell for two rows: the folder row's fourth track sits empty.
     expect(wrapper.findAll('.fileman-filelist-side')).toHaveLength(1)
 
     wrapper.unmount()
@@ -1288,7 +1197,6 @@ describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
 
     wrapper.unmount()
 
-    // -> A fresh mount picks the stored value back up, not the `true` default
     const { wrapper: wrapper2 } = await mountFileManager()
     expect(wrapper2.vm.state.isCompact).toBe(false)
     wrapper2.unmount()
