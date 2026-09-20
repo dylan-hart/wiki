@@ -53,6 +53,20 @@ function loadStylesheetOnce(href) {
   document.head.appendChild(link)
 }
 
+const GISCUS_ORIGIN = 'https://giscus.app'
+let giscusHost = null
+let giscusInitialTerm = null
+
+function retargetGiscusOnLoad(frame, term) {
+  frame.addEventListener(
+    'load',
+    () => {
+      frame.contentWindow?.postMessage({ giscus: { setConfig: { term } } }, GISCUS_ORIGIN)
+    },
+    { once: true }
+  )
+}
+
 export const COMMENT_EMBED_PROVIDERS = {
   disqus: {
     async mount(container, config, pageUrl) {
@@ -135,6 +149,52 @@ export const COMMENT_EMBED_PROVIDERS = {
         server,
         site: config?.siteName || undefined
       })
+    }
+  },
+
+  giscus: {
+    async mount(container, config, pageUrl) {
+      const { repo, repoId, category, categoryId, theme, lang } = config ?? {}
+      if (!repo || !repoId || !categoryId) {
+        return
+      }
+      const host = document.createElement('div')
+      host.className = 'giscus'
+      container.appendChild(host)
+
+      const previousHost = giscusHost
+      giscusHost = host
+      const existingFrame = previousHost?.querySelector('iframe.giscus-frame')
+      if (existingFrame) {
+        host.appendChild(existingFrame)
+        previousHost.remove()
+        retargetGiscusOnLoad(existingFrame, pageUrl)
+        return
+      }
+
+      const src = `${GISCUS_ORIGIN}/client.js`
+      if (!scriptLoads.has(src)) {
+        giscusInitialTerm = pageUrl
+      }
+      await loadScriptOnce(src, {
+        'data-repo': repo,
+        'data-repo-id': repoId,
+        'data-category': category || '',
+        'data-category-id': categoryId,
+        'data-mapping': 'specific',
+        'data-term': pageUrl,
+        'data-strict': '0',
+        'data-reactions-enabled': config.reactionsEnabled === false ? '0' : '1',
+        'data-emit-metadata': '0',
+        'data-input-position': 'bottom',
+        'data-theme': theme || 'preferred_color_scheme',
+        'data-lang': lang || 'en',
+        crossorigin: 'anonymous'
+      })
+      const frame = host.querySelector('iframe.giscus-frame')
+      if (frame && pageUrl !== giscusInitialTerm) {
+        retargetGiscusOnLoad(frame, pageUrl)
+      }
     }
   }
 }

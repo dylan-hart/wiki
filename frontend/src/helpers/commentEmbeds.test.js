@@ -184,3 +184,83 @@ describe('COMMENT_EMBED_PROVIDERS.artalk', () => {
     expect(container.children).toHaveLength(0)
   })
 })
+
+describe('COMMENT_EMBED_PROVIDERS.giscus', () => {
+  const config = {
+    repo: 'octocat/hello-world',
+    repoId: 'R_abc123',
+    category: 'Announcements',
+    categoryId: 'DIC_def456',
+    theme: 'dark',
+    reactionsEnabled: false,
+    lang: 'fr'
+  }
+
+  it('appends a .giscus host and loads client.js once with data attributes from config', async () => {
+    const container = makeContainer()
+    await COMMENT_EMBED_PROVIDERS.giscus.mount(
+      container,
+      config,
+      'https://wiki.example.com/en/getting-started'
+    )
+    await COMMENT_EMBED_PROVIDERS.giscus.mount(
+      makeContainer(),
+      config,
+      'https://wiki.example.com/en/second-page'
+    )
+
+    expect(container.querySelector('.giscus')).not.toBeNull()
+    const scripts = document.head.querySelectorAll('script[src="https://giscus.app/client.js"]')
+    expect(scripts).toHaveLength(1)
+    const script = scripts[0]
+    expect(script.getAttribute('data-repo')).toBe('octocat/hello-world')
+    expect(script.getAttribute('data-repo-id')).toBe('R_abc123')
+    expect(script.getAttribute('data-category')).toBe('Announcements')
+    expect(script.getAttribute('data-category-id')).toBe('DIC_def456')
+    expect(script.getAttribute('data-mapping')).toBe('specific')
+    expect(script.getAttribute('data-term')).toBe('https://wiki.example.com/en/getting-started')
+    expect(script.getAttribute('data-theme')).toBe('dark')
+    expect(script.getAttribute('data-reactions-enabled')).toBe('0')
+    expect(script.getAttribute('data-lang')).toBe('fr')
+  })
+
+  it('moves the existing iframe into the new container and re-targets it without a second script', async () => {
+    const first = makeContainer()
+    await COMMENT_EMBED_PROVIDERS.giscus.mount(first, config, 'https://wiki.example.com/en/one')
+    const frame = document.createElement('iframe')
+    frame.className = 'giscus-frame'
+    const messages = []
+    Object.defineProperty(frame, 'contentWindow', {
+      value: { postMessage: (...args) => messages.push(args) }
+    })
+    first.querySelector('.giscus').appendChild(frame)
+    first.remove()
+
+    const second = makeContainer()
+    await COMMENT_EMBED_PROVIDERS.giscus.mount(second, config, 'https://wiki.example.com/en/two')
+
+    expect(second.querySelector('.giscus > iframe.giscus-frame')).toBe(frame)
+    expect(document.head.querySelector('script[src*="giscus.app"]')).toBeNull()
+    frame.dispatchEvent(new Event('load'))
+    expect(messages).toEqual([
+      [{ giscus: { setConfig: { term: 'https://wiki.example.com/en/two' } } }, 'https://giscus.app']
+    ])
+  })
+
+  it('mounts nothing without a repo, repo ID and category ID', async () => {
+    for (const partial of [
+      {},
+      { repo: 'octocat/hello-world', repoId: 'R_abc123' },
+      { repo: 'octocat/hello-world', categoryId: 'DIC_def456' },
+      { repoId: 'R_abc123', categoryId: 'DIC_def456' }
+    ]) {
+      const container = makeContainer()
+      await COMMENT_EMBED_PROVIDERS.giscus.mount(
+        container,
+        partial,
+        'https://wiki.example.com/en/page'
+      )
+      expect(container.children).toHaveLength(0)
+    }
+  })
+})
