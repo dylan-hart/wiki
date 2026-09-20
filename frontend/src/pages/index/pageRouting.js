@@ -14,25 +14,18 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 /**
- * The three independent branches of `Index.vue`'s `route.path` watcher, one function each.
- *
- * They were a single 263-line callback; nothing about them was shared beyond the watcher itself, and
- * each ends by returning out of it. The watcher keeps the dispatch (and the `ignoreRouteChange` and
- * `/_`-prefix guards, which are about the watcher rather than about any one branch); everything a
- * branch then does lives here.
- *
- * Stores are resolved per call rather than at module scope, the way `helpers/datetime.js` already
- * does it -- these run from a watcher, long after the active pinia exists. `router` is passed in
- * instead, since `useRouter()` needs the component's own injection context.
+ * Stores are resolved per call rather than at module scope -- these run from a watcher, long after
+ * the active pinia exists. `router` is passed in instead, since `useRouter()` needs the
+ * component's own injection context.
  */
 
 /**
- * `/_create/:editor` -- open the editor on a page that does not exist yet.
+ * `/_create/:editor`.
  *
- * @param {import('vue-router').RouteLocationNormalized} route The current route.
+ * @param {import('vue-router').RouteLocationNormalized} route
  * @param {object} ctx
  * @param {import('vue-router').Router} ctx.router
- * @param {(key: string) => string} ctx.t The view's `useI18n()` translator.
+ * @param {(key: string) => string} ctx.t
  */
 export async function enterCreateMode(route, { router, t }) {
   const pageStore = usePageStore()
@@ -53,19 +46,15 @@ export async function enterCreateMode(route, { router, t }) {
   if (route.query.locale) {
     pageCreateArgs.locale = route.query.locale
   }
-  // -> Unlike the plain page-load branch below (whose own catch handles every error this store
-  //    can throw), this had none at all -- `pageCreate` can reject (its own `fetchConfigs()` call
-  //    is a network request), which left the full-screen loading overlay up forever with the
-  //    error only in the console (OpenProject #947).
+  // -> `pageCreate` can reject (its own `fetchConfigs()` call is a network request); unguarded,
+  //    that leaves the full-screen loading overlay up forever.
   try {
     await pageStore.pageCreate(pageCreateArgs)
     /*
-      The editor route never goes through `loadPageForRoute` below, which is the only other place
-      that ever calls this -- so without it, `userStore.pagePermissions` stayed at its cleared `[]`
-      for the entire lifetime of a create session, and every page-permission-gated control (setting
-      a load/unload script, OpenProject #3417) read as denied before the page had ever been saved
-      once. `pageStore.path`/`.locale` (not `pageCreateArgs`) because `pageCreate` is what resolves
-      the actual target path -- a default `new-page` slug when the route carried none.
+      This route never reaches `loadPageForRoute`'s own permission fetch, so without this every
+      page-permission-gated control reads as denied for the whole create session. `pageStore.path`/
+      `.locale`, not `pageCreateArgs`: `pageCreate` is what resolves the actual target path -- a
+      default `new-page` slug when the route carried none.
     */
     await userStore.fetchPagePermissions(pageStore.path, pageStore.locale)
   } catch (err) {
@@ -77,9 +66,9 @@ export async function enterCreateMode(route, { router, t }) {
 }
 
 /**
- * `/_edit/:pagePath` -- open the editor on a page that already exists.
+ * `/_edit/:pagePath`.
  *
- * @param {import('vue-router').RouteLocationNormalized} route The current route.
+ * @param {import('vue-router').RouteLocationNormalized} route
  * @param {object} ctx
  * @param {import('vue-router').Router} ctx.router
  */
@@ -91,10 +80,8 @@ export async function enterEditMode(route, { router }) {
     return router.replace('/')
   }
   loading.show()
-  // -> `pageEdit` throws `ERR_PAGE_NOT_FOUND`/`ERR_PAGE_UNAUTHORIZED` for a bad path (it calls
-  //    `pageLoad` internally, the same one the plain page-load branch below guards) -- left
-  //    unguarded here, `/_edit/<bad-path>` stranded the app behind the loading overlay forever
-  //    (OpenProject #947).
+  // -> `pageEdit` throws `ERR_PAGE_NOT_FOUND`/`ERR_PAGE_UNAUTHORIZED` for a bad path; unguarded,
+  //    `/_edit/<bad-path>` strands the app behind the loading overlay forever.
   try {
     await pageStore.pageEdit({
       path: route.params.pagePath,
@@ -102,12 +89,10 @@ export async function enterEditMode(route, { router }) {
       fromNavigate: true
     })
     /*
-      Same gap, same fix, as `enterCreateMode` above (OpenProject #3417): this route never goes
-      through `loadPageForRoute`'s own `fetchPagePermissions` call, so an editor opened directly on
-      `/_edit/:pagePath` (a bookmark, a reload while editing) started with `pagePermissions` still at
-      its cleared `[]` rather than what this session actually holds on the page just loaded.
-      `pageStore.path`/`.locale` are the server's own normalized values off the page `pageEdit` just
-      loaded, not the raw route params.
+      Same gap as `enterCreateMode`: this route never reaches `loadPageForRoute`'s own permission
+      fetch, so an editor opened directly on `/_edit/:pagePath` (a bookmark, a reload while
+      editing) would hold no page permissions at all. `pageStore.path`/`.locale` are the server's
+      own normalized values off the page just loaded, not the raw route params.
     */
     await userStore.fetchPagePermissions(pageStore.path, pageStore.locale)
   } catch (err) {
@@ -127,17 +112,15 @@ export async function enterEditMode(route, { router }) {
 }
 
 /**
- * An ordinary page path -- load the page and settle everything that follows it landing.
- *
- * @param {import('vue-router').RouteLocationNormalized} route The current route.
- * @param {number} generation This navigation's ticket from the view's own load counter, checked
+ * @param {import('vue-router').RouteLocationNormalized} route
+ * @param {number} generation This navigation's ticket from the view's own load counter, re-checked
  *   against `currentGeneration()` at each point a stale response could still do damage.
  * @param {object} ctx
  * @param {import('vue-router').Router} ctx.router
  * @param {object} ctx.state The view's reactive state bag -- `tocPanelOpen` is the one field read.
  * @param {{value: Element|null}} ctx.pageContents Ref to the rendered content element.
  * @param {() => void} ctx.scrollPageToTop
- * @param {() => number} ctx.currentGeneration The view's live load counter.
+ * @param {() => number} ctx.currentGeneration
  */
 export async function loadPageForRoute(
   route,
@@ -152,18 +135,15 @@ export async function loadPageForRoute(
 
   const newValue = route.path
 
-  // -> Load Page. The contents panel belongs to the page being left, so it goes with it
+  // -> The contents panel belongs to the page being left, so it goes with it
   state.tocPanelOpen = false
   scrollPageToTop()
   /*
-    A locale-prefixed URL (`/fr/some/page`) and its page path (`some/page`) are not the same string:
-    the segment is not part of what a page is addressed by, so it has to come off before hashing --
-    see `normalizePath`/`fastHash` in `stores/page.js`, which know nothing about locales and would
-    otherwise hash a path that matches no page at all. A first segment that is not one of the site's
-    active locale codes is an ordinary path rather than a locale (`parseLocalePrefix` returns null),
-    and one that IS active but simply absent -- a site with `locales.forcePrefix` off leaves its
-    primary locale unprefixed -- both fall back to the primary locale, same default the server uses
-    for a lookup with no `locale` on it.
+    A locale-prefixed URL (`/fr/some/page`) is not a page path: `normalizePath`/`fastHash` in
+    `stores/page.js` know nothing about locales and would hash a path matching no page at all. A
+    first segment that is not one of the site's active locale codes is an ordinary path, and an
+    unprefixed URL (a site with `locales.forcePrefix` off) falls back to the primary locale -- the
+    same default the server uses for a lookup with no `locale` on it.
   */
   const parsedLocale = siteStore.useLocales
     ? parseLocalePrefix(
@@ -179,50 +159,41 @@ export async function loadPageForRoute(
       locale: pageLocale,
       isStale: () => generation !== currentGeneration()
     })
-    // -> A faster, later navigation already landed while this one was still in flight -- `pageLoad`
-    //    already discarded its own response (see its own `isStale` check), and none of what follows
-    //    here -- the editor-exit patch, the block-loading scan, the anchor scroll -- belongs to the
-    //    page actually on screen either.
+    // -> A faster, later navigation already landed: `pageLoad` discarded its own response, and
+    //    none of what follows belongs to the page actually on screen either.
     if (generation !== currentGeneration()) {
       return
     }
     if (editorStore.isActive) {
       /*
-        Walking away from the editor closes it, and `mode` describes the editor that was open — so
-        it has to go back with it. Left on `create`, it goes on claiming a page is being written
-        long after the reader has moved on to reading one, and everything that asks gets the wrong
-        answer: `pageSave` POSTs a new page instead of patching the one on screen, the header
-        offers Create Page where Save Changes belongs, and Discard throws away a property edit as
-        though it were an abandoned draft — putting the welcome screen over a wiki that has a home
-        page.
+        `mode` describes the editor that was open, so it has to go back with it. Left on `create`,
+        `pageSave` POSTs a new page instead of patching the one on screen, the header offers Create
+        Page where Save Changes belongs, and Discard throws away a property edit as though it were
+        an abandoned draft.
       */
       editorStore.$patch({
         isActive: false,
         mode: 'edit'
       })
     }
-    // -> Load Blocks. `collectBlocksToLoad` tolerates a missing content element, because a locked
-    //    page draws its lock screen in place of the article -- so there is nothing to scan.
+    // -> `collectBlocksToLoad` tolerates a missing content element: a locked page draws its lock
+    //    screen in place of the article, so there is nothing to scan.
     nextTick(() => {
-      // -> Checked again here, not just above: `nextTick` defers to the next DOM update cycle, and
-      //    a further navigation can land in the gap between the check above and this callback
-      //    actually running.
+      // -> Checked again: a further navigation can land in the gap `nextTick` defers across.
       if (generation !== currentGeneration()) {
         return
       }
       commonStore.loadBlocks(collectBlocksToLoad(pageContents.value, siteStore.blocksIndex))
       /*
-        Then the heading in the URL, if there is one. The browser tried it the moment it had the
-        document, which was long before this render existed, so nothing happened — following a link
-        to `#a-heading` left the reader at the top of the page. Done here rather than on mount
-        because a route change within the app renders a new page the same way.
+        The browser tried the URL's heading the moment it had the document, long before this render
+        existed, so a link to `#a-heading` lands at the top of the page. Done here rather than on
+        mount because a route change within the app renders a new page the same way.
       */
       scrollToAnchorWhenReady(route.hash)
     })
   } catch (err) {
-    // -> Worse than the success branch above if left unguarded: a stale ERR_PAGE_NOT_FOUND would
-    //    call `pageStore.pageNotFound` below and blank the store for whatever page a faster, later
-    //    navigation already landed on.
+    // -> A stale ERR_PAGE_NOT_FOUND would call `pageStore.pageNotFound` below and blank the store
+    //    for whatever page a faster, later navigation already landed on.
     if (generation !== currentGeneration()) {
       return
     }
@@ -232,21 +203,18 @@ export async function loadPageForRoute(
           router.push('/login')
         } else {
           /*
-            The one place the page permissions have to be asked for on their own -- same as the
-            non-root branch below, and for the same reason: `write:pages` is a page-rule
+            The permissions have to be asked for on their own here: `write:pages` is a page-rule
             permission, so a cold load's empty `pagePermissions` can only ever answer this
             truthfully for `manage:system`. Asked at `'home'`, not `pagePath` (which is just `/`
             here): page rules are written against real page paths, and `'home'` is what the server
-            already treats the root as everywhere else (e.g. `backend/api/pages/read.ts`'s own
-            `path || 'home'`). OpenProject #2063.
+            treats the root as everywhere else (`backend/api/pages/read.ts`'s `path || 'home'`).
           */
           await userStore.fetchPagePermissions('home', pageLocale)
           if (userStore.can('write:pages')) {
             siteStore.overlay = 'Welcome'
           } else {
-            // -> Same missing-page placeholder the non-root branch below draws, not
-            //    `/_error/unauthorized`: a reader who may not write here is not wrong about the
-            //    page -- it genuinely doesn't exist -- so this is what tells them that, truthfully.
+            // -> Not `/_error/unauthorized`: a reader who may not write here is not wrong about
+            //    the page -- it genuinely doesn't exist.
             pageStore.pageNotFound({ path: 'home' })
           }
         }
@@ -255,23 +223,17 @@ export async function loadPageForRoute(
           -> Not a notification over the page the reader came from: that page is still on screen
           behind it, at a URL that is not its own. The view draws the missing page instead.
 
-          `pagePath`/`pageLocale` above are the (path, locale) pair with the locale prefix already
-          stripped off -- `newValue` is still the raw, locale-prefixed route path (`fr/some/page`),
-          which is not a page path at all. Using it here used to bake the prefix into the create
-          screen's display path, ask the permission probe about a path no rule is ever written
-          against, and (via `pageStore.path`, below) into `createPage`'s POST -- see bug #949.
+          `pagePath`/`pageLocale`, not the raw locale-prefixed `newValue` (`fr/some/page`), which is
+          not a page path at all: the prefix would reach the create screen's display path, the
+          permission probe below and (via `pageStore.path`) `createPage`'s POST.
         */
         pageStore.pageNotFound({ path: pagePath })
-        /*
-          The one place the page permissions have to be asked for on their own: everywhere else they
-          arrive with the page, and here there is no page to carry them — while the screen about to
-          be drawn offers to create one, which is a permission question.
-        */
+        // -> No page to carry the permissions here, and the screen about to be drawn offers to
+        //    create one, which is a permission question.
         await userStore.fetchPagePermissions(pagePath, pageLocale)
       }
     } else if (err.message === 'ERR_PAGE_UNAUTHORIZED') {
-      // -> `replace`, so the back button leaves the wiki the way it came rather than bouncing off
-      //    the same refusal again
+      // -> `replace`, so the back button leaves the wiki rather than bouncing off the same refusal
       router.replace('/_error/unauthorized')
     } else {
       notify({
