@@ -2,6 +2,7 @@
   <div>
     <template v-if="props.screen === `register`">
       <p class="auth-subtitle">{{ t('auth.registerSubTitle') }}</p>
+      <auth-inline-error v-if="state.error" class="mb-3" :message="state.error" />
       <w-form ref="form" @submit="register">
         <!--
           Field chrome lives in `pages/Login.vue`'s `.auth` stylesheet -- this screen only ever
@@ -12,6 +13,7 @@
           class="auth-field auth-field--sm"
           ref="firstNameIpt"
           v-model="state.newFirstName"
+          @update:model-value="clearError"
           :rules="firstNameValidation"
           lazy-rules="ondemand"
           hide-bottom-space
@@ -23,6 +25,7 @@
         <w-input
           class="auth-field auth-field--sm mt-2"
           v-model="state.newLastName"
+          @update:model-value="clearError"
           :rules="lastNameValidation"
           lazy-rules="ondemand"
           hide-bottom-space
@@ -35,6 +38,7 @@
           class="auth-field auth-field--sm mt-2"
           type="email"
           v-model="state.newEmail"
+          @update:model-value="clearError"
           :rules="emailValidation"
           lazy-rules="ondemand"
           hide-bottom-space
@@ -46,6 +50,7 @@
         <w-input
           class="auth-field auth-field--sm mt-2"
           v-model="state.newPassword"
+          @update:model-value="clearError"
           :placeholder="t(`auth.fields.password`)"
           :aria-label="t(`auth.fields.password`)"
           type="password"
@@ -64,6 +69,7 @@
         <w-input
           class="auth-field auth-field--sm mt-2"
           v-model="state.newPasswordVerify"
+          @update:model-value="clearError"
           :placeholder="t(`auth.fields.verifyPassword`)"
           :aria-label="t(`auth.fields.verifyPassword`)"
           type="password"
@@ -125,8 +131,8 @@
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 
+import AuthInlineError from '@/components/AuthInlineError.vue'
 import { loading } from '@/composables/loading'
-import { notify } from '@/composables/notify'
 import { useDark } from '@/composables/dark'
 import { apiErrorMessage } from '@/helpers/apiError'
 import {
@@ -165,7 +171,8 @@ const state = reactive({
   newLastName: '',
   newEmail: '',
   newPassword: '',
-  newPasswordVerify: ''
+  newPasswordVerify: '',
+  error: null
 })
 
 const firstNameIpt = ref(null)
@@ -182,7 +189,12 @@ const emailValidation = emailRules(t)
 const passwordValidation = passwordRules(t)
 const passwordVerifyValidation = passwordVerifyRules(t, () => state.newPassword)
 
+function clearError() {
+  state.error = null
+}
+
 async function register() {
+  clearError()
   loading.show({
     message: t('auth.registering')
   })
@@ -209,10 +221,7 @@ async function register() {
     }
   } catch (err) {
     loading.hide()
-    notify({
-      type: 'negative',
-      message: localizeError(apiErrorMessage(err), t)
-    })
+    state.error = localizeError(apiErrorMessage(err), t)
   }
 }
 
