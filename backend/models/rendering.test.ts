@@ -247,7 +247,7 @@ describe('rendering.postProcess: block-tab header attribute (OpenProject #3579)'
 
     const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
 
-    assert.match(result.render, /<block-tab label="Foo" header="2">/)
+    assert.match(result.render, /<block-tab label="Foo" header="2"( id="foo")?>/)
   })
 
   test('strips header from a block-tab whose definition does not declare it', async () => {
