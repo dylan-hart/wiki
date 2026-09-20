@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   belongsInTarget,
   categoryOf,
+  normalizePathPrefix,
   objectKeyFor,
   parseLargeThreshold,
   type BlobTargetContentTypesConfig
@@ -36,6 +37,47 @@ describe('objectKeyFor', () => {
     assert.notEqual(a, b)
     assert.equal(a, 'site-a/docs/readme.pdf')
     assert.equal(b, 'site-b/docs/readme.pdf')
+  })
+})
+
+describe('objectKeyFor / pathPrefix', () => {
+  const location = { siteId: 'site-1', folderPath: 'photos', fileName: 'cat.png' }
+
+  test('no prefix, an empty prefix or a blank one is byte-identical to the unprefixed key', () => {
+    const unprefixed = objectKeyFor(location)
+    assert.equal(objectKeyFor({ ...location, pathPrefix: undefined }), unprefixed)
+    assert.equal(objectKeyFor({ ...location, pathPrefix: '' }), unprefixed)
+    assert.equal(objectKeyFor({ ...location, pathPrefix: '  /  ' }), unprefixed)
+    assert.equal(unprefixed, 'site-1/photos/cat.png')
+  })
+
+  test('a prefix sits ahead of the siteId', () => {
+    assert.equal(objectKeyFor({ ...location, pathPrefix: 'a/b' }), 'a/b/site-1/photos/cat.png')
+  })
+
+  test('leading, trailing and doubled slashes and whitespace are normalized away', () => {
+    assert.equal(objectKeyFor({ ...location, pathPrefix: ' /a//b/ ' }), 'a/b/site-1/photos/cat.png')
+  })
+
+  test('dot and dot-dot segments are dropped, never traversed', () => {
+    assert.equal(
+      objectKeyFor({ ...location, pathPrefix: '../a/./b/../..' }),
+      'a/b/site-1/photos/cat.png'
+    )
+    assert.equal(objectKeyFor({ ...location, pathPrefix: '..' }), 'site-1/photos/cat.png')
+  })
+})
+
+describe('normalizePathPrefix', () => {
+  test('a non-string value means no prefix', () => {
+    assert.equal(normalizePathPrefix(undefined), '')
+    assert.equal(normalizePathPrefix(null), '')
+    assert.equal(normalizePathPrefix(42), '')
+    assert.equal(normalizePathPrefix(['a']), '')
+  })
+
+  test('returns a slash-joined string with no leading or trailing slash', () => {
+    assert.equal(normalizePathPrefix('/wiki//assets/'), 'wiki/assets')
   })
 })
 

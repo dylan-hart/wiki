@@ -38,14 +38,38 @@ export interface BlobTargetAssetLocation {
   /** Slash-separated, no leading or trailing slash, empty at the site root. */
   folderPath: string
   fileName: string
+  pathPrefix?: unknown
+}
+
+export function normalizePathPrefix(value: unknown): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  return value
+    .trim()
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== '' && segment !== '.' && segment !== '..')
+    .join('/')
 }
 
 /**
  * The `<siteId>/` prefix is what stops two sites colliding on an identical folder and file name.
  * Every target computes the key this way, so an asset moved between targets keeps it.
  */
-export function objectKeyFor({ siteId, folderPath, fileName }: BlobTargetAssetLocation): string {
-  const segments = [siteId, ...folderPath.split('/').filter(Boolean), fileName]
+export function objectKeyFor({
+  siteId,
+  folderPath,
+  fileName,
+  pathPrefix
+}: BlobTargetAssetLocation): string {
+  const prefix = normalizePathPrefix(pathPrefix)
+  const segments = [
+    ...(prefix ? [prefix] : []),
+    siteId,
+    ...folderPath.split('/').filter(Boolean),
+    fileName
+  ]
   return segments.join('/')
 }
 

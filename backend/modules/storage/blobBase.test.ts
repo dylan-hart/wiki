@@ -88,6 +88,72 @@ describe('blobBase / keyFor', () => {
   })
 })
 
+describe('blobBase / pathPrefix', () => {
+  test('keyFor without a pathPrefix is unchanged, including when the config value is not a string', () => {
+    for (const pathPrefix of [undefined, '', '   ', null, 7]) {
+      const target = makeTarget({ pathPrefix })
+      assert.equal(keyFor(target, 'docs', 'a.pdf'), `${target.siteId}/docs/a.pdf`)
+    }
+  })
+
+  test('keyFor puts the prefix ahead of the siteId', () => {
+    const target = makeTarget({ pathPrefix: 'a/b' })
+    assert.equal(keyFor(target, 'docs', 'a.pdf'), `a/b/${target.siteId}/docs/a.pdf`)
+    assert.equal(keyFor(target, '', 'a.pdf'), `a/b/${target.siteId}/a.pdf`)
+  })
+
+  test('keyFor normalizes slashes and refuses to traverse with ..', () => {
+    const target = makeTarget({ pathPrefix: ' //a//../b/ ' })
+    assert.equal(keyFor(target, 'docs', 'a.pdf'), `a/b/${target.siteId}/docs/a.pdf`)
+  })
+
+  test('assetDeleted removes the prefixed key', async () => {
+    const driver = makeDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget({ pathPrefix: 'wiki' })
+
+    await module.assetDeleted!(target, { fileName: 'old.png', folderPath: 'images' })
+    assert.equal(driver.remove.mock.calls[0]!.arguments[1], `wiki/${target.siteId}/images/old.png`)
+  })
+
+  test('assetRenamed copies and removes using the prefixed source and destination', async () => {
+    const driver = makeDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget({ pathPrefix: 'a/b' })
+
+    await module.assetRenamed!(target, {
+      fileName: 'new-name.png',
+      previousFileName: 'old-name.png',
+      folderPath: 'images'
+    })
+
+    const sourceKey = `a/b/${target.siteId}/images/old-name.png`
+    assert.equal(driver.copy.mock.calls[0]!.arguments[1], sourceKey)
+    assert.equal(
+      driver.copy.mock.calls[0]!.arguments[2],
+      `a/b/${target.siteId}/images/new-name.png`
+    )
+    assert.equal(driver.remove.mock.calls[0]!.arguments[1], sourceKey)
+  })
+
+  test('assetMoved copies and removes using the prefixed source and destination', async () => {
+    const driver = makeDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget({ pathPrefix: 'a/b' })
+
+    await module.assetMoved!(target, {
+      fileName: 'pic.png',
+      folderPath: 'gallery',
+      previousFolderPath: 'images'
+    })
+
+    const sourceKey = `a/b/${target.siteId}/images/pic.png`
+    assert.equal(driver.copy.mock.calls[0]!.arguments[1], sourceKey)
+    assert.equal(driver.copy.mock.calls[0]!.arguments[2], `a/b/${target.siteId}/gallery/pic.png`)
+    assert.equal(driver.remove.mock.calls[0]!.arguments[1], sourceKey)
+  })
+})
+
 describe('blobBase / activation cache', () => {
   test('builds one client per target and reuses it while the stored config is unchanged', async () => {
     const driver = makeDriver()
