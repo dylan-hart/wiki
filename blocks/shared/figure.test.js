@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  explainEmptySource,
-  explainSourceFailure,
-  figureStyles
-} from './figure.js'
+import { explainEmptySource, explainSourceFailure, figureStyles } from './figure.js'
 
 const FENCE_HINT =
   '\n\nThe source has to go inside a fenced code block, or markdown rewrites it before this block sees it.'
