@@ -165,6 +165,82 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
     assert.equal(updated?.locale, 'fr')
   })
 
+  test('has no searchFilters key at all for a user who has never saved any', async () => {
+    const profile = await usersModel.getProfile(fixtures.userId)
+    assert.equal(profile?.searchFilters, undefined)
+  })
+
+  test('persists searchFilters and reads them back on reload', async () => {
+    const searchFilters = [
+      { mode: 'exclude', type: 'path', value: 'departments/x' },
+      { mode: 'include', type: 'publishState', value: 'published' }
+    ] as const
+
+    const updated = await usersModel.updateProfile(fixtures.userId, {
+      searchFilters: [...searchFilters]
+    })
+    assert.deepEqual(updated?.searchFilters, searchFilters)
+
+    const reloaded = await usersModel.getProfile(fixtures.userId)
+    assert.deepEqual(reloaded?.searchFilters, searchFilters)
+  })
+
+  test('a later searchFilters save replaces the list, and an empty array clears it', async () => {
+    await usersModel.updateProfile(fixtures.userId, {
+      searchFilters: [{ mode: 'include', type: 'tag', value: 'a' }]
+    })
+
+    const replaced = await usersModel.updateProfile(fixtures.userId, {
+      searchFilters: [{ mode: 'exclude', type: 'locale', value: 'fr' }]
+    })
+    assert.deepEqual(replaced?.searchFilters, [{ mode: 'exclude', type: 'locale', value: 'fr' }])
+
+    const cleared = await usersModel.updateProfile(fixtures.userId, { searchFilters: [] })
+    assert.deepEqual(cleared?.searchFilters, [])
+  })
+
+  test('drops keys other than mode, type and value from a stored row', async () => {
+    const updated = await usersModel.updateProfile(fixtures.userId, {
+      searchFilters: [{ mode: 'include', type: 'tag', value: 'a', extra: 1 } as any]
+    })
+    assert.deepEqual(updated?.searchFilters, [{ mode: 'include', type: 'tag', value: 'a' }])
+  })
+
+  test('rejects invalid searchFilters, leaving the stored list and other fields untouched', async () => {
+    await usersModel.updateProfile(fixtures.userId, {
+      searchFilters: [{ mode: 'include', type: 'tag', value: 'a' }]
+    })
+
+    for (const bad of [
+      [{ mode: 'require', type: 'tag', value: 'a' }],
+      [{ mode: 'include', type: 'creator', value: 'a' }],
+      [{ mode: 'include', type: 'publishState', value: 'live' }],
+      [{ mode: 'include', type: 'tag', value: '' }],
+      [{ mode: 'include', type: 'tag', value: 'a'.repeat(513) }],
+      Array(21).fill({ mode: 'include', type: 'tag', value: 'a' })
+    ]) {
+      await assert.rejects(
+        () =>
+          usersModel.updateProfile(fixtures.userId, { locale: 'fr', searchFilters: bad as any }),
+        /ERR_INVALID_SEARCH_FILTERS/
+      )
+    }
+
+    const reloaded = await usersModel.getProfile(fixtures.userId)
+    assert.deepEqual(reloaded?.searchFilters, [{ mode: 'include', type: 'tag', value: 'a' }])
+    assert.equal(reloaded?.locale, '')
+  })
+
+  test('leaves saved searchFilters untouched when an unrelated field changes', async () => {
+    await usersModel.updateProfile(fixtures.userId, {
+      searchFilters: [{ mode: 'include', type: 'tag', value: 'a' }]
+    })
+
+    const updated = await usersModel.updateProfile(fixtures.userId, { locale: 'fr' })
+
+    assert.deepEqual(updated?.searchFilters, [{ mode: 'include', type: 'tag', value: 'a' }])
+  })
+
   test('leaves a saved graph preference untouched when an unrelated field changes', async () => {
     await usersModel.updateProfile(fixtures.userId, { graph: { groupBy: 'tag' } })
 

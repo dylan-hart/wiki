@@ -8,6 +8,7 @@ import '@fastify/session'
 import type { ApiKeyIdentity } from '../models/apiKeys.ts'
 import type { PasskeyChallenge } from '../models/passkeys.ts'
 import type { McpAuthContext } from '../mcp/auth.ts'
+import type { SearchFilter } from '../helpers/searchFilters.ts'
 import type { GraphPrefs, IconPickerPrefs } from '../models/users.ts'
 
 declare module 'fastify' {
@@ -47,6 +48,7 @@ declare module 'fastify' {
       locale?: string
       graph?: GraphPrefs
       iconPicker?: IconPickerPrefs
+      searchFilters?: SearchFilter[]
     }
     /** Flattened, de-duplicated permissions of every group the user belongs to. */
     permissions?: string[]

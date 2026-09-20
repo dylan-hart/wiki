@@ -2830,6 +2830,7 @@
   "error.ERR_INVALID_LOCALE": "That is not a language installed on this instance.",
   "error.ERR_INVALID_LOCALE_CODE": "That is not a valid locale code.",
   "error.ERR_INVALID_SEARCH_DICTIONARY": "That is not a text search dictionary in this database.",
+  "error.ERR_INVALID_SEARCH_FILTERS": "Those search filters are not valid.",
   "error.ERR_INVALID_STRATEGY": "This authentication method cannot be used here.",
   "error.ERR_INVALID_USER": "This account no longer exists.",
   "error.ERR_INVALID_VALIDATION_TOKEN": "This request is no longer valid. Please start over.",

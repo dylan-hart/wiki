@@ -1,4 +1,11 @@
 import type { FastifyInstance } from 'fastify'
+import {
+  SEARCH_FILTERS_MAX_ROWS,
+  SEARCH_FILTER_MODES,
+  SEARCH_FILTER_PUBLISH_STATES,
+  SEARCH_FILTER_TYPES,
+  SEARCH_FILTER_VALUE_MAX_LENGTH
+} from '../../helpers/searchFilters.ts'
 import { HOOK_EVENTS } from '../../models/hooks.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
@@ -209,6 +216,19 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         properties: {
           set: { type: 'string' }
         }
+      },
+      searchFilters: {
+        type: 'array',
+        description:
+          "The user's saved search filter rows, or absent for a user who has never saved any. Plain strings rather than enums, same reasoning as `graph` above -- a row stored before an option existed must still be readable.",
+        items: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string' },
+            type: { type: 'string' },
+            value: { type: 'string' }
+          }
+        }
       }
     }
   })
@@ -310,6 +330,21 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           set: { type: 'string', maxLength: 255 }
         },
         additionalProperties: false
+      },
+      searchFilters: {
+        type: 'array',
+        description: `The user's saved search filter rows, replaced wholesale on every save; an empty array clears them. A \`publishState\` row's value must be one of ${SEARCH_FILTER_PUBLISH_STATES.join(', ')}, which the server checks beyond this schema. Stored per account so any device sees the same rows.`,
+        maxItems: SEARCH_FILTERS_MAX_ROWS,
+        items: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string', enum: [...SEARCH_FILTER_MODES] },
+            type: { type: 'string', enum: [...SEARCH_FILTER_TYPES] },
+            value: { type: 'string', minLength: 1, maxLength: SEARCH_FILTER_VALUE_MAX_LENGTH }
+          },
+          required: ['mode', 'type', 'value'],
+          additionalProperties: false
+        }
       }
     }
   })

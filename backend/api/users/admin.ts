@@ -61,7 +61,8 @@ export async function whoAmI(req: FastifyRequest): Promise<Record<string, any>> 
       cvd: profile.cvd,
       locale: profile.locale,
       graph: profile.graph,
-      iconPicker: profile.iconPicker
+      iconPicker: profile.iconPicker,
+      searchFilters: profile.searchFilters
     }),
     /*
       The same list the route permission hook checks. Nothing is added for the interface's benefit: a
