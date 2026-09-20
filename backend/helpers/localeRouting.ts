@@ -33,12 +33,30 @@ export function assertLocaleActive(siteId: string, locale: string): void {
  * at `fr/guide` would be unreachable — every request for it would be read as `/guide` in French.
  * Only the first segment can collide; `guide/fr` is fine.
  */
-export async function assertPathNotReservedLocale(path: string): Promise<void> {
+export function isConfiguredLocaleAlias(siteId: string | undefined, segment: string): boolean {
+  if (!siteId || !segment) {
+    return false
+  }
+  const aliases = CARDINAL.sites[siteId]?.config?.locales?.aliases
+  if (!aliases || typeof aliases !== 'object') {
+    return false
+  }
+  const lower = segment.toLowerCase()
+  return Object.values(aliases).some(
+    (alias) => typeof alias === 'string' && alias.toLowerCase() === lower
+  )
+}
+
+export function reservedLocaleSegmentLabel(siteId: string | undefined, segment: string): string {
+  return isConfiguredLocaleAlias(siteId, segment) ? 'a locale alias' : 'an installed locale code'
+}
+
+export async function assertPathNotReservedLocale(path: string, siteId?: string): Promise<void> {
   const firstSegment = path.split('/')[0] ?? ''
-  if (await CARDINAL.models.locales.isReservedLocaleCode(firstSegment)) {
+  if (await CARDINAL.models.locales.isReservedLocaleCode(firstSegment, siteId)) {
     throw new CustomError(
       'pageReservedLocaleSegment',
-      `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
+      `"${firstSegment}" is ${reservedLocaleSegmentLabel(siteId, firstSegment)} and cannot begin a page path.`,
       400
     )
   }

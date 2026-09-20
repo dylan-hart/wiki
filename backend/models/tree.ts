@@ -11,6 +11,7 @@ import {
   isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
+import { reservedLocaleSegmentLabel } from '../helpers/localeRouting.ts'
 
 export const TREE_UPDATE_CHUNK_SIZE = 200
 
@@ -920,10 +921,10 @@ class Tree {
 
     // -> Only a root-level folder can shadow a locale prefix: a nested `fr/` never collides with the
     //    URL parser, which only strips a locale code off the FIRST path segment
-    if (path === '' && (await CARDINAL.models.locales.isReservedLocaleCode(name))) {
+    if (path === '' && (await CARDINAL.models.locales.isReservedLocaleCode(name, siteId))) {
       throw new CustomError(
         'treeReservedLocaleSegment',
-        `"${name}" is an installed locale code and cannot name a root folder.`,
+        `"${name}" is ${reservedLocaleSegmentLabel(siteId, name)} and cannot name a root folder.`,
         400
       )
     }
@@ -1071,10 +1072,13 @@ class Tree {
     // -> Same root-only rule as `createFolder`: a folder already nested cannot collide with the
     //    locale-prefix parser regardless of what it is renamed to. Checked only once the segment is
     //    actually changing, so a title-only edit of a grandfathered root folder is not blocked.
-    if (!folder.folderPath && (await CARDINAL.models.locales.isReservedLocaleCode(name))) {
+    if (
+      !folder.folderPath &&
+      (await CARDINAL.models.locales.isReservedLocaleCode(name, folder.siteId))
+    ) {
       throw new CustomError(
         'treeReservedLocaleSegment',
-        `"${name}" is an installed locale code and cannot name a root folder.`,
+        `"${name}" is ${reservedLocaleSegmentLabel(folder.siteId, name)} and cannot name a root folder.`,
         400
       )
     }

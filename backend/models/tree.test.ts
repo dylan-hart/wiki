@@ -1,4 +1,4 @@
-import { after, before, describe, mock, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { eq, inArray } from 'drizzle-orm'
@@ -400,6 +400,81 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       }),
       (err: any) => err.name === 'treeReservedLocaleSegment'
     )
+  })
+
+  describe('configured locale aliases', () => {
+    let originalLocales: any
+
+    beforeEach(() => {
+      originalLocales = CARDINAL.sites[fixtures.siteId]!.config.locales
+      CARDINAL.sites[fixtures.siteId]!.config.locales = {
+        ...originalLocales,
+        aliases: { 'zh-CN': 'zh' }
+      }
+    })
+
+    afterEach(() => {
+      CARDINAL.sites[fixtures.siteId]!.config.locales = originalLocales
+    })
+
+    test('createFolder refuses a root folder named after a configured alias', async () => {
+      await assert.rejects(
+        treeModel.createFolder({
+          pathName: 'zh',
+          title: 'ZH',
+          locale: 'en',
+          siteId: fixtures.siteId
+        }),
+        (err: any) => err.name === 'treeReservedLocaleSegment' && /locale alias/.test(err.message)
+      )
+    })
+
+    test('createFolder allows the alias nested, and on a site without it', async () => {
+      const parent = await treeModel.createFolder({
+        pathName: 'alias-nested-parent',
+        title: 'Alias Nested Parent',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const child = await treeModel.createFolder({
+        parentId: parent.id,
+        pathName: 'zh',
+        title: 'ZH',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      assert.equal(child.fileName, 'zh')
+
+      const [otherSite] = await fixtures.db
+        .insert(sitesTable)
+        .values({ hostname: 'other-alias.localhost', isEnabled: true, config: {} })
+        .returning({ id: sitesTable.id })
+      const root = await treeModel.createFolder({
+        pathName: 'zh',
+        title: 'ZH',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+      assert.equal(root.fileName, 'zh')
+    })
+
+    test('renameFolder refuses renaming a root folder to a configured alias', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'alias-renameable',
+        title: 'Alias Renameable',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await assert.rejects(
+        treeModel.renameFolder({
+          folderId: folder.id,
+          siteId: fixtures.siteId,
+          pathName: 'zh',
+          title: 'Alias Renameable'
+        }),
+        (err: any) => err.name === 'treeReservedLocaleSegment'
+      )
+    })
   })
 
   test('createFolder allows a NESTED folder named after an installed locale code', async () => {
