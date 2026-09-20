@@ -52,6 +52,15 @@ function reveal(el) {
   el.dispatchEvent(new CustomEvent(REVEAL_EVENT, { bubbles: true, composed: true }))
 }
 
+function land(el, smooth) {
+  if (!isVisible(el)) {
+    return false
+  }
+  markLanded(el)
+  scrollTo(el, smooth)
+  return true
+}
+
 /**
  * The article has its own scroller rather than the window — the shell stays put and the column moves
  * — so the heading's position has to be read against that box, not the viewport.
@@ -125,11 +134,9 @@ export function scrollToAnchor(hash, { smooth = false } = {}) {
     return false
   }
   reveal(target)
-  if (!isVisible(target)) {
-    return false
+  if (!land(target, smooth)) {
+    requestAnimationFrame(() => land(target, smooth))
   }
-  markLanded(target)
-  scrollTo(target, smooth)
   return true
 }
 
