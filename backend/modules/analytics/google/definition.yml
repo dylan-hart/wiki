@@ -9,4 +9,5 @@ props:
     type: String
     title: Property Tracking ID
     hint: G-XXXXXXXXXX
+    icon: tabler:chart-line
     order: 1

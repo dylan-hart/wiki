@@ -12,4 +12,5 @@ props:
     default: 'https://cdn.commento.io'
     title: Instance URL
     hint: The URL (without a trailing slash) to the Commento instance. Leave the default https://cdn.commento.io if using the cloud-hosted version.
+    icon: tabler:world-www
     order: 1

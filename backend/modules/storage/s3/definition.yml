@@ -24,7 +24,7 @@ props:
     type: String
     title: Mode
     hint: Select a preset configuration mode or define a custom one.
-    icon: tune
+    icon: tabler:adjustments-horizontal
     default: aws
     order: 1
     enum:
@@ -35,7 +35,7 @@ props:
     type: String
     title: Region
     hint: The AWS datacenter region where the bucket will be created.
-    icon: geography
+    icon: tabler:map-pin
     default: us-east-1
     enum:
       - af-south-1|af-south-1 - Africa (Cape Town)
@@ -69,7 +69,7 @@ props:
     type: String
     title: Region
     hint: The DigitalOcean Spaces region
-    icon: geography
+    icon: tabler:map-pin
     default: nyc3
     enum:
       - ams3|Amsterdam
@@ -85,7 +85,7 @@ props:
     type: String
     title: Endpoint URI
     hint: The full S3-compliant endpoint URI.
-    icon: dns
+    icon: tabler:world-www
     default: https://service.region.example.com
     order: 2
     if:
@@ -94,7 +94,7 @@ props:
     type: String
     title: Region
     hint: The signing region to use for SigV4 requests. Must match the value your S3-compatible server is configured with (e.g. Garage's `s3_region`) or every signed request will fail signature validation.
-    icon: geography
+    icon: tabler:map-pin
     default: us-east-1
     order: 9
     if:
@@ -103,26 +103,26 @@ props:
     type: String
     title: Unique bucket name
     hint: The unique bucket name to create (e.g. wiki-johndoe).
-    icon: open-box
+    icon: tabler:box
     order: 3
   accessKeyId:
     type: String
     title: Access Key ID
     hint: The Access Key.
-    icon: 3d-touch
+    icon: tabler:id
     order: 4
   secretAccessKey:
     type: String
     title: Secret Access Key
     hint: The Secret Access Key for the Access Key ID you created above.
-    icon: key
+    icon: tabler:key
     sensitive: true
     order: 5
   storageTier:
     type: String
     title: Storage Tier
     hint: The storage tier to use when adding files.
-    icon: scan-stock
+    icon: tabler:stack-2
     order: 6
     default: STANDARD
     enum:
@@ -141,7 +141,7 @@ props:
     type: Boolean
     title: Use SSL
     hint: Whether to enable SSL for requests
-    icon: secure
+    icon: tabler:lock-check
     default: true
     order: 10
     if:
@@ -150,7 +150,7 @@ props:
     type: Boolean
     title: Force Path Style for S3 objects
     hint: Whether to address objects as https://endpoint/bucket/key instead of https://bucket.endpoint/key. Required for MinIO and most other self-hosted S3-compatible servers, which have no wildcard DNS record for a per-bucket subdomain.
-    icon: filtration
+    icon: tabler:filter
     default: false
     order: 11
     if:
@@ -159,7 +159,7 @@ props:
     type: Boolean
     title: Single Bucket Endpoint
     hint: Whether the provided endpoint addresses an individual bucket.
-    icon: swipe-right
+    icon: tabler:arrow-right
     default: false
     order: 12
     if:
@@ -168,4 +168,4 @@ actions:
   exportAll:
     label: Export All DB Assets to S3
     hint: Output all content from the DB to S3, overwriting any existing data. If you enabled S3 after content was created or you temporarily disabled it, you'll want to execute this action to add the missing content.
-    icon: this-way-up
+    icon: tabler:upload

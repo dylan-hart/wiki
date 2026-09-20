@@ -10,14 +10,14 @@ props:
     title: Service Name
     default: ''
     hint: The name of your Azure AI Search service (the subdomain before .search.windows.net).
-    icon: website
+    icon: tabler:browser
     order: 1
   adminApiKey:
     type: String
     title: Admin API Key
     default: ''
     hint: An admin key from the service's Keys page in the Azure portal. Needed to create and manage the index.
-    icon: key
+    icon: tabler:key
     sensitive: true
     order: 2
   indexName:
@@ -25,5 +25,5 @@ props:
     title: Index Name
     default: wiki
     hint: Will automatically be created, or updated in place if its schema doesn't already match, on every boot.
-    icon: database
+    icon: tabler:database
     order: 3

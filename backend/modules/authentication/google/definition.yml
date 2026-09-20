@@ -19,31 +19,31 @@ props:
     type: String
     title: Client ID
     hint: From the OAuth 2.0 Client ID created in the Google Cloud console.
-    icon: key
+    icon: tabler:key
     order: 1
   clientSecret:
     type: String
     title: Client Secret
     hint: From the same OAuth 2.0 Client ID.
-    icon: password
+    icon: tabler:password
     sensitive: true
     order: 2
   hostedDomain:
     type: String
     title: Restrict to Workspace Domain
     hint: (optional) A Workspace domain, e.g. example.com. Only accounts on it may sign in — checked here as well as asked for, since the parameter alone is a hint to Google rather than a guarantee.
-    icon: geography
+    icon: tabler:map-pin
     order: 3
   allowUnverifiedEmail:
     type: Boolean
     title: Accept Unverified Addresses
     hint: Off by default. A Google account whose address is unverified proves nothing about the mailbox, and an account here is matched on the address.
-    icon: received
+    icon: tabler:mail-check
     default: false
     order: 4
 refs:
   callbackUrl:
     title: Authorized Redirect URI
     hint: Add this to the OAuth client's authorized redirect URIs in the Google Cloud console.
-    icon: back
+    icon: tabler:arrow-back
     value: '{host}/_api/auth/{id}/callback'

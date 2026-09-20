@@ -15,27 +15,27 @@ props:
     type: String
     title: App ID
     hint: From the application registered in the Meta for Developers console.
-    icon: key
+    icon: tabler:key
     order: 1
   clientSecret:
     type: String
     title: App Secret
     hint: From the same application.
-    icon: password
+    icon: tabler:password
     sensitive: true
     order: 2
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all). Facebook has no concept of organizations or roles to source this from, so leave this off unless a custom OAuth2 proxy in front of Facebook is adding one.
-    icon: user-groups
+    icon: tabler:users
     default: false
     order: 3
   groupsClaim:
     type: String
     title: Groups Claim
     hint: Which field of the user info response carries the user's group/role memberships.
-    icon: user-groups
+    icon: tabler:users
     default: 'groups'
     order: 4
     if:
@@ -44,7 +44,7 @@ props:
     type: String
     title: Groups Scope
     hint: (optional) A scope to request in addition to the fixed ones this preset already sends, if the claim above needs one.
-    icon: rules
+    icon: tabler:list-check
     default: ''
     order: 5
     if:
@@ -53,5 +53,5 @@ refs:
   callbackUrl:
     title: OAuth Redirect URL
     hint: Add this to the application's Valid OAuth Redirect URIs in Facebook Login settings.
-    icon: back
+    icon: tabler:arrow-back
     value: '{host}/_api/auth/{id}/callback'

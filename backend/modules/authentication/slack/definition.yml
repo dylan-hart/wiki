@@ -15,13 +15,13 @@ props:
     type: String
     title: Client ID
     hint: From the Slack app's Basic Information page.
-    icon: key
+    icon: tabler:key
     order: 1
   clientSecret:
     type: String
     title: Client Secret
     hint: From the same Slack app.
-    icon: password
+    icon: tabler:password
     sensitive: true
     order: 2
   teamId:
@@ -30,20 +30,20 @@ props:
     hint: >-
       (optional) A Slack workspace/team ID, e.g. T0123456. Only that workspace's members may sign in,
       and a member already signed into it skips the consent screen.
-    icon: user-groups
+    icon: tabler:users
     order: 3
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all). Slack's OIDC userinfo carries no group/role claim of its own, so leave this off unless a custom Slack app is adding one.
-    icon: user-groups
+    icon: tabler:users
     default: false
     order: 4
   groupsClaim:
     type: String
     title: Groups Claim
     hint: Which claim carries the user's group memberships.
-    icon: user-groups
+    icon: tabler:users
     default: 'groups'
     order: 5
     if:
@@ -52,7 +52,7 @@ props:
     type: String
     title: Groups Scope
     hint: (optional) A scope to request in addition to the fixed ones this preset already sends, if the claim above needs one.
-    icon: rules
+    icon: tabler:list-check
     default: ''
     order: 6
     if:
@@ -61,5 +61,5 @@ refs:
   callbackUrl:
     title: Redirect URL
     hint: Add this to the Slack app's OAuth & Permissions redirect URLs.
-    icon: back
+    icon: tabler:arrow-back
     value: '{host}/_api/auth/{id}/callback'

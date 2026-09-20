@@ -5,6 +5,7 @@ import ModuleConfigForm from './ModuleConfigForm.vue'
 import WToggle from '@/components/shared/WToggle.vue'
 import WSelect from '@/components/shared/WSelect.vue'
 import WInput from '@/components/shared/WInput.vue'
+import WSettingsRow from '@/components/shared/WSettingsRow.vue'
 import { buildConfigEditor } from '@/helpers/moduleConfig'
 
 import { createTestI18n } from '../../test/i18n.js'
@@ -143,5 +144,29 @@ describe('ModuleConfigForm', () => {
     )
     const wrapper = mountForm(config)
     expect(wrapper.findAllComponents(WInput)).toHaveLength(2)
+  })
+
+  it("passes each prop's own icon to its row, whether a toggle or a field", () => {
+    const config = buildConfigEditor(
+      {
+        apiKey: { type: 'string', title: 'API Key', default: '', icon: 'tabler:key' },
+        managed: { type: 'boolean', title: 'Managed', default: true, icon: 'tabler:lock' }
+      },
+      {}
+    )
+    const wrapper = mountForm(config)
+    expect(wrapper.findAllComponents(WSettingsRow).map((row) => row.props('icon'))).toEqual([
+      'tabler:key',
+      'tabler:lock'
+    ])
+  })
+
+  it('draws no icon plate for a prop that names none, rather than a stand-in glyph', () => {
+    const config = buildConfigEditor(
+      { apiKey: { type: 'string', title: 'API Key', default: '' } },
+      {}
+    )
+    const wrapper = mountForm(config)
+    expect(wrapper.find('.blueprint-icon').exists()).toBe(false)
   })
 })

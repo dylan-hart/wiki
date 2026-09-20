@@ -25,4 +25,4 @@ actions:
     label: Purge All Assets
     hint: Delete the stored bytes (not the metadata) of any asset that another enabled storage target with Direct Access turned on can already serve on its own. Assets with no such target are left untouched. Useful if you moved assets to another storage target and want to reduce the size of the database.
     warn: This is a destructive action and cannot be undone! Only assets a direct-access target can serve are purged - make sure that target actually holds a current copy of them first.
-    icon: explosion
+    icon: tabler:bomb
