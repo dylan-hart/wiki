@@ -22,6 +22,11 @@ import {
 } from '../helpers/common.ts'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { paginate } from '../helpers/pagination.ts'
+import {
+  isSearchFilters,
+  normalizeSearchFilters,
+  type SearchFilter
+} from '../helpers/searchFilters.ts'
 import { HOOK_EVENTS, type HookEvent } from './hooks.ts'
 import type { SystemIds } from './types.ts'
 
@@ -153,6 +158,7 @@ export interface UserProfile {
   iconPicker?: IconPickerPrefs
   publicFields: ProfilePublicField[]
   forcedPublicFields: ProfilePublicField[]
+  searchFilters?: SearchFilter[]
 }
 
 /** What a user may change on its own profile: notably not the email, nor any admin flag. */
@@ -175,6 +181,7 @@ export interface UserProfilePatch {
   graph?: GraphPrefs
   iconPicker?: IconPickerPrefs
   publicFields?: ProfilePublicField[]
+  searchFilters?: SearchFilter[]
 }
 
 /**
@@ -202,7 +209,8 @@ const profilePrefsKeys = [
   'locale',
   'graph',
   'iconPicker',
-  'publicFields'
+  'publicFields',
+  'searchFilters'
 ] as const
 
 export const HANDLE_MAX_LENGTH = 32
@@ -942,7 +950,8 @@ class Users {
       // -> Same reasoning as `graph`: `IconPickerDialog.vue` owns the unset fallback.
       iconPicker: prefs.iconPicker as IconPickerPrefs | undefined,
       publicFields: knownPublicFields(prefs.publicFields),
-      forcedPublicFields: forcedPublicFields()
+      forcedPublicFields: forcedPublicFields(),
+      searchFilters: prefs.searchFilters as SearchFilter[] | undefined
     }
   }
 
@@ -1106,6 +1115,7 @@ class Users {
    * and any key this endpoint does not expose must survive a user saving its profile.
    *
    * @throws `ERR_INVALID_LOCALE` for a non-empty `locale` that names no installed locale
+   * @throws `ERR_INVALID_SEARCH_FILTERS` for a `searchFilters` list that fails {@link isSearchFilters}
    */
   async updateProfile(id: string, patch: UserProfilePatch): Promise<UserProfile | null> {
     const user = await this.getById(id)
@@ -1124,6 +1134,10 @@ class Users {
       }
     }
 
+    if (patch.searchFilters !== undefined && !isSearchFilters(patch.searchFilters)) {
+      throw new Error('ERR_INVALID_SEARCH_FILTERS')
+    }
+
     const meta = { ...((user.meta ?? {}) as Record<string, any>) }
     const prefs = { ...((user.prefs ?? {}) as Record<string, any>) }
     for (const key of profileMetaKeys) {
@@ -1138,6 +1152,9 @@ class Users {
     }
     if (patch.publicFields !== undefined) {
       prefs.publicFields = knownPublicFields(patch.publicFields)
+    }
+    if (patch.searchFilters !== undefined) {
+      prefs.searchFilters = normalizeSearchFilters(patch.searchFilters)
     }
 
     // -> Name fields go to `updateUser` untouched: it is the one owner of the

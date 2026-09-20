@@ -1,4 +1,11 @@
 import type { FastifyInstance } from 'fastify'
+import {
+  SEARCH_FILTERS_MAX_ROWS,
+  SEARCH_FILTER_MODES,
+  SEARCH_FILTER_PUBLISH_STATES,
+  SEARCH_FILTER_TYPES,
+  SEARCH_FILTER_VALUE_MAX_LENGTH
+} from '../../helpers/searchFilters.ts'
 import { HOOK_EVENTS } from '../../models/hooks.ts'
 import { PROFILE_PUBLIC_FIELDS } from '../../models/users.ts'
 
@@ -228,6 +235,19 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'The About Me fields an administrator shows to other users on every profile, whatever `publicFields` says. Read-only here; a forced field is only visible once it is filled in.',
         items: { type: 'string', enum: [...PROFILE_PUBLIC_FIELDS] }
+      },
+      searchFilters: {
+        type: 'array',
+        description:
+          "The user's saved search filter rows, or absent for a user who has never saved any. Plain strings rather than enums, same reasoning as `graph` above -- a row stored before an option existed must still be readable.",
+        items: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string' },
+            type: { type: 'string' },
+            value: { type: 'string' }
+          }
+        }
       }
     }
   })
@@ -381,6 +401,21 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           'The About Me fields to show other users, replacing the stored list. An empty array hides them all (apart from any an administrator forces public).',
         items: { type: 'string', enum: [...PROFILE_PUBLIC_FIELDS] },
         uniqueItems: true
+      },
+      searchFilters: {
+        type: 'array',
+        description: `The user's saved search filter rows, replaced wholesale on every save; an empty array clears them. A \`publishState\` row's value must be one of ${SEARCH_FILTER_PUBLISH_STATES.join(', ')}, which the server checks beyond this schema. Stored per account so any device sees the same rows.`,
+        maxItems: SEARCH_FILTERS_MAX_ROWS,
+        items: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string', enum: [...SEARCH_FILTER_MODES] },
+            type: { type: 'string', enum: [...SEARCH_FILTER_TYPES] },
+            value: { type: 'string', minLength: 1, maxLength: SEARCH_FILTER_VALUE_MAX_LENGTH }
+          },
+          required: ['mode', 'type', 'value'],
+          additionalProperties: false
+        }
       }
     }
   })

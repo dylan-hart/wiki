@@ -210,6 +210,9 @@ async function routes(app: FastifyInstance) {
       if (req.body.publicFields !== undefined) {
         patch.publicFields = req.body.publicFields
       }
+      if (req.body.searchFilters !== undefined) {
+        patch.searchFilters = req.body.searchFilters
+      }
       if (Object.keys(patch).length < 1) {
         throw new CustomError('userProfileEmpty', 'No profile fields provided to update.')
       }
@@ -247,7 +250,8 @@ async function routes(app: FastifyInstance) {
         cvd: profile.cvd,
         locale: profile.locale,
         graph: profile.graph,
-        iconPicker: profile.iconPicker
+        iconPicker: profile.iconPicker,
+        searchFilters: profile.searchFilters
       }
 
       return {
