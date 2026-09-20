@@ -1,23 +1,22 @@
 /**
- * One recursive source-file walker for every structural scanner: a scanner that walks the tree
- * slightly differently from its neighbour is exactly how two "the same scan" tests end up
- * disagreeing about what the repo contains.
+ * One walker for every structural scanner: two scanners walking the tree slightly differently is
+ * exactly how two "the same scan" tests end up disagreeing about what the repo contains.
  */
 import { readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 
 export interface ListSourceFilesOptions {
-  /** Keep only files ending in one of these (e.g. `['.ts', '.vue']`). Omit for every file. */
+  /** Suffix match, dot included (`['.ts', '.vue']`); omit for every file. */
   ext?: string[]
-  /** File-name suffixes to leave out (e.g. `['.test.ts', '.generated.js']`). */
+  /** File-name suffixes to leave out (`['.test.ts', '.generated.js']`). */
   skip?: string[]
-  /** Directory names to skip anywhere in the tree. Defaults to build/dependency output. */
+  /** Directory names to skip anywhere in the tree, not just at the root. */
   skipDirs?: string[]
 }
 
 const DEFAULT_SKIP_DIRS = ['node_modules', 'compiled']
 
-/** Every file under `root`, recursively, as absolute paths in directory-entry order. */
+/** Absolute paths, in directory-entry order — not sorted. */
 export function listSourceFiles(root: string, opts: ListSourceFilesOptions = {}): string[] {
   const skipDirs = new Set(opts.skipDirs ?? DEFAULT_SKIP_DIRS)
   const out: string[] = []

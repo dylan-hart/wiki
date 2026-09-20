@@ -1,9 +1,7 @@
 /**
- * A broad guests-group ALLOW on `read:pages` for the whole site, a narrower DENY on an internal
- * subtree, and a FORCEALLOW on one page within that denied subtree. The specificity ordering in
- * `helpers/pageRules.ts` (the deeper path always wins) is what makes the FORCEALLOW page beat the
- * DENY covering it, without the MODE tiebreak coming into it at all: `internal/onboarding` is simply
- * a longer, more specific path than `internal`.
+ * The FORCEALLOW page beats the DENY covering it through `helpers/pageRules.ts`'s specificity
+ * ordering — `internal/onboarding` is simply a longer path than `internal` — with the MODE tiebreak
+ * never coming into it at all.
  *
  * Shared so the pure-function check against `resolvePageRule`/`rulesAllow` and the DB-backed one
  * through `models/groups.ts#checkAccess` run the same scenario rather than two that can drift apart.

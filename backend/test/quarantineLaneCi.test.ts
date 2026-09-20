@@ -1,13 +1,8 @@
 /**
- * Guards the half of the quarantine lane's rules that lives in YAML, which nothing else can. The
- * defect being guarded against is specific: a report-only step is a step that cannot fail, and a
- * step that cannot fail is a step nobody reads. Every claim below is one that, if it silently
- * stopped holding, would leave the lane running but pointless — a workspace with a `test:flaky`
- * script and no CI step, a step that lost its `continue-on-error` and started gating a release, or
- * a lane whose result stopped being annotated onto the run page.
- *
- * Whether a real run renders that annotation or the summary needs a real runner, and is not
- * asserted.
+ * A report-only step is a step that cannot fail, and a step that cannot fail is a step nobody
+ * reads — so every claim below is one that, if it silently stopped holding, would leave the lane
+ * running but pointless. Whether a real run actually renders the annotation or the summary needs a
+ * real runner and is not asserted.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -85,8 +80,6 @@ describe('quarantine lane CI wiring (#2692)', () => {
       'all four workspaces are expected to declare a test:flaky script (Task #2691)'
     )
 
-    // quality.yml runs on every PR and, via build.yml's `quality` job, on every scarlett push;
-    // build.yml's `build` job adds e2e only. Together that is each workspace exactly once per push.
     const coverage = new Map<string, string[]>()
     for (const [file, lanes] of [
       ['quality.yml', qualityLanes],
@@ -119,8 +112,7 @@ describe('quarantine lane CI wiring (#2692)', () => {
       'the lane must not gate the job — GitHub Actions defaults continue-on-error to false, and every other step in this workflow relies on that default'
     )
 
-    // After the per-workspace test steps, not before: the lane is a report on top of a run whose
-    // real suites already had their say.
+    // The lane is a report on top of a run whose real suites already had their say.
     const steps = stepsOf(qualityDoc, 'quality')
     const laneIndex = steps.indexOf(lane.step)
     const lastUnitSuite = steps.findLastIndex((step) => (step.name ?? '').endsWith('Tests'))
@@ -143,8 +135,7 @@ describe('quarantine lane CI wiring (#2692)', () => {
   })
 
   test('the e2e lane is wired in build.yml and NOT also in e2e.yml', () => {
-    // The same suite must not run twice per commit, so the lane is wired in one workflow only; this
-    // keeps a later well-meant "e2e.yml should report the lane too" edit from undoing that.
+    // The same suite must not run twice per commit, so the e2e lane is wired in one workflow only.
     assert.equal(
       e2eLanes.length,
       0,
@@ -162,8 +153,6 @@ describe('quarantine lane CI wiring (#2692)', () => {
       "Feature #2603's resolved scope: a lane that blocks releases is a blocking lane with extra steps"
     )
 
-    // Every other step in release.yml's gate section is fail-closed; asserting that keeps this one
-    // exception from quietly spreading.
     const steps = stepsOf(releaseDoc, 'release')
     const otherLenient = steps.filter(
       (step) => step !== lane.step && step['continue-on-error'] === true
@@ -188,9 +177,8 @@ describe('quarantine lane CI wiring (#2692)', () => {
       /::error title=Quarantine lane failed/,
       'an annotation per failed lane is the other half of that visibility'
     )
-    // The script exiting non-zero is what turns the step's marker from a plain green tick into
-    // GitHub's failed-but-continued one. A script that swallowed the failure would leave the step
-    // permanently green and the lane unread.
+    // A non-zero exit is what turns the step's marker from a plain green tick into GitHub's
+    // failed-but-continued one; a script swallowing the failure would leave the lane unread.
     assert.match(
       source,
       /if \[ "\$\{#failed_lanes\[@\]\}" -gt 0 \]; then\n\s*exit 1/,

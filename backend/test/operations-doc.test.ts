@@ -1,8 +1,3 @@
-/**
- * Structural coverage checks over `docs/operations.md`, plus a drift guard: the `<dataPath>`
- * subdirectories the doc claims a running instance populates are checked against the model source
- * that writes to them, so the doc cannot go stale the moment a model starts (or stops) using one.
- */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -11,7 +6,6 @@ import path from 'node:path'
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const OPERATIONS_MD = path.join(REPO_ROOT, 'docs/operations.md')
 
-/** `<dataPath>` subdirectory -> the backend source that writes under it. */
 const DATA_PATH_SUBDIRS: Record<string, string> = {
   locales: 'backend/models/locales.ts',
   'cache/icons': 'backend/models/icons.ts',

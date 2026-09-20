@@ -9,9 +9,8 @@ export async function* iterate<T>(items: T[]): AsyncGenerator<T> {
 }
 
 /**
- * The throwing default is the point: a phase test names exactly the generators the phase under test
- * is supposed to read, so any OTHER one it reaches for fails loudly rather than quietly yielding an
- * empty sequence that reads as "nothing to import".
+ * Every generator a test does not name throws: a phase reaching for a source it is not supposed to
+ * read fails loudly rather than yielding an empty sequence that reads as "nothing to import".
  */
 export function stubSourceConnector(overrides: Partial<SourceConnector> = {}): SourceConnector {
   const notImplemented = (method: string) => () => {
@@ -92,10 +91,10 @@ export function makeStagedPage(overrides: Partial<StagedPage> = {}): StagedPage 
 }
 
 /**
- * A per-table OPT-IN map rather than one "make me a 2.5.x database" call: several connector
- * fixtures are deliberately narrower than the real schema, because what they prove is that
- * `checkShape()` REJECTS them. `pages` is the minimal shape `checkShape()` introspects; `pagesFull`
- * is the wider one a suite that actually reads page content needs.
+ * Per-table opt-in rather than one "make me a 2.5.x database" call: a fixture is often deliberately
+ * narrower than the real schema, because what it proves is that `checkShape()` REJECTS it. `pages`
+ * is the minimal shape `checkShape()` introspects, `pagesFull` the wider one a suite that actually
+ * reads page content needs.
  */
 export const LEGACY_SCHEMA_DDL: Record<string, string> = {
   pages: `

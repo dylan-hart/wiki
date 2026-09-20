@@ -66,8 +66,8 @@ describe('createSilentLogger', () => {
     const logger = createSilentLogger()
     for (const level of ['error', 'warn', 'info', 'debug']) {
       assert.equal(typeof logger[level], 'function')
-      // -> A no-op cares about neither argument shape; a stub that accepted only the real
-      //    `(scope, message, fields?)` one would fail suites for the wrong reason.
+      // -> A stub that accepted only the real `(scope, message, fields?)` shape would fail suites
+      //    for the wrong reason.
       assert.equal(logger[level]('db', 'connected', { ms: 12 }), undefined)
       assert.equal(logger[level]('anything'), undefined)
     }
@@ -82,8 +82,8 @@ describe('createSilentLogger', () => {
   })
 
   test('answers no level the app does not log at', () => {
-    // -> `verbose`/`silly` are 2.x names `core/logger.ts` never implemented. A stub that answered
-    //    them would let a call site reintroducing one pass its tests and then throw in production.
+    // -> A stub answering `verbose`/`silly` — names `core/logger.ts` never implemented — would let
+    //    a call site reintroducing one pass its tests and then throw in production.
     const logger = createSilentLogger()
     for (const level of ['verbose', 'silly']) {
       assert.equal(logger[level], undefined)

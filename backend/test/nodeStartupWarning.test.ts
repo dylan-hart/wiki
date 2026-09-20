@@ -1,17 +1,13 @@
 /**
- * `lib0` (a transitive dependency of `yjs`/`y-protocols`, both direct backend deps for collaborative
- * editing) feature-detects the `localStorage` global at module load. On Node 26, merely referencing
- * that global -- reproduced with a bare `node -e "console.log(typeof localStorage)"`, no backend
- * code involved -- fires an `ExperimentalWarning` as a side effect of the property getter itself.
- * `--no-experimental-webstorage` silences it with no behavior change: the backend has no
- * `localStorage`/`sessionStorage` references of its own, and lib0 falls back to an in-memory
- * polyfill the instant the global is unavailable, flag or no flag.
+ * `lib0` (transitively, through `yjs`/`y-protocols`) feature-detects the `localStorage` global at
+ * module load, and on Node 26 merely referencing that global fires an `ExperimentalWarning` from the
+ * property getter itself. `--no-experimental-webstorage` silences it with no behavior change: the
+ * backend has no web-storage references of its own, and lib0 falls back to an in-memory polyfill
+ * whenever the global is unavailable, flag or no flag.
  *
- * Other entry points (`migrate`, `verify-migration`, `promote-admin`, `mcp/stdio.ts`) are
- * deliberately out of scope: the warning's stack trace points at `core/collab.ts`'s import of
- * `yjs`/`y-protocols`, which only the main server boot path pulls in. The Dockerfile is checked as
- * raw text because it belongs to no workspace's test discovery, so there is nowhere to co-locate
- * this next to.
+ * Only the main server boot path pulls `yjs` in, so the other entry points (`migrate`,
+ * `verify-migration`, `promote-admin`, `mcp/stdio.ts`) are deliberately out of scope. The Dockerfile
+ * is read as raw text because it belongs to no workspace's test discovery.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'

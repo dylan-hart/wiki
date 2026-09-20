@@ -10,31 +10,21 @@ import type { SearchIndexablePage, SearchModule, SearchPagesParams } from '../mo
 
 /**
  * The contract every external search engine module owes `models/search.ts`, run once per engine
- * instead of restated in each engine's own file over its own vendor fakes — restated per engine,
- * all but one copy can drift without anything failing. What it pins is what is not vendor-specific:
- * `externalBase.ts`'s `renamed()` re-indexing in place rather than delete-then-add, `neverThrows`'
- * promise that a page save survives an unreachable index, and `shared.ts#toSearchPagesResult`'s rule
- * that `results` and `totalHits` are both derived from the rows an actor may actually READ.
- *
- * What stays in each engine's own `search.test.ts` is everything that is genuinely about a vendor:
- * its query translation, its document shape, its index provisioning, its batching limits, its client
- * caching, and whatever it does that no other engine does.
+ * rather than restated in each engine's own file over its own vendor fakes: restated per engine, all
+ * but one copy can drift without anything failing. What stays in an engine's own `search.test.ts` is
+ * what is genuinely about a vendor — query translation, document shape, index provisioning, batching
+ * limits, client caching.
  *
  * The `db` engine is deliberately NOT run through this. It implements the bare `SearchModule`
- * interface rather than extending `ExternalSearchModule`: it has no vendor client to fake, its
- * `deleted`/`renamed` are genuinely different, and its suite is DB-backed against real postgres — so
- * wiring it here would mean asserting a contract it does not have.
+ * interface rather than extending `ExternalSearchModule`: it has no vendor client to fake and its
+ * `deleted`/`renamed` are genuinely different, so wiring it here would assert a contract it does not
+ * have.
  */
 
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 export const CONTRACT_SITE_ID = 'site-1'
 
-/**
- * One row of a search response, in the only vocabulary every engine has in common. Each harness
- * turns these into whatever its vendor actually returns, which is the same reason
- * `shared.ts#filterVisible` takes a mapper rather than a row type.
- */
 export interface SearchContractHit {
   id: string
   path: string
@@ -52,28 +42,25 @@ export interface SearchContractHit {
 export interface SearchContractHarness {
   mod: SearchModule
   /**
-   * Params every `query()` in the contract carries, for an engine whose defaults would otherwise
-   * take a different code path — `azure-search` defaults `hideProtectedContent` to `true`.
+   * Carried by every `query()` in the contract, for an engine whose defaults would otherwise take a
+   * different code path — `azure-search` defaults `hideProtectedContent` to `true`.
    */
   baseQuery?: Partial<SearchPagesParams>
   /** Make this module's client reject, so `neverThrows` can be observed. */
   breakClient(): void
-  /** Stage the vendor's answer to the next `query()`, plus the total it claims to have matched. */
+  /** `reportedTotal` is what the vendor CLAIMS to have matched, independent of `hits.length`. */
   setHits(hits: SearchContractHit[], reportedTotal?: number): void
-  /** The window each `query()` actually asked the vendor for, in call order. */
   windows(): { offset: number; size: number }[]
   indexedIds(): string[]
   lastIndexedPath(): string | undefined
   removedIds(): string[]
-  /** Stage the site's pages, however this engine reads them during a rebuild. */
   setPages(pages: SearchIndexablePage[]): void
-  /** Ids of every document `rebuild()` uploaded, across every batch. */
   rebuiltIds(): string[]
   uploadCalls(): number
 }
 
 export interface SearchContractOptions {
-  /** Build a fresh module wired to fresh fakes. Called once per contract test, never shared. */
+  /** Called once per contract test, never shared: a fresh module wired to fresh fakes. */
   makeModule(config: Record<string, any>): SearchContractHarness
   /** The engine's own config record, as the site stores it under `search.engines[<key>]`. */
   config: Record<string, any>
@@ -111,8 +98,8 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
         models: { groups: { checkAccess: () => true } }
       })
       // -> `getEngineConfig()` completes a stored config from the props each engine declares in its
-      //    own `definition.yml`, so the definitions have to be read off disk first — exactly the
-      //    order `index.ts` boots in (`refreshFromDisk()` before `initActiveEngines()`).
+      //    own `definition.yml`, so the definitions have to be read off disk first — the same order
+      //    `index.ts` boots in.
       await search.refreshFromDisk()
     })
 
@@ -145,9 +132,8 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
     })
 
     /**
-     * `pages.id` is a stable UUID a move never touches, so a rename is an ordinary re-index of the
-     * same document — never a delete followed by an add, which would leave the page briefly
-     * unfindable.
+     * `pages.id` is a stable UUID a move never touches, so a rename re-indexes the same document —
+     * a delete followed by an add would leave the page briefly unfindable.
      */
     test(`${name}: renamed() re-indexes in place rather than delete+add`, async () => {
       const harness = makeModule(config)
@@ -176,8 +162,7 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
 
     /**
      * Page-rule filtering happens after the query, so `offset`/`limit` cannot be delegated to the
-     * vendor's own paging: every engine scans a bounded window from the start and applies the
-     * caller's own pagination in JS, over the filtered set.
+     * vendor's own paging.
      */
     test(`${name}: query() scans from the start with a bounded window, whatever offset/limit was asked for`, async () => {
       const harness = makeModule(config)
@@ -312,10 +297,7 @@ export function runSearchModuleContract(name: string, options: SearchContractOpt
       )
     })
 
-    /**
-     * No actor means an internal caller, or one trusted to have filtered already: nothing is
-     * filtered and `checkAccess` is not consulted at all.
-     */
+    /** No actor means an internal caller, or one trusted to have filtered already. */
     test(`${name}: query() with no actor returns every hit unfiltered`, async () => {
       const harness = makeModule(config)
       harness.setHits(

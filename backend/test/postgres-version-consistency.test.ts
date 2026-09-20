@@ -1,9 +1,7 @@
 /**
- * Not "does Postgres actually boot" — that's what the DB-backed suites gated on `DATABASE_URL`
- * already prove. This only asserts the workflow/devcontainer service definitions and the version
- * `e2e/playwright.config.js` tells a developer to run locally all name the same major version, so a
- * bump to one doesn't quietly leave the others behind — least of all that hint text, which is prose
- * rather than a service definition and so escapes any grep-and-replace over image tags.
+ * `e2e/playwright.config.js`'s hint is prose rather than a service definition, so it escapes any
+ * grep-and-replace over image tags — which is why it is checked against the real definitions rather
+ * than trusted to move with them.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'

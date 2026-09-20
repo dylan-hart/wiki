@@ -1,15 +1,12 @@
 /**
- * A real, in-process SFTP server backed by an actual directory on local disk — for integration tests
- * that need the SFTP wire protocol itself (auth, directory creation, file writes) rather than a stub
- * of `ssh2-sftp-client`'s API surface. Built directly on `ssh2`'s `Server` rather than any
- * higher-level "sftp server" package: those are either unmaintained (last published years before the
- * `ssh2` major version this repo runs) or pull in dependencies of their own, and the protocol surface
- * this backend's SFTP module needs is small enough to implement against `ssh2`'s server events.
+ * Built directly on `ssh2`'s `Server` rather than any higher-level "sftp server" package: those are
+ * either unmaintained (last published years before the `ssh2` major version this repo runs) or pull
+ * in dependencies of their own, and the protocol surface this backend's SFTP module needs is small
+ * enough to implement against `ssh2`'s server events.
  *
- * Deliberately narrow: only the requests `ssh2-sftp-client`'s `connect`/`exists`/`mkdir`/`put`/
- * `delete` actually issue are handled (`OPEN`/`FSETSTAT`/`WRITE`/`CLOSE`, `LSTAT`/`STAT`, `MKDIR`,
- * `REMOVE`). READ, RENAME, SYMLINK and extended attributes are unimplemented — this fork's SFTP
- * storage module never issues them.
+ * Deliberately narrow: only the requests `ssh2-sftp-client` actually issues are handled. READ,
+ * RENAME, SYMLINK and extended attributes are unimplemented, because this fork's SFTP storage
+ * module never issues them.
  */
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
@@ -27,8 +24,8 @@ const { STATUS_CODE, OPEN_MODE } = ssh2Utils.sftp
 /**
  * `@types/ssh2` models only the *client* half of the SFTP protocol, so the server-side request
  * events and `status`/`handle`/`attrs` response methods this fixture needs have no upstream types at
- * all. This narrows exactly the subset used here rather than reaching for a blanket `any` on the
- * object `session.on('sftp', accept => ...)` hands back.
+ * all — hence a hand-written subset rather than a blanket `any` on the object
+ * `session.on('sftp', accept => ...)` hands back.
  */
 interface ServerSftpStream {
   on(event: 'OPEN', listener: (reqid: number, filename: string, flags: number) => void): this
@@ -48,19 +45,19 @@ interface ServerSftpStream {
 
 export interface TestSftpUser {
   username: string
-  /** Present to allow password auth for this user. */
+  /** Present enables password auth for this user. */
   password?: string
-  /** Present (an OpenSSH-format public key line) to allow private-key auth for this user. */
+  /** Present (an OpenSSH-format public key line) enables private-key auth for this user. */
   publicKey?: string
 }
 
 export interface TestSftpServer {
   port: number
-  /** The real directory on local disk every SFTP path is resolved into. */
+  /** Every SFTP path resolves into this directory on local disk. */
   rootDir: string
   readFile(relativePath: string): Buffer
   exists(relativePath: string): boolean
-  /** Every file path written so far, relative to `rootDir`, sorted. */
+  /** Every file written so far, relative to `rootDir`, sorted. */
   listFiles(): string[]
   stop(): Promise<void>
 }
@@ -83,10 +80,9 @@ export function generateTestKeyPair(passphrase?: string): {
 }
 
 /**
- * Listens on `127.0.0.1`, on an ephemeral port, backed by a fresh temp directory. `users` is the
- * whole of what it will authenticate — password auth checks a plain string equality (test-only;
- * never do this in production code), private-key auth verifies both that the offered key matches the
- * configured public key and that its signature is valid.
+ * `users` is the whole of what this will authenticate. Password auth checks a plain string equality
+ * — test-only, never do this in production code; private-key auth verifies both that the offered key
+ * matches the configured public key and that its signature is valid.
  */
 export async function startTestSftpServer(users: TestSftpUser[]): Promise<TestSftpServer> {
   const rootDir = await mkdtemp(path.join(tmpdir(), 'wiki-sftp-test-'))
@@ -105,9 +101,8 @@ export async function startTestSftpServer(users: TestSftpUser[]): Promise<TestSf
     userMap.set(user.username, { password: user.password, allowedKey })
   }
 
-  /** Resolve an absolute SFTP-side path onto the real backing directory — `path.join` (not
-   *  `path.resolve`) so a leading `/` on the SFTP side is treated as another segment, not reset to
-   *  filesystem root. */
+  /** `path.join`, not `path.resolve`, so a leading `/` on the SFTP side is treated as another
+   *  segment rather than a reset to filesystem root. */
   const resolveReal = (sftpPath: string): string => path.join(rootDir, sftpPath)
 
   const server = new Server({ hostKeys: [hostKey.private] }, (client: Connection) => {

@@ -1,19 +1,15 @@
 /**
- * A "scheduled pull" is ultimately `models/replicationExport.ts#buildSnapshot()` feeding its output
- * straight into `models/replicationImport.ts#importSnapshot()`. Each model has its own co-located
- * unit-level suite; this file is the round trip between them — the one place that runs both, back to
- * back, against real Postgres, proving the wire format one side writes is what the other reads.
+ * `models/replicationExport.ts` and `models/replicationImport.ts` each have their own co-located
+ * unit-level suite; this file is the round trip between them, proving the wire format one side
+ * writes is what the other reads.
  *
- * TODO: the HTTP fetch from a remote instance and the cron trigger a scheduled pull needs do not
- * exist yet, so nothing can drive this through a real pull. Cover the cron trigger here (or beside
- * `core/scheduler.ts`) once it lands; what is verified meanwhile is the wipe-and-mirror mechanism a
- * scheduled run will invoke, fed the snapshot in-process instead of over HTTP.
+ * TODO: nothing can drive this through a real pull — the HTTP fetch from a remote instance and the
+ * cron trigger a scheduled pull needs do not exist yet. Cover the trigger once it lands; meanwhile
+ * the snapshot is fed in-process instead of over HTTP.
  *
- * Two "instances" are two independent, randomly-named schemas against the SAME `DATABASE_URL` --
- * not `setupTestDb()` twice: that fixture keeps its schema/pool/`CARDINAL` handle in module-level
+ * Two "instances" are two independent, randomly-named schemas against the SAME `DATABASE_URL`, not
+ * `setupTestDb()` twice: that fixture keeps its schema/pool/`CARDINAL` handle in module-level
  * singletons, so a second call would clobber the first's bookkeeping rather than run alongside it.
- * This file open-codes the same schema-per-run approach, reusing `test/db.ts`'s exported
- * `createExtensionsSerialized()` for race-free extension setup.
  */
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
@@ -75,8 +71,8 @@ async function closeInstance(instance: Instance): Promise<void> {
   await instance.pool.end()
 }
 
-/** Ids and values are deliberately distinct between the "source" and "target" `seedContent()` calls,
- *  so the round trip can tell whose rows ended up where. */
+/** Every id and value is distinct between the "source" and "target" `seedContent()` calls, so the
+ *  round trip can tell whose rows ended up where. */
 interface SeededContent {
   siteId: string
   classificationId: string
@@ -243,14 +239,12 @@ describe(
       source = await openInstance()
       target = await openInstance()
       sourceContent = await seedContent(source.db, 'source')
-      // -> Target's own pre-existing content: this is what proves the import genuinely WIPES rather
-      //    than merges.
+      // -> Target's own pre-existing content: what proves the import WIPES rather than merges.
       targetContent = await seedContent(target.db, 'target')
 
       dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-replication-round-trip-'))
-      // -> One CARDINAL global for the whole suite, with each step below reassigning `.db` right
-      //    before the call that needs it: nothing under test reads `CARDINAL.db` outside the two
-      //    calls this suite makes, so juggling two stubs would buy nothing.
+      // -> One global for the whole suite, with `.db` reassigned right before each call: nothing
+      //    under test reads `CARDINAL.db` elsewhere, so juggling two stubs would buy nothing.
       wikiHandle = installTestWiki({ db: source.db, config: { dataPath } })
     })
 

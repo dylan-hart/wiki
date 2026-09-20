@@ -1,10 +1,7 @@
 /**
- * Not "does the workflow actually run on GitHub Actions" — that would need a real runner. What is
- * asserted is the structural contract between the two publish workflows (see `docs/versioning.md`):
- * `build.yml` stays the continuous alpha channel, and `release.yml` triggers only on a `vX.Y.Z` tag
- * push and hard-gates its Docker publish + GitHub Release behind the typecheck/lint/format/
- * icon-drift checks — in an order that actually gates them, not just steps present anywhere in the
- * file.
+ * The contract between the two publish workflows is written up in `docs/versioning.md`. What is
+ * checked here is step ORDER as much as presence, since a gate listed after the publish gates
+ * nothing.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -296,8 +293,6 @@ describe('publish workflow split (build.yml + release.yml)', () => {
         'expected an explicit fetch of the scarlett branch before the ancestor check'
       )
 
-      // Immediately after checkout, so nothing downstream ever executes against an out-of-branch
-      // tag.
       const checkoutIndex = findStepIndex(steps, /actions\/checkout/)
       const guardIndex = findStepIndex(steps, /gh run list.*--workflow=build\.yml/s)
       const dockerStepIndex = findStepIndex(steps, /docker\/build-push-action/)
@@ -379,12 +374,11 @@ describe('publish workflow split (build.yml + release.yml)', () => {
   })
 })
 
-// A git tag is mutable, so a floating `@v4`/`@v7`-style `uses:` reference lets whoever owns or
-// compromises an action repository repoint it and have every one of these workflows execute the new
-// commit on the next run, with nothing here to review. Every external action must be pinned to the
-// full 40-character commit SHA it resolves to; the version stays visible as a trailing `# vX.Y.Z`
-// comment so a re-pin is still a one-line, reviewable diff. A local, same-repo composite reference
-// is exempt — there is no separately-owned tag for anyone to repoint.
+// A git tag is mutable, so a floating `@v7`-style `uses:` reference lets whoever owns or compromises
+// an action repository repoint it and have every one of these workflows execute new code on the next
+// run, with nothing here to review. The trailing `# vX.Y.Z` keeps a re-pin a one-line, reviewable
+// diff. A local, same-repo composite reference is exempt — there is no separately-owned tag for
+// anyone to repoint.
 describe('external actions are SHA-pinned across all four workflows', () => {
   const SHA_PINNED = /^[^@]+@[0-9a-f]{40}(\s+#\s*v\S+)?$/
   const LOCAL_REF = /^\.\//
