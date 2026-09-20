@@ -10,16 +10,6 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { createTestI18n } from '../../test/i18n.js'
 import { buildTestRouter } from '../../test/router.js'
 
-/**
- * OpenProject #1880: the `/_admin/:siteid/pages` inventory, built on the paginating
- * `GET sites/:siteId/pages/search` route -- server-side paging and filtering by path, locale, tag,
- * editor and publish state, in place of `/_search`'s 100-row cap and lack of per-row action.
- *
- * OpenProject #1882 layers row selection and the bulk delete/re-render/retag plumbing on top --
- * covered by its own `AdminPages: row selection` / `AdminPages: bulk *` describes below, which
- * exercise the filters/paging half only enough to get rows on screen for selection to act on.
- */
-
 const ROW = {
   id: 'page-1',
   path: 'getting-started',
@@ -86,8 +76,8 @@ async function mountPage() {
   })
 
   const i18n = createTestI18n({
-    // -> The four strings `translationStatusTitle()` resolves, so the Translations column's
-    //    badge tooltips are testable rather than showing the raw i18n key (OpenProject #2476)
+    // -> The four strings `translationStatusTitle()` resolves, so the badge tooltips assert real
+    //    text rather than a raw i18n key
     'admin.pages.translationStatusPrimary': '{locale}: primary',
     'admin.pages.translationStatusCurrent': '{locale}: current',
     'admin.pages.translationStatusStale': '{locale}: stale',
@@ -99,7 +89,6 @@ async function mountPage() {
   return { wrapper, adminStore }
 }
 
-/** Rows-on-screen fixture the row-selection/bulk-action describes below act on. */
 function mockSelectionEndpoints({ searchResults = SELECTION_ROWS } = {}) {
   API_CLIENT.get.mockImplementation((url) => {
     const path = String(url)
@@ -128,7 +117,7 @@ async function mountSelectionPage() {
   return { wrapper, adminStore }
 }
 
-/** Every row's own `w-checkbox` (the `select` column), in row order. */
+/** Row checkboxes only, in row order -- the header's "select all" is not among these. */
 function rowCheckboxes(wrapper) {
   return wrapper.findAll('tbody tr').map((tr) => tr.find('[role="checkbox"]'))
 }
@@ -156,7 +145,7 @@ describe('AdminPages', () => {
 
     expect(wrapper.vm.state.rows).toHaveLength(1)
     expect(wrapper.vm.state.rows[0].id).toBe('page-1')
-    // -> Sorted client-side, same as `Search.vue` does with the same shaped rows
+    // -> Tags are sorted client-side, so they arrive in a different order than the fixture
     expect(wrapper.vm.state.rows[0].tags).toEqual(['a-tag', 'b-tag'])
     expect(wrapper.vm.state.total).toBe(1)
     expect(wrapper.vm.state.activeLocales).toEqual(['en', 'fr'])
@@ -184,7 +173,6 @@ describe('AdminPages', () => {
     expect(url).toBe('sites/site-1/pages/search')
     expect(opts.searchParams.get('path')).toBe('docs')
     expect(opts.searchParams.get('locales')).toBe('en,fr')
-    // -> Blank entries from stray commas are dropped, and each tag is trimmed
     expect(opts.searchParams.get('tags')).toBe('foo,bar')
     expect(opts.searchParams.get('editor')).toBe('markdown')
     expect(opts.searchParams.get('publishState')).toBe('published')
@@ -298,7 +286,7 @@ describe('AdminPages', () => {
     const [, opts] = API_CLIENT.get.mock.calls.find(([url]) =>
       String(url).endsWith('/pages/search')
     )
-    // -> Page 5 at 50 rows/page is offset 200, and the limit itself never grows past what the API caps
+    // -> Page 5 at 50 rows a page is offset 200
     expect(opts.searchParams.get('offset')).toBe('200')
     expect(opts.searchParams.get('limit')).toBe('50')
     expect(wrapper.vm.state.currentPage).toBe(5)
@@ -318,8 +306,8 @@ describe('AdminPages', () => {
 
     await wrapper.vm.load({ page: 1 })
 
-    // -> The failed fetch leaves `state.rows` as whatever it already was rather than throwing out of
-    //    `load()` -- the same not-caught-elsewhere shape every other admin list page uses.
+    // -> A failed fetch keeps the rows it already had rather than throwing out of `load()`, so the
+    //    loading gauge is what says it finished
     expect(wrapper.vm.state.loading).toBe(0)
 
     wrapper.unmount()
@@ -454,7 +442,7 @@ describe('AdminPages: bulk retag', () => {
     await rowCheckboxes(wrapper)[0].trigger('click')
     await findButtonByText(wrapper, 'admin.pages.bulkRetag').trigger('click')
 
-    // -> The retag panel's two inputs are the last two rendered once it opens (add, then remove).
+    // -> The retag panel's two inputs are the last two rendered once it opens: add, then remove
     const inputs = wrapper.findAll('input')
     const addField = inputs.at(-2)
     const removeField = inputs.at(-1)

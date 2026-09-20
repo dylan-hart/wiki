@@ -12,13 +12,6 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * Task #571 -- `AdminSearch.vue` rebuilt around a per-site engine picker -- plus task #572's dynamic
- * per-engine config form and save flow, ported from `AdminStorage.vue`'s `buildConfigEditor()` /
- * `payloadFor()` / config editor template block (see the follow-up note in `AdminSearch.vue` about
- * factoring that port into a shared component).
- */
-
 function engine(overrides = {}) {
   return {
     key: 'db',
@@ -104,11 +97,10 @@ describe('AdminSearch engine picker', () => {
     const wrapper = mountAdminSearch()
     await flushPromises()
 
-    // -> Site 1's active engine (`db`) is what the config panel opens on
     expect(wrapper.text()).toContain('Term Highlighting')
 
-    // -> Site 2 has the OTHER engine active, and shares the `db` key -- a naive "keep selection if
-    //    still present" check would wrongly stay on `db` here, since it still exists in this list too
+    // -> Site 2 has the other engine active while still listing `db`, so a naive "keep the selection
+    //    if it is still present" check would wrongly stay on `db`.
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve([
@@ -128,10 +120,8 @@ describe('AdminSearch engine picker', () => {
     adminStore.currentSiteId = 'site-2'
     await flushPromises()
 
-    // -> Each load makes two GET calls now (the engine list and, in parallel, the semantic search
-    //    setting) -- two loads (initial mount + the site switch) is four calls total. The engines
-    //    call is registered before the semantic one within each load (`Promise.all`'s array order),
-    //    so the site switch's engines call is the third call overall.
+    // -> Each load fires two GETs -- the engine list, then the parallel semantic setting, in
+    //    `Promise.all`'s array order -- so the site switch's engine-list call is the third overall.
     expect(API_CLIENT.get).toHaveBeenCalledTimes(4)
     expect(API_CLIENT.get).toHaveBeenNthCalledWith(3, 'sites/site-2/search/engines')
     expect(wrapper.text()).toContain('API Key')
@@ -185,8 +175,8 @@ describe('AdminSearch engine picker', () => {
     await otherItem.trigger('click')
     await flushPromises()
 
-    // -> One load, two GET calls (the engine list plus the parallel semantic search setting) --
-    //    selecting an already-loaded engine makes no further request of either kind.
+    // -> Two GETs from the single load (engine list + semantic setting); selecting an
+    //    already-loaded engine adds none.
     expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('API Key')
     expect(wrapper.find('input[aria-label="API Key"]').element.value).toBe('stored-value')
@@ -349,8 +339,7 @@ describe('AdminSearch engine picker', () => {
       expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/search/engines/db', {
         json: { config: { termHighlighting: false } }
       })
-      // -> Two loads (initial mount + the post-save reload) at two GET calls each (the engine list
-      //    plus the parallel semantic search setting).
+      // -> Two loads (mount + the post-save reload), two GETs each.
       expect(API_CLIENT.get).toHaveBeenCalledTimes(4)
       expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
     })
@@ -378,10 +367,8 @@ describe('AdminSearch engine picker', () => {
   })
 
   /**
-   * Task #574: the postgres-specific dictionary override editor, folded into the `db` engine's own
-   * panel. Ordinary saves of an unrelated prop must not touch this at all -- covered by every test
-   * above, none of which mocks `API_CLIENT.patch`, which would throw on the default unmocked
-   * `.json()` resolving to `undefined` were it ever called for them.
+   * No test above mocks `API_CLIENT.patch`, so a save of an unrelated prop that wrongly patched the
+   * dictionary overrides would fail there on the unmocked `.json()`.
    */
   describe('dictionary override editor (task #574)', () => {
     function applyBtnOf(wrapper) {
@@ -501,8 +488,7 @@ describe('AdminSearch engine picker', () => {
         json: { dictOverrides: { en: 'english' } }
       })
       expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
-      // -> Two loads (initial mount + the post-save reload) at two GET calls each (the engine list
-      //    plus the parallel semantic search setting).
+      // -> Two loads (mount + the post-save reload), two GETs each.
       expect(API_CLIENT.get).toHaveBeenCalledTimes(4)
     })
 
@@ -529,13 +515,7 @@ describe('AdminSearch engine picker', () => {
   })
 })
 
-/**
- * Task #3104 -- the `search.semanticEnabled` toggle and its "Rebuild Embeddings Index" action, both
- * independent of the engine picker above (semantic search is always backed directly by Postgres/
- * pgvector regardless of which full-text engine is selected). Each test queues a second
- * `API_CLIENT.get.mockReturnValueOnce` for the parallel `GET .../search/semantic` call `fetch()`
- * makes alongside the engine list -- see `AdminSearch.vue`'s own `fetch` doc comment.
- */
+/** Semantic search runs on Postgres/pgvector whichever full-text engine the picker above selects. */
 describe('semantic search setting (task #3104)', () => {
   let adminStore
 
@@ -626,7 +606,6 @@ describe('semantic search setting (task #3104)', () => {
     await flushPromises()
 
     expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
-    // -> Reverted back to the server's last-known value rather than left showing the rejected click
     expect(toggleOf(wrapper).attributes('aria-checked')).toBe('false')
   })
 
@@ -660,13 +639,6 @@ describe('semantic search setting (task #3104)', () => {
   })
 })
 
-/**
- * Task #577 -- audit of `backend/locales/en.json`'s `admin.search.*` block against what
- * `AdminSearch.vue` actually references, once the engine-picker redesign (#570-#574) landed. Every
- * key in the block must be referenced by its literal `admin.search.<key>` string somewhere in the
- * component source, and `saveSuccess` / `configSaveSuccess` -- near-duplicate save-success copy --
- * must be resolved down to the one the page actually calls.
- */
 describe('admin.search.* locale block', () => {
   const thisDir = dirname(fileURLToPath(import.meta.url))
   const localePath = join(thisDir, '../../../backend/locales/en.json')

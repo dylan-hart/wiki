@@ -100,29 +100,18 @@ import { useAdminStore } from '@/stores/admin'
 import { apiErrorMessage } from '@/helpers/apiError'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.metrics.title')
 }))
 
-// DATA
-
 const { state, load, refresh } = useAdminSettings({
   i18nPrefix: 'admin.metrics',
-  // -> Instance-wide, not one site's: no site picker, no reload on switching site
   siteScoped: false,
   extraState: {
     enabled: false,
@@ -135,8 +124,6 @@ const { state, load, refresh } = useAdminSettings({
     adminStore.info.isMetricsEnabled = state.enabled
   }
 })
-
-// METHODS
 
 async function globalSwitch() {
   state.isToggleLoading = true

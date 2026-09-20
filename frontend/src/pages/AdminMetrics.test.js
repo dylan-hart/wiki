@@ -5,15 +5,8 @@ import AdminMetrics from './AdminMetrics.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Covers task 594: `/metrics` was implemented for real (not descoped), which means the admin page's
- * claims about it had to change to match — the fictitious `read:metrics` permission is gone in favor
- * of the real `manage:system` global permission, and the "nothing serves this yet" banner is gone
- * because something now does.
- *
- * Messages are supplied with the real flat dotted keys, matching how `WIKI.models.locales.getStrings`
- * actually serves `backend/locales/en.json` at runtime (`fetchLocaleStrings` → `setLocaleMessage`) —
- * an empty message set would make the `i18n-t` auth card resolve nothing and never render its slots,
- * which is exactly the part this test needs to inspect.
+ * Flat dotted keys, the shape the runtime serves: with the message missing, the `i18n-t` auth card
+ * resolves nothing and never renders the slots these tests inspect.
  */
 function mountPage() {
   return mountWithApp(AdminMetrics, {
@@ -48,7 +41,7 @@ describe('AdminMetrics auth documentation', () => {
     await Promise.resolve()
     await wrapper.vm.$nextTick()
 
-    // -> The removed banner was the only element carrying this class
+    // -> `.text-orange` belonged to the "unimplemented" banner alone
     expect(wrapper.find('.text-orange').exists()).toBe(false)
     expect(wrapper.text().toLowerCase()).not.toContain('not available yet')
 
@@ -69,9 +62,8 @@ describe('AdminMetrics auth documentation', () => {
     wrapper.unmount()
   })
 
-  // -> OpenProject #1929: `/admin/metrics` names a concept this fork invented (the Prometheus metrics
-  //    endpoint is not an upstream Wiki.js feature), so no docs site can describe it -- the help
-  //    button was deleted rather than left pointing at a page that does not exist.
+  // -> The Prometheus endpoint is this fork's own, so no docs site describes it and a help button
+  //    would point at a page that does not exist
   it('has no help/docs button', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
 

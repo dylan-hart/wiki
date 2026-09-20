@@ -57,12 +57,9 @@ const SITE_LOCALES = [
 ]
 
 /**
- * Dispatches `API_CLIENT.get` by URL, the way `AdminGeneral.test.js`'s `mountPage` does -- needed
- * here (unlike the sequential `mockReturnValueOnce` chain this file used before OpenProject #948)
- * because `onMounted` now fires TWO independent GETs (`load()`'s own `navigation/overrides`, and the
- * new `loadSiteLocales()`'s `sites/:id?strict=true`), and a `mockReturnValueOnce` queue is FIFO
- * across every call regardless of URL, not per-endpoint -- whichever of the two async functions
- * happens to reach its `await` first would silently consume the other's mock.
+ * Dispatches `API_CLIENT.get` by URL rather than by call order: `onMounted` fires two independent
+ * GETs, and a `mockReturnValueOnce` queue is FIFO across every call regardless of URL, so whichever
+ * of the two reached its `await` first would silently consume the other's mock.
  */
 function mockApiClient({
   overrides = OVERRIDES,
@@ -108,20 +105,17 @@ async function mountPage({ apiClient = {} } = {}) {
   adminStore.currentSiteId = 'site-1'
 
   /*
-    Deliberately NOT the administered site's own locales -- `siteStore` is the site currently
-    serving this browser tab, which the admin can be looking at a DIFFERENT site's screen from
-    (OpenProject #948). Left with a distinct locale list from `SITE_LOCALES` below specifically so a
-    test that accidentally read from here instead of `state.siteLocales` would fail loudly rather
-    than happening to match by coincidence.
+    `siteStore` is the site serving this browser tab, which can differ from the one being
+    administered. Given a locale list disjoint from `SITE_LOCALES` on purpose, so a test that reads
+    the wrong one fails loudly instead of matching by coincidence.
   */
   const siteStore = useSiteStore()
   siteStore.locales.active = [{ code: 'de', language: 'de', name: 'German', nativeName: 'Deutsch' }]
 
   mockApiClient(apiClient)
 
-  // -> useSiteAdminAccess('site:navigation') needs a real route (for its `siteid` param) and a
-  //    permission that satisfies GLOBAL_FALLBACKS['site:navigation'], so this mount neither warns
-  //    on a missing router injection nor redirects away mid-test.
+  // -> `useSiteAdminAccess('site:navigation')` needs a real route (for its `siteid` param) and a
+  //    permission that satisfies it, or the mount redirects away mid-test
   const userStore = useUserStore()
   userStore.permissions = ['manage:navigation']
 
@@ -168,8 +162,8 @@ describe('AdminNavigation', () => {
     const { wrapper } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
 
-    // -> 'fr' matches the second row's locale but not either row's path -- a path-only filter
-    //    must drop both, not match on the locale column the way w-table's own :filter prop would.
+    // -> 'fr' matches the second row's locale but neither row's path, so a path-only filter drops
+    //    both where `w-table`'s own `:filter` prop would keep one
     const search = wrapper.find('input[type="text"]')
     await search.setValue('fr')
 
@@ -179,12 +173,10 @@ describe('AdminNavigation', () => {
 
   it('re-fetches with the selected locale as a query param', async () => {
     const { wrapper } = await mountPage()
-    // -> Two independent GETs settle on mount: `load()`'s own `navigation/overrides`, and
-    //    `loadSiteLocales()`'s `sites/:id?strict=true` (OpenProject #948).
+    // -> Two independent GETs settle on mount: the overrides table and the site's own locales
     await vi.waitUntil(() => API_CLIENT.get.mock.calls.length === 2)
 
-    // -> Drives the locale select through its public v-model contract rather than reaching into
-    //    AdminNavigation's internals, which `<script setup>` does not expose.
+    // -> `<script setup>` exposes no internals, so the select is driven through its v-model
     const localeSelect = wrapper.findComponent({ name: 'WSelect' })
     await localeSelect.vm.$emit('update:modelValue', 'fr')
     await vi.waitUntil(() => API_CLIENT.get.mock.calls.length === 3)
@@ -204,14 +196,12 @@ describe('AdminNavigation', () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: vi.fn().mockResolvedValue({ navigationId: 'default-nav-en' })
     })
-    // -> `w-btn` renders its label as text rather than `aria-label` when one is given -- find it by
-    //    its visible text instead of assuming which attribute landed on the DOM button
+    // -> `w-btn` renders a label as text, not as `aria-label`, so the button is found by its text
     const btn = wrapper.findAll('button').find((b) => b.text().includes('Edit Default Menu'))
     await btn.trigger('click')
     await vi.waitUntil(() => dialog.mock.calls.length === 1)
 
-    // -> No locale is selected (the "All Locales" filter), so it falls back to the site's primary
-    //    locale rather than assuming its row id is the site id
+    // -> No locale picked ("All Locales"), so it resolves against the site's primary locale
     expect(API_CLIENT.get).toHaveBeenLastCalledWith('sites/site-1/navigation/default', {
       searchParams: { locale: 'en' }
     })
@@ -272,8 +262,6 @@ describe('AdminNavigation', () => {
     const { wrapper } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
 
-    // -> The first row (overrideExact) has a navigationId -- its own menu -- so it opens the editor
-    //    rather than the page itself
     await wrapper.findAll('.w-table__row')[0].find('td').trigger('click')
 
     expect(dialog).toHaveBeenCalledWith(
@@ -296,8 +284,6 @@ describe('AdminNavigation', () => {
     const { wrapper } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
 
-    // -> The second row (hide) has no navigationId -- nothing to edit -- so it falls back to opening
-    //    the page, as before this task
     await wrapper.findAll('.w-table__row')[1].find('td').trigger('click')
 
     expect(openSpy).toHaveBeenCalledWith('/private', '_blank', 'noopener')
@@ -305,10 +291,6 @@ describe('AdminNavigation', () => {
     openSpy.mockRestore()
   })
 
-  /**
-   * WP #2577: the path-display case-style setting, embedded as its own card-local save rather
-   * than a page-header Apply.
-   */
   it("defaults the path display picker to 'off' when the site has no pathDisplayCase set yet", async () => {
     const { wrapper } = await mountPage()
     await vi.waitUntil(() => API_CLIENT.get.mock.calls.length === 2)
@@ -359,14 +341,6 @@ describe('AdminNavigation', () => {
   })
 })
 
-/**
- * OpenProject #948: this screen watched only `state.locale`, unlike every sibling site-scoped admin
- * page (`AdminGeneral.vue`, `AdminApprovals.vue`, `AdminPagesDeleted.vue`, `AdminLocale.vue`), all of
- * which also watch `adminStore.currentSiteId` and refetch -- switching sites with the sidebar picker
- * while on this screen left the overrides table showing the previous site's rows. Secondary:
- * `localeOptions` read `siteStore.locales.active` (the site serving the browser) rather than the
- * administered site's own locales, offering the wrong filter list whenever the two sites differ.
- */
 describe('AdminNavigation site-switch reload (OpenProject #948)', () => {
   it('re-fetches the overrides table when adminStore.currentSiteId changes', async () => {
     const { wrapper, adminStore } = await mountPage()
@@ -429,9 +403,8 @@ describe('AdminNavigation site-switch reload (OpenProject #948)', () => {
   it("sources the locale filter's options from the administered site, not the browser's serving site", async () => {
     const { wrapper } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
-    // -> `mountPage()` seeds `siteStore.locales.active` with German only, and the fixture's own
-    //    `sites/site-1?strict=true` mock (`SITE_LOCALES`) with English/French -- proving which one
-    //    the dropdown actually read from.
+    // -> German comes only from `siteStore`, English/French only from the administered site's
+    //    fixture, so the option codes name which one the dropdown read
     await vi.waitUntil(() =>
       API_CLIENT.get.mock.calls.some(([url]) => url === 'sites/site-1?strict=true')
     )

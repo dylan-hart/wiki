@@ -43,9 +43,6 @@
     </div>
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12 lg:col-span-7">
-        <!-- ----------------------- -->
-        <!-- Locale Options -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.locale.settings')">
           <w-settings-row
             icon="tabler:language"
@@ -78,15 +75,10 @@
             <w-toggle v-model="state.showMenu" :aria-label="t(`admin.locale.showMenuHint`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Active Locales -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.locale.active')">
           <template #hint>Select the locales that can be used on this site.</template>
-          <!--
-            The completeness bar is not the row's control -- the toggle is -- so the two travel
-            together at the trailing edge rather than the bar claiming a `WItemSection` of its own.
-          -->
+          <!-- The row's control is the toggle, so the completeness bar travels beside it rather
+               than claiming a section of its own. -->
           <w-settings-row
             v-for="lc of state.locales"
             :key="lc.code"
@@ -119,9 +111,6 @@
             </div>
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Offline Sideload -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" v-if="canSideload" :title="t('admin.locale.sideload')">
           <w-settings-row control-width="auto" icon="tabler:upload">
             <template #hint>{{ t('admin.locale.sideloadHelp') }}</template>
@@ -162,30 +151,18 @@ import { useUserStore } from '@/stores/user'
 import { sortBy } from 'es-toolkit/array'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-// -> Task #684: gates this page behind `site:locale` (or `manage:sites`), redirecting away from a
-//    site the caller may not administer. See `composables/siteAdminAccess.js`.
 useSiteAdminAccess('site:locale')
-
-// STORES
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.locale.title')
 }))
-
-// DATA
 
 const { state, load } = useAdminSettings({
   i18nPrefix: 'admin.locale',
@@ -215,14 +192,12 @@ const { state, load } = useAdminSettings({
   }
 })
 
-// -> `POST locales/sideload` (backend/api/locales.ts) is `manage:system`-only, stricter than this
-//    page's own `site:locale` gate (see useSiteAdminAccess above) -- a site-scoped-only admin who
-//    lacks manage:system would just get a 403, so the control is hidden rather than shown disabled.
+// -> `POST locales/sideload` is `manage:system`-only, stricter than this page's own `site:locale`
+//    gate, so a site-scoped admin gets the control hidden rather than a 403 from a disabled-looking
+//    button
 const canSideload = computed(() => userStore.can('manage:system'))
 
-// WATCHERS
-
-// -> Selecting a primary locale that isn't active yet activates it, since its toggle is disabled
+// -> A primary locale's own toggle is disabled, so switching to an inactive one has to activate it
 watch(
   () => state.primary,
   (newValue) => {
@@ -232,12 +207,9 @@ watch(
   }
 )
 
-// COMPLETENESS
-
 /**
- * Below this, a locale is under-translated enough to call out at a glance -- muted progress bar
- * colour and greyed-out percentage label, matching how 2.5.x's admin language screen dimmed
- * incomplete languages rather than presenting every language's number with equal visual weight.
+ * Below this a locale is under-translated enough to call out at a glance -- muted bar colour and
+ * greyed percentage label, rather than every locale's number carrying equal visual weight.
  */
 const COMPLETENESS_LOW_THRESHOLD = 50
 
@@ -252,8 +224,6 @@ function completenessColor(value) {
   return (value ?? 0) >= 90 ? 'positive' : 'primary'
 }
 
-// METHODS
-
 async function save() {
   if (state.loading > 0) {
     return
@@ -261,7 +231,6 @@ async function save() {
 
   state.loading++
   try {
-    // -> The primary locale is always active, even if the user just switched to an inactive one
     const active = [...new Set(state.active)]
     if (!active.includes(state.primary)) {
       active.push(state.primary)
@@ -298,12 +267,9 @@ async function save() {
 }
 
 /**
- * The air-gapped deployment path (OpenProject #820): `POST locales/sideload` rescans
- * `<dataPath>/locales/` on the server's own data volume for JSON locale-pack files an operator
- * placed there out-of-band (no request body -- there is nothing to upload over HTTP, the file
- * already has to be on the volume) and force-reloads whatever it finds there. `loaded` and
- * `skipped` can both be non-empty at once (a partial run), so success/failure isn't a strict
- * either/or -- each is reported on its own.
+ * The air-gapped path: the server rescans `<dataPath>/locales/` for packs an operator placed there
+ * out-of-band, so there is no body to send -- the files are already on its volume. `loaded` and
+ * `skipped` can both be non-empty at once, so each is reported on its own rather than as a verdict.
  */
 async function sideload() {
   if (state.sideloading) {

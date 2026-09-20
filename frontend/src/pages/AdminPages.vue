@@ -83,7 +83,6 @@
         </w-card-section>
       </w-card>
 
-      <!-- SELECTION / BULK ACTION TOOLBAR -->
       <div v-if="state.rows.length > 0" class="flex flex-wrap items-center gap-3 mb-2 min-h-[36px]">
         <w-checkbox
           :model-value="allOnPageSelected"
@@ -117,7 +116,6 @@
         </template>
       </div>
 
-      <!-- RETAG PANEL -->
       <w-card v-if="state.retagOpen" class="mb-4 p-3">
         <div class="grid grid-cols-12 gap-2 items-end">
           <w-input
@@ -264,57 +262,27 @@ import { localizedPagePath } from '@/helpers/pagePaths'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 /**
- * OpenProject #1880: a real, server-paged inventory of a site's pages -- the substitute
- * `AdminPages.vue`/`AdminPagesEdit.vue`/`AdminPagesVisualize.vue`/`AdminTags.vue`'s deletion
- * (commit 377915c6) left nothing behind for, since `/_search` caps out at 100 rows with no per-row
- * action. Built entirely on `GET sites/:siteId/pages/search` -- the same paginating,
- * filter-by-path/locale/tag/editor/publishState route `Search.vue` already uses -- rather than a
- * new backend endpoint.
+ * `editor` and `publishState` are valid filters on `GET sites/:siteId/pages/search` but absent from
+ * the row shape it answers with, so those two narrow the result set without being shown as columns.
  *
- * The row shape that route answers with has no `editor` or `publishState` field, even though both
- * are valid filters on it (every search-engine module's SELECT list was checked, not just the
- * default db one) -- so those two narrow the result set without being shown as their own column.
- *
- * OpenProject #1882 layers row selection and bulk delete/re-render/retag on top: selection is
- * scoped to the CURRENT PAGE of results only ("select-all-on-page", not a select-everything-
- * matching-the-filter across every page of the pager) -- `state.selectedIds` is cleared on every
- * reload (a filter change, a page change, or after a bulk action lands), so it never silently
- * carries a stale id from a row that has since scrolled out of view.
- *
- * The bulk endpoint (`POST .../pages/bulk`) reports a status per page rather than failing outright
- * on the first one the caller may not act on -- `applyBulkResult` below is what turns that into a
- * notification summarizing how many landed versus were skipped/not found/errored.
- *
- * OpenProject #2476 adds the Translations column: `includeLocaleStatus=true` on the same search
- * call asks for each row's per-active-locale staleness/missing status (the shared
- * `translation.updatedAt < primary.updatedAt` join), rendered as one badge per locale. Opt-in on
- * the request so this view's own query is the
- * only one that pays for the extra join -- `Search.vue`/`HeaderSearch.vue`/the link picker never do.
+ * Selection is scoped to the current page of results and cleared on every reload (filter change,
+ * page change, completed bulk action), so it can never carry a stale id from a row that has since
+ * scrolled out of view into a bulk action.
  */
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.pages.title')
 }))
 
-// DATA
-
-/** Rows per fetched page. The search route caps `limit` at 100 server-side. */
+/** The search route caps `limit` at 100 server-side. */
 const PAGE_SIZE = 50
 
 const state = reactive({
@@ -323,7 +291,6 @@ const state = reactive({
   rows: [],
   total: 0,
   currentPage: 1,
-  /** This site's currently active locale codes, for the locale filter -- fetched alongside the rows. */
   activeLocales: [],
   filters: {
     path: '',
@@ -417,13 +384,10 @@ const someOnPageSelected = computed(() => state.selectedIds.length > 0)
 
 /**
  * Set just before `applyFilters()`/`resetFilters()` reset `state.currentPage` to 1, so the
- * `currentPage` watcher below -- which would otherwise treat that reset as an ordinary,
- * pager-driven page change and issue its own, duplicate `load({ page: 1 })` -- skips its own fetch.
- * Same guard as `AdminUsers.vue` carries for the identical race (OpenProject #953).
+ * `currentPage` watcher does not read that reset as a pager-driven page change and issue its own
+ * duplicate `load({ page: 1 })`.
  */
 let resettingPageForFilters = false
-
-// WATCHERS
 
 watch(() => adminStore.currentSiteId, init)
 watch(
@@ -437,8 +401,6 @@ watch(
   }
 )
 
-// METHODS
-
 function formattedDate(val) {
   return userStore.formatDateTime(t, val)
 }
@@ -447,11 +409,6 @@ function pageLink(row) {
   return localizedPagePath(row.path, row.locale, siteStore.localeRouting)
 }
 
-/**
- * Badge color for one locale's translation status (OpenProject #2476) -- `primary`/`current` are
- * calm/neutral (nothing needs the reader's attention), `stale`/`missing` use the same
- * warning/negative colors the rest of the admin area reserves for something that does.
- */
 function translationStatusColor(state) {
   switch (state) {
     case 'primary':
@@ -496,9 +453,8 @@ function buildSearchParams(offset) {
   searchParams.set('orderByDirection', 'desc')
   searchParams.set('limit', PAGE_SIZE)
   searchParams.set('offset', offset)
-  // -> The per-row Translations column needs each result's cross-locale staleness/missing status
-  //    (OpenProject #2476); opt-in on the shared search route so its other callers (reader search,
-  //    header search, the link picker) never pay for a join this view is the only one rendering.
+  // -> Opt-in on the shared search route, so its other callers never pay for the cross-locale
+  //    staleness join that only this view's Translations column renders.
   searchParams.set('includeLocaleStatus', 'true')
   return searchParams
 }
@@ -520,7 +476,6 @@ async function load({ page } = {}) {
     state.rows = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
     state.total = resp?.totalHits ?? 0
     state.currentPage = targetPage
-    // -> Selection is scoped to the page of results just replaced -- see the header doc comment.
     state.selectedIds = []
   } catch (err) {
     notify({
@@ -552,12 +507,12 @@ async function loadSite() {
     return
   }
   try {
-    // -> The active locale list travels with the site being administered, not with `siteStore` --
-    //    which may be a different site entirely. Same lookup `AdminPagesDeleted.vue` makes.
+    // -> The active locale list belongs to the site being administered, which `siteStore` -- the
+    //    site being browsed -- may not be.
     const site = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
     state.activeLocales = site?.locales?.active ?? []
   } catch {
-    // -> Non-fatal: the locale filter just has nothing to offer. The page list itself still loads.
+    // -> Non-fatal: the locale filter just has nothing to offer.
   }
 }
 
@@ -584,7 +539,7 @@ function splitTags(raw) {
     .filter(Boolean)
 }
 
-/** Turns a `POST .../pages/bulk` response into a summary notification. */
+/** The bulk route reports a per-page status rather than failing outright on the first refusal. */
 function applyBulkResult(resp) {
   const counts = resp?.counts ?? {}
   const done = counts.done ?? 0
@@ -653,8 +608,6 @@ function submitBulkRetag() {
   }
   runBulkAction('retag', { addTags, removeTags })
 }
-
-// MOUNTED
 
 onMounted(init)
 </script>

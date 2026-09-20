@@ -8,14 +8,7 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 
-/**
- * The instance-level replication settings panel (OpenProject #2437/#2491). This is a plain
- * `useAdminSettings` settings form -- load-then-save -- following the same shape `AdminMail.vue`'s
- * own `save()` does (a custom PUT rather than the composable's default `save()`, since the payload
- * needs its own field mapping). The bearerToken masking round trip itself is backend behavior,
- * covered in `backend/api/replication.test.ts`; what belongs here is that this page sends exactly
- * what the user typed to `PUT /_api/replication/config` and reports what the server answers.
- */
+/** The bearerToken masking round trip is backend behavior, covered in `api/replication.test.ts`. */
 
 async function mountAdminReplication() {
   setActivePinia(createPinia())
@@ -37,9 +30,8 @@ async function mountAdminReplication() {
     }
   })
 
-  // -> The unrelated `GET replication/config` call `onMounted` fires resolves to `undefined` by
-  //    default (`createApiClientStub()`), which `load()` already handles as a failure -- nothing
-  //    under test here reads `state.config` before saving, so it is left alone rather than stubbed.
+  // -> `onMounted`'s `GET replication/config` is left unstubbed: it resolves to `undefined`, which
+  //    `load()` handles as a failure, and nothing here reads `state.config` before saving.
   const wrapper = mount(AdminReplication, {
     global: {
       plugins: [router, i18n]
@@ -128,10 +120,7 @@ describe('AdminReplication save', () => {
   })
 })
 
-/**
- * Client-side mirror of `backend/api/replication.ts#validateCronSchedule()`'s minimum-interval floor
- * (OpenProject #2509) -- the server remains the authority, this is immediate feedback only.
- */
+/** Mirrors `backend/api/replication.ts#validateCronSchedule()`; the server stays the authority. */
 describe('AdminReplication cronSchedule validation', () => {
   it('shows an error for a cron expression that fires more often than once an hour', async () => {
     const { wrapper } = await mountAdminReplication()

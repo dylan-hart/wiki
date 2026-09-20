@@ -10,15 +10,9 @@ import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
 /**
- * Regression coverage for task 515's two distinct recover-failure paths.
- *
- * The recover endpoint (task 512) can answer three ways, and `AdminPagesDeleted.vue` has to tell
- * them apart rather than funnel every non-success into one dead-ending error toast:
- *   - a `pageDuplicatePath` conflict comes back as an HTTP 409;
- *   - a `pageInvalidLocale` refusal comes back as an HTTP 400.
- * ky throws for both — `catch (err)` tells them apart by `err.response?.status` for the 409 case
- * and `err.data?.error` for the 400 case, reading the parsed body off `err.data` the same way
- * `apiErrorMessage()` does. Both must reopen a picker rather than just reporting failure.
+ * ky throws for both recover refusals, so the fixtures carry what tells them apart: a path conflict
+ * is an HTTP 409 and nothing more, while an invalid locale is a 400 whose parsed body (`err.data`)
+ * names the error. Each must reopen a picker rather than dead-end in an error toast.
  */
 
 const row = {
@@ -60,12 +54,11 @@ async function mountPage() {
   return { wrapper, router }
 }
 
-/** Clicks the row's Recover action, then confirms the dialog it opens -- the two steps `recover()` sits behind. */
 async function clickRecover(wrapper) {
   const recoverBtn = wrapper.findAll('button').find((b) => b.text() === 'history.recovery.recover')
   await recoverBtn.trigger('click')
 
-  // -> The confirmation dialog just opened; simulate its own OK button without rendering it
+  // -> Fire the confirmation's OK handler directly; the dialog itself is never rendered here
   const confirmDialog = openDialogs.at(-1)
   confirmDialog.handlers.ok[0](true)
   openDialogs.splice(openDialogs.indexOf(confirmDialog), 1)
@@ -118,8 +111,6 @@ describe('AdminPagesDeleted: load()', () => {
     })
     await flushPromises()
 
-    // -> Both server pages' rows landed in the same list, and the second request carried the first
-    //    page's own `nextCursor` forward
     expect(wrapper.vm.state.rows.map((r) => r.id)).toEqual(['hist-a', 'hist-b'])
     expect(seenUrls.some((u) => u.includes('pages/deleted') && u.includes('cursor=page-2'))).toBe(
       true
@@ -200,7 +191,6 @@ describe('AdminPagesDeleted: recover()', () => {
 
     const opened = openDialogs.at(-1)
     expect(opened).toBeDefined()
-    // -> Offers exactly the site's currently active locales, from `load()`'s site lookup
     expect(opened.props.options.items.map((i) => i.value)).toEqual(['en', 'fr'])
   })
 

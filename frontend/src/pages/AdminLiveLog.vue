@@ -175,25 +175,15 @@
 
 <script setup>
 /*
-  The admin area's Live Log (OpenProject #2680), which replaced the xterm-backed Terminal page.
+  Rendering is windowed: the server's backlog alone is 500 frames and a busy instance adds to it
+  continuously, so the page retains at most `MAX_ROWS` and draws only the slice the scroll position
+  shows. The window comes from a *deterministic* height model -- a collapsed row is exactly one
+  `ROW_HEIGHT` line, an expanded one adds its stack's line count -- and never from measured DOM,
+  which keeps the offsets exact when a row is expanded mid-list and the arithmetic testable without
+  a layout engine.
 
-  The socket is unchanged -- same `/_terminal/logs` endpoint, same handshake, same 4000-range refusal
-  codes -- but what comes down it is now one `LogFrame` per record rather than a pre-rendered line
-  (`backend/core/logger.ts`, OpenProject #2679). That is what makes this page possible at all: the
-  colours no longer have to survive a non-TTY stdout to reach the browser (`util.styleText` strips
-  them in a container, which is why the terminal was colourless in production -- Bug #2678), and
-  level, scope, fields and the stack arrive as data the page can filter, group and expand rather than
-  as text it would have to parse back apart.
-
-  Rendering is windowed rather than one node per record: the backlog alone is 500 frames and a busy
-  instance adds to it continuously, so the page keeps up to `MAX_ROWS` and draws only the slice the
-  scroll position actually shows. The window is computed from a *deterministic* height model -- a
-  collapsed row is exactly one `ROW_HEIGHT` line, an expanded one adds its stack's line count -- and
-  never from measured DOM, which is what keeps the offsets exact when a row is expanded mid-list and
-  what makes the arithmetic testable without a layout engine.
-
-  Received frames are rendered, never re-logged: nothing on this page calls back into
-  `helpers/log.js`, so a render problem here cannot feed the very stream it is displaying.
+  Received frames are rendered, never re-logged: nothing here calls back into `helpers/log.js`, so a
+  render problem cannot feed the very stream it is displaying.
 */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -204,26 +194,17 @@ import { useMeta } from '@/composables/meta'
 import { copyToClipboard } from '@/helpers/clipboard'
 import { useDark } from '@/composables/dark'
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.liveLog.title')
 }))
 
-// THEME
-
 const dark = useDark()
 
-// CONSTANTS
-
 /**
- * How many records the page retains. The server's own backlog is 500 and the stream is unbounded
- * after that, so something has to be the ceiling; 5,000 is deep enough to scroll back through an
- * incident and shallow enough that the retained set stays a few megabytes at worst. Oldest first out.
+ * The stream is unbounded, so something has to be the ceiling: deep enough to scroll back through an
+ * incident, shallow enough that the retained set stays a few megabytes at worst. Oldest out first.
  */
 const MAX_ROWS = 5000
 
@@ -237,8 +218,6 @@ const STACK_LINE_HEIGHT = 18
 const STACK_PADDING = 12
 
 /**
- * Rows drawn beyond the visible slice, and the floor under the whole window.
- *
  * The floor is not cosmetic: a viewport that has not been laid out yet reports `clientHeight === 0`
  * -- true on the very first paint, in a collapsed panel, and in every jsdom-based test -- and a
  * window sized purely off that would render nothing at all.
@@ -249,16 +228,12 @@ const MIN_RENDERED = 60
 /** Ordered loosest-last, so a threshold admits every level at or before its own index. */
 const LEVELS = ['error', 'warn', 'info', 'debug']
 
-/** A field value longer than this is cut in the chip; the full text stays in its `title`. */
 const MAX_CHIP_VALUE = 80
-
-// DATA
 
 const state = reactive({
   connected: false,
   connecting: false,
   paused: false,
-  /** Which instance is on the other end of the socket, from its handshake frame. */
   instance: null,
   level: 'debug',
   /** Empty means every scope; anything else is the explicit allow-list the reader picked. */
@@ -266,24 +241,21 @@ const state = reactive({
   text: ''
 })
 
-/** The retained records, oldest first. Not reactive per row -- the array reference is what changes. */
+/** Oldest first. The array reference is what changes -- no row is reactive in itself. */
 const rows = ref([])
 
-/** Records that arrived while paused, flushed into `rows` in arrival order on resume. */
 const pausedBuffer = ref([])
 
-/** Row ids whose stack is open. */
 const expanded = ref(new Set())
 
-/** Every scope seen this session, so the multi-select offers what is actually on the stream. */
 const seenScopes = ref([])
 
 const scrollTop = ref(0)
 const viewportHeight = ref(0)
 
 /*
-  Whether the view is pinned to the newest record. A reader who has scrolled up is reading something,
-  and yanking them back to the tail on the next frame would be the page fighting them.
+  A reader who has scrolled up is reading something, so the view follows the newest record only
+  while it is still pinned to the tail.
 */
 const followTail = ref(true)
 
@@ -291,11 +263,7 @@ let socket = null
 let nextRowId = 1
 let resizeObserver = null
 
-// REFS
-
 const viewport = ref(null)
-
-// DERIVED
 
 const pausedCount = computed(() => pausedBuffer.value.length)
 
@@ -333,7 +301,6 @@ const visibleRows = computed(() => {
   })
 })
 
-/** Row heights, then the running offset of each row -- the whole basis of the window below. */
 const heights = computed(() => visibleRows.value.map((row) => rowHeight(row)))
 
 const offsets = computed(() => {
@@ -367,8 +334,6 @@ const leadHeight = computed(() => offsets.value[windowRange.value.start] ?? 0)
 
 const tailHeight = computed(() => totalHeight.value - (offsets.value[windowRange.value.end] ?? 0))
 
-// METHODS
-
 function rowHeight(row) {
   if (!row.stack || !expanded.value.has(row.id)) {
     return ROW_HEIGHT
@@ -376,7 +341,6 @@ function rowHeight(row) {
   return ROW_HEIGHT + row.stackLines * STACK_LINE_HEIGHT + STACK_PADDING
 }
 
-/** The index of the row occupying `offset`, by binary search over the running offsets. */
 function indexAtOffset(offset) {
   const table = offsets.value
   let lo = 0
@@ -393,11 +357,8 @@ function indexAtOffset(offset) {
 }
 
 /**
- * A field value as it is written in a chip.
- *
- * `error` is the one key rendered rather than printed: on the wire it is `{ name, message, stack }`
- * (`core/logger.ts#serializeError`), and the message alone is what the text renderer puts in its
- * tail too -- the stack is already reachable through the row's own expand affordance.
+ * `error` arrives as `{ name, message, stack }` (`core/logger.ts#serializeError`); the message alone
+ * is shown, matching the text renderer, since the stack has the row's own expand affordance.
  */
 function fieldText(key, value) {
   if (key === 'error' && value && typeof value === 'object' && 'message' in value) {
@@ -410,10 +371,8 @@ function fieldText(key, value) {
 }
 
 /**
- * The chips for one frame's fields, in the same order the text renderer writes them: everything in
- * insertion order, then `ms` last. The duration keeps its raw millisecond value rather than the
- * humanised `in 3.7s` form -- a chip already says which key it is, and a verbatim number is what a
- * reader comparing two rows (or copying one) actually wants.
+ * Insertion order, then `ms` last, matching the text renderer. The duration stays a raw millisecond
+ * number rather than a humanised one, so two rows can be compared directly.
  */
 function buildChips(fields) {
   const chips = []
@@ -434,13 +393,12 @@ function truncate(text) {
   return text.length > MAX_CHIP_VALUE ? `${text.slice(0, MAX_CHIP_VALUE)}…` : text
 }
 
-/** `HH:MM:SS.mmm` off the frame's ISO timestamp; the date is the same all day and just costs width. */
+/** The date is dropped: it is the same all day and only costs column width. */
 function shortTime(timestamp) {
   const match = /T(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/.exec(String(timestamp ?? ''))
   return match ? match[1].slice(0, 12) : String(timestamp ?? '')
 }
 
-/** One wire frame as the row the list actually renders, with everything derived done once. */
 function toRow(frame) {
   const chips = buildChips(frame.fields)
   return {
@@ -453,7 +411,7 @@ function toRow(frame) {
     chips,
     stack: frame.stack ?? null,
     stackLines: frame.stack ? frame.stack.split('\n').length : 0,
-    // -> Precomputed so the free-text filter is a substring test per row rather than a re-render
+    // -> Precomputed so the free-text filter is one substring test per row
     haystack:
       `${frame.message ?? ''} ${chips.map((c) => `${c.key}=${c.full}`).join(' ')}`.toLowerCase()
   }
@@ -466,7 +424,6 @@ function appendFrames(frames) {
   const next = rows.value.concat(frames.map(toRow))
   const dropped = next.length - MAX_ROWS
   if (dropped > 0) {
-    // -> The oldest rows go, and with them any expansion state they held
     for (const row of next.slice(0, dropped)) {
       expanded.value.delete(row.id)
     }
@@ -481,10 +438,9 @@ function appendFrames(frames) {
 }
 
 /**
- * A synthetic record for something the PAGE has to say -- connecting, disconnected, refused.
- *
- * It goes through the same row pipeline as a real frame so it filters, copies and scrolls like one,
- * under the `terminal` scope the server itself uses for this socket's own lifecycle lines.
+ * A synthetic record for something the page itself has to say. It goes through the same pipeline as
+ * a real frame so it filters, copies and scrolls like one, under the `terminal` scope the server
+ * uses for this socket's own lifecycle lines.
  */
 function note(message, level = 'info') {
   appendFrames([
@@ -594,8 +550,8 @@ function connect() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   socket = new WebSocket(`${protocol}//${window.location.host}/_terminal/logs`)
 
-  // -> Whether the stream ever started is what tells a session that was refused or never reached the
-  //    server apart from one that ran and ended, and only `close` is guaranteed to fire
+  // -> Only `close` is guaranteed to fire, so `opened` is what tells a refused or unreachable
+  //    session apart from one that ran and ended
   let opened = false
   let handshake = false
 
@@ -607,15 +563,13 @@ function connect() {
   })
 
   socket.addEventListener('message', (ev) => {
-    /*
-      The server's first frame is the handshake and says which instance answered; everything after it
-      is one `LogFrame` as JSON. See `controllers/terminal.ts`.
-    */
+    // -> The server's first frame is the handshake naming the instance that answered; every one
+    //    after it is a `LogFrame` as JSON (`controllers/terminal.ts`)
     let payload
     try {
       payload = JSON.parse(ev.data)
     } catch {
-      // -> Not parseable is not renderable; dropping one frame beats tearing the stream down
+      // -> Dropping one unparseable frame beats tearing the stream down
       return
     }
     if (!handshake) {
@@ -632,10 +586,10 @@ function connect() {
     state.connecting = false
     state.instance = null
     /*
-      Codes in the 4000 range are the server's own (see `controllers/terminal.ts`) and mean the
-      session was refused rather than dropped, so the reason is worth showing -- reconnecting with the
-      same session would be refused just as fast. Anything else that closes without ever having opened
-      never reached the server, and a browser will not say why.
+      Codes in the 4000 range are the server's own (`controllers/terminal.ts`) and mean the session
+      was refused rather than dropped, so the reason is shown and nothing reconnects -- the same
+      session would be refused just as fast. A close without an open never reached the server, and a
+      browser will not say why.
     */
     if (ev.code >= 4000) {
       note(`${t('admin.liveLog.connectError')} ${ev.reason}`.trim(), 'error')
@@ -651,8 +605,6 @@ function disconnect() {
   socket?.close()
 }
 
-// WATCHERS
-
 watch(
   () => [rows.value.length, totalHeight.value],
   async () => {
@@ -664,14 +616,12 @@ watch(
   }
 )
 
-// MOUNTED
-
 onMounted(() => {
   onScroll()
   /*
-    The window is sized off the viewport's own height, and that changes without a scroll event —
-    the admin drawer collapsing counts, not just the window. Guarded because jsdom implements no
-    `ResizeObserver`, and the `MIN_RENDERED` floor already covers a viewport that never reports one.
+    The viewport's height changes without a scroll event — the admin drawer collapsing counts, not
+    just the window. Guarded because jsdom implements no `ResizeObserver`, and the `MIN_RENDERED`
+    floor already covers a viewport that never reports one.
   */
   if (typeof ResizeObserver !== 'undefined' && viewport.value) {
     resizeObserver = new ResizeObserver(() => {
@@ -682,8 +632,6 @@ onMounted(() => {
   connect()
 })
 
-// BEFORE UNMOUNT
-
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   resizeObserver = null
@@ -691,22 +639,16 @@ onBeforeUnmount(() => {
   socket = null
 })
 
-// TESTING
-
 /*
-  Exposed for `AdminLiveLog.test.js` alone: the window arithmetic is the one part of this page a
-  rendered assertion cannot see, because jsdom lays nothing out and every height it would measure is
-  zero. Nothing in the app reads these.
+  Exposed for the tests alone -- jsdom lays nothing out, so the window arithmetic is the one part of
+  this page a rendered assertion cannot see. Nothing in the app reads these.
 */
 defineExpose({ state, rows, visibleRows, offsets, totalHeight, windowRange, rowHeight })
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Selectors stay flat: a `&-suffix` is Sass string concatenation, not native CSS nesting, and a
+   browser silently drops such a rule rather than matching it. */
 .admin-live-log {
   /* -> `status-light` is a bar sized by whatever it sits in; here it wants to be a dot */
 }
@@ -717,8 +659,7 @@ defineExpose({ state, rows, visibleRows, offsets, totalHeight, windowRange, rowH
   flex: none;
 }
 .admin-live-log-viewport {
-  /* -> Sized off the viewport rather than off its own content, so a stream that never stops does
-        not grow the page forever */
+  /* -> Sized off the viewport, not its own content, so an endless stream cannot grow the page */
   height: calc(100vh - 340px);
   min-height: 240px;
   overflow-y: auto;
@@ -729,7 +670,7 @@ defineExpose({ state, rows, visibleRows, offsets, totalHeight, windowRange, rowH
   padding: 16px;
 }
 .admin-live-log-row {
-  /* -> Must match ROW_HEIGHT in the script, which is what the scroll window is computed from */
+  /* -> Must match ROW_HEIGHT in the script; the scroll window is computed from it */
   line-height: 24px;
 }
 .admin-live-log-row.is-expandable {
@@ -817,11 +758,6 @@ defineExpose({ state, rows, visibleRows, offsets, totalHeight, windowRange, rowH
   white-space: pre;
   opacity: 0.85;
 }
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .body--dark .admin-live-log-row:hover {
   background-color: rgba(255, 255, 255, 0.06);
 }

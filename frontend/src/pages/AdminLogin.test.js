@@ -8,11 +8,7 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
-/**
- * Same regression as `AdminGeneral.test.js`: the login background uploader's `<blueprint-icon
- * indicator ...>` was another bare-attribute instance of the same bug, fixed the same way — only a
- * truthy `indicator` once `system/extensions` reports the `sharp` entry as `!isInstalled`.
- */
+/** Guards `indicator` being passed as a bare attribute, which reads truthy whatever Sharp reports. */
 async function mountPage(extensionsResponse) {
   stubApi({ 'system/extensions': extensionsResponse })
 

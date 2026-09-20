@@ -4,11 +4,6 @@ import AdminScheduler from './AdminScheduler.vue'
 
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * OpenProject #2337: the Completed/Failed history tabs collapse a task that ran many times (the
- * motivating case is `storageSyncTick`'s every-minute cron tick) into one summary row instead of one
- * row per execution -- see `helpers/jobHistoryGrouping.js` for the pure grouping logic this wires in.
- */
 function mountPage() {
   return mountWithApp(AdminScheduler, {
     messages: {
@@ -27,10 +22,6 @@ async function flush(wrapper) {
   await wrapper.vm.$nextTick()
 }
 
-/**
- * OpenProject #2831: the page header used `tabler:robot`, a glyph with no relation to what the
- * scheduler does.
- */
 describe('AdminScheduler header icon (OpenProject #2831)', () => {
   it('uses a timer-related icon, not the robot', async () => {
     const wrapper = mountPage()
@@ -164,7 +155,6 @@ describe('AdminScheduler history grouping', () => {
     wrapper.vm.state.displayMode = 'completed'
     await flush(wrapper)
 
-    // -> 2 rows, not 3: the two storageSyncTick entries collapse into one summary row
     expect(wrapper.vm.historyRows).toHaveLength(2)
     expect(wrapper.vm.historyRows[0]).toMatchObject({
       id: 'group:storageSyncTick',
@@ -176,7 +166,6 @@ describe('AdminScheduler history grouping', () => {
     wrapper.vm.toggleGroup('storageSyncTick')
     await flush(wrapper)
 
-    // -> Expanded: the summary row stays, plus both individual runs underneath it
     expect(wrapper.vm.historyRows).toHaveLength(4)
     expect(wrapper.vm.historyRows.map((r) => r.id)).toEqual([
       'group:storageSyncTick',
@@ -188,12 +177,6 @@ describe('AdminScheduler history grouping', () => {
   })
 })
 
-/**
- * OpenProject #2830: the Upcoming tab had no task-grouping at all -- it rendered `state.upcomingJobs`
- * straight into the table with no `flattenJobHistoryRows` pass, unlike Active/Completed/Failed. This
- * mirrors the "AdminScheduler history grouping" describe above, but against the Upcoming tab's own
- * `scheduler/upcoming` endpoint and `upcomingRows` computed.
- */
 describe('AdminScheduler upcoming grouping (OpenProject #2830)', () => {
   function upcomingJob(overrides) {
     return {
@@ -230,7 +213,6 @@ describe('AdminScheduler upcoming grouping (OpenProject #2830)', () => {
     ]
     const wrapper = await mountUpcomingTab(jobs)
 
-    // -> 2 rows, not 3: the two storageSyncTick entries collapse into one summary row
     expect(wrapper.vm.upcomingRows).toHaveLength(2)
     expect(wrapper.vm.upcomingRows[0]).toMatchObject({
       id: 'group:storageSyncTick',
@@ -242,7 +224,6 @@ describe('AdminScheduler upcoming grouping (OpenProject #2830)', () => {
     wrapper.vm.toggleGroup('storageSyncTick')
     await flush(wrapper)
 
-    // -> Expanded: the summary row stays, plus both individual instances underneath it
     expect(wrapper.vm.upcomingRows).toHaveLength(4)
     expect(wrapper.vm.upcomingRows.map((r) => r.id)).toEqual([
       'group:storageSyncTick',
@@ -268,8 +249,8 @@ describe('AdminScheduler upcoming grouping (OpenProject #2830)', () => {
     ]
     const wrapper = await mountUpcomingTab(jobs)
 
-    // -> The Cancel Job button carries no static aria-label of its own (it associates via
-    //    `w-tooltip labels` on hover/focus) -- select on its icon's `data-icon` hook instead.
+    // -> The Cancel Job button has no static aria-label (its tooltip labels it on hover/focus), so
+    //    select on the icon's `data-icon` hook instead.
     const cancelButton = (row) => row.find('svg[data-icon="tabler:square-x"]')
 
     let rows = wrapper.findAll('table tbody tr')
@@ -288,18 +269,10 @@ describe('AdminScheduler upcoming grouping (OpenProject #2830)', () => {
 })
 
 /**
- * OpenProject #2589: the "Retry Job" button's disable rule was, until now, guarded only by
- * `e2e/tests/scheduler.spec.js`'s two Failed-tab cases -- which run against a real backend whose
- * `storageSyncTick` cron is depositing rows throughout, and which have been reported red without
- * anyone being able to reproduce them. Pinning the rule here makes the two answerable apart: a red
- * e2e run against a green suite here is timing, a red run here is a real regression.
- *
- * The rule itself (`AdminScheduler.vue`'s `body-cell-actions` template): the button is withheld
- * entirely from an `active` row (nothing to retry yet) and from a collapsed group's summary row
- * (its `id` is `group:<task>`, not a real job id), and it is rendered-but-disabled while the
- * scheduler still owes the job an automatic attempt -- which `reapStaleJobs` decides by
- * `attempt <= maxRetries` for `interrupted` exactly as `runJob` does for `failed`, so both states
- * are withheld the same way.
+ * The Retry button is withheld from an `active` row and from a group's summary row (whose `id` is
+ * `group:<task>`, not a job id), and rendered disabled while the scheduler still owes the job an
+ * automatic attempt -- which `reapStaleJobs` decides for `interrupted` by the same
+ * `attempt <= maxRetries` `runJob` uses for `failed`, so the two states behave alike.
  */
 function historyJob(overrides) {
   return {
@@ -317,7 +290,6 @@ function historyJob(overrides) {
   }
 }
 
-/** Mounts the page with `jobs` already loaded into the Failed tab, and returns its rendered rows. */
 async function mountFailedTab(jobs) {
   API_CLIENT.get.mockImplementation((url) => {
     if (url === 'scheduler/jobs') {
@@ -358,13 +330,10 @@ describe('AdminScheduler Retry Job availability (OpenProject #2589)', () => {
     //    `attempt <= maxRetries` is "the scheduler is still going to try this again on its own".
     { state: 'failed', attempt: 1, maxRetries: 2, expected: true },
     { state: 'interrupted', attempt: 1, maxRetries: 2, expected: true },
-    // -> The boundary: the last automatic attempt is still owed at `attempt === maxRetries`, and
-    //    the button only comes live once `attempt` has passed it.
     { state: 'failed', attempt: 2, maxRetries: 2, expected: true },
     { state: 'interrupted', attempt: 2, maxRetries: 2, expected: true },
     { state: 'failed', attempt: 3, maxRetries: 2, expected: false },
     { state: 'interrupted', attempt: 3, maxRetries: 2, expected: false },
-    // -> Nothing is owed when no retries were budgeted at all.
     { state: 'failed', attempt: 1, maxRetries: 0, expected: false },
     { state: 'interrupted', attempt: 1, maxRetries: 0, expected: false }
   ])(
@@ -387,8 +356,8 @@ describe('AdminScheduler Retry Job availability (OpenProject #2589)', () => {
   })
 
   it("renders no Retry Job button on a collapsed group's summary row, only on its expanded children", async () => {
-    // -> Same task name twice, so #2337's grouping collapses them into one summary row whose `id`
-    //    is `group:<task>` -- there is no real job behind it to retry.
+    // -> Same task name twice, so grouping collapses them into one summary row whose `id` is
+    //    `group:<task>` -- no real job behind it to retry.
     const jobs = [
       historyJob({ id: 'interrupted-2', task: 'repeatedTask', state: 'interrupted', attempt: 3 }),
       historyJob({ id: 'interrupted-1', task: 'repeatedTask', state: 'interrupted', attempt: 3 })
@@ -402,8 +371,6 @@ describe('AdminScheduler Retry Job availability (OpenProject #2589)', () => {
     wrapper.vm.toggleGroup('repeatedTask')
     await flush(wrapper)
 
-    // -> Expanded: the summary row still withholds it, while each child row -- a real,
-    //    individually-actionable entry, exhausted at 3/2 -- offers it live.
     const expandedRows = wrapper.findAll('table tbody tr')
     expect(expandedRows).toHaveLength(3)
     expect(expandedRows.map((row) => retryButtonDisabled(row))).toEqual([null, false, false])

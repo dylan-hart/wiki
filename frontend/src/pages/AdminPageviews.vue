@@ -147,35 +147,22 @@ import { useAdminStore } from '@/stores/admin'
 import { apiErrorMessage } from '@/helpers/apiError'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.pageviews.title')
 }))
 
-// DATA
-
 const { state, load, refresh } = useAdminSettings({
   i18nPrefix: 'admin.pageviews',
-  // -> Instance-wide, not one site's: no site picker, no reload on switching site
   siteScoped: false,
   extraState: {
     enabled: false,
     isToggleLoading: false,
-    // -> Instance-wide evidence that tracking is actually recording something (OpenProject #2335),
-    //    not just the on/off state above -- see `admin.pageviews.*` template block.
     summary: {
       totalViews: 0,
       last24h: 0,
@@ -199,12 +186,9 @@ const { state, load, refresh } = useAdminSettings({
   }
 })
 
-// PER-PAGE TABLE
-//
-// Kept independent of `useAdminSettings` above: the toggle/summary panel is instance-wide
-// (`siteScoped: false`), but a per-page breakdown only makes sense for one site's own pages, so
-// this fetches and reloads off `adminStore.currentSiteId` -- the admin-wide site switcher every
-// admin page shares -- without pulling the toggle/summary into a reload on every site switch too.
+// The toggle and summary above are instance-wide, but a per-page breakdown only makes sense for one
+// site, so this table loads off `adminStore.currentSiteId` on its own rather than dragging the
+// instance-wide panel into a reload on every site switch.
 
 const pageviewsColumns = [
   {
@@ -250,8 +234,6 @@ const pageviewsTable = reactive({
 })
 
 async function loadPageviewsTable() {
-  // -> Same "no site chosen, nothing to address a request to" guard `useAdminSettings` applies to
-  //    a site-scoped page's own load.
   if (!adminStore.currentSiteId) {
     return
   }
@@ -270,8 +252,6 @@ async function loadPageviewsTable() {
 
 watch(() => adminStore.currentSiteId, loadPageviewsTable)
 onMounted(loadPageviewsTable)
-
-// METHODS
 
 async function globalSwitch() {
   state.isToggleLoading = true
@@ -300,11 +280,8 @@ async function globalSwitch() {
 
 <style scoped>
 /*
-  A counter card's label and figure. `text-caption`/`text-h5` before -- and `text-h5` is what the
-  heading-hierarchy scan (`pageTitleHeadings.test.js`) looks for, correctly: these are numbers, not
-  headings, and sizing them with a heading class is exactly the pseudo-heading that scan exists to
-  catch. Cardinal sets a figure in Barlow Condensed in the accent, as the dashboard's own counter
-  cards do.
+  Sized here rather than with a heading class: these are figures, not headings, and
+  `pageTitleHeadings.test.js` flags a `text-h5` used this way as the pseudo-heading it is.
 */
 .pageviews-stat-label {
   font-size: 12px;

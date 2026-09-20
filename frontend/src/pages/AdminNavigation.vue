@@ -90,7 +90,7 @@
             </template>
             <template v-slot:body-cell-locale="props">
               <w-td :props="props" class="cursor-pointer" @click="openEntry(props.row)">
-                <!-- -> Uncoloured: Cardinal draws a plain chip as a hairline outline, see AdminGroups -->
+                <!-- -> Uncoloured: a plain chip draws as a hairline outline -->
                 <w-chip class="text-caption" dense>{{ props.value }}</w-chip>
               </w-td>
             </template>
@@ -112,16 +112,10 @@
         </w-card>
       </div>
       <!--
-        Card-local save, not a page-header Apply: this page is a viewer (the overrides table
-        above), not a settings form top to bottom, so this embedded setting commits from its own
-        card -- the same shape as `AdminAuditLog.vue`'s retention card (OpenProject #2089/#2574).
+        Card-local save, not a page-header Apply: this page is a viewer, not a settings form top to
+        bottom, so an embedded setting commits from its own card.
       -->
       <div class="col-span-12">
-        <!--
-          Still card-local, per the decision above -- the save button moves from beside the control
-          onto the card's own strip, which is where `AdminSearch`'s card-local Apply sits and is
-          still the card committing itself rather than the page header doing it.
-        -->
         <w-settings-card :title="t('admin.navigation.pathDisplayTitle')">
           <template #hint>{{ t('admin.navigation.pathDisplaySubtitle') }}</template>
           <template #action>
@@ -173,83 +167,43 @@ import AdminNavEditDialog from '@/components/AdminNavEditDialog.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 /**
- * The site-wide half of navigation editing. This screen answers "where, across the whole site, has
- * someone already deviated from the default menu" — it lists every tree entry whose
- * `navigationMode` is not `inherit` (via `GET sites/:siteId/navigation/overrides`, one flat,
- * searchable, locale-filterable table) and gives a launch point for the site-wide default menu
- * itself ("Edit Default Menu", its row id resolved per-locale via
- * `GET sites/:siteId/navigation/default`) plus each override row's own menu.
+ * The site-wide half of navigation editing: every tree entry whose `navigationMode` is not
+ * `inherit`, plus a launch point for the site-wide default menu. Editing one page's navigation in
+ * context is the other half — `NavEditMenu.vue` and `NavEditOverlay.vue`, opened from the page.
  *
- * It does not resolve or apply navigation for a single page in context, and it does not walk a page
- * tree — that is `NavEditMenu.vue` (the mode picker) and `NavEditOverlay.vue` (the item editor),
- * opened FROM a page, editing that page's own `navigationMode` and menu, with the ancestor it
- * inherits from resolved for it. See `NavEditOverlay.vue`'s own header comment for that half of the
- * split.
- *
- * Both halves ultimately edit the same shape of thing — a menu's ordered list of header/link/
- * separator items — and since Task 433 they share the actual editing UI: this screen's launched
- * dialog (`AdminNavEditDialog.vue`) and `NavEditOverlay.vue` both host `NavItemEditor.vue`, giving it
- * only a `siteId` + `navId` and letting each host resolve what those mean and how to save. A
- * capability added to the item model — a new item type, a new visibility rule, anything
- * `NavItemEditor.vue` itself needs to know how to render or persist — therefore lands once and is
- * available from both surfaces automatically. What does NOT come for free is anything about WHICH
- * menu is being edited or how the save is framed: this screen's per-entry save is mode-agnostic
- * (`PUT sites/:siteId/navigation/:navId`, via `Navigation.setNavItems` — it just replaces a menu's
- * items) where the per-page save is mode-aware (`PUT sites/:siteId/navigation/pages/:pageId`, which
- * also decides whose menu the items belong to based on `navigationMode`). A change to that framing on
- * one side — e.g. a new mode value, a new way of addressing "which menu" — needs the equivalent
- * decision made deliberately on the other side too, not assumed to follow along.
+ * Both halves host the same `NavItemEditor.vue`, so a capability added to the item model lands once.
+ * The framing does not carry across: the save here is mode-agnostic (it replaces a named menu's
+ * items) where the per-page save also decides, from `navigationMode`, whose menu those items belong
+ * to. A new mode value, or a new way of addressing which menu is meant, needs the equivalent
+ * decision made deliberately on the other side rather than assumed to follow.
  */
-
-// COMPOSABLES
 
 const dark = useDark()
 
-// ACCESS
-// -> Task #684: gates this page behind `site:navigation` (or `manage:navigation`), redirecting away
-//    from a site the caller may not administer. See `composables/siteAdminAccess.js`.
 useSiteAdminAccess('site:navigation')
-
-// STORES
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.navigation.title')
 }))
 
-// DATA
-
 const { state, load } = useAdminSettings({
   i18nPrefix: 'admin.navigation',
   extraState: {
     search: '',
-    /** `null` means every locale -- the "All Locales" option in `localeOptions`. */
+    /** `null` means every locale. */
     locale: null,
     overrides: [],
     /**
-     * The administered site's own active locales and primary locale, fetched fresh per
-     * `loadSiteLocales()` -- deliberately NOT `siteStore.locales`, which is the site currently serving
-     * this browser tab and can differ from `adminStore.currentSiteId`, the site actually being
-     * administered here (OpenProject #948). Read by `localeOptions` and `openDefaultMenu()` below.
-     *
-     * `loadSiteLocales()` also loads `pathDisplayCase` (below) off the same site payload -- the two
-     * are unrelated settings that happen to share one fetch, not a hint they should be combined.
+     * Deliberately not `siteStore.locales`, which belongs to the site serving this browser tab and
+     * can differ from `adminStore.currentSiteId`, the site actually being administered here.
      */
     siteLocales: [],
     sitePrimaryLocale: 'en',
-    /**
-     * The administered site's own `pathDisplayCase` (Feature #2574/WP #2577), read off the same
-     * `GET sites/:siteId?strict=true` call `loadSiteLocales()` already makes. `'off'` (show the raw
-     * lowercase path unchanged) until that load resolves.
-     */
     pathDisplayCase: 'off',
     savingPathDisplay: false
   },
@@ -262,13 +216,6 @@ const { state, load } = useAdminSettings({
   }
 })
 
-// HELPERS
-
-/**
- * The slash path a tree entry's `folderPath` + `fileName` combine into -- the same join
- * `TreeBrowserDialog.vue` and `LinkPickerDialog.vue` use, so this reads identically to how the rest
- * of the app addresses a page.
- */
 function entryPath(row) {
   return row.folderPath ? `${row.folderPath}/${row.fileName}` : row.fileName
 }
@@ -277,7 +224,6 @@ function typeIcon(type) {
   return fileTypes[type]?.icon ?? fileTypes.page.icon
 }
 
-/** Wording lifted from `NavEditMenu.vue`'s radio labels for the same five modes. */
 function modeLabel(mode) {
   switch (mode) {
     case 'inherit':
@@ -295,12 +241,7 @@ function modeLabel(mode) {
   }
 }
 
-/**
- * Opens the shared menu-item editor (`NavItemEditor`, via `AdminNavEditDialog`) against a resolved
- * `navId`, refreshing the list once the dialog confirms -- items can't change a row's mode or path,
- * but re-fetching keeps this honest about what the server actually holds rather than assuming the
- * save succeeded exactly as sent.
- */
+/** Re-fetches on confirm rather than assuming the save landed exactly as it was sent. */
 function openNavEditor(navId, title) {
   dialog({
     component: AdminNavEditDialog,
@@ -313,13 +254,9 @@ function openNavEditor(navId, title) {
 }
 
 /**
- * Edits the site-wide default menu -- the one the home page's `override` mode points at, and every
- * other page inherits by default -- directly, without navigating to the live home page first.
- *
- * The default menu is locale-scoped and identified by `(siteId, locale)`, not by an id equal to the
- * site's own, so its row id has to be resolved from the server rather than assumed: the locale filter
- * when one is picked, or the site's primary locale for "All Locales" -- there is no single default
- * menu spanning every locale to fall back to instead.
+ * The default menu is identified by `(siteId, locale)`, not by an id equal to the site's own, so its
+ * row id is resolved from the server rather than assumed. There is no locale-spanning default menu
+ * to fall back to, hence the primary locale when the filter is on "All Locales".
  */
 async function openDefaultMenu() {
   const locale = state.locale ?? state.sitePrimaryLocale
@@ -341,11 +278,8 @@ async function openDefaultMenu() {
 }
 
 /**
- * Opens the row's own menu items in the shared editor when it has one (`override` / `overrideExact`
- * modes, whose `navigationId` names the row holding them). A `hide` mode has no items to edit -- its
- * `navigationId` is null -- so those, and assets (which have no page at all), fall back to opening
- * the entry's own page in a new tab instead, where the existing `NavEditMenu` / `NavEditOverlay` path
- * still reaches it.
+ * A `hide` mode has no items to edit -- its `navigationId` is null -- so it, and an asset (which has
+ * no page at all), open the entry itself instead, where the per-page editor still reaches it.
  */
 function openEntry(row) {
   if (row.navigationId) {
@@ -358,17 +292,14 @@ function openEntry(row) {
   window.open(`/${entryPath(row)}`, '_blank', 'noopener')
 }
 
-// COMPUTED
-
 const localeOptions = computed(() => [
   { code: null, name: t('admin.navigation.allLocales') },
   ...state.siteLocales
 ])
 
 /**
- * The `pathDisplayCase` picker's options (Feature #2574) -- values match the backend's
- * `pathDisplayCaseStyles` enum (`backend/models/sites.ts`) exactly; do not add, remove or rename a
- * value here without updating that list too.
+ * Values match the backend's `pathDisplayCaseStyles` enum exactly; adding, removing or renaming one
+ * here means changing that list too.
  */
 const pathDisplayCaseOptions = computed(() => [
   { value: 'off', label: t('admin.navigation.pathDisplayCaseOff') },
@@ -379,7 +310,7 @@ const pathDisplayCaseOptions = computed(() => [
   { value: 'title', label: t('admin.navigation.pathDisplayCaseTitle') }
 ])
 
-/** Path-only, per the task: the locale and mode columns are informational, not filterable here. */
+/** Path-only: the locale and mode columns are informational, not filterable. */
 const filteredOverrides = computed(() => {
   const needle = state.search.trim().toLowerCase()
   if (!needle) {
@@ -387,8 +318,6 @@ const filteredOverrides = computed(() => {
   }
   return state.overrides.filter((row) => entryPath(row).toLowerCase().includes(needle))
 })
-
-// COLUMNS
 
 const columns = [
   {
@@ -416,30 +345,19 @@ const columns = [
   }
 ]
 
-// WATCHERS
-
 /*
-  Every sibling site-scoped admin page (`AdminGeneral.vue`, `AdminApprovals.vue`,
-  `AdminPagesDeleted.vue`, `AdminLocale.vue`) watches `adminStore.currentSiteId` and refetches --
-  this one did not, so switching sites with the sidebar picker while on this screen left the
-  overrides table showing the previous site's rows while "Edit Default Menu" (reading
-  `adminStore.currentSiteId` at call time) silently edited the NEW site's menu (OpenProject #948).
+  Must refetch on a site switch: "Edit Default Menu" reads `adminStore.currentSiteId` at call time,
+  so a stale table would leave it editing the new site's menu from the old site's rows.
 */
 watch(() => adminStore.currentSiteId, loadSiteLocales)
-// -> The locale filter itself: re-runs `load()` alone, not `loadSiteLocales()` -- the OPTIONS in the
-//    dropdown do not depend on which one is currently picked, only on which site is administered.
+// -> `load()` alone: the dropdown's options depend on which site is administered, not on which
+//    locale is currently picked
 watch(() => state.locale, load)
 
-// METHODS
-
 /**
- * The administered site's own active/primary locales -- see `state.siteLocales`'s doc comment for
- * why this is not read off `siteStore` directly. Kept as its own request (not folded into `load()`)
- * so filtering the overrides table by locale does not also re-fetch the site's locale list on every
- * change; only a site switch needs this to run again.
- *
- * Also refreshes `state.pathDisplayCase` off the same response -- an unrelated setting that happens
- * to live on the same site payload, not a reason to fetch it twice.
+ * Its own request rather than part of `load()`, so filtering the table by locale does not re-fetch
+ * the site's locale list; only a site switch needs it again. `pathDisplayCase` rides along because
+ * it lives on the same site payload, not because the two settings are related.
  */
 async function loadSiteLocales() {
   try {
@@ -448,19 +366,15 @@ async function loadSiteLocales() {
     state.sitePrimaryLocale = site?.locales?.primary ?? 'en'
     state.pathDisplayCase = site?.pathDisplayCase ?? 'off'
   } catch (err) {
-    // -> Non-fatal: the locale filter falling back to "All Locales" only is a degraded control, not
-    //    a broken page -- `load()`'s own error handling above covers the data this screen exists to
-    //    show. `state.pathDisplayCase` is deliberately left as it was rather than reset to `off`,
-    //    same reasoning.
+    // -> Non-fatal: the locale filter falling back to "All Locales" is a degraded control, not a
+    //    broken page, and `state.pathDisplayCase` keeps its value rather than reverting to `off`
     state.siteLocales = []
   }
 }
 
 /**
- * Card-local save for the `pathDisplayCase` setting (Feature #2574/WP #2577) -- writes through the
- * dedicated `PUT sites/:siteId/navigation/pathDisplay` route (`site:navigation`), not the general
- * site-update route: see that route's own comment for why `site:navigation` needs a route of its
- * own rather than a key on `PUT /:siteId`.
+ * Writes through the dedicated navigation route, which is `site:navigation`-gated; the general
+ * site-update route does not take this key at all.
  */
 async function savePathDisplay() {
   state.savingPathDisplay = true
@@ -483,10 +397,7 @@ async function savePathDisplay() {
   }
 }
 
-// MOUNTED
-
-// -> The overrides table itself is loaded by `useAdminSettings` above; only this page's second,
-//    site-switch-only request is its own.
+// -> `useAdminSettings` already loads the overrides table; only this second request is this page's
 onMounted(loadSiteLocales)
 </script>
 

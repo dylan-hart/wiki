@@ -8,13 +8,6 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 
-/**
- * `sendTest()` used to be a stub that always showed a warning notification (the backend had no SMTP
- * transport yet). It now calls `POST /_api/mail/test` for real and reflects whatever the backend
- * answers -- this covers both branches, driven through the actual DOM (the recipient field + the
- * "Send Email" button), not by reaching into component internals.
- */
-
 async function mountAdminMail() {
   setActivePinia(createPinia())
 
@@ -30,22 +23,17 @@ async function mountAdminMail() {
     }
   })
 
-  // -> The unrelated `GET mail/config` call `onMounted` fires resolves to `undefined` by default
-  //    (`createApiClientStub()`), which `load()` already handles as a failure -- nothing under test
-  //    here reads `state.config`, so it is left alone rather than stubbed.
+  // -> `onMounted`'s unrelated `GET mail/config` is left unstubbed: nothing here reads
+  //    `state.config`, and `load()` already handles the default stub's `undefined` as a failure
   const wrapper = mount(AdminMail, {
     global: {
       plugins: [router, i18n]
-      // -> Registered globally by `boot/components.js`, not by the `sharedComponents` map
-      //    `test/setup.js` installs -- stubbed here rather than widening the shared harness for a
-      //    component this test never asserts against.
     }
   })
   await wrapper.vm.$nextTick()
 
-  // -> The unrelated `GET mail/config` call from `onMounted` fails against the default API_CLIENT
-  //    stub and queues its own negative toast -- drained here so a test only sees notifications its
-  //    own action produced.
+  // -> That failed load queues its own negative toast; drained so a test sees only what its own
+  //    action produced
   notifyQueue.splice(0, notifyQueue.length)
 
   const recipientField = wrapper.get('input[aria-label="Recipient Email Address"]')
@@ -76,8 +64,7 @@ describe('AdminMail sendTest', () => {
   })
 
   it('shows the backend error message when mail is not configured', async () => {
-    // -> Regression coverage for #1767: ky throws for a 400 the same as any other non-2xx status
-    //    (see `boot/api.js`), and parses the body onto `err.data` before throwing.
+    // -> ky throws on a 400 like any other non-2xx status, having parsed the body onto `err.data`
     const err = new Error('Bad Request')
     err.data = {
       ok: false,
@@ -97,9 +84,6 @@ describe('AdminMail sendTest', () => {
   })
 
   it('shows the backend error message, not a generic one, when the request throws (e.g. a 502)', async () => {
-    // -> ky throws for every non-2xx status (see `boot/api.js`), and parses the body onto `err.data`
-    //    before throwing (see `helpers/apiError.js`) -- this is what a 502/422/500 from `mail/test`
-    //    looks like on the wire, same as the 400 case above.
     const err = new Error('Request failed with status code 502')
     err.data = {
       ok: false,
@@ -123,10 +107,8 @@ describe('AdminMail sendTest', () => {
 })
 
 /**
- * OpenProject #3386: `settings.ts`'s seeded `defaultBaseURL` is blank now, not
- * `'https://wiki.example.com'` -- the field shows that example as a `placeholder` instead, upstream
- * 6053cb982's diff, so an operator still sees the expected shape without a fresh instance ever
- * mailing a real user a link to a host nobody controls.
+ * The seeded `defaultBaseURL` is blank and the example host is only a placeholder, so a fresh
+ * instance cannot mail anyone a link to a host nobody controls.
  */
 describe('AdminMail defaultBaseURL placeholder (OpenProject #3386)', () => {
   it('shows https://wiki.example.com as a placeholder, not a value', async () => {
