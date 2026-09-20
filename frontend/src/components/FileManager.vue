@@ -705,6 +705,7 @@ const {
   renameMovePage,
   delPage,
   renameAsset,
+  previewAsset,
   delAsset
 } = useFileManagerActions({ state, treeComp, loadTree, close })
 
@@ -1064,6 +1065,10 @@ function openItem(item) {
       break
     }
     case 'asset': {
+      if (item.mimeType?.startsWith('image/')) {
+        previewAsset(item)
+        break
+      }
       window.open(assetUrl(item.folderPath, item.fileName), '_blank')
       close()
       break
