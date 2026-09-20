@@ -3,15 +3,10 @@ import { flushPromises } from '@vue/test-utils'
 import { mountGraph } from './graphFixtures.js'
 
 /*
- * OpenProject #2538: `applyFilters()`'s synthetic hub/folder/root nodes used to be freshly
- * constructed plain objects on every call, with no `x`/`y`, even for a marker that was already
- * visible and already settled -- which handed the node back to d3-force's origin-centered default
- * placement and produced a visible flash-jitter on every `activeFilters` change. The fix is an
- * identity cache (`Graph.vue`'s `syntheticNodeCache`, threaded through
- * `graphFilters.js#buildPathHierarchyEdges`) that reuses the same object -- and therefore whatever
- * position the simulation has since assigned it -- for a synthetic node whose id survives the call.
- * This suite asserts the identity/position survives a re-render that keeps the node visible, and
- * that it's correctly dropped on a wholesale `loadGraph()` reload.
+ * d3-force gives any node object it has not seen before an origin-centered default position, so
+ * rebuilding the synthetic hub/folder/root nodes on every `applyFilters()` call flashes them back
+ * to the middle. `Graph.vue`'s `syntheticNodeCache` reuses the object, and the position the
+ * simulation has since given it, for every synthetic id that survives the call.
  */
 const FOLDER_FIXTURE_GRAPH = {
   nodes: [
@@ -29,11 +24,8 @@ describe('Graph.vue synthetic node identity across activeFilters changes (OpenPr
   it('keeps the same synthetic folder node object across an activeFilters change that does not remove it', async () => {
     const wrapper = await mountGraph({ graph: FOLDER_FIXTURE_GRAPH })
 
-    // -> Object identity is what actually determines the fix: `simulation.nodes()` (d3-force)
-    //    only assigns a fresh default position to a node it's never seen before -- once identity
-    //    survives, the running simulation's own forces carry the node's position forward smoothly
-    //    from wherever it already was, rather than needing a literal frozen coordinate to prove it
-    //    (the real simulation legitimately keeps ticking across the `await` below).
+    // -> Identity, not a frozen coordinate, is what can be asserted: the real simulation
+    //    legitimately keeps ticking across the `await` below.
     const folderBefore = findSynthetic(wrapper, 'guides')
     expect(folderBefore).toBeTruthy()
 
@@ -63,10 +55,8 @@ describe('Graph.vue synthetic node cache reset on loadGraph() (OpenProject #2538
     const folderBefore = findSynthetic(wrapper, 'guides')
     expect(folderBefore).toBeTruthy()
 
-    // -> A same-shape re-fetch (new site/keyword/sizeBy fetch, per `loadGraph()`'s own contract) is
-    //    a wholesale new graph -- unlike the `activeFilters` cases above, this must NOT
-    //    carry the previous synthetic node's identity forward, or a stale position from a previous
-    //    fetch would leak into a graph that has nothing to do with it.
+    // -> A re-fetch is a wholesale new graph, so unlike the `activeFilters` cases above identity
+    //    must NOT carry forward: a stale position would leak into an unrelated graph.
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FOLDER_FIXTURE_GRAPH) })
     await wrapper.vm.loadGraph()
 

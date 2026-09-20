@@ -128,35 +128,21 @@ import SiteCreateDialog from '../components/SiteCreateDialog.vue'
 import SiteDeleteDialog from '../components/SiteDeleteDialog.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 
-// ROUTER
-
 const router = useRouter()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.sites.title')
 }))
 
-// METHODS
-
 /**
- * The URL to open a site in a new tab. Sites are resolved purely by the request's `Host`
- * header (WIKI.sitesMappings[req.hostname]), so opening one just means navigating to its
- * hostname. The `*` catch-all row has no hostname of its own, so it falls back to whatever
- * host is currently serving this admin page.
+ * Sites are resolved from the request's `Host` header, so opening one is just navigating to its
+ * hostname. The `*` catch-all has none of its own and falls back to the host serving this page.
  */
 function siteUrl(site) {
   return `//${site.hostname === '*' ? window.location.host : site.hostname}`
@@ -198,8 +184,6 @@ function deleteSite(st) {
     }
   })
 }
-
-// MOUNTED
 
 onMounted(async () => {
   await adminStore.fetchSites()

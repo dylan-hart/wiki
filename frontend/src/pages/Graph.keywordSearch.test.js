@@ -3,15 +3,8 @@ import { flushPromises } from '@vue/test-utils'
 import { mountGraph } from './graphFixtures.js'
 
 /*
- * OpenProject #2479 (wiring `keywordQuery` to `GET /sites/:siteId/pages/search`, the same
- * full-text search the header search bar uses) as unified by OpenProject #2508: this suite used to
- * drive a since-deleted `graphKeyword` ref and assert against a since-deleted `keywordMatchIds`
- * Set -- neither was actually reachable from the real `keywordQuery` input or `highlightedNodeIds`
- * render output, which is exactly the bug #2508 fixed. It now drives `wrapper.vm.keywordQuery`
- * directly (the same ref the `w-input` at `.graph-view-filters input` binds to -- see
- * `Graph.filters.test.js` for the input-binding half) and asserts against `keywordMatches`/
- * `highlightedNodeIds`, the real refs the fetch populates and the render pass reads. See
- * `Graph.keywordIntegration.test.js` for the end-to-end version driving the actual `<input>` element.
+ * Drives `keywordQuery` directly to isolate the fetch half; `Graph.keywordIntegration.test.js`
+ * covers the same chain from the real `<input>`.
  */
 describe('Graph.vue keyword search wiring', () => {
   beforeEach(() => {
@@ -155,8 +148,8 @@ describe('Graph.vue keyword search wiring', () => {
 
   it('degrades keywordMatches to empty (not stale) on a failed request, quietly -- but a client-side title match survives it (OpenProject #2533)', async () => {
     const wrapper = await mountGraph()
-    // -> `Graph.vue` logs the failure through `helpers/log.js` (OpenProject #2682), which
-    //    reaches `console.warn` under `import.meta.env.DEV` -- true here, so the spy still sees it
+    // -> The failure logs through `helpers/log.js`, which reaches `console.warn` under
+    //    `import.meta.env.DEV` -- true under test, so the spy sees it
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.reject(new Error('network down'))
@@ -166,10 +159,8 @@ describe('Graph.vue keyword search wiring', () => {
     await vi.advanceTimersByTimeAsync(400)
 
     expect(wrapper.vm.keywordMatches).toEqual([])
-    // -> The BACKEND half of the match set degrades to empty on failure, but the client-side
-    //    title-contains pass (#2533) is independent of the backend request entirely -- fixture node
-    //    'a' is titled 'A', which the query 'a' matches case-insensitively regardless of whether the
-    //    search request succeeded, failed, or is still in flight.
+    // -> The backend half degrades to empty on failure, but the client-side title-contains pass is
+    //    independent of it: fixture node 'a' is titled 'A', which the query matches either way.
     expect(wrapper.vm.highlightedNodeIds).toEqual(new Set(['en:a']))
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
@@ -186,9 +177,6 @@ describe('Graph.vue keyword search wiring', () => {
   })
 
   it('a keyword change does not re-run the visible-node filtering pipeline', async () => {
-    // -> Keyword search highlights, it doesn't filter (Feature #2414's own scope decision) -- proven
-    //    here by asserting the node/edge sets are untouched by a keyword change, unlike a real
-    //    `activeFilters` change (see `Graph.rendering.test.js`/`graphFilters.test.js` for that half).
     const wrapper = await mountGraph()
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve({ results: [], totalHits: 0 })

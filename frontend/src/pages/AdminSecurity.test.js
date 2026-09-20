@@ -8,12 +8,8 @@ import { createTestI18n } from '../../test/i18n.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Regression coverage for task 636: the admin security view must round-trip the
- * `apiRateLimit*` fields (added alongside `authRateLimit*` for task 635) through the SAME
- * `/_api/system/security` GET/PUT pair the existing authentication rate-limit fields already
- * use -- no separate endpoint. `save()` PUTs the whole `state.config` object, so a field
- * missing from the reactive default would silently vanish from every save even though nothing
- * threw.
+ * `save()` PUTs the whole `state.config`, so a field missing from the reactive default vanishes from
+ * every save without anything throwing -- which is what these round-trip tests guard.
  */
 function mountSecurity() {
   setActivePinia(createPinia())
@@ -44,10 +40,6 @@ describe('AdminSecurity apiRateLimit* round-trip', () => {
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('system/security')
 
-    // -> `WInput` sets `inheritAttrs: false` and binds `$attrs` explicitly onto the real
-    //    `<input>`/`<textarea>` (see its own file header comment), so `aria-label` lands on the
-    //    control itself, not on the wrapping `<div>` -- `input[aria-label=...]`, not
-    //    `[aria-label=...] input`.
     const maxInput = wrapper.find('input[aria-label="admin.security.apiRateLimitMax"]')
     expect(maxInput.exists()).toBe(true)
     expect(maxInput.element.value).toBe('300')
@@ -98,11 +90,6 @@ describe('AdminSecurity apiRateLimit* round-trip', () => {
   })
 })
 
-/**
- * Covers task 591: the `enforceCsp` toggle and `cspDirectives` textarea added to the security admin
- * page, following the existing HSTS (toggle + conditional detail) and CORS (`corsConfig` textarea)
- * patterns already on this page.
- */
 function mountPage() {
   return mountWithApp(AdminSecurity).wrapper
 }
@@ -111,11 +98,9 @@ describe('AdminSecurity CSP controls', () => {
   it('hides the CSP directives textarea until enforceCsp is turned on, then shows it', async () => {
     const wrapper = mountPage()
 
-    // -> With corsMode defaulting to 'OFF', the CORS textarea is also hidden, so no <textarea>
-    //    exists anywhere on the page until enforceCsp reveals the CSP one.
+    // -> `corsMode` defaults to 'OFF', hiding its textarea too, so the page has none at all yet.
     expect(wrapper.findAll('textarea')).toHaveLength(0)
 
-    // -> Mirrors the HSTS toggle: a `<w-toggle>` is a `role="switch"` button, found by its aria-label
     const toggle = wrapper.find('button[aria-label="admin.security.enforceCsp"]')
     expect(toggle.exists()).toBe(true)
     await toggle.trigger('click')
@@ -141,7 +126,7 @@ describe('AdminSecurity CSP controls', () => {
 
     const wrapper = mountPage()
     await wrapper.vm.$nextTick()
-    // -> load() is awaited via onMounted's fire-and-forget call; flush its microtasks
+    // -> `onMounted` calls `load()` without awaiting it; flush its microtasks by hand
     await Promise.resolve()
     await Promise.resolve()
     await wrapper.vm.$nextTick()
@@ -175,13 +160,6 @@ describe('AdminSecurity CSP controls', () => {
   })
 })
 
-/**
- * Task 833: `GET /system/security`'s read-only `insecureCookieRiskAt` diagnostic (set by
- * `Security#observeRequest` in the backend, see its doc comment) surfaces as a warning card next
- * to the Trust Proxy toggle -- shown only while there is something to act on, i.e. the field is
- * set AND Trust Proxy is still off; flipping the toggle hides it immediately without waiting for a
- * reload, since the underlying misconfiguration is fixed by turning Trust Proxy on and restarting.
- */
 describe('AdminSecurity insecure cookie risk warning', () => {
   it('is hidden when the backend has never observed the misconfiguration', async () => {
     API_CLIENT.get.mockReturnValueOnce({
@@ -235,10 +213,6 @@ describe('AdminSecurity insecure cookie risk warning', () => {
   })
 
   it('does not send insecureCookieRiskAt back as a config field the backend could store', async () => {
-    // -> `pickFields` in `models/security.ts` already drops anything outside `SECURITY_FIELDS`,
-    //    so this is belt-and-suspenders on the frontend shape rather than load-bearing -- it just
-    //    documents that the field travels with `state.config` for display, not because it is meant
-    //    to be written back.
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve({
@@ -257,8 +231,8 @@ describe('AdminSecurity insecure cookie risk warning', () => {
     await wrapper.vm.save()
 
     const [, opts] = API_CLIENT.put.mock.calls[0]
-    // -> Present (the PUT sends the whole `state.config`), but that is fine: the backend field is
-    //    documented as read-only and ignored on write.
+    // -> Present, since the PUT sends the whole `state.config`; harmless because `pickFields` in
+    //    `models/security.ts` drops anything outside `SECURITY_FIELDS`.
     expect(opts.json.insecureCookieRiskAt).toBe('2026-08-20T12:00:00.000Z')
 
     wrapper.unmount()
@@ -266,12 +240,9 @@ describe('AdminSecurity insecure cookie risk warning', () => {
 })
 
 /**
- * Task 2080: `trustProxy` was widened from a plain boolean to also accept a `proxy-addr` address/
- * CIDR list string, so the admin view now has a text field beside the existing toggle for entering
- * that list -- following the same toggle + conditional-detail pattern as `enforceCsp`/
- * `cspDirectives`, except here both controls edit the SAME underlying `state.config.trustProxy`
- * field rather than two independent ones (see the `trustProxyEnabled`/`trustProxyAddresses`
- * computed pair in the component).
+ * The toggle and the address field both edit the one `state.config.trustProxy` field -- `false` or a
+ * `proxy-addr` address/CIDR list string -- through the component's `trustProxyEnabled`/
+ * `trustProxyAddresses` computed pair, not two independent fields.
  */
 describe('AdminSecurity trustProxy controls', () => {
   it('hides the trusted-proxy address field while the toggle is off', async () => {
@@ -385,13 +356,8 @@ describe('AdminSecurity uploads info banner (task 605)', () => {
   it('no longer claims uploading is unimplemented, now that an upload endpoint exists', () => {
     const wrapper = mountPage()
 
-    // -> `messages: { en: {} }` means every `t()` call resolves to its own key literal (see
-    //    `mountPage()`'s comment above), so this is a wiring check: the template must reference the
-    //    surviving key, not either removed one — `uploadsNotEnforced` said "uploading is not
-    //    implemented" (task 605), and `uploadsPartiallyEnforced` (OpenProject #1360/#2152,
-    //    2026-08-24 security audit) named the two toggles this WP deleted (`uploadMaxFiles`,
-    //    `uploadScanSVG`) as the "not enforced yet" part; with both gone, everything this card shows
-    //    is enforced, so the caveat itself was deleted rather than reworded.
+    // -> Every `t()` resolves to its own key literal under the test i18n, so this is a wiring check
+    //    on which key the template references.
     expect(wrapper.text()).toContain('admin.security.uploadsInfo')
     expect(wrapper.text()).not.toContain('admin.security.uploadsNotEnforced')
     expect(wrapper.text()).not.toContain('admin.security.uploadsPartiallyEnforced')
@@ -400,13 +366,6 @@ describe('AdminSecurity uploads info banner (task 605)', () => {
   })
 })
 
-/**
- * OpenProject #3232: the Admin UI control for `security.uploadMaxFilesPerBatch`, the
- * admin-configurable per-request file-count limit `POST /sites/:siteId/assets/batch` and
- * `.../blocks/batch` enforce (#3232's sibling backend Task). Round-trips through the same
- * `/_api/system/security` GET/PUT pair every other field on this page uses -- no separate endpoint --
- * mirroring the existing `uploadMaxFileSize` control.
- */
 describe('AdminSecurity uploadMaxFilesPerBatch control', () => {
   it('loads the value from the GET response and renders it', async () => {
     API_CLIENT.get.mockReturnValueOnce({

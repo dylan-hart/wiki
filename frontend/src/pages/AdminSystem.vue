@@ -45,9 +45,6 @@
     </div>
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12 lg:col-span-6">
-        <!-- ----------------------- -->
-        <!-- WIKI.JS -->
-        <!-- ----------------------- -->
         <w-settings-card title="Cardinal.js">
           <w-settings-row
             icon="tabler:alert-triangle"
@@ -104,9 +101,6 @@
             </div>
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- CLIENT -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.system.client')">
           <w-settings-row
             icon="tabler:layout-navbar"
@@ -141,9 +135,6 @@
         </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-6">
-        <!-- ----------------------- -->
-        <!-- ENGINES -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.system.engines')">
           <w-settings-row icon="tabler:brand-nodejs" :hint="t('admin.system.nodejsHint')">
             <template #label> Node.js </template>
@@ -163,9 +154,6 @@
             <div class="dark-value text-caption">{{ state.info.dbHost }}</div>
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- HOST INFORMATION -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.system.hostInfo')">
           <w-settings-row
             :icon="platformLogo"
@@ -232,25 +220,15 @@ import { useSiteStore } from '@/stores/site'
 import CheckUpdateDialog from '../components/CheckUpdateDialog.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.system.title')
 }))
-
-// DATA
 
 const { state, load } = useAdminSettings({
   i18nPrefix: 'admin.system',
@@ -269,8 +247,6 @@ const { state, load } = useAdminSettings({
     state.info = info
   }
 })
-
-// COMPUTED
 
 const dbVersion = computed(() => {
   return state.info?.dbVersion?.replace(/(?:\r\n|\r|\n)/g, ', ')
@@ -300,8 +276,6 @@ const clientCookies = computed(() => navigator.cookieEnabled)
 const clientViewport = computed(
   () => `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`
 )
-
-// METHODS
 
 function checkForUpdates() {
   dialog({

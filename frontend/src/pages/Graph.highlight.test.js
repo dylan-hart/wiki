@@ -4,13 +4,8 @@ import { flushPromises } from '@vue/test-utils'
 import { FIXTURE_GRAPH, mountGraph } from './graphFixtures.js'
 
 /**
- * The render/highlight half of Feature #2414's keyword search (OpenProject #2480) -- distinct from
- * the existing `activeFilters` tests: a keyword match must never remove a node from `nodes.value`
- * (that's what would make it a filter), only change `highlightedNodeIds`. The keyword INPUT and its
- * wiring to `GET sites/:siteId/pages/search` are OpenProject #2478/#2479's own scope -- as of #2508,
- * `searchKeyword()` is what actually populates `keywordMatches` in production, but this suite still
- * drives it directly to isolate the highlight-computation half from the fetch/debounce half (which
- * `Graph.keywordSearch.test.js` and `Graph.keywordIntegration.test.js` cover on their own).
+ * `keywordMatches` is set directly rather than through `searchKeyword()`, to isolate the
+ * highlight computation from the fetch/debounce half `Graph.keywordSearch.test.js` covers.
  */
 describe('Graph.vue keyword highlight (OpenProject #2480)', () => {
   it('starts with no active highlight -- an empty keywordMatches yields an empty highlightedNodeIds', async () => {
@@ -28,7 +23,6 @@ describe('Graph.vue keyword highlight (OpenProject #2480)', () => {
     await flushPromises()
 
     expect(wrapper.vm.highlightedNodeIds).toEqual(new Set([`en:${FIXTURE_GRAPH.nodes[0].path}`]))
-    // -> Non-filtering: the visible node set is exactly what it was before the keyword matched.
     expect(wrapper.vm.nodes).toHaveLength(nodeCountBefore)
   })
 
@@ -57,17 +51,13 @@ describe('Graph.vue keyword highlight (OpenProject #2480)', () => {
 })
 
 /**
- * OpenProject #2533: the client-side title-contains pass, unioned into the same `highlightedNodeIds`
- * the backend search above populates -- but driven independently via `keywordQuery` directly (not
- * `keywordMatches`), to isolate this half of the union from the backend fetch/debounce pipeline
- * (`Graph.keywordSearch.test.js` and `Graph.keywordIntegration.test.js` cover that half, including
- * the real end-to-end repaint assertion for a title-only match).
+ * The client-side title-contains pass is unioned into the same `highlightedNodeIds` the backend
+ * search populates; driving `keywordQuery` directly isolates it from the backend half.
  */
 describe('Graph.vue client-side title-match highlight (OpenProject #2533)', () => {
   it('highlights a node whose title contains the query, with no backend match needed at all', async () => {
     const wrapper = await mountGraph()
 
-    // -> FIXTURE_GRAPH.nodes[0] is titled 'A' (path 'a'); keywordMatches is never touched.
     wrapper.vm.keywordQuery = FIXTURE_GRAPH.nodes[0].title.toLowerCase()
     await flushPromises()
 
@@ -78,7 +68,6 @@ describe('Graph.vue client-side title-match highlight (OpenProject #2533)', () =
   it('unions the title-match set with whatever the backend search already matched, deduping shared ids', async () => {
     const wrapper = await mountGraph()
 
-    // -> Backend matched a different page than the title pass will.
     wrapper.vm.keywordMatches = [{ path: 'nowhere/in/graph', locale: 'en' }]
     wrapper.vm.keywordQuery = FIXTURE_GRAPH.nodes[0].title.toLowerCase()
     await flushPromises()

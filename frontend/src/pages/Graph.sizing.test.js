@@ -7,11 +7,6 @@ import Graph from './Graph.vue'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
-/*
- * How a node's radius is derived -- which counter it reads (contributors vs pageviews), which
- * bucket of that counter (unique vs total, and which client types), over which window -- plus the
- * control-rail affordances that pick between them, and the label layer's zoom-linked max-size cap.
- */
 describe('Graph.vue node sizing and the control rail', () => {
   it('defaults to edits sizing (no "uniform" mode any more) while pageview tracking is off, scaling by contributor count', async () => {
     const wrapper = await mountGraph()
@@ -37,9 +32,8 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('contributorCountFor reads the pre-unioned "all" count only when both types are checked', async () => {
     const wrapper = await mountGraph()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
-    // -> This test is about `contributorTypes` union filtering, not `sizeCountMode` (which defaults
-    //    to 'total' -- OpenProject #2853) -- pinned explicitly so the fixture's unique-count figures
-    //    below stay meaningful regardless of that default.
+    // -> Pinned explicitly (the default is 'total') so the unique-count figures below stay
+    //    meaningful.
     wrapper.vm.sizeCountMode = 'unique'
 
     expect(wrapper.vm.contributorTypes).toEqual(['editor', 'mcp'])
@@ -58,11 +52,9 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('shows a client-type filter in edits mode (the default) -- and still one in visits mode', async () => {
     const wrapper = await mountGraph()
 
-    // -> 'edits' is the default sizing mode now that 'uniform' is gone, so its own client-type
-    //    filter (contributorTypes) is already visible on mount, unlike before #1270. Switching to
-    //    'visits' swaps in that mode's own client-type filter (pageviewClientTypes) -- both render
-    //    through the same `GraphClientTypeFilter` component/class, so the filter itself never
-    //    disappears any more; only which one is showing changes.
+    // -> Each sizing mode has its own client-type filter (`contributorTypes`,
+    //    `pageviewClientTypes`) and both render through the same `GraphClientTypeFilter`, so
+    //    switching modes swaps which one shows rather than making the filter disappear.
     expect(wrapper.find('.graph-client-type-filter').exists()).toBe(true)
     expect(wrapper.text()).toContain('Count edits by')
 
@@ -87,9 +79,8 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('pageviewCountFor sums checked buckets within the selected window', async () => {
     const wrapper = await mountGraph()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
-    // -> This test is about `pageviewClientTypes`/`pageviewsWindow`, not `sizeCountMode` (which
-    //    defaults to 'total' -- OpenProject #2853) -- pinned explicitly so the fixture's
-    //    unique-count figures below stay meaningful regardless of that default.
+    // -> Pinned explicitly (the default is 'total') so the unique-count figures below stay
+    //    meaningful.
     wrapper.vm.sizeCountMode = 'unique'
 
     expect(wrapper.vm.pageviewsWindow).toBe('last30d')
@@ -110,8 +101,8 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('shows the window selector only in visits mode', async () => {
     const wrapper = await mountGraph()
 
-    // -> The window selector ('Over: 30 days / 6 months / 2 years') is 'visits'-only, unlike the
-    //    client-type filter, which the default 'edits' mode already shows -- see the previous test.
+    // -> The window selector is 'visits'-only, unlike the client-type filter the default 'edits'
+    //    mode already shows.
     expect(wrapper.text()).not.toContain('30 days')
 
     wrapper.vm.sizeBy = 'visits'
@@ -137,11 +128,9 @@ describe('Graph.vue node sizing and the control rail', () => {
     expect(wrapper.vm.sizeBy).toBe('edits')
   })
 
-  // -> OpenProject #2853: `pageviewsTrackingEnabled` resolves asynchronously (after `loadGraph()`'s
-  //    own initial fetch), so this is the real regression case the bug was about -- a `sizeBy`
-  //    default computed once at declaration time can never see the real, later-resolved value.
-  //    `mountGraph()` already awaits the full mount (including that async resolution) before
-  //    returning, so by this point `sizeBy` must already reflect the corrected default.
+  // -> `pageviewsTrackingEnabled` resolves asynchronously, after `loadGraph()`'s own fetch, so a
+  //    `sizeBy` default computed at declaration time can never see it. `mountGraph()` awaits that
+  //    resolution before returning.
   it("defaults to visits sizing once pageview tracking resolves enabled, having never sat at an option sizeByOptions didn't offer", async () => {
     const wrapper = await mountGraph({ pageviewsEnabled: true })
 
@@ -153,12 +142,10 @@ describe('Graph.vue node sizing and the control rail', () => {
     ])
   })
 
-  // -> Documents a known, WP-acknowledged limitation rather than a desired guarantee: with no
-  //    persisted preference to consult yet (that's OpenProject #2854), an explicit re-selection of
-  //    'edits' is indistinguishable from "still at the untouched default" the moment tracking
-  //    resolves enabled, so it gets promoted to 'visits' just the same. This only matters in the
-  //    brief window before `pageviewsTrackingEnabled` resolves; #2854's persisted-preference layer
-  //    is what actually protects a deliberate choice.
+  // -> A known limitation, not a guarantee: with no persisted preference for this reader, an
+  //    explicit re-selection of 'edits' is indistinguishable from the untouched default the moment
+  //    tracking resolves enabled, so it is promoted to 'visits' just the same. A persisted
+  //    preference is what protects a deliberate choice.
   it('cannot yet distinguish an explicit re-selection of "edits" from the untouched default before tracking resolves enabled', async () => {
     const router = await createTestRouter(['/:pathMatch(.*)*'])
     let resolveTracking
@@ -207,8 +194,8 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('sizeCountMode toggle switches contributorCountFor between the unique and total fields', async () => {
     const wrapper = await mountGraph()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
-    // -> Start from 'unique' explicitly (no longer the default -- OpenProject #2853) so the toggle
-    //    itself, not the resting default, is what this test exercises.
+    // -> Start from 'unique' explicitly (the default is 'total') so the toggle itself, not the
+    //    resting default, is what moves the count.
     wrapper.vm.sizeCountMode = 'unique'
 
     expect(wrapper.vm.contributorCountFor(nodeA)).toBe(4)
@@ -234,11 +221,9 @@ describe('Graph.vue node sizing and the control rail', () => {
     const wrapper = await mountGraph()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
-    // -> Start from 'unique' explicitly (no longer the default -- OpenProject #2853). B's total
-    //    count outranks A's, while its unique count still trails A's -- so this is only
-    //    distinguishable from a same-node "total > unique" comparison (which no longer holds on its
-    //    own now that radiusFor is normalized against the graph's own range, not an absolute scale)
-    //    by checking which of the two nodes comes out on top under each mode.
+    // -> B's total count outranks A's while its unique count still trails A's. `radiusFor` lerps
+    //    against the graph's own range, so only which node comes out on top under each mode
+    //    distinguishes the toggle from a same-node "total > unique" comparison.
     wrapper.vm.sizeCountMode = 'unique'
     nodeB.contributors = { editor: 2, mcp: 0, all: 2, total: { editor: 20, mcp: 0, all: 20 } }
 
@@ -252,11 +237,9 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('draws the graph’s smallest-ranked real node at exactly MIN_NODE_RADIUS, 20 (OpenProject #2900)', async () => {
     const wrapper = await mountGraph()
 
-    // -> The fixture's B has a zero contributor count, so it IS the bottom of the graph's own
-    //    observed range and lands exactly on the floor. Pinning the floor's VALUE (not merely
-    //    "B is smaller than A") is the point: `MIN_NODE_RADIUS` is a `<script setup>`-local const
-    //    with no export, so `radiusFor()` is the only surface that can assert what it is -- doubled
-    //    from `5` to `10` by OpenProject #2594, then to `20` by OpenProject #2900.
+    // -> The fixture's B has a zero contributor count, so it is the bottom of the graph's observed
+    //    range and lands exactly on the floor. `MIN_NODE_RADIUS` is a `<script setup>`-local const
+    //    with no export, so `radiusFor()` is the only surface that can pin its value.
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
 
@@ -267,18 +250,15 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('puts every real node on the floor in the degenerate all-same-count case (OpenProject #2594)', async () => {
     const wrapper = await mountGraph()
 
-    // -> Every loaded node sharing one count is a zero-width sqrt range, which `lerpRadius()`
-    //    resolves to `minRadius` rather than dividing by zero (`graphNodeSize.js`). Re-checked
-    //    end-to-end through `radiusFor()` against the current floor, since `graphNodeSize.test.js`
-    //    only covers the pure function with hand-passed bounds.
+    // -> One count shared by every node is a zero-width range, which `lerpRadius()` resolves to
+    //    `minRadius` rather than dividing by zero.
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
     const shared = { editor: 7, mcp: 0, all: 7, total: { editor: 7, mcp: 0, all: 7 } }
     nodeA.contributors = { ...shared }
     nodeB.contributors = { ...shared }
-    // -> `currentMetricRange` is a plain variable, not a `computed` (node objects are `markRaw`'d
-    //    out of Vue's reactivity), so an in-place edit to a node's counts needs an explicit refresh
-    //    before `radiusFor()` reads the new range -- same call `Graph.layout.test.js` makes.
+    // -> `currentMetricRange` is a plain variable, not a `computed` (nodes are `markRaw`'d out of
+    //    reactivity), so an in-place count edit needs this refresh before `radiusFor()` sees it.
     wrapper.vm.computeClusters()
 
     expect(wrapper.vm.radiusFor(nodeA)).toBe(20)
@@ -288,18 +268,15 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('keeps synthetic folder/root nodes at their own fixed 3, below the real-node floor (OpenProject #2594)', async () => {
     const wrapper = await mountGraph()
 
-    // -> `radiusFor()` short-circuits on `node.synthetic` before the lerp ever runs, so
-    //    `MIN_NODE_RADIUS` changes (5 -> 10 -> 20, #2594 then #2900) deliberately never move a
-    //    synthetic hub -- worth pinning, because it is what makes a radius-keyed rule "below the
-    //    minimum node radius" (sibling Task #2593) select synthetic nodes and nothing else.
+    // -> `radiusFor()` short-circuits on `node.synthetic` before the lerp, so `MIN_NODE_RADIUS`
+    //    never moves a synthetic hub: a "below the minimum node radius" rule selects exactly these.
     expect(wrapper.vm.radiusFor({ synthetic: true })).toBe(3)
   })
 
   it('drawLabels never hides labels for being zoomed out -- the zoom-linked visibility threshold was removed entirely (OpenProject #3027)', async () => {
     const wrapper = await mountGraph()
 
-    // -> `0.05` is far below every value this threshold was ever tuned to (`0.6` -> `0.75` ->
-    //    `1.1`, OpenProject #2593, #2292, #1287/#1288) and used to hide every label outright.
+    // -> `0.05` is far below any zoom a visibility threshold would plausibly have been tuned to.
     wrapper.vm.ctx.fillText.mockClear()
     drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.05)
     expect(wrapper.vm.ctx.fillText).toHaveBeenCalled()
@@ -327,12 +304,10 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('paintGraph feeds the live zoom scale into drawLabels, not a fixed 1', async () => {
     const wrapper = await mountGraph()
 
-    // -> The drawLabels tests above call it directly with a scale. This one goes through
-    //    `repaint()` -> `paintGraph({ transform: zoomTransform })`, which is the only caller in the
-    //    app: `paintGraph` passes `transform?.k` down as the label scale, so a zoom past the font
-    //    cap must shrink the drawn font. A `paintGraph` that hardcoded `1` would draw labels at
-    //    10px regardless of zoom. Labels are never hidden for being zoomed out (OpenProject #3027),
-    //    so `0.5` is asserted to still draw rather than to stay silent.
+    // -> Through `repaint()` -> `paintGraph({ transform: zoomTransform })`, the app's only caller,
+    //    rather than calling `drawLabels` with a scale as the tests above do: a `paintGraph` that
+    //    hardcoded `1` would draw 10px labels at every zoom. Labels are never hidden for being
+    //    zoomed out, so `0.5` is asserted to draw rather than to stay silent.
     wrapper.vm.zoomTransform = { k: 0.5, x: 0, y: 0 }
     wrapper.vm.ctx.fillText.mockClear()
     wrapper.vm.repaint()
@@ -350,18 +325,15 @@ describe('Graph.vue node sizing and the control rail', () => {
   it("re-attaches forceLink's own target distance (not just forceCollide) after a live sizing change, so link distances don't go stale (OpenProject #2749)", async () => {
     const wrapper = await mountGraph()
 
-    // -> d3-force's `forceLink().distance(fn)` setter is the ONLY thing that makes it re-read
-    //    every link's endpoints' radii (it calls its own `initializeDistance()` synchronously, per
-    //    `node_modules/d3-force/src/link.js`) -- the same one-time-at-attach shape `collide` has,
-    //    and the pre-fix bug was that only `collide` got re-attached on a sizing change, never
-    //    this. Spying on the real, public d3-force accessor (the same object
-    //    `Graph.rendering.test.js` already reaches into via `.force('link').links()`) directly
-    //    tests the mechanism the fix adds, without depending on d3-force's private tick math.
+    // -> d3-force's `forceLink().distance(fn)` setter is the only thing that makes it re-read every
+    //    link's endpoint radii (it calls `initializeDistance()` synchronously) -- the same
+    //    one-time-at-attach shape `collide` has. Spying on the public accessor tests that directly,
+    //    without depending on d3-force's private tick math.
     const linkForce = wrapper.vm.simulation.force('link')
     const distanceSpy = vi.spyOn(linkForce, 'distance')
 
-    // -> 'total' is already the resting default (OpenProject #2853) -- an actual VALUE CHANGE is
-    //    what has to trigger the watcher this test is about, so flip through 'unique' first.
+    // -> 'total' is the resting default and only a real value change fires the watcher, so flip
+    //    through 'unique' first.
     wrapper.vm.sizeCountMode = 'unique'
     await flushPromises()
     distanceSpy.mockClear()
@@ -369,13 +341,10 @@ describe('Graph.vue node sizing and the control rail', () => {
     wrapper.vm.sizeCountMode = 'total'
     await flushPromises()
 
-    // -> Pre-fix, nothing on this watcher ever touches `forceLink` at all -- `distanceSpy` would
-    //    still show zero calls here.
     expect(distanceSpy).toHaveBeenCalled()
 
-    // -> Must actually differ per-link off the CURRENT (post-toggle) radii, not just be "a
-    //    function" -- reproduces exactly what `linkDistanceFor()`/`collideRadiusFor()` compute
-    //    right now for a real resolved link between the fixture's two nodes.
+    // -> The re-attached function must compute off the post-toggle radii, not merely be a
+    //    function, so the expectation recomputes `linkDistanceFor()` for a real link.
     const setterCall = distanceSpy.mock.calls.findLast((args) => args.length === 1)
     expect(setterCall).toBeDefined()
     const [newDistanceFn] = setterCall

@@ -43,9 +43,6 @@
     </div>
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12 lg:col-span-6">
-        <!-- ----------------------- -->
-        <!-- Security -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.security.title')">
           <div class="p-3">
             <w-card class="bg-negative text-white rounded">
@@ -130,12 +127,8 @@
             </w-settings-row>
           </template>
           <!--
-            Only shown once the backend has actually seen the misconfiguration on a live request
-            (`GET /system/security`'s `insecureCookieRiskAt`) -- unlike the rate-limit warnings
-            above, this is not "off by default, turn it on", it is "something is provably wrong
-            right now". `!trustProxy` is implied by the field ever being set at all (see
-            `Security#observeRequest`), but kept explicit so flipping the toggle above hides the
-            warning immediately rather than waiting on a restart + reload to confirm it.
+            `!trustProxy` is implied by `insecureCookieRiskAt` ever being set, but kept explicit so
+            flipping the toggle above hides the warning at once, not after a restart + reload.
           -->
           <template v-if="state.config.insecureCookieRiskAt && !state.config.trustProxy">
             <div class="p-3">
@@ -159,9 +152,6 @@
             </div>
           </template>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- HSTS -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.security.hsts')">
           <w-settings-row
             tag="label"
@@ -192,14 +182,7 @@
             </w-settings-row>
           </template>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Rate Limiting -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.security.rateLimit')">
-          <!--
-            First thing in the card, and in the same red the security warning above uses: both say
-            something that decides whether the settings under them do what they look like they do.
-          -->
           <div class="p-3">
             <w-card class="bg-negative text-white rounded">
               <w-card-section class="items-center" horizontal>
@@ -207,8 +190,6 @@
                   <w-icon name="tabler:alert-triangle" size="lg" />
                 </w-card-section>
                 <w-card-section class="text-caption">
-                  <!-- -> With `trustProxy` off behind a proxy every request carries the proxy's
-                       address, so one visitor going over the limit takes everybody with them -->
                   <div v-if="!state.config.trustProxy">
                     {{ t('admin.security.rateLimitProxyWarn') }}
                   </div>
@@ -266,14 +247,7 @@
             </w-settings-row>
           </template>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- API Rate Limiting -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.security.apiRateLimit')">
-          <!--
-            Same red warning-first layout as the authentication rate-limit card above: both say
-            something that decides whether the settings under them do what they look like they do.
-          -->
           <div class="p-3">
             <w-card class="bg-negative text-white rounded">
               <w-card-section class="items-center" horizontal>
@@ -281,8 +255,6 @@
                   <w-icon name="tabler:alert-triangle" size="lg" />
                 </w-card-section>
                 <w-card-section class="text-caption">
-                  <!-- -> With `trustProxy` off behind a proxy every request carries the proxy's
-                       address, so one caller going over the limit takes everybody with them -->
                   <div v-if="!state.config.trustProxy">
                     {{ t('admin.security.rateLimitProxyWarn') }}
                   </div>
@@ -342,9 +314,6 @@
         </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-6">
-        <!-- ----------------------- -->
-        <!-- Uploads -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.security.uploads')">
           <div class="p-3">
             <w-card class="bg-info text-white rounded">
@@ -391,9 +360,6 @@
               :aria-label="t(`admin.security.scanSVG`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- CORS -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.security.cors')">
           <w-settings-row
             icon="tabler:wall"
@@ -435,9 +401,6 @@
             </w-settings-row>
           </template>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- CSP -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.security.csp')">
           <w-settings-row
             tag="label"
@@ -483,26 +446,14 @@ import { humanizeDate } from '@/helpers/datetime'
 import { formatFileSize, parseFileSize } from '@/helpers/fileSize'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// STORES
-
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.security.title')
 }))
 
-// DATA
-
-/**
- * Fallbacks for every control on this page, so each renders with a defined value before
- * `GET system/security` has answered.
- */
 function defaultConfig() {
   return {
     corsConfig: '',
@@ -533,14 +484,12 @@ function defaultConfig() {
 
 const { state, load, save } = useAdminSettings({
   i18nPrefix: 'admin.security',
-  // -> Instance-wide settings, not one site's: no site picker, no reload on switching site
   siteScoped: false,
   defaults: defaultConfig,
   extraState: { humanUploadMaxFileSize: '0' },
   fetch: () => API_CLIENT.get('system/security').json(),
-  // -> Over whatever the form currently holds, not over a fresh `defaultConfig()`: the reload that
-  //    follows a save is what re-reads the server's normalised values, and a key it does not send
-  //    back keeps the value already on screen rather than snapping to a default.
+  // -> Merged over what the form holds, not over a fresh `defaultConfig()`: a key the server does
+  //    not send back keeps the value already on screen rather than snapping to a default.
   pick: (resp) => ({ ...state.config, ...resp }),
   onLoaded: () => {
     if (typeof state.config.trustProxy === 'string') {
@@ -558,8 +507,8 @@ const { state, load, save } = useAdminSettings({
     if (!(uploadMaxFileSize > 0)) {
       throw new Error(t('admin.security.maxUploadSizeInvalid'))
     }
-    // -> ky throws above 400 -- the server rejects combinations that would store a setting doing
-    //    nothing, e.g. enforcing a CSP with no directives
+    // -> ky throws above 400: the server rejects combinations that would store a setting doing
+    //    nothing, such as enforcing a CSP with no directives.
     return API_CLIENT.put('system/security', {
       json: { ...config, uploadMaxFileSize }
     }).json()
@@ -585,28 +534,19 @@ const corsModes = [
 ]
 
 /*
-  `state.config.trustProxy` is boolean-or-string now (see `backend/models/security.ts`'s widened
-  `validate()`): `false` off, or a comma-separated trusted-proxy address/CIDR list on. The toggle
-  below still needs a plain boolean to bind to, and the new text field below it needs a plain string
-  -- these two computed properties are that split, rather than a second field in `state.config` that
-  would need to be kept in sync with it by hand. `trustProxyAddressCache` remembers the last-typed
-  list across a toggle-off/on cycle -- flipping the toggle off sets `state.config.trustProxy` to
-  `false`, which would otherwise lose whatever address list was typed in the moment the field is
-  hidden (`v-if="trustProxyEnabled"` above), forcing a re-type on every accidental toggle.
+  `state.config.trustProxy` is `false` or a comma-separated address/CIDR list, so the boolean toggle
+  and the text field each get their own computed view of the one field rather than a second field
+  kept in sync by hand. `trustProxyAddressCache` survives a toggle-off, which sets the field to
+  `false` and would otherwise discard a typed list the moment it is hidden.
 */
 const trustProxyAddressCache = ref('')
 
 const trustProxyEnabled = computed({
   get: () => Boolean(state.config.trustProxy),
   set: (val) => {
-    // -> Flipping on lands on the cached address list if there is one, else `true` (not `''`) --
-    //    `!state.config.trustProxy` is what the insecure-cookie-risk warning below keys off of to
-    //    hide itself the instant the toggle flips, and an empty string is just as falsy as `false`
-    //    there. `true` still validates on the backend (see `models/security.test.ts`'s "still
-    //    accepts the bare boolean true"), so it is a real, save-able value on its own -- filling in
-    //    the address field below (which overwrites it with the real string) is what the admin should
-    //    still do before saving, not something this toggle can silently paper over by picking a
-    //    falsy placeholder instead.
+    // -> `true`, not `''`: the insecure-cookie-risk warning keys off `!state.config.trustProxy`,
+    //    where an empty string is as falsy as `false`. `true` (trust every proxy) is a valid stored
+    //    value on its own, so nothing is papered over by it.
     state.config.trustProxy = val ? trustProxyAddressCache.value || true : false
   }
 })
@@ -614,9 +554,8 @@ const trustProxyAddresses = computed({
   get: () => (typeof state.config.trustProxy === 'string' ? state.config.trustProxy : ''),
   set: (val) => {
     trustProxyAddressCache.value = val
-    // -> Clearing the field entirely falls back to `true` (trust every proxy) rather than saving an
-    //    ambiguous empty string -- the toggle is still on, so the field being blank should mean "no
-    //    address list configured yet," the same state as just having flipped the toggle on.
+    // -> Blank falls back to `true` rather than an ambiguous empty string: the toggle is still on,
+    //    so no address list means the same state as having just flipped it on.
     state.config.trustProxy = val.trim() === '' ? true : val
   }
 })

@@ -2,11 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { FIXTURE_GRAPH, mountGraph } from './graphFixtures.js'
 
-/*
- * OpenProject #1690/#1681/#2359: every caption, aria-label, option label, tooltip count and the
- * canvas's own accessible name resolves through `t()` against the `graph.*` keys, never a hardcoded
- * English literal.
- */
 describe('Graph.vue i18n and accessible naming', () => {
   it('resolves every control-rail caption, aria-label and option label through t(), not a hardcoded English literal (OpenProject #1690)', async () => {
     const wrapper = await mountGraph({
@@ -26,8 +21,8 @@ describe('Graph.vue i18n and accessible naming', () => {
       }
     })
 
-    // -> Every caption, translated option label and control group is visible on mount (the 'edits'
-    //    sizing default), so all of these are checkable without any interaction.
+    // -> The 'edits' sizing default renders every one of these on mount, so no interaction is
+    //    needed to reach them.
     const text = wrapper.text()
     for (const translated of [
       'xx-groupBy',
@@ -44,17 +39,16 @@ describe('Graph.vue i18n and accessible naming', () => {
     ]) {
       expect(text).toContain(translated)
     }
-    // -> None of the pre-#1690 English literals leak through -- proves these render via `t()`
-    //    resolving the overridden messages above, not a string baked into the template.
+    // -> No English literal leaks through: these render via `t()` resolving the overrides above,
+    //    not a string baked into the template.
     for (const literal of ['Group by', 'Size by', 'Count edits by']) {
       expect(text).not.toContain(literal)
     }
 
     expect(wrapper.find('[aria-label="xx-groupBy"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="xx-sizeBy"]').exists()).toBe(true)
-    // -> SIZE BY and COUNT share one row and one caption now (OpenProject #2855/#2828): the count
-    //    toggle has no visible caption of its own any more, but still resolves its own aria-label
-    //    ('Unique or total') through `t()` independently of the shared 'Size by' caption.
+    // -> The count toggle shares SIZE BY's row and caption, so it has no visible caption of its
+    //    own; its aria-label still resolves through `t()` independently.
     expect(wrapper.find('[aria-label="xx-uniqueOrTotal"]').exists()).toBe(true)
   })
 
@@ -93,17 +87,15 @@ describe('Graph.vue i18n and accessible naming', () => {
   it('renders the hover tooltip\'s contributor count through a real plural message, not an appended "s" (OpenProject #1690)', async () => {
     const wrapper = await mountGraph({
       messageOverrides: {
-        // -> Deliberately not just an English 's' suffix -- proves the singular/plural split comes
-        //    from vue-i18n's own plural-choice resolution (index 0 for count === 1, index 1
-        //    otherwise), not from string concatenation baked into the component.
+        // -> Deliberately not an 's' suffix: only vue-i18n's plural-choice resolution (index 0 for
+        //    count === 1, index 1 otherwise) can produce these forms, not string concatenation.
         'graph.tooltip.contributors': '{count} xx-one-contributor | {count} xx-many-contributors'
       }
     })
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
-    // -> This test is about plural-message resolution, not `sizeCountMode` (which defaults to
-    //    'total' -- OpenProject #2853) -- pinned explicitly so the unique-count figures below stay
-    //    meaningful regardless of that default.
+    // -> Pinned explicitly (the default is 'total') so the unique-count figures below stay
+    //    meaningful.
     wrapper.vm.sizeCountMode = 'unique'
 
     // -> nodeA's edits count is 4 (both contributor types checked, the default) -> plural form.
@@ -112,16 +104,13 @@ describe('Graph.vue i18n and accessible naming', () => {
     expect(wrapper.text()).toContain('4 xx-many-contributors')
     expect(wrapper.text()).not.toContain('4 contributors')
 
-    // -> Narrowing to just 'mcp' brings nodeA's count down to 1 -> the singular form, not the
-    //    plural one -- the old `count === 1 ? '' : 's'` logic could only ever pick between an 's'
-    //    suffix and none, never a genuinely different word/form the way a real plural rule can.
+    // -> Narrowing to just 'mcp' brings nodeA's count down to 1 -> the singular form.
     wrapper.vm.contributorTypes = ['mcp']
     await flushPromises()
     expect(wrapper.text()).toContain('1 xx-one-contributor')
     expect(wrapper.text()).not.toContain('1 xx-many-contributors')
 
-    // -> nodeB has zero contributors -> the plural form (English's plural rule treats 0 as plural,
-    //    same as the pre-#1690 code's own `0 === 1 ? '' : 's'` -> "0 contributors" behavior).
+    // -> nodeB has zero contributors -> the plural form: English's plural rule treats 0 as plural.
     wrapper.vm.contributorTypes = ['editor', 'mcp']
     wrapper.vm.hoveredNode = nodeB
     await flushPromises()
@@ -131,10 +120,8 @@ describe('Graph.vue i18n and accessible naming', () => {
   it("renders the hover tooltip's visit count through a real plural message when sizing by visits (OpenProject #1690)", async () => {
     const wrapper = await mountGraph({
       messageOverrides: {
-        // -> `sizeCountMode` defaults to 'total' (OpenProject #2853), so 'unique' is set explicitly
-        //    here to reach `graph.tooltip.uniqueVisitors` -- `graph.tooltip.visits` backs the
-        //    'total' count mode instead (see the sibling 'total' test below, which no longer needs
-        //    to set `sizeCountMode` itself since 'total' is now the default).
+        // -> `sizeCountMode` must be 'unique' to reach `graph.tooltip.uniqueVisitors`;
+        //    `graph.tooltip.visits` backs the 'total' mode instead.
         'graph.tooltip.uniqueVisitors': '{count} xx-one-visit | {count} xx-many-visits'
       }
     })

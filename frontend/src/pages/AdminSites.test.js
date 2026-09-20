@@ -22,11 +22,6 @@ async function mountPage() {
   return { wrapper }
 }
 
-/**
- * OpenProject #1990: a site's hostname was rendered as an inert chip -- no href, no click
- * handler -- so an admin who just created a new site had no way to open it short of retyping the
- * hostname into the address bar by hand.
- */
 describe('AdminSites hostname links (OpenProject #1990)', () => {
   it('links a named hostname row to that hostname', async () => {
     const { wrapper } = await mountPage()
@@ -48,7 +43,6 @@ describe('AdminSites hostname links (OpenProject #1990)', () => {
   it('renders a link for a disabled site too', async () => {
     const { wrapper } = await mountPage()
 
-    // SITES[1] (the catch-all row) is isEnabled: false -- it should still be openable.
     const links = wrapper.findAll('a.site-hostname-link')
     expect(links[1].attributes('href')).toBeTruthy()
   })
@@ -56,8 +50,7 @@ describe('AdminSites hostname links (OpenProject #1990)', () => {
   it('renders a dedicated open button per row, in addition to the hostname chip link', async () => {
     const { wrapper } = await mountPage()
 
-    // -> Two links open docs.example.com: the hostname chip itself, and a separate action-group
-    //    button beside Edit/Delete.
+    // -> Two: the hostname chip itself, and the action-group button beside Edit/Delete.
     const links = wrapper.findAll('a[href="//docs.example.com"]')
     expect(links).toHaveLength(2)
   })

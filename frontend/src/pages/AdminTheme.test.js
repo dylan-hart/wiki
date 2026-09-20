@@ -8,22 +8,13 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
-/**
- * Task 754: `getAccessibleColor` now has real substitutes for every themeable color name, and this
- * page is where they should actually show up -- a live preview swatch per color under the admin's
- * own `userStore.cvd` setting, plus a WCAG AA contrast warning for the pairings that matter
- * (`colorHeader`/`colorSidebar` against the white chrome text, `colorPrimary` against the page
- * background, and -- since task 1678 -- `colorSecondary`/`colorAccent` against that same white
- * chrome text, matching the fg/bg pairing `WBtn.vue` uses for every solid button in the app).
- */
 async function mountPage(theme, cvd = 'none') {
   stubApi({ 'sites/site-a?strict=true': { id: 'site-a', theme } })
 
   const router = await createTestRouter(['/'])
 
-  // -> Real message for the one key a test needs to read back (the computed ratio); everything else
-  //    stays untranslated (`createTestI18n` keeps `missingWarn`/`fallbackWarn` off), matching
-  //    upstream `en.json`.
+  // -> Only the one key a test reads the computed ratio back out of is translated; every other
+  //    `t()` resolves to its key literal.
 
   const { wrapper } = mountWithApp(AdminTheme, {
     messages: {
@@ -82,9 +73,8 @@ describe('AdminTheme — CVD preview swatches', () => {
 
 describe('AdminTheme — WCAG AA contrast warning', () => {
   /*
-    The chrome's foreground is Cardinal's ink now, not white (`CHROME_TEXT_COLOR`), so this check has
-    turned around: what it warns about is a header or sidebar too DARK to read ink over, where it
-    used to be one too light to read white over. Same rule, opposite end of the ramp.
+    The chrome draws its text in ink, not white (`CHROME_TEXT_COLOR`), so the header/sidebar warning
+    fires on a colour too DARK to read over rather than one too light.
   */
   it('warns when colorHeader is too dark for the ink header text', async () => {
     const wrapper = await mountPage({
@@ -129,11 +119,8 @@ describe('AdminTheme — WCAG AA contrast warning', () => {
 
 describe('AdminTheme — WCAG AA contrast warning checks secondary and accent (task 1678)', () => {
   it('raises the warning for both secondary and accent, paired against white the same way WBtn renders solid buttons', async () => {
-    // -> The 3.x defaults these two used to carry (#02c39a / #FF9800), which were previously exempt
-    // from the check entirely (`contrastPairFor` returned null for both) -- so the theme screen
-    // reported a clean bill of health for the colors that actually failed worst. Kept as the
-    // fixture even though neither is a default any more: they are still exactly the shape of value
-    // this check exists to catch.
+    // -> Both fixtures are the shape of value this check exists to catch: a mid-tone that reads fine
+    // on its own but fails against the white text a solid button draws over it.
     const wrapper = await mountPage({
       colorPrimary: '#c14a52',
       colorSecondary: '#02c39a',
@@ -165,9 +152,6 @@ describe('AdminTheme — WCAG AA contrast warning checks secondary and accent (t
   })
 })
 
-// OpenProject #2768: `resetColors()` reads its `colorPrimary`/`colorAccent`/`colorHeader`/
-// `colorSidebar` defaults from the CURRENT aesthetic (`helpers/aestheticDefaults.js`), not one
-// hardcoded set -- so a Cobalt site's "Reset defaults" button lands on Cobalt's colors.
 describe('AdminTheme — resetColors() is aesthetic-aware (OpenProject #2768)', () => {
   it("resets to Ledger's defaults when the loaded theme has no aesthetic (today's/pre-#2769 shape)", async () => {
     const wrapper = await mountPage({
@@ -178,8 +162,8 @@ describe('AdminTheme — resetColors() is aesthetic-aware (OpenProject #2768)', 
       colorSidebar: '#1976D2'
     })
 
-    // -> Index 0: the Theme Options card's own "Reset defaults" button -- Code Blocks and Fonts
-    // each render their own sibling with the same label further down the page.
+    // -> Index 0: the Appearance card's own "Reset defaults" button -- Code Blocks and Fonts each
+    // render their own sibling with the same label further down the page.
     await wrapper.findAll('.acrylic-btn')[0].trigger('click')
 
     expect(wrapper.vm.state.config.colorPrimary).toBe('#c14a52')
@@ -210,10 +194,8 @@ describe('AdminTheme — resetColors() is aesthetic-aware (OpenProject #2768)', 
     expect(wrapper.vm.state.config.colorSecondary).toBe('#3f7a66')
   })
 
-  // OpenProject #2806: dark mode is a separate, orthogonal axis (`helpers/aestheticDefaults.js:16`)
-  // that neither "Reset defaults" nor switching aesthetic may touch. A fixture starting `dark: false`
-  // can't distinguish "preserved" from "forced off" -- this one starts `dark: true` so a regression
-  // back to `state.config.dark = false` in `resetColors()` would actually be caught.
+  // -> Starts `dark: true` on purpose: a fixture starting `false` cannot tell "preserved" apart from
+  // "forced off", so a `resetColors()` that clears dark mode would still pass.
   it('leaves dark mode untouched by Reset Defaults', async () => {
     const wrapper = await mountPage({
       dark: true,
@@ -246,9 +228,6 @@ describe('AdminTheme — resetColors() is aesthetic-aware (OpenProject #2768)', 
   })
 })
 
-// OpenProject #2769: the Appearance card's own Aesthetic row -- the FIRST row, above Dark mode --
-// wires `state.config.aesthetic` through to the theme payload and, on a genuine admin click, resets
-// the admin-editable colors to the newly-picked aesthetic's own defaults (#2768's `resetColors()`).
 describe('AdminTheme — Aesthetic setting row (OpenProject #2769)', () => {
   it('renders Aesthetic as the first row of the Appearance card, above Dark mode', async () => {
     const wrapper = await mountPage({
@@ -261,7 +240,6 @@ describe('AdminTheme — Aesthetic setting row (OpenProject #2769)', () => {
 
     const rows = wrapper.findAll('.admin-theme .w-settings-card')[0].findAll('.w-settings-row')
     expect(rows.length).toBeGreaterThanOrEqual(2)
-    // -> The row order the mockup and the acceptance criteria both call for: Aesthetic first.
     expect(rows[0].find('[data-icon="tabler:layout-grid"]').exists()).toBe(true)
     expect(rows[1].find('[data-icon="tabler:bulb"]').exists()).toBe(true)
   })
@@ -289,8 +267,6 @@ describe('AdminTheme — Aesthetic setting row (OpenProject #2769)', () => {
     })
 
     expect(wrapper.vm.state.config.aesthetic).toBe('cobalt')
-    // -> Unchanged from the loaded (non-default) values: merely loading the page must not have
-    // called `resetColors()` on the admin's behalf.
     expect(wrapper.vm.state.config.colorPrimary).toBe('#123456')
     expect(wrapper.vm.state.config.colorAccent).toBe('#abcdef')
     expect(wrapper.vm.state.config.colorHeader).toBe('#000000')
@@ -354,10 +330,6 @@ describe('AdminTheme — Aesthetic setting row (OpenProject #2769)', () => {
   })
 })
 
-// OpenProject #2809: diffing the Appearance card against `Cardinal Wiki - Aesthetic Setting 3x.dc.html`
-// (options 1a/1b) -- never done by #2769, whose scope was rendering the row and wiring
-// `resetColors()`. The one genuine defect found: every color row's plate drew `tabler:color-swatch`
-// (a paint-tube/ribbon glyph) where both mockup options draw a palette-circle glyph.
 describe('AdminTheme — Appearance card color rows match the mockup icon (OpenProject #2809)', () => {
   it('gives every color row the palette icon, not the color-swatch icon', async () => {
     const wrapper = await mountPage({
@@ -369,7 +341,7 @@ describe('AdminTheme — Appearance card color rows match the mockup icon (OpenP
     })
 
     const rows = wrapper.findAll('.admin-theme .w-settings-card')[0].findAll('.w-settings-row')
-    // -> Aesthetic + Dark mode are the first two rows (#2769); every row after them is a color row.
+    // -> Aesthetic and Dark mode are the first two rows; every row after them is a color row.
     const colorRows = rows.slice(2)
     expect(colorRows.length).toBe(5)
     for (const row of colorRows) {

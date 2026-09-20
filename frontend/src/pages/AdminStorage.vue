@@ -45,9 +45,6 @@
           :loading="state.loading > 0" />
       </div>
     </div>
-    <!-- ========================================== -->
-    <!-- TARGETS -->
-    <!-- ========================================== -->
     <div class="flex flex-wrap p-4 gap-4" v-if="state.displayMode === `targets`">
       <div class="flex-none">
         <w-card class="rounded bg-dark">
@@ -77,16 +74,12 @@
       </div>
       <div class="min-w-0 flex-1" v-if="state.target">
         <!--
-          The settings and the infobox beside them, the same shape as the list and this panel above:
-          the infobox is 300px wide and the settings take what is left, both dropping onto their own
-          row when there is no room. A 12-column grid could not say that -- `col-span-12` on the
-          settings took a whole row of it, which is what put the infobox underneath.
+          Flex rather than the 12-column grid: the infobox is a fixed 300px and the settings take
+          what is left, each dropping onto its own row when there is no room. `col-span-12` on the
+          settings would take a whole grid row and push the infobox underneath.
         -->
         <div class="flex flex-wrap gap-4">
           <div class="min-w-0 flex-1">
-            <!-- ----------------------- -->
-            <!-- Content Types -->
-            <!-- ----------------------- -->
             <w-settings-card :title="t('admin.storage.contentTypes')">
               <template #hint>{{ t('admin.storage.contentTypesHint') }}</template>
               <w-settings-row
@@ -138,11 +131,6 @@
                   val="others"
                   :aria-label="t(`admin.storage.contentTypeOthers`)" />
               </w-settings-row>
-              <!--
-                The one row here with two controls: whether large files are stored at all, and the
-                size at which a file counts as large. They travel together at the trailing edge --
-                the threshold means nothing without the checkbox beside it.
-              -->
               <w-settings-row
                 tag="label"
                 control-width="auto"
@@ -168,9 +156,6 @@
                 </div>
               </w-settings-row>
             </w-settings-card>
-            <!-- ----------------------- -->
-            <!-- Content Delivery -->
-            <!-- ----------------------- -->
             <w-settings-card class="mt-4" :title="t('admin.storage.assetDelivery')">
               <template #hint>{{ t('admin.storage.assetDeliveryHint') }}</template>
               <w-settings-row
@@ -218,9 +203,6 @@
                   :disabled="!state.target.assetDelivery.isDirectAccessSupported" />
               </w-settings-row>
             </w-settings-card>
-            <!-- ----------------------- -->
-            <!-- Configuration -->
-            <!-- ----------------------- -->
             <w-settings-card class="mt-4" :title="t('admin.storage.config')">
               <w-card-section>
                 <w-banner
@@ -230,18 +212,8 @@
                   >{{ t('admin.storage.noConfigOption') }}</w-banner
                 >
               </w-card-section>
-              <!--
-                Generic per-prop config form, shared with `AdminSearch.vue`'s engine config editor
-                (task #556) -- see `ModuleConfigForm.vue`. `state.target.config` is the
-                `buildConfigEditor()`-built editable structure `load()` below produces, not the raw
-                stored values -- mutating a field's `.value` there, which this component does in
-                place, is what `buildConfigPayload()` in `payloadFor()` below reads back.
-              -->
               <module-config-form :config="state.target.config" />
             </w-settings-card>
-            <!-- ----------------------- -->
-            <!-- Sync -->
-            <!-- ----------------------- -->
             <!--
               Hidden entirely for a module with nothing to schedule (`sync.schedule === false`, e.g.
               disk/s3/db): a push-only target already syncs on every write via the dispatch hook, so
@@ -252,10 +224,7 @@
               v-if="state.target.sync && state.target.sync.schedule !== false"
               :title="t('admin.storage.sync')">
               <template #hint>{{ t('admin.storage.syncDirectionSubtitle') }}</template>
-              <!--
-                A status readout rather than a setting: the label names it, the state of the last
-                sync sits at the trailing edge in its own colour, and the "when" line is the hint.
-              -->
+              <!-- A status readout rather than a setting: the row carries no control at all. -->
               <w-settings-row
                 control-width="auto"
                 icon="tabler:refresh"
@@ -341,9 +310,6 @@
                   :aria-label="t(`admin.storage.syncSchedule`)" />
               </w-settings-row>
             </w-settings-card>
-            <!-- ----------------------- -->
-            <!-- Actions -->
-            <!-- ----------------------- -->
             <w-settings-card class="mt-4" :title="t('admin.storage.actions')">
               <w-card-section>
                 <w-banner
@@ -400,9 +366,6 @@
             </w-settings-card>
           </div>
           <div class="flex-none">
-            <!-- ----------------------- -->
-            <!-- Infobox -->
-            <!-- ----------------------- -->
             <w-settings-card class="rounded" style="width: 300px" :title="state.target.title">
               <w-card-section>
                 <img
@@ -411,11 +374,7 @@
                   :alt="state.target.title" />
                 <div class="text-body2 mt-4">{{ state.target.description }}</div>
               </w-card-section>
-              <!--
-                Two facts about the module, not two settings: the name of the thing is the row's
-                label and the value it reports sits at the trailing edge, the same way every
-                `AdminSystem` row reads.
-              -->
+              <!-- Two facts the module reports, not two settings: neither row takes a control. -->
               <w-settings-row
                 control-width="auto"
                 icon="tabler:building-store"
@@ -433,9 +392,6 @@
                 </div>
               </w-settings-row>
             </w-settings-card>
-            <!-- ----------------------- -->
-            <!-- Status -->
-            <!-- ----------------------- -->
             <w-settings-card
               class="rounded mt-4"
               style="width: 300px"
@@ -458,9 +414,6 @@
                 <div class="text-positive text-caption">{{ t('admin.storage.noIssues') }}</div>
               </w-settings-row>
             </w-settings-card>
-            <!-- ----------------------- -->
-            <!-- Versioning -->
-            <!-- ----------------------- -->
             <w-settings-card
               class="rounded mt-4"
               style="width: 300px"
@@ -492,9 +445,6 @@
         </div>
       </div>
     </div>
-    <!-- ========================================== -->
-    <!-- DELIVERY PATHS -->
-    <!-- ========================================== -->
     <div class="flex flex-wrap p-4 gap-4" v-if="state.displayMode === `delivery`">
       <div class="min-w-0 flex-1">
         <w-card class="rounded">
@@ -555,29 +505,19 @@ import { generateGraph as buildDeliveryGraph } from '@/helpers/storageDeliveryGr
 import { isQueuedAction, syncPayloadFor, syncStatusKind } from '@/helpers/storageSync'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
 const route = useRoute()
 
-// ACCESS
-
 /*
-  Task #684: storage credentials are deliberately NOT delegable -- `api/storage.ts` has always
-  required `manage:system` alone, not `manage:sites`, so this matches the backend exactly rather
-  than the looser `manage:sites` the sidebar link used to gate on. `userStore.permissions` is already loaded
-  by the time this mounts (same reasoning as `AdminLayout.vue`'s own `access:admin` watcher), so
-  there is no fetch to await here.
+  Storage credentials are deliberately not delegable: `api/storage.ts` requires `manage:system`
+  alone, never `manage:sites`, so this gate matches it. `userStore.permissions` is loaded by the time
+  this mounts, so there is nothing to await.
 */
 watch(
   () => route.path,
@@ -589,17 +529,11 @@ watch(
   { immediate: true }
 )
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.storage.title')
 }))
-
-// DATA
 
 const state = reactive({
   loading: 0,
@@ -610,8 +544,6 @@ const state = reactive({
   desiredTarget: '',
   target: null,
   targets: [],
-  // -> Per-target, refetched on selection change -- see `loadSyncStatus()`. Null while loading or for
-  //    a target whose module has nothing to schedule (the Synchronization section is hidden then).
   syncStatus: null,
   deliveryNodes: {},
   deliveryEdges: {},
@@ -621,10 +553,8 @@ const state = reactive({
   deliveryPaths: []
 })
 
-// COMPUTED
-
-// -> Same duplication note as `SYNC_SHAPED_ACTIONS` in helpers/storageSync.js: mirrors the three sync
-//    modes `backend/models/storage.ts` knows about, with no shared source to import them from.
+// -> Mirrors the sync modes `backend/models/storage.ts` knows about; there is no shared source to
+//    import them from.
 const SYNC_MODE_LABEL_KEYS = {
   sync: 'admin.storage.syncDirBi',
   push: 'admin.storage.syncDirPush',
@@ -636,7 +566,6 @@ const SYNC_MODE_HINT_KEYS = {
   pull: 'admin.storage.syncDirPullHint'
 }
 
-/** Toggle options restricted to what this target's module actually supports. */
 const syncModeOptions = computed(() =>
   (state.target?.sync?.supportedModes ?? []).map((mode) => ({
     label: t(SYNC_MODE_LABEL_KEYS[mode] ?? mode),
@@ -644,16 +573,12 @@ const syncModeOptions = computed(() =>
   }))
 )
 
-/** What the currently selected mode does, shown as the picker's caption. */
 const syncModeHint = computed(() => {
   const mode = state.target?.sync?.mode
   return SYNC_MODE_HINT_KEYS[mode] ? t(SYNC_MODE_HINT_KEYS[mode]) : ''
 })
 
-/** 'error' | 'never' | 'outOfDate' | 'synced' -- see `syncStatusKind` for the priority order. */
 const syncStatus = computed(() => syncStatusKind(state.syncStatus))
-
-// WATCHERS
 
 watch(
   () => adminStore.currentSiteId,
@@ -712,8 +637,6 @@ watch(
   }
 )
 
-// METHODS
-
 async function load() {
   state.loading++
   loading.show()
@@ -736,9 +659,9 @@ async function load() {
 }
 
 /**
- * Sync status for the currently selected target -- skipped for a module with nothing to schedule
- * (`sync.schedule === false`), since the Synchronization section that would show it is hidden then.
- * Non-fatal on failure: the status card just stays empty rather than blocking the rest of the page.
+ * Skipped for a module with nothing to schedule (`sync.schedule === false`): the Synchronization
+ * section that would show it is hidden then. A failure leaves the status card empty rather than
+ * blocking the rest of the page.
  */
 async function loadSyncStatus() {
   state.syncStatus = null
@@ -755,10 +678,8 @@ async function loadSyncStatus() {
 }
 
 /**
- * A target as the API expects it. Read-only props are left out: the server keeps whatever is stored
- * for them, so sending them back would be pretending they can be set. The `config` reduction itself
- * is the shared `buildConfigPayload()` (`@/helpers/moduleConfig.js`) -- everything around it here is
- * target-only, which is why the shared helper stops at the plain config object.
+ * Read-only props are deliberately left out: the server keeps whatever is stored for them, so
+ * sending them back would pretend they can be set.
  */
 function payloadFor(tgt) {
   const sync = syncPayloadFor(tgt)
@@ -782,11 +703,8 @@ function payloadFor(tgt) {
 }
 
 /**
- * Save every target at once, the way the API takes them — a target is only meaningful next to the
- * others, e.g. which of them holds a given content type.
- *
- * @param silent Skip the loading overlay and the success notification, for a save made on the way to
- *   something else, such as the GitHub setup flow.
+ * Every target is sent at once, the way the API takes them: which of them holds a given content type
+ * is only meaningful across the whole set.
  */
 async function save({ silent = false } = {}) {
   let saveSuccess = false
@@ -854,12 +772,9 @@ async function executeAction(act) {
       const res = await API_CLIENT.post(
         `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/actions/${act.handler}`
       ).json()
-      // -> A sync-shaped action (sync / syncUntracked / importAll) is queued on the scheduler by
-      //    `api/storage.ts` rather than run inline -- this response confirms it was queued, not that
-      //    it finished, so the notification says so rather than claiming completion.
-      // -> A synchronous action's `message` now reports what it actually did (e.g. `purge`'s
-      //    "purged: 3, skipped: 1" -- OpenProject #3375) instead of always the same fixed string, so
-      //    it is worth showing as the toast's caption rather than discarding the response body.
+      // -> A sync-shaped action is queued on the scheduler rather than run inline, so this response
+      //    confirms only that it was queued, never that it finished. A synchronous one's `message`
+      //    reports what it did, which is why it becomes the caption.
       notify({
         type: 'positive',
         message: isQueuedAction(act.handler)
@@ -893,11 +808,6 @@ async function executeAction(act) {
   }
 }
 
-/**
- * Rebuild the Delivery Paths diagram from the current targets. The graph itself is built by
- * `helpers/storageDeliveryGraph.js`, which is a pure function of them; this only hands the result to
- * the four props `StorageDeliveryGraph.vue` reads.
- */
 function generateGraph() {
   const graph = buildDeliveryGraph(state.targets, t)
   state.deliveryNodes = graph.nodes
@@ -905,8 +815,6 @@ function generateGraph() {
   state.deliveryLayouts.nodes = graph.layouts.nodes
   state.deliveryPaths = graph.paths
 }
-
-// MOUNTED
 
 onMounted(() => {
   if (!state.selectedTarget && route.params.id) {

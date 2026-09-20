@@ -2,15 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { mountGraph } from './graphFixtures.js'
 
-/*
- * The hover tooltip's noun (OpenProject #2293): it must name what the CURRENT sizing mode actually
- * counts -- contributors, edits, unique visitors or visits -- not one hardcoded word.
- */
 describe('Graph.vue hover tooltip', () => {
-  // -> OpenProject #2293: the tooltip noun must follow `sizeCountMode` as well as `sizeBy` --
-  //    'total' reads raw, non-distinct row counts (an edit/visit tally) while 'unique' reads
-  //    distinct-identity counts (a contributor/visitor tally), so two of the four combinations
-  //    need a noun that differs from the other two sharing the same `sizeBy`.
+  // -> The noun follows `sizeCountMode` as well as `sizeBy`: 'total' counts raw, non-distinct rows
+  //    (edits, visits) while 'unique' counts distinct identities (contributors, visitors).
   describe('hover tooltip noun (OpenProject #2293)', () => {
     it('names edits + unique sizing "contributor(s)"', async () => {
       const wrapper = await mountGraph()
@@ -74,9 +68,8 @@ describe('Graph.vue hover tooltip', () => {
     })
   })
 
-  // -> OpenProject #2888: mousing over a node should show `cursor: pointer`, not the default
-  //    arrow -- the canvas draws no native hoverable elements of its own, so the cursor has to be
-  //    driven off the same `hoveredNode` ref the tooltip already reacts to.
+  // -> A canvas has no native hoverable elements, so the pointer cursor has to be driven off the
+  //    same `hoveredNode` ref the tooltip already reacts to.
   describe('hover cursor (OpenProject #2888)', () => {
     it('has no hover class when no node is hovered', async () => {
       const wrapper = await mountGraph()

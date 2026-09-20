@@ -3,15 +3,10 @@ import { flushPromises } from '@vue/test-utils'
 import { FIXTURE_GRAPH, mountGraph } from './graphFixtures.js'
 
 /**
- * OpenProject #2508: a real end-to-end regression test for the keyword-search chain, exercising the
- * actual bound `<input>` element (OpenProject #2478) all the way through to the rendered highlight
- * (OpenProject #2480) -- not `wrapper.vm.<ref> = ...` on any intermediate ref. This is deliberately
- * NOT a copy of `Graph.keywordSearch.test.js` (which drives `keywordQuery` directly) or
- * `Graph.highlight.test.js` (which drives `keywordMatches` directly): each of those, on its own,
- * would have stayed green throughout the whole time this feature was broken -- #2478/#2479/#2480
- * each shipped with fully passing isolated tests, and the three pieces were still never spliced
- * together. Only a test that drives the real input and asserts on the real render output can catch
- * that class of gap, which is exactly what this suite is for.
+ * Drives the real `<input>` through to the rendered highlight, never an intermediate
+ * `wrapper.vm.<ref>`. `Graph.keywordSearch.test.js` (driving `keywordQuery`) and
+ * `Graph.highlight.test.js` (driving `keywordMatches`) both stay green when the input, the fetch
+ * and the render pass are each correct but never spliced together; only this suite catches that.
  */
 describe('Graph.vue keyword search integration (OpenProject #2508)', () => {
   beforeEach(() => {
@@ -82,15 +77,9 @@ describe('Graph.vue keyword search integration (OpenProject #2508)', () => {
   })
 
   /**
-   * OpenProject #2533's own regression case, in the same spirit as #2508 above: the client-side
-   * title-contains pass is synchronous and reacts to `keywordQuery`/`allNodes` directly, entirely
-   * independent of the backend `keywordMatches` fetch -- so the debounced backend request is
-   * deliberately left UNRESOLVED for the whole test (never mocked, never advanced past the debounce),
-   * proving `highlightedNodeIds` picks up the title match with no backend response at all. That alone
-   * would already have passed even if the repaint watcher were still wired to `keywordMatches` only
-   * (the bug this test exists to catch), since the real canvas draw calls (`wrapper.vm.ctx.arc`, the
-   * same exposed stub `Graph.sizing.test.js`/`Graph.layout.test.js` assert against) are the thing
-   * actually asserted on here, not just the computed value.
+   * The debounced backend request is deliberately left unresolved, proving the synchronous
+   * title-contains pass needs none. Asserting on the real canvas draw calls rather than only the
+   * computed set is what catches a repaint watcher wired to `keywordMatches` alone.
    */
   it('a client-side title-only match repaints the real canvas, with no backend response at all (OpenProject #2533)', async () => {
     const wrapper = await mountGraph()
@@ -99,8 +88,8 @@ describe('Graph.vue keyword search integration (OpenProject #2508)', () => {
     wrapper.vm.ctx.arc.mockClear()
     const input = wrapper.find('.graph-view-filters input')
     await input.setValue(matchedNode.title.toLowerCase())
-    // -> Deliberately NOT advancing timers past the 300ms debounce -- the backend search never
-    //    fires, so `API_CLIENT.get` is never called beyond mountGraph()'s own two setup calls.
+    // -> Timers deliberately not advanced past the debounce: the two calls asserted below are
+    //    mountGraph()'s own setup fetches.
     await flushPromises()
 
     expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
