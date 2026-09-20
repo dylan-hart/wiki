@@ -556,6 +556,7 @@ async function routes(app: FastifyInstance) {
       if (await CARDINAL.models.groups.hasUnknownGroupIds(req.body.groups ?? [])) {
         return reply.badRequest('ERR_UNKNOWN_GROUPS')
       }
+      await CARDINAL.models.groups.assertMembershipChangeAllowed(req, [], req.body.groups ?? [])
 
       try {
         const id = await CARDINAL.models.users.createUser({
@@ -790,18 +791,11 @@ async function routes(app: FastifyInstance) {
           checked: a user already in such a group is protected by `systemUserGuard` above, which has
           refused this request before it gets here.
         */
-        if (!CARDINAL.models.groups.holdsSystemPermission(req)) {
-          const current = await CARDINAL.models.users.getUserGroupIds(req.params.userId)
-          const systemGroupIds = await CARDINAL.models.groups.systemGroupIds()
-          const added = req.body.groups.filter((id) => !current.includes(id))
-          if (added.some((id) => systemGroupIds.includes(id))) {
-            throw new CustomError(
-              'groupMembershipSystemProtected',
-              'Only a user who holds the manage:system permission can add a user to a group that has it.',
-              403
-            )
-          }
-        }
+        await CARDINAL.models.groups.assertMembershipChangeAllowed(
+          req,
+          await CARDINAL.models.users.getUserGroupIds(req.params.userId),
+          req.body.groups
+        )
 
         const rootAdminGroupId = CARDINAL.config.auth.rootAdminGroupId
         const wasRootAdmin = await CARDINAL.models.groups.isUserInGroup(

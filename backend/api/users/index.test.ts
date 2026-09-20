@@ -75,6 +75,7 @@ before(async () => {
         hasUnknownGroupIds: async (ids: string[]) =>
           ids.some((id) => !knownGroupsFixture.some((g) => g.id === id)),
         holdsSystemPermission: () => true,
+        assertMembershipChangeAllowed: async () => {},
         userHoldsSystemPermission: async () => false,
         systemGroupIds: async () => [],
         isUserInGroup: async () => false,

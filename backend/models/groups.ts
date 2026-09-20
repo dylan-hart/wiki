@@ -15,6 +15,8 @@ import type { FastifyRequest } from 'fastify'
 /** Bypasses every permission check. */
 export const SYSTEM_PERMISSION = 'manage:system'
 
+export const ELEVATED_PERMISSIONS = ['manage:users', 'manage:groups', SYSTEM_PERMISSION] as const
+
 /**
  * How a rule's `path` is compared against the page path. `CLASSIFICATION` does not read `path` at
  * all: it matches page metadata (`classifications` on `GroupRule`), which survives a move/rename.
@@ -764,6 +766,64 @@ class Groups extends ClusterReloaded {
       ids.add(rootAdminGroupId)
     }
     return [...ids]
+  }
+
+  async elevatedGroupIds(): Promise<string[]> {
+    const rows = await CARDINAL.db
+      .select({ id: groupsTable.id, permissions: groupsTable.permissions })
+      .from(groupsTable)
+    const ids = new Set(
+      rows
+        .filter((row) =>
+          ELEVATED_PERMISSIONS.some((permission) =>
+            ((row.permissions ?? []) as string[]).includes(permission)
+          )
+        )
+        .map((row) => row.id)
+    )
+    const rootAdminGroupId = CARDINAL.config?.auth?.rootAdminGroupId
+    if (rootAdminGroupId) {
+      ids.add(rootAdminGroupId)
+    }
+    return [...ids]
+  }
+
+  async assertMembershipChangeAllowed(
+    req: FastifyRequest,
+    before: readonly string[],
+    after: readonly string[]
+  ): Promise<void> {
+    const permissions = this.actorForRequest(req).permissions
+    const holdsSystem = permissions.includes(SYSTEM_PERMISSION)
+    if (holdsSystem) {
+      return
+    }
+    const added = after.filter((id) => !before.includes(id))
+    const removed = before.filter((id) => !after.includes(id))
+    if (added.length === 0 && removed.length === 0) {
+      return
+    }
+
+    const systemGroupIds = await this.systemGroupIds()
+    if (added.some((id) => systemGroupIds.includes(id))) {
+      throw new CustomError(
+        'groupMembershipSystemProtected',
+        'Only a user who holds the manage:system permission can add a user to a group that has it.',
+        403
+      )
+    }
+
+    if (permissions.includes('manage:groups')) {
+      return
+    }
+    const elevatedGroupIds = await this.elevatedGroupIds()
+    if ([...added, ...removed].some((id) => elevatedGroupIds.includes(id))) {
+      throw new CustomError(
+        'groupMembershipElevatedProtected',
+        'Only a user who holds the manage:groups or manage:system permission can change membership of a group that carries manage:users, manage:groups or manage:system.',
+        403
+      )
+    }
   }
 
   /**
