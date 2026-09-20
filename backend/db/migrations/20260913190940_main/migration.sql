@@ -444,6 +444,7 @@ CREATE TABLE "pages" (
 	"contentType" varchar(255) NOT NULL,
 	"isBrowsable" boolean DEFAULT true NOT NULL,
 	"isSearchable" boolean DEFAULT true NOT NULL,
+	"autoTagPending" boolean DEFAULT false NOT NULL,
 	"password" varchar(255),
 	"historyData" jsonb DEFAULT '{}' NOT NULL,
 	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,

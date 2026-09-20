@@ -650,6 +650,7 @@ export const pages = pgTable(
     contentType: varchar({ length: 255 }).notNull(),
     isBrowsable: boolean().notNull().default(true),
     isSearchable: boolean().notNull().default(true),
+    autoTagPending: boolean().notNull().default(false),
     // -> A `bcrypt` verifier, never the cleartext, and never handed back to a caller
     password: varchar({ length: 255 }),
     // -> `{ jsLoad, jsUnload, css }`, flattened to/from `scriptJsLoad`/`scriptJsUnload`/`scriptCss` in
