@@ -4,6 +4,7 @@ import {
   StorageSharedKeyCredential,
   type ContainerClient
 } from '@azure/storage-blob'
+import type { Readable } from 'node:stream'
 import { blobStorageModule } from '../blobBase.ts'
 
 /**
@@ -20,6 +21,13 @@ export function buildServiceClient(config: Record<string, any>): BlobServiceClie
 
 export function isContainerAlreadyExists(err: any): boolean {
   return err?.statusCode === 409
+}
+
+export function isBlobNotFound(err: any): boolean {
+  if (err?.code === 'ContainerNotFound' || err?.details?.errorCode === 'ContainerNotFound') {
+    return false
+  }
+  return err?.statusCode === 404
 }
 
 /**
@@ -78,6 +86,34 @@ const azureStorage = blobStorageModule<ContainerClient>({
       permissions: BlobSASPermissions.parse('r'),
       expiresOn: new Date(Date.now() + ttlSeconds * 1000)
     })
+  },
+  async get(container, key) {
+    try {
+      const res = await container.getBlockBlobClient(key).download()
+      if (!res.readableStreamBody) {
+        throw new Error('the response carried no body')
+      }
+      return {
+        body: res.readableStreamBody as Readable,
+        size: res.contentLength ?? 0
+      }
+    } catch (err: any) {
+      if (isBlobNotFound(err)) {
+        return null
+      }
+      throw err
+    }
+  },
+  async head(container, key) {
+    try {
+      const res = await container.getBlockBlobClient(key).getProperties()
+      return { size: res.contentLength ?? 0 }
+    } catch (err: any) {
+      if (isBlobNotFound(err)) {
+        return null
+      }
+      throw err
+    }
   }
 })
 

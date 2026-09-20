@@ -1,5 +1,6 @@
 import { describe, test, beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import { Readable } from 'node:stream'
 import { BlockBlobClient, ContainerClient } from '@azure/storage-blob'
 import { installTestWiki } from '../../../test/mocks.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
@@ -7,6 +8,7 @@ import { runStorageModuleContract } from '../../../test/storageModuleContract.ts
 import storageModule, {
   buildServiceClient,
   ensureContainer,
+  isBlobNotFound,
   isContainerAlreadyExists
 } from './storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
@@ -31,12 +33,25 @@ let createMock: ReturnType<typeof mock.method>
 let uploadMock: ReturnType<typeof mock.method>
 let deleteMock: ReturnType<typeof mock.method>
 let syncCopyMock: ReturnType<typeof mock.method>
+let downloadMock: ReturnType<typeof mock.method>
+let getPropertiesMock: ReturnType<typeof mock.method>
 
 beforeEach(() => {
   createMock = mock.method(ContainerClient.prototype, 'create', async () => ({}) as any)
   uploadMock = mock.method(BlockBlobClient.prototype, 'upload', async () => ({}) as any)
   deleteMock = mock.method(BlockBlobClient.prototype, 'delete', async () => ({}) as any)
   syncCopyMock = mock.method(BlockBlobClient.prototype, 'syncCopyFromURL', async () => ({}) as any)
+  downloadMock = mock.method(
+    BlockBlobClient.prototype,
+    'download',
+    async () =>
+      ({ readableStreamBody: Readable.from([Buffer.from('hello')]), contentLength: 5 }) as any
+  )
+  getPropertiesMock = mock.method(
+    BlockBlobClient.prototype,
+    'getProperties',
+    async () => ({ contentLength: 42 }) as any
+  )
   ;(CARDINAL.models.assets.getContent as any).mock.resetCalls()
 })
 
@@ -76,6 +91,26 @@ describe('azure storage / isContainerAlreadyExists', () => {
   test('rejects anything else', () => {
     assert.equal(isContainerAlreadyExists({ statusCode: 403 }), false)
     assert.equal(isContainerAlreadyExists({}), false)
+  })
+})
+
+describe('azure storage / isBlobNotFound', () => {
+  test('recognizes a 404', () => {
+    assert.equal(isBlobNotFound({ statusCode: 404 }), true)
+  })
+
+  test('a missing container is a failure, not a missing blob', () => {
+    assert.equal(isBlobNotFound({ statusCode: 404, code: 'ContainerNotFound' }), false)
+    assert.equal(
+      isBlobNotFound({ statusCode: 404, details: { errorCode: 'ContainerNotFound' } }),
+      false
+    )
+  })
+
+  test('rejects anything else', () => {
+    assert.equal(isBlobNotFound({ statusCode: 403 }), false)
+    assert.equal(isBlobNotFound({}), false)
+    assert.equal(isBlobNotFound(undefined), false)
   })
 })
 
@@ -196,6 +231,94 @@ describe('azure storage / getDirectUrl', () => {
     )
 
     assert.equal(new URL(url!).searchParams.get('sp'), 'r')
+  })
+})
+
+describe('azure storage / readAsset and headAsset', () => {
+  const asset = { folderPath: 'images', fileName: 'pic.png' }
+
+  test('readAsset streams the blob body with its length, keyed under the site', async () => {
+    const target = makeTarget()
+
+    const result = await storageModule.readAsset!(asset, target)
+
+    assert.equal(result!.size, 5)
+    const chunks: Buffer[] = []
+    for await (const chunk of result!.body) {
+      chunks.push(chunk)
+    }
+    assert.equal(Buffer.concat(chunks).toString(), 'hello')
+    assert.equal(
+      (downloadMock.mock.calls[0]!.this as BlockBlobClient).name,
+      `${target.siteId}/images/pic.png`
+    )
+  })
+
+  test('readAsset maps a missing blob to null', async () => {
+    downloadMock.mock.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('The specified blob does not exist.'), { statusCode: 404 })
+    })
+
+    assert.equal(await storageModule.readAsset!(asset, makeTarget()), null)
+  })
+
+  test('readAsset wraps any other failure', async () => {
+    downloadMock.mock.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Server failed to authenticate the request.'), {
+        statusCode: 403
+      })
+    })
+
+    await assert.rejects(
+      () => storageModule.readAsset!(asset, makeTarget()),
+      /^Error: Failed to read ".*": Server failed to authenticate the request\.$/
+    )
+  })
+
+  test('readAsset treats a missing container as a failure, not a not-found', async () => {
+    downloadMock.mock.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('no container'), {
+        statusCode: 404,
+        code: 'ContainerNotFound'
+      })
+    })
+
+    await assert.rejects(() => storageModule.readAsset!(asset, makeTarget()), /no container/)
+  })
+
+  test('readAsset fails when the response carries no body', async () => {
+    downloadMock.mock.mockImplementationOnce(async () => ({ contentLength: 5 }) as any)
+
+    await assert.rejects(() => storageModule.readAsset!(asset, makeTarget()), /no body/)
+  })
+
+  test('headAsset returns the content length', async () => {
+    const target = makeTarget()
+
+    assert.deepEqual(await storageModule.headAsset!(asset, target), { size: 42 })
+    assert.equal(
+      (getPropertiesMock.mock.calls[0]!.this as BlockBlobClient).name,
+      `${target.siteId}/images/pic.png`
+    )
+  })
+
+  test('headAsset maps a missing blob to null', async () => {
+    getPropertiesMock.mock.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Not Found'), { statusCode: 404 })
+    })
+
+    assert.equal(await storageModule.headAsset!(asset, makeTarget()), null)
+  })
+
+  test('headAsset wraps any other failure', async () => {
+    getPropertiesMock.mock.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+    })
+
+    await assert.rejects(
+      () => storageModule.headAsset!(asset, makeTarget()),
+      /^Error: Failed to inspect ".*": Forbidden$/
+    )
   })
 })
 
