@@ -52,6 +52,10 @@ const i18n = createTestI18n({
     moveItem: 'Move...',
     moveAssetSuccess: 'Asset moved successfully.',
     moveAssetFailed: 'Failed to move asset.',
+    duplicateFolderTitle: 'Duplicate to…',
+    duplicateFolderConfirm: 'Duplicate',
+    duplicateFolderSuccess: 'Folder duplicated successfully.',
+    duplicateFolderFailed: 'Failed to duplicate folder.',
     renameMovePage: 'Rename / Move Page...',
     pngFileType: 'PNG Image',
     markdownPageType: 'Markdown Page',
@@ -460,9 +464,8 @@ describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', 
     wrapper.unmount()
   })
 
-  it('does not render "Duplicate..." for a folder or an asset, only for a page', async () => {
+  it('does not render "Duplicate..." for an asset, only for a page or a folder', async () => {
     const { wrapper } = await mountFileManagerWithItems([
-      { id: 'f1', type: 'folder', title: 'My Folder', fileName: 'my-folder', children: 0 },
       {
         id: 'a1',
         type: 'asset',
@@ -1418,6 +1421,141 @@ describe('FileManager asset Move action (OpenProject #3664)', () => {
       caption: 'You are not allowed to move this file.'
     })
 
+    wrapper.unmount()
+  })
+})
+
+describe('FileManager folder Duplicate action (OpenProject #3669)', () => {
+  const folder = {
+    id: 'f1',
+    type: 'folder',
+    title: 'Guides',
+    fileName: 'guides',
+    folderPath: 'docs'
+  }
+  const page = {
+    id: 'p1',
+    type: 'page',
+    title: 'Page',
+    fileName: 'page',
+    pageType: 'markdown',
+    folderPath: ''
+  }
+
+  async function mountWithItems(fileList) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, buildTestRouter([])],
+        stubs: {
+          Tree: true,
+          NewMenu: true,
+          LocaleSelectorMenu: true,
+          WMenu: { template: '<div><slot /></div>' }
+        }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+    wrapper.vm.state.fileList = fileList
+    await flushPromises()
+    return { wrapper, siteStore }
+  }
+
+  function httpError(status, message) {
+    return Object.assign(new Error(`Request failed with status code ${status}`), {
+      data: { message }
+    })
+  }
+
+  beforeEach(() => {
+    notifyQueue.length = 0
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('renders "Duplicate..." on a folder row', async () => {
+    const { wrapper } = await mountWithItems([folder])
+    expect(wrapper.text()).toContain('Duplicate...')
+    wrapper.unmount()
+  })
+
+  it('still renders "Duplicate..." on a page row', async () => {
+    const { wrapper } = await mountWithItems([page])
+    expect(wrapper.text()).toContain('Duplicate...')
+    wrapper.unmount()
+  })
+
+  it("opens the destination-only picker on the folder's parent with its own title and label", async () => {
+    const { wrapper } = await mountWithItems([folder])
+
+    wrapper.vm.duplicateItem(folder)
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({
+      mode: 'moveItem',
+      folderPath: 'docs',
+      title: 'Duplicate to…',
+      confirmLabel: 'Duplicate'
+    })
+    wrapper.unmount()
+  })
+
+  it('POSTs the picked destination to the duplicate route, then notifies', async () => {
+    const { wrapper, siteStore } = await mountWithItems([folder])
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    wrapper.vm.duplicateItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'other' })
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith(
+      `sites/${siteStore.id}/tree/folders/f1/duplicate`,
+      { json: { folderId: 'f2', parentPath: 'other' } }
+    )
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Folder duplicated successfully.'
+    })
+    wrapper.unmount()
+  })
+
+  it.each([
+    [403, 'You are not allowed to duplicate this folder.'],
+    [409, 'A folder with that name already exists there.'],
+    [400, 'A folder cannot be duplicated into itself or a folder inside it.']
+  ])('surfaces the %i message and does not report success', async (status, message) => {
+    const { wrapper } = await mountWithItems([folder])
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.reject(httpError(status, message)) })
+
+    wrapper.vm.duplicateItem(folder)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'other' })
+    await flushPromises()
+
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to duplicate folder.',
+      caption: message
+    })
+    wrapper.unmount()
+  })
+
+  it('leaves page duplication on the page picker', async () => {
+    const { wrapper } = await mountWithItems([page])
+
+    wrapper.vm.duplicateItem(page)
+    await flushPromises()
+
+    expect(openDialogs[0].props).toMatchObject({ mode: 'duplicatePage', itemId: 'p1' })
     wrapper.unmount()
   })
 })

@@ -142,6 +142,37 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     })
   }
 
+  function duplicateFolder(item) {
+    dialog({
+      component: defineAsyncComponent(() => import('@/components/TreeBrowserDialog.vue')),
+      componentProps: {
+        mode: 'moveItem',
+        folderPath: item.folderPath,
+        title: t('fileman.duplicateFolderTitle'),
+        confirmLabel: t('fileman.duplicateFolderConfirm'),
+        locale: state.locale
+      }
+    }).onOk(async (destination) => {
+      try {
+        await API_CLIENT.post(`sites/${siteStore.id}/tree/folders/${item.id}/duplicate`, {
+          json: { folderId: destination.folderId, parentPath: destination.parentPath }
+        }).json()
+        notify({
+          type: 'positive',
+          message: t('fileman.duplicateFolderSuccess')
+        })
+      } catch (err) {
+        notify({
+          type: 'negative',
+          message: t('fileman.duplicateFolderFailed'),
+          caption: apiErrorMessage(err, t('common.error.unexpected'))
+        })
+        return
+      }
+      await loadTree({ parentId: state.currentFolderId })
+    })
+  }
+
   /**
    * Rename and move are one action: the dialog hands back a title and a full path, and only the
    * path decides which of the two endpoints is called.
@@ -317,6 +348,7 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     reloadFolder,
     rerenderPage,
     duplicatePage,
+    duplicateFolder,
     renameMovePage,
     delPage,
     renameAsset,
