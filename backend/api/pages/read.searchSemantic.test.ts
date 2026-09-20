@@ -9,6 +9,18 @@ import { ensureTemporal } from '../../test/temporal.ts'
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const UNKNOWN_SITE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
+const NO_FILTERS = {
+  path: [],
+  excludePath: [],
+  excludeLocales: [],
+  tags: [],
+  excludeTags: [],
+  editor: [],
+  excludeEditor: [],
+  publishState: [],
+  excludePublishState: []
+}
+
 let searchCalls: Array<{
   query: string
   actor: { id: string } | undefined
@@ -17,10 +29,15 @@ let searchCalls: Array<{
   options: {
     limit: number
     offset: number
-    path?: string
+    path?: string[]
+    excludePath?: string[]
     tags?: string[]
-    editor?: string
-    publishState?: string
+    excludeTags?: string[]
+    excludeLocales?: string[]
+    editor?: string[]
+    excludeEditor?: string[]
+    publishState?: string[]
+    excludePublishState?: string[]
   }
 }>
 let allPages: Array<{ id: string; path: string; visibleTo: string | null }>
@@ -37,10 +54,15 @@ async function search(
   options: {
     limit: number
     offset: number
-    path?: string
+    path?: string[]
+    excludePath?: string[]
     tags?: string[]
-    editor?: string
-    publishState?: string
+    excludeTags?: string[]
+    excludeLocales?: string[]
+    editor?: string[]
+    excludeEditor?: string[]
+    publishState?: string[]
+    excludePublishState?: string[]
   }
 ) {
   searchCalls.push({ query, actor, siteId, locales, options })
@@ -169,12 +191,9 @@ test('calls the model with query/locales/limit/offset and returns its results wh
   assert.equal(call.siteId, SITE_ID)
   assert.deepEqual(call.locales, ['fr'])
   assert.deepEqual(call.options, {
+    ...NO_FILTERS,
     limit: 10,
-    offset: 5,
-    path: undefined,
-    tags: [],
-    editor: undefined,
-    publishState: undefined
+    offset: 5
   })
 
   const body = res.json()
@@ -208,12 +227,9 @@ test('defaults locales, limit and offset when omitted', async () => {
   const call = searchCalls[0]!
   assert.deepEqual(call.locales, ['en'])
   assert.deepEqual(call.options, {
+    ...NO_FILTERS,
     limit: 25,
-    offset: 0,
-    path: undefined,
-    tags: [],
-    editor: undefined,
-    publishState: undefined
+    offset: 0
   })
 })
 
@@ -228,13 +244,52 @@ test('forwards path/tags/editor/publishState to the model (OpenProject #3328)', 
   assert.equal(searchCalls.length, 1)
   const call = searchCalls[0]!
   assert.deepEqual(call.options, {
+    ...NO_FILTERS,
     limit: 25,
     offset: 0,
-    path: 'docs/guides',
+    path: ['docs/guides'],
     tags: ['foo', 'bar'],
-    editor: 'markdown',
-    publishState: 'published'
+    editor: ['markdown'],
+    publishState: ['published']
   })
+})
+
+test('forwards repeated include and every exclude list to the model', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url:
+      `/sites/${SITE_ID}/pages/search/semantic?query=hello` +
+      '&path=docs&path=guides&excludePath=docs%2Fprivate&excludeLocales=fr,de' +
+      '&excludeTags=old&excludeEditor=code&editor=markdown&editor=wysiwyg' +
+      '&excludePublishState=draft&excludePublishState=scheduled'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(searchCalls[0]!.options, {
+    limit: 25,
+    offset: 0,
+    path: ['docs', 'guides'],
+    excludePath: ['docs/private'],
+    excludeLocales: ['fr', 'de'],
+    tags: [],
+    excludeTags: ['old'],
+    editor: ['markdown', 'wysiwyg'],
+    excludeEditor: ['code'],
+    publishState: [],
+    excludePublishState: ['draft', 'scheduled']
+  })
+})
+
+test('rejects a publishState outside the known states in either list', async () => {
+  const include = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&publishState=bogus`
+  })
+  assert.equal(include.statusCode, 400)
+  const exclude = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&excludePublishState=bogus`
+  })
+  assert.equal(exclude.statusCode, 400)
 })
 
 test('accepts several comma-separated locales', async () => {

@@ -1,9 +1,15 @@
-import { and, asc, eq, gt } from 'drizzle-orm'
+import { and, asc, eq, gt, sql } from 'drizzle-orm'
 import { pages as pagesTable } from '../../db/schema.ts'
+import { escapeLikePattern } from '../../helpers/common.ts'
 import { search } from '../../models/search.ts'
 import type { SQL } from 'drizzle-orm'
 import type { AccessActor } from '../../models/groups.ts'
-import type { SearchIndexablePage, SearchPagesResult, SearchResult } from '../../models/search.ts'
+import type {
+  SearchFilters,
+  SearchIndexablePage,
+  SearchPagesResult,
+  SearchResult
+} from '../../models/search.ts'
 
 /**
  * Helpers every `modules/search/*` engine shares.
@@ -390,4 +396,55 @@ export function fillEmptyStringDefaults(
     }
   }
   return filled
+}
+
+function nonEmpty(values?: string[]): values is string[] {
+  return Array.isArray(values) && values.length > 0
+}
+
+/** Conditions over the aliased `pages p` table, shared by the `db` engine and semantic search. */
+export function buildSqlFilterConditions(filters: SearchFilters): SQL[] {
+  const conditions: SQL[] = []
+  const { path, excludePath, locales, excludeLocales, tags, excludeTags } = filters
+  const { editor, excludeEditor, publishState, excludePublishState } = filters
+  const prefix = (value: string) => `${escapeLikePattern(value)}%`
+
+  if (nonEmpty(path)) {
+    conditions.push(
+      sql`(${sql.join(
+        path.map((v) => sql`p.path LIKE ${prefix(v)}`),
+        sql` OR `
+      )})`
+    )
+  }
+  if (nonEmpty(excludePath)) {
+    for (const value of excludePath) {
+      conditions.push(sql`p.path NOT LIKE ${prefix(value)}`)
+    }
+  }
+  if (nonEmpty(locales)) {
+    conditions.push(sql`p.locale = ANY(${sql.param(locales)}::text[])`)
+  }
+  if (nonEmpty(excludeLocales)) {
+    conditions.push(sql`p.locale <> ALL(${sql.param(excludeLocales)}::text[])`)
+  }
+  if (nonEmpty(tags)) {
+    conditions.push(sql`p.tags @> ${sql.param(tags)}::text[]`)
+  }
+  if (nonEmpty(excludeTags)) {
+    conditions.push(sql`NOT (p.tags && ${sql.param(excludeTags)}::text[])`)
+  }
+  if (nonEmpty(editor)) {
+    conditions.push(sql`p.editor = ANY(${sql.param(editor)}::text[])`)
+  }
+  if (nonEmpty(excludeEditor)) {
+    conditions.push(sql`p.editor <> ALL(${sql.param(excludeEditor)}::text[])`)
+  }
+  if (nonEmpty(publishState)) {
+    conditions.push(sql`p."publishState"::text = ANY(${sql.param(publishState)}::text[])`)
+  }
+  if (nonEmpty(excludePublishState)) {
+    conditions.push(sql`p."publishState"::text <> ALL(${sql.param(excludePublishState)}::text[])`)
+  }
+  return conditions
 }
