@@ -5,10 +5,12 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
   type StorageClass
 } from '@aws-sdk/client-s3'
+import { Readable } from 'node:stream'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { blobStorageModule } from '../blobBase.ts'
 
@@ -77,6 +79,15 @@ export function isBucketNotFound(err: any): boolean {
     err?.$metadata?.httpStatusCode === 404 ||
     err?.name === 'NotFound' ||
     err?.name === 'NoSuchBucket'
+  )
+}
+
+export function isObjectNotFound(err: any): boolean {
+  if (err?.name === 'NoSuchBucket') {
+    return false
+  }
+  return (
+    err?.name === 'NoSuchKey' || err?.name === 'NotFound' || err?.$metadata?.httpStatusCode === 404
   )
 }
 
@@ -184,6 +195,34 @@ const s3Storage = blobStorageModule<S3Target>({
     return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
       expiresIn: ttlSeconds
     })
+  },
+  async get({ client, bucket }, key) {
+    try {
+      const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+      if (!res.Body) {
+        throw new Error('the response carried no body')
+      }
+      return {
+        body: res.Body instanceof Readable ? res.Body : Readable.fromWeb(res.Body as any),
+        size: res.ContentLength ?? 0
+      }
+    } catch (err: any) {
+      if (isObjectNotFound(err)) {
+        return null
+      }
+      throw err
+    }
+  },
+  async head({ client, bucket }, key) {
+    try {
+      const res = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }))
+      return { size: res.ContentLength ?? 0 }
+    } catch (err: any) {
+      if (isObjectNotFound(err)) {
+        return null
+      }
+      throw err
+    }
   }
 })
 
