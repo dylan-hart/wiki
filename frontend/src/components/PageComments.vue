@@ -48,7 +48,7 @@
               -->
               <div
                 v-if="canModerate"
-                class="page-comments-actions ml-auto flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                class="page-comments-actions ms-auto flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                 <w-btn
                   class="page-comments-edit-toggle"
                   icon="tabler:pencil"
