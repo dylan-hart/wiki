@@ -6,7 +6,7 @@ afterEach(() => {
   try {
     localStorage.clear()
   } catch {
-    // -> Nothing to clean up if storage was never reachable in the first place.
+    // -> Nothing to clean up if storage was never reachable.
   }
 })
 

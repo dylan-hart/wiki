@@ -2,9 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 
 /*
-  Monaco itself is a real editor needing a layout engine happy-dom does not have. Everything asserted
-  here is what the composable HANDS Monaco -- the theme's colour map and the editor options -- so a
-  stub that records those calls is the whole surface under test.
+  Monaco needs a layout engine happy-dom does not have, and everything asserted here is what the
+  composable HANDS it -- the theme's colour map and the editor options.
 */
 vi.mock('monaco-editor', () => ({
   editor: {
@@ -30,7 +29,6 @@ import * as monaco from 'monaco-editor'
 
 import { useMonacoDiff } from './monacoDiff.js'
 
-/** Builds the editor by asking for one comparison, then hands back the theme it defined. */
 async function definedTheme() {
   const container = ref(document.createElement('div'))
   const { showDiff } = useMonacoDiff(container, { isInline: () => false })
@@ -38,11 +36,8 @@ async function definedTheme() {
     original: { text: 'a', language: 'markdown' },
     modified: { text: 'b', language: 'markdown' }
   })
-  /*
-    The Ledger half of the pair `helpers/monacoTheme.js` registers (the Cobalt twin is derived from
-    it and is asserted in `EditorMarkdown.theme.test.js`, the one place the derivation is pinned).
-    `[0]`, not `.at(-1)`: the second call is that derivation.
-  */
+  // -> `[0]`, not `.at(-1)`: `helpers/monacoTheme.js` registers a pair, and the second call is the
+  //    Cobalt twin derived from this one
   return monaco.editor.defineTheme.mock.calls[0][1]
 }
 
@@ -53,24 +48,15 @@ beforeEach(() => {
 })
 
 /**
- * OpenProject #2637, notes 3 and 4 of Dylan's 2026-09-05 review: "line number columns should be
- * darker than the markdown content lines, not lighter. there also appears to be a shadow emitting
- * from the B side line number column that should not be there."
- *
- * Both are theme-map facts rather than CSS, so they are asserted against exactly what this composable
- * hands `monaco.editor.defineTheme` -- which is also the only thing standing between the design file
- * and what a reader sees, since nothing else in the app restyles this editor.
+ * These are theme-map facts rather than CSS, so they are asserted against what the composable hands
+ * `monaco.editor.defineTheme` -- nothing else in the app restyles this editor.
  */
 describe('useMonacoDiff: the cardinaljs diff theme (OpenProject #2637)', () => {
   it('paints the line-number gutter BELOW the text ground, not above it', async () => {
     const { colors } = await definedTheme()
 
-    /*
-      The design (`ui-redesign/Cardinal Wiki - History 3x.dc.html`) draws every gutter cell on
-      `#11141b` against a `#14171f` text ground. Asserted as an ordering, not just as a literal: the
-      defect was a gutter one rung LIGHTER than the content, and a future re-tone that keeps the
-      relationship right should not have to come back here.
-    */
+    // -> Asserted as an ordering as well as a literal, so a re-tone that keeps the gutter darker
+    //    than the text ground need not come back here
     expect(colors['editorGutter.background']).toBe('#11141b')
     expect(luminanceOf(colors['editorGutter.background'])).toBeLessThan(
       luminanceOf(colors['editor.background'])
@@ -81,7 +67,6 @@ describe('useMonacoDiff: the cardinaljs diff theme (OpenProject #2637)', () => {
     const { colors } = await definedTheme()
 
     expect(colors['editorLineNumber.activeForeground']).toBe('#8792ab')
-    // -> Still dimmer than the code beside it, which is the whole complaint
     expect(luminanceOf(colors['editorLineNumber.activeForeground'])).toBeLessThan(
       luminanceOf(colors['editor.foreground'])
     )
@@ -90,13 +75,8 @@ describe('useMonacoDiff: the cardinaljs diff theme (OpenProject #2637)', () => {
   it('suppresses the scroll-decoration shadow the B-side gutter was emitting', async () => {
     const { colors } = await definedTheme()
 
-    /*
-      `scrollbar.shadow` is what Monaco substitutes into
-      `.monaco-diff-editor.side-by-side .editor.modified { box-shadow: -6px 0 5px -5px ... }` -- the
-      shadow cast leftwards out of the B pane, across its own line numbers. Fully transparent leaves
-      the `border-left` hairline declared beside it doing the separating, which is how Cardinal draws
-      every edge that used to be an elevation.
-    */
+    // -> `scrollbar.shadow` is what Monaco substitutes into the modified pane's `box-shadow`, cast
+    //    leftwards across its own line numbers; transparent leaves the hairline border separating them
     expect(colors['scrollbar.shadow']).toBe('#00000000')
   })
 
@@ -118,11 +98,6 @@ describe('useMonacoDiff: the cardinaljs diff theme (OpenProject #2637)', () => {
   })
 })
 
-/**
- * OpenProject #2930: the draft-restore dialog wants the diff opened already scrolled to the first
- * change, which `PageHistoryOverlay.vue` (the only other consumer) does not -- so this is an opt-in
- * `scrollToFirstChange` flag on `showDiff()` rather than default behaviour.
- */
 describe('useMonacoDiff: scrollToFirstChange (OpenProject #2930)', () => {
   it('subscribes to the diff update but does not reveal anything before it fires', async () => {
     const container = ref(document.createElement('div'))
@@ -171,8 +146,8 @@ describe('useMonacoDiff: scrollToFirstChange (OpenProject #2930)', () => {
     })
 
     const diffEditor = monaco.editor.createDiffEditor.mock.results.at(-1).value
-    // -> Monaco's own convention for a pure deletion: nothing was inserted, so there is no modified
-    //    range and modifiedStartLineNumber reports 0 rather than a real line.
+    // -> Monaco's own convention: nothing was inserted, so there is no modified range and
+    //    modifiedStartLineNumber reports 0 rather than a real line
     diffEditor.getLineChanges.mockReturnValue([
       {
         originalStartLineNumber: 2,
@@ -209,8 +184,7 @@ describe('useMonacoDiff: scrollToFirstChange (OpenProject #2930)', () => {
     const diffEditor = monaco.editor.createDiffEditor.mock.results.at(-1).value
     const staleOnUpdate = diffEditor.onDidUpdateDiff.mock.calls[0][0]
 
-    // -> A second comparison starts (no scrollToFirstChange this time) on the same diff editor
-    //    instance before the first's worker computation ever reports back
+    // -> A second comparison on the same editor instance, before the first's worker reports back
     await showDiff({
       original: { text: 'a', language: 'markdown' },
       modified: { text: 'c', language: 'markdown' }
@@ -230,7 +204,6 @@ describe('useMonacoDiff: scrollToFirstChange (OpenProject #2930)', () => {
   })
 })
 
-/** Relative luminance of a `#rrggbb`, enough to say which of two tones is the darker. */
 function luminanceOf(hex) {
   const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255)
   return 0.2126 * r + 0.7152 * g + 0.0722 * b

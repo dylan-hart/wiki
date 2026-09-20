@@ -2,12 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 /*
-  A minimal but behaviourally-real `Range`/`Selection`/`SelectionDirection` stand-in, not a set of
-  no-op spies: the binding under test relies on their actual field shapes (`startLineNumber` etc.) and
-  on `Selection.createWithDirection`'s return value round-tripping back through a later
-  `editor.getSelection()` call, so a bare `vi.fn()` mock (as most other suites use for `monaco-editor`,
-  which never exercises this deep into the API) would not exercise the real math this file exists to
-  get right.
+  Behaviourally real rather than no-op spies: the binding relies on the actual field shapes and on
+  `Selection.createWithDirection`'s return value round-tripping back through `editor.getSelection()`,
+  so a bare `vi.fn()` mock would not exercise the position math this file exists to get right.
 */
 vi.mock('monaco-editor', () => {
   class FakeRange {
@@ -52,10 +49,6 @@ vi.mock('monaco-editor', () => {
 const { MonacoYjsBinding } = await import('./monacoYjsBinding.js')
 const monaco = await import('monaco-editor')
 
-// ----------------------------------------
-// A small real (position<->offset-accurate) fake Monaco model/editor
-// ----------------------------------------
-
 function offsetAt(value, position) {
   const lines = value.split('\n')
   let offset = 0
@@ -79,8 +72,8 @@ function positionAt(value, offset) {
 }
 
 /**
- * A single-edit-per-call model -- every real call site in `monacoYjsBinding.js` applies one edit at a
- * time, so this does not need to reproduce Monaco's multi-edit batching/ordering rules to be faithful.
+ * Handles one edit per `applyEdits` call: every call site in `monacoYjsBinding.js` applies a single
+ * edit, so Monaco's multi-edit batching and ordering rules need no reproducing here.
  */
 function createFakeModel(initialValue = '') {
   let value = initialValue
@@ -130,8 +123,7 @@ function createFakeEditor(model) {
     setSelection: (sel) => {
       selection = sel
     },
-    // -> Test-only helper: moves the cursor AND fires the same callback the real editor fires,
-    //    since nothing in happy-dom will do that for us.
+    // -> Test-only: moves the cursor AND fires the listeners the real editor would
     _moveSelection(sel) {
       selection = sel
       for (const listener of cursorListeners) {
@@ -214,15 +206,12 @@ describe('MonacoYjsBinding', () => {
       const editor = createFakeEditor(model)
       const binding = new MonacoYjsBinding(ytext, model, new Set([editor]))
 
-      // -> Simulates what arriving over the websocket looks like: a transaction this binding did not
-      //    itself start.
+      // -> What arriving over the websocket looks like: a transaction this binding did not start
       doc.transact(() => {
         ytext.insert(0, 'abc')
       })
 
       expect(model.getValue()).toBe('abc')
-      // -> The regression this test exists for: a naive port re-inserts the just-applied text back
-      //    into `ytext` via the model's own `onDidChangeContent`, doubling it.
       expect(ytext.toString()).toBe('abc')
       binding.destroy()
     })
@@ -233,7 +222,6 @@ describe('MonacoYjsBinding', () => {
       const editor = createFakeEditor(model)
       const binding = new MonacoYjsBinding(ytext, model, new Set([editor]))
 
-      // -> "world" is offsets 6-11 in "hello world"
       editor._moveSelection(selectionAt(model, 6, 11))
 
       doc.transact(() => {
@@ -291,7 +279,7 @@ describe('MonacoYjsBinding', () => {
       const { anchor, head } = awareness.localState.selection
       const anchorAbs = Y.createAbsolutePositionFromRelativePosition(anchor, doc)
       const headAbs = Y.createAbsolutePositionFromRelativePosition(head, doc)
-      // -> RTL: the drag started at the later offset and the caret ended up at the earlier one.
+      // -> RTL: the drag started at the later offset and the caret ended at the earlier one
       expect(anchorAbs.index).toBe(7)
       expect(headAbs.index).toBe(2)
       binding.destroy()

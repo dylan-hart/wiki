@@ -6,14 +6,11 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Regression coverage for OpenProject #2898: clicking Cancel/Discard after editing an existing page
- * used to leave the collab room's autosaved draft in place -- the next time that page was opened, the
- * reader was offered a "restore your draft?" prompt for content they had just explicitly discarded.
+ * A discard that leaves the collab room's autosaved draft behind gets the reader a "restore your
+ * draft?" prompt for content they explicitly threw away, which is the failure these guard.
  *
- * `discardChanges()` needs a real component instance (it is registered via `usePageSaveFlow`, which
- * calls `useRouter`/`useRoute`/`useI18n`, all of which require an app context), so this mounts a
- * minimal host component through the same `mountWithApp` harness every other composable/component
- * suite uses rather than reaching for `vue-router`/`vue-i18n` mocks.
+ * `discardChanges()` needs a real component instance (`usePageSaveFlow` calls `useRouter`/`useRoute`/
+ * `useI18n`), so this mounts a minimal host through `mountWithApp` rather than mocking those.
  */
 function mountFlow(
   router,
@@ -91,11 +88,9 @@ describe('usePageSaveFlow() discardChanges()', () => {
   })
 
   /**
-   * Regression coverage for OpenProject #3317: `editorStore.originPageId` is set by `pageCreate()`
-   * (the page the reader was viewing when they opened a create-mode session) and read back by
-   * `pageStore.cancelPageEdit()`. Left set after the create session that set it ends, it silently
-   * outlives that session and gets picked up by a later, unrelated edit-mode discard -- navigating
-   * the reader to a stale page instead of back to the one they were actually editing.
+   * `editorStore.originPageId` is set by `pageCreate()` and read back by `cancelPageEdit()`. Left
+   * set once that create session ends, a later edit-mode discard picks it up and navigates the
+   * reader to a stale page instead of the one they were editing.
    */
   it('resets originPageId when discarding a create-mode session, so it cannot leak into a later edit session', async () => {
     const { wrapper, editorStore } = mountFlow(router)

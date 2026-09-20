@@ -8,10 +8,8 @@ import { useSiteImage } from './siteImage.js'
 import { createTestI18n } from '../../test/i18n.js'
 
 /*
-  The transport helpers are the boundary this composable orchestrates -- a real `pickSiteImage()`
-  would open a file picker no test can answer, so the four of them are mocked and the assertions are
-  about the orchestration: the invalid-type guard, the `has` flag, the loading counter, the three
-  toasts and the cache-busting timestamp.
+  A real `pickSiteImage()` opens a file picker no test can answer, so the transport helpers are
+  mocked and the assertions are about the orchestration around them.
 */
 const siteImages = vi.hoisted(() => ({
   pickSiteImage: vi.fn(),
@@ -24,10 +22,7 @@ vi.mock('@/helpers/siteImages', () => siteImages)
 
 const I18N_PREFIX = 'admin.general.logo'
 
-/**
- * `useSiteImage` calls `useI18n()`, so it needs a real component instance -- this mounts a harness
- * whose only job is to run the composable and hand back what it returned.
- */
+/** `useSiteImage` calls `useI18n()`, so it needs a real component instance. */
 function mountComposable(kind, opts) {
   const state = reactive({ loading: 0, hasImage: false })
   let api = null

@@ -1,15 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * Task 472: `useMinWidth` is the mechanism `MainLayout.vue`'s `showEditNav`, `HeaderNav.vue` and
- * `PageHeader.vue` all lean on as their "is this a phone" proxy -- see the comment on `showEditNav`
- * for why viewport width was kept over a real `matchMedia('(any-pointer: fine)')` query. This locks
- * in what that proxy actually does: tracks a `(min-width: …px)` media query, shares one `matchMedia`
- * listener per breakpoint across every caller, and updates reactively when the viewport crosses it.
- *
- * `queries` in `screen.js` is module-scoped and never cleared, so each test gets its own fresh module
- * instance via `vi.resetModules()` + a dynamic import -- otherwise the first test to ask for a given
- * breakpoint would permanently decide what every later test sees for it.
+ * `queries` in `screen.js` is module-scoped and never cleared, so each test takes a fresh module
+ * instance via `vi.resetModules()` + a dynamic import -- otherwise the first test to ask for a
+ * breakpoint would decide what every later test sees for it.
  */
 
 function stubMatchMedia(widthPx) {

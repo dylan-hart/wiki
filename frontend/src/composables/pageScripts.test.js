@@ -16,11 +16,7 @@ vi.mock('vue-router', () => ({
 
 const STYLE_ID = 'page-styles'
 
-/**
- * The composable registers a `watch(..., { immediate: true })` and an `onScopeDispose`, so it needs a
- * real component instance to attach to, the same way `adminOverlayRoute.test.js` mounts one for its
- * `onMounted`/`onBeforeUnmount` pair.
- */
+/** The composable's watchers and `onScopeDispose` need a real component scope to attach to. */
 function mountPageScripts() {
   return mount({
     setup() {
@@ -40,8 +36,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  // -> Each test mounts its own component; a wrapper that forgot to unmount would otherwise leak a
-  //    `<style>` into the next test's `document.head`.
+  // -> A wrapper that forgot to unmount leaks its `<style>` into the next test's `document.head`
   document.getElementById(STYLE_ID)?.remove()
 })
 
@@ -167,8 +162,8 @@ describe('usePageScripts()', () => {
     mountPageScripts()
     expect(currentCss()).toBe('body { color: red }')
 
-    // -> `pageLoad()` blanks `isLocked`/`notFound` up front and the server never sends `scriptCss`
-    //    for a locked page either -- mirrored here as the store would actually end up.
+    // -> The server never sends `scriptCss` for a locked page -- mirrored here as the store would
+    //    actually end up.
     pageStore.$patch({ isLocked: true, scriptCss: '' })
     await nextTick()
 
@@ -207,21 +202,12 @@ describe('usePageScripts()', () => {
 })
 
 /**
- * The JS half (OpenProject #3405): `scriptJsLoad`/`scriptJsUnload` are never embedded as text on the
- * page -- they are `import()`ed from the external module `controllers/pageScripts.ts` serves, at
- * `/_pages/<id>/script.js`. Nothing under that path actually exists in this Vitest environment (no
- * dev-server proxy, no backend), so every real `import()` attempt here rejects -- the same
- * "the import itself fails in this environment" convention `stores/common.test.js`'s `loadBlocks()`
- * suite documents and relies on for its own dynamic `import()` coverage. That leaves two things these
- * tests CAN verify directly: (1) the gating -- an import is attempted at all only when the site flag
- * is on, the page is showing, and it actually has a script set, mirrored 1:1 off the CSS gating
- * tests above; and (2) that a failed import is caught and logged rather than left an unhandled
- * rejection. The success path (`load()`/`unload()` actually invoked) is e2e territory, not unit --
- * left to #3406's `enforceCsp` case.
+ * Nothing serves `/_pages/<id>/script.js` in this environment, so every real `import()` here
+ * rejects. That leaves the gating (whether an import is attempted at all) and that a failed import
+ * is caught rather than left an unhandled rejection; the success path is e2e territory.
  */
 describe('usePageScripts(): JS half (OpenProject #3405)', () => {
   let warnSpy
-  /** Tracked so `afterEach` can tear it down -- see the comment there for why that matters here. */
   let wrapper
 
   beforeEach(() => {
@@ -230,12 +216,9 @@ describe('usePageScripts(): JS half (OpenProject #3405)', () => {
   })
 
   afterEach(() => {
-    // -> Every test below that reaches an import attempt starts a REAL dynamic import(), which only
-    //    settles (rejects, in this environment) asynchronously. A component left mounted past its
-    //    own test keeps that watcher's closure alive, and when the rejection finally lands it calls
-    //    `console.warn` -- i.e. whichever LATER test's spy happens to be active at that moment, not
-    //    this test's own assertion. Unmounting here (which also exercises `onScopeDispose()`'s own
-    //    `unload()` path) is what keeps each test's warning count its own.
+    // -> A real dynamic import() settles asynchronously. A component left mounted past its own test
+    //    keeps the watcher's closure alive, so the eventual rejection warns against whichever LATER
+    //    test's spy is active. Unmounting here keeps each test's warning count its own.
     wrapper?.unmount()
     warnSpy.mockRestore()
   })
@@ -248,9 +231,8 @@ describe('usePageScripts(): JS half (OpenProject #3405)', () => {
 
     wrapper = mountPageScripts()
 
-    // -> One warning: the real import() attempt this environment cannot serve rejected, and was
-    //    caught rather than thrown. `vi.waitFor` rather than a single `flushPromises()`: the
-    //    module-runner's own resolution takes more than one microtask turn to reject.
+    // -> `vi.waitFor` rather than a single `flushPromises()`: the module runner takes more than one
+    //    microtask turn to reject.
     await vi.waitFor(() => expect(warnSpy).toHaveBeenCalledTimes(1))
   })
 
@@ -374,8 +356,8 @@ describe('usePageScripts(): JS half (OpenProject #3405)', () => {
 
     wrapper = mountPageScripts()
 
-    // -> Unmounted synchronously, before the in-flight import's rejection has even been awaited --
-    //    the generation counter this guards against is exactly for a scope disposed mid-import.
+    // -> Unmounted synchronously, before the in-flight import settles: the case the generation
+    //    counter exists for.
     expect(() => wrapper.unmount()).not.toThrow()
     wrapper = null // -> Already unmounted; afterEach's own unmount() call would double-unmount.
   })

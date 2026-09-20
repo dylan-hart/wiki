@@ -3,29 +3,17 @@ import { ref } from 'vue'
 const DEFAULT_SELECTOR = '.w-btn'
 
 /**
- * WAI-ARIA APG "Toolbar" roving-tabindex behavior (Task/Feature #3350):
- * https://www.w3.org/WAI/ARIA/apg/patterns/toolbar/
+ * WAI-ARIA APG "Toolbar" roving tabindex: https://www.w3.org/WAI/ARIA/apg/patterns/toolbar/
  *
- * A toolbar full of individually-focusable buttons is one Tab stop per button, which puts every one
- * of them in the middle of the page's own Tab order -- for `EditorMarkdown.vue`'s two toolbars, that
- * meant Tab from the page description landed on ten (or a dozen) toolbar buttons before it ever
- * reached the content it was editing. Roving tabindex turns the whole toolbar into ONE Tab stop
- * instead: exactly one of its buttons carries `tabindex="0"` at a time (the rest carry `"-1"`, still
- * focusable by click but out of the Tab sequence), and once focus is inside the toolbar, arrow keys
- * move both the real focus and which button is the `"0"` -- so every button stays fully reachable
- * from the keyboard, just not via repeated Tab presses.
+ * The whole toolbar is ONE Tab stop -- exactly one button carries `tabindex="0"` at a time, the rest
+ * `"-1"`, and arrow keys move both the focus and which button is the `"0"` -- rather than dropping
+ * every button into the middle of the page's own Tab order.
  *
- * Queries the DOM at event time through `containerRef` rather than keeping a parallel array of
- * per-button refs, the same style `WTabs.vue`'s own arrow-key roving and `WMenu.vue`'s panel roving
- * already use. A caller wires three things onto its markup: `containerRef` on the element wrapping
- * the buttons, `tabindexFor(index)` on each button (a literal per button, matching its position in
- * the DOM -- a conditionally-rendered button simply takes the next free index), and `onKeydown` /
- * `onFocusin` on the container itself.
- *
- * `tabindexFor` reads the reactive `activeIndex` ref directly, so it is meant to be called from
- * inside a template expression (`:tabindex="roving.tabindexFor(0)"`) where Vue's own reactivity
- * tracks that read -- not cached once and reused, which would freeze it at whatever it returned the
- * first time.
+ * A caller wires `containerRef` onto the element wrapping the buttons, `tabindexFor(index)` onto
+ * each button (a literal matching its position in the DOM, so a conditionally-rendered button takes
+ * the next free index), and `onKeydown`/`onFocusin` onto the container. `tabindexFor` reads the
+ * reactive `activeIndex`, so call it from inside a template expression where Vue tracks that read:
+ * cached once, it freezes at whatever it first returned.
  */
 export function useToolbarRovingTabindex(
   containerRef,
@@ -53,7 +41,6 @@ export function useToolbarRovingTabindex(
   const nextKey = orientation === 'vertical' ? 'ArrowDown' : 'ArrowRight'
   const prevKey = orientation === 'vertical' ? 'ArrowUp' : 'ArrowLeft'
 
-  /** Arrow/Home/End navigation, wrapping at both ends. Any other key is left alone. */
   function onKeydown(ev) {
     if (![nextKey, prevKey, 'Home', 'End'].includes(ev.key)) {
       return
@@ -78,9 +65,8 @@ export function useToolbarRovingTabindex(
   }
 
   /**
-   * Keeps the roving tab stop matched to wherever focus actually lands -- a mouse click, or Tab
-   * arriving fresh -- so the next Tab out of the toolbar, and the next arrow press into it, both
-   * continue from there rather than silently snapping back to the first button.
+   * Matches the tab stop to wherever focus actually landed -- a mouse click, or Tab arriving fresh
+   * -- so the next Tab out and the next arrow press continue from there, not from the first button.
    */
   function onFocusin(ev) {
     const at = items().indexOf(ev.target)

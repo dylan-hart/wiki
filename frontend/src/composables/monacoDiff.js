@@ -5,15 +5,9 @@ import { useAesthetic } from '@/composables/aesthetic'
 import { defineMonacoThemes, monacoThemeName } from '@/helpers/monacoTheme'
 
 /**
- * Above this many characters on either side, the comparison is not put in front of Monaco at all.
- *
- * Monaco's own diff computation runs in a worker, so it does not freeze the tab the way a main-thread
- * computation would -- but a page with tens of thousands of lines is well within where it quietly runs
- * past its computation budget (`maxComputationTime` on the diff editor below) and gives up, returning
- * no changes. That result renders exactly like two versions with nothing different between them, with
- * no indication the comparison was ever abandoned -- worse than a blank pane, which would at least look
- * broken. This threshold is chosen to sit below where that starts happening in practice, so the honest
- * "too large to render inline" notice is what a reader sees instead of a false "nothing changed".
+ * Past its `maxComputationTime` budget Monaco's diff worker gives up and reports no changes, which
+ * renders identically to two versions that genuinely match. This sits below where that starts, so a
+ * reader gets the honest "too large to render inline" notice instead of a false "nothing changed".
  */
 export const DIFF_INLINE_CHAR_LIMIT = 500_000
 
@@ -25,34 +19,24 @@ export function tooLargeToDiffInline(a, b) {
 }
 
 /**
- * A read-only Monaco diff editor over one container element: built on first use, fed a pair of
- * texts, and torn down again.
- *
- * Lifted out of `PageHistoryOverlay.vue`, whose own concern is which two versions to compare and how
- * to fetch them -- everything about the editor drawing that comparison is here, and none of it reads
- * the overlay's state.
- *
- * @param {{value: HTMLElement|null}} containerRef Where the editor mounts.
+ * @param {{value: HTMLElement|null}} containerRef
  * @param {object} opts
- * @param {() => boolean} opts.isInline Whether to open inline rather than side by side. Read at
- *   creation time; call `setInline()` for a later change.
+ * @param {() => boolean} opts.isInline Read once, at creation time; `setInline()` is what changes it
+ *   afterwards.
  */
 export function useMonacoDiff(containerRef, { isInline }) {
-  /*
-    The Monaco instances, deliberately plain `let`s: they are large objects with their own internals,
-    and making them reactive buys nothing and costs a lot.
-  */
+  // -> Plain `let`s: these are large objects with their own internals, and reactivity over them
+  //    buys nothing and costs a lot.
   let diffEditor = null
   let originalModel = null
   let modifiedModel = null
   /**
-   * Bumped on every `showDiff()` call -- a `scrollToFirstChange` subscription from an earlier call
-   * checks this before acting, so a diff that finishes computing after a newer comparison has already
-   * replaced it does not reveal a line in what is no longer being shown.
+   * Bumped per `showDiff()` call, so a `scrollToFirstChange` subscription that resolves after a
+   * newer comparison replaced it does not reveal a line in what is no longer shown.
    */
   let generation = 0
 
-  /** The editor is built on first use, since the container only exists once there is history to show. */
+  /** Waits a tick: the container is only rendered once there is history to show. */
   async function mountEditor() {
     await nextTick()
     if (diffEditor || !containerRef.value) {
@@ -64,41 +48,26 @@ export function useMonacoDiff(containerRef, { isInline }) {
       base: 'vs-dark',
       inherit: true,
       rules: [],
-      /* -> See `EditorMarkdown.vue`'s copy of this theme for why these are the ramp's own tones */
       colors: {
         'editor.background': '#14171f',
         'editor.foreground': '#c3cee2',
         'editor.lineHighlightBackground': '#171b24',
         'editorLineNumber.foreground': '#3f4a63',
         /*
-          BELOW the text ground, not above it. This was `#171b24` -- `$dark-4`, the recessed rung,
-          which is a step LIGHTER than `editor.background`'s ink -- so the two line-number columns
-          read as a pair of pale bands framing the diff, the opposite of what the design draws. Every
-          gutter cell in `ui-redesign/Cardinal Wiki - History 3x.dc.html` is `background:#11141b`, a
-          hair above `$dark-6` (`#0f1219`) and below ink; it is the design's own literal rather than
-          a named rung, and is taken from there rather than darkened by eye.
+          Must sit BELOW `editor.background`, not above it: a lighter rung draws the two line-number
+          columns as pale bands framing the diff. This is the design's own literal, not a named rung.
         */
         'editorGutter.background': '#11141b',
         /*
-          The cursor's line number. Left unset it falls through to `vs-dark`'s `#c6c6c6`, near-white
-          and far brighter than the content beside it -- the same "lighter than the markdown" reading
-          as the band above, one number at a time. The design distinguishes only CHANGED line numbers
-          (which it draws in the accent, and which Monaco colours from the diff decoration, not from
-          this token), so the active line gets the muted caption tone instead of a highlight.
+          Unset, the cursor's line number falls through to `vs-dark`'s near-white `#c6c6c6`. Only
+          CHANGED line numbers are meant to stand out, and Monaco colours those from the diff
+          decoration rather than this token.
         */
         'editorLineNumber.activeForeground': '#8792ab',
         /*
-          The shadow bleeding off the B pane's line-number column. Monaco substitutes this token into
-          three shadows over this editor, and side by side the one that shows is
-          `.monaco-diff-editor.side-by-side .editor.modified { box-shadow: -6px 0 5px -5px … }` --
-          cast leftwards out of the modified pane, straight across its own gutter, and drawn
-          unconditionally rather than only while scrolled. (The other two are the `.scroll-decoration`
-          strips each pane fades in once it is scrolled.)
-
-          Fully transparent, so all three go. The `border-left: 1px solid var(--vscode-diffEditor-
-          border)` declared beside that rule stays and does the separating on its own, which is
-          exactly the substitution Cardinal makes everywhere: no elevation, a hairline where a shadow
-          used to be (`docs/cardinal-reskin-second-pass.md`).
+          Transparent kills all three shadows Monaco substitutes this token into, including the one
+          the modified pane casts leftwards across its own gutter unconditionally. The
+          `diffEditor.border` hairline beside it does the separating, per Cardinal's no-elevation rule.
         */
         'scrollbar.shadow': '#00000000'
       }
@@ -106,33 +75,23 @@ export function useMonacoDiff(containerRef, { isInline }) {
 
     diffEditor = monaco.editor.createDiffEditor(containerRef.value, {
       automaticLayout: true,
-      // -> The design's own diff metrics: 12.5px Roboto Mono on a 1.85 line, which is what makes a
-      //    side-by-side diff of prose fit two readable columns in half an overlay each
+      // -> Sized so a side-by-side diff of prose fits two readable columns in half an overlay each
       fontSize: 12.5,
       lineHeight: 23,
       fontFamily: "'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace",
-      // -> Side by side by default: this exists to compare the two, and an inline diff of prose reads
-      //    as a jumble of half-lines. The header offers the other way for anyone who prefers it.
       renderSideBySide: !isInline(),
       originalEditable: false,
-      // -> A reader, not an editor. Restoring a version is its own action, and is not implemented yet.
       readOnly: true,
       scrollBeyondLastLine: false,
       theme: monacoThemeName(useAesthetic().current),
       wordWrap: 'on',
-      // -> Written out rather than left to Monaco's own defaults (which happen to be these same two
-      //    values today): the diff computation itself runs off the main thread in a worker, so a huge
-      //    pair of versions does not freeze the tab -- but past this budget the worker gives up and
-      //    returns no changes at all, and an abandoned computation then looks identical to two versions
-      //    that truly have no differences, with nothing in the UI to say which one happened. `DIFF_INLINE
-      //    _CHAR_LIMIT` above is what actually keeps that silent case from being reached in practice; this
-      //    is the backstop for the content that slips in under it but still turns out to be slow to diff.
+      // -> Pinned rather than left to Monaco's defaults: the backstop for content that slips under
+      //    `DIFF_INLINE_CHAR_LIMIT` and still diffs slowly enough for the worker to give up silently
       maxComputationTime: 5000,
       maxFileSize: 50
     })
   }
 
-  /** Releases whatever the diff editor is currently showing, without disposing the editor itself. */
   function disposeModels() {
     diffEditor?.setModel(null)
     originalModel?.dispose()
@@ -153,16 +112,13 @@ export function useMonacoDiff(containerRef, { isInline }) {
   }
 
   /**
-   * Show one comparison, mounting the editor if this is the first.
-   *
    * @param {object} sides
    * @param {{text: string, language: string}} sides.original
    * @param {{text: string, language: string}} sides.modified
    * @param {() => boolean} [sides.isStale] Asked again after the mount await -- a newer comparison
    *   started while this one was waiting owns the editor now, and this one must not touch it.
    * @param {boolean} [sides.scrollToFirstChange] Scroll to the first changed line once Monaco's diff
-   *   computation resolves (OpenProject #2930). Opt-in: `PageHistoryOverlay.vue`, the other consumer,
-   *   does not pass this and keeps opening scrolled to the top, its existing behaviour.
+   *   computation resolves.
    */
   async function showDiff({ original, modified, isStale, scrollToFirstChange = false }) {
     const thisGeneration = ++generation
@@ -187,9 +143,7 @@ export function useMonacoDiff(containerRef, { isInline }) {
 
   /**
    * Monaco's diff computation runs off the main thread, so `getLineChanges()` answers nothing until
-   * `onDidUpdateDiff` fires -- this waits on that event rather than reading it straight after
-   * `setModel`. `revealLineNearTop` lives on the modified side's own `ICodeEditor`, not on the diff
-   * editor itself (`monaco-editor`'s `editor.api.d.ts`).
+   * `onDidUpdateDiff` fires -- reading it straight after `setModel` sees no changes at all.
    */
   function revealFirstChangeOnceComputed(thisGeneration) {
     const editor = diffEditor
@@ -204,8 +158,8 @@ export function useMonacoDiff(containerRef, { isInline }) {
         return
       }
       /*
-        A pure deletion has no modified range -- Monaco reports modifiedStartLineNumber: 0 for that
-        case rather than a real line, so fall back to where it would have landed, then to the top.
+        A pure deletion has no modified range -- Monaco reports modifiedStartLineNumber: 0 rather
+        than a real line, so fall back to where it would have landed, then to the top.
       */
       const line = firstChange.modifiedStartLineNumber || firstChange.modifiedEndLineNumber || 1
       editor.getModifiedEditor().revealLineNearTop(line)
