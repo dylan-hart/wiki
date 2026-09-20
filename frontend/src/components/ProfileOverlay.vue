@@ -56,12 +56,16 @@
             <w-separator inset spaced="sm" />
             <!-- -> A real navigation away from the overlay, so it closes rather than floating over
                     whatever page it lands the reader on. -->
-            <w-item clickable :to="`/_user/` + userStore.id" @click="close">
+            <w-item
+              clickable
+              data-testid="profile-preview-public"
+              :disabled="pendingProfileSaves > 0"
+              @click="previewPublicProfile">
               <w-item-section side>
                 <w-icon name="tabler:id" />
               </w-item-section>
               <w-item-section>
-                <w-item-label>{{ t('profile.viewPublicProfile') }}</w-item-label>
+                <w-item-label>{{ t('profile.previewPublicProfile') }}</w-item-label>
               </w-item-section>
             </w-item>
           </template>
@@ -83,10 +87,11 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, defineAsyncComponent, onBeforeUnmount, reactive } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, reactive } from 'vue'
 
 import { useMinWidth } from '@/composables/screen'
-import { isSavingVisible } from '@/composables/profileSaving'
+import { openProfilePopover } from '@/composables/profilePopover'
+import { isSavingVisible, pendingProfileSaves } from '@/composables/profileSaving'
 
 import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
@@ -205,6 +210,15 @@ function selectSection(key) {
 
 function close() {
   siteStore.overlay = ''
+}
+
+async function previewPublicProfile() {
+  close()
+  await nextTick()
+  openProfilePopover({
+    userId: userStore.id,
+    anchor: document.querySelector('.account-avbtn') ?? document.body
+  })
 }
 
 function onLogoutClick() {
