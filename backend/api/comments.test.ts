@@ -158,6 +158,29 @@ describe('page-scoped comment routes', () => {
     return usersById[id] ?? null
   }
 
+  const handleDirectory = [
+    { handle: 'Alice.Smith', name: 'Alice Smith', email: 'alice@example.com' },
+    { handle: 'alan', name: 'Alan Turing', email: 'alan@example.com' },
+    { handle: 'al_b', name: 'Al B', email: 'alb@example.com' },
+    { handle: 'bob', name: 'Bob Jones', email: 'bob@example.com' },
+    { handle: 'ally1', name: 'Ally One', email: 'ally1@example.com' },
+    { handle: 'ally2', name: 'Ally Two', email: 'ally2@example.com' },
+    { handle: 'ally3', name: 'Ally Three', email: 'ally3@example.com' },
+    { handle: 'ally4', name: 'Ally Four', email: 'ally4@example.com' }
+  ]
+  const searchHandlesCalls: { prefix: string; limit: number }[] = []
+
+  async function searchHandles(prefix: string, limit: number) {
+    searchHandlesCalls.push({ prefix, limit })
+    return handleDirectory
+      .filter((user) => user.handle.toLowerCase().startsWith(prefix.toLowerCase()))
+      .slice(0, limit)
+  }
+
+  function mayHoldPermissionSomewhere(actor: { permissions: string[] }, permissions: string[]) {
+    return permissions.some((permission) => actor.permissions.includes(permission))
+  }
+
   const NO_COMMENTS_PAGE_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
 
   const pagesById: Record<string, any> = {
@@ -432,8 +455,13 @@ describe('page-scoped comment routes', () => {
         logger: createSilentLogger(),
         models: {
           pages: { getPage },
-          groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
-          users: { getById },
+          groups: {
+            actorForRequest,
+            checkAccess,
+            groupIdsForRequest: () => [],
+            mayHoldPermissionSomewhere
+          },
+          users: { getById, searchHandles },
           comments: {
             listForPage,
             create,
@@ -462,6 +490,7 @@ describe('page-scoped comment routes', () => {
     rateLimitConsumeCalls.length = 0
     activeProviderResult = null
     checkSpamCalls.length = 0
+    searchHandlesCalls.length = 0
   })
 
   test('GET list: 404 when the page does not exist', async () => {
@@ -1180,5 +1209,97 @@ describe('page-scoped comment routes', () => {
     assert.equal(emittedEvents[0].data.id, EXISTING_COMMENT_ID)
     assert.equal(emittedEvents[0].data.pageId, PAGE_ID)
     assert.equal(emittedEvents[0].data.siteId, SITE_ID)
+  })
+
+  describe('GET mentions lookup', () => {
+    const POSTER = {
+      'x-test-user-id': 'user-1',
+      'x-test-permissions': 'read:pages,write:comments'
+    }
+
+    function lookup(q: string, headers: Record<string, string> = POSTER) {
+      return app.inject({
+        method: 'GET',
+        url: `/sites/${SITE_ID}/comments/mentions?q=${encodeURIComponent(q)}`,
+        headers
+      })
+    }
+
+    test('matches on a handle prefix', async () => {
+      const res = await lookup('bo')
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(res.json(), [{ handle: 'bob', name: 'Bob Jones' }])
+    })
+
+    test('matches case-insensitively and answers with the stored casing', async () => {
+      const res = await lookup('ALICE')
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(res.json(), [{ handle: 'Alice.Smith', name: 'Alice Smith' }])
+    })
+
+    test('caps the answer at five and asks the model for no more', async () => {
+      const res = await lookup('al')
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.json().length, 5)
+      assert.deepEqual(searchHandlesCalls, [{ prefix: 'al', limit: 5 }])
+    })
+
+    test('returns nothing but handle and name', async () => {
+      const res = await lookup('a')
+      assert.equal(res.statusCode, 200)
+      for (const entry of res.json()) {
+        assert.deepEqual(Object.keys(entry).sort(), ['handle', 'name'])
+      }
+      assert.doesNotMatch(res.body, /@example\.com/)
+    })
+
+    test('is not swallowed by the :commentId route', async () => {
+      const res = await lookup('nobody')
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(res.json(), [])
+    })
+
+    test('401 for a guest, even one the Guests group lets post', async () => {
+      const res = await lookup('al', { 'x-test-permissions': 'write:comments' })
+      assert.equal(res.statusCode, 401)
+      assert.equal(searchHandlesCalls.length, 0)
+    })
+
+    test('403 when the requester holds write:comments nowhere', async () => {
+      const res = await lookup('al', {
+        'x-test-user-id': 'user-1',
+        'x-test-permissions': 'read:pages,read:comments'
+      })
+      assert.equal(res.statusCode, 403)
+      assert.equal(searchHandlesCalls.length, 0)
+    })
+
+    test('403 when the site has comments turned off', async () => {
+      ;(globalThis as any).CARDINAL.sites[SITE_ID].config.features.comments = false
+      try {
+        const res = await lookup('al')
+        assert.equal(res.statusCode, 403)
+        assert.equal(searchHandlesCalls.length, 0)
+      } finally {
+        ;(globalThis as any).CARDINAL.sites[SITE_ID].config.features.comments = true
+      }
+    })
+
+    for (const bad of ['', '%', 'a b', 'a'.repeat(33)]) {
+      test(`400 for the query ${JSON.stringify(bad)}`, async () => {
+        const res = await lookup(bad)
+        assert.equal(res.statusCode, 400)
+        assert.equal(searchHandlesCalls.length, 0)
+      })
+    }
+
+    test('400 when q is missing', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sites/${SITE_ID}/comments/mentions`,
+        headers: POSTER
+      })
+      assert.equal(res.statusCode, 400)
+    })
   })
 })

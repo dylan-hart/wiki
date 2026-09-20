@@ -1,9 +1,12 @@
-import { actorFrom, mayOnPage, requireReadablePage } from '../helpers/pageAccess.ts'
+import { actorFrom, mayOnPage, requireActorId, requireReadablePage } from '../helpers/pageAccess.ts'
 import { enforceCommentCooldown, limitGuestComments } from '../helpers/rateLimit.ts'
 import { requestOrigin } from '../helpers/common.ts'
+import { HANDLE_MAX_LENGTH } from '../models/users.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { AccessActor } from '../models/groups.ts'
 import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
+
+const MENTION_SUGGESTION_LIMIT = 5
 
 const commentIdParam = {
   type: 'object',
@@ -286,6 +289,68 @@ async function routes(app: FastifyInstance) {
         offset: req.query.offset,
         limit: req.query.limit
       })
+    }
+  )
+
+  app.get<{ Params: { siteId: string }; Querystring: { q: string } }>(
+    '/sites/:siteId/comments/mentions',
+    {
+      schema: {
+        summary: 'Suggest handles to mention in a comment',
+        description:
+          'Up to five active accounts whose handle starts with `q`, compared case-insensitively, for the comment composer’s `@` autocomplete. Each entry carries the canonical stored `handle` and the display `name`, and nothing else — no email, no id.\n\nRefused with 401 without a session (a guest can type `@handle` but is offered no suggestions), and with 403 when the site has comments turned off or the requester holds `write:comments` on no page of the site. `write:comments` is a page-rule permission, so this is the coarse "could post a comment somewhere here" check rather than a per-page one.',
+        tags: ['Comments'],
+        params: { $ref: 'SiteIdParams#' },
+        querystring: {
+          type: 'object',
+          properties: {
+            q: {
+              type: 'string',
+              minLength: 1,
+              maxLength: HANDLE_MAX_LENGTH,
+              pattern: '^[A-Za-z0-9._-]+$',
+              description: 'The handle prefix typed after the `@`.'
+            }
+          },
+          required: ['q']
+        },
+        response: {
+          200: {
+            description: 'Matching accounts, at most five',
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                handle: { type: 'string' },
+                name: { type: 'string' }
+              },
+              required: ['handle', 'name'],
+              additionalProperties: false
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!requireActorId(req, reply)) {
+        return reply
+      }
+      if (!CARDINAL.sites[req.params.siteId]?.config?.features?.comments) {
+        return reply.forbidden('Comments are disabled for this site.')
+      }
+      const actor = CARDINAL.models.groups.actorForRequest(req)
+      if (
+        !CARDINAL.models.groups.mayHoldPermissionSomewhere(
+          actor,
+          ['write:comments'],
+          req.params.siteId
+        )
+      ) {
+        return reply.forbidden('You are not allowed to comment on this site.')
+      }
+      return CARDINAL.models.users.searchHandles(req.query.q, MENTION_SUGGESTION_LIMIT)
     }
   )
 

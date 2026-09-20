@@ -534,6 +534,24 @@ class Users {
       .orderBy(usersTable.createdAt)
   }
 
+  async searchHandles(prefix: string, limit: number): Promise<{ handle: string; name: string }[]> {
+    const pattern = `${escapeLikePattern(prefix.toLowerCase())}%`
+    const rows = await CARDINAL.db
+      .select({ handle: usersTable.handle, name: usersTable.name })
+      .from(usersTable)
+      .where(
+        and(
+          isNotNull(usersTable.handle),
+          eq(usersTable.isActive, true),
+          eq(usersTable.isSystem, false),
+          sql`lower(${usersTable.handle}) LIKE ${pattern}`
+        )
+      )
+      .orderBy(sql`lower(${usersTable.handle})`)
+      .limit(limit)
+    return rows.flatMap((row) => (row.handle ? [{ handle: row.handle, name: row.name }] : []))
+  }
+
   async getUsers({
     filter = '',
     assignableToGroupId = '',

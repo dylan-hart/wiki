@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 import CommentComposer from './CommentComposer.vue'
@@ -18,6 +19,7 @@ const MESSAGES = {
       fieldName: 'Your Name',
       newPlaceholder: 'Write a new comment...',
       markdownFormat: 'Markdown Format',
+      mentionListLabel: 'Mention suggestions',
       contentMissingError: 'Comment is empty or too short!',
       postComment: 'Post Comment',
       postSuccess: 'New comment posted successfully.',
@@ -278,5 +280,251 @@ describe('CommentComposer', () => {
     expect(textInputs[0].element.value).toBe('Guest Name')
     expect(textInputs[1].element.value).toBe('guest@example.com')
     expect(wrapper.emitted('posted')).toBeUndefined()
+  })
+})
+
+describe('CommentComposer @mention autocomplete', () => {
+  const ALICE = { handle: 'alice', name: 'Alice Anderson' }
+  const ALAN = { handle: 'Alan.T', name: 'Alan Turing' }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function answerWith(...lists) {
+    for (const list of lists) {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(list) })
+    }
+  }
+
+  async function type(wrapper, text, caret = text.length) {
+    const textarea = wrapper.find('textarea')
+    textarea.element.value = text
+    textarea.element.setSelectionRange(caret, caret)
+    await textarea.trigger('input')
+  }
+
+  async function settle() {
+    await vi.advanceTimersByTimeAsync(200)
+    await nextTick()
+  }
+
+  function options(wrapper) {
+    return wrapper.findAll('[role="option"]')
+  }
+
+  function labels(wrapper) {
+    return options(wrapper).map((option) =>
+      option.findAll('.w-item-label').map((label) => label.text())
+    )
+  }
+
+  it('opens a list under the textarea after @ and a character, asking the site route', async () => {
+    answerWith([ALICE, ALAN])
+    const { wrapper } = await mountComposer()
+
+    await type(wrapper, 'hello @al')
+    await settle()
+
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/s1/comments/mentions', {
+      searchParams: { q: 'al' }
+    })
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(true)
+    expect(labels(wrapper)).toEqual([
+      ['@alice', 'Alice Anderson'],
+      ['@Alan.T', 'Alan Turing']
+    ])
+  })
+
+  it('makes no request for a bare @ or for the @ inside an email address', async () => {
+    const { wrapper } = await mountComposer()
+
+    await type(wrapper, 'hello @')
+    await settle()
+    await type(wrapper, 'write to me@example.com')
+    await settle()
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+  })
+
+  it('debounces keystrokes and re-filters with the latest query', async () => {
+    answerWith([ALICE])
+    const { wrapper } = await mountComposer()
+
+    await type(wrapper, '@a')
+    await type(wrapper, '@al')
+    await type(wrapper, '@ali')
+    await settle()
+
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/s1/comments/mentions', {
+      searchParams: { q: 'ali' }
+    })
+  })
+
+  it('drops a slow answer that a newer query has already overtaken', async () => {
+    let releaseFirst
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        new Promise((resolve) => {
+          releaseFirst = () => resolve([ALAN])
+        })
+    })
+    answerWith([ALICE])
+    const { wrapper } = await mountComposer()
+
+    await type(wrapper, '@a')
+    await settle()
+    await type(wrapper, '@al')
+    await settle()
+    releaseFirst()
+    await settle()
+
+    expect(labels(wrapper)).toEqual([['@alice', 'Alice Anderson']])
+  })
+
+  it('closes the list when the caret leaves the token', async () => {
+    answerWith([ALICE])
+    const { wrapper } = await mountComposer()
+
+    await type(wrapper, '@al')
+    await settle()
+    expect(options(wrapper)).toHaveLength(1)
+
+    await type(wrapper, '@al ')
+    await settle()
+
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+  })
+
+  it('moves the highlight with the arrow keys and wraps around', async () => {
+    answerWith([ALICE, ALAN])
+    const { wrapper } = await mountComposer()
+    await type(wrapper, '@al')
+    await settle()
+    const textarea = wrapper.find('textarea')
+
+    expect(options(wrapper).map((option) => option.attributes('aria-selected'))).toEqual([
+      'true',
+      'false'
+    ])
+    await textarea.trigger('keydown', { key: 'ArrowDown' })
+    expect(options(wrapper).map((option) => option.attributes('aria-selected'))).toEqual([
+      'false',
+      'true'
+    ])
+    await textarea.trigger('keydown', { key: 'ArrowDown' })
+    expect(options(wrapper)[0].attributes('aria-selected')).toBe('true')
+    await textarea.trigger('keydown', { key: 'ArrowUp' })
+    expect(options(wrapper)[1].attributes('aria-selected')).toBe('true')
+    expect(textarea.attributes('aria-activedescendant')).toBe(options(wrapper)[1].attributes('id'))
+  })
+
+  it('inserts @handle and a space on Enter, using the canonical handle, and posts nothing', async () => {
+    answerWith([ALICE, ALAN])
+    const { wrapper } = await mountComposer()
+    await type(wrapper, 'hi @al')
+    await settle()
+    const textarea = wrapper.find('textarea')
+
+    await textarea.trigger('keydown', { key: 'ArrowDown' })
+    await textarea.trigger('keydown', { key: 'Enter' })
+    await nextTick()
+
+    expect(textarea.element.value).toBe('hi @Alan.T ')
+    expect(textarea.element.selectionStart).toBe('hi @Alan.T '.length)
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+  })
+
+  it('inserts the highlighted handle on Tab', async () => {
+    answerWith([ALICE])
+    const { wrapper } = await mountComposer()
+    await type(wrapper, '@al')
+    await settle()
+
+    await wrapper.find('textarea').trigger('keydown', { key: 'Tab' })
+
+    expect(wrapper.find('textarea').element.value).toBe('@alice ')
+  })
+
+  it('inserts the clicked suggestion', async () => {
+    answerWith([ALICE, ALAN])
+    const { wrapper } = await mountComposer()
+    await type(wrapper, 'cc @al')
+    await settle()
+
+    await options(wrapper)[1].trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('textarea').element.value).toBe('cc @Alan.T ')
+  })
+
+  it('keeps the list from taking focus off the textarea on mousedown', async () => {
+    answerWith([ALICE])
+    const { wrapper } = await mountComposer()
+    await type(wrapper, '@al')
+    await settle()
+
+    const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    wrapper.find('[role="listbox"]').element.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('closes on Escape without touching the text, and stays closed for the same token', async () => {
+    answerWith([ALICE])
+    const { wrapper } = await mountComposer()
+    await type(wrapper, '@al')
+    await settle()
+    const textarea = wrapper.find('textarea')
+
+    await textarea.trigger('keydown', { key: 'Escape' })
+    await textarea.trigger('keyup', { key: 'Escape' })
+    await settle()
+
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+    expect(textarea.element.value).toBe('@al')
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves Enter alone when no list is open', async () => {
+    const { wrapper } = await mountComposer()
+    await type(wrapper, 'plain text')
+
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    wrapper.find('textarea').element.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('shows nothing and does not throw when the lookup fails', async () => {
+    API_CLIENT.get.mockImplementationOnce(() => {
+      throw new Error('forbidden')
+    })
+    notifyQueue.splice(0, notifyQueue.length)
+    const { wrapper } = await mountComposer()
+
+    await type(wrapper, '@al')
+    await settle()
+
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+    expect(notifyQueue).toHaveLength(0)
+  })
+
+  it('makes no request and shows no list for a guest typing @handle', async () => {
+    const { wrapper } = await mountComposer({ authenticated: false })
+
+    await type(wrapper, 'hello @alice')
+    await settle()
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
   })
 })
