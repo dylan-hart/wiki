@@ -84,6 +84,23 @@ describe('block-map tile server precedence', () => {
     })
   })
 
+  describe('marker keyboard access', () => {
+    const markerIcon = (el) => el.shadowRoot.querySelector('.leaflet-marker-icon')
+
+    it('makes the marker tabbable when a label is set, so its popup is reachable by keyboard', async () => {
+      stubSiteConfig({})
+      const el = await mountMap({ label: 'Montreal' })
+      expect(markerIcon(el).getAttribute('tabindex')).toBe('0')
+    })
+
+    it('keeps the label-less marker out of the tab order', async () => {
+      stubSiteConfig({})
+      const el = await mountMap()
+      expect(markerIcon(el)).not.toBeNull()
+      expect(markerIcon(el).hasAttribute('tabindex')).toBe(false)
+    })
+  })
+
   /*
    * `{ attribute: false }`: this block's controller sets no `dark` attribute, since the `theme`
    * prop can pin a map light on a dark page, so the assertion is on the controller's own `isDark`.

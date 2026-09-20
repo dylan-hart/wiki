@@ -321,7 +321,7 @@ export class BlockMapElement extends LitElement {
       // -> Keeps the pin out of the tab order, the map being a picture rather than a control
       //    FIXME: with a `label` set this leaves the popup mouse-only; the marker has to stay
       //    tabbable in that case for a keyboard reader to reach the text
-      keyboard: false
+      keyboard: Boolean(this.label)
     }).addTo(this._map)
     if (this.label) {
       marker.bindPopup(this.label)
