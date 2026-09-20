@@ -1,8 +1,7 @@
 <template>
   <!--
-    `h-full` so the card fills the side panel, matching `PagePropertiesDialog` -- an auto-height card
-    against the scroll area's `calc(100% - 50px)` would otherwise resolve to `auto` and let the card
-    grow past the panel instead of scrolling inside it.
+    `h-full` so the card fills the side panel: against the scroll area's `calc(100% - 50px)` an
+    auto-height card resolves to `auto` and grows past the panel instead of scrolling inside it.
   -->
   <w-card class="page-backlinks-dialog h-full relative">
     <w-toolbar class="bg-primary text-white flex">
@@ -51,29 +50,19 @@ import { localizedPagePath } from '@/helpers/pagePaths'
 import { DEFAULT_PAGE_ICON, usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
-// STORES
-
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// DATA
-
-/** The pages that link to the page currently open, plus whether that list is still loading. */
 const state = reactive({
   isLoading: false,
   backlinks: []
 })
 
-// METHODS
-
 /**
- * Fetches every page linking to the one currently open (`GET
- * sites/:siteId/pages/:pageId/backlinks`, OpenProject #1914) -- already filtered server-side through
- * `read:pages` per source row, so every entry here is safe to link to directly.
+ * The endpoint filters each source row through `read:pages` server-side, so every entry here is safe
+ * to link to directly.
  */
 async function load() {
   state.isLoading = true
@@ -86,8 +75,6 @@ async function load() {
   }
   state.isLoading = false
 }
-
-// MOUNTED
 
 onMounted(() => {
   load()

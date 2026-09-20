@@ -17,13 +17,6 @@
       <span>{{ t(`common.comments.loading`) }}</span>
     </div>
 
-    <!--
-      Distinguishes an invitation to write the first comment from a flat "there are none" -- the
-      former would be misleading (and clutter a read-only visitor's screen with a call to action they
-      cannot act on) for anyone who does not hold `write:comments` at this path. Page-scoped:
-      `can()` also ORs in the global list and treats `manage:system` as a wildcard, which is what
-      lets an administrator see the same invitation everywhere.
-    -->
     <div
       v-else-if="flatComments.length === 0"
       class="page-comments-empty py-4 text-text-caption dark:text-text-caption-dark">
@@ -50,10 +43,8 @@
               </span>
 
               <!--
-                Hover-revealed, per `group-hover` on `.page-comments-card` above --
-                `focus-within:opacity-100` keeps them reachable by keyboard, since a real `:hover`
-                never fires for a tab-focused button. Gated on `canModerate`, not per-comment: see
-                that computed's doc comment for why.
+                `focus-within:opacity-100` alongside the hover reveal: a real `:hover` never fires
+                for a tab-focused button, so these would otherwise be invisible to the keyboard.
               -->
               <div
                 v-if="canModerate"
@@ -89,12 +80,8 @@
               }}
             </div>
             <!--
-              Editing swaps this same slot for a plain-markdown textarea (`editingIds`); see the
-              `saveEdit`/`cancelEdit` doc comments below. Not editing: server-rendered, sanitized HTML
-              -- `comment.render`, never `comment.content` -- the same contract `pageStore.render` is
-              consumed under in `Index.vue`. Populating `render` is Feature 390's job; until then this
-              is empty and the card shows no body, which is the correct rendering of "nothing to show
-              yet" rather than a reason to fall back to the raw, unsanitized markdown source.
+              The body is `comment.render` -- server-rendered and sanitized -- never
+              `comment.content`, which is the raw, unsanitized markdown source.
             -->
             <template v-if="editingIds.has(entry.comment.id)">
               <w-input
@@ -159,49 +146,7 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-/**
- * Page-view comments list.
- *
- * The top-level section for Feature 392: header + live count, loading/empty states, the threaded
- * list itself, and the composer -- a new top-level comment (`CommentComposer.vue`, mounted once,
- * always visible when `canWrite`) plus, per comment, a small 'Reply' affordance that toggles open a
- * second instance of the same composer scoped to that comment via `replyTo`. Guest-name/email capture
- * and client-side validation both live inside `CommentComposer.vue` itself. The edit/delete
- * affordances are a separate task of the same feature, and so is `Index.vue` wiring (where this
- * mounts, gated on `siteStore.features.comments && pageStore.allowComments`); this component is
- * self-contained and reads `pageStore` directly rather than taking page identity as a prop, so it can
- * be dropped in once that wiring lands.
- *
- * Comments come back from Feature 391's list endpoint already threaded server-side --
- * `Comments.listForPage()` (`backend/models/comments.ts`) does one flat, `createdAt`-ordered query and
- * nests each reply under its parent via a `replies` array before the route ever hands it back, rather
- * than shipping a flat `{ ..., replyTo }[]` for the client to re-derive structure from. That tree is
- * flattened again here into `flatComments`, in the same depth-first order, purely to cap the visual
- * indent at {@link MAX_DEPTH} levels -- 2.5.x never had nesting to draw a line at, so this fork picks
- * a small constant rather than letting a deep reply chain run the indent off the side of the card.
- *
- * A freshly-posted comment is spliced straight into `comments` by `onPosted` (into the matching
- * parent's `replies` for a reply, appended top-level otherwise) rather than re-fetching the whole
- * list, and bumps `pageStore.commentsCount` by one -- both list and header count stay live with no
- * extra round trip.
- *
- * Edit/delete (task 630): a hover-revealed pencil/trash pair per comment, gated on `canModerate` --
- * see that computed's doc comment for why this reads a single global permission rather than a
- * per-comment flag. Edit swaps the card's rendered body for a `w-input` textarea pre-filled with
- * `comment.content` (raw markdown, matching what `CommentComposer.vue`'s own textarea edits) and
- * PATCHes on save. Delete opens `confirm()` and DELETEs on confirmation; the server cascades a
- * delete to a comment's replies (`Comments.delete()`, `backend/models/comments.ts` on
- * `feature/comments-data-model`, inspected read-only -- its own doc comment says so explicitly), so
- * this component mirrors that rather than inventing separate orphan/reparent semantics: `deleteComment`
- * removes the whole subtree client-side and decrements `commentsCount` by its full size, not just
- * one.
- *
- * Cross-branch note: `feature/comments-rest-api` -- Feature 391's shipped route, inspected read-only
- * the same way -- confirms the PATCH/DELETE URLs this component posts to
- * (`sites/:siteId/pages/:pageId/comments/:commentId`) and that a comment's own author may self-edit
- * or self-delete without `manage:comments` (`maySelfModerate()` there). Neither route puts that
- * decision on the wire as a flag, though, which is the gap `canModerate` documents.
- */
+/** Page identity comes from `pageStore`, not props, so this mounts wherever the page view wants it. */
 
 const { t } = useI18n()
 
@@ -209,36 +154,23 @@ const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-/** Visual indent cap, in levels. A reply past this depth still renders, just flush with level 3. */
+/** Capped so a long reply chain cannot run the indent off the side of the card. */
 const MAX_DEPTH = 3
-/** Indent per level, in pixels. */
 const INDENT_PX = 32
 
-/** Whether this reader may post here, i.e. the empty state should invite rather than just inform. */
 const canWrite = computed(() => userStore.can('write:comments'))
 
 /**
- * Whether this viewer sees edit/delete controls, on ANY comment on this page.
- *
- * The spec for this control (task 630) is to read a per-comment capability flag off the comment
- * object -- `comment.canEdit` / `comment.canDelete` -- straight from Feature 391's list response,
- * precisely so this component does not re-derive the author-vs-`manage:comments` decision that 391
- * owns (`maySelfModerate()` in `backend/api/comments.ts`). As shipped on `feature/comments-rest-api`
- * (inspected read-only for this task -- see the file-level doc comment above), `toPublicComment()`
- * sends `authorId`, never a resolved boolean, so there is no such flag on the wire to read yet.
- *
- * Per that same task's explicit fallback, this gates on the global `manage:comments` permission
- * alone until 391 ships the flags. A comment's own author therefore cannot edit/delete their own
- * comment through this UI in the meantime, even though the server already allows it for them --
- * a real gap, not a design choice, and one only 391 can close by putting the flags on the wire.
+ * FIXME: the list endpoint sends `authorId` but no resolved `canEdit`/`canDelete` flag, so this
+ * falls back to the global `manage:comments` permission -- a comment's own author cannot edit or
+ * delete their own comment here, even though `maySelfModerate()` (`backend/api/comments.ts`) lets
+ * them. The fix is putting those flags on the wire and gating per comment.
  */
 const canModerate = computed(() => userStore.can('manage:comments'))
 
 const loading = ref(true)
-/** The threaded tree exactly as Feature 391's list endpoint returns it -- see the component doc above. */
 const comments = ref([])
 
-/** Comment ids whose inline reply composer is currently open. */
 const openReplyIds = ref(new Set())
 
 function toggleReply(id) {
@@ -253,12 +185,6 @@ function closeReply(id) {
   openReplyIds.value.delete(id)
 }
 
-/**
- * `comments`, walked depth-first into a flat `{ comment, depth }[]` with `depth` capped at
- * {@link MAX_DEPTH} -- a reply's card sits immediately after its parent's, indented one level more,
- * until the cap is reached, after which every deeper reply still follows immediately but stops
- * indenting further.
- */
 const flatComments = computed(() => flatten(comments.value, 0))
 
 function flatten(nodes, depth) {
@@ -270,11 +196,9 @@ function flatten(nodes, depth) {
 }
 
 /**
- * Initials for the avatar. A guest (no `authorId`) gets a single initial off `authorName`, which the
- * server already resolved to `guestName` for that case -- that one letter is a local rule about an
- * unaccounted commenter, not a second way of computing initials, which is why it stays here. An
- * account holder goes through the shared `helpers/initials.js`, the same derivation the account menu
- * and the collab strip draw, so a three-part name reads the same everywhere.
+ * An account holder goes through the shared helper so a three-part name reads the same here as in
+ * the account menu and the collab strip; the single letter is a local rule for a guest, whose
+ * `authorName` the server resolved from `guestName`.
  */
 function initialsFor(comment) {
   const name = comment.authorName ?? ''
@@ -288,7 +212,6 @@ function isModified(comment) {
   return Boolean(comment.updatedAt) && comment.updatedAt !== comment.createdAt
 }
 
-/** Depth-first search of the threaded tree for the comment with `id`, or null if none matches. */
 function findNode(nodes, id) {
   for (const node of nodes) {
     if (node.id === id) {
@@ -302,20 +225,15 @@ function findNode(nodes, id) {
   return null
 }
 
-/**
- * Handles `CommentComposer`'s `posted` event, from either the top composer or a comment's reply
- * box: splices the new comment straight into `comments` -- under its parent's `replies` when it is a
- * reply, appended top-level otherwise -- closes that reply box if it was one, and bumps the live
- * header count. No re-fetch: the server already handed back everything the list needs to show it.
- */
+/** No re-fetch: the post response already carries everything the list needs to draw the comment. */
 function onPosted(newComment) {
   if (newComment.replyTo) {
     const parent = findNode(comments.value, newComment.replyTo)
     if (parent) {
       parent.replies = [...(parent.replies ?? []), newComment]
     } else {
-      // -> Parent not found in the currently loaded tree (should not happen): still show the new
-      //    comment rather than silently drop it.
+      // -> Parent missing from the loaded tree (should not happen): show the reply top-level rather
+      //    than drop it.
       comments.value = [...comments.value, newComment]
     }
     closeReply(newComment.replyTo)
@@ -325,16 +243,11 @@ function onPosted(newComment) {
   pageStore.commentsCount += 1
 }
 
-/** Comment ids currently showing their edit textarea instead of rendered body. */
 const editingIds = ref(new Set())
-/** Comment ids whose PATCH is currently in flight, for the Update button's `:loading`. */
 const editSubmittingIds = ref(new Set())
-/** Draft content per comment id currently being edited, keyed by id. */
 const editDrafts = ref({})
-/** `w-input` component instances for the open edit textareas, keyed by comment id -- `validate()` is
- *  called on the right one before a save, the same way `CommentComposer.vue`'s `composerForm` ref
- *  gates its own submit. A plain `Map`, not a ref: it holds component instances, not data to react
- *  to, and several can be open at once (one per comment in edit mode). */
+/** A plain `Map`, not a ref: it holds `w-input` instances to call `validate()`/`focus()` on, not
+ *  data anything renders from. */
 const editInputRefs = new Map()
 
 function setEditInputRef(id, el) {
@@ -345,8 +258,7 @@ function setEditInputRef(id, el) {
   }
 }
 
-/** Same threshold as `CommentComposer.vue`'s `contentRules` -- an edit is held to the same bar a new
- *  comment is. */
+/** Same threshold as `CommentComposer.vue`'s `contentRules`: an edit is held to a new comment's bar. */
 const editContentRules = [
   (val) => (val ?? '').trim().length >= 2 || t(`common.comments.contentMissingError`)
 ]
@@ -354,11 +266,8 @@ const editContentRules = [
 function startEdit(comment) {
   editDrafts.value[comment.id] = comment.content
   editingIds.value.add(comment.id)
-  /*
-    The textarea doesn't exist until this reactive update lands (it's `v-if`, swapping in for the
-    rendered body), so the `ref` callback -- `setEditInputRef` -- hasn't populated `editInputRefs` for
-    this id yet at this point in the same tick. `nextTick` waits for that render before looking it up.
-  */
+  // -> The textarea is a `v-if` swap for the rendered body, so `setEditInputRef` has not run for
+  //    this id yet in this tick.
   nextTick(() => {
     editInputRefs.get(comment.id)?.focus()
   })
@@ -370,11 +279,7 @@ function cancelEdit(id) {
   editInputRefs.delete(id)
 }
 
-/**
- * PATCHes `comment`'s content and, on success, writes the server's response straight onto the same
- * node object already in `comments` -- it is mutated in place rather than re-spliced, since `entry`
- * (and therefore `comment`) is a reference into the reactive tree, not a copy.
- */
+/** `comment` is a reference into the reactive tree, so the response is written onto it in place. */
 async function saveEdit(comment) {
   const inputRef = editInputRefs.get(comment.id)
   if (inputRef && !(await inputRef.validate())) {
@@ -386,8 +291,6 @@ async function saveEdit(comment) {
       `sites/${siteStore.id}/pages/${pageStore.id}/comments/${comment.id}`,
       { json: { content: (editDrafts.value[comment.id] ?? '').trim() } }
     ).json()
-    // -> The API client does not throw for a 400, so a refusal comes back as a parsed error
-    //    envelope rather than a rejection: without this check it reads as a successful edit.
     if (updated?.ok === false) {
       throw new Error(updated.message || t(`common.error.generic.title`))
     }
@@ -407,13 +310,10 @@ async function saveEdit(comment) {
   }
 }
 
-/** `comment` plus every reply under it, recursively -- how many rows a delete of `comment` removes. */
 function countCommentTree(comment) {
   return 1 + (comment.replies ?? []).reduce((sum, reply) => sum + countCommentTree(reply), 0)
 }
 
-/** `nodes` with the comment named `id`, and everything under it, filtered out -- immutable, matching
- *  `onPosted`'s style of replacing arrays rather than splicing them in place. */
 function removeCommentFromTree(nodes, id) {
   return nodes
     .filter((node) => node.id !== id)
@@ -421,13 +321,9 @@ function removeCommentFromTree(nodes, id) {
 }
 
 /**
- * Opens the shared `confirm()` dialog and, on confirmation, DELETEs `comment`.
- *
- * The server cascades a delete to every reply under the deleted comment (`Comments.delete()`,
- * `backend/models/comments.ts` on `feature/comments-data-model` -- its own doc comment: "Cascades to
- * its replies via the `replyTo` foreign key"). This mirrors that rather than inventing separate
- * client-side semantics: the whole subtree is removed from `comments` and `pageStore.commentsCount`
- * drops by its full size ({@link countCommentTree}), not just one.
+ * The server cascades a delete to every reply under the comment (`Comments.delete()`,
+ * `backend/models/comments.ts`), so this mirrors it client-side: the whole subtree goes and
+ * `commentsCount` drops by its full size, not by one.
  */
 function confirmDelete(comment) {
   confirm({
@@ -446,8 +342,6 @@ async function deleteComment(comment) {
     const resp = await API_CLIENT.delete(
       `sites/${siteStore.id}/pages/${pageStore.id}/comments/${comment.id}`
     )
-    // -> The API client does not throw for a 400, so a refusal comes back as a response with
-    //    `ok: false` rather than a rejection: without this check it reads as a successful delete.
     if (!resp?.ok) {
       throw new Error((await resp.json())?.message || t(`common.error.generic.title`))
     }
@@ -464,9 +358,8 @@ async function deleteComment(comment) {
 }
 
 /**
- * Fetches this page's comments. A no-op while `pageStore.id` is not yet known -- e.g. the very first
- * tick of a page still loading -- rather than firing a request against a malformed URL; the `watch`
- * below re-runs this once an id arrives.
+ * A no-op while `pageStore.id` is unknown -- the first tick of a page still loading -- rather than
+ * requesting a malformed URL; the `watch` below re-runs it once an id arrives.
  */
 async function fetchComments() {
   if (!pageStore.id) {
@@ -489,7 +382,7 @@ async function fetchComments() {
 }
 
 onMounted(fetchComments)
-// -> SPA navigation between pages does not remount this component, so a fresh `pageStore.id` is the
-//    only signal that there is a different page's comments to fetch.
+// -> SPA navigation does not remount this component, so a fresh `pageStore.id` is the only signal
+//    that there is a different page's comments to fetch.
 watch(() => pageStore.id, fetchComments)
 </script>

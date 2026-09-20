@@ -2,8 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 // -> `PageActionsCol.vue` imports `browser-fs-access` at module scope, so the module graph needs a
-//    stand-in even in the shards that never assert on `fileSave` -- only `PageActionsCol.export`
-//    reads its calls.
+//    stand-in even in a shard that never asserts on `fileSave`.
 vi.mock('browser-fs-access', () => ({
   fileSave: vi.fn().mockResolvedValue(undefined)
 }))
@@ -36,8 +35,6 @@ describe('PageActionsCol page actions menu', () => {
     expect(menuItemLabels()).toContain('Rerender Page')
   })
 
-  // -> OpenProject #1917: View Backlinks is unconditional now, so unlike Rerender Page it never
-  //    leaves the "..." trigger with nothing to show -- the button stays, just without Rerender Page.
   it('keeps the "..." Page Actions button visible via View Backlinks even when Rerender Page cannot run', async () => {
     ;({ wrapper } = await mountRailWithPageActions({ pdfExportAvailable: false }))
 
@@ -62,13 +59,6 @@ describe('PageActionsCol page actions menu', () => {
     expect(menuItemLabels()).toContain('View Backlinks')
   })
 
-  /**
-   * OpenProject #1921: the dead menu-conversion placeholder item (and the `hasPageActions` computed
-   * that existed only to keep this menu from opening empty for a guest) is gone entirely. This is the
-   * scenario that computed used to guard -- a guest with neither `write:pages` nor `manage:pages` --
-   * confirming the "..." trigger still renders and its menu still isn't empty, now on View Backlinks
-   * alone, with no disabled placeholder standing in for the deleted entry.
-   */
   it('shows a non-empty menu with only View Backlinks for a guest with no page permissions', async () => {
     ;({ wrapper } = await mountRailWithPageActions({ canWritePages: false }))
 
@@ -96,10 +86,6 @@ describe('PageActionsCol page actions menu', () => {
   })
 })
 
-/**
- * OpenProject #3399: Convert Editor's own gate -- `write:pages`, a page currently in `markdown` or
- * `wysiwyg`, and both of those editors actually active on the site.
- */
 describe('PageActionsCol Convert Editor gate (OpenProject #3399)', () => {
   let wrapper
 
@@ -182,12 +168,6 @@ describe('PageActionsCol Convert Editor gate (OpenProject #3399)', () => {
   })
 })
 
-/**
- * OpenProject #1787: this `.onOk` handler used to call `pageStore.pageDuplicate(...)` with no
- * `await` and no `.catch` -- a rejection (the store's own `pageCreate` call, or the source-page
- * fetch before it) surfaced nowhere, leaving the reader with no feedback at all. Matches
- * `FileManager.vue`'s own duplicate handler, which already awaits and notifies.
- */
 describe('PageActionsCol duplicate page (OpenProject #1787)', () => {
   let wrapper
 

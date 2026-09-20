@@ -2,8 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 // -> `PageActionsCol.vue` imports `browser-fs-access` at module scope, so the module graph needs a
-//    stand-in even in the shards that never assert on `fileSave` -- only `PageActionsCol.export`
-//    reads its calls.
+//    stand-in even in a shard that never asserts on `fileSave`.
 vi.mock('browser-fs-access', () => ({
   fileSave: vi.fn().mockResolvedValue(undefined)
 }))
@@ -54,8 +53,7 @@ describe('PageActionsCol page history button', () => {
 
   it('notifies instead of opening the overlay for an unsaved page with no id', async () => {
     let ctx
-    // -> '' is the store's real default (page.js), not a stand-in like `null` -- a never-saved page
-    //    has literally never been assigned an id
+    // -> '' is the store's real default (`stores/page.js`), not a stand-in for `null`
     ;({ wrapper } = ctx = await mountRailWithHistory({ pageId: '', creating: true }))
 
     await wrapper.get('[aria-label="pageActions.pageHistory"]').trigger('click')
@@ -67,16 +65,11 @@ describe('PageActionsCol page history button', () => {
 })
 
 /**
- * OpenProject #2618: the rail's primary button opens Page Properties -- contents, tags, ratings,
- * comments -- and the Cardinal design draws it as a tag, not the pencil the second pass left there.
- * Pinned here because the glyph is a bare attribute with nothing else depending on it, which is
- * exactly the kind of thing that drifts back silently.
- *
- * Asserted through `data-icon` on the rendered element, which `WIcon.vue` carries on every branch
- * for this reason -- an inline <svg> is otherwise anonymous. `svg` rather than `iconify-icon` is
- * the second half of the claim: `tabler:tag` has to be in the committed
- * `src/assets/icons.generated.js` bundle (`npm run icons`), or WIcon falls through to a runtime
- * `/_icons` fetch instead of drawing it inline like every other chrome glyph.
+ * The glyph is a bare attribute with nothing else depending on it, exactly the kind of thing that
+ * drifts back silently. `data-icon` is what makes it assertable -- an inline <svg> is otherwise
+ * anonymous -- and `svg` rather than `iconify-icon` is the second half of the claim: `tabler:tag`
+ * has to be in the committed `src/assets/icons.generated.js` bundle (`npm run icons`), or WIcon
+ * falls through to a runtime `/_icons` fetch instead of drawing it inline.
  */
 describe('PageActionsCol Page Properties glyph (#2618)', () => {
   let wrapper

@@ -13,15 +13,6 @@ import { queue } from '@/composables/notify'
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 
-/**
- * OpenProject #945, item 2: `processPendingAssets()`'s `.onCancel(reject)` used to reject its
- * returned promise with no reason (`composables/dialog.js`'s `closeDialog` invokes every `cancel`
- * handler with no argument), and the three call sites all `await` it outside a try/catch in an async
- * function nothing else awaits either -- so cancelling (or failing) the pending-asset upload used to
- * surface as an unhandled promise rejection with an `undefined` reason instead of simply stopping the
- * save. This drives the real `UploadPendingAssetsDialog` open via `dialog()`'s own bookkeeping
- * (`openDialogs`/`closeDialog`) and closes it WITHOUT firing `ok`, the same shape a real cancel takes.
- */
 async function mountHeader() {
   setActivePinia(createPinia())
 
@@ -55,7 +46,7 @@ describe('PageHeader pending-asset upload cancellation (OpenProject #945)', () =
   })
 
   afterEach(() => {
-    // -> Whatever this test's own dialog left behind, so it cannot bleed into a later test file's
+    // -> `openDialogs` is module state: an entry left behind bleeds into a later file's
     //    `<w-dialog-host>` render.
     openDialogs.splice(0, openDialogs.length)
   })
@@ -70,13 +61,13 @@ describe('PageHeader pending-asset upload cancellation (OpenProject #945)', () =
     await wrapper.find('[aria-label="common.actions.saveChanges"]').trigger('click')
     await wrapper.vm.$nextTick()
 
-    // -> `UploadPendingAssetsDialog` is now open (registered in `openDialogs` by `dialog()`); closing
-    //    it without `okFired` is exactly what a reader dismissing/cancelling it does.
+    // -> Closing the open `UploadPendingAssetsDialog` without firing `ok` is the shape a reader
+    //    dismissing it takes.
     expect(openDialogs).toHaveLength(1)
     closeDialog(openDialogs[0].id, false)
 
-    // -> Give the microtask queue a turn to actually settle `processPendingAssets()`'s promise and
-    //    run past the `if (!(await processPendingAssets())) { return }` guard.
+    // -> A macrotask turn, so `processPendingAssets()`'s promise settles and the save runs past its
+    //    guard.
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.vm.$nextTick()
 

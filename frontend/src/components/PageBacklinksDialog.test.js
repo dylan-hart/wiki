@@ -9,12 +9,6 @@ import { useSiteStore } from '@/stores/site'
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 
-/**
- * OpenProject #1917: the backlinks side panel, fetching `GET
- * sites/:siteId/pages/:pageId/backlinks` (#1914, `API_CLIENT` stubbed per `test/setup.js`) on mount
- * and rendering the empty state with no rows, one entry per source page otherwise -- each row a link
- * built through `localizedPagePath`, the same helper `HeaderSearch.vue`/`Search.vue` use.
- */
 const REAL_STRINGS = {
   'editor.backlinks.title': 'Backlinks',
   'editor.backlinks.empty': 'No pages link to this page yet.',
@@ -83,8 +77,8 @@ describe('PageBacklinksDialog', () => {
       { id: 'page-2', path: 'docs/intro', title: 'Intro', icon: null, locale: 'en' }
     ])
 
-    // -> `siteStore.useLocales` (its `locales.active.length > 1` getter) is false by default in a
-    //    freshly-created store, so `localizedPagePath` leaves the path unprefixed here.
+    // -> `siteStore.useLocales` is false in a freshly-created store (no second active locale), so
+    //    `localizedPagePath` leaves the path unprefixed here.
     const link = wrapper.get('.w-item')
     expect(link.attributes('href')).toBe('/docs/intro')
   })

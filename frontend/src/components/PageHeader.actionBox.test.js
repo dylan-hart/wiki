@@ -6,32 +6,16 @@ import { mountWithApp } from '../../test/mount.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #2616: every button in `.page-header-actions` must draw the same target box.
+ * A target box is a laid-out thing and neither `jsdom` nor `happy-dom` runs a layout engine -- every
+ * `getBoundingClientRect()` under them comes back zeroed -- so the row is measured in real headless
+ * Chromium. Asserting against markup instead would pass just as happily against a stylesheet that
+ * un-did the equal-box rule somewhere else.
  *
- * Watch and Print were `dense` icon-only `w-btn`s while Edit beside them was a full labelled one, so
- * the two drew a 28px/10px hover-and-click box against Edit's 32px/14px -- visibly smaller targets in
- * a row that reads as one group. What is NOT the defect, and must survive: Edit keeps the accent fill
- * (Cardinal's one-filled-button-per-surface rule, stated in `PageHeader.vue`'s own comment above it)
- * and the rest stay bare icons in the chrome tone. The complaint is the box, not the fill.
- *
- * Measured in real headless Chromium rather than asserted against markup, for the reason
- * `test/realGridLayout.js` exists at all: a hover box is a laid-out thing, and neither `jsdom` nor
- * `happy-dom` runs a layout engine -- every `getBoundingClientRect()` under them comes back zeroed.
- * Asserting on the absence of a `dense` prop would pass just as happily against a stylesheet that
- * un-did the fix somewhere else.
- *
- * The page handed to Chromium is assembled from three parts, and all three are load-bearing:
- *
- *   - `buildAppCss()` compiles `src/css/tailwind.css` only, which is where the row's own flex
- *     layout and `WBtn`'s utility classes come from;
- *   - the `<style>` elements Vitest injects into `document` during the mount (`test.css: true` is
- *     on) carry every SFC's styles, INCLUDING `PageHeader.vue`'s own scoped rule -- the fix under
- *     test. `_base.css` and the rest of `app.css` are in neither bundle, which is precisely why
- *     the equal-box rule lives in this component's scoped block rather than there;
- *   - `wrapper.html()` carries the `data-v-*` scope attributes those scoped selectors need.
- *
- * Nothing is added to `test/realGridLayout.js` itself -- it is shared with several other
- * real-browser suites, and the measurement below is specific to this row.
+ * The page handed to Chromium is three load-bearing parts: `buildAppCss()` (the row's flex layout
+ * and `WBtn`'s utility classes), the `<style>` elements Vitest injects during the mount (every
+ * SFC's styles, `PageHeader.vue`'s scoped equal-box rule included -- `app.css` is in neither
+ * bundle, which is why that rule lives in the component), and `wrapper.html()`, which carries the
+ * `data-v-*` attributes those scoped selectors need.
  */
 describe(
   'PageHeader action-row target box (OpenProject #2616)',
@@ -47,11 +31,7 @@ describe(
       await browser?.close()
     })
 
-    /**
-     * Every optional member of the row turned on at once: an authenticated reader who may write, on a
-     * page that is not a redirection, with the print button enabled. That is watch + print + Edit --
-     * the whole set the note names, in one measurement.
-     */
+    /** Every optional member of the row at once, so watch, print and Edit are one measurement. */
     async function measureActionRow() {
       const router = await createTestRouter(['/'])
       const { wrapper } = mountWithApp(PageHeader, {

@@ -52,8 +52,6 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// PROPS
-
 const props = defineProps({
   pageId: {
     type: String,
@@ -65,30 +63,18 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
 
-// DIALOG
-
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
-
-// STORES
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   isLoading: false
 })
-
-// METHODS
 
 async function confirm() {
   state.isLoading = true
@@ -99,19 +85,15 @@ async function confirm() {
       message: t('pageDeleteDialog.deleteSuccess')
     })
     /*
-      OpenProject #1012: a deleted page drops out of whatever `auto`/`mixed` menu generated from it,
-      and `models/tree.ts`/`models/pages.ts` also clean up any per-page nav override the deleted
-      entry itself held (`navigation.deleteNavForEntries`) -- neither is visible to an already-open
-      tab without this. Both callers of this dialog (`PageActionsCol.vue`, `FileManager.vue`)
-      navigate or reload their own view in their own `onOk`, after this promise resolves, so
-      `pageStore.navigationId` here is still whatever it was going into the delete -- correct to
-      force-refetch before that follow-up settles, since it is exactly what the sidebar is showing
-      right now and needs told the deleted entry is gone.
+      Forced past the cache: a deleted page drops out of any `auto`/`mixed` menu generated from it,
+      and its per-page nav override is cleaned up server-side, neither of which an already-open tab
+      can see. Callers navigate in their own `onOk`, after this resolves, so `navigationId` is still
+      the menu the sidebar is showing right now.
     */
     await siteStore.fetchNavigation(pageStore.navigationId, true)
     onDialogOK()
   } catch (err) {
-    // -> ky throws above 400 — a page deleted from another tab answers 404
+    // -> A page already deleted from another tab answers 404, which ky throws
     notify({
       type: 'negative',
       message: apiErrorMessage(err)

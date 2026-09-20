@@ -10,11 +10,6 @@ vi.mock('@/helpers/clipboard', () => ({
   copyToClipboard: vi.fn().mockResolvedValue(undefined)
 }))
 
-/**
- * OpenProject #2795: the standalone "Copy Page Content" rail button, next to Export. Fetches the
- * same `format=markdown` export endpoint the Export menu's Markdown item uses, but hands the result
- * to `copyToClipboard()` instead of `fileSave()`.
- */
 describe('PageActionsCol copy page content', () => {
   let wrapper
 
@@ -67,10 +62,8 @@ describe('PageActionsCol copy page content', () => {
   })
 
   /**
-   * OpenProject #3401: the endpoint hands back the page's raw stored `content` regardless of the
-   * `format` name, and a WYSIWYG page's content is real markdown now (`@tiptap/markdown`, not typed
-   * Tiptap JSON -- OpenProject #3388), so this is literal Markdown for a `wysiwyg` page too, the
-   * same as the plain `markdown` editor -- not HTML source, which is what it used to be.
+   * The endpoint hands back the page's raw stored `content` whatever the `format` name says, and a
+   * `wysiwyg` page stores real markdown (`@tiptap/markdown`) rather than Tiptap JSON or HTML.
    */
   it('fetches the raw markdown export for a wysiwyg-editor page too, since it stores markdown now', async () => {
     let ctx

@@ -2,8 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 // -> `PageActionsCol.vue` imports `browser-fs-access` at module scope, so the module graph needs a
-//    stand-in even in the shards that never assert on `fileSave` -- only `PageActionsCol.export`
-//    reads its calls.
+//    stand-in even in a shard that never asserts on `fileSave`.
 vi.mock('browser-fs-access', () => ({
   fileSave: vi.fn().mockResolvedValue(undefined)
 }))
@@ -56,7 +55,6 @@ describe('PageActionsCol pending asset rename', () => {
     await flushPromises()
 
     expect(ctx.editorStore.pendingAssets[0].fileName).toBe('team-photo.png')
-    // -> Back to read-only view, not left editing
     expect(document.querySelector('input')).toBeNull()
   })
 
@@ -121,7 +119,6 @@ describe('PageActionsCol pending asset rename', () => {
     await flushPromises()
 
     expect(ctx.editorStore.pendingAssets[0].fileName).toBe('a1b2c3.png')
-    // -> Still editing: no fileName text node, the field is still there
     expect(document.querySelector('input')).not.toBeNull()
   })
 

@@ -18,10 +18,6 @@ const messages = {
   }
 }
 
-/**
- * Split into its own file rather than folded into a hypothetical broader `PageHeader.test.js`: this
- * only exercises the task 480 indicator, not the rest of the (971-line) header.
- */
 async function mountHeader() {
   setActivePinia(createPinia())
   const editorStore = useEditorStore()

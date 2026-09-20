@@ -5,10 +5,8 @@ import PageCommentsEmbed from './PageCommentsEmbed.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /*
-  Same reasoning as `helpers/commentEmbeds.test.js`: a real <script src> appended by `mount()` is
-  exactly what production wants, and happy-dom's test-safe default refuses that load rather than
-  silently no-op'ing. `handleDisabledFileLoadingAsSuccess` dispatches `load` instead, which is what
-  lets `provider.mount()`'s own `await` resolve in a test.
+  happy-dom refuses to load the real <script src> that `mount()` appends. Dispatching `load` anyway
+  is what lets `provider.mount()`'s own `await` resolve here.
 */
 window.happyDOM.settings.handleDisabledFileLoadingAsSuccess = true
 
@@ -111,10 +109,9 @@ describe('PageCommentsEmbed', () => {
     await flushPromises()
 
     const firstContainer = wrapper.find('.page-comments-embed-container').element
-    // -> `window.DISQUS` never becomes real under happy-dom's refused-load stand-in (same limitation
-    //    documented in `helpers/commentEmbeds.test.js`), so the second mount still goes through the
-    //    "load embed.js" branch rather than `DISQUS.reset()` -- what this asserts is the CONTAINER
-    //    identity changing, not which of the two branches ran.
+    // -> `window.DISQUS` never becomes real under happy-dom's refused-load stand-in, so the second
+    //    mount still takes the "load embed.js" branch: what this asserts is the container identity
+    //    changing, not which branch ran.
     pageStore.id = 'p2'
     pageStore.path = 'en/other-page'
     await flushPromises()
