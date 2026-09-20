@@ -16,24 +16,20 @@ const publicSelection = {
 
 /**
  * A block prop lives in a page's own markdown, readable by anyone holding `read:source` on that
- * page — not a safe place for an endpoint's auth token. This model is the credential store a
- * server-fetching block points at instead: a block prop carries a credential's `id` alone, and only
- * `getCredentialForResolve()` ever reads the `secret` column back out, for the server-side fetch
- * that resolves the block's data (`models/liveData.ts`). Every other method here — the ones an API
+ * page — not a safe place for an endpoint's auth token. A block prop therefore carries a
+ * credential's `id` alone, and only `getCredentialForResolve()` ever reads the `secret` column back
+ * out, for the server-side fetch in `models/liveData.ts`. Every other method here — the ones an API
  * route can reach — returns {@link BlockCredential}, which has no `secret` field to leak.
  *
  * `allowedOrigins` is a second, independent boundary: even a caller who legitimately knows a
- * credential's id (any `write:pages` author who can read a page already using it) can only have that
- * credential sent to an origin+path-prefix the admin who created it explicitly allowed — an entry is
- * a full `scheme://host[:port]/path-prefix`, not a bare hostname. `models/liveData.ts#resolve()`
- * enforces it; this model only validates the syntax and stores the list.
+ * credential's id can only have it sent to an origin+path-prefix the admin who created it explicitly
+ * allowed — an entry is a full `scheme://host[:port]/path-prefix`, not a bare hostname.
+ * `models/liveData.ts#resolve()` enforces it; this model only validates the syntax and stores it.
  */
 class BlockCredentials {
   /**
-   * @throws {CustomError} `Bad Request` (400) for any entry that isn't a valid
-   *   `scheme://host[:port][/path-prefix]` origin. The API route's own JSON Schema `pattern` already
-   *   rejects a malformed entry in the ordinary case; this keeps that guarantee true for every other
-   *   caller of this model too, not just the one route.
+   * The API route's own JSON Schema `pattern` already rejects a malformed entry in the ordinary
+   * case; this keeps that guarantee true for every other caller of this model too.
    */
   private assertValidAllowedOrigins(allowedOrigins: string[]): void {
     for (const entry of allowedOrigins) {
@@ -55,9 +51,6 @@ class BlockCredentials {
   }
 
   /**
-   * The secret and its allowlist, for the server-side fetch alone — the secret is never routed
-   * through an API response.
-   *
    * @returns `undefined` when no such credential exists on this site, so a caller cannot use this to
    *   probe whether an id from another site exists.
    */
@@ -92,8 +85,6 @@ class BlockCredentials {
   /**
    * Reissues a leaked or expiring token without an author having to update every block prop that
    * references this credential's id.
-   *
-   * @returns Whether a matching row was found and updated
    */
   async rotateSecret(siteId: string, id: string, secret: string): Promise<boolean> {
     const result = await CARDINAL.db
@@ -104,11 +95,8 @@ class BlockCredentials {
   }
 
   /**
-   * Unlike creation, this may reduce the list to empty — an admin deliberately disabling the
-   * credential rather than deleting it, which is fail-closed (it simply stops resolving for every
-   * URL) rather than a new exposure.
-   *
-   * @returns Whether a matching row was found and updated
+   * Reducing the list to empty is allowed — an admin disabling the credential rather than deleting
+   * it. That is fail-closed: it simply stops resolving for every URL.
    */
   async updateAllowedOrigins(
     siteId: string,

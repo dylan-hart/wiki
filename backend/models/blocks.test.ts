@@ -170,9 +170,6 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
   })
 
   test('syncSite is safe to call concurrently for the same site: exactly one row per block key', async () => {
-    // -> Two instances booting together both read the same "not present yet" snapshot and both reach
-    //    the insert. `blocks_composite_idx` + `onConflictDoNothing` is what keeps that from writing
-    //    two rows for the same block.
     blocksModel.definitions = [
       { block: 'boot-race-widget', name: 'Boot Race Widget', description: 'x', icon: 'mdi:cube' }
     ]
@@ -214,7 +211,6 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
     assert.equal(created.template, 'Starter body')
     assert.deepEqual(created.props, [{ name: 'title', type: 'string' }])
     assert.deepEqual(created.configFields, [])
-    // -> No override extracted for this upload, so it falls back the same way `getSiteBlocks()` does
     assert.equal(created.elementTag, 'block-fresh-widget')
 
     const code = await blocksModel.getCustomBlockCode(fixtures.siteId, created.id)
@@ -244,9 +240,6 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
   })
 
   test('a createCustomBlock race on the same tag surfaces as a 409 CustomError, not a raw 23505', async () => {
-    // -> `isTagTaken()` is only a pre-check, not an atomic reservation: two uploads for the same tag
-    //    can both pass it and both reach the insert, so `blocks_composite_idx` is what actually
-    //    decides the winner. Exactly one of the two should succeed either way.
     const definition = (): BlockDefinition => ({
       block: 'race-widget',
       name: 'Race Widget',
@@ -344,7 +337,6 @@ describe('blocks.getSiteBlocks configFields (DB-backed)', { skip: !hasTestDataba
 
     assert.ok(mapBlock)
     assert.deepEqual(mapBlock!.configFields, definition.config)
-    // -> The site's own admin-set values live on `config` (the row), untouched by `configFields`
     assert.deepEqual(mapBlock!.config, { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' })
   })
 
@@ -498,8 +490,8 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
       }
     ]
 
-    // -> `before()`/`after()` run once for the whole describe block, so this test shares its schema
-    //    and `fixtures.siteId` with every other test here. Clear the 'map' row an earlier test left
+    // -> `before()`/`after()` run once for the whole describe, so this test shares its schema and
+    //    `fixtures.siteId` with every other one here. Clear the 'map' row an earlier test left
     //    behind, or this insert collides with `blocks_composite_idx`.
     await fixtures.db
       .delete(blocksTable)
@@ -541,7 +533,7 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
       }
     ]
 
-    // -> Same shared-schema reason as the previous test: clear any leftover 'map' row first.
+    // -> Shared schema again: clear any leftover 'map' row first.
     await fixtures.db
       .delete(blocksTable)
       .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'map')))
@@ -572,7 +564,6 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
     assert.deepEqual(siteBlock!.config, { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' })
   })
 
-  /** Leaving those pages unqueued is deliberate, not an oversight — see `setBlocksState`'s own doc. */
   test('disabling a block leaves pages that embed it unqueued and their stored render untouched', async () => {
     blocksModel.definitions = [
       {
@@ -637,11 +628,6 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
   })
 })
 
-/**
- * block-plantuml's `server` config is fetched server-side by `DiagramRender#renderPlantuml`, so a bad
- * value is not merely a rendering mistake an author would notice: it is refused at the point an admin
- * writes it, rather than discovered the next time a diagram render tries to reach it.
- */
 describe(
   "blocks.setBlocksState validates block-plantuml's server config (DB-backed)",
   {
@@ -671,8 +657,8 @@ describe(
         }
       ]
       // -> `assertValidConfig()` hardcodes the literal block key 'plantuml', so these tests cannot
-      //    each use a unique `block` key the way the other describe blocks here do. Clear any row a
-      //    previous test left behind instead of colliding with `blocks_composite_idx`.
+      //    each use a unique `block` key the way the other describes here do. Clear any row left
+      //    behind instead of colliding with `blocks_composite_idx`.
       await fixtures.db
         .delete(blocksTable)
         .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'plantuml')))
@@ -815,11 +801,6 @@ describe(
   }
 )
 
-/**
- * block-kroki's own `server` config is validated for the same reason block-plantuml's is:
- * `DiagramProxy#resolveServer` (`models/diagramProxy.ts`) fetches it server-side when the shared
- * Kroki/PlantUML POST proxy resolves a site's configured engine server.
- */
 describe(
   "blocks.setBlocksState validates block-kroki's server config (DB-backed)",
   {
@@ -848,7 +829,7 @@ describe(
           config: [{ name: 'server', type: 'string' }]
         }
       ]
-      // -> Same reasoning as `insertPlantumlBlock()` above: one shared row, cleared per test.
+      // -> Same as `insertPlantumlBlock()`: the key is hardcoded, so one shared row, cleared per test.
       await fixtures.db
         .delete(blocksTable)
         .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'kroki')))

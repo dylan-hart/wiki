@@ -24,7 +24,7 @@ export interface ChecklistItemCheck {
   itemKey: string
   checkedAt: Date
   checkedBy: string | null
-  /** The account name at the time of the join, or `null` once the account is gone. */
+  /** Read live through a left join, so `null` once the account is gone. */
   checkedByName: string | null
 }
 
@@ -62,9 +62,8 @@ const executionColumns = {
 }
 
 /**
- * Data access over `checklistExecutions`/`checklistItemChecks` — the run log behind
- * `block-checklist`. Distinct from `models/pageHistory.ts` (content revisions) and
- * `models/approvals.ts` (the editorial publish workflow): this records that someone actually
+ * The run log behind `block-checklist`. Distinct from `models/pageHistory.ts` (content revisions)
+ * and `models/approvals.ts` (the editorial publish workflow): this records that someone actually
  * performed a procedure, not that a page's content changed.
  *
  * No permission checks here: that is `api/checklists.ts`'s job, where the request and the page-rule
@@ -72,13 +71,12 @@ const executionColumns = {
  */
 class Checklists {
   /**
-   * Record that `itemKey` was checked, starting a new execution first if none is currently active.
+   * Starts a new execution first if none is currently active.
    *
    * Idempotent per item: checking an already-checked item in the same execution changes nothing and
    * keeps the original `checkedBy`/`checkedAt` — a run log records the first time something happened,
-   * not the most recent click. When this check brings the execution's checked count up to its
-   * `itemCount`, the execution completes automatically, attributed to whoever just checked the last
-   * item.
+   * not the most recent click. When this check brings the checked count up to the execution's
+   * `itemCount`, it completes automatically, attributed to whoever checked the last item.
    */
   async checkItem({
     siteId,
@@ -110,8 +108,8 @@ class Checklists {
       userId
     })
 
-    // -> Validated against the execution's OWN itemCount, not the possibly-stale `itemCount` argument
-    //    above: that one only ever starts a brand new execution, and an active execution someone else
+    // -> Validated against the execution's OWN itemCount, not the possibly-stale argument above:
+    //    that one only ever starts a brand new execution, and an active execution someone else
     //    already started keeps the count it was started with.
     const match = ITEM_KEY_PATTERN.exec(itemKey)
     if (!match || Number(match[1]) >= execution.itemCount) {
@@ -155,8 +153,6 @@ class Checklists {
   }
 
   /**
-   * The currently active (incomplete) execution for this checklist, creating one if none exists.
-   *
    * Relies on `checklistExecutions_active_idx` (unique on `(pageId, blockKey)` scoped to
    * `completedAt IS NULL` rows) to stay correct under concurrent requests: both an insert race and a
    * `SELECT`-then-lost-race fall through to the same `onConflictDoNothing` + re-select, so at most one
@@ -265,8 +261,8 @@ class Checklists {
   }
 
   /**
-   * Every execution of this checklist, most recently started first. One query for the executions plus
-   * one grouped query for their checked-item counts, not one count query per row.
+   * One query for the executions plus one grouped query for their checked-item counts, not one count
+   * query per row.
    */
   async listExecutions(
     pageId: string,
