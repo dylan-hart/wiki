@@ -1,23 +1,16 @@
-// -> A path (module id) belonging to `temporal-polyfill`'s `./global` export, which
-//    `boot/temporal.js` dynamically imports (`import('temporal-polyfill/global')`). That export maps
-//    to `global.esm.js` at the package root, or `full/global.esm.js` for the `temporal-polyfill/full`
-//    variant -- see `temporal-polyfill`'s own `package.json#exports`. Matched on the module id's tail
-//    so it doesn't matter whether the path arrives absolute, npm-flat, or through a pnpm-style
-//    `node_modules/.pnpm/...` symlink hop.
+// -> The module id behind `temporal-polyfill`'s `./global` export: `global.esm.js` at the package
+//    root, or `full/global.esm.js` for the `full` variant. Matched on the id's tail so it does not
+//    matter whether the path arrives absolute, npm-flat, or through a pnpm-style symlink hop.
 const TEMPORAL_POLYFILL_MODULE_RE = /[\\/]temporal-polyfill[\\/](full[\\/])?global\.esm\.js$/
 
 export const TEMPORAL_POLYFILL_PLACEHOLDER = '<!--temporal-polyfill-chunk-url-->'
 
 /**
- * Finds the built chunk carrying temporal-polyfill's `global.esm` module in a Rollup/Rolldown
- * `OutputBundle` (the object `generateBundle`/`writeBundle` receive, keyed by output file name) and
- * returns that chunk's `fileName` -- e.g. `_assets/global.esm-XXXXXXXX.js`.
- *
- * A pure function, deliberately: it takes the plain bundle object rather than reading the plugin's
- * own captured state, so it can be exercised in a unit test against a synthetic sample bundle with no
- * real build involved. Throws rather than returning `null`/`''` when no matching chunk is present --
- * a silently empty URL would ship an inline script assigning `window.__wikiTemporalPolyfillUrl` to
- * garbage, which is a much harder failure to notice than a build that refuses to finish.
+ * Takes the plain `OutputBundle` rather than reading the plugin's captured state, so a unit test can
+ * exercise it against a synthetic bundle with no real build. Throws rather than returning an empty
+ * name when no chunk matches: a silently empty URL would ship an inline script assigning
+ * `window.__wikiTemporalPolyfillUrl` to garbage, a far harder failure to notice than a build that
+ * refuses to finish.
  */
 export function findTemporalPolyfillChunkFileName(bundle) {
   const chunk = Object.values(bundle).find(
@@ -38,14 +31,9 @@ export function findTemporalPolyfillChunkFileName(bundle) {
 }
 
 /**
- * Substitutes the real, hashed build URL of the temporal-polyfill chunk into the
- * `<!--temporal-polyfill-chunk-url-->` placeholder in `index.html`, as an inline script that sets
- * `window.__wikiTemporalPolyfillUrl`.
- *
- * This deliberately does NOT emit a `<link rel="modulepreload">` itself: the chunk is intentionally
- * absent from Vite's own modulepreload links (an unconditional preload would waste ~20 KB gzipped on
- * every browser with native `Temporal`). It only supplies the URL a feature-detect script -- added
- * separately -- can use to preload the chunk conditionally, for browsers that still need it.
+ * Deliberately emits no `<link rel="modulepreload">`: the chunk is kept out of Vite's own preload
+ * links because an unconditional preload would cost every browser with native `Temporal` a download
+ * it never uses. Supplying the URL alone lets a feature-detect script preload it conditionally.
  */
 export function temporalPolyfillChunkPlugin() {
   let base = '/'
@@ -56,15 +44,10 @@ export function temporalPolyfillChunkPlugin() {
     configResolved(config) {
       base = config.base
     },
-    // -> Never runs for the dev server (only a real build produces an output bundle), so `bundle`
-    //    stays null there and the placeholder is left untouched -- `boot/temporal.js` already
-    //    dynamically imports the polyfill directly in dev, with no chunk URL to preload. Only
-    //    captures the bundle here rather than resolving the chunk eagerly -- this plugin comes along
-    //    with every build that shares this file's `vite.config.js`, including ones with no
-    //    `index.html` in their output at all (e.g. `test/realGridLayout.js`'s CSS-only build), which
-    //    legitimately carry no `boot/temporal.js` chunk to find. Resolving lazily in
-    //    `transformIndexHtml` means the search -- and its throw on a genuine mismatch -- only runs
-    //    for a build that actually has an `index.html` to substitute the placeholder into.
+    // -> Never runs for the dev server, so `bundle` stays null there and the placeholder is left
+    //    alone. Captures the bundle rather than resolving the chunk eagerly: this plugin also comes
+    //    along with builds that emit no `index.html` at all and legitimately carry no
+    //    `boot/temporal.js` chunk, so the search -- and its throw -- belongs in `transformIndexHtml`.
     generateBundle(_options, outputBundle) {
       bundle = outputBundle
     },

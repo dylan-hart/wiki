@@ -1,21 +1,15 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Port the backend listens on for this run. Defaults to :3000 -- "backend on :3000 serving the
- * built frontend from `assets/`" is the task spec's literal boot shape, and CI provisions a clean
- * environment where that port is free. `E2E_PORT` exists purely as a local escape hatch for a
- * developer machine where something else already holds :3000 (a running dev instance, another
- * service) -- overridden here, not in `config.e2e.yml`, so the on-disk default stays the one the
- * spec describes.
+ * `E2E_PORT` is a local escape hatch for a developer machine where something else already holds
+ * :3000. Overridden here rather than in `config.e2e.yml`, so the on-disk default stays :3000.
  */
 const PORT = process.env.E2E_PORT || 3000
 const BASE_URL = `http://localhost:${PORT}`
 
 /**
- * The one thing this config cannot sensibly default: which database the backend seeds itself
- * against. Failing here, before Playwright ever spawns the webServer, turns a missing
- * `DATABASE_URL` into one readable line instead of the 60s `webServer` boot timeout it would
- * otherwise surface as -- "fails meaningfully, not just a timeout" per the task's own bar.
+ * Failing here, before Playwright spawns the webServer, turns a missing `DATABASE_URL` into one
+ * readable line instead of the `webServer` boot timeout it would otherwise surface as.
  */
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -31,27 +25,23 @@ if (!process.env.DATABASE_URL) {
 }
 
 /**
- * The admin password every spec logs in with. Set (not left to the seeder's own `12345678`
- * default) so `ADMIN_PASS` is defined at seed time -- see `models/users.ts`'s `init()`: an unset
- * `ADMIN_PASS` seeds the admin with `mustChangePwd: true`, which would divert flow 1's login
- * straight into the change-password screen instead of the authenticated shell it exists to prove
- * renders. Exported so specs assert against the same value rather than a second hard-coded copy.
+ * Set explicitly so `ADMIN_PASS` is defined at seed time: `models/users.ts`'s `init()` invents a
+ * random password and seeds `mustChangePwd: true` without one, which diverts every spec's login
+ * into the change-password screen. Exported so specs assert against one value, not a second copy.
  */
 export const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@example.com'
 export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || '12345678'
 
 /**
- * The quarantine lane's marker: a `*.flaky.spec.js` under `tests/` is out of the default run below
- * and into `npm run test:flaky` (`playwright.flaky.config.js`), which CI runs as its own
- * report-only step. Exported so that config selects the same files this one ignores, from one
- * string.
+ * The quarantine lane's marker. Exported so `playwright.flaky.config.js` selects exactly the files
+ * this config ignores, from one string.
  */
 export const FLAKY_GLOB = '**/*.flaky.spec.js'
 
 export default defineConfig({
   testDir: './tests',
-  // -> `testMatch` defaults to every `*.spec.js` under `testDir`, which includes the lane, so the
-  //    ignore below is what actually keeps a quarantined spec out of the default run.
+  // -> `testMatch` defaults to every `*.spec.js` under `testDir`, the lane included, so this is
+  //    what actually keeps a quarantined spec out of the default run.
   testIgnore: FLAKY_GLOB,
   fullyParallel: false,
   workers: 1,
@@ -72,27 +62,22 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        // -> Pinned rather than left to the `chromium` project's own device default: the markdown
-        //    editor's preview pane -- which `tests/page-publish.spec.js` and `tests/multi-site.spec.js`
-        //    both wait on as their signal that typed content has synced to the store -- only renders
-        //    above a 1024px-wide viewport (`EditorMarkdown.vue`'s `useMinWidth(1024)`). This has to
-        //    live in the project's own `use`, not the config-level `use` above: Playwright merges
-        //    `config.use` and `projectConfig.use` shallowly per key with the project's value winning,
-        //    and `devices['Desktop Chrome']` already sets its own `viewport` (1280x720) -- a
-        //    config-level `viewport` here would lose that merge silently, which is exactly what
-        //    happened before this comment was written (task 2026).
+        // -> The markdown editor's preview pane, which the page-creation helper waits on as its
+        //    signal that typed content synced to the store, only renders above a 1024px-wide
+        //    viewport (`EditorMarkdown.vue`'s `useMinWidth(1024)`). It has to live in the project's
+        //    own `use`: Playwright merges `config.use` and `projectConfig.use` shallowly per key
+        //    with the project winning, and `devices['Desktop Chrome']` already sets a `viewport`,
+        //    so a config-level one would lose that merge silently.
         viewport: { width: 1280, height: 800 }
       }
     }
   ],
   /*
-    The "locally-built stack" the task calls for: `node backend`, run from the repo root exactly
-    the way it runs in production (`index.ts` refuses to boot from any other cwd) and serving the
-    frontend's `vite build` output from `assets/` -- not the dev-mode Vite proxy on :3001. Building
-    that output is this config's one real precondition, left to whoever runs the suite (`npm run
-    build` in `frontend/`, or CI's own build step) rather than triggered here, so a stale build
-    fails obviously -- the smoke specs render actual page chrome, so a missing/old `assets/` shows
-    up immediately as broken specs, not a silent pass against the wrong bundle.
+    `node backend` from the repo root, the way it runs in production (`index.ts` refuses any other
+    cwd), serving the frontend's `vite build` output from `assets/` -- not the dev-mode Vite proxy.
+    Building that output is this config's one precondition and is deliberately left to whoever runs
+    the suite rather than triggered here, so a stale or missing `assets/` shows up as broken specs
+    rather than a silent pass against the wrong bundle.
   */
   webServer: {
     command: 'node backend',

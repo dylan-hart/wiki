@@ -1,44 +1,32 @@
 /*
   monaco-editor 0.56 declares `"./*.js": "./esm/vs/*.js"` (and `"./*"` the same) in its exports map,
   so a subpath specifier that already starts with `esm/vs/` gets that prefix appended a second time,
-  landing on `esm/vs/esm/vs/...`, which doesn't exist -- see the `resolve.alias` entry for
-  `editor.api.js` below, which hit the same thing. Every specifier here drops the `esm/vs/` prefix
-  for that reason; each one still resolves to the same file on disk, just without the doubling.
+  landing on `esm/vs/esm/vs/...`, which doesn't exist. Every specifier here drops the `esm/vs/`
+  prefix for that reason; each still resolves to the same file on disk, just without the doubling.
 */
 import EditorWorker from 'monaco-editor/editor/common/services/editorWebWorkerMain.js?worker'
 import JsonWorker from 'monaco-editor/language/json/json.worker?worker'
 import HtmlWorker from 'monaco-editor/language/html/html.worker?worker'
 
 /*
-  There is no `css.worker` or `ts.worker` import here (OpenProject #3171): no editor surface in this
-  codebase ever creates a Monaco model with `language: 'css'`/`'scss'`/`'less'` or
-  `'typescript'`/`'javascript'` -- every surface uses `markdown`, `html`, `json` or `plaintext` (the
-  full inventory is on the work package). `ts.worker` alone was 6.9 MB and `css.worker` 1.05 MB in
-  the built `assets/` output, purely from being statically imported here -- Vite bundles a `?worker`
-  import into the build regardless of whether its constructor is ever called at runtime, which is
-  what put both chunks on disk with nothing in the app ever able to trigger them. Those two labels
-  fall through to the default `EditorWorker` branch below instead, same as any other unrecognised
-  label -- if a future editor surface genuinely needs TypeScript or CSS language services, add the
-  import and a branch back, deliberately, rather than reaching for the fallback.
+  No `css.worker`/`ts.worker` import: no editor surface in this codebase creates a Monaco model in a
+  CSS- or TypeScript-family language -- every one uses `markdown`, `html`, `json` or `plaintext` --
+  and Vite bundles a `?worker` import into the build whether or not its constructor is ever called,
+  so both were shipping multi-megabyte chunks nothing in the app could trigger. Their labels fall
+  through to the default `EditorWorker` branch below; a surface that genuinely needs those language
+  services adds the import and a branch back deliberately, rather than leaning on the fallback.
 */
 
 /*
-  This file was never imported by `main.js`, so none of this ever ran and `self.MonacoEnvironment`
-  was never set -- every editor instance was silently falling all the way through monaco's own
-  internal worker-loading fallbacks. That fallback works for the json/css/html/typescript workers
-  (monaco's `workerManager.js` for each hands a `createWorker: () => new Worker(new URL('json.worker.js',
-  import.meta.url), ...)` co-located call that Vite's built-in Worker-detection bundles automatically,
-  no config needed), but the core `editorWorkerService` worker -- used for diffing, links, unicode
-  highlights, and every plain-text/markdown model -- has no such fallback. Its `WebWorkerDescriptor`
-  only offers `esmModuleLocationBundler: () => new URL('../../common/services/editorWebWorkerMain.js',
-  import.meta.url)`, and because that `new URL(...)` isn't written directly inside a `new Worker(...)`
-  call at the same call site, Vite doesn't recognize it as a worker reference at all -- it treats the
-  tiny target file as a generic static asset and inlines it as a `data:` URL, unbundled, with its own
-  relative imports left untouched. Those relative imports then fail to resolve against the `data:` URL
-  as a base ("Invalid relative url or base scheme is not hierarchical"), which is exactly the reported
-  error. Providing `MonacoEnvironment.getWorker` here is checked first for every worker monaco creates
-  (`internal/common/workers.js`'s `getWorker()` and `standaloneWebWorkerService.js`'s `_createWorker()`
-  both consult it before falling back to their own bundler URLs), so it fully replaces that broken path.
+  Monaco's own worker-loading fallback works for the json/html workers (each `workerManager.js`
+  hands Vite a co-located `new Worker(new URL('...', import.meta.url))` call it detects
+  automatically), but the core `editorWorkerService` worker -- diffing, links, unicode highlights,
+  and every plain-text/markdown model -- has none. Its `WebWorkerDescriptor` only offers a bare
+  `new URL(...)`, which Vite does not recognise as a worker reference: it inlines the target as an
+  unbundled `data:` URL, against which the file's own relative imports then fail to resolve
+  ("Invalid relative url or base scheme is not hierarchical"). `MonacoEnvironment.getWorker` is
+  consulted before any of that, for every worker monaco creates, so defining it here replaces the
+  broken path entirely.
 */
 self.MonacoEnvironment = {
   getWorker(_, label) {

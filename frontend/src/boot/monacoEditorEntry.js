@@ -1,51 +1,38 @@
 /*
   A trimmed stand-in for the `monaco-editor` package's own entry point (`esm/vs/index.js`, what
-  `import ... from 'monaco-editor'` resolves to) -- `vite.config.js`'s `resolve.alias` redirects the
-  bare `'monaco-editor'` specifier here for every real build/dev bundle, so every call site keeps
-  writing `import * as monaco from 'monaco-editor'` completely unchanged. The alias is exact-match
-  only, so a DEEP specifier such as `boot/monaco.js`'s own `monaco-editor/language/json/json.worker
-  ?worker` is untouched and still resolves into the real package as before. `vitest.config.js`
-  deliberately carries no such alias, so every existing `vi.mock('monaco-editor', ...)` in the test
-  suite keeps intercepting the bare specifier exactly as it always has -- this file is only ever
-  reached by a real Vite build or the dev server.
+  `import ... from 'monaco-editor'` resolves to): `vite.config.js`'s `resolve.alias` redirects the
+  bare specifier here for every real build/dev bundle, so call sites keep writing
+  `import * as monaco from 'monaco-editor'` unchanged. The alias is exact-match only, so a DEEP
+  specifier such as `boot/monaco.js`'s own worker imports still resolves into the real package.
+  `vitest.config.js` deliberately carries no such alias, so `vi.mock('monaco-editor', ...)` keeps
+  intercepting the bare specifier -- this file is only ever reached by a Vite build or the dev
+  server.
 
-  WHY THIS EXISTS (OpenProject #3171): `monaco-editor`'s own entry point imports ALL FOUR advanced
-  language "features" unconditionally -- css, html, json and typescript -- and each one's own
-  `workerManager.js` carries a `new Worker(new URL('xxx.worker.js', import.meta.url))` call that
-  Vite's built-in worker plugin bundles into `assets/` purely from STATIC analysis of the reachable
-  module graph, regardless of whether that worker's constructor is ever actually called at runtime.
-  That is what put `ts.worker` (6.9 MB) and `css.worker` (1.05 MB) into the build: nothing in this
-  codebase ever creates a Monaco model with `language: 'css'`/`'scss'`/`'less'` or
-  `'typescript'`/`'javascript'` (the full inventory is on the work package's implementation-plan
-  comment) -- every surface here uses `markdown`, `html`, `json` or `plaintext` -- so trimming
-  `boot/monaco.js`'s `getWorker` map alone (done in the same commit as this file) could not remove
-  either chunk: the workers were never reachable through our OWN code, only through monaco's.
+  It exists because monaco's own entry point imports ALL FOUR advanced language "features" -- css,
+  html, json and typescript -- unconditionally, and each one's `workerManager.js` carries a
+  `new Worker(new URL(...))` call that Vite's worker plugin bundles into `assets/` purely from
+  STATIC analysis, regardless of whether the constructor is ever called. That is what put the
+  multi-megabyte ts and css worker chunks into the build although nothing in this codebase creates a
+  Monaco model in those languages; trimming `boot/monaco.js`'s `getWorker` map alone could not
+  remove them, because they were reachable through monaco's own code rather than ours.
 
-  This file is every line of `monaco-editor@0.56.0`'s `esm/vs/index.js`, generated with
-  `/private/tmp/.../gen-monaco-entry.mjs` (not committed -- a throwaway one-off script) rather than
-  transcribed by hand, with exactly three kinds of change:
+  Generated from `monaco-editor@0.56.0`'s `esm/vs/index.js` rather than transcribed by hand, with
+  four kinds of change:
     1. The `css` and `typescript` language FEATURE imports (and their re-exports) are dropped --
-       the two lines each that carry the worker-bundling code above. Regenerate this file with the
-       same script (minus those two `dropMarkers` entries) if a future editor surface genuinely
-       needs TypeScript or CSS language services -- deliberately, not by hand-editing this file.
+       the lines that carry the worker-bundling code above. Regenerate this file if a future editor
+       surface genuinely needs TypeScript or CSS language services, rather than hand-editing it.
     2. Every remaining `./x` relative import becomes a deep `monaco-editor/x` specifier, dropping
-       the `esm/vs/` prefix -- `boot/monaco.js`'s own header comment documents why: the package's
-       `"./*.js": "./esm/vs/*.js"` exports-map entry would double that prefix otherwise.
-    3. The two `.css` imports (codicon glyphs, still needed -- monaco's own UI chrome, hover/suggest/
-       quick-access icons included, draws from them) don't end in `.js`, so they fall through to the
-       exports map's generic `"./*": "./esm/vs/*.js"` fallback, which would wrongly append a literal
-       `.js` AFTER the `.css` extension. They go in as a plain relative path straight into this
-       workspace's own `node_modules` instead, which bypasses the exports map entirely (a relative
-       specifier resolves as an ordinary file path, never subject to package-exports encapsulation) --
-       exactly how `index.js` itself reaches them today, unremarked, because it never leaves the
-       package. Safe here specifically because every workspace in this repo is independently
-       installed with its own `node_modules` (root `CLAUDE.md`) -- there is no hoisting to account
-       for.
-    4. The one import this file does NOT carry at all: `index.js`'s own first two lines import and
-       re-export `../external/monaco-lsp-client/out/index.js` as `monaco.lsp`. That path lives
-       outside `esm/vs/`, so it cannot be reached at all through the public exports map (mirroring
-       point 3 above) -- and nothing in this codebase reads `monaco.lsp`, so it is dropped rather
-       than worked around.
+       the `esm/vs/` prefix -- the package's `"./*.js": "./esm/vs/*.js"` exports-map entry would
+       double that prefix otherwise.
+    3. The two `.css` imports (codicon glyphs, which monaco's own UI chrome draws from) don't end in
+       `.js`, so they would fall through to the exports map's generic `"./*": "./esm/vs/*.js"`
+       fallback, which wrongly appends a literal `.js` AFTER the `.css` extension. They go in as a
+       plain relative path into this workspace's own `node_modules` instead, which bypasses
+       package-exports encapsulation entirely -- safe here specifically because every workspace in
+       this repo is independently installed, so there is no hoisting to account for.
+    4. `index.js`'s re-export of `../external/monaco-lsp-client/out/index.js` as `monaco.lsp` is
+       dropped: that path is outside `esm/vs/`, so it cannot be reached through the public exports
+       map at all, and nothing in this codebase reads `monaco.lsp`.
 */
 
 import 'monaco-editor/languages/definitions/abap/register.js'
