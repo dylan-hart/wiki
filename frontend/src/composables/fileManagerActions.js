@@ -9,6 +9,7 @@ import { isHomePath } from '@/helpers/pagePaths'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
+import AssetPreviewDialog from '@/components/AssetPreviewDialog.vue'
 import AssetRenameDialog from '@/components/AssetRenameDialog.vue'
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import FolderRenameDialog from '@/components/FolderRenameDialog.vue'
@@ -270,6 +271,19 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     })
   }
 
+  function previewAsset(item) {
+    dialog({
+      component: AssetPreviewDialog,
+      componentProps: {
+        assetId: item.id,
+        fileName: item.fileName,
+        folderPath: item.folderPath ?? '',
+        fileSize: item.fileSize,
+        mimeType: item.mimeType
+      }
+    })
+  }
+
   function delAsset(assetId, assetName) {
     confirm({
       title: t('fileman.assetDelete'),
@@ -307,6 +321,7 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     delPage,
     renameAsset,
     moveAsset,
+    previewAsset,
     delAsset
   }
 }

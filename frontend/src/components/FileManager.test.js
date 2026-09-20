@@ -25,6 +25,7 @@ import { buildTestRouter } from '../../test/router.js'
 
 const i18n = createTestI18n({
   common: {
+    actions: { view: 'View' },
     datetime: '{date} at {time}',
     // -> The file manager's key-cap hint resolves through `HeaderSearch`'s own two keys.
     header: {
@@ -343,6 +344,7 @@ describe('FileManager drag-and-drop upload (OpenProject #790)', () => {
 describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', () => {
   afterEach(() => {
     vi.clearAllMocks()
+    openDialogs.splice(0, openDialogs.length)
   })
 
   async function mountFileManagerWithItems(fileList) {
@@ -378,6 +380,83 @@ describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', 
 
     expect(openSpy).toHaveBeenCalledWith('/_files/media/photo.png', '_blank')
 
+    wrapper.unmount()
+  })
+
+  it("openItem()'s asset case still opens a non-image asset in a new tab and closes the file manager", async () => {
+    const { wrapper, siteStore } = await mountFileManagerWithItems([])
+    siteStore.overlay = 'FileManager'
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
+
+    wrapper.vm.openItem({
+      id: 'a2',
+      type: 'asset',
+      folderPath: 'media',
+      fileName: 'report.pdf',
+      mimeType: 'application/pdf'
+    })
+
+    expect(openSpy).toHaveBeenCalledWith('/_files/media/report.pdf', '_blank')
+    expect(openDialogs).toHaveLength(0)
+    expect(siteStore.overlay).toBeNull()
+
+    wrapper.unmount()
+  })
+
+  it("openItem()'s asset case opens the preview dialog for an image asset, not a new tab", async () => {
+    const { wrapper, siteStore } = await mountFileManagerWithItems([])
+    siteStore.overlay = 'FileManager'
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
+
+    wrapper.vm.openItem({
+      id: 'a1',
+      type: 'asset',
+      folderPath: 'media',
+      fileName: 'photo.png',
+      fileSize: 1024,
+      mimeType: 'image/png'
+    })
+
+    expect(openSpy).not.toHaveBeenCalled()
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].component.__name).toBe('AssetPreviewDialog')
+    expect(openDialogs[0].props).toEqual({
+      assetId: 'a1',
+      fileName: 'photo.png',
+      folderPath: 'media',
+      fileSize: 1024,
+      mimeType: 'image/png'
+    })
+    expect(siteStore.overlay).toBe('FileManager')
+
+    openDialogs.splice(0, openDialogs.length)
+    wrapper.unmount()
+  })
+
+  it('the "View" entry on an image asset row opens the preview dialog', async () => {
+    const { wrapper } = await mountFileManagerWithItems([
+      {
+        id: 'a1',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 1024,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ])
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
+
+    const view = wrapper.findAll('[role="button"]').find((node) => node.text() === 'View')
+    expect(view).toBeDefined()
+    await view.trigger('click')
+
+    expect(openSpy).not.toHaveBeenCalled()
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({ assetId: 'a1', fileName: 'photo.png' })
+
+    openDialogs.splice(0, openDialogs.length)
     wrapper.unmount()
   })
 
