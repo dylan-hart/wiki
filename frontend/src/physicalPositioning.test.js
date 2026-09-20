@@ -15,8 +15,6 @@ describe('frontend/src carries no unjustified physical left-*/right-* positionin
 
   /** Each reason is a summary; the full justification lives as a comment at the call site. */
   const ALLOWLIST = {
-    'components/shared/WBadge.vue':
-      'floating status dot straddling its host’s top-right corner (right-0 paired with a physical translate-x-1/2) — see OpenProject #1590',
     'components/shared/WNotifications.vue':
       'toast stack centered on the viewport (left-1/2 paired with a physical -translate-x-1/2) — see OpenProject #1590',
     'components/shared/WRange.vue':
@@ -32,7 +30,10 @@ describe('frontend/src carries no unjustified physical left-*/right-* positionin
   const UTILITY_PATTERN = /(?<![-\w])(left|right)-(\[[^\]]+\]|\d+(?:\/\d+)?|full|auto|px)\b/
 
   function stripComments(source) {
-    return source.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+    return source
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|\s)\/\/.*$/gm, '$1')
   }
 
   function collectVueFiles(dir) {

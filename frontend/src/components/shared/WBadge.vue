@@ -60,7 +60,7 @@ const classes = computed(() => [
   //    transform that never mirrors under RTL, so swapping only the position half to `end` would
   //    pull the badge the wrong way off its corner. TODO: correct the pair together -- a logical
   //    position plus a direction-aware straddle.
-  props.floating ? 'absolute top-0 right-0 translate-x-1/2 -translate-y-1/3' : ''
+  props.floating ? 'absolute top-0 end-0 translate-x-1/2 -translate-y-1/3 rtl:-translate-x-1/2' : ''
 ])
 
 const styles = computed(() =>
