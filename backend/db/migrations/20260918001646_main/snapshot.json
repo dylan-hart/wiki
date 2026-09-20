@@ -4661,6 +4661,19 @@
       "table": "pages"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "autoTagPending",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pages"
+    },
+    {
       "type": "varchar(255)",
       "typeSchema": null,
       "notNull": false,
