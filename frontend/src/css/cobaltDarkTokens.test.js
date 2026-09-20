@@ -4,24 +4,9 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #2771 ("Cobalt dark token block in tailwind.css, scoped to body.body--cobalt.body--
- * dark"). Same rationale as `cobaltTokens.test.js`: `tailwind.css` is plain CSS with no compiled
- * stylesheet or layout engine in this test environment, so the established pattern is asserting
- * against the SOURCE TEXT directly.
- *
- * This suite checks:
- *   1. the `body.body--cobalt.body--dark` block exists, layered after the light block;
- *   2. every Ledger "-dark"-suffixed / `--color-dark-N` ramp token the block restates carries its
- *      Cobalt-dark value, distinct from Ledger's own dark value;
- *   3. every plain Cobalt aesthetic token the block restates carries its dark value, distinct from
- *      its own Cobalt-light value;
- *   4. no `--q-*` admin-configurable brand color is overridden here either (same boundary #2767
- *      drew for light);
- *   5. no shape token (radii, corner marks, header banner geometry) is redeclared.
- *
- * WCAG AA contrast over these tokens is `cobaltContrast.test.js`'s job (OpenProject #2782), not
- * this file's -- it used to carry its own small hardcoded-hex "clears AA" describe block here, which
- * was consolidated into that dedicated, token-sourced suite rather than kept as a second copy.
+ * There is no compiled stylesheet or layout engine here, so these assertions read `tailwind.css`'s
+ * SOURCE TEXT directly. Contrast over these tokens belongs to `cobaltContrast.test.js`, the one
+ * place that measures it.
  */
 
 const CSS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'tailwind.css')
@@ -39,7 +24,6 @@ describe('body.body--cobalt.body--dark block', () => {
   })
 })
 
-/** Finds `--name: value;` (or a multi-line value up to the next `--` or closing brace) in a slice. */
 function declaredValue(slice, name) {
   const re = new RegExp(`--${name}:\\s*([\\s\\S]*?);`, 'm')
   const match = slice.match(re)
@@ -55,8 +39,6 @@ describe('Ledger dark-suffixed / ramp tokens, restated for Cobalt dark', () => {
     'dark-3-5-text': { ledger: '#8ea6cf', cobalt: '#c9d6ff' },
     'dark-4': { ledger: '#171b24', cobalt: '#070b22' },
     'dark-5': { ledger: '#14171f', cobalt: '#0a0f2c' },
-    // -> OpenProject #2912: re-derived from the card surface's own hue as a solid hex, not the
-    //    flat white-alpha overlay these used to be.
     'hairline-dark': { ledger: '#2a3040', cobalt: '#2e3d9e' },
     'border-dark': { ledger: '#3a4256', cobalt: '#3b4fce' },
     'disabled-dark': { ledger: '#4a5470', cobalt: '#5a6699' },
@@ -88,7 +70,6 @@ describe('Plain Cobalt aesthetic tokens, restated for dark', () => {
     paper: { cobaltLight: '#f2f5ff', cobaltDark: '#0a0f2c' },
     tint: { cobaltLight: '#e6edff', cobaltDark: '#070b22' },
     'tint-alt': { cobaltLight: '#e6edff', cobaltDark: '#141c4f' },
-    // -> OpenProject #2912: re-derived from the card surface's own hue, same as --color-hairline-dark
     hairline: { cobaltLight: '#dfe5f5', cobaltDark: '#2e3d9e' },
     'text-body': { cobaltLight: '#1a2038', cobaltDark: '#e8ecff' },
     'text-secondary': { cobaltLight: '#4a5580', cobaltDark: '#a7b3ea' },
@@ -97,8 +78,6 @@ describe('Plain Cobalt aesthetic tokens, restated for dark', () => {
     'accent-strong': { cobaltLight: '#1f4fd6', cobaltDark: '#7fa0ff' },
     'heading-h2': { cobaltLight: '#1f4fd6', cobaltDark: '#8fb0ff' },
     'inner-rule': { cobaltLight: '#e6edff', cobaltDark: 'rgb(255 255 255 / 0.06)' },
-    // -> OpenProject #2912: re-derived from the sidebar surface's own hue (--color-dark-3-5,
-    //    #0e1540), same derivation --color-admin-sidebar-hairline below gets for the same surface.
     'sidebar-hairline': {
       cobaltLight: 'rgb(255 255 255 / 0.08)',
       cobaltDark: '#2a3684'
@@ -159,14 +138,10 @@ describe('admin-configurable brand colors are left alone', () => {
 })
 
 /**
- * OpenProject #2817 ("Fix WFieldFrame.vue's error-ring dark color to match the Cobalt dark mockup's
- * brighter value"). The generic `body.body--dark .w-input-control` rule points
- * `--w-input-ring-error` at `--color-accent-dark` (the lightened value), but the Cobalt dark mockup
- * wants the same bright value light mode uses -- so a Cobalt-dark-specific override re-points it at
- * `--color-accent-fill`, which resolves to Cobalt light's `#ff4d5a` since it isn't restated in the
- * `body.body--cobalt.body--dark` token block above. This rule lives as a separate selector next to
- * the other `.w-input-control` rules (outside the token block itself), so it isn't part of
- * `darkSource` above -- read directly from the full source text instead.
+ * The generic `body.body--dark .w-input-control` rule points `--w-input-ring-error` at the
+ * lightened `--color-accent-dark`; Cobalt dark wants light mode's brighter value, so it re-points at
+ * `--color-accent-fill` -- which the Cobalt-dark token block deliberately does not restate. The rule
+ * sits outside that token block, so it is sliced from the full source rather than `darkSource`.
  */
 describe('Cobalt-dark .w-input-control error-ring override', () => {
   it('re-points --w-input-ring-error at --color-accent-fill under body.body--cobalt.body--dark', () => {

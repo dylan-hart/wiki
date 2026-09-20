@@ -4,16 +4,10 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #2860 ("Add tabs- and block-namespaced custom properties, Ledger-light defaults"). Same
- * rationale as `cobaltTokens.test.js`/`cobaltDarkTokens.test.js`: `tailwind.css` is plain CSS, not a
- * module anything here can import and read live custom property values off, and there is no
- * compiled stylesheet or real layout engine in this test environment to resolve `var()` cascades
- * against -- asserting against the SOURCE TEXT directly is the established pattern.
- *
- * The full table this suite pins down is `ui-iteration/tabset-block.md`'s. This is a token-existence
- * and token-value suite only: nothing in `blocks/` reads `--tabs-*` yet (Feature #2844, the block's
- * own conversion, is out of this run) -- see `tailwind.css`'s own header comment on the section this
- * covers.
+ * `tailwind.css` is plain CSS, not a module whose custom properties anything here can read live, and
+ * this environment has no compiled stylesheet or layout engine to resolve `var()` cascades against,
+ * so these assertions read its SOURCE TEXT directly. Token existence and values only -- what a
+ * consumer actually resolves to is `tabsetHairlineRealBrowser.test.js`'s job.
  */
 
 const CSS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'tailwind.css')
@@ -40,7 +34,6 @@ describe('the tabset/block token section', () => {
   })
 })
 
-/** Finds `--name: value;` (or a multi-line value up to the next `--` or closing brace) in a slice. */
 function declaredValue(slice, name) {
   const re = new RegExp(`--${name}:\\s*([\\s\\S]*?);`, 'm')
   const match = slice.match(re)
@@ -69,12 +62,10 @@ describe('--tabs-* tokens, one row per ui-iteration/tabset-block.md', () => {
     'strip-rule': {
       ledgerLight: '1px solid var(--tabs-border)',
       /*
-        Restated, not left to inherit, despite being the identical literal text as Ledger light's --
-        OpenProject #2886. A custom property's nested var() resolves against the COMPUTED value at
-        the element where the property is actually assigned in the cascade, then inherits that
-        already-resolved value down; left undeclared here it would keep resolving
-        `var(--tabs-border)` against `:root`'s (i.e. `<html>`'s) own Ledger-LIGHT value even under
-        `body.body--dark`, which is exactly the white-hairline bug this restatement fixes.
+        Restated despite being the identical literal text as Ledger light's: a custom property's
+        nested var() resolves against the COMPUTED value where the property is assigned, and that
+        already-resolved value inherits down. Left undeclared here it would keep resolving
+        `var(--tabs-border)` against `<html>`'s Ledger-LIGHT value even under `body.body--dark`.
       */
       ledgerDark: '1px solid var(--tabs-border)',
       cobaltLight: 'none'
@@ -83,7 +74,7 @@ describe('--tabs-* tokens, one row per ui-iteration/tabset-block.md', () => {
     'tab-radius': { ledgerLight: '0', cobaltLight: '6px 6px 0 0' },
     'tab-rule': {
       ledgerLight: '1px solid var(--tabs-border)',
-      // -> Same reasoning as --tabs-strip-rule above (OpenProject #2886)
+      // -> Same reasoning as --tabs-strip-rule above
       ledgerDark: '1px solid var(--tabs-border)',
       cobaltLight: 'none'
     },
@@ -180,13 +171,12 @@ describe('--tabs-* tokens, one row per ui-iteration/tabset-block.md', () => {
 
 describe('the --tabs-border Cobalt-dark divergence from the generic hairline token', () => {
   it('is NOT the same value as --color-hairline-dark under body.body--cobalt.body--dark', () => {
-    // -> The ORIGINAL (#2771) body.body--cobalt.body--dark block, which precedes this section
+    // -> The first body.body--cobalt.body--dark block, which precedes this section's own.
     const originalDarkStart = source.indexOf('body.body--cobalt.body--dark {')
     const originalDarkEnd = source.indexOf('\n}', originalDarkStart)
     const originalDarkSource = source.slice(originalDarkStart, originalDarkEnd)
 
-    // -> OpenProject #2912: both re-derived from the card hue, but --tabs-border stays the
-    //    intentionally stronger of the two -- hue-derived now, not alpha-derived.
+    // -> Both derive from the card hue, but a tabset rule is deliberately the stronger of the two.
     expect(declaredValue(cobaltDarkSource, 'tabs-border')).toBe('#3143b9')
     expect(declaredValue(originalDarkSource, 'color-hairline-dark')).toBe('#2e3d9e')
   })

@@ -2,24 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #2955 ("Infobox theme tokens (--infobox-border, --block-radius,
- * --block-corner-marks) only declared at :root -- Ledger dark borders white, Cobalt corners square
- * with visible marks").
+ * The bug class this guards is not in what a token is declared as -- which the source-text suites
+ * already cover -- but in how a browser resolves a `var()` NESTED inside another custom property
+ * across an inheritance boundary. Nothing short of real compiled CSS in a real browser can
+ * reproduce that; `jsdom` runs no layout or paint engine at all.
  *
- * `infoboxBorderToken.test.js`/`blockTokens.test.js` assert these custom properties against the
- * SOURCE TEXT of `tailwind.css` -- they cannot catch this bug class on their own, because the bug is
- * not in what any one token is declared as: it is in how the browser resolves a `var()` NESTED
- * inside another custom property across an inheritance boundary, which no amount of reading the
- * source text (and no `jsdom`, which runs no layout/paint engine at all) can simulate. This suite
- * mounts the REAL compiled CSS in a REAL browser and reads back the REAL computed styles, the same
- * approach `blockErrorBorderRealBrowser.test.js` (#2905) and `tabsetHairlineRealBrowser.test.js`
- * (#2886) used for the identical bug class.
- *
- * The fixture reads `--infobox-border`, `--block-radius` and `--block-corner-marks` exactly the way
- * `blocks/block-infobox/component.js` does (`border: 1px solid var(--infobox-border)`,
- * `border-radius: var(--block-radius)`, `.marks { display: var(--block-corner-marks) }`), kept
- * self-contained here rather than importing the real block so it needs no cross-workspace build
- * step to stay in sync with.
+ * The fixture reads the tokens the way `blocks/block-infobox/component.js` does, restated here
+ * rather than imported so this suite needs no cross-workspace build step -- keep the two in step.
  */
 
 const FIXTURE_SCRIPT = `
@@ -84,8 +73,7 @@ describe(
       async () => {
         const { borderColor } = await computedStyles('body--dark')
 
-        // -> Ledger dark's --color-hairline-dark, #2a3040. Before the #2955 fix this came back as
-        //    rgb(219, 225, 236) -- Ledger LIGHT's #dbe1ec -- a near-white hairline against a dark card.
+        // -> Ledger dark's --color-hairline-dark, #2a3040.
         expect(borderColor).toBe('rgb(42, 48, 64)')
       },
       CHROMIUM_TIMEOUT
@@ -107,9 +95,7 @@ describe(
       async () => {
         const { borderRadius, marksDisplay } = await computedStyles('body--cobalt')
 
-        // -> Cobalt's own --radius-card (8px) and --corner-marks (none). Before the #2955 fix these
-        //    came back as "0px" and "block" -- Ledger's own square corners and visible marks, even
-        //    though --radius-card/--corner-marks themselves ARE correctly redefined for Cobalt.
+        // -> Cobalt's own --radius-card and --corner-marks.
         expect(borderRadius).toBe('8px')
         expect(marksDisplay).toBe('none')
       },
@@ -124,9 +110,8 @@ describe(
 
         expect(borderRadius).toBe('8px')
         expect(marksDisplay).toBe('none')
-        // -> Cobalt dark's own --infobox-border literal, rgb(143 176 255 / 0.28) -- unaffected by
-        //    this fix, confirming the body.body--dark restatement doesn't leak into the more
-        //    specific body.body--cobalt.body--dark selector.
+        // -> Cobalt dark's own --infobox-border literal: the body.body--dark restatement must not
+        //    leak into the more specific body.body--cobalt.body--dark selector.
         expect(borderColor).toBe('rgba(143, 176, 255, 0.28)')
       },
       CHROMIUM_TIMEOUT

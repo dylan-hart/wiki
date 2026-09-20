@@ -3,33 +3,18 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #2864 ("Cobalt corner-radius fix: MainOverlayDialog"): `ui-iteration/README.md` Part
- * 1.2 traces the Cobalt dialog corner fringe to `.w-dialog-panel` itself carrying a solid fill, a
- * `border-radius` AND `overflow: hidden` together -- a dark, flat-cornered `.card-header` clipped
- * by a filled ancestor's rounded `overflow: hidden` leaves a light antialiasing sliver at the two
- * top corners. The fix moves the fill/round/clip onto the header and body themselves.
+ * The Cobalt dialog corner fringe: a solid fill, a `border-radius` AND `overflow: hidden` together
+ * on `.w-dialog-panel` clip the flat-cornered `.card-header` inside it, leaving a light antialiasing
+ * sliver at the two top corners. The fix moves the fill/round/clip onto the header and body
+ * themselves, so these assertions pin down that the panel keeps only its radius.
  *
- * OpenProject #3000 moved the `.main-overlay` rule this suite covers out of `layouts/MainLayout.vue`
- * (where it lived scoped only by class name, invisible to `AdminLayout.vue`'s own separate async
- * `<style>` chunk) into this shared `_overlay-dialog.css` partial -- this file moved with it,
- * unchanged in substance, since the assertions are still about the same rule.
- *
- * `_overlay-dialog.css` is a plain global partial, so this is plain CSS source with no compiled
- * stylesheet in this test environment to assert live values against -- the established pattern for
- * that (`cobaltTokens.test.js`, and this file's own `MainOverlayDialog.test.js` sibling, which
- * already reads this same rule's source for the `is-half-sized` rule) is a direct source-text
- * assertion.
- *
- * OpenProject #3249 (Sass removal 4/9): the `@at-root` keyword these assertions used to require was
- * redundant here (a same-selector `.body--<aesthetic> &` theme toggle nested one level deep, not a
- * genuine escape site -- see docs/frontend-sass-removal-plan.md's block classification) and is gone;
- * the selectors themselves are unchanged.
+ * `_overlay-dialog.css` is a plain global partial with no compiled stylesheet in this test
+ * environment to read live values from, so these are direct source-text assertions.
  */
 
 const source = readFileSync(join(import.meta.dirname, '_overlay-dialog.css'), 'utf-8')
 
-// Isolate the `.main-overlay { ... }` rule so every assertion below reads against the right block
-// rather than risking a match against some unrelated part of this stylesheet.
+// Isolate the `.main-overlay` rule so no assertion below matches an unrelated part of the sheet.
 const overlayBlockStart = source.indexOf('.main-overlay {')
 const mainOverlaySource = overlayBlockStart === -1 ? '' : source.slice(overlayBlockStart)
 
@@ -48,9 +33,8 @@ describe('Cobalt dialog panel: no fill, no clip', () => {
   })
 
   it('no longer clips with overflow: hidden', () => {
-    // -> Strips `/* ... */` comments first, since the block's own prose explains the OLD, now-fixed
-    //    `overflow: hidden` clip by name -- a plain substring/regex check without this would fail on
-    //    the comment rather than testing the declaration it describes.
+    // -> Strips comments first: the block's own prose names the `overflow: hidden` clip it warns
+    //    against, so an unstripped check would fail on the prose rather than on the declaration.
     const withoutComments = mainOverlaySource.replace(/\/\*[\s\S]*?\*\//g, '')
     expect(withoutComments).not.toMatch(/overflow:\s*hidden/)
   })

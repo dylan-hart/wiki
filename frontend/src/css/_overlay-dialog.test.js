@@ -4,21 +4,14 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #3000: `.main-overlay > .w-dialog-panel`'s styling (base light/dark background, AND
- * the whole Cobalt treatment -- no ink title strip, `border-radius: var(--radius-dialog)`, a
- * transparent panel with `--float-bg` supplied by the header/body wrapper instead) used to live only
- * inside `layouts/MainLayout.vue`'s own `<style>` block, scoped by CSS class name rather than by any
- * Vue component boundary. `router/routes.js` lazy-loads `MainLayout.vue` and `AdminLayout.vue`
- * separately, so Vite code-splits each layout's `<style>` into its own async chunk -- a direct load
- * of an admin route never imports `MainLayout.vue`'s chunk, even though `AdminLayout.vue` mounts the
- * very same `MainOverlayDialog.vue` (Inbox, Profile, File Manager, History, ...) via its own hardcoded
- * `class="main-overlay"`.
+ * `router/routes.js` lazy-loads `MainLayout.vue` and `AdminLayout.vue` separately, so Vite
+ * code-splits each layout's `<style>` into its own async chunk: `.main-overlay` styling kept inside
+ * `MainLayout.vue` never reaches an admin route, which mounts the very same `MainOverlayDialog.vue`
+ * via its own hardcoded `class="main-overlay"`. Living in `css/_overlay-dialog.css`, `@import`ed by
+ * `app.css`, makes it present regardless of which layout's chunk loaded.
  *
- * The fix moves the styling into `css/_overlay-dialog.css`, `@import`ed by `app.css`, which `main.js`
- * imports unconditionally at boot -- not per-route -- so it is present regardless of which layout's
- * chunk happens to be loaded. This is a source-level regression test in the same style as
- * `_page-contents.test.js`: asserting the source directly rather than mounting a component, since
- * the bug is about WHICH CSS CHUNK loads, not about any single layout's own rendering.
+ * Asserted against the source rather than a mounted component because the bug is about WHICH CSS
+ * CHUNK loads, not about any single layout's own rendering.
  */
 describe('shared .main-overlay styling lives outside any one layout chunk', () => {
   const cssDir = dirname(fileURLToPath(import.meta.url))
@@ -54,13 +47,11 @@ describe('shared .main-overlay styling lives outside any one layout chunk', () =
   })
 
   it('is native CSS with no Sass-specific syntax left (OpenProject #3249)', () => {
-    // -> strips the file's own header comment first, which explains the removal by naming the
-    //    old `@use 'palette' as *;`/`$breakpoint-sm-max` syntax -- a plain substring check without
-    //    this would fail on the comment rather than testing the code it describes.
+    // -> Comments are stripped first so prose naming the old Sass syntax cannot fail the check.
     const withoutComments = partial.replace(/\/\*[\s\S]*?\*\//g, '')
     expect(withoutComments).not.toMatch(/@use\s+'palette'/)
     expect(withoutComments).not.toMatch(/\$breakpoint-sm-max/)
-    // -> the literal the old Sass `_palette.scss:78` resolved to -- a media query can't read a custom property
+    // -> A literal, not a token: a media query cannot read a custom property.
     expect(withoutComments).toMatch(/@media \(max-width: 1023\.98px\)/)
   })
 
@@ -71,8 +62,8 @@ describe('shared .main-overlay styling lives outside any one layout chunk', () =
   it('AdminLayout.vue still mounts MainOverlayDialog with the shared class, and keeps its own distinct .admin-overlay untouched', () => {
     expect(adminLayout).toMatch(/class="admin-overlay"/)
     expect(adminLayout).toMatch(/<main-overlay-dialog\s*\/>/)
-    // -> .admin-overlay is AdminLayout's own separate class for its own distinct overlays -- out of
-    //    scope for #3000 -- so its styling must still live in AdminLayout.vue itself, unmoved.
+    // -> .admin-overlay is AdminLayout's own separate class for its own distinct overlays, so its
+    //    styling belongs in AdminLayout.vue itself.
     expect(adminLayout).toMatch(/\.admin-overlay\s*\{/)
   })
 })
