@@ -30,7 +30,6 @@ import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { WikiTx } from '../core/db.ts'
 import type { LogFields } from '../core/logger.ts'
 
-/** What each editor produces, which is what the content column holds. */
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
   markdown: 'markdown',
   asciidoc: 'asciidoc',
@@ -40,14 +39,10 @@ const EDITOR_CONTENT_TYPES: Record<string, string> = {
 }
 
 /**
- * The inverse of `EDITOR_CONTENT_TYPES`, e.g. `markdown` -> `markdown`, `html` -> `code`.
- *
- * `wysiwyg` and the plain `markdown` editor both produce `'markdown'` now, so this can't just be
- * `Object.fromEntries` (last entry wins on a collision) — that would make a file-backed `'markdown'`
- * page (disk storage, git sync) attribute itself to `wysiwyg`, an editor its content never went
- * through. Built first-wins instead, so `EDITOR_CONTENT_TYPES`'s declaration order settles the tie —
- * `markdown` is declared before `wysiwyg`, so `markdown` -> `markdown` wins, the same editor
- * `getEditorForContentType`'s own `?? 'markdown'` fallback already prefers when nothing matches.
+ * The inverse of `EDITOR_CONTENT_TYPES`. Built first-wins rather than with `Object.fromEntries`
+ * (last entry wins on a collision): `wysiwyg` and the plain `markdown` editor both produce
+ * `'markdown'`, and a file-backed `'markdown'` page (disk storage, git sync) must not attribute
+ * itself to `wysiwyg`, an editor its content never went through.
  */
 const CONTENT_TYPE_EDITORS: Record<string, string> = {}
 for (const [editor, contentType] of Object.entries(EDITOR_CONTENT_TYPES)) {
@@ -57,21 +52,16 @@ for (const [editor, contentType] of Object.entries(EDITOR_CONTENT_TYPES)) {
 }
 
 /**
- * The editor a page created from a bare `contentType` (no editor of its own to ask) should be
- * attributed to — a file-backed storage target importing a page it did not create is the one caller
- * of this today: it knows the content type from the file extension, but not which editor produced
- * it. Falls back to `markdown`, the default a brand new page would get from the editor picker too.
+ * The editor a page created from a bare `contentType` should be attributed to, for an importer that
+ * knows the content type from a file extension but not which editor produced it.
  */
 export function getEditorForContentType(contentType: string): string {
   return CONTENT_TYPE_EDITORS[contentType] ?? 'markdown'
 }
 
 /**
- * The content type an editor's page is stored as, e.g. `markdown` -> `markdown`, `wysiwyg` ->
- * `markdown`, `code` -> `html`. The forward direction of `EDITOR_CONTENT_TYPES` — exported for
- * `models/renderQueue.ts`, which needs to know whether an editor's OUTPUT is markdown (and
- * therefore something the server-side renderer can process) without caring which editor produced
- * it. `wysiwyg` and `markdown` both answer `'markdown'` here, which is the point: a page is
+ * The content type an editor's page is stored as. `wysiwyg` and `markdown` both answer `'markdown'`,
+ * which is the point for a caller asking whether an editor's OUTPUT is renderable: a page is
  * renderable by content, not by which editor happened to write it.
  */
 export function getContentTypeForEditor(editor: string): string {
@@ -79,52 +69,44 @@ export function getContentTypeForEditor(editor: string): string {
 }
 
 /**
- * The editor whose pages send their reader somewhere else.
- *
- * A redirection is an ordinary page — it has a path, a title, an icon and a place in the tree, and is
- * browsable like any other — with nothing to read: no body, no render, and therefore nothing for the
- * search index to hold. What an author fills in is where it points, and that is what its content
- * column carries. See `normalizeRedirectContent`.
+ * A redirection is an ordinary page — path, title, icon, a place in the tree — with nothing to read:
+ * no body, no render, nothing for the search index to hold. Its content column carries where it
+ * points instead. See `normalizeRedirectContent`.
  */
 const REDIRECT_EDITOR = 'redirect'
 
 /**
- * The two editors `convertEditor()` (OpenProject #3399) may flip a page between -- the pair that
- * has shared `'markdown'` storage since #3395, which is what makes a flip a relabel rather than a
- * content transform. `code` and `asciidoc` each produce a content type nothing else shares
- * (`html`/`asciidoc`), and `redirect` isn't an editor a page's text goes through at all.
+ * The two editors `convertEditor()` may flip a page between: they share `'markdown'` storage, which
+ * is what makes a flip a relabel rather than a content transform. `code` and `asciidoc` each produce
+ * a content type nothing else shares, and `redirect` isn't an editor a page's text goes through.
  */
 const CONVERTIBLE_EDITORS = ['markdown', 'wysiwyg']
 
 /**
- * Hard ceiling on `listPagesForSitemap`'s read. Independent of, and much larger than, the
- * sitemaps.org 50,000-URL-per-file cap `controllers/seo.ts` paginates its result around — that one
- * decides how many child sitemaps a large site's page count is split into; this one exists purely so
- * the query itself can never scan an unbounded table (`security/09-dos-resource.md` finding 5,
- * OpenProject #1857). Sized well past any realistic installation so ordinary sites never notice it.
+ * Hard ceiling on `listPagesForSitemap`'s read, so the query itself can never scan an unbounded
+ * table. Independent of, and much larger than, the sitemaps.org 50,000-URL-per-file cap
+ * `controllers/seo.ts` paginates its result around, and sized well past any realistic installation.
  */
 const SITEMAP_QUERY_CAP = 500_000
 
-/** A page path is what ends up in a URL, so it is held to what reads and routes cleanly. */
 const rePagePath = /^[a-zA-Z0-9-_/]*$/
 const reAlias = /^[a-zA-Z0-9-_]*$/
 
 /**
- * How long `/sitemap.xml`'s already-guest-filtered page list stays cached per site (OpenProject
- * #2267). `listPagesForSitemap` is a whole-table scan plus a per-row page-rule evaluation, and the
- * route carries no rate limiting of its own — a few minutes keeps a crawl loop from repeating that
- * work on every request without making a fresh publish invisible for long.
+ * How long `/sitemap.xml`'s already-guest-filtered page list stays cached per site.
+ * `listPagesForSitemap` is a whole-table scan plus a per-row page-rule evaluation, and the route
+ * carries no rate limiting of its own — a few minutes keeps a crawl loop from repeating that work on
+ * every request without making a fresh publish invisible for long.
  */
 export const SITEMAP_CACHE_TTL_MS = 5 * 60 * 1000
 
-/** `CARDINAL.cache` key for a site's cached sitemap page list. */
 function sitemapCacheKey(siteId: string): string {
   return `sitemap:${siteId}`
 }
 
 /**
- * What `getPage`'s `unlocked`/`withPassword` callbacks are handed: enough of the row to ask
- * `mayOnPage()` whether a page rule applies, without exposing the whole raw row.
+ * Enough of a row for `getPage`'s `unlocked`/`withPassword` callbacks to ask `mayOnPage()` whether a
+ * page rule applies, without exposing the whole raw row to them.
  */
 export interface UnlockPageRef {
   id: string
@@ -165,13 +147,9 @@ export interface Page {
   isBrowsable: boolean
   isSearchable: boolean
   /**
-   * Whether the page has a password set. Present only for a requester who may edit the page — see
-   * `getPage`'s `withPassword`. Absent, rather than false, for everyone else: a reader cannot tell a
-   * page with no password from one whose password status was withheld, and does not need to.
-   *
-   * Never the password itself, nor its stored verifier: `pages.password` holds a one-way `bcrypt`
-   * hash (OpenProject #2232), and this is deliberately the only thing derived from it that ever
-   * leaves this model — even the page's own editor cannot read a password back, only replace it.
+   * Whether the page has a password set — see `getPage`'s `withPassword`. Absent, rather than false,
+   * for a requester who may not edit the page: they cannot tell "no password" from "withheld".
+   * Never the password itself nor its stored `bcrypt` hash, which nothing reads back, only replaces.
    */
   hasPassword?: boolean
   /** Whether the body was withheld because the page is password protected. See `getPage`. */
@@ -181,8 +159,8 @@ export interface Page {
   toc: TocNode[]
   render: string
   /**
-   * The source. Present when the request asked for it, and always for a redirection — see `toPage`,
-   * and `RedirectContent` for what a redirection's holds.
+   * The source. Present when the request asked for it, and always for a redirection — see
+   * `RedirectContent` for what a redirection's holds.
    */
   content?: string
   allowComments: boolean
@@ -192,13 +170,12 @@ export interface Page {
   showToc: boolean
   tocDepth: { min: number; max: number }
   /**
-   * Per-page script/style injection (OpenProject #3389/#3402), stored together as the `scripts`
-   * jsonb column (`{ jsLoad, jsUnload, css }`) and flattened here the same way `config` flattens to
-   * `allowComments` etc. above. Blanked to `''` for a locked page, same as `render`/`toc` -- see
-   * `toPage`. Setting `scriptJsLoad`/`scriptJsUnload` needs `write:scripts` on the page, `scriptCss`
-   * needs `write:styles` -- enforced with a 403 at the route layer (`api/pages/write.ts`), not here:
-   * this model trusts what it's given rather than silently dropping an unauthorized field, which is
-   * what the pre-a3a6c7994 version of this file did.
+   * Per-page script/style injection, stored together as the `scripts` jsonb column
+   * (`{ jsLoad, jsUnload, css }`) and flattened here the same way `config` flattens above. Blanked
+   * to `''` for a locked page, same as `render`/`toc` -- see `toPage`. `scriptJsLoad`/
+   * `scriptJsUnload` need `write:scripts` on the page and `scriptCss` needs `write:styles`, enforced
+   * with a 403 at the route layer (`api/pages/write.ts`), not here: this model trusts what it is
+   * given rather than silently dropping an unauthorized field.
    */
   scriptJsLoad: string
   scriptJsUnload: string
@@ -209,11 +186,10 @@ export interface Page {
   authorName: string
   createdAt: Date
   updatedAt: Date
-  /** Classification level id (OpenProject #1079) -- never absent, there is no unclassified state. */
+  /** Classification level id -- never absent, there is no unclassified state. */
   classification: string
 }
 
-/** Everything a page can be created with. */
 export interface PageInput {
   path: string
   title: string
@@ -231,17 +207,16 @@ export interface PageInput {
   isBrowsable?: boolean
   isSearchable?: boolean
   /**
-   * A new plaintext password to protect the page with, write-only (OpenProject #2232): `createPage`/
-   * `updatePage` hash it with `bcrypt` before it touches the database, and nothing ever hands the
-   * stored value back — see `Page.hasPassword`. `undefined` leaves the page's password untouched, an
-   * empty string removes it, and a non-empty string replaces it, hash and all.
+   * A new plaintext password, write-only: hashed with `bcrypt` before it touches the database, and
+   * never handed back — see `Page.hasPassword`. `undefined` leaves the page's password untouched, an
+   * empty string removes it, and a non-empty string replaces it.
    */
   password?: string
   relations?: any[]
   tags?: string[]
   /**
-   * Classification level id (OpenProject #1079). Absent on create defaults to the immediate parent
-   * page's own level (or the most-open configured level, with no parent page to inherit from) — see
+   * Classification level id. Absent on create defaults to the immediate parent page's own level (or
+   * the most-open configured level, with no parent page to inherit from) — see
    * `resolveCreateClassification`. Absent on update leaves the page's classification untouched.
    */
   classification?: string
@@ -254,47 +229,40 @@ export interface PageInput {
   /**
    * Run once the page is loaded (`scriptJsLoad`) or just before it's torn down (`scriptJsUnload`),
    * and CSS injected as a `<style>` (`scriptCss`) -- see {@link Page.scriptJsLoad}. Undefined leaves
-   * the stored value untouched on update; absent on create stores an empty string, same as every
-   * other optional text field here.
+   * the stored value untouched on update; absent on create stores an empty string.
    */
   scriptJsLoad?: string
   scriptJsUnload?: string
   scriptCss?: string
   /**
-   * Why this save is being made, as the editor's reason-for-change prompt collected it. Not a page
-   * field: it belongs to the version this save produces, and is recorded on the history row.
+   * Why this save is being made. Not a page field: it belongs to the version this save produces, and
+   * is recorded on the history row.
    */
   reasonForChange?: string
   /**
    * Backdates the new page's `createdAt` column instead of stamping the moment `createPage()` runs.
-   * The editor UI has no field for this and never sets it, so ordinary saves keep the column's
-   * `now()` default; only the migration importer (`backend/migration/importers/page-import.ts`) supplies it, to
-   * carry a source page's real creation time across rather than replacing it with import time — the
-   * bug upstream requarks/wiki#4631 describes ("Importing from Local File System is ignoring
-   * dateCreated and date fields").
+   * The editor UI has no field for this, so ordinary saves keep the column's `now()` default; only
+   * the migration importer supplies it, to carry a source page's real creation time across rather
+   * than replacing it with import time — the bug upstream requarks/wiki#4631 describes.
    */
   createdAt?: string
   /**
-   * Same reasoning as {@link createdAt}, for `updatedAt` — also used as the `versionDate` of the
-   * single `pageHistory` row `createPage()` writes for this page's initial state, so that row is
-   * dated the source's real last-modified time instead of import time too.
+   * Same reasoning as {@link createdAt}, for `updatedAt` — also the `versionDate` of the single
+   * `pageHistory` row `createPage()` writes, so that row is dated the source's real last-modified
+   * time too.
    */
   updatedAt?: string
 }
 
-/** One page's worth of raw data for the knowledge graph endpoint (OpenProject #872). */
 export interface GraphPageRow {
-  /** Real page id -- the join key `pageHistory.pageId` uses for the edit-volume node-sizing counts
-   *  (OpenProject #1141), not otherwise surfaced on a `GraphNode`. */
+  /** Not surfaced on a `GraphNode` itself -- the join key for `pageHistory.pageId`'s edit-volume
+   *  node-sizing counts. */
   id: string
   path: string
   locale: string
   title: string
   icon: string | null
   tags: string[]
-  /** The classification level id this page carries (OpenProject #1079) -- what `mayOnPage()`'s
-   *  CLASSIFICATION rule check (OpenProject #1126) and the graph's Classification grouping
-   *  (#1217) both key off. */
   classification: string
   relations: {
     pos: 'left' | 'center' | 'right'
@@ -304,18 +272,11 @@ export interface GraphPageRow {
     target: string
   }[]
   links: string[]
-  /** OpenProject #1587 §2 / #1612: lets a caller narrow an already-fetched bundle to
-   *  `publishState === 'published'` rows itself -- what the shared knowledge-graph cache
-   *  (`helpers/graphCache.ts`, OpenProject #2269) does for an anonymous reader, since the cached
-   *  bundle is fetched once with `publicOnly: false` and narrowed per-caller rather than re-queried
-   *  per request. */
   publishState: 'draft' | 'published' | 'scheduled'
 }
 
-/** One candidate row for `GET .../backlinks` (OpenProject #1914) -- a page whose extracted
- *  internal links (`models/rendering.ts#extractInternalLinks`) target the requested page. Carries
- *  `tags`/`classification` alongside the identifying fields so the route can run `mayOnPage` per
- *  row, the same way `GraphPageRow` does for the knowledge graph. */
+/** A page whose extracted internal links (`models/rendering.ts#extractInternalLinks`) target the
+ *  requested page. Carries `tags`/`classification` so the route can run `mayOnPage` per row. */
 export interface BacklinkRow {
   id: string
   path: string
@@ -326,10 +287,8 @@ export interface BacklinkRow {
   classification: string
 }
 
-/** One page row for `GET .../translationStatus` (OpenProject #2475) -- every locale's page sharing
- *  a given `(siteId, path)`, carrying `tags`/`classification` alongside `updatedAt` so the route
- *  can both run `mayOnPage` per row (same shape as `BacklinkRow` above) and feed
- *  `helpers/translationStatus.ts#computeTranslationStatus` its staleness comparison. */
+/** Every locale's page sharing a given `(siteId, path)`. Carries `tags`/`classification` so the
+ *  route can run `mayOnPage` per row, and `updatedAt` for the staleness comparison. */
 export interface TranslationStatusRow {
   id: string
   path: string
@@ -343,75 +302,47 @@ export interface TranslationStatusRow {
 /**
  * Who is saving, and what they are allowed to put in a page.
  *
- * `write:scripts` and `write:styles` are page-rule-scoped permissions, not group-wide ones,
- * so deciding them takes more than the flat `permissions` list:
- * `groupIds` is what `CARDINAL.models.groups.checkAccess()` resolves a page rule against. See
- * `hasPermission()`.
- *
- * `scope`, when present, is an API key's own scope narrowing (`ApiKeyIdentity.scope`,
- * `models/apiKeys.ts`) — `null`/absent means unrestricted (a session, or an unscoped key). This is
- * structurally an `AccessActor` (`models/groups.ts`) too, and `hasPermission()` passes it straight
- * into `checkAccess()`, so a scoped key's `write:scripts`/`write:styles` grant is narrowed the same
- * way `checkAccess()` narrows every other page-rule permission (OpenProject #930) — omitting it here
- * would leave `api/pages/write.ts`'s save path as the one caller still trusting `groupIds` unnarrowed.
- *
- * `siteId`, likewise, is the same key's site pin (`ApiKeyIdentity.siteId`, OpenProject #2189) —
- * omitting it here is exactly what would have left a personal access token's `write:scripts`/
- * `write:styles` grant reachable on a site other than the one it was pinned to, since
- * `hasPermission()`'s `checkAccess()` call is the one page-rule decision in this file that never
- * routes through `groups.actorForRequest()` (which already carries it).
+ * `write:scripts`/`write:styles` are page-rule-scoped permissions, not group-wide ones, so the flat
+ * `permissions` list cannot decide them: `groupIds` is what
+ * `CARDINAL.models.groups.checkAccess()` resolves a page rule against, and `scope`/`siteId` carry an
+ * API key's own scope narrowing and site pin, because `hasPermission()`'s `checkAccess()` call is
+ * the one page-rule decision here that never routes through `groups.actorForRequest()` (which
+ * already carries them).
  */
 export interface PageActor {
   id: string
   permissions: string[]
   groupIds: string[]
-  /** Threaded through to `checkAccess()`'s `AccessActor` (OpenProject #930/#1205) — see that type. */
   scope?: string[] | null
   allowedClassifications?: string[] | null
-  /** Threaded through to `checkAccess()`'s `AccessActor.siteId` (OpenProject #2189) — see that type. */
   siteId?: string | null
   /**
-   * What actually made the save: the standard editor (undefined, the default) or an MCP tool call
-   * (`mcp/auth.ts`'s `pageActorFor()` sets this to `'mcp'`). Threaded straight through to
-   * `pageHistory.record()`'s own `via` — see `PageHistoryVia`'s doc comment
-   * (`models/pageHistory.ts`) for why this lives on the actor rather than as a separate argument
-   * every write method would have to accept and pass along (OpenProject #1119).
+   * What actually made the save: the standard editor (undefined, the default) or an MCP tool call.
+   * Threaded straight through to `pageHistory.record()`'s own `via`.
    */
   via?: PageHistoryVia
   /**
-   * A closed set of page-rule permission names this actor is force-granted on every page,
-   * bypassing `CARDINAL.models.groups.checkAccess()`'s group-rule engine entirely for exactly the names
-   * listed here (OpenProject #3054). `checkAccess()` only ever resolves a page-rule permission from
-   * `groupIds`-derived rules, or from a `manage:system` grant in `permissions` -- it never reads
-   * `permissions` for a page-rule-scoped name like `write:scripts`/`write:styles` even when
-   * `groupIds` is empty (see `hasPermission()`'s own doc comment, and the regression test in
-   * `pages.hasPermission.test.ts` guarding that `permissions` alone must never grant one). This field
-   * is that engine's one deliberate escape hatch, for a caller with no group membership to express
-   * "full content authority" through at all: the 2.5.x migration importer's synthetic per-page actor
-   * (`migration/importers/page-import.ts`). Leave unset for every ordinary actor -- `hasPermission()`
-   * checks it BEFORE `checkAccess()` runs, so this changes nothing about how a real session's or API
-   * key's page permissions are decided.
+   * Page-rule permission names this actor is force-granted on every page, bypassing
+   * `CARDINAL.models.groups.checkAccess()`'s rule engine entirely. `checkAccess()` resolves a
+   * page-rule permission only from `groupIds`-derived rules or a `manage:system` grant, so it can
+   * never answer for a caller with no group membership at all: the 2.5.x migration importer's
+   * synthetic per-page actor. Leave unset for every ordinary actor -- `hasPermission()` checks this
+   * BEFORE `checkAccess()` runs.
    */
   forcedPagePermissions?: string[]
 }
 
 /**
- * Why a `createPage()` call is happening, for the lifecycle log line and nothing else.
- *
- * A recovery (`pageHistory.recoverDeletedPage`) really does insert a brand new page row, so it goes
- * through `createPage()` like every other create — but an operator reading the log wants to see the
- * page coming *back*, not appearing for the first time. This is the one piece of provenance
- * `createPage()` cannot work out for itself, and it changes only which message is logged: everything
- * the call writes is identical either way.
+ * Why a `createPage()` call is happening, for the lifecycle log line and nothing else. A recovery
+ * (`pageHistory.recoverDeletedPage`) really does insert a brand new page row, so it goes through
+ * `createPage()` like every other create — but an operator reading the log wants to see the page
+ * coming *back*. Changes only which message is logged; everything the call writes is identical.
  */
 export type PageWriteOrigin = 'restore'
 
 /**
- * Who a lifecycle line attributes a write to.
- *
- * `user` is the actor's own id — never an e-mail address — and `system` stands in for a write with no
- * actor behind it at all. `via` is carried straight off `PageActor.via`, the second, orthogonal
- * "what made the save" axis `pageHistory.record()` already stores (OpenProject #1119), and is omitted
+ * Who a lifecycle line attributes a write to. `user` is the actor's own id — never an e-mail
+ * address — and `system` stands in for a write with no actor behind it at all. `via` is omitted
  * rather than rendered empty for the ordinary editor path.
  */
 function actorFields(actor: { id?: string | null; via?: PageHistoryVia }): LogFields {
@@ -422,18 +353,11 @@ function actorFields(actor: { id?: string | null; via?: PageHistoryVia }): LogFi
 }
 
 /**
- * Whether this actor may embed scripts/styles ON THIS PAGE.
- *
  * `write:scripts`/`write:styles` are granted by a group's page rules, not by the group-wide
- * permission list (`PageActor.permissions` alone), so this asks `CARDINAL.models.groups.checkAccess()` —
- * the same per-page decision `mayOnPage()` makes in `helpers/pageAccess.ts` — rather than scanning
- * `actor.permissions`, which a page-rule-only grant would never appear in.
- *
- * `actor.forcedPagePermissions` is checked first and, when it names `permission`, short-circuits
- * straight to `true` with no `checkAccess()` call at all (OpenProject #3054) — the one migration-only
- * escape hatch for an actor that can never hold a real page rule (see `PageActor`'s own doc comment).
- * Unset for every ordinary actor, so this changes nothing about what a real session or API key is
- * granted.
+ * permission list, so this asks `CARDINAL.models.groups.checkAccess()` — the same per-page decision
+ * `mayOnPage()` makes in `helpers/pageAccess.ts` — rather than scanning `actor.permissions`, which a
+ * page-rule-only grant would never appear in. `actor.forcedPagePermissions` short-circuits ahead of
+ * it, for an actor that can never hold a real page rule — see `PageActor`.
  */
 export function hasPermission(actor: PageActor, permission: string, page: RulePageRef): boolean {
   if (actor.forcedPagePermissions?.includes(permission)) {
@@ -443,8 +367,6 @@ export function hasPermission(actor: PageActor, permission: string, page: RulePa
 }
 
 /**
- * Normalize a path to the form that gets stored, and refuse it if what is left is not addressable.
- *
  * Casing and spaces are corrected rather than rejected — `My Page` is a path someone meant, and it
  * means `my-page`. Anything else outside the allowed characters is not something to guess at.
  */
@@ -463,9 +385,8 @@ function normalizePath(input: string): string {
  * Where a redirection points, as its content column holds it.
  *
  * `kind` is stored rather than sniffed off the target, because it is the question the author actually
- * answered: a page of this wiki, or somewhere else. The two are not reliably told apart afterwards —
- * `/help` is a page here and a perfectly good relative URL elsewhere — and the editor has to open on
- * the choice that was made rather than on a guess about it.
+ * answered: the two are not reliably told apart afterwards — `/help` is a page here and a perfectly
+ * good relative URL elsewhere — and the editor has to reopen on the choice that was made.
  */
 export interface RedirectContent {
   kind: 'page' | 'url'
@@ -476,15 +397,12 @@ export interface RedirectContent {
 }
 
 /**
- * Read a redirection's target back out of what the editor sent, and refuse anything that would not
- * send a reader anywhere.
- *
  * Re-serialized rather than stored as it arrived, so that the column holds one canonical spelling: a
  * save that changes nothing then reports no change, and the history rows say what they mean.
  *
- * A URL target is held to `http`/`https` deliberately. This value ends up in a `location` assignment,
- * so any other scheme is either useless (`mailto:` in a redirect that nobody chose to follow) or an
- * invitation (`javascript:`) — and a redirection is followed without the reader clicking anything.
+ * A URL target is held to `http`/`https` deliberately: this value ends up in a `location` assignment
+ * that is followed without the reader clicking anything, so any other scheme is either useless
+ * (`mailto:`) or an invitation (`javascript:`).
  */
 function normalizeRedirectContent(content: string | undefined): string {
   let parsed: any
@@ -520,32 +438,21 @@ function normalizeRedirectContent(content: string | undefined): string {
 }
 
 /**
- * Pages model
- *
  * A page is a row here plus a row in the tree that gives it its place in the site. The markdown is
  * authored and rendered in the browser; what arrives is both the source and the HTML, and the HTML is
  * run through `models/rendering.ts` before being stored — that is where it gets sanitized against what
  * the author is actually allowed to embed, and where the table of contents and the search text come
  * from.
- *
- * Not implemented yet, and deliberately not faked here: version history (there is no table for it),
- * page links, comments, and storage targets.
  */
 class Pages {
   /**
-   * Flatten a row and its blobs into the shape the API returns.
-   *
-   * @param locked Withhold the body — the source, the rendered HTML, the table of contents drawn from
-   *               it, and the relation links written onto the page. The metadata stays: a reader
-   *               looking at the lock screen is told what page they are being asked for a password to.
-   * @param withPassword Include whether the page has a password set. Only for a requester who may
-   *                     edit the page — the value itself never comes back to anyone, this model
-   *                     included; see `Page.hasPassword`.
-   * @param withContent Include the source. A redirection's comes back either way: its content is not
-   *                    a body somebody wrote, it is where the page sends its reader — which every
-   *                    reader is about to be shown by being taken there. Withholding it would leave
-   *                    the page view unable to do the one thing the page is for, and the page view
-   *                    does not ask for content.
+   * @param locked Withhold the body — the source, the rendered HTML, the table of contents drawn
+   *               from it, and the relation links. The metadata stays: a reader looking at the lock
+   *               screen is told what page they are being asked for a password to.
+   * @param withPassword Include whether the page has a password set, for a requester who may edit
+   *                     the page. The value itself never comes back to anyone, this model included.
+   * @param withContent Include the source. A redirection's comes back either way: its content is
+   *                    where the page sends its reader, which the page view never asks for.
    */
   private toPage(
     row: any,
@@ -588,9 +495,9 @@ class Pages {
       showTags: config.showTags ?? true,
       showToc: config.showToc ?? true,
       tocDepth: config.tocDepth ?? { min: 1, max: 2 },
-      // -> Blanked for a locked page, same reasoning as `render`/`toc` just above: a page-scripts
-      //    editor should not be able to read a password-protected page's scripts back without
-      //    entering it, and there is nothing to run against a body that wasn't sent either.
+      // -> Blanked for a locked page, like `render`/`toc` above: nobody should read a
+      //    password-protected page's scripts back without entering it, and there is nothing to run
+      //    against a body that wasn't sent either.
       scriptJsLoad: locked ? '' : (scripts.jsLoad ?? ''),
       scriptJsUnload: locked ? '' : (scripts.jsUnload ?? ''),
       scriptCss: locked ? '' : (scripts.css ?? ''),
@@ -605,31 +512,27 @@ class Pages {
   }
 
   /**
-   * A single page, by ID or by the hash of its path.
-   *
-   * The hash is what the frontend addresses a page with — see `generatePathHash` — so this is the
-   * lookup an ordinary page view goes through.
+   * A single page, by ID or by the hash of its path — the hash is what the frontend addresses a page
+   * with (`generatePathHash`).
    *
    * A password-protected page still comes back to a requester who has not unlocked it: the metadata
-   * is what the lock screen is drawn from. What the password withholds is the body — see `toPage`'s
-   * `locked`. Anything that puts a page's text in front of a reader has to go through here, or
+   * is what the lock screen is drawn from, and it is the body that is withheld (`toPage`'s
+   * `locked`). Anything that puts a page's text in front of a reader has to go through here, or
    * through the same check, because the enforcement is this method and not the client.
    *
-   * **The defaults hand over the whole page**, `unlocked` and `withPassword` included, the way they do
-   * for `publicOnly` beside them: most callers here are a save, a move, a delete or a re-render, and
-   * none of those is a reader — a save that got a withheld body back would answer its author with an
-   * empty page, and a re-render would store one. A path that serves a reader has to say so, and there
-   * are exactly two: the `GET` route, and `unlockPage` below.
+   * **The defaults hand over the whole page**, `unlocked` and `withPassword` included, the way they
+   * do for `publicOnly` beside them: most callers here are a save, a move, a delete or a re-render,
+   * and none of those is a reader — a save handed a withheld body would answer its author with an
+   * empty page, and a re-render would store one. A path that serves a reader has to say so.
    *
    * @param unlocked Whether the password has been satisfied for this requester. Route-level concern:
-   *                 see `unlockedFor` in `helpers/pageAccess.ts`. A function is called with the row's path,
-   *                 locale and tags once it is in hand — not just the id — because `unlockedFor` needs
-   *                 them to ask `mayOnPage()` whether a page RULE bypasses the password, and the row is
-   *                 the only place that has them when the caller only knew a path hash going in.
+   *                 see `unlockedFor` in `helpers/pageAccess.ts`. A function is called with the row
+   *                 once it is in hand — not just the id — because deciding this needs the page's
+   *                 path, locale and tags to ask `mayOnPage()` whether a page RULE bypasses the
+   *                 password, and the row is the only place that has them when the caller knew only
+   *                 a path hash going in.
    * @param withPassword Whether to include `hasPassword`, for whoever may edit the page — not for a
-   *                     reader who just entered it, who needs to know it no more after that. Also a
-   *                     function for the same reason as `unlocked`: which page it is, and therefore
-   *                     whether this requester may edit it, is only known once the row is in hand.
+   *                     reader who just entered it. A function for the same reason as `unlocked`.
    */
   async getPage({
     siteId,
@@ -653,9 +556,8 @@ class Pages {
   }): Promise<Page | null> {
     const conditions = [eq(pagesTable.siteId, siteId)]
     if (publicOnly) {
-      // -> Page-level access rules are not implemented, so this is the whole of it: an anonymous
-      //    reader sees published pages, and nothing else. A password does not hide a page from them —
-      //    it withholds the body until they enter it, which is what `locked` below does.
+      // -> A password does not hide a page from an anonymous reader — it withholds the body until
+      //    they enter it, which is what `locked` below does.
       conditions.push(eq(pagesTable.publishState, 'published'))
     }
     if (id) {
@@ -668,14 +570,11 @@ class Pages {
       return null
     }
 
-    // -> Narrowed to exactly what `toPage` reads (plus `password`, needed here for the `locked`
-    //    check below even when `withPassword` is off) -- not `{ page: pagesTable, ... }`, which
-    //    pulled every column including `content`, `searchContent`, the `ts` tsvector, `links` and
-    //    `historyData` on every page view and every permission pre-check (OpenProject #1834).
-    //    `content` is the one column whose presence a row's own data decides: a redirection has no
-    //    other payload (see `toPage`), so its content comes back even when `withContent` is off --
-    //    decided in SQL rather than after the fact, since the row's `editor` isn't known until the
-    //    query has already run.
+    // -> Narrowed to exactly what `toPage` reads, plus `password` for the `locked` check below even
+    //    when `withPassword` is off. `content` is the one column whose presence a row's own data
+    //    decides: a redirection has no other payload (see `toPage`), so its content comes back even
+    //    when `withContent` is off -- decided in SQL rather than after the fact, since the row's
+    //    `editor` isn't known until the query has already run.
     const results = await CARDINAL.db
       .select({
         id: pagesTable.id,
@@ -742,15 +641,11 @@ class Pages {
 
   /**
    * The permission-relevant projection of a set of pages, by id, all on this site — one query
-   * regardless of how many ids are asked for.
+   * regardless of how many ids are asked for, for a caller running `mayOnPage`-style checks over a
+   * batch without paying for `getPage`'s full two-LEFT-JOIN select once per id.
    *
-   * Exists for a caller that needs to run `mayOnPage`/`pagePermissionsFor`-style checks over a batch
-   * (the classification-conflicts resolve route, OpenProject #1902) without paying for `getPage`'s
-   * full two-LEFT-JOIN select — `content`, `render`, `searchContent` and the tsvector — once per id.
-   *
-   * @returns A Map keyed by id, so a caller can tell an id that did not resolve (not on this site, or
-   *          not existing at all) apart from one that did via `Map#has`/`Map#get`, without re-deriving
-   *          that from array length the way filtering a `getPage` loop's results would.
+   * @returns A Map keyed by id, so a caller can tell an id that did not resolve (not on this site,
+   *          or not existing at all) apart from one that did.
    */
   async getPagesByIds(
     siteId: string,
@@ -781,11 +676,9 @@ class Pages {
    * Every page of a site, metadata only — no content, no pagination, no publish-state filtering.
    *
    * For a full walk of a site's pages (a file-backed storage target reconciling its repo against the
-   * DB, chiefly), not for anything reader-facing: `listPages` on the tree model is that one, and it is
-   * unsuitable here precisely because it paginates and hides what a reader may not see. A caller that
-   * needs a page's content fetches it per page via `getPage({ withContent: true })`, the same way every
-   * write-path handler in `modules/storage/git/content.ts` already does — this only answers "what pages
-   * exist", not "what do they contain".
+   * DB, chiefly), not for anything reader-facing: `listPages` on the tree model is that one, and it
+   * is unsuitable here precisely because it paginates and hides what a reader may not see. A caller
+   * that needs a page's content fetches it per page via `getPage({ withContent: true })`.
    */
   async listAllForSite(
     siteId: string
@@ -802,27 +695,20 @@ class Pages {
   }
 
   /**
-   * Every page on this site, with what the knowledge graph (OpenProject #872) needs to build
-   * nodes and edges from — no content, no render, just enough for `api/graph.ts#assembleGraph`
-   * to build and permission-filter the graph once.
+   * Every page on this site, with what the knowledge graph needs to build nodes and edges from.
    *
-   * `publicOnly` applies `pageIsVisible` (`tree.ts`) the same way `tree.browse()`/`tree.listPages()`
-   * do, so an unauthenticated caller's graph never contains a draft or `isBrowsable: false` page
-   * (OpenProject #1587 §2, #1612) — `assembleGraph`'s `canRead` filter is a *permission* check, not a
-   * publication one, and was never going to catch either. The returned row also carries
-   * `publishState` directly, so a caller holding one shared, `publicOnly: false` bundle (the graph
-   * cache, OpenProject #2269) can still narrow it to published-only rows itself, per request, without
-   * re-querying.
+   * `publicOnly` applies `pageIsVisible` (`tree.ts`), so an unauthenticated caller's graph never
+   * contains a draft or `isBrowsable: false` page — `assembleGraph`'s `canRead` filter is a
+   * *permission* check, not a publication one, and was never going to catch either. The row also
+   * carries `publishState`, so a caller holding one shared `publicOnly: false` bundle can narrow it
+   * to published-only rows itself, per request, without re-querying.
    *
-   * Deliberately NOT narrowed by actor (OpenProject #1872 proposed pushing a `deriveReadScope`
-   * superset into this `WHERE`): the result of this call is the shared, per-site graph cache
-   * (`api/graph.ts#loadGraphData`, OpenProject #2269), rebuilt by whichever signed-in caller
-   * happens to hit a cold cache first -- any authenticated session may trigger a rebuild, with no
-   * permission floor. Narrowing the fetch to that one caller's own rule set would bake their
-   * read scope into the bundle every other caller reuses until the TTL expires, silently hiding
-   * pages from a more-privileged reader who never triggered the rebuild themselves. The exact,
-   * per-request permission filter still runs unchanged in `assembleGraph`'s `canRead` -- this
-   * function only ever needs to be a safe superset of what SOME caller could read, not this one.
+   * Deliberately NOT narrowed by actor: the result is the shared, per-site graph cache, rebuilt by
+   * whichever signed-in caller happens to hit a cold cache first, with no permission floor.
+   * Narrowing the fetch to that one caller's rule set would bake their read scope into the bundle
+   * every other caller reuses until the TTL expires, silently hiding pages from a more-privileged
+   * reader who never triggered the rebuild. The exact per-request filter still runs in
+   * `assembleGraph`'s `canRead` -- this only has to be a safe superset of what SOME caller may read.
    */
   async listAllForGraph(siteId: string, publicOnly = false): Promise<GraphPageRow[]> {
     return CARDINAL.db
@@ -845,11 +731,10 @@ class Pages {
   }
 
   /**
-   * Every page on this site whose `links` column (OpenProject #881) contains `targetPath` -- the
-   * raw candidate rows for `GET .../backlinks`, unfiltered by permission. A single `jsonb`
-   * containment query against the array `models/rendering.ts#extractInternalLinks` writes on every
-   * save, the same `@>` pattern `models/classificationLevels.ts`'s `deleteLevel` already uses
-   * against `apiKeys.allowedClassifications`. The route filters each row through `mayOnPage`.
+   * Every page on this site whose `links` column contains `targetPath` -- the raw candidate rows for
+   * `GET .../backlinks`, unfiltered by permission: the route filters each row through `mayOnPage`.
+   * One `jsonb` containment query against the array `models/rendering.ts#extractInternalLinks`
+   * writes on every save.
    */
   async listBacklinks(siteId: string, targetPath: string): Promise<BacklinkRow[]> {
     return CARDINAL.db
@@ -874,11 +759,9 @@ class Pages {
   /**
    * Every locale's page sharing this `(siteId, path)` -- the same translation-link query
    * `getTranslations()` runs, but lightweight (no content, no per-row `getPage()` round trip) and
-   * with no `manage:pages` gate, since `GET .../translationStatus` (OpenProject #2475) is meant for
-   * any reader viewing the page, not just someone who may move it. The caller filters rows to what
-   * THIS requester may actually see (published-only for anonymous, `read:pages` per row) before
-   * handing them to `helpers/translationStatus.ts#computeTranslationStatus` -- this method itself
-   * applies no visibility narrowing of its own.
+   * with no `manage:pages` gate, since the translation status is meant for any reader viewing the
+   * page, not just someone who may move it. Applies no visibility narrowing of its own: the caller
+   * filters rows to what THIS requester may actually see before handing them on.
    */
   async listTranslationStatusRows(siteId: string, path: string): Promise<TranslationStatusRow[]> {
     return CARDINAL.db
@@ -898,10 +781,8 @@ class Pages {
   }
 
   /**
-   * Check a page's password, and hand the page over if it matches.
-   *
-   * Deliberately the only way past the lock: a reader gets the body from here or from a `getPage` the
-   * route has already marked as unlocked, and never from a flag the browser sent.
+   * Deliberately the only way past the lock: a reader gets the body from here or from a `getPage`
+   * the route has already marked as unlocked, and never from a flag the browser sent.
    *
    * @returns The page, its body included, or null when the password is wrong or the page has none —
    *          the caller cannot tell those apart, and neither can whoever is guessing.
@@ -922,8 +803,8 @@ class Pages {
     publicOnly?: boolean
   }): Promise<Page | null> {
     /*
-      Asked for as a reader would see it, for two reasons: a wrong guess must not assemble the body in
-      the first place, and `isLocked` is how this knows there is a password to check at all.
+      Asked for as a reader would see it: a wrong guess must not assemble the body in the first
+      place, and `isLocked` is how this knows there is a password to check at all.
     */
     const page = await this.getPage({
       siteId,
@@ -946,8 +827,8 @@ class Pages {
     if (!expected || !(await bcrypt.compare(password, expected))) {
       return null
     }
-    // -> Unlocked, but still without the password itself: entering it is not the same as being able
-    //    to change it, and the reader has no further use for the value
+    // -> Unlocked, but still without `hasPassword`: entering a password is not the same as being
+    //    able to change it
     return this.getPage({
       siteId,
       id: page.id,
@@ -958,12 +839,9 @@ class Pages {
   }
 
   /**
-   * Create a page.
-   *
    * @param actor Who is saving it. Their permissions decide what survives sanitizing.
    * @param origin Why this create is happening, for the lifecycle log line only — see
-   *   `PageWriteOrigin`. Omitted by every ordinary caller; `pageHistory.recoverDeletedPage` passes
-   *   `'restore'` so a recovery reads as `restored` rather than `created`.
+   *   `PageWriteOrigin`. Omitted by every ordinary caller.
    */
   async createPage(
     siteId: string,
@@ -979,8 +857,7 @@ class Pages {
     await assertPathNotReservedLocale(path)
     const locale = input.locale || defaultLocale(siteId)
     // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
-    //    including one recreated by the deletion-recovery flow (see `pageHistory.recoverDeletedPage`)
-    //    into a locale that no longer exists
+    //    including one recreated by the deletion-recovery flow into a locale that no longer exists
     assertLocaleActive(siteId, locale)
     const title = (input.title ?? '').trim()
     if (title.length < 1) {
@@ -988,8 +865,8 @@ class Pages {
     }
     const editor = input.editor || 'markdown'
     const isRedirect = editor === REDIRECT_EDITOR
-    // -> A redirection has no body to be empty: what it holds instead is where it points, and that has
-    //    its own rules about being filled in
+    // -> A redirection has no body to be empty: what it holds instead is where it points, and that
+    //    has its own rules about being filled in
     const content = isRedirect ? normalizeRedirectContent(input.content) : input.content
     if (!isRedirect && (!content || content.trim().length < 1)) {
       throw new CustomError('pageEmptyContent', 'A page cannot be empty.')
@@ -1005,19 +882,17 @@ class Pages {
       path,
       input.classification
     )
-    // -> `classification: null` here, deliberately, even though the value the page is ABOUT to be
-    //    created with is already known: `write:scripts`/`write:styles` are checked against the page
-    //    as it exists right now, which is not at all -- see `RulePageRef`'s own doc comment on why a
-    //    not-yet-existing page fails closed rather than reaching for a value that describes the page
-    //    it is about to become.
+    // -> `classification: null` deliberately, even though the value the page is ABOUT to be created
+    //    with is already known: `write:scripts`/`write:styles` are checked against the page as it
+    //    exists right now, which is not at all -- see `RulePageRef` on why a not-yet-existing page
+    //    fails closed rather than reaching for a value describing the page it is about to become.
     const pageRef: RulePageRef = { path, locale, siteId, tags: input.tags, classification: null }
 
     /*
       A create with no render moves the source with nothing to show for it: refuse up front when
       nothing here could ever produce one, rather than land a page whose render, search text and
-      outbound links never catch up to its content. `queueRerender()` (below, once the row exists)
-      is what actually fills them in. Mirrors `models/approvals.ts`'s own `ensureCanRender`/
-      `queueRerender` pairing (OpenProject #1716).
+      outbound links never catch up to its content. The enqueue below, once the row exists, is what
+      actually fills them in.
     */
     const hasRenderInput = input.render !== undefined
     if (!hasRenderInput) {
@@ -1053,8 +928,8 @@ class Pages {
           hash,
           icon: input.icon ?? '',
           isBrowsable: input.isBrowsable ?? true,
-          // -> A redirection has nothing to find: a result for it would be a result whose page is a
-          //    doorway to the page the reader actually wanted, which is the one search should offer
+          // -> A redirection has nothing to find: it is a doorway to the page the reader actually
+          //    wanted, which is the one search should offer
           isSearchable: isRedirect ? false : (input.isSearchable ?? true),
           locale,
           password: input.password ? await bcrypt.hash(input.password, BCRYPT_ROUNDS) : null,
@@ -1076,8 +951,8 @@ class Pages {
         })
         .returning()
     } catch (err: any) {
-      // -> The probe above already covers the common case; this catches the race it cannot close --
-      //    two requests that both pass the probe before either inserts
+      // -> The probe above covers the common case; this catches the race it cannot close -- two
+      //    requests that both pass the probe before either inserts
       if (isUniqueViolation(err)) {
         throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
       }
@@ -1113,14 +988,12 @@ class Pages {
       reason: input.reasonForChange,
       versionDate: input.updatedAt ? new Date(input.updatedAt) : undefined
     })
-    // -> No `notifyWatchers` call here: nobody can be watching a page before it exists, so there is
-    //    nothing to resolve. See that method's own comment for the one case (restore) that would
-    //    change this, and why it doesn't apply yet.
+    // -> No `notifyWatchers` call here: nobody can be watching a page before it exists
 
     await CARDINAL.models.search.created(page)
     if (hasRenderInput) {
-      // -> No render-queue path here: when it fires below instead, `storeRender()` is what queues
-      //    the embed job, once the real content actually lands
+      // -> Only on this branch: when a render is queued instead, `storeRender()` is what queues the
+      //    embed job, once the real content actually lands
       await this.enqueueEmbedJob(page.id)
     }
     await announce(
@@ -1129,16 +1002,15 @@ class Pages {
       { id: page.id, path: page.path, locale, siteId, authorId: actor.id },
       { metadata: { title: page.title, description: page.description, editor } }
     )
-    // -> A freshly created page defaults to published and browsable, so it can join the sitemap
-    //    immediately -- the cached list has to reflect that on the very next request. A brand new page
-    //    is also a brand new graph node (and possibly new edges, if its relations/links point at
-    //    existing pages), so the cached graph bundle has to reflect it too.
+    // -> A freshly created page defaults to published and browsable, so the cached sitemap list has
+    //    to reflect it on the very next request; it is also a brand new graph node, and possibly new
+    //    edges, if its relations/links point at existing pages.
     this.invalidateSiteCaches(siteId)
 
-    // -> The content lifecycle line (OpenProject #2674). Emitted from the model rather than from
-    //    `api/pages/write.ts`, so the editor, the MCP `createPage` tool, the 2.5.x import and a
-    //    git/disk storage import all produce the identical line. A page's *edits* stay at `debug`
-    //    (the history table already records every one of them); its appearance does not.
+    // -> Emitted from the model rather than from `api/pages/write.ts`, so the editor, the MCP
+    //    `createPage` tool, the 2.5.x import and a git/disk storage import all produce the identical
+    //    line. A page's *edits* stay at `debug` (the history table records every one of them); its
+    //    appearance does not.
     CARDINAL.logger.info('pages', origin === 'restore' ? 'restored' : 'created', {
       site: siteId,
       page: page.id,
@@ -1150,10 +1022,10 @@ class Pages {
     const finalPage = (await this.getPage({ siteId, id: page.id })) as Page
 
     if (!hasRenderInput) {
-      // -> Briefly blank rather than wrong: the browser is a queue away, and this is what actually
-      //    fills in `render`/`toc`/`searchContent`/`links` from the content just written.
-      //    `ensureCanRender()` was already confirmed above, before the write, so this enqueues
-      //    directly rather than going back through `queueRerender()`'s own copy of that check.
+      // -> Briefly blank rather than wrong: the browser is a queue away, and this is what fills in
+      //    `render`/`toc`/`searchContent`/`links` from the content just written. `ensureCanRender()`
+      //    was confirmed above, before the write, so this enqueues directly rather than going back
+      //    through `queueRerender()`'s own copy of that check.
       await this.enqueueRerender(siteId, finalPage, actor)
     }
 
@@ -1166,10 +1038,9 @@ class Pages {
    * @param renderPermissions Overrides what `patch.render` is post-processed against, instead of
    *   deriving it from `actor`. `approveSubmission` (`models/approvals.ts`) is the reason this
    *   exists: `actor` there is the reviewer finalizing someone else's edit suggestion, and the HTML
-   *   being written is the submitter's, not the reviewer's -- resolving `write:scripts`/`write:styles`
-   *   from `actor` would let a reviewer's own grants launder a submitter's `<script>`/`style` past a
-   *   permission the submitter never held (OpenProject #1360/#2180, 2026-08-24 security audit §4).
-   *   Every other caller leaves this unset and gets the long-standing actor-derived behaviour.
+   *   being written is the submitter's -- resolving `write:scripts`/`write:styles` from `actor`
+   *   would let a reviewer's own grants launder a submitter's `<script>`/`<style>` past a permission
+   *   the submitter never held. Every other caller leaves this unset.
    */
   async updatePage(
     siteId: string,
@@ -1215,16 +1086,15 @@ class Pages {
       values.content = isRedirect ? normalizeRedirectContent(patch.content) : patch.content
     }
     /*
-      The lazy on-open fallback (OpenProject #3400): the run-once conversion job
-      (`convertLegacyWysiwygRow`, above) cleans up almost every row, but a row it could not parse
-      stays a legacy `contentType: 'html'` row holding raw Tiptap JSON until somebody actually opens
-      it. `EditorWysiwyg.vue` still loads that row (parsing the JSON directly instead of feeding it
-      through the markdown extension), so an ordinary save from it already writes real markdown into
-      `content` above -- what no ordinary save path does on its own is relabel `contentType` to match,
-      since that column is otherwise immutable here (see `EDITOR_CONTENT_TYPES`'s doc comment). This
-      is the one case where it must: the save just replaced the legacy JSON with real markdown, so the
-      row's true shape changed under it. Narrow on purpose -- only a `wysiwyg`/`html` row whose stored
-      content actually looked like the legacy JSON, saving content that no longer does.
+      The lazy on-open fallback: a row the run-once conversion job (`convertLegacyWysiwygRow`) could
+      not parse stays a legacy `contentType: 'html'` row holding raw Tiptap JSON until somebody
+      actually opens it. `EditorWysiwyg.vue` still loads that row (parsing the JSON directly instead
+      of feeding it through the markdown extension), so an ordinary save from it already writes real
+      markdown into `content` above -- what no ordinary save path does on its own is relabel
+      `contentType` to match, since that column is otherwise immutable here. This is the one case
+      where it must: the save just replaced legacy JSON with real markdown, so the row's true shape
+      changed under it. Narrow on purpose -- only a `wysiwyg`/`html` row whose stored content
+      actually looked like the legacy JSON, saving content that no longer does.
     */
     const isLegacyWysiwygConversionSave =
       existing.editor === 'wysiwyg' &&
@@ -1270,16 +1140,14 @@ class Pages {
     if (patch.tags !== undefined) {
       values.tags = patch.tags
     }
-    // -> The declassification GUARDRAIL permission (`manage:classification`, OpenProject #1080) is
-    //    checked one layer up, in `api/pages/write.ts` -- the same layering every other page-rule
-    //    permission follows. This is the structural check: a
-    //    page's classification, whichever direction it moves, may never end up below its immediate
-    //    parent's floor.
+    // -> The declassification GUARDRAIL permission (`manage:classification`) is checked one layer
+    //    up, in `api/pages/write.ts` -- the same layering every other page-rule permission follows.
+    //    This is the structural check: a page's classification, whichever direction it moves, may
+    //    never end up below its immediate parent's floor.
     // -> Compared against the row as it stands, not merely `!== undefined`: the editor can send a
-    //    patch that restates the current level (same as `changedFields` below does for every other
-    //    field), and `page:classification-changed` (OpenProject #1935) must never fire for that --
-    //    a webhook firing on a no-op change is worse than no webhook for the compliance integrations
-    //    this event exists for.
+    //    patch that restates the current level, and `page:classification-changed` must never fire
+    //    for that -- a webhook on a no-op change is worse than no webhook for a compliance
+    //    integration.
     const classificationChanged =
       patch.classification !== undefined && patch.classification !== existing.classification
     if (patch.classification !== undefined) {
@@ -1306,8 +1174,7 @@ class Pages {
     /*
       New content with nothing to show for it: refuse up front when this instance could never produce
       a render, so the caller gets an actionable error instead of a page whose HTML, search text and
-      outbound links stay pinned to the revision being replaced. Mirrors `models/approvals.ts`'s own
-      `ensureCanRender`/`queueRerender` pairing (OpenProject #1716).
+      outbound links stay pinned to the revision being replaced.
     */
     const hasRenderInput = patch.render !== undefined
     const needsRerenderQueue = patch.content !== undefined && !hasRenderInput
@@ -1316,10 +1183,9 @@ class Pages {
     }
 
     // -> A render only means anything next to the content it came from, so the two move together --
-    //    the real one when this save carried one, or a blank placeholder (the same one a renderless
-    //    `createPage()` gives a brand new page) when it didn't, so nothing here goes on matching text
-    //    or outbound links the new content no longer has. `queueRerender()` below is what actually
-    //    catches `render`/`toc`/`searchContent`/`links` up to the real thing once its job drains.
+    //    the real one when this save carried one, or a blank placeholder when it didn't, so nothing
+    //    here goes on matching text or outbound links the new content no longer has. The enqueue
+    //    below catches `render`/`toc`/`searchContent`/`links` up to the real thing once it drains.
     if (hasRenderInput || needsRerenderQueue) {
       const { render, toc, text, links } = await CARDINAL.models.rendering.postProcess(
         siteId,
@@ -1350,9 +1216,9 @@ class Pages {
     //    every save, so the patch alone would report a change to all of them
     const changedFields = CARDINAL.models.pageHistory.changedFields(existing, values)
 
-    // -> `.returning()` gets the raw row for free off the same write: `CARDINAL.models.search.updated`
-    //    wants the full `pages` row (`SearchIndexablePage`), not the flattened `Page` shape `getPage`
-    //    below produces
+    // -> `.returning()` gets the raw row for free off the same write:
+    //    `CARDINAL.models.search.updated` wants the full `pages` row (`SearchIndexablePage`), not
+    //    the flattened `Page` shape `getPage` below produces
     const rawRows = await CARDINAL.db
       .update(pagesTable)
       .set(values)
@@ -1363,13 +1229,12 @@ class Pages {
     const updated = (await this.getPage({ siteId, id })) as Page
 
     /*
-      The one thing an ordinary edit can do that IS a content lifecycle event (OpenProject #2674):
-      cross the published boundary. Everything else a save touches stays silent at `info` -- edits are
-      frequent and `pageHistory` already records each of them -- but whether a page is readable by the
-      world is a state change an operator reads the log for. `draft` <-> `scheduled` is neither
-      publishing nor unpublishing (the page was not visible before and is not visible now), so it logs
-      nothing here; `scheduled` counts as leaving `published`, because that is what it does to a page
-      that was live.
+      The one thing an ordinary edit can do that IS a content lifecycle event: cross the published
+      boundary. Everything else a save touches stays silent at `info` -- edits are frequent and
+      `pageHistory` already records each of them -- but whether a page is readable by the world is a
+      state change an operator reads the log for. `draft` <-> `scheduled` is neither publishing nor
+      unpublishing (the page was not visible before and is not visible now), so it logs nothing here;
+      `scheduled` counts as leaving `published`, because that is what it does to a page that was live.
     */
     if (values.publishState !== undefined && values.publishState !== existing.publishState) {
       const published = values.publishState === 'published'
@@ -1412,7 +1277,7 @@ class Pages {
     // -> `meta` and `updatedAt` move on every save, not only when `title`/`tags` did -- otherwise a
     //    description-only edit (handled above, touching nothing tree-side) leaves the tree row's
     //    `meta` (which the file manager reads `description` out of) and sort-by-`updatedAt` ordering
-    //    stale. Matches `movePage` (:1223) and `createPage` (:896), which write `meta` unconditionally.
+    //    stale.
     await CARDINAL.db
       .update(treeTable)
       .set({
@@ -1425,9 +1290,9 @@ class Pages {
 
     // -> A generated menu item's label comes from the tree row's title (just synced above), and its
     //    icon/inclusion at all from `pages.icon`/`isBrowsable`/`publishState` -- any ancestor
-    //    `auto`/`mixed` menu's cached tree walk for this site depends on whichever of these changed
-    //    (OpenProject #1825). This write bypasses `tree.ts`'s own methods (a direct `treeTable`
-    //    update above, not `renameEntry`), so it needs its own invalidation rather than inheriting one.
+    //    `auto`/`mixed` menu's cached tree walk depends on whichever of these changed. This write
+    //    bypasses `tree.ts`'s own methods, so it needs its own invalidation rather than inheriting
+    //    one.
     if (
       treeTitle !== null ||
       patch.icon !== undefined ||
@@ -1439,16 +1304,14 @@ class Pages {
 
     await CARDINAL.models.search.updated(rawUpdated)
     if (hasRenderInput) {
-      // -> No render-queue path here: when `needsRerenderQueue` fires instead, `storeRender()` is
-      //    what queues the embed job, once the real content actually lands
+      // -> Only on this branch: when `needsRerenderQueue` fires instead, `storeRender()` is what
+      //    queues the embed job, once the real content actually lands
       await this.enqueueEmbedJob(id)
     }
-    // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
-    //    caches the page's classification and tags alongside its path/locale, and `getCachedTerms`
-    //    runs the actor's `read:pages` check against that cached copy -- so a classification or tags
-    //    change here has to drop it the same way a term CRUD does, or a reader keeps seeing a term
-    //    resolve to a page whose access just changed (OpenProject #1706). Path/locale are covered by
-    //    `movePage`, not here.
+    // -> `models/glossary.ts`'s cached canonical-page mapping caches the page's classification and
+    //    tags alongside its path/locale, and runs the actor's `read:pages` check against that cached
+    //    copy -- so a classification or tags change here has to drop it, or a reader keeps seeing a
+    //    term resolve to a page whose access just changed. Path/locale are covered by `movePage`.
     if (patch.classification !== undefined || patch.tags !== undefined) {
       CARDINAL.models.glossary.invalidateCache(siteId)
     }
@@ -1484,18 +1347,16 @@ class Pages {
     // -> Any of title/icon/tags/classification/relations/links can move in a plain edit, all of
     //    which the graph's nodes or edges reflect. Any of `publishState`, `isBrowsable`, `tags`,
     //    `classification` moving could change whether this page belongs in the sitemap
-    //    (`listPagesForSitemap`'s guest-rule filter reads all four), and `updatedAt` (touched on every
-    //    save) is its `<lastmod>` when it does. Both unconditional, since there is no single field
-    //    either cache turns on, which is what keeps them from ever describing a page as it was rather
-    //    than as it is now (OpenProject #2267). The glossary's own drop above is conditional and stays
-    //    where it is, ahead of the emit.
+    //    (`listPagesForSitemap`'s guest-rule filter reads all four), and `updatedAt` is its
+    //    `<lastmod>` when it does. Both unconditional, since there is no single field either cache
+    //    turns on. The glossary's own drop above is conditional and stays ahead of the emit.
     this.invalidateSiteCaches(siteId)
 
     if (needsRerenderQueue) {
-      // -> Briefly blank rather than wrong: the browser is a queue away, and this is what actually
-      //    fills `render`/`toc`/`searchContent`/`links` back in from the content just written.
-      //    `ensureCanRender()` was already confirmed above, before the write, so this enqueues
-      //    directly rather than going back through `queueRerender()`'s own copy of that check.
+      // -> Briefly blank rather than wrong: the browser is a queue away, and this is what fills
+      //    `render`/`toc`/`searchContent`/`links` back in from the content just written.
+      //    `ensureCanRender()` was confirmed above, before the write, so this enqueues directly
+      //    rather than going back through `queueRerender()`'s own copy of that check.
       await this.enqueueRerender(siteId, updated, actor, renderPermissions)
     }
 
@@ -1504,17 +1365,13 @@ class Pages {
 
   /**
    * Overwrite a legacy WYSIWYG row's stored Tiptap-JSON `content` with the markdown a headless
-   * conversion produced, flipping `contentType` to `markdown` to match (OpenProject #3400).
+   * conversion produced, flipping `contentType` to `markdown` to match.
    *
-   * Deliberately not `updatePage()`: `contentType` is immutable through every ordinary save path --
-   * see `EDITOR_CONTENT_TYPES`'s own doc comment on why no patch is ever allowed to relabel what
-   * produced a page's content -- and this is the one place that relabeling is exactly the point.
-   * The page's VISIBLE output does not change here (same document, correctly encoded now instead of
-   * mislabeled), so this deliberately skips everything a real edit does through `updatePage()`: no
-   * re-render (the stored `render`/`toc`/`searchContent` already reflect this exact content, computed
-   * by the editor that originally saved it), no search reindex, no webhook emit, no storage dispatch.
-   * Only what actually changed moves: the `content` column's bytes and its `contentType` label, plus
-   * the one `pageHistory` version every content change gets.
+   * Deliberately not `updatePage()`: `contentType` is immutable through every ordinary save path,
+   * and here relabeling is exactly the point. The page's VISIBLE output does not change (same
+   * document, correctly encoded now instead of mislabeled), so this skips everything a real edit
+   * does: no re-render (the stored `render`/`toc`/`searchContent` already reflect this exact
+   * content), no search reindex, no webhook emit, no storage dispatch.
    *
    * The `WHERE` clause doubles as an optimistic-concurrency guard against the row having moved on
    * since the caller's own `SELECT` (converted already by an earlier run, or hand-edited in the
@@ -1556,28 +1413,22 @@ class Pages {
 
   /**
    * Flip a page's `editor` column between `markdown` and `wysiwyg`, recording one `pageHistory`
-   * version (OpenProject #3399).
+   * version.
    *
-   * Deliberately not `updatePage()`: `updatePage()`'s own comment notes "which editor authored a
-   * page is not something a save may change" -- this is the one place that IS the point.
-   * `content`/`contentType` are left untouched: markdown and wysiwyg have shared `'markdown'`
-   * storage since #3395 (`EDITOR_CONTENT_TYPES`), so converting between them is a relabel, not a
-   * transform. `render`/`toc`/`searchContent`/`links` are equally untouched -- the stored render
-   * already reflects this exact markdown, computed by whichever editor last saved it, and nothing
-   * about what the content SAYS changes here.
+   * Deliberately not `updatePage()`, which treats the editor that authored a page as unchangeable --
+   * this is the one place changing it IS the point. `content`/`contentType` are left untouched:
+   * markdown and wysiwyg share `'markdown'` storage (`EDITOR_CONTENT_TYPES`), so converting between
+   * them is a relabel, not a transform, and the stored `render`/`toc`/`searchContent`/`links`
+   * already reflect this exact markdown.
    *
    * The render-equality guard that makes this safe -- parsing the page into a headless WYSIWYG
    * editor, serializing it back out, and comparing the two renders -- runs entirely client-side, in
    * `PageConvertDialog.vue`, before this is ever called. This method trusts that guard and only
    * re-checks what it cannot see: that the row is still in a convertible state at all.
    *
-   * @throws {CustomError} `pageEditorConvertUnsupported` (either side of the flip isn't
-   *   `markdown`/`wysiwyg` -- e.g. `code`, `asciidoc`, `redirect`); `pageEditorConvertUnchanged`
-   *   (`targetEditor` already matches); `pageEditorConvertNotMarkdown` (the row hasn't gone through
-   *   #3395/#3400's markdown migration yet -- a legacy JSON-holding `wysiwyg` row the run-once job
-   *   or the lazy on-open fallback hasn't reached -- so there is no markdown for the frontend's
-   *   round-trip check to have compared against in the first place).
-   * @returns The updated page, or null when it does not exist.
+   * `pageEditorConvertNotMarkdown` is the legacy case: a JSON-holding `wysiwyg` row neither the
+   * run-once conversion job nor the lazy on-open fallback has reached has no markdown for the
+   * frontend's round-trip check to have compared against in the first place.
    */
   async convertEditor(
     siteId: string,
@@ -1634,9 +1485,7 @@ class Pages {
 
   /**
    * Other pages in this site sharing a path with `path`, excluding `excludeId` -- the translation
-   * link this data model uses (same `(siteId, path)`, other locales). Used by `movePage`'s
-   * `includeTranslations` cascade to find the twins a rename has to carry along, and by the
-   * move/rename UI to offer it.
+   * link this data model uses: same `(siteId, path)`, other locales.
    */
   async getTranslations(siteId: string, path: string, excludeId: string): Promise<Page[]> {
     const rows = await CARDINAL.db
@@ -1651,12 +1500,9 @@ class Pages {
 
   /**
    * Staleness/missing status of every active, non-primary locale's translation against its
-   * primary-locale twin, via the same `(siteId, path)` join `getTranslations` uses -- shared by the
-   * locale-switcher badge (pass a single-element `paths`) and the admin pages-view staleness column
-   * (omit `paths` for the whole
-   * site). One `SELECT` plus an in-memory comparison (`helpers/translationStaleness.ts`), never a
-   * per-page/per-locale round trip. A site with one or no active locale short-circuits to `[]`
-   * without querying at all -- there is nothing to compare.
+   * primary-locale twin, via the same `(siteId, path)` join `getTranslations` uses. One `SELECT`
+   * plus an in-memory comparison (`helpers/translationStaleness.ts`), never a per-page/per-locale
+   * round trip.
    *
    * @param paths Restrict to these paths; omit for every page in the site.
    */
@@ -1688,9 +1534,9 @@ class Pages {
   }
 
   /**
-   * The page + tree write for one page, run inside an already-open transaction -- shared between
-   * `movePage()`'s own move and its `includeTranslations` cascade, since a twin's move is exactly
-   * the same write against the twin's own current row, with its own (untouched) locale.
+   * The page + tree write for one page, run inside an already-open transaction -- shared with
+   * `movePage()`'s `includeTranslations` cascade, since a twin's move is exactly the same write
+   * against the twin's own current row, with its own (untouched) locale.
    */
   private async moveOnePageInTx(
     tx: WikiTx,
@@ -1704,11 +1550,10 @@ class Pages {
     relinkedPageIds: string[]
   }> {
     /*
-      Floor invariant on move (OpenProject #1080): unlike create/update, a move that lands a page
-      under a stricter parent auto-bumps it rather than refusing the move outright -- "no separate
-      confirmation step for a move" is the spec's own words. `stricterOf` is a no-op when the page is
-      already at or above the new floor (its own classification IS the stricter of the two already).
-      Read inside the transaction (`tx`, not `CARDINAL.db`) so a concurrent move of the parent cannot land
+      Floor invariant on move: unlike create/update, a move that lands a page under a stricter parent
+      auto-bumps it rather than refusing the move outright -- there is no separate confirmation step
+      for a move. `stricterOf` is a no-op when the page is already at or above the new floor. Read
+      inside the transaction (`tx`, not `CARDINAL.db`) so a concurrent move of the parent cannot land
       between this read and the write below.
     */
     const newFloorId =
@@ -1738,8 +1583,6 @@ class Pages {
       .where(eq(pagesTable.id, current.id))
       .returning()
 
-    // -> The tree entry is what places the page in the site, so it is moved rather than rewritten:
-    //    dropping and re-adding would create the destination folders but leave the old ones counted
     const pathParts = newPath.split('/')
     await CARDINAL.models.tree.deleteEntry(current.id, tx)
     await CARDINAL.models.tree.addPage({
@@ -1751,16 +1594,14 @@ class Pages {
       siteId,
       tags: current.tags,
       // -> The freshly-updated raw row, not `current` (the pre-move snapshot): `current.authorId`
-      //    is stale the instant this transaction sets it to `actor.id` above (OpenProject #1703).
-      //    None of `treeMeta`'s other fields are touched by this update, so `rawMovedRows[0]` and
-      //    `current` agree on everything else.
+      //    is stale the instant this transaction sets it to `actor.id` above. None of `treeMeta`'s
+      //    other fields are touched by this update, so the two agree on everything else.
       meta: this.treeMeta(rawMovedRows[0]!),
       db: tx
     })
 
     // -> Only a real path change leaves an old-path reference to fix -- a locale-only or title-only
-    //    move (this method's other two callers of `newPath !== current.path`, both below) touches no
-    //    link target, and `relinkReferencingPages` would find nothing to do beyond the wasted query.
+    //    move touches no link target, so this would find nothing to do beyond the wasted query.
     const relinkedPageIds =
       newPath !== current.path
         ? await this.relinkReferencingPages(
@@ -1773,8 +1614,6 @@ class Pages {
           )
         : []
 
-    // -> Recorded as its own kind of change rather than an edit: a move is what breaks inbound
-    //    links, and a history list has to be able to say so
     const changedFields = [
       ...(newPath !== current.path ? ['path'] : []),
       ...(destLocale !== current.locale ? ['locale'] : []),
@@ -1785,43 +1624,34 @@ class Pages {
   }
 
   /**
-   * Rewrite same-site, same-locale references to `oldPath` after a page moves to `newPath`
-   * (OpenProject #2452) -- every page (the moved page itself included, for a self-link) in
-   * `oldLocale` whose `links`/`relations` arrays, or whose `redirect` target, name the OLD path.
-   * Reuses the tracking data `models/rendering.ts#extractInternalLinks` already writes on every save
-   * (the same data `api/graph.ts` and `listBacklinks()` read) rather than re-parsing content from
-   * scratch -- see `helpers/pageLinkRewrite.ts`'s module doc comment for the two link shapes this
-   * rewrites in place.
+   * Rewrite same-site, same-locale references to `oldPath` after a page moves to `newPath` -- every
+   * page in `oldLocale` (the moved page itself included, for a self-link) whose `links`/`relations`
+   * arrays, or whose `redirect` target, name the OLD path. Reuses the tracking data
+   * `models/rendering.ts#extractInternalLinks` writes on every save rather than re-parsing content
+   * -- see `helpers/pageLinkRewrite.ts` for the two link shapes this rewrites in place.
    *
-   * `oldLocale` is deliberately the moved page's locale as it stood BEFORE this move: bare-path link
-   * targets only ever resolve within the referencing page's own locale (see `api/graph.ts`'s
-   * `assembleGraph`/`nodeId` comment), so a referencing page in any OTHER locale could never have
-   * meant this page in the first place.
+   * `oldLocale` is deliberately the moved page's locale as it stood BEFORE this move: a bare-path
+   * link target only ever resolves within the referencing page's own locale, so a referencing page
+   * in any OTHER locale could never have meant this page in the first place.
    *
-   * `newLocale` guards the combined case (OpenProject #2519): a move that changes locale AS WELL AS
-   * path (this method's caller only ever invokes it when the path itself changed, so a same-call
-   * locale change is possible too) leaves any same-locale bare-path reference to the old location
-   * unreachable no matter what gets rewritten here -- the `links: string[]` / `relations[].target:
-   * string` representation carries no locale of its own to redirect a referencing page toward, so
-   * there is nothing this method could write that would fix that case. `newLocale !== oldLocale`
-   * below is what makes this method actually skip the rewrite rather than merely intending to:
-   * writing `newPath` into an old-locale referencing page's link would target a path that, in that
-   * page's own locale, no longer names the moved page at all (whatever -- or nothing -- happens to
-   * sit at that path in the old locale now).
+   * A move that changes locale AS WELL AS path is skipped entirely (`newLocale !== oldLocale`): the
+   * `links: string[]` / `relations[].target: string` representation carries no locale of its own, so
+   * writing `newPath` into an old-locale page's link would target a path that, in that page's own
+   * locale, no longer names the moved page at all. There is nothing this method could write that
+   * would fix that case.
    *
-   * Deliberately not built on `listBacklinks()`: that query has no locale filter (fine for a
-   * read-only listing; unsafe for a mutating rewrite, since a same-path translation's own unrelated
-   * link could otherwise be corrupted by a different locale's move).
+   * Deliberately not built on `listBacklinks()`: that query has no locale filter -- fine for a
+   * read-only listing, unsafe for a mutating rewrite, since a same-path translation's own unrelated
+   * link could otherwise be corrupted by a different locale's move.
    *
    * Runs inside the move's own transaction, and fires no new `pageHistory` version and no
    * `updatedAt` bump on a candidate page -- this is a side effect of someone else's move, not a
    * fresh edit of the candidate.
    *
-   * @returns The id of every candidate page this rewrote -- a real, committed content change to
-   * each of them, just not an authored one. The caller (`movePage`) uses this to clear each one's
-   * recovery draft (OpenProject #2506) the same way a normal interactive save does
-   * (`core/collab.ts#pageSaved`): left uncleared, a stale draft predating this rewrite would offer
-   * to restore content this move has already overtaken.
+   * @returns The id of every candidate page this rewrote. The caller uses it to clear each one's
+   * recovery draft the same way a normal interactive save does (`core/collab.ts#pageSaved`): left
+   * uncleared, a stale draft predating this rewrite would offer to restore content this move has
+   * already overtaken.
    */
   private async relinkReferencingPages(
     tx: WikiTx,
@@ -1867,8 +1697,8 @@ class Pages {
 
     // -> Same locale list `extractInternalLinks` (`models/rendering.ts`) strips before storing
     //    `oldPath` bare -- a `forcePrefix` site (or a non-primary-locale target) can have written
-    //    that href with a leading locale segment still on it (OpenProject #3379), which the plain
-    //    `oldPath` pattern alone would not match.
+    //    that href with a leading locale segment still on it, which the plain `oldPath` pattern
+    //    alone would not match.
     const activeLocales: string[] = CARDINAL.sites?.[siteId]?.config?.locales?.active ?? []
 
     for (const row of candidates) {
@@ -1880,8 +1710,8 @@ class Pages {
       const contentRewrite = isRedirect
         ? rewriteRedirectTarget(row.content ?? '', oldPath, newPath)
         : rewriteLinkText(row.content ?? '', oldPath, newPath, activeLocales)
-      // -> A redirection has no render to speak of (see `REDIRECT_EDITOR`'s doc comment) -- nothing
-      //    to rewrite there, so this is left alone rather than run through the markdown/HTML pass.
+      // -> A redirection has no render to speak of, so it is left alone rather than run through the
+      //    markdown/HTML pass
       const renderRewrite = isRedirect
         ? { text: row.render ?? '', changed: false }
         : rewriteLinkText(row.render ?? '', oldPath, newPath, activeLocales)
@@ -1904,18 +1734,15 @@ class Pages {
    * The per-page side effects one moved page fires once its transaction has committed -- history,
    * watchers, search, hooks and storage dispatch, keyed to what THIS page changed rather than the
    * batch as a whole, so an `includeTranslations` cascade fires one full set per twin, exactly as if
-   * each had been moved on its own (spec item 2 of OpenProject #1026). Deliberately callable per page
-   * id + previous path/locale rather than a full previous `Page`, so a future bulk mover (e.g. every
-   * descendant of a renamed folder -- OpenProject #1683) can fire this per page without first
-   * assembling a `Page` snapshot of each one.
+   * each had been moved on its own. Deliberately callable per page id + previous path/locale rather
+   * than a full previous `Page`, so a bulk mover can fire it per page without first assembling a
+   * `Page` snapshot of each one.
    *
-   * Does NOT invalidate the glossary cache itself -- that is a per-SITE concern (OpenProject #870: a
-   * canonical page's path/locale change has to drop the cached term->page mapping), and calling it
-   * once per page in a large batch would be wasteful the same way `deleteOrphaned` calling it once per
-   * entry would be. Instead this reports whether THIS page's move requires it, via the returned
-   * `glossaryInvalidate` flag, and leaves the caller to OR that across the whole batch and call
-   * `CARDINAL.models.glossary.invalidateCache(siteId)` at most once -- `deleteOrphaned`'s
-   * one-call-covers-the-batch pattern is the reference.
+   * Does NOT invalidate the glossary cache itself -- a canonical page's path/locale change has to
+   * drop the cached term->page mapping, but that is a per-SITE concern, and calling it once per page
+   * in a large batch would be wasteful. Instead this reports whether THIS page's move requires it,
+   * via the returned `glossaryInvalidate` flag, leaving the caller to OR that across the batch and
+   * call `CARDINAL.models.glossary.invalidateCache(siteId)` at most once.
    */
   private async recordPageMoveSideEffects(
     siteId: string,
@@ -1950,13 +1777,13 @@ class Pages {
       changedFields
     )
     await CARDINAL.models.search.renamed(siteId, rawMoved, previousPath, previousLocale)
-    // -> A moved page's `<loc>` is built from its path and locale, so any move -- not only one that
-    //    also affects the glossary's canonical-page cache -- has to drop the cached sitemap list. Its
-    //    path is also what every edge pointing at it is keyed by (`assembleGraph` matches
-    //    relations/links against `row.path`), so a move can silently break edges in a stale bundle.
+    // -> A moved page's `<loc>` is built from its path and locale, so any move has to drop the
+    //    cached sitemap list. Its path is also what every edge pointing at it is keyed by
+    //    (`assembleGraph` matches relations/links against `row.path`), so a move can silently break
+    //    edges in a stale bundle.
     this.invalidateSiteCaches(siteId)
-    // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
-    //    that has to find what the page used to be (the git target's own file for it, say) needs the
+    // -> `previousLocale` alongside `previousPath` because a move can change either: a consumer that
+    //    has to find what the page used to be (the git target's own file for it, say) needs the
     //    whole of where it was, not half of it
     await announce('page:rename', siteId, {
       id: pageId,
@@ -1967,10 +1794,9 @@ class Pages {
       siteId,
       authorId: actor.id
     })
-    // -> One per page actually moved (OpenProject #2674) -- this method is called once for the page
-    //    named in the request and once more per `includeTranslations` twin, and a twin's move is a
-    //    move of its own, not a detail of somebody else's. `fromLocale` appears only for a re-homing,
-    //    where `from`/`to` can otherwise be the same path.
+    // -> One line per page actually moved, `includeTranslations` twins included: a twin's move is a
+    //    move of its own, not a detail of somebody else's. `fromLocale` appears only for a
+    //    re-homing, where `from`/`to` can otherwise be the same path.
     CARDINAL.logger.info('pages', 'moved', {
       site: siteId,
       page: pageId,
@@ -1994,13 +1820,12 @@ class Pages {
    * path) it used to occupy is freed. Absent, the page stays in the locale it is already in.
    *
    * `includeTranslations` cascades a path change to every other locale's page sharing this page's
-   * CURRENT path (see `getTranslations`) -- the
-   * translation link this data model uses is the shared path itself, so a rename that moves only one
-   * locale's page silently strands its twins at the old one. All-or-nothing: every twin goes through
-   * the same reserved-segment and collision checks as the page being moved, and a 409 on any one of
-   * them aborts the whole batch, page and tree writes together (OpenProject #1026, built on the
-   * transaction OpenProject #1022 put under a single move). A locale-only move (path unchanged) never
-   * cascades -- twins are found by path, so they are unaffected by definition.
+   * CURRENT path (see `getTranslations`) -- the translation link this data model uses is the shared
+   * path itself, so a rename that moves only one locale's page silently strands its twins at the old
+   * one. All-or-nothing: every twin goes through the same reserved-segment and collision checks as
+   * the page being moved, and a 409 on any one of them aborts the whole batch, page and tree writes
+   * together. A locale-only move (path unchanged) never cascades -- twins are found by path, so they
+   * are unaffected by definition.
    */
   async movePage(
     siteId: string,
@@ -2018,18 +1843,17 @@ class Pages {
       return null
     }
     const newPath = normalizePath(path)
-    // -> Same reasoning as `tree.renameFolder`: only checked when the path is actually changing, so a
-    //    title-only (or locale-only) move of an already-grandfathered page — one whose path predates
-    //    this rule — isn't itself blocked. The route's own schema advertises rename-via-move, and a
-    //    page whose shadowing first segment is untouched by this call isn't newly at risk. Path-only,
-    //    so it applies identically to every twin the cascade below moves to the same destination --
-    //    no need to repeat it per twin.
+    // -> Same reasoning as `tree.renameFolder`: only checked when the path is actually changing, so
+    //    a title-only (or locale-only) move of an already-grandfathered page — one whose path
+    //    predates this rule — isn't itself blocked, since its shadowing first segment is untouched
+    //    here. Path-only, so it applies identically to every twin the cascade below moves to the
+    //    same destination.
     if (newPath !== page.path) {
       await assertPathNotReservedLocale(newPath)
     }
     const destLocale = locale ?? page.locale
-    // -> Same rule as `createPage`: a locale that is not enabled on this site is not a place a page
-    //    may end up, whether by being created there or by being moved there
+    // -> Same rule as `createPage`: a disabled locale is not a place a page may end up, whether by
+    //    being created there or by being moved there
     if (destLocale !== page.locale) {
       assertLocaleActive(siteId, destLocale)
     }
@@ -2047,9 +1871,8 @@ class Pages {
 
     // -> Twins share this page's CURRENT path -- found before anything moves, since the primary no
     //    longer shares it with anyone the moment its own row is updated. Reaching here with the path
-    //    unchanged means only the locale (or title) is moving (the no-op check above already
-    //    returned for a title-only move too), and twins are addressed by path, not by locale, so
-    //    there is nothing for them to inherit from a locale-only move.
+    //    unchanged means only the locale (or title) is moving, and twins are addressed by path, not
+    //    by locale, so there is nothing for them to inherit from that.
     const twins =
       includeTranslations && newPath !== page.path
         ? await this.getTranslations(siteId, page.path, id)
@@ -2059,16 +1882,14 @@ class Pages {
       await this.assertNoPageAt(siteId, twin.locale, newPath, {
         exceptId: twin.id,
         // -> Names the locale: the caller asked to move one page and is being refused because of a
-        //    translation it did not name, so "a page already exists at this path" alone would not say
-        //    which of the batch is in the way
+        //    translation it did not name, so the default message would not say which is in the way
         message: `A page already exists at this path in the "${twin.locale}" locale.`
       })
     }
 
-    // -> Every page in the batch -- the one being moved, plus every twin `includeTranslations` pulls
-    //    along -- shares one transaction: a collision the probes above couldn't close (a race, or a
-    //    tree name collision only the insert itself can see) rolls the whole batch back rather than
-    //    leaving some twins moved and others stranded.
+    // -> Every page in the batch shares one transaction: a collision the probes above couldn't close
+    //    (a race, or a tree name collision only the insert itself can see) rolls the whole batch
+    //    back rather than leaving some twins moved and others stranded.
     type MoveResult = {
       previous: Page
       rawMoved: typeof pagesTable.$inferSelect
@@ -2099,8 +1920,8 @@ class Pages {
         return batch
       })
     } catch (err: any) {
-      // -> The probes above already cover the common case; this catches the race they cannot close --
-      //    two requests that both pass a probe before either writes
+      // -> The probes above cover the common case; this catches the race they cannot close -- two
+      //    requests that both pass a probe before either writes
       if (isUniqueViolation(err)) {
         throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
       }
@@ -2108,14 +1929,11 @@ class Pages {
     }
 
     // -> `relinkReferencingPages` rewrote each of these pages' `content`/`links`/`relations`
-    //    in-place, a real committed change to that page -- exactly the case `pageSaved()`'s own
-    //    doc comment describes clearing-on-save for. It only just committed above (a page whose
-    //    move transaction rolled back was never relinked in the first place), so clearing here,
-    //    after the `try`, never discards a draft over a rewrite that didn't actually happen
-    //    (OpenProject #2506). Awaited (unlike `core/collab.ts#pageSaved`'s own fire-and-forget
-    //    call, made from a sync websocket-lifecycle context with nothing to await it) so a caller
-    //    awaiting `movePage()` sees the clear land too -- but a per-id `catch` still keeps one
-    //    failed clear from failing the move that already committed.
+    //    in-place, a real committed change to that page -- exactly what `core/collab.ts#pageSaved`
+    //    clears a recovery draft for. Cleared after the `try`, since a page whose move transaction
+    //    rolled back was never relinked in the first place. Awaited so a caller awaiting
+    //    `movePage()` sees the clear land, with a per-id `catch` so one failed clear cannot fail a
+    //    move that already committed.
     const relinkedPageIds = new Set(results.flatMap((result) => result.relinkedPageIds))
     await Promise.all(
       [...relinkedPageIds].map((relinkedPageId) =>
@@ -2129,8 +1947,8 @@ class Pages {
     )
 
     let primaryMoved: Page | undefined
-    // -> One `invalidateCache` call covers the whole batch (this move plus every `includeTranslations`
-    //    twin), same as `deleteOrphaned` -- rather than once per page, as a per-page call would be.
+    // -> One `invalidateCache` call covers the whole batch -- this move plus every
+    //    `includeTranslations` twin -- rather than one per page
     let glossaryInvalidate = false
     for (const result of results) {
       const { moved, glossaryInvalidate: needsInvalidate } = await this.recordPageMoveSideEffects(
@@ -2153,11 +1971,6 @@ class Pages {
     return primaryMoved!
   }
 
-  /**
-   * Delete a page and its tree entry.
-   *
-   * @returns Whether a page was deleted
-   */
   async deletePage(siteId: string, id: string, actor: PageActor): Promise<boolean> {
     const page = await this.getPage({ siteId, id })
     if (!page) {
@@ -2172,9 +1985,9 @@ class Pages {
       via: actor.via
     })
     // -> Also before the row goes: deleting it below cascades `pageWatching` away, so the watch list
-    //    has to be read while it still exists -- and, since OpenProject #3203, this is also where the
-    //    `pageWatchEvents` rows for this deletion get written, because `pageId` is a foreign key and
-    //    the INSERT needs this row to still exist too (see `notifyWatchers`'s own doc comment)
+    //    has to be read while it still exists -- and this is where the `pageWatchEvents` rows for
+    //    this deletion get written, whose `pageId` foreign key needs this row to still exist too
+    //    (see `notifyWatchers`)
     await this.notifyWatchers(siteId, id, 'deleted', actor.id, {
       title: page.title,
       path: page.path,
@@ -2187,10 +2000,7 @@ class Pages {
     //    key), so nothing at the database level removes the tree row when the page row goes. A
     //    failure between two separate statements here would leave a tree entry pointing at a page
     //    that no longer exists -- still rendering in the file manager, 404ing when opened, and
-    //    permanently blocking a future page at the same path via `tree_composite_page_idx`
-    //    (OpenProject #1739). Passing `tx` into `deleteEntry` is why its `db` parameter defaults to
-    //    `CARDINAL.db` but accepts a `tx`. `movePage` draws the same boundary for its own
-    //    delete-and-reinsert of the tree entry.
+    //    permanently blocking a future page at the same path via `tree_composite_page_idx`.
     await CARDINAL.db.transaction(async (tx) => {
       await tx.delete(pagesTable).where(eq(pagesTable.id, id))
       await CARDINAL.models.tree.deleteEntry(id, tx)
@@ -2198,12 +2008,10 @@ class Pages {
     // -> A page that overrode the sidebar owns a menu keyed by its own id, which nothing could reach
     //    once the page is gone
     await CARDINAL.models.navigation.deleteNavForEntries(siteId, [id])
-    // -> The FK from `glossaryTerms.pageId` is `set null` (see `db/schema.ts`), so a term canonically
-    //    linked to this page is unlinked at the db level already; the cached, resolved copy of that
-    //    link needs the same drop or it would keep pointing at a page that no longer exists
-    //    (OpenProject #870).
-    // -> Same reasoning as the glossary cache: a deleted page must not linger in the cached sitemap
-    //    list, nor in the cached graph bundle as a node or as an edge target.
+    // -> The FK from `glossaryTerms.pageId` is `set null`, so a term canonically linked to this page
+    //    is unlinked at the db level already; the cached, resolved copy of that link needs the same
+    //    drop or it would keep pointing at a page that no longer exists. The cached sitemap list and
+    //    graph bundle must lose it for the same reason.
     this.invalidateSiteCaches(siteId, { glossary: true })
 
     // -> `contentSyncState.contentId` isn't a real FK (it can point at a page or an asset), so nothing
@@ -2242,16 +2050,16 @@ class Pages {
    *
    * Also drops each one from the search index, same as `deletePage` — a postgres-backed index has no
    * separate state to clean up, since a deleted row simply stops matching its own query, but an
-   * external engine (Elasticsearch, Algolia, ...) keeps a stale entry forever unless told to drop it.
+   * external engine keeps a stale entry forever unless told to drop it.
    */
   async deleteOrphaned(siteId: string, entries: DeletedEntry[], actor: PageActor): Promise<void> {
     if (entries.length < 1) {
       return
     }
     // -> Same reasoning as `deletePage`'s own pre-delete read: `notifyWatchers()` needs each page's
-    //    classification/tags to re-check `read:pages` per watcher (OpenProject #2173), and `DeletedEntry`
-    //    carries neither (a folder deletion never loaded the page rows to begin with) — one bulk SELECT
-    //    for the whole batch, not one per entry, before the rows go.
+    //    classification/tags to re-check `read:pages` per watcher, and `DeletedEntry` carries
+    //    neither (a folder deletion never loaded the page rows to begin with) — one bulk SELECT for
+    //    the whole batch, not one per entry, before the rows go.
     const pageInfo = new Map(
       (
         await CARDINAL.db
@@ -2277,9 +2085,9 @@ class Pages {
         authorId: actor.id,
         via: actor.via
       })
-      // -> Same ordering as `deletePage`, and for the same reason: still before the bulk delete below.
-      //    `DeletedEntry` carries no title (a folder deletion never loaded the page rows to begin
-      //    with), so the file name stands in for it, same as the path built for `page:delete` below.
+      // -> Same ordering as `deletePage`, and for the same reason: still before the bulk delete
+      //    below. `DeletedEntry` carries no title, so the file name stands in for it, same as the
+      //    path built for `page:delete` below.
       const info = pageInfo.get(entry.id)
       await this.notifyWatchers(siteId, entry.id, 'deleted', actor.id, {
         title: entry.fileName,
@@ -2295,9 +2103,9 @@ class Pages {
         entries.map((entry) => entry.id)
       )
     )
-    // -> Same reasoning as `deletePage`: a glossary term canonically linked to any of these pages has
-    //    a now-stale cached link (OpenProject #870), and any of them may have been in the cached
-    //    sitemap list or the cached graph bundle. One call covers the whole batch.
+    // -> Same reasoning as `deletePage`: a glossary term canonically linked to any of these pages
+    //    has a now-stale cached link, and any of them may have been in the cached sitemap list or
+    //    the cached graph bundle. One call covers the whole batch.
     this.invalidateSiteCaches(siteId, { glossary: true })
 
     // -> Same reasoning as `deletePage`: one batched call rather than one per page.
@@ -2318,11 +2126,9 @@ class Pages {
         siteId,
         authorId: actor.id
       })
-      // -> One line per page, as deleting them one at a time would have produced (OpenProject
-      //    #2674), for exactly the reason the `announce` above is also per page: a page that stops
-      //    existing is content leaving the wiki, whether it was named directly or swept up by the
-      //    folder over it. `cascade` is what tells the two apart in the log; the `debug` summary
-      //    below still carries the batch size.
+      // -> One line per page, for exactly the reason the `announce` above is also per page: a page
+      //    that stops existing is content leaving the wiki, whether it was named directly or swept
+      //    up by the folder over it. `cascade` is what tells the two apart in the log.
       CARDINAL.logger.info('pages', 'deleted', {
         site: siteId,
         page: entry.id,
@@ -2350,13 +2156,9 @@ class Pages {
    * the queued request.
    *
    * @param renderPermissions Same override `updatePage` accepts, and for the same reason — see its
-   *   doc comment (OpenProject #2187). `approveSubmission`'s no-render fallback path reaches this
-   *   too, and must pass the identical submitter-derived permissions the direct `postProcess()`
-   *   branch used, or the queued re-render would launder the content back through the reviewer's
-   *   permissions anyway.
-   * @returns False when there is no such page
-   * @throws `renderUnsupportedEditor` for a page the server cannot render, or
-   *         `renderPuppeteerMissing` when nothing here could drain the queue
+   *   doc comment. `approveSubmission`'s no-render fallback path reaches this too, and must pass the
+   *   identical submitter-derived permissions the direct `postProcess()` branch used, or the queued
+   *   re-render would launder the content back through the reviewer's permissions anyway.
    */
   async queueRerender(
     siteId: string,
@@ -2376,14 +2178,11 @@ class Pages {
   /**
    * The actual enqueue `queueRerender()` performs once it has confirmed `ensureCanRender()` --
    * factored out so `createPage()`/`updatePage()` can call it directly after their own up-front
-   * `ensureCanRender()` guard (OpenProject #1716), rather than going back through `queueRerender()`
-   * and paying for that same consult a second time for the write that just landed.
+   * `ensureCanRender()` guard, rather than paying for that same consult a second time.
    *
-   * `page` only needs to carry what `hasPermission()`'s `RulePageRef` match needs -- `id` to queue,
-   * `path`/`locale`/`tags`/`classification` to resolve the write:scripts/write:styles grant against
-   * -- narrower than the full `Page` every existing caller happens to already have on hand, which is
-   * what lets `queueRerenderAllPages()` (below) pass a lightweight per-page row straight through
-   * without a `getPage()`-shaped select per page (OpenProject #3181).
+   * `page` only needs to carry what `hasPermission()`'s `RulePageRef` match needs, narrower than the
+   * full `Page` most callers have on hand, which is what lets `queueRerenderAllPages()` pass a
+   * lightweight per-page row straight through without a `getPage()`-shaped select per page.
    */
   private async enqueueRerender(
     siteId: string,
@@ -2403,28 +2202,21 @@ class Pages {
   }
 
   /**
-   * Queue every markdown page of a site for rerender (OpenProject #3181).
-   *
    * The manual "apply it everywhere, right now" counterpart to the glossary's render-time term
    * matching: a stored page's render only picks up a term change on its own next render (a save, or
    * an explicit rerender), never retroactively the moment a term is added or edited -- rewriting
    * every stored page's render on every term save would mean a full-site headless-browser re-render
-   * per edit, which is not this feature's job. An admin who does not want to wait for each page's own
-   * next save, or for the per-page Rerender action one page at a time, queues every page through the
-   * very same `renderQueue.queuePage()`/scheduler-drain path those already use -- a bulk CALLER of
-   * it, in a loop, not a new rendering mechanism.
+   * per edit. This is a bulk CALLER of the same `renderQueue.queuePage()`/scheduler-drain path a
+   * single rerender already uses, in a loop, not a new rendering mechanism.
    *
    * Only markdown-editor pages are queued: every other editor has no server-side renderer at all
    * (`ensureCanRender()` refuses everything but `markdown`), and queuing one anyway would just make
-   * the drain log a warning and skip it for every such page on the site, for no benefit.
+   * the drain log a warning and skip it.
    *
-   * Deliberately scoped to "every page", not "only pages that mention this term" -- see this
-   * method's caller (`api/glossary.ts`) and OpenProject #3181's own scope note for why a
-   * term-backlink index is out of scope here.
+   * Deliberately scoped to "every page", not "only pages that mention this term": there is no
+   * term-backlink index to narrow it with.
    *
-   * @returns How many markdown pages were queued.
-   * @throws `renderPuppeteerMissing` when nothing here could drain the queue -- checked once, up
-   *   front, rather than once per page.
+   * `ensureCanRender()` is consulted once, up front, rather than once per page.
    */
   async queueRerenderAllPages(siteId: string, actor: PageActor): Promise<number> {
     await CARDINAL.models.renderQueue.ensureCanRender('markdown')
@@ -2445,8 +2237,6 @@ class Pages {
   }
 
   /**
-   * Store HTML the renderer produced for a page, and re-index it.
-   *
    * The counterpart to `queueRerender`: the drain calls this once the browser has been through the
    * content. Post-processed like any other render — it came from a browser either way — against the
    * permissions the person who asked for it had.
@@ -2474,34 +2264,29 @@ class Pages {
     // -> Nothing was updated when the page went while it sat in the queue
     if (updated[0]) {
       await CARDINAL.models.search.updated(updated[0])
-      // -> The one place a render-queue-drained save's real content lands, so this is the only
-      //    embed-job enqueue the queued path needs -- `createPage`/`updatePage` skip it themselves
-      //    when they queued a render rather than post-processing one directly
+      // -> Where a render-queued save's real content lands, so this is the only embed-job enqueue
+      //    the queued path needs -- `createPage`/`updatePage` skip it when they queued a render
+      //    rather than post-processing one directly
       await this.enqueueEmbedJob(id)
     }
   }
 
   /**
-   * Queue a semantic-embedding refresh (Task #3098's `tasks/workers/embed-page.ts`) for a page whose
-   * final rendered content just landed.
+   * Queue a semantic-embedding refresh for a page whose final rendered content just landed.
    *
    * Called from exactly the places a page's `searchContent` becomes the real, final text for this
    * save -- never once per chunk, and never for a save that only queued a render without yet
    * producing one (the render-queue drain, `storeRender()`, is what calls this once that render is
-   * ready instead). The job itself no-ops when semantic search is unavailable
-   * (`CARDINAL.capabilities.semanticSearch`) and always fully replaces a page's chunks rather than
-   * appending to them -- see `embedPage()`'s own doc comment.
+   * ready instead).
    */
   private async enqueueEmbedJob(pageId: string): Promise<void> {
     await CARDINAL.scheduler.addJob({ task: 'embedPage', payload: { pageId } })
   }
 
   /**
-   * Resolve a page alias to its path and locale, or null if nothing claims that alias.
-   *
    * The locale travels with the path because an alias identifies one specific page, in one specific
-   * locale -- the caller (the frontend's `/a/:alias` route) needs both to build a correctly-prefixed
-   * link rather than landing on the site's primary-locale default for a translation that isn't.
+   * locale -- the caller needs both to build a correctly-prefixed link rather than landing on the
+   * site's primary-locale default for a translation that isn't.
    */
   async getPathFromAlias(
     siteId: string,
@@ -2531,11 +2316,9 @@ class Pages {
    * check a real anonymous request would get from `checkAccess` — rather than assuming "published and
    * browsable" already means "public".
    *
-   * Capped at `SITEMAP_QUERY_CAP` so the query itself can never scan an unbounded table — a distinct
-   * concern from sitemaps.org's own 50,000-URL-per-file limit, which `controllers/seo.ts` paginates
-   * around on the (already-capped) result of this call. Ordered by path so that a page's translations
-   * (same path, several locale rows) land next to each other, keeping a multi-locale hreflang cluster
-   * out of two different paginated child sitemaps in the common case.
+   * Ordered by path so that a page's translations (same path, several locale rows) land next to each
+   * other, keeping a multi-locale hreflang cluster out of two different paginated child sitemaps in
+   * the common case.
    */
   async listPagesForSitemap(
     siteId: string
@@ -2586,12 +2369,6 @@ class Pages {
     return result
   }
 
-  /**
-   * Drop a site's cached sitemap page list, so the next `/sitemap.xml` request rebuilds it.
-   *
-   * Called wherever a page's publish/browsable state, path, locale or existence changes — a publish,
-   * an unpublish, a move or a delete — since any of those can add or remove a row from the list.
-   */
   invalidateSitemapCache(siteId: string): void {
     CARDINAL.cache.delete(sitemapCacheKey(siteId))
   }
@@ -2599,9 +2376,7 @@ class Pages {
   /**
    * Every translation row -- across every locale -- for a set of paths within one site: the join
    * half of translation staleness/missing detection (`helpers/translationStatus.ts` is the compare
-   * half). Backs the admin pages view's per-locale status column (OpenProject #2476) and is written
-   * to be reused by whatever else needs the same shared-path join (the locale-switcher badge,
-   * OpenProject #2475).
+   * half).
    *
    * Unfiltered by page-rule access on purpose: the caller already knows about every path it is
    * asking for (typically an already permission-filtered search result), and all that is reported
@@ -2625,14 +2400,11 @@ class Pages {
   }
 
   /**
-   * Drop the per-site caches a page write can invalidate, in the order every write path dropped them.
-   *
    * The sitemap list and the graph bundle are dropped unconditionally: a page's existence, path,
    * locale, publish state, tags or classification all feed one or both, and there is no single field
    * either turns on. The glossary's resolved canonical-page cache is not — only a write that can
    * change which page a term points at, or who may read it, needs it dropped, which is why it is a
-   * flag rather than a third unconditional call (`createPage` and `movePage` deliberately do not, and
-   * `updatePage`'s own conditional drop happens earlier, ahead of its webhook emit).
+   * flag rather than a third unconditional call.
    */
   private invalidateSiteCaches(siteId: string, opts: { glossary?: boolean } = {}): void {
     if (opts.glossary) {
@@ -2645,15 +2417,14 @@ class Pages {
   /**
    * Refuse a `(siteId, locale, path)` another page already occupies.
    *
-   * The probe every write that puts a page somewhere makes first — a create, a move, and each
-   * translation a move cascades to. It is a probe, not the arbiter: the `(siteId, locale, path)`
-   * uniqueness constraint is, and a writer that lands between this read and the insert is caught by
-   * `isUniqueViolation` at the write itself. This is what turns the common case into a 409 the caller
-   * can act on rather than a constraint error.
+   * A probe, not the arbiter: the `(siteId, locale, path)` uniqueness constraint is, and a writer
+   * that lands between this read and the insert is caught by `isUniqueViolation` at the write
+   * itself. This is what turns the common case into a 409 the caller can act on rather than a
+   * constraint error.
    *
    * @param opts.exceptId Ignore this page — the one being moved, which is allowed to already be here
-   * @param opts.message Overrides the refusal's message where the caller can say something more useful
-   * @throws CustomError `pageDuplicatePath` (409)
+   * @param opts.message Overrides the refusal's message where the caller can say something more
+   *                     useful
    */
   private async assertNoPageAt(
     siteId: string,
@@ -2683,9 +2454,6 @@ class Pages {
     }
   }
 
-  /**
-   * Check an alias is well formed and unclaimed, and normalize an empty one to null.
-   */
   private async validateAlias(
     siteId: string,
     alias: string | undefined,
@@ -2716,9 +2484,6 @@ class Pages {
     return value
   }
 
-  /**
-   * Fold the flat display options back into the `config` blob they are stored in.
-   */
   private buildConfig(
     input: Partial<PageInput>,
     siteId: string,
@@ -2739,11 +2504,10 @@ class Pages {
    * The `scripts` jsonb blob's shape (`{ jsLoad, jsUnload, css }`), built from `PageInput`'s flat
    * `scriptJsLoad`/`scriptJsUnload`/`scriptCss` the same way {@link buildConfig} builds `config`.
    *
-   * Unlike the pre-a3a6c7994 version of this method, this does NOT check `write:scripts`/
-   * `write:styles` itself -- it trusts whatever `input` carries. That permission check is the
-   * caller's job, done once as a 403 refusal at the route layer (`api/pages/write.ts`) before
-   * `createPage()`/`updatePage()` are ever called, rather than being re-checked here and silently
-   * dropping an unauthorized field the way the old implementation did.
+   * Does NOT check `write:scripts`/`write:styles` itself -- it trusts whatever `input` carries. That
+   * permission check is the caller's job, done once as a 403 refusal at the route layer
+   * (`api/pages/write.ts`) before `createPage()`/`updatePage()` are ever called, rather than being
+   * re-checked here and silently dropping an unauthorized field.
    */
   private buildScripts(
     input: Partial<PageInput>,
@@ -2759,47 +2523,33 @@ class Pages {
   /**
    * Queue pending watch notifications for a page change.
    *
-   * Never called for `created`: nobody could have been watching a page before it existed, so a
-   * freshly created page has no watchers to notify by construction (there is no page restore/undelete
-   * feature yet that would make this untrue — see `deleteOrphaned` and `pageHistory` for why a
-   * deletion is recoverable in principle even though nothing currently offers it back). `moved`
-   * qualifies by default, same as `updated`, for a watcher who has never touched their preference —
-   * see `pageWatching.ts#DEFAULT_PREFERENCE`.
+   * Never called for `created`: nobody could have been watching a page before it existed.
    *
-   * The watcher list — now paired with each watcher's resolved `notifyMode`, from
-   * `pageWatching.listWatchers` — is resolved here, synchronously, rather than inside the job this
-   * queues: a delete removes the page in the very same request, and `pageWatching.pageId` cascades
-   * away with it, so a job that only got around to resolving watchers (or their preference) later
-   * would find nothing left to read for a `deleted` event. `page` and `changedFields` are threaded
-   * through for the same reason: the job composing the actual email cannot re-query a page that, for a
-   * delete, is by then already gone. That resolution is one indexed `SELECT` — it does not scale with
-   * how many people watch the page, so awaiting it here costs the save a fixed, small amount regardless
-   * of audience size. What DOES scale with the audience — writing one `pageWatchEvents` row per
-   * watcher, and sending the mail for the ones who want it immediately — is exactly the part pushed
-   * into the queued job, which is why this awaits nothing past resolving the (possibly empty) watcher
-   * list and asking the scheduler to queue one job for it.
+   * The watcher list — paired with each watcher's resolved `notifyMode` — is resolved here,
+   * synchronously, rather than inside the job this queues: a delete removes the page in the very
+   * same request, and `pageWatching.pageId` cascades away with it, so a job that only got around to
+   * resolving watchers later would find nothing left to read for a `deleted` event. `page` and
+   * `changedFields` are threaded through for the same reason. That resolution is one indexed
+   * `SELECT`, so it does not scale with how many people watch the page; what does — one
+   * `pageWatchEvents` row per watcher, and the mail — is exactly what the queued job does instead.
    *
    * A failure to queue is logged and swallowed rather than thrown: a watcher not being told about a
    * change is a real loss, but it must never be the reason the change itself fails to save.
    *
-   * `pageWatching.listWatchers()` re-checks `read:pages` per watcher against the page's own live row
-   * (joined internally, OpenProject #2173) — `read:pages` used to be checked once, at subscribe time,
-   * and never again, so a watcher whose access has since been revoked (a raised classification, a move
-   * into a restricted branch, an edited group rule) would otherwise still be queued a notification
-   * carrying the page's title and a working link.
+   * `pageWatching.listWatchers()` re-checks `read:pages` per watcher against the page's own live row,
+   * so a watcher whose access has since been revoked (a raised classification, a move into a
+   * restricted branch, an edited group rule) is not queued a notification carrying the page's title
+   * and a working link.
    *
-   * For a `deleted` action (OpenProject #3203), the `pageWatchEvents` rows are recorded HERE,
-   * synchronously, rather than left to the queued job: `pageWatchEvents.pageId` is a foreign key, so
-   * the INSERT has to run while the `pages` row this call is about still exists — both `deletePage`
-   * and `deleteOrphaned` call this before they delete it, same as they already did for
-   * `pageWatching.listWatchers()`'s own read above (deleting the row cascades that list away first).
-   * The already-recorded rows are then handed to the job as `recordedEvents`, so it does the
-   * immediate-send loop against them rather than inserting a second time — see that task's own doc
-   * comment. Every other action keeps deferring the insert into the job: the page row those actions
-   * are about stays put, so there is no timing hazard forcing the write off the request path.
+   * For a `deleted` action the `pageWatchEvents` rows are recorded HERE, synchronously, rather than
+   * left to the queued job: `pageWatchEvents.pageId` is a foreign key, so the INSERT has to run while
+   * the `pages` row this call is about still exists — both `deletePage` and `deleteOrphaned` call
+   * this before they delete it. The already-recorded rows are handed to the job as `recordedEvents`,
+   * so it does the immediate-send loop against them rather than inserting a second time. Every other
+   * action defers the insert into the job: the page row those are about stays put.
    *
-   * @param changedFields What `movePage`/`updatePage` already computed for `pageHistory.record` —
-   *   `['path']`/`['title']` for a move, whichever page fields for an edit. Always empty for a delete.
+   * @param changedFields What `movePage`/`updatePage` already computed for `pageHistory.record`.
+   *   Always empty for a delete.
    */
   private async notifyWatchers(
     siteId: string,
@@ -2869,13 +2619,10 @@ class Pages {
    * What a page's tree entry carries about it, so a folder listing needs no join.
    *
    * Deliberately narrower than `typeof pagesTable.$inferSelect` or the full `Page` interface: it
-   * names exactly the fields written below, so either a raw inserted/updated `pages` row
-   * (`createPage`, and `{ ...current, path: newPath }` in `moveOnePageInTx`) or the flattened `Page`
-   * shape `toPage()` produces (`updatePage`) satisfies it structurally. `creatorId`/`ownerId` used to
-   * be read here too, defaulting to `authorId` when absent -- but `Page` never carried either column,
-   * so every caller except `createPage` silently recorded the *acting* editor as creator/owner
-   * instead of leaving them alone. Nothing in this repo reads `meta.creatorId`/`meta.ownerId`
-   * (OpenProject #1703), so they are dropped rather than plumbed correctly through every caller.
+   * names exactly the fields written below, so either a raw inserted/updated `pages` row or the
+   * flattened `Page` shape `toPage()` produces satisfies it structurally. `creatorId`/`ownerId` are
+   * deliberately absent -- `Page` carries neither column, so reading them here recorded the *acting*
+   * editor as creator/owner, and nothing in this repo reads `meta.creatorId`/`meta.ownerId`.
    */
   private treeMeta(
     page: Pick<

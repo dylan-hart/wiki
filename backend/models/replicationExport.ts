@@ -19,15 +19,12 @@ import {
   users as usersTable
 } from '../db/schema.ts'
 
-/** How long a finished snapshot sits on disk before `purgeExpired` sweeps it, in seconds. */
 const REPLICATION_EXPORT_TTL_SECONDS = 24 * 60 * 60
 
 /**
- * The archive format `buildSnapshot` writes — the shape of `manifest.json` plus what each of the
- * other entries means, not the running `wikiVersion`. Bumped only when that shape changes; a target
- * instance whose importer (#2490) does not recognize a manifest's `formatVersion` refuses it outright
- * rather than restoring best-effort, the same contract `models/export.ts#EXPORT_FORMAT_VERSION`
- * documents for the unrelated per-site archive.
+ * The archive's shape, not the running `wikiVersion`, and bumped only when that shape changes: a
+ * target instance whose importer does not recognize a manifest's `formatVersion` refuses it
+ * outright rather than restoring best-effort.
  */
 export const REPLICATION_EXPORT_FORMAT_VERSION = 1
 
@@ -37,11 +34,10 @@ export interface ReplicationExportResult {
 }
 
 /**
- * Drop columns that are either regenerated from the rest of a row (`ts`) or only ever meaningful to
- * the instance that computed them (`searchContent`), rather than to what an import would need to
- * recreate the row. Mirrors `models/export.ts`'s own `stripDerived` — kept as a separate copy rather
- * than a shared export since the two archive formats are independent contracts that happen to strip
- * the same two columns today, not one that must always agree with the other.
+ * `ts` is regenerated from the rest of the row and `searchContent` means nothing to another
+ * instance, so neither is part of what an import needs. Deliberately a separate copy of
+ * `models/export.ts`'s `stripDerived`: the two archive formats are independent contracts that strip
+ * the same columns today, not one that must always agree with the other.
  */
 function stripDerived<T extends Record<string, any>>(row: T): Partial<T> {
   const { ts: _ts, searchContent: _searchContent, ...rest } = row as any
@@ -49,62 +45,33 @@ function stripDerived<T extends Record<string, any>>(row: T): Partial<T> {
 }
 
 /**
- * Instance-wide replication export model (source side of Epic #2437's scheduled clean-slate
- * replication)
+ * Serializes the ENTIRE instance — every site, assets included — into one gzipped tar archive.
+ * Deliberately a different surface from `models/export.ts#exportSite`, which serializes one site's
+ * content under its own format version and importer contract.
  *
- * Serializes the ENTIRE instance — every site, not one — into a single gzipped tar archive under
- * `<dataPath>/exports/`: sites, classification levels, settings, groups, users and their group
- * memberships, pages/tree/page history/navigation/comments across every site, and every asset
- * (bytea included). This is deliberately a different surface from `models/export.ts#exportSite`,
- * which serializes one site's content for the existing "Export content" system utility and has its
- * own format version and importer contract (`models/import.ts`) — this model exists for Feature
- * #2437's full-parity instance mirror instead, resolved to need "a new bulk-export/import API
- * surface (not iterating the existing per-resource REST API)".
- *
- * Two deliberate divergences from `exportSite`'s choices, both because this is a whole-instance
+ * Two deliberate divergences from `exportSite`, both because this is a whole-instance
  * wipe-and-replace rather than a restore layered onto an otherwise-live target:
  *
- * - `groups.json` INCLUDES `isSystem` rows (Administrators/Users/Guests). `exportSite` excludes
- *   them because its target site still has its own already-seeded system groups to collide with;
- *   here the target instance's entire database is wiped before the snapshot is restored (WP #2490),
- *   so there is nothing for these rows to collide with — omitting them would instead leave the
- *   mirrored instance without a working Administrators group at all.
- * - `settings.json` is included at all. A per-site export has no instance-wide settings to carry;
- *   a full-parity mirror does, by definition, and that can include sensitive values (mail/storage
- *   credentials, the auth secret, …). This is acceptable because the route this model backs
- *   (`api/system/replicationExport.ts`) is `manage:system`-only, exactly as sensitive as `GET
- *   /_api/system/settings` already is — not a new exposure this model introduces on its own.
+ * - `groups.json` INCLUDES `isSystem` rows. `exportSite` excludes them because its target site has
+ *   its own seeded system groups to collide with; here the target's database is wiped first, so
+ *   omitting them would leave the mirror without a working Administrators group at all.
+ * - `settings.json` is included at all, sensitive values (mail/storage credentials, the auth
+ *   secret) and all. Acceptable because the route this model backs is `manage:system`-only, exactly
+ *   as sensitive as `GET /_api/system/settings` already is.
  *
- * Every entry is first written into a per-export staging directory under the OS temp dir, then
- * `tar`'s file-based `create()` archives the whole directory in one pass, the same approach
- * `exportSite` and `modules/storage/disk/storage.ts#buildArchive()` both already use — `node-tar`'s
- * streaming `Pack` only ever reads entries from real files on disk, so there is no way to hand it a
- * JSON string or an asset `Buffer` directly without staging it first. The staging directory is
- * removed once the tarball is written, win or lose, and kept outside `<dataPath>/exports/` so a
- * leftover from a crashed run is never mistaken by `purgeExpired()` for one of its own `.tar.gz`
- * files. Queued as a background job (`tasks/simple/export-replication.ts`) rather than run inline,
- * since a whole instance's worth of asset bytes is not something a request thread should be blocked
- * on — see `api/system/replicationExport.ts`.
+ * Entries are staged in a temp directory first because `node-tar`'s `create()` only ever reads
+ * entries from real files — a JSON string or an asset `Buffer` cannot be handed to it. Staging sits
+ * outside `<dataPath>/exports/` so a leftover from a crashed run is never mistaken by
+ * `purgeExpired()` for a finished export.
  *
- * No streaming/pagination for very large instances: every table in scope is read into memory in one
- * `select()` before being staged to disk, same ceiling `exportSite` already accepts for a single
- * site. Left as a known scaling follow-up rather than solved here — see this work package's own
- * notes on OpenProject #2489.
+ * Every table in scope is read into memory in one `select()`: no streaming or pagination, the same
+ * ceiling `exportSite` already accepts for a single site.
  */
 class ReplicationExportModel {
-  /** `<dataPath>/exports` — shared with `models/export.ts`'s per-site archives; both are swept by
-   *  the same TTL policy and neither cares which produced a given file. */
   get exportsPath(): string {
     return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath, 'exports')
   }
 
-  /**
-   * Build the whole-instance snapshot tarball.
-   *
-   * @returns The path it was written to and its final size, which the caller
-   *   (`tasks/simple/export-replication.ts`) records on the job's history row via
-   *   `CARDINAL.models.jobs.setResult`.
-   */
   async buildSnapshot(): Promise<ReplicationExportResult> {
     const [
       siteRows,
@@ -131,9 +98,6 @@ class ReplicationExportModel {
       CARDINAL.db.select().from(navigationTable),
       CARDINAL.db.select().from(commentsTable)
     ])
-    // -> Assets travel separately below (their bytea columns need their own staged files), but the
-    //    row set itself is fetched here alongside everything else for the same reason: one snapshot,
-    //    one point-in-time read of the whole instance.
     const assetRows = await CARDINAL.db.select().from(assetsTable)
 
     await fs.mkdir(this.exportsPath, { recursive: true })
@@ -190,9 +154,8 @@ class ReplicationExportModel {
         JSON.stringify(commentRows, null, 2)
       )
 
-      // -> Metadata and bytes travel separately: a JSON manifest of every asset's columns other than
-      //    `data`/`preview`, plus one archive entry per asset per bytea column actually populated —
-      //    same shape `exportSite` uses, just across every site instead of one.
+      // -> Metadata and bytes travel separately: a JSON manifest of every column but
+      //    `data`/`preview`, plus one archive entry per bytea column actually populated
       const assetsDir = path.join(stagingDir, 'assets')
       await fs.mkdir(assetsDir, { recursive: true })
       const assetManifest: Record<string, any>[] = []
@@ -221,22 +184,15 @@ class ReplicationExportModel {
     return { filePath, fileSize: size }
   }
 
-  /**
-   * Delete one snapshot file. Best-effort and idempotent — called once a download has finished
-   * streaming, and safe to call again on a file `purgeExpired` already swept.
-   */
+  /** Best-effort: the file may already have been swept by `purgeExpired` or a previous call. */
   async deleteExport(filePath: string): Promise<void> {
     await fs.unlink(filePath).catch(() => {})
   }
 
   /**
-   * Sweep `<dataPath>/exports/` of anything older than the TTL — the snapshot nobody came back to
-   * download. Safe to call when the directory does not exist yet (nothing has ever been exported).
-   * Shares the directory (and therefore this sweep) with `models/export.ts#purgeExpired` — both
-   * TTLs happen to be the same 24 hours today, but each is its own constant so one can change
-   * without silently moving the other.
-   *
-   * @returns How many files were removed
+   * Sweeps the directory `models/export.ts#purgeExpired` also sweeps, and therefore its files too.
+   * The two TTLs are equal today but stay separate constants so one can change without moving the
+   * other.
    */
   async purgeExpired(): Promise<number> {
     return purgeFilesOlderThan(this.exportsPath, REPLICATION_EXPORT_TTL_SECONDS)

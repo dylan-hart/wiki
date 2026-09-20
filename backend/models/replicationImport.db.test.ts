@@ -23,9 +23,7 @@ import {
   users as usersTable
 } from '../db/schema.ts'
 
-/** Stages a `{ name: Buffer }` map to real files under a throwaway dir, then tars it into a fresh
- *  archive at `filePath` — same approach `models/siteImport.test.ts#buildArchive` uses, since `tar`'s
- *  `Pack` only ever archives real files. */
+/** Entries are staged to real files first because `tar`'s `Pack` only ever archives real files. */
 async function buildArchive(filePath: string, entries: Record<string, Buffer>): Promise<void> {
   const stagingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-replication-import-build-'))
   try {
@@ -71,7 +69,6 @@ describe('replicationImportModel.importSnapshot (DB-backed)', { skip: !hasTestDa
 
     await assert.rejects(importSnapshot(filePath), /Unsupported replication archive version/)
 
-    // -> Nothing was wiped: the fixture site `setupTestDb()` seeded is still exactly there.
     const stillThere = await fixtures.db
       .select({ id: sitesTable.id })
       .from(sitesTable)
@@ -151,8 +148,8 @@ describe('replicationImportModel.importSnapshot (DB-backed)', { skip: !hasTestDa
         }
       ]),
       'comments.json': json([
-        // -> Deliberately listed reply-first, to prove `orderCommentsByReplyDepth` is actually wired
-        //    into the restore rather than only unit-tested in isolation.
+        // -> Deliberately reply-first, so the restore has to order by reply depth to satisfy the
+        //    `replyTo` foreign key
         {
           id: replyCommentId,
           content: 'A reply',
@@ -201,7 +198,6 @@ describe('replicationImportModel.importSnapshot (DB-backed)', { skip: !hasTestDa
       settings: 1
     })
 
-    // -> The fixture's own pre-existing rows are gone — wiped, not merged with.
     const oldSite = await fixtures.db
       .select({ id: sitesTable.id })
       .from(sitesTable)
@@ -211,7 +207,6 @@ describe('replicationImportModel.importSnapshot (DB-backed)', { skip: !hasTestDa
     assert.equal(oldClassifications.length, 1)
     assert.equal(oldClassifications[0]!.id, classificationId)
 
-    // -> The archive's own rows landed, ids preserved exactly (no remapping).
     const [restoredSite] = await fixtures.db
       .select()
       .from(sitesTable)
