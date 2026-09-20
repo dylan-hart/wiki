@@ -57,11 +57,9 @@ const i18n = createTestI18n({
 })
 
 /**
- * `<page-tags>` fetches `siteStore.fetchTags()` suggestions whenever it mounts editable (OpenProject
- * #3393: only while the reader holds `write:tags`, which this helper's default grants alongside
- * `write:pages` so the existing quick-access-button-count coverage below keeps seeing the Tags
- * section) -- a mount that never overrides that call would otherwise leave an unresolved promise
- * dangling across tests, so `flushPromises()` after mount settles it.
+ * The default grants `write:tags` so the section-count coverage below still sees the Tags section.
+ * `<page-tags>` calls `siteStore.fetchTags()` whenever it mounts editable, so every mount here needs
+ * a `flushPromises()` to settle that promise rather than leave it dangling across tests.
  */
 function mountDialog({ pagePermissions = ['write:pages', 'write:tags'] } = {}) {
   setActivePinia(createPinia())
@@ -78,10 +76,6 @@ function mountDialog({ pagePermissions = ['write:pages', 'write:tags'] } = {}) {
 }
 
 describe('PagePropertiesDialog', () => {
-  /**
-   * Regression coverage for OpenProject #1133 item 1: the Relations quick-access button used
-   * `tabler:sun`, a copy-paste mistake -- not `tabler:link` or any other relations-shaped icon.
-   */
   it('does not use the sun icon for the Relations quick-access button', async () => {
     const { wrapper } = mountDialog()
     await flushPromises()
@@ -94,10 +88,6 @@ describe('PagePropertiesDialog', () => {
     )
   })
 
-  /**
-   * Regression coverage for OpenProject #1133 item 2: the icon-only quick-access buttons and the
-   * panel's own close button had no `aria-label`, unlike every other icon-only button in this file.
-   */
   it('sets an aria-label on every quick-access button and the close button', async () => {
     const { wrapper } = mountDialog()
     await flushPromises()
@@ -115,9 +105,8 @@ describe('PagePropertiesDialog', () => {
   })
 
   /**
-   * OpenProject #2725: the "Open Icon Picker" button drew `tabler:icons` -- the icon for the
-   * picker's own "Icons" tab, not the action of opening a search/pick UI. All three of this
-   * button's call sites (this dialog, NavItemEditor, PageRelationDialog) settle on `tabler:search`.
+   * `tabler:icons` is the icon for the picker's own "Icons" tab, not for the action of opening a
+   * search/pick UI; every call site of this button settles on `tabler:search`.
    */
   it('uses the search icon, not tabler:icons, for the Open Icon Picker button', async () => {
     const { wrapper } = mountDialog()
@@ -130,11 +119,9 @@ describe('PagePropertiesDialog', () => {
   })
 
   /**
-   * Regression coverage for OpenProject #1133 item 4: `state.requirePassword` used to be set once in
-   * `onMounted`, with nothing keeping it in sync if `pageStore.hasPassword` arrived afterwards (e.g.
-   * this panel mounting before `pageStore.pageLoad()` resolves). Watches `hasPassword` rather than
-   * `password` itself (OpenProject #2232): the API never hands the actual password back, so
-   * `hasPassword` is the only signal that a page already has one.
+   * `state.requirePassword` watches `hasPassword` rather than `password` itself: the API never hands
+   * the actual password back, so `hasPassword` is the only signal that a page already has one -- and
+   * it can arrive after this panel mounts, when it mounts before `pageStore.pageLoad()` resolves.
    */
   it('keeps requirePassword in sync when pageStore.hasPassword arrives after mount', async () => {
     const { wrapper, pageStore } = mountDialog()
@@ -150,9 +137,8 @@ describe('PagePropertiesDialog', () => {
   })
 
   /**
-   * OpenProject #2232: the password field never prefills from the server (it never sends the value
-   * back), so it must start empty even when the page already has a password set -- and turning the
-   * toggle off has to record an explicit removal, since an empty field alone cannot say "take it off"
+   * The password field never prefills, since the server never sends the value back, so turning the
+   * toggle off has to record an explicit removal: an empty field alone cannot say "take it off"
    * apart from "never touched".
    */
   it('starts the password field empty and marks removePassword when the toggle is turned off', async () => {
@@ -176,9 +162,8 @@ describe('PagePropertiesDialog', () => {
   })
 
   /**
-   * OpenProject #2775: a relation's position ("sidebar"/"footer") is a status indicator, not a
-   * tag/filter chip -- the radii-sweep role assignment puts badges on `--radius-mark`, distinct
-   * from the pill `w-chip` always draws. Regression coverage for the `w-chip` -> `w-badge` swap.
+   * A relation's position ("sidebar"/"footer") is a status indicator, not a tag/filter chip: a badge
+   * draws on `--radius-mark`, distinct from the pill a `w-chip` always draws.
    */
   it('draws a relation position as a badge, not a chip', async () => {
     const { wrapper, pageStore } = mountDialog()

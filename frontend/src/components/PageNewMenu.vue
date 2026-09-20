@@ -7,26 +7,17 @@
     self="top right">
     <w-list padding class="page-new-menu" :class="{ 'page-new-menu--compact': props.contextMenu }">
       <!--
-        Corner marks: two opposite corners, because a menu is a light object -- the full four belong
-        to a dialog or a card. Decorative, so they are `aria-hidden` boxes rather than anything the
-        reader can reach, and logical properties throughout, so the diagonal mirrors under
-        `dir="rtl"` instead of pointing the wrong way.
-
-        Drawn just INSIDE the panel rather than overhanging it as the design sheet does: WMenu's
-        popup is `overflow-auto`, which clips anything past its padding edge, and opening that up is
-        a change to a shared component with some thirty call sites -- not something a decoration
-        should be asking for.
+        Two opposite corners, because a menu is a light object -- the full four belong to a dialog or
+        a card. Drawn just INSIDE the panel rather than overhanging it: WMenu's popup is
+        `overflow-auto` and clips anything past its padding edge, and opening that up would be a
+        change to a shared component for the sake of a decoration.
       -->
       <i class="page-new-menu__mark page-new-menu__mark--start" aria-hidden="true" />
       <i class="page-new-menu__mark page-new-menu__mark--end" aria-hidden="true" />
       <!--
-        Where the new page will land, named -- on the pointer-anchored menu only, which is the one
-        opened from a row whose own position is what decides the answer.
-
-        Right-clicking a FOLDER row creates inside it; right-clicking a PAGE row creates a SIBLING,
-        in the folder that page lives in (`NavSidebarItem.vue#basePathFor`, and `pageCreate`'s own
-        `${basePath}/new-page`). Nothing on screen said which of the two was about to happen, which
-        is the whole reason this line exists.
+        On the pointer-anchored menu only, where the right-clicked row decides the destination and
+        nothing else on screen says which it is: a FOLDER row creates inside it, a PAGE row creates
+        a SIBLING in the folder that page lives in (`NavSidebarItem.vue#basePathFor`).
       -->
       <div v-if="props.contextMenu" class="page-new-menu__target">
         {{ t('common.newPageMenu.targetFolder', { path: targetFolder }) }}
@@ -37,10 +28,6 @@
         v-if="siteStore.editors.wysiwyg && flagsStore.experimental">
         <blueprint-icon :compact="props.contextMenu" icon="tabler:presentation" />
         <w-item-section class="pe-2">{{ t('common.actions.newPage') }}</w-item-section>
-        <!-- -> The row is only offered behind `flagsStore.experimental` in the first place; the
-                mockup's own label for that ("Menus 3x - Cobalt.dc.html", row 01) is this badge --
-                square rather than `--radius-mark`, matching its own no-radius corner even under
-                Cobalt (a plain outlined eyebrow, not a fill), so it takes no shape token at all. -->
         <span class="page-new-menu__beta">{{ t('common.newPageMenu.beta') }}</span>
       </w-item>
       <w-item clickable @click="create(`markdown`)" v-if="siteStore.editors.markdown">
@@ -51,40 +38,27 @@
         <blueprint-icon :compact="props.contextMenu" icon="tabler:brand-html5" />
         <w-item-section class="pe-2">{{ t('common.newPageMenu.code') }}</w-item-section>
       </w-item>
-      <!--
-        Not behind the experimental flag, matching `AdminEditors.vue`'s own row for this editor
-        (task 491: a real `EditorAsciidoc.vue` exists now, so this is no longer speculative).
-      -->
+      <!-- Not behind the experimental flag, matching `AdminEditors.vue`'s own row for it. -->
       <w-item clickable @click="create(`asciidoc`)" v-if="siteStore.editors.asciidoc">
         <blueprint-icon :compact="props.contextMenu" icon="tabler:file-text" />
         <w-item-section class="pe-2">{{ t('common.newPageMenu.asciidoc') }}</w-item-section>
       </w-item>
-      <!--
-        `channel`/`blog`/`api` used to be offered here too, unconditionally, once behind the
-        experimental flag. Task 492 removed all three from `AdminEditors.vue` -- none had a backing
-        `EDITOR_CONTENT_TYPES` entry, schema property, or reachable `editorComponents` registration,
-        so picking any of them here opened onto a blank, broken editor. Removed for the same reason,
-        rather than left to rot behind the flag.
-      -->
       <!-- -> Not an editor the site can turn off, because it authors nothing: a redirection is a page
               with a target instead of a body -->
       <w-item clickable @click="create(`redirect`)">
         <blueprint-icon :compact="props.contextMenu" icon="tabler:player-track-next" />
         <w-item-section class="pe-2">{{ t('common.newPageMenu.redirect') }}</w-item-section>
       </w-item>
-      <!-- -> Always offered, not gated on an editor toggle or the Pandoc extension
-              (OpenProject #1092): a `format: 'markdown'` import needs neither -- it is a
-              pass-through read of the file's own bytes, not a conversion into some editor's own
-              format. Formats that DO still need Pandoc stay gated at conversion time instead,
-              inside the dialogs themselves, the same 503 they always answered without it. -->
+      <!-- -> Not gated on an editor toggle or the Pandoc extension: a `format: 'markdown'` import is
+              a pass-through read of the file's own bytes, not a conversion. Formats that DO need
+              Pandoc are gated at conversion time, inside the dialogs themselves. -->
       <w-item clickable @click="openImport">
         <blueprint-icon :compact="props.contextMenu" icon="tabler:file-plus" />
         <w-item-section class="pe-2">{{ t('pages.import.menuLabel') }}</w-item-section>
       </w-item>
-      <!-- -> Trimmed from the pointer-anchored menu: the imports thin out to one row there, so the
-              panel stays shorter than the tree it is covering. Batch import is the one that goes --
-              it opens a dialog that saves every page itself, which is the least "create one here"
-              of anything in this menu. -->
+      <!-- -> Trimmed from the pointer-anchored menu, so that panel stays shorter than the tree it
+              covers. Batch import is the one that goes: it saves every page itself, the least
+              "create one here" of anything in this menu. -->
       <w-item v-if="!props.contextMenu" clickable @click="openImportBatch">
         <blueprint-icon :compact="props.contextMenu" icon="tabler:arrow-merge" />
         <w-item-section class="pe-2">{{ t('pages.importBatch.menuLabel') }}</w-item-section>
@@ -119,8 +93,6 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useFlagsStore } from '@/stores/flags'
 
-// PROPS
-
 const props = defineProps({
   hideAssetBtn: {
     type: Boolean,
@@ -134,55 +106,36 @@ const props = defineProps({
     type: String,
     default: null
   },
-  /** Opens on right-click at the pointer instead of on left-click at the anchor -- see WMenu.vue's
-   *  own `contextMenu` prop. Off by default so every existing click-triggered call site (the
-   *  header toolbar button, the phone overflow menu, File Manager) is unaffected. */
+  /** Opens on right-click at the pointer instead of on left-click at the anchor. */
   contextMenu: {
     type: Boolean,
     default: false
   }
 })
 
-// EMITS
-
 const emit = defineEmits(['newFolder', 'newPage'])
 
-// ASYNC COMPONENTS
-
-// -> Loaded lazily rather than as static top-of-file imports: `ImportBatchPageDialog.vue` pulls in
-//    `@/renderers/markdown` (markdown-it + plugins, katex, highlight.js), which otherwise sits in
-//    every reader's static bundle for a menu item almost nobody clicks. Matches the
-//    `defineAsyncComponent(() => import(...))` passed straight into `dialog()` at PageActionsCol.vue's
-//    own `RerenderPageDialog`/`TreeBrowserDialog`/`PageDeleteDialog` call sites.
+// -> Lazy rather than static top-of-file imports: `ImportBatchPageDialog.vue` pulls in
+//    `@/renderers/markdown` (markdown-it + plugins, katex, highlight.js), which would otherwise sit
+//    in every reader's static bundle for a menu item almost nobody clicks
 const ImportPageDialog = defineAsyncComponent(() => import('@/components/ImportPageDialog.vue'))
 const ImportBatchPageDialog = defineAsyncComponent(
   () => import('@/components/ImportBatchPageDialog.vue')
 )
-
-// STORES
 
 const editorStore = useEditorStore()
 const flagsStore = useFlagsStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// COMPUTED
-
 /**
- * The folder the new page will land in, as the mono line above the rows spells it.
- *
- * `basePath` is the value `pageCreate` actually builds the new path from (`${basePath}/new-page`),
- * so this names the real destination rather than a restatement of what was right-clicked. Rendered
- * with a leading slash, and as a bare `/` at the site root, so the two cases read as the same kind
- * of thing.
+ * `basePath` is what `pageCreate` builds the new path from (`${basePath}/new-page`), so this names
+ * the real destination rather than what was right-clicked. Always leading-slashed, a bare `/` at
+ * the site root, so both cases read as the same kind of thing.
  */
 const targetFolder = computed(() => `/${(props.basePath ?? '').replace(/^\/+/, '')}`)
-
-// METHODS
 
 async function create(editor) {
   loading.show()
@@ -221,9 +174,8 @@ function openImport() {
 }
 
 function openImportBatch() {
-  // -> Unlike `openImport` above, this dialog saves every page itself rather than handing content
-  //    back through `.onOk()` -- there is no single new page to navigate into, so the menu just
-  //    closes as soon as the dialog opens, the same way it does for every other item here.
+  // -> No `.onOk()`: this dialog saves every page itself, so there is no single new page to
+  //    navigate into and the menu just closes as the dialog opens
   emit('newPage')
   dialog({
     component: ImportBatchPageDialog,
@@ -236,22 +188,20 @@ function openImportBatch() {
 
 <style scoped>
 /*
-  The panel itself. `position: relative` is what the corner marks position against -- the popup
-  WMenu teleports is `position: fixed`, so without it they would anchor to that popup rather than to
-  the list, which is the same box only for as long as the menu happens not to scroll.
+  What the corner marks position against: the popup WMenu teleports is `position: fixed`, so without
+  this they would anchor to that popup rather than to the list, which is the same box only for as
+  long as the menu happens not to scroll.
 */
 .page-new-menu {
   position: relative;
 }
 
 /*
-  One corner mark: a 7px square showing two of its four sides, so a pair of them draws the two
-  opposite corners the design asks a menu for.
+  A 7px square showing two of its four sides, so a pair draws two opposite corners.
 
-  Logical properties throughout (`inset-block-*`/`inset-inline-*`, `border-block-*`/`border-inline-*`)
-  so the diagonal mirrors with the reading direction rather than pointing the wrong way under
-  `dir="rtl"` -- and so this stays outside `logicalSpacing.test.js`'s physical-declaration scan
-  rather than needing an allowlist entry.
+  Logical properties throughout, so the diagonal mirrors with the reading direction rather than
+  pointing the wrong way under `dir="rtl"` -- and so this stays outside `logicalSpacing.test.js`'s
+  physical-declaration scan rather than needing an allowlist entry.
 */
 .page-new-menu__mark {
   position: absolute;
@@ -274,10 +224,7 @@ function openImportBatch() {
   border-inline-end: 1px solid var(--color-slate-faint);
 }
 
-/*
-  The target-folder line. Mono, because that is what Cardinal sets every path in, and sized as a
-  kicker rather than as a row: it labels the rows below it, it is not one of them.
-*/
+/* Mono, as every path is set here, and sized as a kicker: it labels the rows below, it is not one */
 .page-new-menu__target {
   padding: 2px 12px 6px;
   font-family: var(--font-mono);
@@ -297,9 +244,8 @@ function openImportBatch() {
 }
 
 /*
-  The experimental WYSIWYG row's own eyebrow, matching `.page-new-menu__target`'s tone -- see the
-  template comment: the mockup draws it with no corner at all, in either aesthetic, so it takes no
-  `--radius-*` token.
+  A plain outlined eyebrow with no corner at all, in either aesthetic, so it takes no `--radius-*`
+  token -- unlike a badge or a chip.
 */
 .page-new-menu__beta {
   flex: none;
@@ -319,13 +265,11 @@ function openImportBatch() {
 }
 
 /*
-  The compact variant, at the pointer.
-
-  The 28px plate itself comes from BlueprintIcon's own `compact`; what is left here is the space
-  around it. WItemSection's avatar column is sized for the 34px plate (56px wide, 16px of trailing
-  padding), which around a 28px plate reads as a gap wide enough to lose the pairing -- so the column
-  shrinks to its content and the design's own 10px is set explicitly. The rows tighten to match,
-  which is what keeps a menu at the finger shorter than the tree it is covering.
+  The plate itself comes from BlueprintIcon's own `compact`; what is left here is the space around
+  it. WItemSection's avatar column is sized for the full-size plate, which around a compact one
+  reads as a gap wide enough to lose the pairing -- so the column shrinks to its content and the
+  spacing is set explicitly. The rows tighten to match, keeping a menu at the finger shorter than
+  the tree it is covering.
 */
 .page-new-menu--compact :deep(.w-item) {
   min-height: 0;
@@ -343,9 +287,9 @@ function openImportBatch() {
 }
 
 /*
-  Hover: the accent is taken by the GLYPH, not by the row and not by the plate, which keeps its
-  hairline. A line-drawing menu has no fill to light up, so one coloured stroke is what says "this is
-  the row under the pointer" -- see the design sheet's own note on the Markdown row.
+  On hover the accent is taken by the GLYPH, not by the row and not by the plate, which keeps its
+  hairline: a line-drawing menu has no fill to light up, so one coloured stroke is what marks the
+  row under the pointer.
 */
 .page-new-menu :deep(.w-item--clickable:hover .blueprint-icon) {
   color: var(--color-accent-strong);

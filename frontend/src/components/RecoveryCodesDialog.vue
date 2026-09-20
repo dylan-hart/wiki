@@ -33,13 +33,10 @@ import { confirm, dialogComponentEmits, useDialogComponent } from '@/composables
 import RecoveryCodesDisplay from '@/components/RecoveryCodesDisplay.vue'
 
 /**
- * Shows a freshly-regenerated set of recovery codes -- opened from `ProfileAuth.vue` after
- * `POST /profile/tfa/recovery-codes` succeeds. The initial-setup equivalent of this screen lives
- * inline in `SetupTfaDialog.vue` instead of here, since that flow already owns a dialog of its own
- * and swapping its content mid-flow reads better than stacking a second dialog on top of it.
+ * The initial-setup equivalent of this screen lives inline in `SetupTfaDialog.vue` instead: that
+ * flow already owns a dialog, and swapping its content mid-flow reads better than stacking a second
+ * dialog on top of it.
  */
-
-// PROPS
 
 const props = defineProps({
   codes: {
@@ -48,29 +45,19 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   acknowledged: false
 })
 
-// METHODS
-
 /**
- * These codes are shown exactly once -- closing without having copied or downloaded them throws
- * them away for good, so a close attempt before either happened is confirmed rather than silent.
+ * These codes are shown exactly once, so closing before copying or downloading them throws them
+ * away for good -- confirm rather than close silently.
  */
 function attemptClose() {
   if (state.acknowledged) {

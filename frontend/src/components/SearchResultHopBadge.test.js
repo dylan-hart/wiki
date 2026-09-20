@@ -19,12 +19,6 @@ function mountBadge(props) {
   })
 }
 
-/**
- * OpenProject #3106: the hop-2 "related via" indicator. `hop` is the only input -- the badge draws
- * for the literal number `2` and draws nothing for every other value a result row can carry,
- * `hop: 1` (a direct match, keyword or semantic) and no `hop` field at all (every keyword-mode
- * result) included.
- */
 describe('SearchResultHopBadge', () => {
   it('draws the badge, with its visible label, for a hop-2 result', () => {
     const wrapper = mountBadge({ hop: 2 })
@@ -55,8 +49,8 @@ describe('SearchResultHopBadge', () => {
   it('carries a visible text label rather than relying on color or an icon alone (WCAG 1.4.1)', () => {
     const wrapper = mountBadge({ hop: 2 })
 
-    // -> The chip's accessible name to assistive tech comes from this text -- the icon beside it
-    //    renders `aria-hidden="true"` (see WIcon), so it contributes nothing to the accessible name.
+    // -> The chip's accessible name comes from this text alone: the icon beside it renders
+    //    `aria-hidden="true"`, so it contributes nothing.
     expect(wrapper.text().trim().length).toBeGreaterThan(0)
   })
 })

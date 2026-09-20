@@ -23,8 +23,6 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { useSiteStore } from '@/stores/site'
 
-// PROPS
-
 const props = defineProps({
   id: {
     type: String,
@@ -32,29 +30,19 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// STORES
-
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// METHODS
 
 async function rerenderPage() {
   await new Promise((resolve) => setTimeout(resolve, 1000)) // allow for dialog to show
   try {
-    // -> Answers 202: rendering means a headless browser on the server, so the page joins a queue that
-    //    is drained one page at a time and there is no new render to show yet
+    // -> Answers 202: rendering runs a headless browser on the server, so the page joins a queue
+    //    drained one at a time and there is no new render to show yet
     await API_CLIENT.post(`sites/${siteStore.id}/pages/${props.id}/render`)
     notify({
       type: 'positive',
@@ -62,8 +50,8 @@ async function rerenderPage() {
     })
     onDialogOK()
   } catch (err) {
-    // -> ky throws above 400 — without the Puppeteer extension the server answers 503, since it has
-    //    no way to run the renderer, and saying so is the whole point of showing this
+    // -> Without the Puppeteer extension the server has no renderer to run and answers 503; saying
+    //    so is the whole point of showing this
     notify({
       type: 'negative',
       message: apiErrorMessage(err)
@@ -71,8 +59,6 @@ async function rerenderPage() {
     onDialogCancel()
   }
 }
-
-// MOUNTED
 
 onMounted(() => {
   rerenderPage()

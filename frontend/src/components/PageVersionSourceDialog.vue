@@ -12,9 +12,8 @@
         <pre v-text="content" />
       </w-card-section>
       <!--
-        Its own class rather than the shared `card-actions`: that one follows the app theme, and this
-        dialog is dark whichever theme is on — a light toolbar under a black pane reads as a different
-        component bolted to the bottom. Mirrors what `card-header` does at the top.
+        Its own class rather than the shared `card-actions`: that one follows the app theme, and
+        this dialog is dark whichever theme is on.
       -->
       <w-card-actions class="page-version-source-actions">
         <w-space />
@@ -45,40 +44,27 @@ import { copyToClipboard } from '@/helpers/clipboard'
 import { notify } from '@/composables/notify'
 
 /**
- * One version's source, as it stood.
- *
- * A dialog rather than the page source overlay, which shows the page as it is now: only one overlay
- * can be open at a time, and taking over the screen would close the history this was opened from.
+ * A dialog rather than the page source overlay: only one overlay can be open at a time, and taking
+ * over the screen would close the history this was opened from.
  */
 
-// PROPS
-
 const props = defineProps({
-  /** The source itself. */
   content: {
     type: String,
     default: ''
   },
-  /** When this version was written, already formatted for reading. */
+  /** Already formatted for reading. */
   date: {
     type: String,
     default: ''
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent()
 
-// I18N
-
 const { t } = useI18n()
-
-// METHODS
 
 async function copy() {
   try {
@@ -91,11 +77,6 @@ async function copy() {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .page-version-source-date {
   font-size: 0.8rem;
   opacity: 0.7;

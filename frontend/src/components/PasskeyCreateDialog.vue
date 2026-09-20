@@ -47,41 +47,25 @@ import { useI18n } from 'vue-i18n'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { reactive, ref } from 'vue'
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
 
-// REFS
-
 const iptName = ref(null)
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptName.value
 })
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   name: ''
 })
 
-// REFS
-
 const passkeyForm = ref(null)
-
-// VALIDATION RULES
 
 const nameValidation = [
   (val) => (val && val.trim().length > 0 && val.length <= 255) || t('profile.passkeysInvalidName')
 ]
-
-// METHODS
 
 async function save() {
   if (!(await passkeyForm.value.validate(true))) {

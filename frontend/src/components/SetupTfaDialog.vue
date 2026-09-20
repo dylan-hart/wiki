@@ -23,9 +23,8 @@
             <div v-html="state.tfaQRImage" style="width: 200px" />
           </div>
           <!--
-            The same secret in text, for an authenticator app that is not on the device showing this,
-            or a user who would rather type it than point a camera at the screen. Grouped in fours to
-            be readable; the copy button copies it without the spaces.
+            The same secret in text, for an authenticator app that is not on the device showing this
+            -- or a user who would rather type it than point a camera at the screen.
           -->
           <div class="mt-2 text-caption text-grey">{{ t('auth.tfaSetupInstrManual') }}</div>
           <div class="mt-1 flex items-center justify-center gap-2">
@@ -65,8 +64,8 @@
         </w-card-actions>
       </template>
       <!--
-        2FA is already active by this point -- the codes step only shows what `save()` got back and
-        cannot fail the way the code entry above can, so it gets no loading/error handling of its own.
+        2FA is already active by this point: this step only shows what `save()` got back and cannot
+        fail the way the code entry above can, so it carries no loading or error handling of its own.
       -->
       <template v-else>
         <w-card-section class="text-center">
@@ -100,8 +99,6 @@ import { computed, onMounted, reactive } from 'vue'
 
 import RecoveryCodesDisplay from '@/components/RecoveryCodesDisplay.vue'
 
-// PROPS
-
 const props = defineProps({
   strategyId: {
     type: String,
@@ -109,19 +106,11 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   isInit: false,
@@ -136,12 +125,8 @@ const state = reactive({
   acknowledged: false
 })
 
-// COMPUTED
-
-/** The secret in groups of four, which is how a 32-character string stays readable to type. */
+/** Grouped so a 32-character secret stays readable to type by hand. */
 const groupedSecret = computed(() => state.tfaSecret.replace(/.{4}(?=.)/g, '$& '))
-
-// METHODS
 
 async function copySecret() {
   try {
@@ -201,7 +186,7 @@ async function save() {
       message: t('auth.tfaSetupSuccess')
     })
     if (resp.recoveryCodes?.length > 0) {
-      // -> The one and only time these are ever shown; move to the codes step rather than closing
+      // -> The one and only time these are ever shown, so move on rather than closing
       state.recoveryCodes = resp.recoveryCodes
       state.step = 'codes'
     } else {
@@ -217,10 +202,9 @@ async function save() {
 }
 
 /**
- * The codes step is the only place these codes are ever shown -- closing before the user copied or
- * downloaded them throws them away for good, so a close attempt before either happened is confirmed
- * rather than silent. 2FA is already active on the account by this point either way, hence `onDialogOK`
- * in both branches: unlike the verify step above, there is no unsaved setup left to discard.
+ * These codes are shown exactly once, so closing before copying or downloading them throws them
+ * away for good -- confirm rather than close silently. 2FA is already active by this point either
+ * way, hence `onDialogOK` in both branches: there is no unsaved setup left to discard.
  */
 function attemptFinish() {
   if (state.acknowledged) {

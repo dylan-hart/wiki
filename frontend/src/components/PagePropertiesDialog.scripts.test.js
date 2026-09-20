@@ -61,11 +61,9 @@ const MESSAGES = {
 }
 
 /**
- * OpenProject #3389/#3402: the Scripts section (and its jump-rail entry) is gated on
- * `userStore.pagePermissions.includes('write:scripts'/'write:styles')` -- PAGE-scoped permissions --
- * not `userStore.can()`, the same distinction `EditorMarkdown.vue` already draws for the content
- * sanitizer's own `write:scripts`/`write:styles` checks. Offering the section without the matching
- * permission would look like it worked and then be refused with 403 on save.
+ * The Scripts section is gated on `userStore.pagePermissions`, not `userStore.can()`:
+ * `write:scripts`/`write:styles` are PAGE-scoped, so a section offered on the global list would
+ * look like it worked and then be refused with 403 on save.
  */
 describe('PagePropertiesDialog — Scripts section permission gate', () => {
   it('hides the Scripts section and its jump-rail entry for a reader with neither permission', async () => {
@@ -90,7 +88,6 @@ describe('PagePropertiesDialog — Scripts section permission gate', () => {
     expect(section.exists()).toBe(true)
     expect(section.text()).toContain('Javascript - On Load')
     expect(section.text()).toContain('Javascript - On Unload')
-    // -> write:scripts alone does not grant the CSS button
     expect(section.text()).not.toContain('CSS Styles')
     expect(wrapper.findAll('[aria-label="Scripts"]').length).toBe(1)
   })
@@ -129,10 +126,9 @@ describe('PagePropertiesDialog — Scripts section permission gate', () => {
 })
 
 /**
- * OpenProject #3422: the site-wide `features.pageScripts` kill switch (Feature #3389 / Task #3403)
- * silently stops an authored script/style from ever executing -- no errors, no logs, no network
- * activity. The Scripts section is the only place an author holding write:scripts/write:styles is
- * told so, rather than discovering it by reading source or asking an admin.
+ * The site-wide `features.pageScripts` kill switch stops an authored script or style from ever
+ * executing, silently -- no errors, no logs, no network activity. This section is the only place an
+ * author holding `write:scripts`/`write:styles` is told so.
  */
 describe('PagePropertiesDialog — page scripts disabled hint', () => {
   it('shows the hint when the site has features.pageScripts off', async () => {

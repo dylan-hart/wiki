@@ -5,11 +5,9 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(join(import.meta.dirname, 'SideDialog.vue'), 'utf-8')
 
 /**
- * Extracts the top-level property names of a `const NAME = { ... }` object literal from raw source,
- * by brace-depth counting rather than a regex over the whole file -- both `sideDialogs` and
- * `SIDE_DIALOG_TITLES` nest their own object literals per entry (`defineAsyncComponent({...})`, and
- * an arrow function respectively), so a naive "match every `word:`" scan would also pick up their
- * inner `loader:`/`loadingComponent:` keys.
+ * Brace-depth counting rather than a regex over the whole file: both `sideDialogs` and
+ * `SIDE_DIALOG_TITLES` nest an object literal per entry, so a naive "match every `word:`" scan
+ * would also pick up their inner keys.
  */
 function topLevelKeys(constName) {
   const declStart = source.indexOf(`const ${constName} = {`)
@@ -29,16 +27,15 @@ function topLevelKeys(constName) {
       }
     }
   }
-  // -> Strips `//`-to-end-of-line comments first, so a commented-out entry (as `AdminLayout.vue`'s
-  //    equivalent `overlays` map has) can never be picked up as a real key by the purely textual scan
-  //    below.
+  // -> Strips `//`-to-end-of-line comments first, so a commented-out entry can never be picked up
+  //    as a real key by the purely textual scan below.
   const body = source
     .slice(braceStart + 1, braceEnd)
     .split('\n')
     .map((line) => line.replace(/\/\/.*$/, ''))
     .join('\n')
-  // -> Only keys at nesting depth 0 within this object's own body -- skips `loader:`/`loadingComponent:`
-  //    inside each entry's nested `defineAsyncComponent({...})` call.
+  // -> Only keys at nesting depth 0 within this object's own body -- skips the ones inside each
+  //    entry's own nested call.
   const keys = []
   let nested = 0
   const keyPattern = /(\w+):/g
@@ -56,12 +53,10 @@ function topLevelKeys(constName) {
 }
 
 /**
- * OpenProject #2356: `SideDialog`'s `<w-dialog>` gets its accessible name from a small lookup map
- * (`SIDE_DIALOG_TITLES`) keyed by which child `sideDialogs` component is currently loaded -- there is
- * no title of its own to read, since the loaded child owns the only visible heading. A key present in
- * one map but not the other is exactly the failure mode that would silently leave that one screen's
- * dialog unnamed with no visible symptom, so this guards the two maps staying in lockstep rather than
- * asserting against a full, heavier mount of each real (dynamically-imported) child dialog.
+ * `SideDialog`'s `<w-dialog>` gets its accessible name from `SIDE_DIALOG_TITLES`, keyed by which
+ * `sideDialogs` child is loaded. A key in one map but not the other leaves that one screen's dialog
+ * unnamed with no visible symptom, so this guards the two staying in lockstep -- cheaper than
+ * mounting each dynamically-imported child dialog for real.
  */
 describe('SideDialog accessible-name map', () => {
   it('SIDE_DIALOG_TITLES covers exactly the same keys as sideDialogs', () => {
@@ -74,11 +69,8 @@ describe('SideDialog accessible-name map', () => {
 })
 
 /**
- * OpenProject #2865: under `.body--cobalt`, the panel itself must stop clipping/filling and the
- * header/body bands must carry the side-specific radii instead -- a source-text scan since no
- * suite in this codebase renders real Chromium layout for Cobalt-only CSS (that gap is documented
- * risk, not something this guard tries to close). This only guards regression of the rule text,
- * not the actual rendered corners.
+ * A source-text scan: no suite here renders real Chromium layout for Cobalt-only CSS, so this
+ * guards the rule text against regression, not the rendered corners.
  */
 describe('SideDialog Cobalt corner-radius fix', () => {
   const styleBlock = source.slice(source.indexOf('<style'), source.indexOf('</style>'))
@@ -118,16 +110,10 @@ describe('SideDialog Cobalt corner-radius fix', () => {
 })
 
 /**
- * OpenProject #2895: the toolbar and scroll-area fix above (#2865) stopped `.w-dialog-panel` from
- * clipping/filling, but both dialogs mounted here (`PagePropertiesDialog.vue`,
- * `PageBacklinksDialog.vue`) wrap their content in one root `<w-card>` -- the panel's direct child --
- * and `WCard.vue`'s own Cobalt radius (8px) is smaller than this panel's (12px), which the toolbar
- * and scroll-area above already round themselves to. Left alone, the card's own smaller, solid-
- * filled corner shows through as a mismatched-colour notch just inside the header's wider curve --
- * high-contrast (and so highly visible) in light mode, low-contrast (barely visible) in dark mode,
- * which is exactly the "fringe only in light mode" Dylan reported. Same source-text-scan convention
- * as the corner-radius block above: no suite in this codebase renders real Chromium layout for
- * Cobalt-only CSS.
+ * Both dialogs mounted here wrap their content in one root `<w-card>`, the panel's direct child,
+ * and `WCard.vue`'s own Cobalt radius is smaller than the panel's, which the toolbar and scroll-area
+ * above round themselves to. Left filled, the card's smaller corner shows through as a mismatched
+ * notch just inside the header's wider curve. Source-text scan, as above.
  */
 describe('SideDialog Cobalt card fringe (OpenProject #2895)', () => {
   const styleBlock = source.slice(source.indexOf('<style'), source.indexOf('</style>'))

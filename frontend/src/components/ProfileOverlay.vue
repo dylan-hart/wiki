@@ -1,10 +1,5 @@
 <template>
   <div class="layout-profile-card">
-    <!--
-      FileManager's own header language (OpenProject #2415/#2502, carried through #2510): a dark
-      `.card-header` band, an icon plus title on the left, and a single white/grey-7 push button on
-      the right.
-    -->
     <w-header class="layout-profile-hdr card-header">
       <w-icon name="tabler:user-circle" left size="md" />
       <span>{{ t('profile.title') }}</span>
@@ -25,10 +20,7 @@
     <div class="layout-profile-body">
       <!--
         Below 900px the section list is a disclosure rather than a column beside the content: even
-        shrunk to its own labels it is ~240px, and on a phone the fixed 300px of it left the content
-        overflowing the card and clipped at the edge of the screen. Closed to start with, and it
-        names the section being read -- so the bar that opens the nav is also what says where in
-        the profile the reader is.
+        shrunk to its own labels it takes width the content needs more.
       -->
       <w-btn
         v-if="isNavCollapsed"
@@ -63,8 +55,7 @@
           <template v-if="flagsStore.experimental">
             <w-separator inset spaced="sm" />
             <!-- -> A real navigation away from the overlay, so it closes rather than floating over
-                    whatever page this lands the reader on -- same idiom as FileManager's own
-                    @new-page close-on-navigate. -->
+                    whatever page it lands the reader on. -->
             <w-item clickable :to="`/_user/` + userStore.id" @click="close">
               <w-item-section side>
                 <w-icon name="tabler:id" />
@@ -102,43 +93,26 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 /**
- * OpenProject #2532: a true `MainOverlayDialog` entry rather than a set of real, bookmarkable
- * `/_profile/*` routes -- following the same `defineAsyncComponent` pattern `FileManager.vue` uses
- * for its own dialog content. `MainOverlayDialog.vue` supplies the dialog wrapper, scrim and sizing
- * now (the `.main-overlay` panel every other overlay entry shares), so this component owns only the
- * card surface, the section rail and whichever section's content is currently selected -- all local
- * `ref`/`reactive` state, no router involved.
+ * `MainOverlayDialog.vue` supplies the dialog wrapper, scrim and sizing (the `.main-overlay` panel
+ * every overlay entry shares), so this component owns only the card surface, the section rail and
+ * whichever section's content is selected -- all local `ref`/`reactive` state, no router involved.
  */
-
-// PROPS
 
 /**
  * Initial state from whoever opened this overlay (`siteStore.openOverlay('Profile', { section:
- * 'api' })`, e.g. `AdminApi.vue`'s personal-token note), forwarded here by `MainOverlayDialog.vue`
- * (OpenProject #2530). `state.section` below reads this once, at setup, not `siteStore.overlayOpts`
- * directly.
+ * 'api' })`), forwarded here by `MainOverlayDialog.vue`. `state.section` below reads it once, at
+ * setup, not `siteStore.overlayOpts` directly.
  */
 const props = defineProps({
   overlayOpts: { type: Object, default: () => ({}) }
 })
 
-// STORES
-
 const flagsStore = useFlagsStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// SECTIONS
-
-/**
- * Lazy-loaded exactly like `MainOverlayDialog.vue`'s own `overlays` map -- these six were previously
- * routed `/_profile/*` children (`router/routes.js`) and are unchanged themselves, only reached
- * differently now.
- */
 const sectionComponents = {
   info: defineAsyncComponent(() => import('@/pages/ProfileInfo.vue')),
   preferences: defineAsyncComponent(() => import('@/pages/ProfilePreferences.vue')),
@@ -149,26 +123,17 @@ const sectionComponents = {
   notifications: defineAsyncComponent(() => import('@/pages/ProfileNotifications.vue'))
 }
 
-// DATA
-
-// -> A computed, not a plain array evaluated once at setup: `t()` inside a plain array is only ever
-//    run in the language active when this component mounts, so switching interface language would
-//    leave these labels stuck in the old one until a remount. AdminLayout's sidenav evaluates `t()`
-//    in the template for the same reason; this one has to build a list rather than iterate keys
-//    directly, so a computed is what gets the same freshness.
+// -> A computed, not a plain array evaluated once at setup: `t()` run eagerly would leave these
+//    labels in whichever language was active at mount until a remount.
 const sidenav = computed(() => [
   {
     key: 'info',
     // -> `profile.identity`, not `profile.title`: the overlay itself is "Profile", so a first rail
-    //    entry by the same name read as a link back to the thing you are already in. It is the
-    //    reader's own identity -- name, address, location, job title -- which is what it now says
-    //    ("About Me" in English).
+    //    entry by the same name reads as a link back to where the reader already is.
     label: t('profile.identity'),
     icon: 'tabler:id'
   },
   {
-    // -> OpenProject #3315 (Feature #3314): THEME/TIME/ACCESSIBILITY, split out of the "About Me"
-    //    section above into their own page -- placed right after it in the rail.
     key: 'preferences',
     label: t('profile.preferences'),
     icon: 'tabler:adjustments'
@@ -198,12 +163,6 @@ const sidenav = computed(() => [
     label: t('profile.notifications'),
     icon: 'tabler:bell'
   },
-  // {
-  //   key: 'pages',
-  //   label: 'My Pages',
-  //   icon: 'tabler:file-text',
-  //   disabled: true
-  // },
   {
     key: 'activity',
     label: t('profile.activity'),
@@ -213,45 +172,27 @@ const sidenav = computed(() => [
 ])
 
 const state = reactive({
-  /** Whether the section list is open. Only consulted below 900px, where it is a disclosure. */
+  /** Only consulted below 900px, where the section list is a disclosure. */
   navOpen: false,
-  /**
-   * The section on screen -- a plain local field, no route involved. Defaults to `preferences`
-   * unless the opener asked for a specific one (`overlayOpts.section`); an unknown or `activity`'s
-   * (permanently disabled) key falls back the same way rather than rendering nothing.
-   */
   section: Object.hasOwn(sectionComponents, props.overlayOpts.section)
     ? props.overlayOpts.section
     : 'preferences'
 })
 
-// COMPUTED
-
 /**
- * Below 900px, where the nav stops being a column beside the content and becomes a disclosure above it.
+ * This component's own breakpoint rather than one of the app's: it is the width at which a nav
+ * column shrunk to its own labels is still more than the content can spare. The stylesheet has to
+ * agree with it — `899.98px` is the same boundary from the other side.
  *
- * This component's own breakpoint rather than one of the app's: it is the width at which a nav column
- * shrunk to its own labels (~240px, see the stylesheet) is still more than the content can spare. The
- * stylesheet has to agree with it — `899.98px` is the same boundary from the other side. Search's
- * own filter-panel disclosure (`pages/Search.vue`) uses this same number for the same reason: the two
- * cards are the same shape.
- *
- * -> Keyed off the BROWSER viewport, not this dialog panel's own rendered width (OpenProject #2510).
- *    The panel is sized to keep the two agreeing at ordinary window widths -- see the dialog sizing
- *    comment in the stylesheet below for the roughly 900-960px-wide window range where they can drift
- *    apart.
+ * -> Keyed off the BROWSER viewport, not this dialog panel's own rendered width, which can drift
+ *    from it at window widths close to the breakpoint.
  */
 const isAtLeast900 = useMinWidth(900)
 const isNavCollapsed = computed(() => !isAtLeast900.value)
 
-/**
- * The section being read, which is what the collapsed nav bar is labelled with.
- */
 const currentSection = computed(() => {
   return sidenav.value.find((item) => item.key === state.section) ?? sidenav.value[0]
 })
-
-// METHODS
 
 function toggleNav() {
   state.navOpen = !state.navOpen
@@ -259,7 +200,6 @@ function toggleNav() {
 
 function selectSection(key) {
   state.section = key
-  // -> Picking a section is what the open list is for, so choosing one puts it away again
   state.navOpen = false
 }
 
@@ -268,8 +208,8 @@ function close() {
 }
 
 function onLogoutClick() {
-  // -> Logging out turns this reader into a guest, who has no profile to look at -- close first so
-  //    the overlay doesn't linger open over whatever page the redirect below lands on.
+  // -> Close first: logging out turns this reader into a guest, who has no profile, and the overlay
+  //    would otherwise linger over whatever page the redirect lands on.
   close()
   userStore.logout()
 }
@@ -280,33 +220,19 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
-/*
-  Where this card's two desktop assumptions give out. Both are its own, not the app's -- see the comment
-  on the media queries at the bottom of this block. Stated as `max` values, just under the width the next
-  layout up starts at, the way the app's shared breakpoints are stated as literals now too (the old
-  Sass `_palette.scss` that once named them is deleted).
-
-  `899.98px` has to agree with the 900px `useMinWidth` above it, which is what decides whether
-  the disclosure button is rendered at all.
-*/
-
 .layout-profile-card {
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
   /* -> Clips the header and body below to the panel's own rounded corners regardless of their own */
-  /*    radius (or lack of one), the same trick InboxLayout's card relies on for the same reason. */
-  /*    Cobalt turns this back off below (OpenProject #2895) -- see that rule's own comment. */
+  /*    radius (or lack of one). Cobalt turns it back off below. */
   overflow: hidden;
 
   /*
-    A foreground to go with the background.
-
-    This card is a plain div rather than a WCard, and a WCard is what declares BOTH halves of a
-    surface. Setting only the background meant everything inside inherited the document's black --
-    row titles, input values, select values alike -- which is invisible against the dark surface.
-    The light value is the black it was already inheriting, so only dark mode changes.
+    A plain div rather than a WCard, and a WCard is what declares BOTH halves of a surface: set only
+    the background and everything inside keeps inheriting the document's black, invisible against
+    the dark one.
   */
   .body--light & {
     background-color: var(--color-surface);
@@ -318,20 +244,10 @@ onBeforeUnmount(() => {
   }
 
   /*
-    Cobalt dialog corner fringe, one level deeper (OpenProject #2895). OpenProject #2864 stopped
-    `.w-dialog-panel` itself (`MainLayout.vue`) from clipping a filled box behind the header's own
-    rounded corner -- transparent, `overflow: visible`, letting `.layout-profile-hdr`
-    (`.card-header`) and `.layout-profile-body` round and fill THEMSELVES instead. This card sits
-    right inside that panel as ITS OWN filled, `overflow: hidden` box, and `WDialog.vue`'s `.w-dialog-
-    panel > :deep(*) { border-radius: inherit }` hands it the same 12px `--radius-dialog` the header
-    above already draws -- so even with matching radii, the panel's antialiasing seam recurs here: a
-    solid-filled `overflow: hidden` ancestor clipping to the same curve a child independently paints
-    is exactly the shape #2864 traces the fringe to, just one element further down.
-
-    In Cobalt this card no longer needs to clip or fill anything of its own -- the header and body
-    bands already do both (`MainLayout.vue`'s `.body--cobalt & .card-header` / `& .card-header + *`
-    rules, reached generically since they select on the shared `.card-header` class). In Ledger
-    `--radius-dialog` is 0, so this card keeps doing real work there -- the override is Cobalt-only.
+    Under Cobalt the header and body bands round and fill themselves (`MainLayout.vue`'s rules on
+    the shared `.card-header` class), so a filled, clipping card around them would round the same
+    curve a second time and leave an antialiasing fringe along it. In Ledger `--radius-dialog` is 0
+    and this card still does real work, so the override is Cobalt-only.
   */
   .body--cobalt & {
     overflow: visible;
@@ -347,10 +263,9 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   display: flex;
   align-items: stretch;
-  /* -> The card above fills whatever the outer `MainOverlayDialog` panel gives it rather than growing */
-  /*    with its content, so whatever doesn't fit has to scroll internally -- see `.w-page` below, */
-  /*    which is where that scroll actually happens (the rail scrolls too, but rarely needs to: six */
-  /*    items fit easily). */
+  /* -> The card above fills whatever the outer `MainOverlayDialog` panel gives it rather than */
+  /*    growing with its content, so overflow has to scroll internally -- `.w-page` below is where */
+  /*    that happens. */
   overflow: hidden;
 }
 
@@ -358,11 +273,6 @@ onBeforeUnmount(() => {
   flex: 0 0 300px;
   overflow-y: auto;
 
-  /*
-    The section rail: Cardinal's tint, ruled off with a hairline. The inset white/near-black
-    box-shadow that used to sit alongside the border was a bevel, drawing a second, lighter line just
-    inside the first -- which is exactly the relief this language does without.
-  */
   .body--light & {
     background-color: var(--color-tint-alt);
     border-inline-end: 1px solid var(--color-hairline);
@@ -373,8 +283,8 @@ onBeforeUnmount(() => {
   }
 
   .w-list .w-item {
-    /* -> Every rail row is set at 500, the current one included -- the design distinguishes them by
-       the plate, the bar and the colour, not by weight */
+    /* -> One weight for every rail row, the current one included: the design marks that one with
+       the bar and the colour instead */
     font-weight: 500;
     font-size: 13.5px;
     color: var(--color-slate);
@@ -384,14 +294,12 @@ onBeforeUnmount(() => {
       color: var(--color-text-secondary-dark);
     }
 
-    /* -> The same "you are here" mark as the inbox rail, the site sidebar and the folder tree */
     &.is-active {
       background-color: var(--color-surface);
       border-inline-start-color: var(--color-accent-fill);
-      /* -> The label takes the accent too, not just the bar and the glyph, as the design draws it */
       color: var(--color-accent);
 
-      /* -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon */
+      /* -> WIcon draws a build-inlined reference as an <svg> and a runtime one as <iconify-icon> */
       .w-icon,
       iconify-icon {
         color: var(--color-accent-fill);
@@ -414,45 +322,30 @@ onBeforeUnmount(() => {
   flex: 1 1;
   overflow-y: auto;
 
-  /* -> The rail already draws the seam between the two columns; a second line here doubled it */
+  /* -> No seam on this side: the rail already draws the one between the two columns */
 
   /*
-    The content column has NO padding of its own at the top: `Cardinal Wiki - Profile 3x.dc.html`
-    runs the first section band flush against the top of the column, edge to edge, which is what
-    makes it read as the head of the column rather than as a card floating inside it. The six
-    section pages therefore carry no `py-*` of their own -- this is the single owner of the
-    column's padding.
-
-    The 24px at the foot is the design's own trailing space below the save bar (its bar is
-    `16px 20px 24px`; here the bar keeps `16px 20px` and this supplies the last 24px), and it is
-    also what gives the sections that have no save bar at all a foot to stand on.
+    No padding at the top, so the first section band runs flush against the head of the column. The
+    section pages carry no vertical padding of their own -- this is the single owner of it -- and
+    the 24px foot also gives a section with no save bar something to stand on.
   */
   padding-block-end: 24px;
 }
 
 /*
-  THE SETTINGS-ROW RHYTHM
-  ========================
-
-  `Cardinal Wiki - Profile 3x.dc.html` draws a row as `padding: 14px 20px` with a 14px gutter
-  between the icon plate and the label block, and rules them off with a 1px tint line inset by the
-  same 20px and carrying no vertical space of its own.
-
-  Scoped to this overlay's content column rather than applied to `.w-item` / `.w-separator`
-  themselves: both are shared library components with dozens of callers, and the 16px/8px they draw
-  elsewhere is the app's own rhythm, not something this one screen gets to move. Direct children
-  only (`>`), so a nested list inside a section -- ProfileAuth's provider menu, say -- keeps the
-  library metrics.
+  The settings-row rhythm, scoped to this overlay's content column rather than applied to `.w-item`
+  / `.w-separator` themselves: both are shared library components with many callers, and what they
+  draw elsewhere is the app's own rhythm, not something this one screen gets to move. Direct
+  children only (`>`), so a nested list inside a section keeps the library metrics.
 */
 .layout-profile-body .w-page > .w-item {
   padding: 14px 20px;
 }
 
 /*
-  The plate's gutter, stated rather than inherited: the library's avatar section is a 56px column
-  with a 16px trailing pad, which centres a 34px plate and leaves ~3px of slack on each side. The
-  design measures from the row's edge to the plate (20px) and from the plate to the label (14px),
-  so the column is collapsed onto the plate and the trailing pad is the whole gutter.
+  The plate's gutter, stated rather than inherited: the library's avatar section is a fixed column
+  that centres the plate with slack either side, where the design measures edge-to-plate and
+  plate-to-label separately. Collapsing the column onto the plate makes the trailing pad the gutter.
 */
 .layout-profile-body .w-page > .w-item > .w-item-section--avatar {
   min-width: 0;
@@ -460,10 +353,9 @@ onBeforeUnmount(() => {
 }
 
 /*
-  The rule between two rows. `--w-hairline-color` rather than a background, because WSeparator
-  paints its line through a scaled pseudo-element (`helpers/hairline.js`) so that it stays one
-  device pixel under fractional display scaling -- setting `background-color` here would paint a
-  second, unscaled line behind it.
+  `--w-hairline-color` rather than a background: WSeparator paints its line through a scaled
+  pseudo-element (`helpers/hairline.js`) so it stays one device pixel under fractional display
+  scaling, and a `background-color` here would paint a second, unscaled line behind it.
 */
 .layout-profile-body .w-page > .w-separator {
   margin-inline: 20px;
@@ -475,19 +367,12 @@ onBeforeUnmount(() => {
 }
 
 /*
-  The save bar at the foot of a section: one rule above it, and nothing else.
+  The save bar at the foot of a section: no fill, and the lighter `var(--color-tint)` rather than
+  the `var(--color-hairline)` that separates two structural blocks -- the bar sits on the column's
+  own ground rather than reading as a panel of its own.
 
-  What this replaces was four stacked gradients across three elements -- a white-to-transparent wash
-  crossed with a green one, a 10px band above it, and a fading rule -- to suggest the bar lifting off
-  the content. One rule says the same thing.
-
-  No fill: `Cardinal Wiki - Profile 3x.dc.html` leaves the bar on the column's own ground and marks
-  it with a tint rule alone. A paper fill was a panel by another name -- the same relief this
-  language does without -- and it also disagreed with the rule above it, which the design draws in
-  the LIGHTER `var(--color-tint)`, not the `var(--color-hairline)` that separates two structural blocks.
-
-  `16px 20px` here rather than the design's `16px 20px 24px`: the trailing 24px is the content
-  column's own `padding-block-end` above, so that a section with no save bar gets the same foot.
+  `16px 20px` rather than the design's `16px 20px 24px`: the trailing 24px is the content column's
+  own `padding-block-end` above, so that a section with no save bar gets the same foot.
 */
 .layout-profile-body .actions-bar {
   display: flex;
@@ -501,41 +386,24 @@ onBeforeUnmount(() => {
 }
 
 /*
-  TWO NARROWER LAYOUTS
-  =====================
-
-  This card fills whatever the outer `MainOverlayDialog` panel gives it (see the panel sizing on
-  `.main-overlay` in `MainLayout.vue`) with a 300px nav column down its left side, and gives that up
-  at two different widths, one at a time rather than all at once:
-
-    below 1200px   the nav column stops being 300px wide and shrinks to its own labels, which hands
-                   the content back the width it is running out of
-    below 900px    the nav column goes altogether and becomes a disclosure above the content, because
-                   even shrunk to its labels it is ~240px that the content needs more; the settings
-                   rows are still two columns here, which is the point of taking the nav out rather
-                   than stacking them
-
-  Ordered narrowest-last, so each block overrides the one above it where the two speak about the same
-  property. These two `max-width` breakpoints are this component's own -- deliberately never shared
-  app-wide breakpoints: they describe when THIS card runs out of room, which is a function of its own
-  nav column and of nothing else.
+  The card gives up its fixed nav column at two widths rather than all at once: first the column
+  shrinks to its own labels, then it becomes a disclosure above the content because even shrunk it
+  is width the content needs more. Ordered narrowest-last, so each block overrides the one above it
+  where they speak about the same property. Both are this component's own breakpoints, never shared
+  app-wide ones: they describe when THIS card runs out of room, a function of its nav column alone.
 */
 
-/* --- Below 1200px: the nav gives up its fixed width -------------------------------------------- */
 @media (max-width: 1199.98px) {
-  /* -> `auto` basis: the column is as wide as its longest label needs, instead of 300px regardless */
   .layout-profile-sd {
     flex: 0 0 auto;
   }
 }
 
-/* --- Below 900px: the nav is a disclosure above the content ------------------------------------- */
 @media (max-width: 899.98px) {
   .layout-profile-body {
     flex-direction: column;
   }
 
-  /* -> The disclosure's bar. Full width, with the chevron pushed to the far end from the label. */
   .layout-profile-navbtn {
     justify-content: space-between;
 
@@ -549,7 +417,8 @@ onBeforeUnmount(() => {
     }
   }
 
-  /* -> The button's whole content is one flex row, so the chevron needs pushing to the end of it */
+  /* -> WBtn wraps its content in a flex row of its own, so the chevron needs pushing to that end */
+  /*    too, not only the button's */
   .layout-profile-navbtn > span {
     flex: 1;
     justify-content: space-between;
@@ -564,9 +433,8 @@ onBeforeUnmount(() => {
   }
 
   /*
-    The nav, no longer a column at all: the width of the card, with the seam that divided the two
-    columns moving from its right edge to its bottom one. Per theme, because that is where the rules
-    being replaced are declared -- at three classes each, which a plain override here would lose to.
+    Per theme, not one unqualified override: the rules being replaced are declared per theme at a
+    higher specificity, which a plain rule here would lose to.
   */
   .layout-profile-sd {
     flex: none;
@@ -582,12 +450,4 @@ onBeforeUnmount(() => {
     }
   }
 }
-
-/*
-  A settings row stacking its icon/label section above its input section below a narrow row width
-  is now `WItem`/`WItemSection`'s own shared, container-query-driven responsive rule (OpenProject
-  #2822) rather than a copy scoped to this dialog's content column -- see the comment on
-  `.w-item { container-type: inline-size }` in `WItem.vue` and the matching `@container` rule in
-  `WItemSection.vue`.
-*/
 </style>

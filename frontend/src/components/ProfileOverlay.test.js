@@ -7,17 +7,10 @@ import { mountWithApp } from '../../test/mount.js'
 import { isSavingVisible, pendingProfileSaves } from '@/composables/profileSaving'
 
 /**
- * OpenProject #2532: Profile becomes a true `MainOverlayDialog` entry -- local `ref`/`reactive`
- * section state instead of `/_profile/:section` child routes, following the same
- * `defineAsyncComponent` pattern `FileManager.vue`/`NavEditOverlay.vue` use for the initial state
- * `overlayOpts` prop `MainOverlayDialog.vue` forwards (OpenProject #2530).
- *
- * `window.matchMedia` is stubbed matching wide throughout (same idiom as `HeaderNav.test.js`) so the
- * section rail renders as a column rather than the below-900px disclosure -- that responsive toggle
- * is unchanged carry-over behavior from the old `ProfileLayout.vue`, not something this WP touches,
- * and `useMinWidth`'s shared per-breakpoint `matchMedia` cache (`composables/screen.js`) makes
- * exercising both states reliably within one file more trouble than it is worth here (see
- * `components/shared/WDrawer.test.js`'s own note on the same cache).
+ * `window.matchMedia` is stubbed matching wide throughout, so the section rail renders as a column
+ * rather than the narrow-viewport disclosure: `useMinWidth`'s shared per-breakpoint `matchMedia`
+ * cache (`composables/screen.js`) makes exercising both states reliably within one file more
+ * trouble than it is worth.
  */
 beforeEach(() => {
   window.matchMedia = vi.fn().mockImplementation((query) => ({
@@ -105,11 +98,8 @@ describe('ProfileOverlay section rail', () => {
   })
 
   /**
-   * OpenProject #2721: "Identity" becomes "About Me" with `tabler:id`, Avatar draws `tabler:photo`,
-   * API Access draws `tabler:api` -- pinning the rail's label/icon pairs so a future icon swap has
-   * to touch this test deliberately, not drift silently. `data-icon` is `WIcon.vue`'s own hook for
-   * exactly this (see its template comment): the rendered `<svg>`/`<iconify-icon>` is otherwise
-   * anonymous DOM with no `icon` attribute to read.
+   * `data-icon` is `WIcon.vue`'s own hook for this: the rendered `<svg>`/`<iconify-icon>` is
+   * otherwise anonymous DOM with no `icon` attribute to read.
    */
   it('pins the rail label/icon pairs, including the info/avatar/api trio from OpenProject #2721', () => {
     const { wrapper } = mountOverlay()
@@ -130,10 +120,6 @@ describe('ProfileOverlay section rail', () => {
     expect(iconFor('Notifications')).toBe('tabler:bell')
   })
 
-  /**
-   * OpenProject #3315 (Feature #3314): the new Preferences entry must sit immediately after About
-   * Me, before Avatar -- not merely exist somewhere in the rail.
-   */
   it('places the Preferences entry right after About Me, before Avatar', () => {
     const { wrapper } = mountOverlay()
 
@@ -206,13 +192,6 @@ describe('ProfileOverlay close / logout', () => {
     expect(siteStore.overlay).toBe('')
   })
 
-  /**
-   * OpenProject #3282/#3352: the close button reads `isSavingVisible`, a display-only value derived
-   * from the shared `pendingProfileSaves` module singleton (`MainOverlayDialog.vue`'s own dismiss
-   * guard still reads `pendingProfileSaves` directly, untouched by #3352) -- disabling itself and
-   * swapping its label/aria-label to "Saving..." only once a save has been pending for 500ms, and a
-   * click while disabled must not clear `siteStore.overlay`.
-   */
   it('disables the Close button and swaps its label once a save has been pending for 500ms', async () => {
     const { wrapper, siteStore } = mountOverlay()
     siteStore.overlay = 'Profile'
@@ -229,10 +208,6 @@ describe('ProfileOverlay close / logout', () => {
     expect(siteStore.overlay).toBe('Profile')
   })
 
-  /**
-   * OpenProject #3352: the whole point of the delay -- a save that finishes inside the ~200-300ms
-   * common case must never visibly flash the "Saving..." swap at all, not just show it briefly.
-   */
   it('never shows the Saving indicator for a save that settles within 500ms', async () => {
     const { wrapper, siteStore } = mountOverlay()
     siteStore.overlay = 'Profile'
@@ -290,19 +265,10 @@ describe('ProfileOverlay close / logout', () => {
 })
 
 /**
- * OpenProject #2543 follow-up: `.layout-profile-card` (which declares `height: 100%` to fill
- * whatever `MainOverlayDialog`'s `<w-dialog>` panel gives it -- see its own comment) used to sit one
- * level *inside* a second, entirely unstyled `<div class="layout-profile">` wrapper. That wrapper was
- * the component's real template root and therefore the actual direct flex child of the dialog panel;
- * with no height or flex properties of its own, it sized to its own content instead of the panel,
- * which broke `.layout-profile-card`'s `height: 100%` (a percentage against a parent whose own height
- * is not definite resolves to `auto`) and, with it, the fixed header / independently-scrollable-panes
- * layout entirely -- confirmed against a real headless Chromium render, since jsdom does not run a
- * layout engine and would report a plausible-looking but meaningless height for either div.
- *
- * `wrapper.element` -- the component's own single DOM root, not a container `mount()` invented -- is
- * `.layout-profile-card` directly, which is what proves the dead wrapper is gone rather than just
- * moved.
+ * `.layout-profile-card` declares `height: 100%` against whatever `MainOverlayDialog`'s dialog panel
+ * gives it, so an unstyled wrapper div between the two resolves that to `auto` and collapses the
+ * fixed-header / scrollable-panes layout. `wrapper.element` is the component's own single DOM root,
+ * which is what proves no such wrapper is there.
  */
 it('has no dead outer wrapper -- .layout-profile-card is the component root', () => {
   const { wrapper } = mountOverlay()
@@ -312,14 +278,10 @@ it('has no dead outer wrapper -- .layout-profile-card is the component root', ()
 })
 
 /**
- * OpenProject #2895: `.layout-profile-card` IS `WDialog`'s panel's direct child (proved above), so
- * `WDialog.vue`'s `.w-dialog-panel > :deep(*) { border-radius: inherit }` hands it the same 12px
- * Cobalt `--radius-dialog` its own header (`.layout-profile-hdr`/`.card-header`) already draws --
- * matching radii, but two independent roundings (this card's `overflow: hidden` clip, the header's
- * own `border-radius` fill) of the same curve, which is the exact clip-a-filled-box-behind-a-rounded-
- * header shape OpenProject #2864 traced the panel-level fringe to. Source-text scan, matching
- * `SideDialog.test.js`'s established convention for this class of Cobalt-only fix: no suite in this
- * codebase renders real Chromium layout for it.
+ * The card is the dialog panel's direct child (proved above), so it inherits the panel's radius and
+ * rounds the same curve twice under Cobalt -- its own clip behind the header's rounded fill -- which
+ * leaves a fringe. A source-text scan, matching `SideDialog.test.js`'s convention for this class of
+ * Cobalt-only fix: nothing here renders real Chromium layout, and neither DOM stand-in would show it.
  */
 describe('ProfileOverlay Cobalt card fringe (OpenProject #2895)', () => {
   const source = readFileSync(join(import.meta.dirname, 'ProfileOverlay.vue'), 'utf-8')

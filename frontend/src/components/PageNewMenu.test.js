@@ -9,14 +9,6 @@ import { useSiteStore } from '@/stores/site'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * Regression coverage for task 493's adjacent fix: `PageNewMenu.vue` (the header's own "+ New Page"
- * menu) is a second, independently-built editor-choice UI that task 492 left with three dead rows --
- * `channel`/`blog`/`api` -- none of which had a matching `editorComponents` entry after that task's
- * cleanup, so picking one opened onto a blank editor. It was also still missing the `code` editor
- * (task 489) entirely, and hid its now-unconditional `asciidoc` row (task 491) behind the experimental
- * flag it no longer needs.
- */
 function mountMenu({ editors = {}, experimental = false, props = {} } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
@@ -26,8 +18,6 @@ function mountMenu({ editors = {}, experimental = false, props = {} } = {}) {
   const pageStore = usePageStore()
   pageStore.pageCreate = vi.fn()
 
-  // -> WP #1610: these menu items render through t() now, not literal template text, so tests
-  //    asserting on their labels need the resolved English strings present here.
   const i18n = createTestI18n({
     common: {
       actions: { newPage: 'New Page', newFolder: 'New Folder' },
@@ -47,9 +37,8 @@ function mountMenu({ editors = {}, experimental = false, props = {} } = {}) {
     props,
     global: {
       plugins: [i18n],
-      // -> `w-menu` only renders its slot once opened by whatever `w-btn` wraps it in the real app
-      //    (`HeaderNav.vue`); this test cares about which `<w-item>`s the menu holds, not the
-      //    open/close mechanics `WMenu.vue` already owns, so the gating is bypassed here.
+      // -> `w-menu` renders its slot only once opened, and these tests care about which `<w-item>`s
+      //    the menu holds rather than the open/close mechanics `WMenu.vue` already owns
       stubs: { WMenu: { template: '<div><slot /></div>' } }
     },
     attachTo: document.body
@@ -93,11 +82,6 @@ describe('PageNewMenu', () => {
     wrapper.unmount()
   })
 
-  /**
-   * OpenProject #2775: the Cobalt mockup ("Menus 3x - Cobalt.dc.html", row 01) marks the
-   * experimental WYSIWYG row with a "Beta" eyebrow -- missing entirely before this task, even
-   * though the row itself was already gated behind the same `flagsStore.experimental` flag.
-   */
   it('marks the WYSIWYG row Beta only while it is actually offered', async () => {
     const hidden = mountMenu({ editors: { wysiwyg: true }, experimental: false })
     await flushPromises()
@@ -138,15 +122,10 @@ describe('PageNewMenu', () => {
 })
 
 /**
- * OpenProject #2694 -- handoff 2's "Menus and pickers" screen, both halves of it.
- *
- * This one component draws BOTH menus the design treats: the anchored create menu and, with
- * `contextMenu` on, the pointer-anchored one the sidebar opens on right-click. The design gives them
- * deliberately different metrics -- 34px plates against 28px, both imports against one -- so what is
- * asserted here is the split, on both sides, rather than either shape on its own.
- *
- * The plate SIZE is `BlueprintIcon`'s own (its co-located suite pins the two measurements); what
- * belongs here is that the menu asks for the right one on each row.
+ * This one component draws BOTH menus: the anchored create menu and, with `contextMenu` on, the
+ * pointer-anchored one the sidebar opens on right-click. They carry deliberately different metrics,
+ * so what is asserted here is the split on both sides rather than either shape on its own. The
+ * plate size itself is `BlueprintIcon`'s own concern; only which one each row asks for is this.
  */
 describe('PageNewMenu: the Cardinal plate treatment', () => {
   const ALL_EDITORS = { asciidoc: true, code: true, markdown: true, wysiwyg: false }
@@ -180,7 +159,6 @@ describe('PageNewMenu: the Cardinal plate treatment', () => {
       expect(plate.classes()).toContain('blueprint-icon--compact')
     }
 
-    // -> One import row survives, not both: "the imports thin out to one row"
     expect(wrapper.text()).toContain('pages.import.menuLabel')
     expect(wrapper.text()).not.toContain('pages.importBatch.menuLabel')
 
@@ -193,9 +171,6 @@ describe('PageNewMenu: the Cardinal plate treatment', () => {
     })
     await flushPromises()
 
-    // -> `basePath` is what `pageCreate` builds `${basePath}/new-page` from, so this line is the
-    //    real destination -- and for a right-clicked PAGE row, NavSidebarItem passes the folder that
-    //    page lives in, which is the whole reason the line exists.
     expect(wrapper.find('.page-new-menu__target').text()).toBe('Create in /docs/ingest')
 
     wrapper.unmount()
@@ -229,11 +204,9 @@ describe('PageNewMenu: the Cardinal plate treatment', () => {
 
 describe('PageNewMenu: import menu item', () => {
   /*
-    Regression coverage for OpenProject #1092: both items used to be hidden behind
-    `siteStore.extensionsStatus.pandoc`, so an instance with no Pandoc extension installed had no
-    bulk-add-pages path at all -- even though `format: 'markdown'` needs no Pandoc and is available
-    unconditionally. Neither item reads `extensionsStatus` any more, so it's never fetched here
-    either (unlike this suite's own pre-#1092 version, which asserted the opposite).
+    `format: 'markdown'` needs no Pandoc, so neither item may be gated on
+    `siteStore.extensionsStatus.pandoc`: gating them leaves a Pandoc-less instance with no
+    bulk-add-pages path at all.
   */
   it('always offers "Import Page" and "Import Multiple Pages", with no extensions-status fetch', async () => {
     const { wrapper } = mountMenu()
@@ -257,12 +230,10 @@ describe('PageNewMenu: import menu item', () => {
 
 describe('PageNewMenu: import dialogs load asynchronously', () => {
   /*
-    OpenProject #1884: `ImportPageDialog.vue` and `ImportBatchPageDialog.vue` used to be static
-    top-of-file imports. The latter statically imports `@/renderers/markdown` (markdown-it + 12
-    plugins, `@twemoji/api`, katex, highlight.js), which put that whole pipeline in every reader's
-    static bundle for a menu item almost nobody clicks. Both must now be `defineAsyncComponent`
-    wrappers -- resolved lazily, only once a menu item is actually clicked -- rather than eagerly
-    imported definitions.
+    `ImportBatchPageDialog.vue` statically imports `@/renderers/markdown` (markdown-it + 12 plugins,
+    `@twemoji/api`, katex, highlight.js), so a top-of-file import here would put that whole pipeline
+    in every reader's static bundle for a menu item almost nobody clicks. Both dialogs must stay
+    `defineAsyncComponent` wrappers.
   */
   it('passes an async component wrapper, not an eagerly-imported definition, to dialog() for both import items', async () => {
     const { wrapper } = mountMenu()
@@ -281,9 +252,8 @@ describe('PageNewMenu: import dialogs load asynchronously', () => {
 
     await importItem.trigger('click')
     expect(openDialogs).toHaveLength(1)
-    // -> A `defineAsyncComponent()` return value is an internal Vue component descriptor, not the
-    //    plain SFC export a static `import ImportPageDialog from '...'` would have produced -- it
-    //    carries `__asyncLoader` and has no `__file`/`name` of its own until resolved.
+    // -> `__asyncLoader` is what a `defineAsyncComponent()` wrapper carries and a plain SFC export
+    //    does not
     expect(openDialogs[0].component.__asyncLoader).toBeInstanceOf(Function)
 
     await importBatchItem.trigger('click')
