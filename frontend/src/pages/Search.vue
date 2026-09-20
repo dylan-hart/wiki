@@ -357,7 +357,7 @@ const publishStates = computed(() => {
   ]
 })
 
-const tags = computed(() => siteStore.tags.map((t) => t.tag))
+const tags = computed(() => siteStore.tags.map((t) => t.tag).sort((a, b) => a.localeCompare(b)))
 
 const defaultPageIcon = DEFAULT_PAGE_ICON
 

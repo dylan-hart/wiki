@@ -1175,3 +1175,37 @@ describe('Search.vue similarity match badge (OpenProject #3223)', () => {
     expect(wrapper.find('.layout-search-rowdate').text()).toBe('87% match')
   })
 })
+
+describe('Search.vue tag filter options', () => {
+  async function mountWithSiteTags(siteTags) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    siteStore.tags = siteTags.map((tag, i) => ({ tag, usageCount: 100 - i }))
+    siteStore.tagsLoaded = true
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ results: [] }) })
+
+    const router = await createSearchRouter('/_search?q=onboarding')
+    const wrapper = mount(Search, {
+      global: {
+        plugins: [router, createSearchI18n()],
+        stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
+      }
+    })
+    activeWrapper = wrapper
+    await flushPromises()
+    return { wrapper, siteStore }
+  }
+
+  it('lists the filter options alphabetically rather than in usage order', async () => {
+    const { wrapper } = await mountWithSiteTags(['zebra', 'écrit', 'apple', 'ecole'])
+
+    expect(wrapper.vm.tags).toEqual(['apple', 'ecole', 'écrit', 'zebra'])
+  })
+
+  it('leaves the site store in its most-used-first order', async () => {
+    const { siteStore } = await mountWithSiteTags(['zebra', 'apple', 'mango'])
+
+    expect(siteStore.tags.map((t) => t.tag)).toEqual(['zebra', 'apple', 'mango'])
+  })
+})
