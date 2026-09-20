@@ -165,3 +165,71 @@ describe('users handle (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 })
+
+describe('users.searchHandles (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let counter = 0
+
+  async function seed(
+    handle: string | null,
+    overrides: { isActive?: boolean; isSystem?: boolean; name?: string } = {}
+  ) {
+    counter += 1
+    await fixtures.db.insert(usersTable).values({
+      email: `search-${counter}-${Date.now()}@example.com`,
+      name: overrides.name ?? `Search ${counter}`,
+      handle,
+      isActive: overrides.isActive ?? true,
+      isSystem: overrides.isSystem ?? false
+    })
+  }
+
+  before(async () => {
+    if (!hasTestDatabase()) {
+      return
+    }
+    await seed('Srch.Alice', { name: 'Alice Search' })
+    await seed('srch.bob')
+    await seed('srch_under')
+    await seed('srch%pct')
+    await seed('srch-inactive', { isActive: false })
+    await seed('srch-system', { isSystem: true })
+    await seed(null)
+    for (const n of [1, 2, 3, 4, 5, 6]) {
+      await seed(`many${n}`)
+    }
+  })
+
+  test('matches a prefix case-insensitively and returns the stored casing with the name', async () => {
+    assert.deepEqual(await users.searchHandles('SRCH.al', 5), [
+      { handle: 'Srch.Alice', name: 'Alice Search' }
+    ])
+  })
+
+  test('returns only handle and name', async () => {
+    const [row] = await users.searchHandles('srch.bob', 5)
+    assert.deepEqual(Object.keys(row).sort(), ['handle', 'name'])
+  })
+
+  test('skips inactive and system accounts', async () => {
+    const handles = (await users.searchHandles('srch-', 10)).map((row) => row.handle)
+    assert.deepEqual(handles, [])
+  })
+
+  test('treats an underscore and a percent sign as literal characters', async () => {
+    assert.deepEqual(
+      (await users.searchHandles('srch_', 10)).map((row) => row.handle),
+      ['srch_under']
+    )
+    assert.deepEqual(
+      (await users.searchHandles('srch%', 10)).map((row) => row.handle),
+      ['srch%pct']
+    )
+    assert.deepEqual(await users.searchHandles('%', 10), [])
+    assert.deepEqual(await users.searchHandles('_', 10), [])
+  })
+
+  test('honours the limit and orders by handle', async () => {
+    const handles = (await users.searchHandles('many', 3)).map((row) => row.handle)
+    assert.deepEqual(handles, ['many1', 'many2', 'many3'])
+  })
+})

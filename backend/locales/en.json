@@ -2207,6 +2207,7 @@
   "common.comments.fieldName": "Your Name",
   "common.comments.loading": "Loading comments...",
   "common.comments.markdownFormat": "Markdown Format",
+  "common.comments.mentionListLabel": "Mention suggestions",
   "common.comments.modified": "modified {reldate}",
   "common.comments.newComment": "New Comment",
   "common.comments.newPlaceholder": "Write a new comment...",
