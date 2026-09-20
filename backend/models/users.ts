@@ -324,6 +324,8 @@ export type ImportLocalUserResult =
   | { status: 'created'; id: string }
   | { status: 'skipped'; reason: 'email-collision'; existingId: string }
 
+const SYSTEM_USER_EMAIL = 'system@cardinal.invalid'
+
 class Users {
   async getByEmail(email: string) {
     const res = await CARDINAL.db
@@ -332,6 +334,33 @@ class Users {
       .where(eq(usersTable.email, email))
       .limit(1)
     return res?.[0] ?? null
+  }
+
+  async ensureSystemUser(): Promise<string> {
+    const id: string = CARDINAL.data.systemIds.systemUserId
+    await CARDINAL.db
+      .insert(usersTable)
+      .values({
+        id,
+        email: SYSTEM_USER_EMAIL,
+        auth: {},
+        ...resolveNameFields({ firstName: 'System' }),
+        isSystem: true,
+        isActive: false,
+        isVerified: true,
+        meta: {},
+        prefs: {
+          timezone: 'UTC',
+          dateFormat: 'YYYY-MM-DD',
+          timeFormat: '24h',
+          appearance: 'site',
+          aesthetic: 'site',
+          contentWidth: 'site',
+          cvd: 'none'
+        }
+      })
+      .onConflictDoNothing({ target: usersTable.id })
+    return id
   }
 
   async getById(id: string, db: WikiDbOrTx = CARDINAL.db) {

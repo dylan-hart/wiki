@@ -114,15 +114,14 @@ function guessAssetBucket(relPath: string): string {
  * `resolveAuthor` commits *out* to git under. With no such user there is nobody to attribute the
  * write to, so the import is skipped rather than fabricated.
  */
-export async function resolveImportActor(target: StorageTarget): Promise<ImportActor | null> {
+export async function resolveImportActor(target: StorageTarget): Promise<ImportActor> {
   const email = target.config?.defaultEmail
-  if (!email) return null
-  const user = await CARDINAL.models.users.getByEmail(email)
-  if (!user) return null
+  const user = email ? await CARDINAL.models.users.getByEmail(email) : null
+  const id = user ? user.id : await CARDINAL.models.users.ensureSystemUser()
   // -> Only an admin can configure a sync target, so what it pulls in is accepted at the trust
   //    level an admin's own edit would be. `manage:system` bypasses every page-rule check, which is
   //    why `groupIds` is never actually consulted.
-  return { id: user.id, permissions: ['manage:system'], groupIds: [] }
+  return { id, permissions: ['manage:system'], groupIds: [] }
 }
 
 /** `null` for a repo with no commits yet — an unborn HEAD, not a failure. */
@@ -409,12 +408,6 @@ export async function sync(target: StorageTarget, data: Record<string, any> = {}
   }
 
   const actor = await resolveImportActor(target)
-  if (!actor) {
-    log.warn(
-      'no user matches the configured default author email, skipping the DB import for this sync'
-    )
-    return
-  }
 
   const diff = await git.diffSummary(['-M', beforeHash, afterHash])
   const entries: DiffEntry[] = []
