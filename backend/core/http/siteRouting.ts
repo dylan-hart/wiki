@@ -7,6 +7,7 @@ import {
   insertIntoAppShell
 } from '../../helpers/appShell.ts'
 import { stripPageExtension } from '../../helpers/common.ts'
+import { themeShellFragments } from '../../helpers/shellTheme.ts'
 import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
 import {
   applyEmbedFrameAncestors,
@@ -196,7 +197,7 @@ export function registerAppShellFallback(app: FastifyInstance): void {
         const locales = await CARDINAL.models.locales.getLocales()
         return locales.find((l: any) => l.code === lang)?.isRTL ?? false
       })
-      const shell = insertIntoAppShell(template, {})
+      const shell = insertIntoAppShell(template, themeShellFragments(siteConfig?.theme))
       return reply.header('Cache-Control', 'no-store').type('text/html; charset=utf-8').send(shell)
     } catch (err: any) {
       // -> Nothing to serve means the frontend was never built, which is a setup step rather than a
