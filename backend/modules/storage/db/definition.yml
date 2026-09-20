@@ -23,6 +23,6 @@ props: {}
 actions:
   purge:
     label: Purge All Assets
-    hint: Delete the stored bytes (not the metadata) of any asset that another enabled storage target with Direct Access turned on can already serve on its own. Assets with no such target are left untouched. Useful if you moved assets to another storage target and want to reduce the size of the database.
-    warn: This is a destructive action and cannot be undone! Only assets a direct-access target can serve are purged - make sure that target actually holds a current copy of them first.
+    hint: Delete the stored bytes (not the metadata) of every asset that another enabled storage target can serve on its own - through Direct Access, or through Read-Through. Before deleting anything, each asset's copy in that target is checked against the database - it must exist and match the database copy in size and SHA-256 hash - and an asset whose copy fails the check is kept and reported as unverified. Assets no such target covers are left untouched. Useful if you moved assets to another storage target and want to reduce the size of the database.
+    warn: This is a destructive action and cannot be undone! Only bytes whose copy was verified are deleted, but afterwards the target's bucket holds the only copy - a database-only backup will no longer contain these files. Verification reads every covered asset in full, so this can take a while on a large library.
     icon: tabler:bomb

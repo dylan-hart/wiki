@@ -1,0 +1,7 @@
+# Comment recommendations: OpenProject #3624 (backend/modules/storage/db/storage.ts)
+
+- `purge()`'s doc comment is now stale: `BlobDriver` has `get`/`head` (as `readAsset`/`headAsset`), and the gate is no longer the whole protection. Replace with: `// Nulling bytes cannot be undone, so an asset is purged only after a covering target proves it holds an identical copy (verifyCopy). Assets are handled one at a time to keep memory to one file. unverified = a target claims to cover the asset but its copy failed the check; skipped = nothing covers it, or its bytes are already gone. Metadata and the tree entry are left alone.`
+- `copyCandidates`: add `// The targets /_files/ can serve from once the db bytes are gone: the governing direct-access target, then read-through targets in getSiteTargets() order (the read path's order). Only candidates; verifyCopy decides.` Keep in step with `readSourcesFrom` in `models/assetServing.ts` once #3622 merges (this filter can then call it).
+- `verifyCopy`: add `// A module that cannot read objects throws (never null), so it lands in the catch as unverified rather than looking like a missing object.`
+- The `nulled` UPDATE's `sha256(data) = ...` guard: add `// An upload replacing the bytes since they were read has not reached any target yet, so it must not be nulled.`
+- The `docs/operations.md` note names "Purge All Assets" and the `unverified` count; update it if the action label or result keys change.
