@@ -113,7 +113,6 @@ export async function connectListener(opts: ListenerOptions): Promise<ListenerHa
       setClient(null)
       // FIXME: a second `release()` of the same client -- pg-pool throws "Release called on client
       // which has already been released to the pool", so `reconnect()` never runs. Delete this call.
-      client.release(true)
       void reconnect()
     })
   }
