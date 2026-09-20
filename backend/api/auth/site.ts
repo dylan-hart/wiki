@@ -1,9 +1,35 @@
 import { AccountRateLimitedError, limitAuthAttempts } from '../../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../../helpers/recoveryCodes.ts'
 import { sessionCookieName } from '../../helpers/security.ts'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { loginErrorUrl } from './provider.ts'
 import { passkeysAllowed } from '../../models/security.ts'
+
+async function resolveIdpLogoutUrl(req: FastifyRequest, redirect: string): Promise<string | null> {
+  const idpSession = req.session?.idpSession
+  if (!idpSession) {
+    return null
+  }
+  try {
+    const strategy = await CARDINAL.models.authentication.getStrategyById(idpSession.strategyId)
+    const instance = CARDINAL.auth.strategies[idpSession.strategyId] as any
+    if (!strategy?.isEnabled || typeof instance?.logoutUrl !== 'function') {
+      return null
+    }
+    return (
+      instance.logoutUrl({
+        idTokenHint: idpSession.idToken,
+        postLogoutRedirectUri: new URL(redirect, `${req.protocol}://${req.host}`).href
+      }) ?? null
+    )
+  } catch (err: any) {
+    CARDINAL.logger.warn('auth', 'could not build the identity provider logout URL', {
+      error: err?.message,
+      strategyId: idpSession.strategyId
+    })
+    return null
+  }
+}
 
 async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string }; Querystring: { visibleOnly?: boolean } }>(
@@ -832,7 +858,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Logout',
         description:
-          "Destroys the current session and answers with where to send the user next: the first of the user's groups that sets a logout redirect, otherwise the site's own setting, otherwise the site root. A request that was not logged in gets the same answer rather than an error, so that a client acting on a session the server has already forgotten still ends up somewhere sensible.",
+          "Destroys the current session and answers with where to send the user next: the first of the user's groups that sets a logout redirect, otherwise the site's own setting, otherwise the site root. A request that was not logged in gets the same answer rather than an error, so that a client acting on a session the server has already forgotten still ends up somewhere sensible. A session that came from an OIDC or OAuth2 login whose strategy is still enabled and has a logout URL configured is instead answered with that identity provider's end-session URL, carrying the login's id_token_hint and a post_logout_redirect_uri that returns to this wiki at the location described above. That URL comes from the administrator's strategy configuration, not from the request, so it is not subject to security.disallowOpenRedirect.",
         tags: ['Authentication'],
         params: { $ref: 'SiteIdParams#' },
         response: {
@@ -845,7 +871,8 @@ async function routes(app: FastifyInstance) {
               },
               redirect: {
                 type: 'string',
-                description: 'A path within this wiki, or an absolute URL if one is configured.'
+                description:
+                  'A path within this wiki, or an absolute URL if one is configured or the session came from an identity provider that offers single logout.'
               }
             }
           }
@@ -860,6 +887,7 @@ async function routes(app: FastifyInstance) {
         user?.id ?? null,
         req.params.siteId
       )
+      const idpLogoutUrl = await resolveIdpLogoutUrl(req, redirect)
 
       if (req.session) {
         await req.session.destroy()
@@ -899,7 +927,7 @@ async function routes(app: FastifyInstance) {
 
       return {
         ok: true,
-        redirect
+        redirect: idpLogoutUrl ?? redirect
       }
     }
   )

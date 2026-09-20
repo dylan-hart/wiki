@@ -566,6 +566,192 @@ describe('POST /sites/:siteId/auth/logout — audit log', () => {
   })
 })
 
+describe('POST /sites/:siteId/auth/logout — identity provider end-session', () => {
+  const STRATEGY_ID = 'c1111111-1111-1111-1111-111111111111'
+  const ID_TOKEN = 'header.payload.signature'
+  const URL_PATH = '/sites/11111111-1111-1111-1111-111111111111/auth/logout'
+
+  let app: FastifyInstance
+  let destroyMock: ReturnType<typeof mock.fn>
+  let logoutUrlMock: ReturnType<typeof mock.fn>
+  let authDebugMock: ReturnType<typeof mock.fn>
+  let emitMock: ReturnType<typeof mock.fn>
+  let auditRecordMock: ReturnType<typeof mock.fn>
+  let warnMock: ReturnType<typeof mock.fn>
+  let strategy: { id: string; isEnabled: boolean } | null
+  let localRedirect: string
+  let sessionShape: Record<string, any>
+
+  before(async () => {
+    wikiHandle = installTestWiki({
+      config: {},
+      auth: { strategies: {} },
+      models: {
+        flags: { authDebug: (...args: any[]) => authDebugMock(...args) },
+        authentication: { getStrategyById: async () => strategy },
+        login: { getLogoutRedirect: async () => localRedirect },
+        hooks: { emit: (...args: any[]) => emitMock(...args) },
+        auditLog: { record: (...args: any[]) => auditRecordMock(...args) }
+      }
+    })
+    CARDINAL.logger.warn = (...args: any[]) => warnMock(...args)
+    app = await buildTestApp({
+      routes: withCookies,
+      session: () => sessionShape
+    })
+  })
+
+  beforeEach(() => {
+    destroyMock = mock.fn(async () => {})
+    logoutUrlMock = mock.fn(
+      ({ idTokenHint, postLogoutRedirectUri }: any) =>
+        `https://idp.example.com/logout?id_token_hint=${idTokenHint}&post_logout_redirect_uri=${encodeURIComponent(postLogoutRedirectUri)}`
+    )
+    authDebugMock = mock.fn()
+    emitMock = mock.fn(async () => 0)
+    auditRecordMock = mock.fn(async () => {})
+    warnMock = mock.fn()
+    strategy = { id: STRATEGY_ID, isEnabled: true }
+    localRedirect = '/'
+    CARDINAL.auth.strategies[STRATEGY_ID] = {
+      logoutUrl: (...args: any[]) => logoutUrlMock(...args)
+    }
+    sessionShape = {
+      authenticated: true,
+      user: { id: 'u1', name: 'Ada', email: 'ada@example.com' },
+      idpSession: { strategyId: STRATEGY_ID, idToken: ID_TOKEN },
+      destroy: (...args: any[]) => destroyMock(...args)
+    }
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  async function logout() {
+    const res = await app.inject({
+      method: 'POST',
+      url: URL_PATH,
+      headers: { host: 'wiki.example.com' }
+    })
+    assert.equal(res.statusCode, 200)
+    return res.json()
+  }
+
+  test('an IdP session answers with the end-session URL carrying id_token_hint and post_logout_redirect_uri', async () => {
+    const body = await logout()
+
+    const url = new URL(body.redirect)
+    assert.equal(url.origin, 'https://idp.example.com')
+    assert.equal(url.searchParams.get('id_token_hint'), ID_TOKEN)
+    assert.equal(url.searchParams.get('post_logout_redirect_uri'), 'http://wiki.example.com/')
+    assert.equal(logoutUrlMock.mock.callCount(), 1)
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('a rooted local redirect is joined to the request origin', async () => {
+    localRedirect = '/goodbye'
+
+    const body = await logout()
+
+    assert.equal(
+      new URL(body.redirect).searchParams.get('post_logout_redirect_uri'),
+      'http://wiki.example.com/goodbye'
+    )
+  })
+
+  test('an already absolute local redirect is passed as is', async () => {
+    localRedirect = 'https://elsewhere.example.org/bye'
+
+    const body = await logout()
+
+    assert.equal(
+      new URL(body.redirect).searchParams.get('post_logout_redirect_uri'),
+      'https://elsewhere.example.org/bye'
+    )
+  })
+
+  test('the id token reaches neither the debug log nor the audit event', async () => {
+    await logout()
+
+    const logged = JSON.stringify([
+      authDebugMock.mock.calls,
+      emitMock.mock.calls,
+      auditRecordMock.mock.calls,
+      warnMock.mock.calls
+    ])
+    assert.ok(!logged.includes(ID_TOKEN))
+    assert.equal(emitMock.mock.callCount(), 1)
+  })
+
+  test('no idpSession keeps the local redirect', async () => {
+    delete sessionShape.idpSession
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(logoutUrlMock.mock.callCount(), 0)
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('a disabled strategy keeps the local redirect', async () => {
+    strategy = { id: STRATEGY_ID, isEnabled: false }
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(logoutUrlMock.mock.callCount(), 0)
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('a deleted strategy keeps the local redirect', async () => {
+    strategy = null
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('an empty logoutURL (logoutUrl() returns null) keeps the local redirect', async () => {
+    logoutUrlMock = mock.fn(() => null)
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(logoutUrlMock.mock.callCount(), 1)
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('a strategy instance without logoutUrl keeps the local redirect', async () => {
+    CARDINAL.auth.strategies[STRATEGY_ID] = {}
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(destroyMock.mock.callCount(), 1)
+  })
+
+  test('a throwing logoutUrl() falls back to the local redirect and still destroys the session', async () => {
+    logoutUrlMock = mock.fn(() => {
+      throw new Error(`boom ${ID_TOKEN}`)
+    })
+    localRedirect = '/local'
+
+    const body = await logout()
+
+    assert.equal(body.redirect, '/local')
+    assert.equal(destroyMock.mock.callCount(), 1)
+    assert.equal(warnMock.mock.callCount(), 1)
+  })
+})
+
 /**
  * The route is public, so it publishes only what the login screen can act on: `selfRegistration`
  * for a form-based strategy, and nothing about a redirect-based provider's `autoProvision`.
