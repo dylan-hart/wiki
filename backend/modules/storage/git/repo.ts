@@ -144,12 +144,34 @@ async function ensureBranch(git: SimpleGit, branch: string): Promise<void> {
   }
 }
 
+export async function abortInterruptedRebase(git: SimpleGit, log: ScopedLogger): Promise<boolean> {
+  const gitDir = (await git.revparse(['--absolute-git-dir'])).trim()
+  const exists = (name: string) =>
+    fs.stat(path.join(gitDir, name)).then(
+      () => true,
+      () => false
+    )
+  if (!(await exists('rebase-merge')) && !(await exists('rebase-apply'))) {
+    return false
+  }
+  log.warn('rolling back an unfinished rebase left by an earlier sync')
+  await git.raw(['rebase', '--abort'])
+  return true
+}
+
+export interface EnsureRepoOptions {
+  abortInterrupted?: ScopedLogger
+}
+
 /**
  * Safe to call repeatedly: every step is idempotent and re-derives from the current config rather
  * than trusting a previous call, so an origin URL or SSH key changed since the last save is
  * corrected rather than skipped.
  */
-export async function ensureRepo(target: Pick<StorageTarget, 'config'>): Promise<EnsuredRepo> {
+export async function ensureRepo(
+  target: Pick<StorageTarget, 'config'>,
+  options: EnsureRepoOptions = {}
+): Promise<EnsuredRepo> {
   const config = target.config ?? {}
   await assertGitAvailable()
 
@@ -173,6 +195,10 @@ export async function ensureRepo(target: Pick<StorageTarget, 'config'>): Promise
   //    this target — is (re-)initialized rather than treated as an error.
   if (!(await isGitRepo(repoPath))) {
     await git.init()
+  }
+
+  if (options.abortInterrupted) {
+    await abortInterruptedRebase(git, options.abortInterrupted)
   }
 
   await git.addConfig('http.sslVerify', config.verifySSL === false ? 'false' : 'true')

@@ -152,5 +152,5 @@ actions:
     icon: database-daily-import
   purge:
     label: Purge Local Repository
-    hint: If you have unrelated merge histories, clearing the local repository can resolve this issue. This will not affect the remote repository or perform any commit.
+    hint: Empties the local repository and clones it again from the remote when a Repository URI is configured. A local repository that has lost its shared history with the remote re-attaches itself on the next sync, so this is for when git can no longer make sense of the working copy. The remote is not touched and nothing is committed. Any local commit that was never pushed is lost.
     icon: trash

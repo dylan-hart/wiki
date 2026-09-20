@@ -12,6 +12,7 @@ import { generatePathHash } from '../../../helpers/common.ts'
 import { stripLocalePrefix } from '../../../helpers/localeRouting.ts'
 import { getContentTypeFromExtension } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
+import type { ScopedLogger } from '../../../core/logger.ts'
 import { getEditorForContentType } from '../../../models/pages.ts'
 import { ensureRepo, gitLog } from './repo.ts'
 import { covers, fileExists } from './content.ts'
@@ -318,6 +319,35 @@ export async function processDiffEntry(
   }
 }
 
+async function sharesHistoryWith(git: SimpleGit, ref: string): Promise<boolean> {
+  try {
+    return (await git.raw(['merge-base', 'HEAD', ref])).trim().length > 0
+  } catch {
+    return false
+  }
+}
+
+async function reattach(git: SimpleGit, branch: string, log: ScopedLogger): Promise<void> {
+  log.warn('the local repository has no history in common with the remote branch, reattaching', {
+    branch
+  })
+  try {
+    await git.merge([
+      '--allow-unrelated-histories',
+      '--no-edit',
+      '-m',
+      `chore: reconcile the local repository with origin/${branch}`,
+      'FETCH_HEAD'
+    ])
+  } catch (err: any) {
+    await git.raw(['merge', '--abort']).catch(() => null)
+    throw new Error(
+      `The local repository has no history in common with origin/${branch}, and merging the two failed: ${err.message}. Nothing was changed on either side. Purge Local Repository re-clones the remote's copy.`,
+      { cause: err }
+    )
+  }
+}
+
 /**
  * A rebase conflict is deliberately not caught: it aborts the sync and leaves the working copy
  * mid-rebase for an administrator, the same place a hand-run `git pull --rebase` would.
@@ -330,18 +360,26 @@ export async function processDiffEntry(
  */
 export async function sync(target: StorageTarget, data: Record<string, any> = {}): Promise<void> {
   const log = gitLog(target)
-  const { git, repoPath } = await ensureRepo(target)
-  const branch = target.config?.branch || 'main'
   const mode = target.sync.mode
   const pulls = ['sync', 'pull'].includes(mode)
   const pushes = ['sync', 'push'].includes(mode)
+  const { git, repoPath } = await ensureRepo(target, pulls ? { abortInterrupted: log } : {})
+  const branch = target.config?.branch || 'main'
 
   const beforeHash = await headHash(git)
 
+  let reattached = false
   if (pulls) {
     if (beforeHash) {
-      log.debug('pulling from origin with rebase', { branch })
-      await git.pull('origin', branch, ['--rebase'])
+      log.debug('fetching origin', { branch })
+      await git.fetch('origin', branch)
+      if (await sharesHistoryWith(git, 'FETCH_HEAD')) {
+        log.debug('pulling from origin with rebase', { branch })
+        await git.pull('origin', branch, ['--rebase'])
+      } else {
+        await reattach(git, branch, log)
+        reattached = true
+      }
     } else {
       // -> Nothing local to rebase yet — a plain pull is enough to bring the branch into existence.
       log.debug('performing the initial pull from origin', { branch })
@@ -356,6 +394,10 @@ export async function sync(target: StorageTarget, data: Record<string, any> = {}
 
   if (!pulls) {
     // -> A push-only target has nothing pulled to reverse-mirror into the DB
+    return
+  }
+
+  if (reattached) {
     return
   }
 
