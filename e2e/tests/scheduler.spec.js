@@ -132,7 +132,7 @@ test.describe('admin scheduler', () => {
     //    in a `<w-tooltip>` that is `aria-hidden` until hovered, leaving its computed accessible
     //    name empty. FIXME: give `AdminScheduler.vue`'s `body-cell-cancel` `<w-btn>` an
     //    `aria-label`; the control is unreachable by name for a screen-reader user.
-    await workerRow.locator('button:has([data-icon="tabler:square-x"])').click()
+    await workerRow.getByRole('button', { name: 'Cancel Job' }).click()
     await expect(page.locator('.w-notification').last()).toContainText(
       'Job cancelled successfully.'
     )
@@ -166,7 +166,7 @@ test.describe('admin scheduler', () => {
     //    rather than racing the 5s polling loop for real.
     await withDb((db) => deleteJob(db, raceJobId))
 
-    await raceRow.locator('button:has([data-icon="tabler:square-x"])').click()
+    await raceRow.getByRole('button', { name: 'Cancel Job' }).click()
 
     const toast = page.locator('.w-notification').last()
     await expect(toast).toContainText('Failed to cancel the job.')
