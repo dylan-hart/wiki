@@ -11,6 +11,7 @@ import { requestOrigin, stripPageExtension } from '../../helpers/common.ts'
 import { analyticsShellFragments } from '../../helpers/analyticsSnippets.ts'
 import { pageShellFragments, withShellTitle } from '../../helpers/shellHead.ts'
 import { lookupShellPage, type ShellPage } from '../../helpers/shellPage.ts'
+import { robotsDirective, robotsShellFragments } from '../../helpers/shellRobots.ts'
 import { themeShellFragments } from '../../helpers/shellTheme.ts'
 import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
 import {
@@ -241,11 +242,16 @@ export function registerAppShellFallback(app: FastifyInstance): void {
       const shell = insertIntoAppShell(
         shellPage ? withShellTitle(template, shellPage.title) : template,
         mergeShellFragments(
+          robotsShellFragments(siteConfig?.robots),
           analyticsShellFragments(siteConfig?.analytics),
           pageFragments,
           themeShellFragments(siteConfig?.theme)
         )
       )
+      const robots = robotsDirective(siteConfig?.robots)
+      if (robots) {
+        reply.header('X-Robots-Tag', robots)
+      }
       return reply
         .code(status)
         .header('Cache-Control', 'no-store')
