@@ -1,4 +1,5 @@
 import proxyAddr from '@fastify/proxy-addr'
+import { sql } from 'drizzle-orm'
 import { CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
 
 export const SECURITY_FIELDS = [
@@ -189,6 +190,31 @@ class Security {
       return '"trustProxy" must be a boolean, or a trusted-proxy address/CIDR list.'
     }
 
+    return null
+  }
+
+  async checkPasskeyLockout(patch: Record<string, any>): Promise<string | null> {
+    if (patch.allowPasskeys !== false || CARDINAL.config.security?.allowPasskeys === false) {
+      return null
+    }
+
+    const result = await CARDINAL.db.execute(sql`
+      SELECT count(*)::int AS count
+      FROM users
+      WHERE jsonb_array_length(coalesce(passkeys -> 'authenticators', '[]'::jsonb)) > 0
+        AND EXISTS (
+          SELECT 1 FROM jsonb_each(auth) AS entry
+          WHERE entry.value ->> 'restrictLogin' = 'true'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM jsonb_each(auth) AS entry
+          WHERE coalesce(entry.value ->> 'restrictLogin', 'false') <> 'true'
+        )
+    `)
+    const locked = Number((result.rows[0] as { count?: number } | undefined)?.count ?? 0)
+    if (locked > 0) {
+      return `Passkeys cannot be turned off yet: ${locked} ${locked === 1 ? 'account has' : 'accounts have'} password login turned off and can only sign in with a passkey.`
+    }
     return null
   }
 
