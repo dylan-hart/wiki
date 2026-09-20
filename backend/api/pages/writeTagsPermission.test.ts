@@ -172,6 +172,39 @@ describe('write:tags is required, independently of write:pages, to actually chan
       assert.equal(updatePageCalls.length, 1)
     })
 
+    test('a duplicate-padded body that drops a stored tag ([a, b] to [a, a]) is a tag change and is refused without write:tags', async () => {
+      target.tags = ['a', 'b']
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = makeCheckAccess([
+        writePagesAnywhere
+      ])
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+        payload: { tags: ['a', 'a'] }
+      })
+      assert.equal(res.statusCode, 403)
+      assert.equal(updatePageCalls.length, 0)
+    })
+
+    test('reordering the stored tags or repeating one of them is not a tag change, so write:pages alone still saves', async () => {
+      target.tags = ['a', 'b']
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = makeCheckAccess([
+        writePagesAnywhere
+      ])
+      for (const tags of [
+        ['b', 'a'],
+        ['a', 'b', 'b']
+      ]) {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+          payload: { tags }
+        })
+        assert.equal(res.statusCode, 200)
+      }
+      assert.equal(updatePageCalls.length, 2)
+    })
+
     test('adding a tag nothing denies succeeds with both write:pages and write:tags held', async () => {
       const res = await app.inject({
         method: 'PATCH',
