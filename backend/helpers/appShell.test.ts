@@ -59,6 +59,40 @@ describe('resolveAppShellLocale', () => {
   test('a bare path is the primary', () => {
     assert.equal(resolveAppShellLocale('/guides/x', undefined, cfg), 'en')
   })
+
+  describe('with a locale alias', () => {
+    const aliased = { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+
+    test('an aliased page path resolves to the canonical code', () => {
+      assert.equal(resolveAppShellLocale('/zh/page', undefined, aliased), 'zh-CN')
+    })
+
+    test('the alias matches case-insensitively', () => {
+      assert.equal(resolveAppShellLocale('/ZH/page', undefined, aliased), 'zh-CN')
+    })
+
+    test('the canonical code still resolves, so the redirect to the alias can happen', () => {
+      assert.equal(resolveAppShellLocale('/zh-CN/page', undefined, aliased), 'zh-CN')
+    })
+
+    test('a bare aliased prefix resolves too', () => {
+      assert.equal(resolveAppShellLocale('/zh', undefined, aliased), 'zh-CN')
+    })
+
+    test('an alias for an inactive locale is not a locale prefix', () => {
+      const inactive = { primary: 'en', active: ['en'], aliases: { 'zh-CN': 'zh' } }
+      assert.equal(resolveAppShellLocale('/zh/page', undefined, inactive), 'en')
+    })
+
+    test('an app route reads the canonical code from ?locale=', () => {
+      assert.equal(resolveAppShellLocale('/_edit/page', 'locale=zh-CN', aliased), 'zh-CN')
+    })
+
+    test('without aliases the alias segment is an ordinary path segment', () => {
+      const plain = { primary: 'en', active: ['en', 'zh-CN'] }
+      assert.equal(resolveAppShellLocale('/zh/page', undefined, plain), 'en')
+    })
+  })
 })
 
 describe('getTemplatedAppShell', () => {
