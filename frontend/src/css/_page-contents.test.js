@@ -2249,3 +2249,153 @@ describe('_page-contents.css cobalt h1 ink (OpenProject #2964)', () => {
     })
   })
 })
+
+describe('_page-contents.css definition lists (OpenProject #3585)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+
+  function blockFor(selector) {
+    const start = source.indexOf(selector)
+    if (start === -1) {
+      throw new Error(`\`${selector}\` not found in _page-contents.css -- has it moved?`)
+    }
+    let depth = 0
+    for (let i = source.indexOf('{', start); i < source.length; i += 1) {
+      if (source[i] === '{') {
+        depth += 1
+      } else if (source[i] === '}') {
+        depth -= 1
+        if (depth === 0) {
+          return source.slice(start, i + 1)
+        }
+      }
+    }
+    throw new Error(`\`${selector}\` block is unterminated in _page-contents.css`)
+  }
+
+  const dl = blockFor('\n  dl {')
+  const dt = blockFor('\n  dt {')
+  const dd = blockFor('\n  dd {')
+
+  it('gives dl the same bottom margin as ul/ol', () => {
+    expect(dl).toMatch(/margin:\s*0 0 1\.15em;/)
+  })
+
+  it('sets dt at weight 600 with a top margin, none on the first term', () => {
+    expect(dt).toMatch(/font-weight:\s*600;/)
+    expect(dt).toMatch(/margin-top:\s*0\.9em;/)
+    expect(dt).toMatch(/&:first-child\s*\{\s*margin-top:\s*0;\s*\}/)
+  })
+
+  it('insets dd by the list inset via a logical property', () => {
+    expect(dd).toMatch(/margin-inline-start:\s*1\.6em;/)
+  })
+
+  it('keeps one-paragraph definitions tight, spaces multi-paragraph ones and sits nested lists close', () => {
+    expect(dd).toMatch(/>\s*p\s*\{\s*margin:\s*0;\s*\+\s*p\s*\{\s*margin-top:\s*0\.6em;/)
+    expect(dd).toMatch(/>\s*ul,\s*>\s*ol\s*\{\s*margin:\s*0\.35em 0 0;/)
+  })
+
+  it('carries no physical margin/padding/border -left or -right', () => {
+    for (const block of [dl, dt, dd]) {
+      expect(block).not.toMatch(/(?:margin|padding|border)-(?:left|right)/)
+    }
+  })
+
+  it('draws no rule down the definition and takes no colour of its own', () => {
+    for (const block of [dl, dt, dd]) {
+      expect(block).not.toMatch(/border/)
+      expect(block).not.toMatch(/box-shadow/)
+      expect(block).not.toMatch(/#[0-9a-f]{3,8}\b/i)
+    }
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+    let stylesheets
+
+    const SAMPLE = `
+      <article class="page-contents">
+        <dl>
+          <dt>Term one</dt>
+          <dd><p>First definition.</p></dd>
+          <dt>Term two</dt>
+          <dd><p>Para A.</p><p>Para B.</p></dd>
+        </dl>
+        <p>After.</p>
+      </article>`
+
+    async function measure({ dark = false, cobalt = false, rtl = false } = {}) {
+      const { appCss, contentCss } = stylesheets
+      const page = await browser.newPage()
+      try {
+        const bodyClasses = [dark ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
+          .filter(Boolean)
+          .join(' ')
+        await page.setContent(
+          `<!doctype html><html${rtl ? ' dir="rtl"' : ''}><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const dts = document.querySelectorAll('dt')
+          const dds = document.querySelectorAll('dd')
+          const ps = dds[1].querySelectorAll('p')
+          const proseP = getComputedStyle(document.querySelector('dd p'))
+          return {
+            dlMarginBottom: getComputedStyle(document.querySelector('dl')).marginBottom,
+            dtWeight: getComputedStyle(dts[0]).fontWeight,
+            dtColor: getComputedStyle(dts[0]).color,
+            ddColor: getComputedStyle(dds[0]).color,
+            dt1MarginTop: getComputedStyle(dts[0]).marginTop,
+            dt2MarginTop: getComputedStyle(dts[1]).marginTop,
+            ddMarginLeft: getComputedStyle(dds[0]).marginLeft,
+            ddMarginRight: getComputedStyle(dds[0]).marginRight,
+            ddBorderLeft: getComputedStyle(dds[0]).borderLeftWidth,
+            ddBorderRight: getComputedStyle(dds[0]).borderRightWidth,
+            tightParaMargin: proseP.marginBottom,
+            secondParaMarginTop: getComputedStyle(ps[1]).marginTop
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+      stylesheets = {
+        appCss: await buildAppCss(),
+        contentCss: readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      }
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it.each([
+      ['Ledger light', {}],
+      ['Ledger dark', { dark: true }],
+      ['Cobalt light', { cobalt: true }],
+      ['Cobalt dark', { cobalt: true, dark: true }]
+    ])('draws a bold term and an inset, ruleless definition under %s', async (_name, opts) => {
+      const m = await measure(opts)
+      expect(m.dtWeight).toBe('600')
+      expect(m.dtColor).toBe(m.ddColor)
+      expect(m.dt1MarginTop).toBe('0px')
+      expect(parseFloat(m.dt2MarginTop)).toBeGreaterThan(0)
+      expect(parseFloat(m.ddMarginLeft)).toBeGreaterThan(0)
+      expect(m.ddBorderLeft).toBe('0px')
+      expect(m.ddBorderRight).toBe('0px')
+      expect(m.tightParaMargin).toBe('0px')
+      expect(parseFloat(m.secondParaMarginTop)).toBeGreaterThan(0)
+      expect(parseFloat(m.dlMarginBottom)).toBeGreaterThan(0)
+    })
+
+    it('mirrors the definition inset under RTL', async () => {
+      const m = await measure({ rtl: true })
+      expect(m.ddMarginLeft).toBe('0px')
+      expect(parseFloat(m.ddMarginRight)).toBeGreaterThan(0)
+    })
+  })
+})
