@@ -48,6 +48,9 @@ const i18n = createTestI18n({
     fetchingFolderContents: 'Fetching folder contents...',
     duplicateItem: 'Duplicate...',
     renameItem: 'Rename...',
+    moveItem: 'Move...',
+    moveAssetSuccess: 'Asset moved successfully.',
+    moveAssetFailed: 'Failed to move asset.',
     renameMovePage: 'Rename / Move Page...',
     pngFileType: 'PNG Image',
     markdownPageType: 'Markdown Page',
@@ -1200,5 +1203,142 @@ describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
     const { wrapper: wrapper2 } = await mountFileManager()
     expect(wrapper2.vm.state.isCompact).toBe(false)
     wrapper2.unmount()
+  })
+})
+
+describe('FileManager asset Move action (OpenProject #3664)', () => {
+  const asset = {
+    id: 'a1',
+    type: 'asset',
+    title: 'photo',
+    fileName: 'photo.png',
+    fileExt: 'png',
+    fileSize: 1024,
+    mimeType: 'image/png',
+    folderPath: 'media'
+  }
+
+  async function mountWithItems(fileList) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, buildTestRouter([])],
+        stubs: {
+          Tree: true,
+          NewMenu: true,
+          LocaleSelectorMenu: true,
+          WMenu: { template: '<div><slot /></div>' }
+        }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+    wrapper.vm.state.fileList = fileList
+    await flushPromises()
+    return { wrapper, siteStore }
+  }
+
+  beforeEach(() => {
+    notifyQueue.length = 0
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('renders "Move..." on an asset row and not on a page row', async () => {
+    const { wrapper } = await mountWithItems([asset])
+    expect(wrapper.text()).toContain('Move...')
+
+    wrapper.vm.state.fileList = [
+      {
+        id: 'p1',
+        type: 'page',
+        title: 'Page',
+        fileName: 'page',
+        pageType: 'markdown',
+        folderPath: ''
+      }
+    ]
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Move...')
+
+    wrapper.unmount()
+  })
+
+  it("opens the destination-only picker on the asset's current folder", async () => {
+    const { wrapper } = await mountWithItems([asset])
+
+    wrapper.vm.moveItem(asset)
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({ mode: 'moveItem', folderPath: 'media' })
+
+    wrapper.unmount()
+  })
+
+  it('PUTs the picked destination to the asset folder route, then reloads and notifies', async () => {
+    const { wrapper, siteStore } = await mountWithItems([asset])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    wrapper.vm.moveItem(asset)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'docs' })
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith(`sites/${siteStore.id}/assets/a1/folder`, {
+      json: { folderId: 'f2', parentPath: 'docs' }
+    })
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Asset moved successfully.'
+    })
+
+    wrapper.unmount()
+  })
+
+  it('surfaces the 409 name-collision message and does not report success', async () => {
+    const { wrapper } = await mountWithItems([asset])
+    const err = Object.assign(new Error('Request failed with status code 409'), {
+      data: { message: 'An asset with that name already exists there.' }
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(err) })
+
+    wrapper.vm.moveItem(asset)
+    closeDialog(openDialogs[0].id, true, { folderId: null, parentPath: '' })
+    await flushPromises()
+
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to move asset.',
+      caption: 'An asset with that name already exists there.'
+    })
+
+    wrapper.unmount()
+  })
+
+  it('surfaces the 403 message the same way', async () => {
+    const { wrapper } = await mountWithItems([asset])
+    const err = Object.assign(new Error('Request failed with status code 403'), {
+      data: { message: 'You are not allowed to move this file.' }
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(err) })
+
+    wrapper.vm.moveItem(asset)
+    closeDialog(openDialogs[0].id, true, { folderId: 'f2', parentPath: 'docs' })
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      caption: 'You are not allowed to move this file.'
+    })
+
+    wrapper.unmount()
   })
 })

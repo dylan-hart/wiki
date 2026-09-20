@@ -519,6 +519,12 @@
                             </w-item-section>
                             <w-item-section>{{ t('fileman.renameItem') }}</w-item-section>
                           </w-item>
+                          <w-item clickable v-if="item.type === `asset`" @click="moveItem(item)">
+                            <w-item-section side>
+                              <w-icon name="tabler:share" color="slate-soft" />
+                            </w-item-section>
+                            <w-item-section>{{ t('fileman.moveItem') }}</w-item-section>
+                          </w-item>
                         </template>
                         <w-item clickable @click="delItem(item)">
                           <w-item-section side>
@@ -705,6 +711,7 @@ const {
   renameMovePage,
   delPage,
   renameAsset,
+  moveAsset,
   delAsset
 } = useFileManagerActions({ state, treeComp, loadTree, close })
 
@@ -1147,6 +1154,15 @@ function renameItem(item) {
     }
     case 'asset': {
       renameAsset(item.id)
+      break
+    }
+  }
+}
+
+function moveItem(item) {
+  switch (item.type) {
+    case 'asset': {
+      moveAsset(item)
       break
     }
   }
