@@ -880,6 +880,8 @@
   "admin.liveLog.title": "Live Log",
   "admin.locale.active": "Active Locales",
   "admin.locale.activeNamespaces": "Active Namespaces",
+  "admin.locale.alias": "URL alias",
+  "admin.locale.aliasPreview": "Served at /{alias}/... instead of /{code}/...",
   "admin.locale.autoUpdate.hint": "Automatically download updates to this locale as they become available.",
   "admin.locale.autoUpdate.hintWithNS": "Automatically download updates to all namespaced locales enabled below.",
   "admin.locale.autoUpdate.label": "Update Automatically",
