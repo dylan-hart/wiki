@@ -7,14 +7,10 @@ import { boolean } from '../shared/props.js'
 import { renderError } from '../shared/render.js'
 import { errorBox } from '../shared/styles.js'
 
-/**
- * Block Asciinema
- */
 export class BlockAsciinemaElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Collected at build time into `compiled/blocks.manifest.json` by reading this object literal out
+   * of the source text, not by importing the module -- so every value here must be a plain literal.
    */
   static definition = {
     block: 'asciinema',
@@ -104,50 +100,27 @@ export class BlockAsciinemaElement extends LitElement {
 
   static get properties() {
     return {
-      /**
-       * Path or URL of the .cast file
-       * @type {string}
-       */
       src: { type: String },
 
-      /**
-       * Name of one of the player's terminal themes
-       * @type {string}
-       */
       theme: { type: String },
 
       /**
-       * Whether to start without being asked
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `autoplay` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `auto-play` — writes `auto-play` into the page.
-       * @type {boolean}
+       * Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       * dash inserted) would listen for `autoplay` while the block picker — which writes the
+       * literal `static definition.props[].name`, `auto-play` — writes `auto-play` into the page.
        */
       autoPlay: { ...boolean, attribute: 'auto-play' },
 
-      /**
-       * Whether to start again at the end
-       * @type {boolean}
-       */
       loop: boolean,
 
-      /**
-       * Playback rate, 1 being the speed it was recorded at
-       * @type {number}
-       */
       speed: { type: Number },
 
       /**
-       * Longest pause to play back, in seconds
-       *
-       * -> Explicit `attribute`, for the same reason as `autoPlay` above: the picker writes the
-       *    dashed `idle-time-limit`, not Lit's default lowercased `idletimelimit`.
-       * @type {number}
+       * Explicit `attribute`, for the same reason as `autoPlay` above: the picker writes the
+       * dashed `idle-time-limit`, not Lit's default lowercased `idletimelimit`.
        */
       idleTimeLimit: { type: Number, attribute: 'idle-time-limit' },
 
-      // Internal Properties
       _error: { state: true }
     }
   }
@@ -165,8 +138,6 @@ export class BlockAsciinemaElement extends LitElement {
   }
 
   /**
-   * What to give the player, out of what the author gave the block.
-   *
    * Only the settings that were actually asked for: an option left out is the player's own default,
    * which is the one that gets maintained. A speed of zero or a negative one would stop the recording
    * dead, and a nonsense number would take the player with it, so that one is bounded.
@@ -186,16 +157,10 @@ export class BlockAsciinemaElement extends LitElement {
   }
 
   /**
-   * Fetch the recording, and say so in the block if it cannot be had.
-   *
-   * The player is given this rather than the address itself, for the sake of what happens when the
-   * address is wrong. Handed a URL it fetches the file on its own, and a fetch that fails leaves an
-   * empty terminal sitting there with the reason in the console — where an author who mistyped a path
-   * will not see it. Fetching it here is the only way to get hold of that failure, which is the
-   * common one: a typo, a file that has moved, or a host that sends no CORS headers.
-   *
-   * The response is handed over whole, which is a source the player takes as it comes; there is
-   * nothing to be gained by reading it here, and it lets the player stream a long recording.
+   * Handed a URL, the player fetches it on its own and a failure leaves an empty terminal with the
+   * reason only in the console — invisible to an author who mistyped a path. Fetching here instead
+   * catches that failure and surfaces it in the block. The response is handed over whole, which the
+   * player accepts as-is and can stream, rather than read here for no benefit.
    */
   async _fetch(src) {
     try {

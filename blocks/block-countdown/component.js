@@ -3,14 +3,10 @@ import { renderError } from '../shared/render.js'
 import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
-/**
- * Block Countdown
- */
 export class BlockCountdownElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Collected at build time into `compiled/blocks.manifest.json` by reading this object literal out
+   * of the source text, not by importing the module -- so every value here must be a plain literal.
    */
   static definition = {
     block: 'countdown',
@@ -31,10 +27,9 @@ export class BlockCountdownElement extends LitElement {
         label: 'Timezone',
         hint: "IANA name, e.g. Europe/Paris or UTC. Each reader's own timezone when left empty.",
         // -> Not 'UTC': the picker never writes an attribute for a field left at its default value
-        //    (see `blockAttributes` in `frontend/src/helpers/blocks.js`), and empty is itself a
-        //    meaningful choice here -- "each reader's own clock" -- not merely the absence of one.
-        //    Defaulting to '' is what makes clearing the field actually reachable from the picker;
-        //    UTC remains available, just as something an author types rather than falls into.
+        //    (`blockAttributes` in `frontend/src/helpers/blocks.js`), so defaulting to '' -- itself
+        //    a meaningful "reader's own clock" choice, not merely an absence -- is what makes
+        //    clearing the field reachable from the picker; UTC remains something an author types.
         default: ''
       },
       {
@@ -153,36 +148,19 @@ export class BlockCountdownElement extends LitElement {
 
   static get properties() {
     return {
-      /**
-       * Target date and time, ISO 8601
-       * @type {string}
-       */
       date: { type: String },
 
-      /**
-       * IANA timezone the target is expressed in. Empty means the reader's own timezone -- see
-       * `_target`'s `zone` resolution below.
-       * @type {string}
-       */
       timezone: { type: String },
 
-      /**
-       * What the countdown is for
-       * @type {string}
-       */
       label: { type: String },
 
       /**
-       * Shown once the target has passed
-       *
        * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
        *    dash inserted) would listen for `expiredmsg` while the block picker — which writes the
        *    literal `static definition.props[].name`, `expired-msg` — writes `expired-msg` into the page.
-       * @type {string}
        */
       expiredMsg: { type: String, attribute: 'expired-msg' },
 
-      // Internal Properties
       _remaining: { state: true },
       _error: { state: true }
     }
@@ -206,8 +184,6 @@ export class BlockCountdownElement extends LitElement {
   }
 
   /**
-   * Resolve the target into a zoned instant.
-   *
    * A date carrying its own offset — `2026-12-25T09:00-05:00`, or a trailing `Z` — is an exact moment
    * and the timezone only decides how it is displayed. Without one it is a wall-clock time, which is
    * what an author writing "the ninth of December at nine" means, and the timezone is what turns it
@@ -222,18 +198,12 @@ export class BlockCountdownElement extends LitElement {
   }
 
   _tick() {
-    // -> Through `Date.now()` rather than `Temporal.Now` directly: a native `Temporal.Now` (Node
-    //    26+) reads the system clock through its own binding, not through the `Date` global, so
-    //    `vi.setSystemTime()` -- which only mocks `Date` -- has no effect on it at all. That made
-    //    every test below 100% reproducibly fail on real Node 26 while passing on this sandbox's
-    //    Node 25.9 (where `Temporal` is the `temporal-polyfill` package) -- an
-    //    environment-specific bug, not a flake (OpenProject #2739). `Date.prototype
-    //    .toTemporalInstant()` (the documented Date-to-Temporal bridge used elsewhere in this
-    //    repo) isn't an
-    //    option here -- `temporal-polyfill` doesn't implement it, only `@js-temporal/polyfill`
-    //    does -- so this goes through `Temporal.Instant.fromEpochMilliseconds`, core spec API
-    //    every implementation provides, fed by the one thing every implementation and `vi
-    //    .setSystemTime()` agree on: `Date.now()`.
+    // -> Through `Date.now()`, not `Temporal.Now`: a native `Temporal.Now` (Node 26+) reads the
+    //    system clock through its own binding, not the `Date` global, so `vi.setSystemTime()`
+    //    (which only mocks `Date`) has no effect on it. `Date.prototype.toTemporalInstant()` isn't
+    //    an option either -- `temporal-polyfill` doesn't implement it, only `@js-temporal/polyfill`
+    //    does -- so this goes through `Temporal.Instant.fromEpochMilliseconds`, fed by `Date.now()`,
+    //    the one thing every implementation and `vi.setSystemTime()` agree on.
     const now = Temporal.Instant.fromEpochMilliseconds(Date.now()).toZonedDateTimeISO(
       this._target.timeZoneId
     )

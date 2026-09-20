@@ -9,19 +9,14 @@ import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /**
- * Block Drawio
- *
  * Draws a draw.io/mxGraph diagram as inline SVG, entirely client-side and read-only — see
  * `mxgraph.js` for the renderer and the reasoning for building one rather than embedding draw.io's
- * own editor or its hosted viewer script. This mirrors `block-diagram`'s Mermaid-at-render approach
- * exactly: the source lives in the block's body, fenced so markdown leaves it alone, and is drawn
- * once, synchronously, when the block first renders.
+ * own editor or its hosted viewer script.
  */
 export class BlockDrawioElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Collected at build time into `compiled/blocks.manifest.json` by reading this object literal out
+   * of the source text, not by importing the module -- so every value here must be a plain literal.
    */
   static definition = {
     block: 'drawio',
@@ -29,11 +24,10 @@ export class BlockDrawioElement extends LitElement {
     description: 'Draws a draw.io/diagrams.net diagram from its XML, read-only.',
     icon: 'tabler:vector',
     /*
-      Fenced for the same reason every diagram block here is: inside a fence the XML arrives exactly
-      as it was typed, rather than having `--` turned into a dash or a `#`-led line read as a heading.
-      The starter diagram is deliberately more than one box: a reader inserting this block should see
-      a shape, a decision, and an edge between them, not wonder whether the block draws anything at
-      all.
+      Fenced so the XML arrives exactly as it was typed, rather than having `--` turned into a dash
+      or a `#`-led line read as a heading. The starter diagram is deliberately more than one box: a
+      reader inserting this block should see a shape, a decision, and an edge between them, not
+      wonder whether the block draws anything at all.
     */
     template: `\`\`\`drawio
 <mxGraphModel>
@@ -97,19 +91,10 @@ export class BlockDrawioElement extends LitElement {
 
   static get properties() {
     return {
-      /**
-       * Text shown under the diagram
-       * @type {string}
-       */
       caption: { type: String },
 
-      /**
-       * Where the drawing sits in the column, `left` or `center`
-       * @type {string}
-       */
       align: { type: String },
 
-      // Internal Properties
       _svg: { state: true },
       _error: { state: true }
     }
@@ -128,9 +113,9 @@ export class BlockDrawioElement extends LitElement {
   }
 
   /**
-   * Read the source out of the block's body and draw it. Async: a compressed `<mxfile>`/`<diagram>`
-   * body decodes through `mxgraph.js`'s `decompressRaw()`, a native `DecompressionStream` and so
-   * stream/async-only, the same reason `shared/diagram-image.js`'s own `_draw` is async.
+   * Async: a compressed `<mxfile>`/`<diagram>` body decodes through `shared/compress.js`'s
+   * `decompressRaw()`, a native `DecompressionStream` and so stream/async-only -- the same reason
+   * `shared/diagram-image.js`'s own `_draw` is async.
    */
   async _draw() {
     const { source, fenced } = readFencedSource(this)

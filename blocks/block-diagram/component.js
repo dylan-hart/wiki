@@ -8,17 +8,13 @@ import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /**
- * A number for the next drawing, so every one of them gets an id of its own.
- *
  * Mermaid names the SVG it produces and writes that name into the CSS it embeds in it, so two
- * diagrams sharing an id would style each other. A counter rather than a random name: the ids are
+ * diagrams sharing an id would style each other. A counter rather than a random name: the ids stay
  * scoped to one page load, and a run of them is easier to recognise in the inspector.
  */
 let drawingCount = 0
 
 /**
- * The drawing in progress, so that only ever one of them is.
- *
  * Mermaid is configured globally — `initialize` sets the library up, not a call to it — so two
  * diagrams on a page asking for different themes would each set theirs and then be drawn in whichever
  * one was set last. Queued, a diagram has the library to itself from the moment it configures it to
@@ -26,9 +22,6 @@ let drawingCount = 0
  */
 let queue = Promise.resolve()
 
-/**
- * Configure mermaid and draw one diagram with it, once whatever is ahead of it is done.
- */
 function drawInTurn(config, id, source) {
   const drawing = queue.then(() => {
     mermaid.initialize(config)
@@ -42,23 +35,18 @@ function drawInTurn(config, id, source) {
   return drawing
 }
 
-/**
- * Block Diagram
- */
 export class BlockDiagramElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Collected at build time into `compiled/blocks.manifest.json` by reading this object literal out
+   * of the source text, not by importing the module -- so every value here must be a plain literal.
    */
   static definition = {
     block: 'diagram',
     /*
       Named after the engine it draws with, matching how block-kroki and block-plantuml name
-      themselves — "Diagram" alone would read as a generic catch-all next to those two specific
-      names, when this block draws exactly one family of diagram syntax, no more "the" diagram
-      block than either of them. The tag stays `block-diagram` (and the fence stays ```mermaid`):
-      only this display name changes.
+      themselves -- "Diagram" alone would read as a generic catch-all next to those specific names,
+      when this block draws exactly one diagram syntax. The tag stays `block-diagram` (and the fence
+      stays ```mermaid`): only this display name changes.
     */
     name: 'Mermaid',
     description: 'Draws a Mermaid diagram — flowchart, sequence, class, state, ER, gantt and more.',
@@ -140,25 +128,12 @@ flowchart LR
 
   static get properties() {
     return {
-      /**
-       * Text shown under the diagram
-       * @type {string}
-       */
       caption: { type: String },
 
-      /**
-       * Mermaid theme, or `auto` to follow the reader's
-       * @type {string}
-       */
       theme: { type: String },
 
-      /**
-       * Where the drawing sits in the column, `left` or `center`
-       * @type {string}
-       */
       align: { type: String },
 
-      // Internal Properties
       _svg: { state: true },
       _error: { state: true }
     }
@@ -186,14 +161,12 @@ flowchart LR
     })
     /** The drawing being waited on, so a stale one cannot land after a newer one. */
     this._drawing = 0
-    /** The source, and whether it came out of a fence. Both read from the body once, on first render. */
+    /** The source and whether it came from a fence — read from the body once, on first render. */
     this._source = ''
     this._fenced = false
   }
 
   /**
-   * The theme to draw in.
-   *
    * `auto` follows the app, which every other block does in CSS off the `dark` attribute the same
    * controller sets — a diagram cannot, because mermaid picks its colours while it draws and writes
    * them into the SVG.
@@ -205,9 +178,6 @@ flowchart LR
     return this._darkMode.isDark ? 'dark' : 'default'
   }
 
-  /**
-   * Draw the source, or say why it could not be drawn.
-   */
   async _draw() {
     const drawing = ++this._drawing
     const config = {

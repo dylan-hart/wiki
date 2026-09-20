@@ -5,36 +5,28 @@ import { DarkMode } from '../shared/theme.js'
 import { getCurrentPageAccess } from '../shared/site.js'
 
 /**
- * Renders an ISO timestamp the way a reader wants to see it. Plain `Date`/`Intl`, not `Temporal`:
- * this is display formatting of an already-resolved instant from the API, not date arithmetic, and
- * `Temporal` is a frontend-boot polyfill (`frontend/src/boot/temporal.js`) this block cannot assume
- * is loaded — a block runs wherever its tag turns up on a page, with no boot sequence of its own.
+ * Plain `Date`/`Intl`, not `Temporal`: this is formatting an already-resolved instant, not date
+ * arithmetic, and `Temporal` is a frontend-boot polyfill (`frontend/src/boot/temporal.js`) a block
+ * cannot assume is loaded — it runs wherever its tag turns up on a page, with no boot of its own.
  */
 function formatInstant(iso) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 /**
- * Block Checklist (OpenProject #869)
+ * A run-log checklist, not a markdown task list — existing `- [ ]` syntax is untouched. Checking an
+ * item off calls the backend, which records who checked it and when in a durable run log gated on
+ * `write:pages`.
  *
- * A run-log checklist, not a markdown task list — existing `- [ ]` syntax is untouched and stays a
- * plain, unattributed rendering concern. Checking an item off here calls the backend
- * (`/_api/sites/:siteId/pages/:pageId/checklist/:runKey/...`), which records who checked it and when
- * in a durable run log, gated on the normal `write:pages` page-rule permission.
- *
- * Items come from the block's own light DOM — a markdown bullet list nested inside `::block-checklist`
- * renders to real `<li>`s before this element ever sees them (MDC parses a block's body as markdown),
- * so `connectedCallback` reads them out the same way `block-gallery` reads its own body. Each item's
- * key is its position (`item-0`, `item-1`, ...): stable across an ordinary re-render, not across the
- * author reordering or adding/removing items mid-run — seeing history split across a content edit
- * that changed the list is an accepted trade for not inventing a separate stable-id syntax authors
- * would have to write by hand. `models/checklists.ts`'s own doc comment says the same.
+ * Items come from the block's own light DOM: MDC parses a block's body as markdown first, so
+ * `connectedCallback` reads the rendered `<li>`s. An item's key is its position (`item-0`, ...) —
+ * stable across a re-render, but not across the author reordering or editing the list mid-run, which
+ * is an accepted trade against inventing a stable-id syntax authors would have to write by hand.
  */
 export class BlockChecklistElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Collected at build time into `compiled/blocks.manifest.json` by reading this object literal out
+   * of the source text, not by importing the module — so every value here must be a plain literal.
    */
   static definition = {
     block: 'checklist',
@@ -206,19 +198,14 @@ export class BlockChecklistElement extends LitElement {
   static get properties() {
     return {
       /**
-       * This checklist's run log identity.
-       *
        * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
        *    dash inserted) would listen for `runkey` while the block picker — which writes the literal
        *    `static definition.props[].name`, `run-key` — writes `run-key` into the page.
-       * @type {string}
        */
       runKey: { type: String, attribute: 'run-key' },
 
-      /** Shown above the checklist. @type {string} */
       heading: { type: String },
 
-      // Internal properties
       _items: { state: true },
       _execution: { state: true },
       _loading: { state: true },
@@ -244,9 +231,7 @@ export class BlockChecklistElement extends LitElement {
     // -> `null` means "not fetched yet", told apart from an empty array (fetched, no runs at all).
     this._history = null
     this._historyLoading = false
-    // -> Resolved by `_load()`, off the same public route the page view itself loads a page
-    //    through -- see `../shared/site.js`'s header. False until then, same fail-closed default a
-    //    missing `WIKI_STATE` used to leave this in.
+    // -> Fail-closed default; resolved for real by `_load()`.
     this._canCheck = false
     this._siteId = null
     this._pageId = null
@@ -284,9 +269,9 @@ export class BlockChecklistElement extends LitElement {
       this._loading = false
       return
     }
-    // -> No siteId/pageId threaded down to this block -- see `../shared/site.js`'s header for the
-    //    convention (`getCurrentPageAccess`) that resolves both, plus this reader's own page-rule
-    //    permissions on this page, off the public route the page view itself loads a page through.
+    // -> No siteId/pageId threaded down to this block; `getCurrentPageAccess()` resolves both plus
+    //    this reader's page-rule permissions, off the same public route the page view itself loads
+    //    a page through.
     const { siteId, pageId, permissions } = await getCurrentPageAccess()
     this._siteId = siteId
     this._pageId = pageId
@@ -313,10 +298,10 @@ export class BlockChecklistElement extends LitElement {
   }
 
   /**
-   * Checks one item, starting a new execution on the server first if none is currently active. A
-   * no-op for an item already checked, one mid-flight, or a reader with no `write:pages` — the
-   * checkbox itself is disabled in every one of those cases, but this guards the handler too, since
-   * a change event can still fire on a checkbox a fast double-click raced past its own re-render.
+   * Starts a new execution on the server first if none is active. A no-op for an item already
+   * checked, one mid-flight, or a reader with no `write:pages` — the checkbox is disabled in every
+   * one of those cases too, but a change event can still fire on one a fast double-click raced past
+   * its own re-render, so the handler guards itself as well.
    */
   async _check(key) {
     if (!this._canCheck || this._checkOf(key) || this._pending.has(key)) {
@@ -344,10 +329,9 @@ export class BlockChecklistElement extends LitElement {
   }
 
   /**
-   * Opens or closes the run history — the per-execution view the spec calls for ("run started at X,
-   * completed by Y, N of M items checked"), one row per past run. Fetched once, lazily, and cached
-   * for the life of this element: a run log an author is reviewing does not change out from under
-   * them mid-read, and re-fetching on every toggle would only cost a round trip for no benefit.
+   * Fetched once, lazily, and cached for the life of this element: a run log an author is reviewing
+   * does not change out from under them mid-read, and re-fetching on every toggle would only cost a
+   * round trip for no benefit.
    */
   async _toggleHistory() {
     this._historyOpen = !this._historyOpen

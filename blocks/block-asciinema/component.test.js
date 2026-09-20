@@ -4,10 +4,8 @@ import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /*
   `create()` from `asciinema-player` builds a real terminal renderer -- canvas 2D context, a
-  ResizeObserver -- neither of which jsdom implements, so it throws outright in this environment
-  (confirmed directly: `2D ctx not available` / `ResizeObserver is not defined`). Mocked here rather
-  than worked around, the same way a heavy third-party renderer is usually kept out of a unit test's
-  own environment gaps.
+  ResizeObserver -- neither of which jsdom implements, so it throws (`2D ctx not available` /
+  `ResizeObserver is not defined`). Mocked here instead.
 */
 const createMock = vi.fn(() => ({ dispose: vi.fn() }))
 vi.mock('asciinema-player', () => ({ create: createMock }))

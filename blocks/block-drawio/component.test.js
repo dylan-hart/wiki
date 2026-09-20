@@ -13,9 +13,8 @@ import { mountBlock, resetBlockDom } from '../test/mount.js'
 /**
  * A diagram with two layers, a group, a swimlane, an `<object>`-wrapped cell, a floating edge and a
  * hidden layer — the shape upstream's bug report (requarks/wiki#6881) was about: a complex,
- * multi-layer diagram losing elements on render. Every visible cell below (11 of them: 9 vertices, 2
- * edges) must show up wrapped in its own `data-cell-id` group; the hidden layer's rectangle (id 30)
- * must not.
+ * multi-layer diagram losing elements on render. The hidden layer's rectangle (id 30) must not show
+ * up among the visible cells.
  */
 const MULTI_LAYER_SOURCE = `<mxGraphModel>
   <root>
@@ -72,9 +71,9 @@ const MULTI_LAYER_SOURCE = `<mxGraphModel>
 </mxGraphModel>`
 
 /**
- * draw.io's own compression, reproduced for the `<mxfile>` fixture below: see `mxgraph.js`'s
- * `decompress`. Built on the same native `compress()` (`shared/compress.js`) the block itself now
- * decodes with (`decompressRaw`), rather than pako.
+ * draw.io's own compression, reproduced for the `<mxfile>` fixture below — see `mxgraph.js`'s
+ * `decompress()`. Built on the same native `compress()` (`shared/compress.js`) the block decodes
+ * with (`decompressRaw`).
  */
 async function compress(xml) {
   const bytes = await deflate(new TextEncoder().encode(encodeURIComponent(xml)), 'deflate-raw')
@@ -311,15 +310,12 @@ describe('mxgraph.js', () => {
   })
 
   /*
-    OpenProject #2143 / #1360 (2026-08-24 security audit): `cylinder` and `swimlane` each draw a
-    second, fill-less stroke and used to interpolate `strokeWidth` into that path/line's
-    `stroke-width="…"` attribute unescaped, unlike the identical value in `paintAttrs()` three lines
-    above it. A style value containing a `"` broke out of the attribute and planted a live event
-    handler on the generated element, which `unsafeSVG()` (`component.js`) then parses as real markup
-    in the block's shadow root — same-origin script execution for any author with `write:pages`, no
-    `write:scripts` required. The fix routes both shapes through the shared, `Number()`-coercing
-    `strokeAttrs()` helper `paintAttrs()` itself now uses, so an attribute-breaking value can never
-    reach the output at all rather than merely being escaped.
+    `cylinder` and `swimlane` each draw a second, fill-less stroke; both route `strokeWidth` through
+    the shared, `Number()`-coercing `strokeAttrs()` helper `paintAttrs()` also uses, so a style value
+    containing a `"` cannot break out of the generated `stroke-width="…"` attribute and plant a live
+    event handler -- which `unsafeSVG()` (`component.js`) would then parse as real markup in the
+    block's shadow root: same-origin script execution for any author with `write:pages`, no
+    `write:scripts` required.
   */
   it('neutralizes an attribute-breaking strokeWidth on cylinder and swimlane, the two shapes that draw a second stroke', async () => {
     const malicious = `1" onmouseover="alert(1)`
@@ -365,12 +361,10 @@ describe('mxgraph.js', () => {
     expect(svg).toContain('AT&amp;T &quot;Special&quot;')
   })
 
-  // -> A quote-breaking `strokeWidth` on a cylinder or swimlane cell used to escape into the
-  //    generated SVG's markup unescaped, unlike every other stroke attribute `paintAttrs()` already
-  //    covers. The style attribute below is XML-entity-encoded exactly as an author would write it in
-  //    the block's `<mxCell style="…">`; the DOM parser decodes it into a raw `"` + `<image onerror>`
-  //    string before `parseStyle()` ever sees it, which is the same shape the audit finding
-  //    reproduced under jsdom.
+  // -> The style attribute below is XML-entity-encoded exactly as an author would write it in the
+  //    block's `<mxCell style="…">`; the DOM parser decodes it into a raw `"` + `<image onerror>`
+  //    string before `parseStyle()` ever sees it -- the shape a real page's markup takes, not just
+  //    the raw string the unit test above already covers.
   it('does not let a quote-breaking strokeWidth inject markup through the cylinder shape', async () => {
     const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
@@ -409,10 +403,6 @@ describe('mxgraph.js', () => {
     expect(svg.match(/stroke-width="3"/g)).toHaveLength(4)
   })
 
-  // -> `Number(props.strokeWidth) || 1` treats a strokeWidth of `0` (a legitimate draw.io value
-  //    meaning "no visible stroke") as falsy and silently overrides it to `1`, drawing a stroke the
-  //    author explicitly asked to suppress. `strokeAttrs()` is shared by `paintAttrs()` (plain shapes)
-  //    and the cylinder/swimlane second stroke, so both paths are covered here (OpenProject #2343).
   it('preserves an explicit strokeWidth of 0 instead of coercing it to 1', async () => {
     const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />

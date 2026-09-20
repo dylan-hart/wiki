@@ -4,10 +4,6 @@ import './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-/**
- * Appends a `<block-dailymotion>` with `url` and any other props set, and waits for Lit's first
- * render.
- */
 const mountPlayer = (url, props = {}) =>
   mountBlock('block-dailymotion', { props: url === undefined ? props : { url, ...props } })
 

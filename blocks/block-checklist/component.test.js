@@ -8,13 +8,12 @@ import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID as SITE_ID } fro
 const PAGE_ID = 'page-1'
 
 /**
- * Appends a `<block-checklist>` carrying `items` as its light-DOM content, one `<li>` per item — the
- * shape MDC leaves behind for a plain markdown bullet list nested inside `::block-checklist` (see the
- * component's own header comment). Waits for the load this block always kicks off on connect.
+ * `items` renders as one `<li>` per item — the shape MDC leaves behind for a markdown bullet list
+ * nested inside `::block-checklist`.
  *
- * `settle: 2`: `_load()`'s fetches are awaited but not blocking connectedCallback itself, and chain
- * several hops deep (site -> page-by-hash -> latest execution). Each macrotask turn drains every
- * microtask queued in between, however many hops there are.
+ * `settle: 2`: `_load()`'s fetches chain several hops deep (site -> page-by-hash -> latest
+ * execution); each macrotask turn drains every microtask queued in between, however many hops there
+ * are.
  */
 const mountChecklist = ({
   runKey = 'shift-open',
@@ -47,11 +46,10 @@ function stubExecution(overrides = {}) {
 }
 
 /**
- * Stubs `fetch` for the whole chain this block now drives instead of `WIKI_STATE`/`API_CLIENT`:
- * site id + page id + this reader's page permissions (`../shared/site.js`'s `getCurrentPageAccess`),
- * then the checklist routes themselves. `latest`/`history`/`postResult` are each read fresh per call,
- * so a test can reassign them after mounting (matching the old suite's `API_CLIENT.get = vi.fn(...)`
- * re-stubbing style) without having to rebuild the whole mock.
+ * Stubs `fetch` for the whole chain: site id + page id + this reader's page permissions
+ * (`../shared/site.js`'s `getCurrentPageAccess`), then the checklist routes themselves.
+ * `latest`/`history`/`postResult` are read fresh off `state` per call, so a test can reassign them
+ * after mounting without rebuilding the whole mock.
  */
 function stubFetch({
   permissions = ['write:pages'],
@@ -85,7 +83,6 @@ function stubFetch({
   return { fetchMock, state }
 }
 
-/** Just the checklist-route calls, in call order -- excludes the site/page lookups underneath. */
 function checklistCalls(fetchMock) {
   return fetchMock.mock.calls.map(([url]) => url).filter((url) => url.includes('/checklist/'))
 }

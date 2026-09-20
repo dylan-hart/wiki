@@ -1,8 +1,6 @@
 import { decompressRaw } from '../shared/compress.js'
 
 /**
- * mxGraph/draw.io XML -> inline SVG.
- *
  * draw.io (diagrams.net) saves diagrams as mxGraph model XML: a flat list of `<mxCell>` elements,
  * each either a vertex (a shape) or an edge (a connector), addressing its parent, and — for an edge —
  * its source and target, by id. There is no official pure-SVG renderer for this format outside the
@@ -11,13 +9,11 @@ import { decompressRaw } from '../shared/compress.js'
  * of which is a large, live dependency for a wiki block whose whole job is "draw this diagram, once,
  * as SVG, for reading".
  *
- * This module is a from-scratch, read-only renderer covering the shape and edge vocabulary that
- * accounts for the overwhelming majority of real diagrams: rectangles, rounded rectangles, ellipses,
- * rhombuses, triangles, hexagons, parallelograms, cylinders, swimlanes, groups, plain text, and edges
- * (straight or via explicit waypoints) with classic arrowheads. It does not attempt the hundreds of
- * named stencils the shape libraries carry (AWS/Azure/GCP icons, UML-specific glyphs, network gear,
- * …) — seeing correct geometry for a shape it does not know how to draw would be strictly worse than
- * the plainer-but-complete fallback below, so don't assume every visual is pixel-exact.
+ * This module is a from-scratch, read-only renderer covering the common shapes and edges below — not
+ * the hundreds of named stencils the shape libraries carry (AWS/Azure/GCP icons, UML-specific glyphs,
+ * network gear, …). Seeing correct geometry for a shape it does not know how to draw would be
+ * strictly worse than the plainer-but-complete fallback below, so don't assume every visual is
+ * pixel-exact.
  *
  * The one rule every path here is written to uphold is the one the upstream bug report
  * (requarks/wiki#6881) was actually about: a complex, multi-layer diagram must not lose elements on
@@ -28,16 +24,11 @@ import { decompressRaw } from '../shared/compress.js'
  * exactly which source cells made it onto the page.
  */
 
-/** mxGraph's default page background, and the frame most diagrams' own colours were chosen to sit on. */
 const DEFAULT_SHAPE = 'rectangle'
 
-/** Space, in diagram units, left around the drawing's own bounding box. */
 const PADDING = 20
 
 /**
- * Turn whatever a `<mxfile>`/`<diagram>`/`<mxGraphModel>` payload the block's body holds into the
- * `<mxGraphModel>` XML string to parse.
- *
  * draw.io writes two shapes of file: a bare `<mxGraphModel>` (what "Extras > Edit Diagram" shows by
  * default), and `<mxfile><diagram name="…">…</diagram></mxfile>` (what saving a `.drawio` file, or
  * ticking "Compressed" in that same dialog, produces) — where a `<diagram>`'s text is either the model
@@ -117,16 +108,15 @@ function parseXml(source) {
  * @property {string|null} source
  * @property {string|null} target
  * @property {boolean} visible
- * @property {{x:number,y:number,width:number,height:number}|null} geometry Absolute for a vertex,
- *   null for one with no geometry at all (a layer, mxGraph's own root cells).
+ * @property {{x:number,y:number,width:number,height:number}|null} geometry As read from the XML,
+ *   relative to its parent unless the parent is a layer or root (see `layout()`); null for a cell
+ *   with no geometry at all (a layer, mxGraph's own root cells).
  * @property {{x:number,y:number}|null} sourcePoint Absolute; an edge's own endpoint when unconnected.
  * @property {{x:number,y:number}|null} targetPoint
  * @property {Array<{x:number,y:number}>} points Explicit waypoints, absolute, in order.
  */
 
 /**
- * Read every cell out of an `<mxGraphModel>` document, keyed by id, in document order.
- *
  * @returns {Map<string, Cell>}
  */
 export function parseCells(modelXml) {
@@ -469,7 +459,7 @@ function colorOr(value, fallback) {
   return value
 }
 
-/** The label as one or more escaped `<tspan>` lines, vertically centred on `cy`. */
+/** The label as one or more escaped `<tspan>` lines, vertically centred within `box`. */
 function labelSvg(label, box, props) {
   if (!label) {
     return ''
@@ -497,13 +487,12 @@ function labelSvg(label, box, props) {
  * `stroke` + `stroke-width`, the one escaping site for both — shared by `paintAttrs()` and by the
  * shapes below (`cylinder`, `swimlane`) that draw a second, fill-less stroke of their own rather than
  * duplicating the color/width handling (and its escaping) at each call site. `strokeWidth` is coerced
- * with `Number()`, the same idiom `startSize` uses just below, rather than interpolated as a string:
- * `style` comes from `parseStyle()` splitting `cell.style` on `;`/`=` with no validation at all, so an
- * unescaped numeric-looking property is exactly as attacker-controlled as any other. The fallback to
- * `1` triggers only on a non-finite result (an absent/malicious `strokeWidth`, e.g. the XSS payload
- * above coercing to `NaN`) via `Number.isFinite`, not on falsy-ness — `Number(props.strokeWidth) || 1`
- * previously also caught the legitimate draw.io value `0` ("no visible stroke"), silently drawing a
- * 1px stroke instead of none (OpenProject #2343).
+ * with `Number()` rather than interpolated as a string: `style` comes from `parseStyle()` splitting
+ * `cell.style` on `;`/`=` with no validation at all, so an unescaped numeric-looking property is
+ * exactly as attacker-controlled as any other. The fallback to `1` triggers only on a non-finite
+ * result (an absent or malicious `strokeWidth` coercing to `NaN`) via `Number.isFinite`, not on
+ * falsy-ness, so an explicit `strokeWidth=0` (a legitimate draw.io value meaning "no visible stroke")
+ * is preserved rather than silently overridden.
  */
 function strokeAttrs(props) {
   const stroke = colorOr(props.strokeColor, '#000000')
@@ -575,7 +564,11 @@ const SHAPES = {
   }
 }
 
-/** A group (`style="group"`, or any container with neither a fill nor a stroke set): frame only. */
+/**
+ * A group (`style="group"`, or any container with neither a fill nor a stroke set): nothing is drawn
+ * for the cell itself -- just its label, if any -- since its children are positioned and rendered
+ * independently.
+ */
 function isInvisibleContainer(shapeKind, props) {
   return shapeKind === 'group' || (props.fillColor === 'none' && props.strokeColor === 'none')
 }
