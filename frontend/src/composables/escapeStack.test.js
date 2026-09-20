@@ -2,12 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { pushEscapeHandler } from './escapeStack'
 
-/**
- * OpenProject #2370: a shared LIFO stack of Escape-consuming popups. See the file's own doc
- * comment for the full reasoning -- these tests cover the stack mechanics directly (push/release,
- * topmost-wins, decline-falls-through), independent of any one component that uses it.
- */
-
 function pressEscape() {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
 }
@@ -20,8 +14,8 @@ describe('escapeStack', () => {
   const releases = []
 
   afterEach(() => {
-    // -> Undo every push a test made, so a leftover handler cannot fire against a later test's
-    //    own Escape dispatch -- the stack is module-level, shared across the whole file.
+    // -> The stack is module-level, so a handler left pushed would fire against a later test's own
+    //    Escape dispatch.
     while (releases.length) {
       releases.pop()()
     }
@@ -70,8 +64,7 @@ describe('escapeStack', () => {
     const releaseInner = push(inner)
 
     releaseInner()
-    // -> Popped by hand, not via the shared `releases` cleanup above -- remove it there too so
-    //    afterEach doesn't try to release it a second time.
+    // -> Released by hand, so drop it from `releases` before afterEach releases it a second time.
     releases.pop()
 
     pressEscape()

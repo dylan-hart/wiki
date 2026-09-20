@@ -1,26 +1,16 @@
 import { useI18n } from 'vue-i18n'
 
 /**
- * Resolves a `common.*` dictionary key to a translated string, falling back to a literal English
- * default when the key does not resolve.
+ * Two situations need a fallback, not just a missing translation: `useI18n()` throws outright when
+ * no vue-i18n plugin has been installed (a shared `W*` component mounted standalone in its own unit
+ * test), and even with one installed the `en` fallback dictionary is eager-loaded fire-and-forget
+ * rather than awaited, so a reader on another locale can briefly have neither. `useI18n()` answers
+ * a missing key with the key itself, so stubbing `t` to do the same when there is no plugin lets
+ * one check -- "did I get back what I asked for?" -- cover both cases.
  *
- * Two situations both need this, not just missing translations: `useI18n()` itself throws when no
- * vue-i18n plugin has been installed at all -- true of most of the shared `W*` library's own unit
- * tests, which mount a component standalone with no app-level plugin -- and even with a plugin
- * installed, `fallbackLocale: 'en'` is configured but its dictionary is only eager-loaded
- * fire-and-forget, not awaited (see `App.vue#applyLocale()`'s own "Eager-load the `en` fallback
- * dictionary" comment): a reader on a non-`en` locale can have neither
- * that locale's nor English's messages for a given key. `useI18n()`'s composition API already answers
- * a missing key with the key itself (with warnings silenced), so a stub `t` that does the same when no
- * plugin exists at all lets one check -- "did I get back what I asked for?" -- cover both cases alike.
- *
- * The prop stays the way a call site overrides either default; this only resolves what a component
- * falls back to when the caller does not pass one.
- *
- * `params` is optional and forwarded to vue-i18n's own `t(key, params)` for a message with named
- * interpolation (`'Digit {n} of {total}'`) -- pass the already-resolved English text as
- * `englishFallback` in that case (`\`Digit ${n} of ${total}\``), not a template, since the fallback
- * path never goes through `t()`'s interpolation at all.
+ * `params` is forwarded to `t(key, params)` for a message with named interpolation. Pass
+ * already-interpolated text as `englishFallback` in that case, not a template: the fallback path
+ * never goes through `t()`'s interpolation.
  */
 export function useDictText() {
   let t

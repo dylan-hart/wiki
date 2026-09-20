@@ -2,34 +2,22 @@ import { useI18n } from 'vue-i18n'
 
 /**
  * Resolves a block's own metadata strings (`description`, and each prop's `label`/`hint`) through
- * i18n, for the two places they render inside otherwise fully-translated editor chrome:
- * `BlockPickerOverlay.vue` and `BlockPropsForm.vue`.
+ * i18n. `backend/scripts/blockLocaleKeys.ts` mints them into `locales/en.json` under
+ * `blocks.<tag>.description` / `blocks.<tag>.props.<name>.label` / `.hint`.
  *
- * The 223 strings a block's `static definition` carries are minted into `locales/en.json` under
- * `blocks.<tag>.description` / `blocks.<tag>.props.<name>.label` / `.hint` by
- * `backend/scripts/blockLocaleKeys.ts` — see that file for the key convention and the CI check that
- * keeps it in step with each block's `component.js`.
- *
- * A key that does not resolve falls back to the raw string carried on the block's own definition,
- * rather than to vue-i18n's own missing-key behaviour (rendering the dotted key path itself, e.g.
- * `blocks.openapi.description`) — `t()` alone cannot tell "this key legitimately isn't translated
- * yet" from "this key does not exist", so `te()` (translation-exists) is checked first. This also
- * covers the same gap `frontend/src/App.vue#applyLocale()`'s "Eager-load the `en` fallback
- * dictionary" comment describes (a fire-and-forget fetch, not awaited): a reader on a non-`en`
- * locale whose session hasn't yet finished loading the `en` dictionary would otherwise see the raw
- * key text instead of the English original.
+ * `te()` (translation-exists) is checked before `t()` because `t()` alone cannot tell "not
+ * translated yet" from "no such key" and renders the dotted key path for both; an unresolved key
+ * falls back to the raw string carried on the block's own definition instead. That also covers a
+ * reader on a non-`en` locale whose `en` fallback dictionary has not finished loading.
  */
 export function useBlockLocale() {
   const { t, te } = useI18n()
 
   /**
-   * @param {string | null | undefined} block A block's tag, e.g. `openapi` (`definition.block` /
-   *   `SiteBlock.block`) — falsy for a custom block or one not yet selected, which has no
-   *   `blocks.<tag>.*` namespace to resolve against.
-   * @param {string} path Dotted path under `blocks.<tag>.`, e.g. `description` or
-   *   `props.url.hint`.
-   * @param {string} fallback The raw string off the definition, used verbatim when the key isn't
-   *   there to translate.
+   * @param {string | null | undefined} block A block's tag, e.g. `openapi` — falsy for a custom
+   *   block or one not yet selected, which has no `blocks.<tag>.*` namespace to resolve against.
+   * @param {string} path Dotted path under `blocks.<tag>.`, e.g. `description` or `props.url.hint`.
+   * @param {string} fallback The raw string off the definition.
    * @returns {string}
    */
   function blockText(block, path, fallback) {
