@@ -338,6 +338,7 @@ router.beforeEach(async (to, from) => {
       lastSaveTimestamp: discardedAt,
       lastChangeTimestamp: discardedAt
     })
+    editorStore.clearPendingAssets()
   }
 
   // -> Asked once: a guest is an answer like any other, so this does not run again on the next page
