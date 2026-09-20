@@ -70,7 +70,7 @@ export function stripPageExtension(urlPath, extensions) {
  * the code returned is always the one as stored in `activeLocaleCodes`, never the request's casing.
  * Mirrors the backend's `stripLocalePrefix` (`helpers/common.ts`).
  */
-export function parseLocalePrefix(path, activeLocaleCodes) {
+export function parseLocalePrefix(path, activeLocaleCodes, aliases) {
   if (!activeLocaleCodes?.length) {
     return null
   }
@@ -79,7 +79,9 @@ export function parseLocalePrefix(path, activeLocaleCodes) {
   if (!firstSegment) {
     return null
   }
-  const match = matchLocaleCode(firstSegment, activeLocaleCodes)
+  const match =
+    matchLocaleAlias(firstSegment, activeLocaleCodes, aliases) ??
+    matchLocaleCode(firstSegment, activeLocaleCodes)
   if (!match) {
     return null
   }
@@ -94,6 +96,31 @@ export function matchLocaleCode(candidate, activeLocaleCodes) {
   return activeLocaleCodes.find((code) => code.toLowerCase() === candidate.toLowerCase()) ?? null
 }
 
+export function matchLocaleAlias(candidate, activeLocaleCodes, aliases) {
+  if (!candidate || !activeLocaleCodes?.length || !aliases) {
+    return null
+  }
+  const lower = candidate.toLowerCase()
+  for (const [code, alias] of Object.entries(aliases)) {
+    if (alias && alias.toLowerCase() === lower) {
+      const active = matchLocaleCode(code, activeLocaleCodes)
+      if (active) {
+        return active
+      }
+    }
+  }
+  return null
+}
+
+export function localeUrlSegment(locale, aliases) {
+  const alias = aliases?.[locale]
+  if (alias) {
+    return alias
+  }
+  const key = Object.keys(aliases ?? {}).find((k) => k.toLowerCase() === locale?.toLowerCase())
+  return (key && aliases[key]) || locale
+}
+
 /**
  * Resolves `pageStore.locale` for a navigation, before the page itself is known.
  *
@@ -104,11 +131,11 @@ export function matchLocaleCode(candidate, activeLocaleCodes) {
  * route has no reader-facing locale, so an absent or unrecognized query value falls back to the
  * site's primary exactly as an unprefixed path does.
  */
-export function resolveRouteLocale(path, query, activeLocaleCodes, primary) {
+export function resolveRouteLocale(path, query, activeLocaleCodes, primary, aliases) {
   if (path.startsWith('/_')) {
     return matchLocaleCode(query?.locale, activeLocaleCodes) ?? primary
   }
-  return parseLocalePrefix(path, activeLocaleCodes)?.locale ?? primary
+  return parseLocalePrefix(path, activeLocaleCodes, aliases)?.locale ?? primary
 }
 
 /**
@@ -134,5 +161,7 @@ export function shouldPrefixLocale(locale, siteLocales) {
  */
 export function localizedPagePath(path, locale, siteLocales) {
   const bare = `/${path}`
-  return shouldPrefixLocale(locale, siteLocales) ? `/${locale}${bare}` : bare
+  return shouldPrefixLocale(locale, siteLocales)
+    ? `/${localeUrlSegment(locale, siteLocales.aliases)}${bare}`
+    : bare
 }

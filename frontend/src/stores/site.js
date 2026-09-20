@@ -244,7 +244,8 @@ export const useSiteStore = defineStore('site', {
       return {
         useLocales: this.useLocales,
         primary: this.locales.primary,
-        forcePrefix: this.locales.forcePrefix
+        forcePrefix: this.locales.forcePrefix,
+        aliases: this.locales.aliases ?? {}
       }
     }
   },
