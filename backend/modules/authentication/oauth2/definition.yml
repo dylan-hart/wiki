@@ -86,7 +86,7 @@ props:
   logoutURL:
     type: String
     title: Logout URL
-    hint: (optional) Where to send a user after logging out, so that the session at the provider ends too.
+    hint: (optional) The provider's end-session endpoint, where a user is sent after logging out so the session at the provider ends too. The wiki appends the post_logout_redirect_uri parameter itself, keeping any query string already here.
     icon: tabler:logout
     order: 12
   emailVerifiedClaim:
