@@ -1,22 +1,13 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 
 /**
- * Footnotes for the WYSIWYG editor -- `Body text[^1].` plus a `[^1]: The note itself.` definition
- * -- mirroring the syntax the backend's `markdown-it-footnote` dependency parses (no fork-owned
- * module to port from here; that package's grammar is the reference).
+ * The syntax mirrors the backend's `markdown-it-footnote`, but a definition stays exactly where it
+ * was typed rather than being collected and renumbered at the end of the page as that renderer
+ * does: the editor round-trips the author's markdown, it does not reproduce the render.
  *
- * Two node types, matching the two distinct things markdown-it-footnote itself distinguishes:
- * `footnoteReference` (inline atom, `[^label]`, wherever the author places it in running text) and
- * `footnoteDefinition` (block, `[^label]: text`, wherever the author places IT -- markdown-it-footnote
- * collects every definition and renders them as a numbered list at the end of the page regardless of
- * source position, but the *editor's* job is round-tripping the author's own markdown, not
- * reproducing that end-of-page renumbering, so a definition stays exactly where it was typed).
- *
- * v1 limitation, deliberate: a definition's body is a single line. `markdown-it-footnote` (and
- * Pandoc before it) also allow a 4-space-indented CONTINUATION paragraph under a definition; this
- * editor does not parse that back into the definition (an indented paragraph is read as separate,
- * ordinary content instead) rather than silently dropping it. Revisit if that shape shows up in a
- * real page.
+ * A definition body is a single line. The 4-space-indented continuation paragraph
+ * `markdown-it-footnote` also allows is read back as separate ordinary content rather than folded
+ * into the definition.
  */
 const REFERENCE = /^\[\^([^\]\s]+)\]/
 const DEFINITION = /^\[\^([^\]\s]+)\]:[ \t]*([^\n]*)(?:\n|$)/
@@ -65,8 +56,8 @@ export const FootnoteReference = Node.create({
     name: 'footnoteRef',
     level: 'inline',
     start(src) {
-      // -> A definition (`[^label]:`) is claimed at the block level before this ever runs, so any
-      //    `[^label]` this inline tokenizer still sees is a genuine reference.
+      // -> A definition (`[^label]:`) is claimed at the block level before this runs, so any
+      //    `[^label]` still visible here is a genuine reference.
       let index = src.indexOf('[^')
       while (index !== -1) {
         if (REFERENCE.test(src.slice(index))) {

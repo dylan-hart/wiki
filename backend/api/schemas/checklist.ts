@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * CHECKLIST ITEM CHECK - one item checked off within an execution, who did it and when.
-   */
   app.addSchema({
     $id: 'ChecklistItemCheck',
     type: 'object',
@@ -19,12 +16,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * CHECKLIST EXECUTION - one run of a checklist, with every item checked off inside it. What the
-   * per-execution view (OpenProject #869's "run started at X, completed by Y, N of M items checked")
-   * is built from: `checkedCount`/`itemCount` give N of M, `completedAt`/`completedByName` give Y,
-   * `startedAt`/`startedByName` give X.
-   */
   app.addSchema({
     $id: 'ChecklistExecution',
     type: 'object',
@@ -55,10 +46,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * CHECKLIST EXECUTION SUMMARY - one row of the run history listing. Same shape as
-   * `ChecklistExecution` minus `items`, which the listing omits so paging through history does not
-   * pull every checked item of every run in one response — a caller wanting those loads one
-   * execution's full detail instead.
+   * `ChecklistExecution` minus `items`, so paging through the run history does not pull every
+   * run's checked items.
    */
   app.addSchema({
     $id: 'ChecklistExecutionSummary',
@@ -80,10 +69,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * CHECKLIST ITEM CHECK INPUT - the body of a check-off request. `itemCount` travels with every
-   * check rather than living only on a separate "start" call, since the block itself is the only
-   * thing that knows how many items its own content currently has — see `models/checklists.ts`'s
-   * `checkItem`.
+   * `itemCount` travels with every check rather than on a separate "start" call: only the block
+   * knows how many items its content currently has.
    */
   app.addSchema({
     $id: 'ChecklistItemCheckInput',

@@ -4,9 +4,8 @@ import { Position, Range } from 'monaco-editor'
  * The markdown editor's insert commands -- everything its toolbar, its keybindings and its overlays
  * put into the document -- as plain functions over the Monaco editor they act on.
  *
- * They were closures inside `EditorMarkdown.vue`, which is the only reason they read `editor` from
- * scope rather than taking it. Taking it makes each one testable on a bare `monaco.editor.create()`
- * with no component around it, and is the whole difference from the versions that lived there.
+ * Taking `editor` as an argument rather than closing over it is what makes each one testable on a
+ * bare `monaco.editor.create()` with no component around it.
  *
  * The commands that are NOT here are the ones that are not about the editor at all: opening the file
  * manager or a picker overlay, asking the API which blocks a site has, raising a notification. Those
@@ -14,11 +13,6 @@ import { Position, Range } from 'monaco-editor'
  */
 
 /**
- * A fenced code block in the chosen language.
- *
- * Wraps the selection when there is one — marking a few lines and picking a language reads as "this is
- * code" — and otherwise opens an empty block with the caret on the line inside it, ready to type.
- *
  * The fence has to start a line of its own, so a cursor sitting mid-sentence breaks out of it first.
  */
 export function insertCodeBlock(editor, language) {
@@ -45,10 +39,8 @@ export function insertCodeBlock(editor, language) {
 }
 
 /**
- * The block the picker built, on its own lines.
- *
  * MDC's block syntax only opens a component when `::` starts a line, so a cursor mid-sentence breaks
- * out of it first — the same rule the table follows.
+ * out of it first.
  */
 export function insertBlockClb(editor, markdown) {
   const position = editor.getPosition()
@@ -59,11 +51,8 @@ export function insertBlockClb(editor, markdown) {
 }
 
 /**
- * The table the overlay built: over the lines it was read from, or at the cursor when it is a new one.
- *
- * A new table is kept on its own line — a table only parses as one when its first row starts a line, so
- * inserting into the middle of a sentence has to break out of it, and the blank line after is what
- * separates it from whatever the cursor was sitting in front of.
+ * A table only parses as one when its first row starts a line, so a new one breaks out of whatever
+ * sentence the cursor sits in, and the blank line after separates it from what followed.
  *
  * An edited one replaces exactly the lines it occupied, so nothing around it moves and one undo takes
  * the whole table back. The cursor lands at the top of it rather than staying wherever it was, which may
@@ -95,8 +84,6 @@ export function insertTableClb(editor, { markdown, replace = null }) {
 }
 
 /**
- * The number to give the next footnote.
- *
  * Markdown numbers footnotes in the order they are referenced, not by their labels, so these are
  * names rather than positions — but an author reading the source expects them to count up, and two
  * notes sharing a name would collapse into one. Anything the author named themselves is left alone
@@ -113,20 +100,15 @@ function nextFootnoteLabel(text) {
 }
 
 /**
- * A footnote: the marker where the cursor is, and the note itself at the foot of the source.
- *
- * Both halves in one `executeEdits` call, because either alone is broken — a marker with no note
+ * Both halves go in one `executeEdits` call, because either alone is broken — a marker with no note
  * renders as literal text, and a note nothing refers to renders as nothing at all — and one call is
  * one undo step, so a single Ctrl+Z removes both rather than leaving the other stranded.
  *
- * The two edit ranges are computed from the same pre-edit snapshot, which collides them into one
- * when the cursor sits exactly at the document's end: that is where `insertFootnote` itself always
- * leaves the cursor afterwards (see below), so it is also where the cursor already is on every
- * repeated click with no typing in between. Two edits at an identical range would otherwise be
- * inserted concatenated with no separation — `[^1][^1]: ` instead of a properly delimited marker and
- * note. Detected explicitly as `cursorAtEnd` and folded into one edit instead of two, so the ranges
- * never collide to begin with. The cursor ends on the note, since writing it is what the author was
- * about to do; the marker is already where they left it.
+ * Both edit ranges come from the same pre-edit snapshot, so they collide when the cursor sits at the
+ * document's end — which is exactly where this leaves it, and therefore where a repeated click with
+ * no typing in between starts. Two edits at an identical range concatenate with no separation
+ * (`[^1][^1]: `), so `cursorAtEnd` folds them into a single edit instead. The cursor ends on the
+ * note, since writing it is what the author was about to do.
  */
 export function insertFootnote(editor) {
   const model = editor.getModel()
@@ -138,9 +120,8 @@ export function insertFootnote(editor) {
 
   const marker = `[^${label}]`
   /*
-    -> On a line of its own at the end, one blank line clear of whatever the page ends with. When the
-       cursor is at that end, the marker itself is what the line will end with once inserted, so the
-       gap is always needed there even if the line was empty beforehand.
+    -> One blank line clear of whatever the page ends with. With the cursor at that end, the marker
+       itself is what the line will end with, so the gap is needed even if the line was empty.
   */
   const lead = cursorAtEnd || lastLineLength > 0 ? `\n\n` : ``
   const note = `${lead}[^${label}]: `
@@ -175,9 +156,6 @@ export function insertFootnote(editor) {
   editor.focus()
 }
 
-/**
- * Set current line as header
- */
 export function setHeaderLine(editor, lvl, focus = true) {
   const curLine = editor.getPosition().lineNumber
   let lineContent = editor.getModel().getLineContent(curLine)
@@ -198,9 +176,6 @@ export function setHeaderLine(editor, lvl, focus = true) {
   }
 }
 
-/**
- * Get the header lever of the current line
- */
 export function getHeaderLevel(editor) {
   const curLine = editor.getPosition().lineNumber
   const lineContent = editor.getModel().getLineContent(curLine)
@@ -212,9 +187,6 @@ export function getHeaderLevel(editor) {
   return lvl
 }
 
-/**
- * Insert content at cursor
- */
 export function insertAtCursor(editor, { content, focus = true }) {
   const cursor = editor.getPosition()
   editor.executeEdits('', [
@@ -229,9 +201,6 @@ export function insertAtCursor(editor, { content, focus = true }) {
   }
 }
 
-/**
- * Insert content after current line
- */
 export function insertAfter(editor, { content, newLine, focus = true }) {
   const curLine = editor.getPosition().lineNumber
   const lineLength = editor.getModel().getLineContent(curLine).length
@@ -302,11 +271,9 @@ export function continueList(editor) {
   const lineContent = editor.getModel().getLineContent(line)
   const detected = detectListMarker(lineContent)
 
-  // -> A regex match doesn't mean the CURSOR is past the marker -- Enter pressed ahead of or
-  //    inside the marker itself (e.g. column 1, before the leading whitespace) isn't
-  //    continuation. Without this guard the split below would duplicate the marker onto the line
-  //    it pushes down, since "text before the cursor" would be empty and "text at/after the
-  //    cursor" would be the whole original marker-and-content line.
+  // -> A regex match doesn't mean the CURSOR is past the marker -- Enter pressed ahead of or inside
+  //    the marker itself isn't continuation. Without this guard the split below would duplicate the
+  //    marker onto the line it pushes down.
   if (!detected || column < detected.markerLength + 1) {
     fallbackToDefaultEnter(editor)
     return
@@ -329,8 +296,6 @@ export function continueList(editor) {
 }
 
 /**
- * Insert content before current line
- *
  * `before` is a line of its own, put above the first of them — the `> [!NOTE]` that opens an
  * admonition. It rides along in that line's own edit rather than as an insertion of its own, so no
  * two edits in the batch start at the same position.
@@ -362,9 +327,6 @@ export function insertBeforeEachLine(editor, { content, before, focus = true }) 
   }
 }
 
-/**
- * Insert an Horizontal Bar
- */
 export function insertHorizontalBar(editor) {
   insertAfter(editor, { content: '---', newLine: true })
 }

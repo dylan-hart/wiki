@@ -36,55 +36,33 @@ import { useI18n } from 'vue-i18n'
 import { useBlockLocale } from '@/composables/blockLocale'
 
 /**
- * The form a block's props make: one field per prop, in the order the block declares them.
- *
- * Shared by the block picker, which fills it in for a block about to be inserted, and the parameters
- * dialog the editor's lens opens over one already in the page. The two ask the same thing of an
- * author and must offer the same controls, so the fields are described once here.
- *
- * A block with nothing to fill in is not a broken form: it is inserted, or left, as it stands. A
- * custom block reports no props at all, since only the compiled manifest carries them.
+ * Shared by the block picker and the parameters dialog the editor's lens opens over a block already
+ * in the page: the two ask an author the same thing, so the fields are described once here. Padding
+ * is the caller's, since this sits in a panel in one and a card in the other.
  *
  * It writes into the `values` object it is given rather than emitting: what a caller wants back is
- * "what is in the form now", and both of them already keep that object as their own state — a
- * `v-model` per field would be the same object, one indirection further away.
- *
- * Padding is the caller's: this sits in a panel in one and a card in the other.
- *
- * Labels and hints resolve through i18n before falling back to the raw string the block definition
- * carries, at the `blocks.<tag>.props.<name>.label` / `.hint` keys minted for the 223 block metadata
- * strings (see `backend/locales/en.json`). `tag` is optional: a caller with no block tag to give —
- * the admin "Configure" form, whose fields are a block's site-wide config schema rather than its
- * author-facing props, and so were never minted under this convention — gets the raw string exactly
- * as before.
+ * "what is in the form now", and both already keep that object as their own state.
  */
-
-// PROPS
 
 const props = defineProps({
   /**
-   * The block's own tag (`SiteBlock.block` / `BlockDefinition.block`, e.g. `openapi`) -- what a
-   * field's `blocks.<tag>.props.<name>.label` / `.hint` key is resolved against. Optional: a caller
-   * with no tag handy (or a custom block with no `blocks.*` namespace minted for it) simply gets
-   * every field's raw `label` / `hint` back unresolved.
+   * What a field's `blocks.<tag>.props.<name>.label` / `.hint` key is resolved against. Optional: a
+   * caller with no tag handy (or a custom block with no `blocks.*` namespace minted for it) simply
+   * gets every field's raw `label` / `hint` back unresolved.
    */
   block: {
     type: String,
     default: ''
   },
-  /** The props the block declares, as the API describes them. */
   fields: {
     type: Array,
     required: true
   },
-  /** Values by prop name, written into as the author types. */
   values: {
     type: Object,
     required: true
   }
 })
-
-// I18N
 
 const { t } = useI18n()
 const { blockText } = useBlockLocale()

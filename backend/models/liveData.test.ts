@@ -14,12 +14,9 @@ function jsonResponse(body: unknown, init: { status?: number; ok?: boolean } = {
 }
 
 /**
- * A minimal `CARDINAL.models.rateLimits`-shaped stand-in for `assertWithinRateLimit`'s durable limiter
- * (OpenProject #1700) — a real Map, deliberately NOT `CARDINAL.cache`, so a test can prove the rate-limit
- * window survives cache churn (clears, evictions) rather than sharing storage with it the way the old
- * LRU-backed counter did. Mirrors `models/rateLimits.ts#consume()`'s fixed-window-plus-ban semantics
- * closely enough for this model's purposes (`models/hooks.test.ts`'s `createFakeRateLimits` is the
- * sibling stub for the webhook path, minus the ban half this one also needs).
+ * Stand-in for `CARDINAL.models.rateLimits`, mirroring `consume()`'s fixed-window-plus-ban
+ * semantics. Backed by a real Map, deliberately NOT `CARDINAL.cache`, so a test can prove the
+ * rate-limit window survives cache churn rather than sharing storage with it.
  */
 function createFakeRateLimits() {
   const store = new Map<string, { windowStart: number; hits: number; bannedUntil: number }>()
@@ -73,10 +70,8 @@ describe('LiveData.resolve', () => {
     getCredentialForResolve = mock.fn(async () => undefined)
     ;(CARDINAL.models.blockCredentials.getCredentialForResolve as any) = getCredentialForResolve
     CARDINAL.config.offline = false
-    // -> Stubbed to a public address by default so the SSRF guard (`assertNotPrivateAddress`) never
-    //    blocks a test that isn't specifically exercising it, and so no test here makes a real DNS
-    //    lookup. Individual tests below override this via `mock.method` again to exercise the guard
-    //    itself.
+    // -> A public address by default, so the SSRF guard never blocks a test that isn't exercising
+    //    it and no test here makes a real DNS lookup. Guard tests re-stub it themselves.
     mock.method(liveData as any, 'resolveAddresses', async () => ['93.184.216.34'])
   })
 
@@ -374,9 +369,8 @@ describe('LiveData.resolve', () => {
 
   test("the pinned dispatcher's connector never falls back to a real lookup, and returns only the pre-validated address (OpenProject #2241)", async () => {
     const lookup = (liveData as any).createPinnedLookup(['93.184.216.34'])
-    // -> Whatever hostname is actually being connected to -- including one that would resolve
-    //    differently by now than it did at the pre-check (DNS rebinding) -- the connector must still
-    //    only ever hand back the address the pre-check already validated, never perform a fresh lookup.
+    // -> The hostname stands in for one that would resolve differently now than it did at the
+    //    pre-check (DNS rebinding): the connector must still hand back the pre-validated address.
     const result = await new Promise((resolve) => {
       lookup(
         'attacker-controlled.example',
@@ -388,7 +382,7 @@ describe('LiveData.resolve', () => {
   })
 
   test("the pinned dispatcher's connector refuses when no pre-validated address matches the requested family", async () => {
-    const lookup = (liveData as any).createPinnedLookup(['93.184.216.34']) // IPv4 only
+    const lookup = (liveData as any).createPinnedLookup(['93.184.216.34'])
     const result = await new Promise((resolve) => {
       lookup('example.com', { family: 6, all: false }, (err: Error | null, address: string) => {
         resolve({ err, address })
@@ -512,8 +506,7 @@ describe('LiveData.resolve rate limiting (OpenProject #1050, #2185)', () => {
     ;(CARDINAL.models.rateLimits as any).clear()
   })
 
-  /** Exhausts a credential's per-window cap, always missing the response cache (a distinct url each
-   *  time), so `count` fresh fetches actually go out. */
+  /** A distinct url each time, so every call misses the response cache and a real fetch goes out. */
   async function exhaust(credentialId: string, count: number) {
     for (let i = 0; i < count; i++) {
       await liveData.resolve('site-1', {
@@ -586,8 +579,8 @@ describe('LiveData.resolve rate limiting (OpenProject #1050, #2185)', () => {
 
   test('an unresolvable credentialId consumes no rate-limit budget (OpenProject #2185)', async () => {
     mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
-    // -> 200 attempts against a credential id that never resolves -- well past the 120/window cap --
-    //    followed by a real, valid credential that must still have its full budget available.
+    // -> Well past the per-window cap, so the same credential must still have its full budget once
+    //    it starts resolving.
     getCredentialForResolve.mock.mockImplementation(async () => undefined)
     for (let i = 0; i < 200; i++) {
       await assert.rejects(
@@ -673,16 +666,10 @@ describe('LiveData.resolve rate limiting (OpenProject #1050, #2185)', () => {
   })
 
   test('filling CARDINAL.cache between calls does not reset the credential window (OpenProject #1700)', async () => {
-    // -> The rate-limit counter used to live in `CARDINAL.cache` alongside the response cache, so ordinary
-    //    cache churn (capacity eviction of the counter's own key) could silently reset a credential's
-    //    window. It now lives in `CARDINAL.models.rateLimits` instead (a real durable store; `createFakeRateLimits`
-    //    stands in for it here) — clearing `CARDINAL.cache` between requests, simulating that churn, must
-    //    have no effect on the counter.
+    // -> The counter lives in `CARDINAL.models.rateLimits`, not `CARDINAL.cache`, so evicting or
+    //    flushing the response cache must not reset a credential's window.
     mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     await exhaust('cred-rate-6', 120)
-    // -> Simulates the response cache (and every other unrelated CARDINAL.cache key) being evicted or
-    //    flushed between requests -- the exact scenario that used to reset this credential's rate-limit
-    //    window when the counter shared that cache.
     ;(CARDINAL.cache as any).clear()
     await assert.rejects(
       liveData.resolve('site-1', {

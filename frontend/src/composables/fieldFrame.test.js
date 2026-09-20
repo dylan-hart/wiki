@@ -3,11 +3,6 @@ import { computed, reactive, ref } from 'vue'
 
 import { fieldProps, useFieldFrame } from './fieldFrame'
 
-/**
- * The composable as a field component wires it: `props` is the component's own props bag, and the
- * four state inputs are whatever that component calls "active", "hovered", "has a value" and "has
- * something in front of the value".
- */
 function setup(props = {}, options = {}) {
   const state = reactive({
     modelValue: '',
@@ -91,12 +86,6 @@ describe('useFieldFrame — frame colour', () => {
 })
 
 describe('useFieldFrame — frame styles', () => {
-  /*
-    Cardinal's frame is ONE pixel in every state -- only the colour moves. The Material treatment
-    this replaces thickened to 2px on focus, which is why the inset ring existed in the first place;
-    the ring is kept anyway, because it is still what keeps a caller's own `border-*` utility and the
-    field's own frame from fighting over the same edge.
-  */
   it('rings every field at one pixel, whatever state it is in', () => {
     expect(setup().controlStyle.value).toEqual({
       boxShadow: 'inset 0 0 0 1px var(--w-input-ring)'
@@ -157,10 +146,9 @@ describe('useFieldFrame — bottom line', () => {
   })
 
   /*
-    A literal `true`, not merely truthy. `WFieldFrame` declares `showsBottom` as `type: Boolean`, and
-    the expression behind it once short-circuited to the hint STRING -- which every assertion here
-    passed while Vue warned on the prop type at every mount that had a hint. Asserting the type is
-    what closes that gap.
+    A literal `true`, not merely truthy: `WFieldFrame` declares `showsBottom` as `type: Boolean`, and
+    the expression behind it can short-circuit to the hint STRING, which a truthy assertion passes
+    while Vue warns on the prop type at every mount.
   */
   it('opens for a hint, and for a field that has rules to fail', () => {
     expect(setup({ hint: 'Helpful' }).showsBottom.value).toBe(true)

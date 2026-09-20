@@ -12,9 +12,8 @@ const PUPPETEER_DEFINITION: ExtensionDefinition = {
 }
 
 /**
- * `blockSettleScript` runs inside a headless browser via `page.evaluate`, so it can only ever touch
- * `document` and `customElements` off `globalThis` — exactly what is stubbed here, standing in for the
- * page's own DOM without needing a real browser.
+ * `blockSettleScript` runs inside a headless browser via `page.evaluate`, so it can only ever reach
+ * `document` and `customElements` off `globalThis` — which is all these stub.
  */
 describe('blockSettleScript', () => {
   let whenDefined: ReturnType<typeof mock.fn>
@@ -89,9 +88,8 @@ describe('blockSettleScript', () => {
 
     await blockSettleScript(10)
 
-    // -> Three rounds: two still settling (`true`), the third stable (`false`) is what stops it —
-    //    well short of the 10-round cap, which is what proves this stops on its own rather than
-    //    always running to the limit
+    // -> Two rounds still settling, the third stable — well short of the 10-round cap, which is
+    //    what shows it stops on its own rather than always running to the limit
     assert.equal(reads, 3)
   })
 
@@ -131,11 +129,8 @@ describe('blockSettleScript', () => {
 })
 
 /**
- * `PdfExport.exportPdf` orchestrates a headless browser end to end. `launchBrowser` is mocked the
- * same way `models/import.ts`'s tests mock `runPandoc` — the one method that actually reaches outside
- * the process — so the business logic (cookie forwarding, the spoofed Host header, the URL navigated
- * to, the settle wait, closing the browser whether or not the export succeeded) is verified without a
- * real Puppeteer install.
+ * `launchBrowser` is the only thing mocked — it is the one method that reaches outside the process,
+ * so everything around it is verified without a real Puppeteer install.
  */
 describe('PdfExport.exportPdf', () => {
   let isInstalled: ReturnType<typeof mock.fn>
@@ -267,12 +262,10 @@ describe('PdfExport.exportPdf', () => {
         path: 'home'
       })
       /*
-        `exportPdf` reaches the guarded `setTimeout` only after several of its own awaits
-        (`ensureCanExport`, `launchBrowser`, `newPage`, `goto`) run first, and mock timers only
-        intercept a `setTimeout` call made once they are already enabled — not one already pending.
-        Interleaving a microtask yield with a clock advance, repeated a few times, lets that chain
-        actually reach the real call before advancing past it; ticking before it exists is a no-op,
-        and ticking well past 15s once it does is what fires it.
+        Mock timers intercept only a `setTimeout` made once they are enabled, never one already
+        pending, and `exportPdf` reaches its guarded one after several awaits of its own.
+        Interleaving a microtask yield with a clock advance lets that chain reach the real call
+        before advancing past it; ticking before it exists is a no-op.
       */
       for (let i = 0; i < 10; i++) {
         await Promise.resolve()
@@ -283,7 +276,6 @@ describe('PdfExport.exportPdf', () => {
         assert.equal(err.statusCode, 504)
         return true
       })
-      // -> The browser is still discarded, the same way a hung render is dropped rather than reused
       assert.equal(calls.closed, true)
     } finally {
       launchBrowser.mock.restore()

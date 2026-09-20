@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test'
 
-// -> The e2e workspace has no `pg`/`drizzle-orm` of its own (it is a plain Playwright workspace --
-//    see `e2e/package.json`); `runSeed*TestLocale()` each build and close their own connection, and
-//    everything IT imports resolves against `backend/`'s own `node_modules` because Node resolves
-//    bare specifiers relative to the importing file's location, not this file's.
+// -> Importing a `backend/` script works despite this workspace having no `pg`/`drizzle-orm`: Node
+//    resolves bare specifiers relative to the importing file, so they land in `backend/node_modules`.
 import {
   LTR_TEST_LOCALE,
   RTL_TEST_LOCALE,
@@ -13,51 +11,31 @@ import {
 import { createAndPublishPage, loginAsAdmin, uniqueSlug } from '../helpers/admin.js'
 
 /**
- * Feature 413 ("RTL support end-to-end"), task 727, and WP #1662 (content-vs-interface locale
- * split): seed both synthetic test locales directly into the same database the backend under test
- * boots against. `ar`/`es` are both real, vendored Localazy locales the backend's own boot-time
- * `refreshFromDisk()` resyncs -- this seed's own write is safe against that regardless of ordering
- * (OpenProject #2371: `refreshFromDisk()`'s `onConflictDoUpdate` only overwrites a row whose CURRENT
- * `updatedAt` is still older than the vendored file's mtime, re-checked atomically at write time --
- * see the seed script's header comment and `models/locales.ts#refreshFromDisk`'s own), which is what
- * makes seeding this once, ahead of every test in this file, safe rather than a race against boot.
+ * `ar`/`es` are real vendored Localazy locales the backend resyncs at boot, but seeding them once
+ * here is not a race against that: `refreshFromDisk()`'s `onConflictDoUpdate` only overwrites a row
+ * whose current `updatedAt` is still older than the vendored file's mtime.
  */
 test.beforeAll(async () => {
   await Promise.all([runSeedRtlTestLocale(), runSeedLtrTestLocale()])
 })
 
 /**
- * Activates one or more test locales for the default site through the real admin screen
- * (`AdminLocale.vue`), per the original task's own instruction -- not a direct API/DB write. Shared
- * by every test in this file that needs an active non-primary locale before it can create or view a
- * locale-prefixed page; assumes the caller has already called `loginAsAdmin(page)`.
+ * Goes through the real admin screen (`AdminLocale.vue`) rather than a direct API/DB write.
+ * Assumes `loginAsAdmin(page)` has already run.
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ name: string }[]} testLocales
- * @returns {Promise<string>} the default site's id, resolved along the way -- handed back so a
- *   caller that needs to navigate to another `/_admin/:siteId/...` page afterward (OpenProject
- *   #1601's required-field gutter check does) doesn't have to re-derive it from `/_admin/sites`.
+ * @returns {Promise<string>} the default site's id, so a caller needing another
+ *   `/_admin/:siteId/...` page afterwards doesn't re-derive it from `/_admin/sites`
  */
 async function activateTestLocales(page, testLocales) {
-  // -> `models/locales.ts#getLocales()` answers from `WIKI.cache`, populated once at boot
-  //    (`index.ts#postBoot`, via `refreshFromDisk()` then `reloadCache()`) and never invalidated on
-  //    its own -- a locale inserted straight into the table (as `beforeAll` above just did) is
-  //    invisible to `GET /_api/locales`, and so to `AdminLocale.vue`, until something busts that
-  //    cache. `POST /_api/system/cache/flush` is the real, existing mechanism for exactly this
-  //    (`AdminUtilities.vue`'s "Flush Caches" button, `core/maintenance.ts#flushCaches`) -- not a
-  //    test-only workaround, and the same step a real administrator would take after loading a
-  //    locale outside the normal boot-time `refreshFromDisk()` path.
-  // -> Must go through `page.evaluate()`, not `page.request.post()` (OpenProject #2569 follow-up):
-  //    this route sits behind `core/http/authHooks.ts`'s same-origin gate (task 2118 / WP 2105 §3),
-  //    which fails closed on a missing/foreign `Origin` and no `Sec-Fetch-Site: same-origin` --
-  //    exactly what Playwright's `page.request` API sends, since it is a bare HTTP client sharing
-  //    the browser context's cookies but not its browsing-context origin headers. The call silently
-  //    403'd every run (its result was never checked), leaving the boot-time cache permanently
-  //    stale for the rest of the suite: every toggle this test waits for by a
-  //    `(RTL Test)`/`(LTR Test)`-suffixed name timed out, because `AdminLocale.vue` kept rendering
-  //    the pre-seed, real Localazy names instead. A real in-page `fetch()` carries a genuine
-  //    same-origin `Origin`/`Sec-Fetch-Site` pair, exactly like `AdminUtilities.vue`'s own button
-  //    click would.
+  // -> `models/locales.ts#getLocales()` answers from a cache filled once at boot and never
+  //    invalidated on its own, so a locale inserted straight into the table (as `beforeAll` did) is
+  //    invisible to `GET /_api/locales`, and so to `AdminLocale.vue`, until the cache is flushed.
+  // -> `page.evaluate()`, not `page.request.post()`: this route sits behind
+  //    `core/http/authHooks.ts`'s same-origin gate, which fails closed on the missing
+  //    `Origin`/`Sec-Fetch-Site: same-origin` pair Playwright's bare HTTP client sends. Only a real
+  //    in-page `fetch()` carries them.
   const flushed = await page.evaluate(async () => {
     const res = await fetch('/_api/system/cache/flush', { method: 'POST' })
     return res.ok
@@ -74,14 +52,10 @@ async function activateTestLocales(page, testLocales) {
   const siteId = new URL(page.url()).pathname.match(/\/_admin\/([^/]+)\/general/)[1]
 
   await page.goto(`/_admin/${siteId}/locale`)
-  // -> `AdminLocale.vue#load()` re-fires on its own `watch(() => adminStore.currentSiteId, ...)`
-  //    shortly after `AdminLayout.vue`'s mount resolves that id from the URL -- on a slow run that
-  //    refetch can still be in flight when the toggle below is clicked, and its response (the
-  //    server's still-unchanged, `en`-only list) overwrites `state.active` right back out from
-  //    under the click, and a bare `waitForLoadState('networkidle')` is not late enough to rule
-  //    that out. An explicit, single `load()` this test itself triggers (via the "Refresh" button)
-  //    and then waits out (`aria-busy` clearing is `state.loading` reaching zero) is a fetch this
-  //    test knows has already landed before it touches the toggle, which the implicit one is not.
+  // -> `AdminLocale.vue#load()` re-fires on its own `currentSiteId` watcher, and that refetch can
+  //    still be in flight when the toggle below is clicked -- its stale response then overwrites
+  //    `state.active` back out from under the click, and `networkidle` is not late enough to rule
+  //    that out. Firing one refresh here and waiting `aria-busy` out is a fetch known to have landed.
   const refreshButton = page.getByRole('button', { name: 'Refresh', exact: true })
   await refreshButton.click()
   await expect(refreshButton).not.toHaveAttribute('aria-busy', 'true')
@@ -89,10 +63,8 @@ async function activateTestLocales(page, testLocales) {
   for (const testLocale of testLocales) {
     const toggle = page.getByRole('switch', { name: testLocale.name })
     await toggle.waitFor()
-    // -> Idempotent rather than an unconditional click: this suite's own database is not
-    //    guaranteed empty of a previous run's activation (`test/db.ts`'s "fresh schema per run"
-    //    convention is a `backend/` unit-test fixture, not something this e2e database gets for
-    //    free), so the toggle may already be on.
+    // -> Idempotent rather than an unconditional click: this suite's database is not guaranteed
+    //    empty of a previous run's activation, so the toggle may already be on.
     if ((await toggle.getAttribute('aria-checked')) !== 'true') {
       await toggle.click()
     }
@@ -105,29 +77,14 @@ async function activateTestLocales(page, testLocales) {
 }
 
 /**
- * Switches the READER'S interface language via `AdminLayout.vue`'s own switcher -- the only place
- * `commonStore.locale` is ever set. `LocaleSelectorMenu.vue`'s reading-view switcher (used below,
- * and by `activateTestLocales`'s own caller) deliberately does NOT touch it: its own header comment
- * calls that "a separate concern this menu does not touch" -- it navigates the CONTENT locale
- * instead (OpenProject #2596).
+ * `AdminLayout.vue`'s switcher is the only place `commonStore.locale` is set; the reading view's
+ * `LocaleSelectorMenu.vue` navigates the CONTENT locale and deliberately leaves it alone. Two
+ * things follow the INTERFACE locale specifically: a `/_`-prefixed route has no locale segment to
+ * resolve `dir`/`lang` from and falls back to it (`App.vue#applyDocumentLocale`), and every chrome
+ * string rendered through `t()` is keyed off it.
  *
- * Two things depend on the INTERFACE locale specifically, and neither is covered by #2596's
- * URL-based `dir`/`lang` resolution: a `/_`-prefixed route (the admin area, the markdown/wysiwyg
- * editors) has no locale segment of its own to resolve `dir`/`lang` from and falls back to
- * `commonStore.locale` (`App.vue#applyDocumentLocale`); and every chrome string rendered through
- * `t()` -- the reading view's own sidebar "Browse" button among them -- is keyed off
- * `i18n.locale.value`, which only an interface-locale change ever moves. Without this, the checks
- * below that reach a `/_` route or read translated chrome would still be running under the
- * untouched English interface locale.
- *
- * Selects by the raw, un-re-derived `nativeName` this menu shows (`adminStore.locales`, straight
- * off `GET /_api/locales`) rather than the reading view's generic CLDR spelling -- the one place
- * this file checks that the seed's own custom name ("العربية (اختبار)") actually reaches the
- * screen, per `activateTestLocales`'s own header comment above.
- *
- * `/_admin/dashboard` (not a `:siteid`-scoped admin page): the switcher lives in `AdminLayout.vue`'s
- * header, common to every admin route regardless of which site it addresses, so this needs no
- * `siteId` of its own.
+ * Matches the raw `nativeName` off `GET /_api/locales` -- the seed's own custom name, which this
+ * switcher shows and the reading view's CLDR-derived spelling does not.
  */
 async function switchInterfaceLocale(page, testLocale) {
   await page.goto('/_admin/dashboard')
@@ -145,47 +102,33 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
     await activateTestLocales(page, [RTL_TEST_LOCALE])
     await switchInterfaceLocale(page, RTL_TEST_LOCALE)
 
-    // -> Not `/`: a brand new site has no home page yet, and `Index.vue`'s route watcher sends an
-    //    unauthenticated visitor straight to `/login` in that case -- irrelevant here since this
-    //    session is authenticated, but the same fresh site shows `WelcomeOverlay.vue`'s full-screen
-    //    prompt over the header on `/` regardless of auth state, which would sit in front of the
-    //    sidebar controls this test needs to click. Any other path renders the ordinary "page not
-    //    found" placeholder inside the normal shell instead (see `auth.spec.js`).
+    // -> Not `/`: a fresh site's root shows `WelcomeOverlay.vue`'s full-screen prompt in front of
+    //    the sidebar controls this test clicks. Any other path renders the ordinary "page not
+    //    found" placeholder inside the normal shell instead.
     await page.goto('/e2e-rtl-check')
 
-    // -> Switch the READER's own display locale to the RTL test locale, via the real switcher
-    //    (`LocaleSelectorMenu.vue`, fed from `siteStore.locales.active` -- which is empty until the
-    //    activation above lands). This is what actually flips `dir`/`lang`
-    //    (`App.vue#applyLocale`), not the activation alone.
+    // -> The reader's own switcher (`LocaleSelectorMenu.vue`) is what flips `dir`/`lang`
+    //    (`App.vue#applyLocale`); the activation above alone does not.
     //
-    //    Not `RTL_TEST_LOCALE.nativeName`: this reader-facing menu does not read the `locales`
-    //    table's own `name`/`nativeName` columns at all -- `stores/site.js#describeLocales()`
-    //    deliberately re-derives both from `Intl.DisplayNames` off the bare code instead (see its own
-    //    header comment), so it shows the generic CLDR spelling ("العربية") rather than this seed's
-    //    custom one ("العربية (اختبار)"). The admin's OWN language-switcher (`AdminLayout.vue`,
-    //    already used above via `switchInterfaceLocale`) reads the raw API response and does show
-    //    the custom name.
+    //    Not `RTL_TEST_LOCALE.nativeName`: `stores/site.js#describeLocales()` re-derives the name
+    //    from `Intl.DisplayNames` off the bare code rather than reading the `locales` table, so this
+    //    menu shows the generic CLDR spelling, not the seed's custom one.
     await page.getByRole('button', { name: 'Switch Locale' }).click()
     await page.getByText('العربية', { exact: true }).click()
 
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
     await expect(page.locator('html')).toHaveAttribute('lang', RTL_TEST_LOCALE.code)
 
-    // -> Translated chrome text actually renders, not just the attribute flip -- the reading view's
-    //    "Browse" sidebar action, in Arabic. By accessible name (its `aria-label`), not visible text:
-    //    on a pageless path like this one the sidebar renders in its icon-only "mini" mode
-    //    (`MainLayout.vue`'s `isSidebarMini`), where the label is an `aria-label`/tooltip rather than
-    //    on-screen text.
+    // -> By accessible name, not visible text: on a pageless path the sidebar renders in its
+    //    icon-only "mini" mode, where the label is an `aria-label`/tooltip rather than on-screen
+    //    text.
     await expect(
       page.getByRole('button', { name: RTL_TEST_LOCALE.strings['common.sidebar.browse'] })
     ).toBeVisible()
 
-    // -> Markdown editor: dir survives navigating into it, and its toolbar (mirrored by task 721)
-    //    mounts under it. The toolbar's own buttons carry no visible text or static `aria-label` --
+    // -> The markdown toolbar's buttons carry no visible text or static `aria-label`:
     //    `t('editor.markup.bold')` renders only into a `<w-tooltip labels>`, which associates via
-    //    `aria-labelledby` while shown (`WTooltip.vue`'s `labels` prop, WP #1588) -- so a hover is
-    //    still what puts the name on the button, but the check itself is now by accessible name
-    //    (`getByRole`), not a raw text scrape.
+    //    `aria-labelledby` while shown, so the hover is what puts an accessible name on the button.
     await page.goto(`/_create/markdown?path=e2e-rtl-md-${uniqueSlug()}`)
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
     await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
@@ -195,86 +138,57 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
       page.getByRole('button', { name: RTL_TEST_LOCALE.strings['editor.markup.bold'] })
     ).toBeVisible()
 
-    // -> WYSIWYG editor: NOT checked beyond `dir` surviving the navigation, matching the depth of the
-    //    markdown/code editor checks above rather than any remaining gap -- `pages/Index.vue`'s
-    //    `editorComponents` map registers `wysiwyg` (`EditorWysiwyg.vue`) same as every other editor
-    //    mode, so there is nothing editor-specific left to special-case here.
+    // -> `dir` only: `wysiwyg` registers through the same `editorComponents` map as every other
+    //    mode, so there is nothing editor-specific left to check here.
     await page.goto(`/_create/wysiwyg?path=e2e-rtl-wys-${uniqueSlug()}`)
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
 
-    // -> Admin area: this fork's decision (given no 2.5.x source was available in this sandbox to
-    //    confirm against) is that the admin chrome mirrors along with the rest of the app rather
-    //    than staying forced LTR -- it is, after all, the same single-locale SPA document, and the
-    //    admin header carries its own locale switcher (`AdminLayout.vue`) that lets an operator
-    //    pick this very locale directly from within it.
+    // -> The admin chrome mirrors with the rest of the app rather than staying forced LTR: it is
+    //    the same single-locale SPA document, and its header carries a switcher an operator can
+    //    pick this very locale from.
     await page.goto('/_admin/dashboard')
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
     await expect(page.getByText(RTL_TEST_LOCALE.strings['admin.adminArea'])).toBeVisible()
   })
 
   /**
-   * OpenProject #1601's "Done when" bullet: a rendered check on one converted required-field
-   * form, proving the asterisk gutter actually follows reading direction rather than merely
-   * asserting against source text (the way `frontend/src/logicalSpacing.test.js` does for every
-   * other declaration this epic converted). `WFieldFrame.vue`'s required-field asterisk
-   * (`<span class="text-negative pe-1" aria-hidden="true">`, beside the glossary "Term" field's
-   * top-of-field label -- Cardinal's re-skin dropped the Material floating label entirely, see that
-   * component's own header comment) is the one live example of `padding-inline-end` in the shared
-   * field chrome every `w-input`/`w-select` in the app renders through.
-   *
-   * `padding-inline-end` resolves against the DOCUMENT's own `dir` at render time, not anything
-   * this test controls directly -- under `dir="rtl"` it computes as a physical `padding-left`, not
-   * `padding-right`. That is exactly the distinction a hand-written physical gutter (`pe-1` swapped
-   * back for a hard-coded `pr-1`, say) would get wrong: it would keep computing as `padding-right`
-   * regardless of `dir`, which is what this assertion would catch -- a real regression in the
-   * shared field chrome, not just a source-text scan, would fail this test and pass
-   * `logicalSpacing.test.js` (that scan's DECLARATION_PATTERN matches raw `padding-right:`
-   * declarations and Tailwind `pr-*` utilities, not a component's own logical Tailwind class
-   * resolving the "wrong" way at render time).
+   * A rendered check rather than a source scan: `padding-inline-end` resolves against the
+   * document's own `dir` at render time, computing as a physical `padding-left` under `dir="rtl"`.
+   * A hard-coded `pr-1` in its place would keep computing as `padding-right` and still pass
+   * `frontend/src/logicalSpacing.test.js`, whose patterns only match raw `padding-right:`
+   * declarations and `pr-*` utilities in source. `WFieldFrame.vue`'s required-field asterisk is the
+   * live example of the property in the field chrome every `w-input`/`w-select` renders through.
    */
   test("a required field's label asterisk gutter follows the document direction, not a fixed side", async ({
     page
   }) => {
     await loginAsAdmin(page)
     const siteId = await activateTestLocales(page, [RTL_TEST_LOCALE])
-    // -> The glossary dialog lives under `/_admin/<siteId>/glossary`, a `/_`-prefixed route with no
-    //    locale segment of its own -- its `dir` falls back to the INTERFACE locale
-    //    (`App.vue#applyDocumentLocale`), not to whatever the reading-view switch below does. See
-    //    `switchInterfaceLocale`'s own header comment.
+    // -> `/_admin/...` has no locale segment of its own, so its `dir` falls back to the INTERFACE
+    //    locale (`App.vue#applyDocumentLocale`), not to the reading-view switch below.
     await switchInterfaceLocale(page, RTL_TEST_LOCALE)
 
-    // -> Same reader-facing switch as the test above -- exercises the content-locale navigation
-    //    path (OpenProject #2596) on top of the interface-locale switch just above; `dir` is
-    //    already `rtl` either way once the interface locale is active.
+    // -> Redundant for `dir` (already `rtl` from the interface locale above) -- here to exercise
+    //    the content-locale navigation path as well.
     await page.goto('/e2e-rtl-required-field-check')
     await page.getByRole('button', { name: 'Switch Locale' }).click()
     await page.getByText('العربية', { exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
 
-    // -> The glossary's "New Term" dialog: an outlined `w-input` with `required` set
-    //    (`GlossaryTermDialog.vue`), the same field chrome every other required `w-input`/
-    //    `w-select` in the app shares via `WFieldFrame.vue`. `admin.glossary.*` isn't among the
-    //    curated keys `backend/scripts/seed-rtl-test-locale.ts` seeds for `ar` (see its own header
-    //    comment), so both the button and the field label render their English fallback text
-    //    (`fallbackLocale: 'en'`, `boot/i18n.js`) regardless of the active interface locale --
-    //    asserting on that fallback text is deliberate, not an oversight.
+    // -> `admin.glossary.*` is not among the keys `backend/scripts/seed-rtl-test-locale.ts` seeds
+    //    for `ar`, so the button and field label render their English fallback (`fallbackLocale:
+    //    'en'`) whatever the interface locale -- matching on that fallback text is deliberate.
     await page.goto(`/_admin/${siteId}/glossary`)
     await page.getByRole('button', { name: 'New Term', exact: true }).click()
 
-    // -> `getByLabel({ exact: true })` matches the label's raw TEXT CONTENT, which is NOT the same
-    //    thing as its accessible name -- `aria-hidden` removes an element from the accessibility
-    //    tree, not from `textContent`. `WFieldFrame.vue`'s asterisk span is real text ("Term" +
-    //    nbsp + "*"), so an exact-text match against bare "Term" never matched, on any browser,
-    //    from the day this test was written -- confirmed by actually running it against a real
-    //    stack (OpenProject #2733/#2739's investigation), which its own prior fix never did.
-    //    `getByRole('textbox', { name, exact: true })` uses real accessible-name computation,
-    //    which DOES exclude `aria-hidden` content, matching the "Term" the reader actually hears.
+    // -> `getByRole('textbox', { name })`, not `getByLabel`: the latter matches the label's raw
+    //    text content, which includes `WFieldFrame.vue`'s `aria-hidden` asterisk ("Term" + nbsp +
+    //    "*"), so an exact match on "Term" never lands. `aria-hidden` removes an element from the
+    //    accessibility tree but not from `textContent`; accessible-name computation excludes it.
     const termField = page
       .locator('.w-input')
       .filter({ has: page.getByRole('textbox', { name: 'Term', exact: true }) })
-    // -> The one asterisk `WFieldFrame.vue` renders for a required field, beside the label text --
-    //    `aria-hidden` (the label's own text already says "Term"; the glyph is decorative), which
-    //    does not affect Playwright's visibility check.
+    // -> `aria-hidden` on this decorative glyph does not affect Playwright's visibility check.
     const asterisk = termField.locator('label .text-negative')
     await expect(asterisk).toBeVisible()
 
@@ -294,17 +208,9 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
 })
 
 /**
- * WP #1662, part of epic #1655 ("Resolve <html lang>/dir from the page's content locale, not the
- * interface locale"): `App.vue#applyLocale` used to derive both `<html lang>` and `dir` from
- * `commonStore.locale` -- the reader's INTERFACE language -- even though the server's own app-shell
- * stamp (`backend/helpers/appShell.ts`) already gets both right from the page's own CONTENT locale.
- * The fix (`applyContentLocale`, driven by `pageStore.locale`) is what these two cases exist to
- * fail without and pass with.
- *
- * Neither case here ever touches `LocaleSelectorMenu.vue` (the reader's own interface-locale
- * switcher) -- the whole point is that the interface locale is left at its untouched default (`en`,
- * per `stores/common.js`'s `commonStore.locale` fallback) while the PAGE being viewed carries a
- * different locale of its own, addressed directly by its locale-prefixed URL.
+ * Neither case touches a locale switcher: the interface locale stays at its untouched `en` default
+ * while the page being viewed carries a locale of its own, addressed by its locale-prefixed URL.
+ * `<html lang>`/`dir` must follow the page, not the reader.
  */
 test.describe("<html lang>/dir follow the page's own content locale, not the interface locale", () => {
   test('an RTL-locale page keeps dir="rtl" after hydration while the interface locale stays English', async ({
@@ -321,13 +227,10 @@ test.describe("<html lang>/dir follow the page's own content locale, not the int
       locale: RTL_TEST_LOCALE.code
     })
 
-    // -> `createAndPublishPage` already leaves `page` on the page's own real, locale-prefixed URL
-    //    (`/ar/<path>`) -- this is the buggy behaviour's own failure mode: the server's initial HTML
-    //    response gets `dir="rtl"` right (`resolveAppShellLocale` in `backend/helpers/appShell.ts`),
-    //    and the pre-fix `App.vue#applyLocale` then overwrites it back to `dir="ltr"` within a tick
-    //    of the SPA booting, because it reads the still-English interface locale instead of this
-    //    page's own `ar`. `toHaveAttribute` retries until it settles, so this asserts the FINAL,
-    //    post-hydration state, not merely the server's first response.
+    // -> `createAndPublishPage` leaves the browser on the page's own locale-prefixed URL. The
+    //    server's initial HTML stamps `dir` correctly on its own (`backend/helpers/appShell.ts`),
+    //    so the failure mode here is the SPA overwriting it a tick after boot -- `toHaveAttribute`
+    //    retries, making this an assertion on the settled post-hydration state.
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
   })
 
@@ -345,12 +248,9 @@ test.describe("<html lang>/dir follow the page's own content locale, not the int
       locale: LTR_TEST_LOCALE.code
     })
 
-    // -> `LTR_TEST_LOCALE.isRTL` is false, so `dir` alone can't tell the buggy behaviour from the
-    //    fixed one here (both the English interface and this page's own `es` resolve to `ltr`) --
-    //    that is the point of this second case, per WP #1655's own framing: the `lang` half is wrong
-    //    on ANY translated page regardless of direction, not only an RTL one. Pre-fix,
-    //    `App.vue#applyLocale` sets `lang` from `commonStore.locale` ("en"); fixed, it comes from
-    //    this page's own `pageStore.locale` ("es").
+    // -> `dir` proves nothing here -- both the English interface and this page's `es` resolve to
+    //    `ltr`. `lang` is what this second case is for: it is wrong on any translated page, not
+    //    only an RTL one.
     await expect(page.locator('html')).toHaveAttribute('lang', LTR_TEST_LOCALE.code)
   })
 })

@@ -1,15 +1,7 @@
 /**
- * Structural check that the Postgres major version used across every place that spins up a real
- * Postgres for this repo's tests stays in step (work package #1980, following up on #976 — which
- * bumped the four workflow/devcontainer service definitions from `postgres:17` to `postgres:18` but
- * left `e2e/playwright.config.js`'s own hint text quoting the old version, since that text isn't a
- * service definition itself and so wasn't touched by the same grep-and-replace).
- *
- * Not "does Postgres actually boot" — that's what the DB-backed suites gated on `DATABASE_URL`
- * already prove. This only asserts the four service definitions (`quality.yml`, `build.yml`,
- * `e2e.yml`, `.devcontainer/docker-compose.yml`) and the version `e2e/playwright.config.js` tells a
- * developer to run locally all name the same major version, so a future bump to one doesn't quietly
- * leave the others — or the doc text — behind.
+ * `e2e/playwright.config.js`'s hint is prose rather than a service definition, so it escapes any
+ * grep-and-replace over image tags — which is why it is checked against the real definitions rather
+ * than trusted to move with them.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -19,14 +11,12 @@ import { load } from 'js-yaml'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 
-/** Pulls the Postgres major version out of the first `postgres:<major>` image tag found. */
 function postgresMajor(text: string): string {
   const match = text.match(/postgres:(\d+)/)
   assert.ok(match, `expected a "postgres:<major>" image tag, found none in:\n${text}`)
   return match![1]!
 }
 
-/** Reads a workflow YAML file and returns its `services.postgres.image` from whichever job has it. */
 function workflowPostgresImage(relPath: string): string {
   const raw = fs.readFileSync(path.join(REPO_ROOT, relPath), 'utf8')
   const doc: any = load(raw)

@@ -3,19 +3,6 @@ import { describe, test } from 'node:test'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { permissionPreHandler } from './authHooks.ts'
 
-/**
- * The route-permission `preHandler` was inline in `index.ts` until task A15 lifted it out, which is
- * what makes it testable at all: it is the single gate every `config.permissions` declaration in
- * `backend/api/` is enforced by, and its `req.apiKey` branch — a verified key standing in for a
- * session — had no coverage anywhere (the six hand-rolled replicas in the API test suites all drop
- * it, which is exactly the drift TEST-F2 records).
- *
- * Only GLOBAL permissions are decided here — a page-rule
- * or site-scoped name can never be enforced through `config.permissions`, since that hook only ever
- * reads the group-wide session list.
- */
-
-/** A stand-in for `FastifyReply` recording the two refusals this hook may send. */
 function fakeReply() {
   const calls: { unauthorized: number; forbidden: number } = { unauthorized: 0, forbidden: 0 }
   const reply: any = {
@@ -31,7 +18,6 @@ function fakeReply() {
   return { reply: reply as FastifyReply, calls }
 }
 
-/** A stand-in for `FastifyRequest` carrying only what the hook reads. */
 function fakeRequest(opts: {
   permissions?: unknown
   apiKey?: { permissions: string[] } | null
@@ -44,7 +30,6 @@ function fakeRequest(opts: {
   } as unknown as FastifyRequest
 }
 
-/** Runs the hook and reports whether it called `done()` and what it sent. */
 function run(req: FastifyRequest) {
   const { reply, calls } = fakeReply()
   let doneCalls = 0
@@ -71,14 +56,8 @@ describe('permissionPreHandler', () => {
   })
 
   /*
-    OpenProject #2555's own fallout: a Users-group-only account genuinely holds an empty GLOBAL
-    `permissions` list once page access lives entirely in rule `roles` rather than being (wrongly)
-    duplicated onto this column too -- caught live by `e2e/tests/permissions.spec.js`, which
-    expects visiting a globally-gated admin route to answer 403 Forbidden (the `/_error/
-    unauthorized` screen) and instead got bounced to `/login` by the frontend's session-expiry
-    interceptor reacting to a 401. An authenticated identity holding zero (or the wrong)
-    permissions is forbidden, not unauthenticated -- only the absence of any verified identity at
-    all (no key, no authenticated session) is.
+    A Users-group-only account genuinely holds an empty GLOBAL `permissions` list. A 401 for it
+    would have the frontend's session-expiry interceptor bounce the reader to `/login`.
   */
   test('an authenticated session holding no permissions is forbidden, not unauthorized', () => {
     const res = run(
@@ -209,9 +188,7 @@ describe('permissionPreHandler', () => {
       assert.deepEqual(res, { doneCalls: 0, unauthorized: 0, forbidden: 1 })
     })
 
-    // -> Same distinction as the session case above: a verified key with an empty permissions
-    //    array is a real, valid identity (e.g. issued for a group with only page-rule access) that
-    //    simply doesn't hold what this route asks for -- forbidden, not unauthorized.
+    // -> Still a verified identity: e.g. a key issued for a group with only page-rule access.
     test('a key carrying no permissions at all is forbidden, not unauthorized', () => {
       const res = run(
         fakeRequest({

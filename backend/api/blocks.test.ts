@@ -9,17 +9,6 @@ import { installTestWiki } from '../test/mocks.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 describe('POST /sites/:siteId/blocks (custom block upload)', () => {
-  /**
-   * `POST /sites/:siteId/blocks` — a unit-level test of the route's own wiring (site lookup, raw-body
-   * handling, validator plumbing, tag-collision check, response shape), the same way `sites.test.ts`
-   * covers `GET /:siteIdorHostname` without a real database: `CARDINAL.models.sites`/`blocks` are stubbed
-   * rather than pulling in Drizzle. `models/blocks.test.ts` is what proves `isTagTaken()` and
-   * `createCustomBlock()` themselves against a real database.
-   *
-   * The route declares `config: { permissions: ['manage:sites'] }` (`api/blocks.ts`) — enforced by the
-   * global `preHandler` hook in `index.ts`, which this plugin-only app never registers, exactly as
-   * `sites.test.ts` also does not exercise it. Not this suite's job to re-prove.
-   */
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
 
   const WELL_FORMED = `
@@ -41,8 +30,8 @@ customElements.define('block-widget', BlockWidget)
   let isTagTakenResult = false
 
   before(async () => {
-    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
-    //    plugin-only app has to register it to answer that case the way the real app does.
+    // -> The unknown-site 404 is `siteEnabledPreHandler`'s, not the route's, so a plugin-only app
+    //    has to register it.
     const guardedRoutes: FastifyPluginAsync = async (instance) => {
       instance.addHook('preHandler', siteEnabledPreHandler)
       await instance.register(blocksRoutes)
@@ -73,8 +62,7 @@ customElements.define('block-widget', BlockWidget)
               }
             }
           },
-          // -> The upload route now carries `limitUploads` as a preHandler (OpenProject #3234); this
-          //    suite is about the route's own logic, not the limiter's, so it always allows.
+          // -> For the upload route's `limitUploads` preHandler.
           rateLimits: {
             consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
           }
@@ -135,12 +123,6 @@ customElements.define('block-widget', BlockWidget)
     assert.equal(createCustomBlockCalls.length, 0)
   })
 
-  /*
-    OpenProject #967: the `block` in the definition is a promise about the element the code will
-    actually register (`<block-{block}>`) — nothing before this check confirmed the uploaded source
-    kept that promise, so a mismatched define() call was accepted and rendered nothing on every page
-    using it.
-  */
   test('400s with a specific message when define() registers a tag other than block-{block}', async () => {
     const mismatched = `
 export class BlockWidget extends HTMLElement {
@@ -223,23 +205,18 @@ export class BlockWidget extends HTMLElement {
   })
 
   /**
-   * The upload size cap (task 660): `addContentTypeParser`'s `bodyLimit` is read from
-   * `CARDINAL.config.security.uploadMaxFileSize` once, at plugin-registration time, exactly like
-   * `assets.ts`'s own upload route reuses the same key. A separate app instance is registered here with
-   * a tiny configured limit so the test can prove the cap is actually wired up and enforced — rather
-   * than only asserting the source line reads the config key — without allocating a real multi-megabyte
-   * buffer.
+   * The parser's `bodyLimit` is read from `CARDINAL.config.security.uploadMaxFileSize` once, at
+   * plugin registration, so the cap is set first and a second app registered against it.
    */
   test('rejects a payload larger than the configured upload size cap with 413', async () => {
     CARDINAL.config.security.uploadMaxFileSize = 16
-    // -> No `wiki`: this app has to be built against the SAME global the enclosing describe
-    //    installed, with only the cap above changed.
+    // -> No `wiki`: build against the global the enclosing describe installed, cap aside.
     const smallApp = await buildTestApp({ routes: blocksRoutes })
     try {
       const res = await smallApp.inject({
         method: 'POST',
         url: `/sites/${SITE_ID}/blocks`,
-        payload: Buffer.from(WELL_FORMED), // well over the 16-byte cap configured above
+        payload: Buffer.from(WELL_FORMED),
         headers: { 'content-type': 'text/javascript' }
       })
       assert.equal(res.statusCode, 413)
@@ -253,19 +230,9 @@ export class BlockWidget extends HTMLElement {
 
 describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
   /**
-   * Task #683: `PUT`/`DELETE /sites/:siteId/blocks(/:blockId)` used to gate on the blanket route-level
-   * `manage:sites` alone. Both routes now also accept the site-scoped `site:blocks` permission from
-   * task #682 (`checkSiteAccess()`), checked in-handler via `checkSiteAdminAccess` since
-   * `config.permissions`
-   * cannot express a per-site check (same reasoning as page permissions).
-   *
-   * OpenProject #2128 settled the question this raised for `docs/security/custom-block-upload.md`:
-   * `BLOCK_ID` below is deliberately `isCustom: true` in `siteBlocks` (as opposed to
-   * `'built-in-block-id'`, `isCustom: false`, also in the fixture) precisely so
-   * "`site:blocks` may set blocks state" / "may delete a custom block" pin the chosen resolution — accept
-   * the widening — against the row that actually matters for the "who can make arbitrary script run"
-   * question, not incidentally against whichever row happened to be first in the fixture. See that
-   * document's §2 for the reconciled permission table and residual-risk statement.
+   * `BLOCK_ID` is deliberately the `isCustom: true` row: `site:blocks` enabling or deleting a
+   * custom block is an accepted widening (docs/audits/security-reviews/custom-block-upload.md), so
+   * the tests pin it against the row that runs arbitrary script, not the built-in one.
    */
   const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'
   const BLOCK_ID = 'a1b2c3d4-e5f6-4789-9abc-def012345678'
@@ -291,10 +258,7 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
     deleteCustomBlockCalls.push({ siteId, blockId })
   }
 
-  /**
-   * Stand-in for `checkSiteAccess()`: grants `site:blocks` only for the site id the
-   * `x-test-site-permissions` header names, so a grant for a different site does nothing here.
-   */
+  /** The `x-test-site-permissions` header lists the `permission@siteId` pairs this grants. */
   let currentSitePermissionHeader: string | undefined
   function checkSiteAccess(actor: { permissions: string[] }, permission: string, siteId: string) {
     if (actor.permissions.includes('manage:system')) {
@@ -316,7 +280,6 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    // -> See the upload describe above: the unknown-site 404 is this hook's job now (spec D1).
     const guardedRoutes: FastifyPluginAsync = async (instance) => {
       instance.addHook('preHandler', siteEnabledPreHandler)
       await instance.register(blocksRoutes)
@@ -324,8 +287,8 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
 
     app = await buildTestApp({
       routes: guardedRoutes,
-      // -> The site-permission stub takes no `req`, so it reads this suite's per-test grants off a
-      //    module-level variable, populated once per request.
+      // -> `checkSiteAccess()` takes no `req`, so the header is stashed here per request; returning
+      //    `undefined` leaves the request anonymous.
       session: (req: any) => {
         currentSitePermissionHeader = req.headers['x-test-site-permissions']
         return undefined
@@ -365,7 +328,7 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
 
   test('site:blocks on this site may enable/disable an isCustom: true block (OpenProject #2128: chosen resolution is to allow this, not incidental)', async () => {
     const target = siteBlocks.find((b) => b.id === BLOCK_ID)!
-    assert.equal(target.isCustom, true) // deliberately targeting the genuinely-custom row, not the built-in one
+    assert.equal(target.isCustom, true)
     const res = await app.inject({
       method: 'PUT',
       url: `/sites/${SITE_ID}/blocks`,
@@ -400,7 +363,7 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
 
   test('site:blocks on this site may delete an isCustom: true block (OpenProject #2128: chosen resolution is to allow this, not incidental)', async () => {
     const target = siteBlocks.find((b) => b.id === BLOCK_ID)!
-    assert.equal(target.isCustom, true) // deliberately targeting the genuinely-custom row, not the built-in one
+    assert.equal(target.isCustom, true)
     const res = await app.inject({
       method: 'DELETE',
       url: `/sites/${SITE_ID}/blocks/${BLOCK_ID}`,
@@ -422,13 +385,6 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
 })
 
 describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
-  /**
-   * Regression coverage for `PUT /sites/:siteId/blocks` threading a per-block `config` object through
-   * to `CARDINAL.models.blocks.setBlocksState` — the wiring a site-wide "Server" default for block-kroki and
-   * block-plantuml depends on. `CARDINAL.models.blocks` is stubbed rather than backed by a real database:
-   * the model's own write behavior has its own unit coverage in `models/blocks.test.ts`, and this test
-   * is only about whether the route passes the request body through correctly.
-   */
   const SITE_ID = 'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1'
   const BLOCK_ID = 'b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2'
 
@@ -437,7 +393,6 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
   let perTestWiki: { restore(): void }
 
   before(async () => {
-    // -> See the upload describe above: the unknown-site 404 is this hook's job now (spec D1).
     const guardedRoutes: FastifyPluginAsync = async (instance) => {
       instance.addHook('preHandler', siteEnabledPreHandler)
       await instance.register(blocksRoutes)
@@ -446,8 +401,8 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
     app = await buildTestApp({
       routes: guardedRoutes,
       ajv: true,
-      // -> The upload route's `addContentTypeParser` reads `CARDINAL.config.security.uploadMaxFileSize`
-      //    at plugin-registration time, before `beforeEach`'s own (fuller) stub is in place.
+      // -> Plugin registration reads `CARDINAL.config.security.uploadMaxFileSize`, before
+      //    `beforeEach`'s fuller stub exists.
       wiki: { config: { security: { uploadMaxFileSize: 10485760 } } }
     })
   })
@@ -535,16 +490,6 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
   })
 })
 
-/**
- * UPLOAD CUSTOM BLOCK route: rate limit wiring (OpenProject #3234).
- *
- * `helpers/rateLimit.test.ts` covers `limitUploads` itself in isolation; this proves it is actually
- * attached to this route as a `preHandler` too -- a burst of single-file uploads exceeding the
- * configured limit is refused with 429 before `CARDINAL.models.blocks.createCustomBlock` is ever called,
- * and a normal, one-at-a-time caller is unaffected. Registers the real `permissionPreHandler`
- * (`permissions: true`) so the route's own `manage:sites` gate runs first, exactly as it does in
- * production.
- */
 describe('UPLOAD CUSTOM BLOCK route: rate limit (OpenProject #3234)', () => {
   const SITE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
@@ -587,8 +532,6 @@ customElements.define('block-widget2', BlockWidget)
               return { id: 'new-block-id', block: 'widget2', elementTag: 'block-widget2' }
             }
           },
-          // -> A minimal stand-in for the real counter: `allowed` flips once the test wants the next
-          //    request refused, rather than re-deriving `helpers/rateLimit.ts`'s own counting logic.
           rateLimits: {
             consume: async (key: string) => {
               consumeCalls.push({ key })
@@ -632,10 +575,8 @@ customElements.define('block-widget2', BlockWidget)
   })
 
   test('normal single-file usage (one upload at a time) is unaffected', async () => {
-    // -> The previous test's refusal is memoized in the shared `activeBanMemo` (TTL'd to its own
-    //    `retryAfter`) so that a banned key is refused without reaching `consume()` again -- clear it
-    //    here so this test's `allowed = true` genuinely reaches the stub above rather than being
-    //    short-circuited by the earlier ban.
+    // -> The previous test's refusal is memoized in the shared `activeBanMemo`, which would refuse
+    //    this request before it reached `consume()`.
     activeBanMemo.clear()
     createCustomBlockCalls = 0
     consumeCalls = []

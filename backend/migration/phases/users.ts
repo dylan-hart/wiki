@@ -18,18 +18,9 @@ import type { RecordStatus } from '../importers/users-groups.ts'
 import type { RecordOutcome } from './route.ts'
 
 /**
- * Maps one importer's per-record `RecordStatus` (`importers/users-groups.ts`'s `importOne()`) onto the
- * three buckets `./route.ts` routes — see that module's own doc comment for why the write already
- * happened by the time this runs.
- *
- * `'skipped'` and `'flagged'` both land on the skip bucket: `WriteRecorder`/`PhaseReport` have no
- * dedicated "needs admin attention" bucket distinct from "read but not written", and `conflicted` is
- * reserved for a write that was attempted and failed (a real `writer.insertX()` throw), which neither
- * of those is.
- *
- * `detail` on an otherwise-successful `created` outcome has exactly one source today —
- * `createGroupConverter()`'s dropped-permissions/rules note — and becomes a logged note rather than
- * being discarded.
+ * `'skipped'` and `'flagged'` both land on the skip bucket: `PhaseReport` has no "needs admin
+ * attention" bucket distinct from "read but not written", and `conflicted` is reserved for a write
+ * that was attempted and failed.
  */
 function toRecordOutcome(
   identifier: string,
@@ -50,22 +41,17 @@ function toRecordOutcome(
 }
 
 /**
- * Phase 2 (Feature 414: users/groups/permissions importer). Depends on `settings`: group permissions
- * and page rules are meaningless without the destination's auth strategies already configured.
+ * Depends on `settings`: group permissions and page rules are meaningless without the destination's
+ * auth strategies already configured.
  *
- * Three entities, `groups` then `users` then `userGroups`, in that exact object-key order.
- * `define-phase.ts#readEntity()` drains each entity's source fully before the next one starts, which
- * is load-bearing here — `userGroups` resolves membership against `groupImporter.idMap`/
- * `userImporter.idMap`, both of which must be completely populated (every group/user already
- * imported) before a single membership row is looked up.
+ * The object-key order `groups` → `users` → `userGroups` is load-bearing. `readEntity()` drains each
+ * entity's source fully before the next starts, and `userGroups` resolves membership against both
+ * importers' `idMap`s, which must be completely populated before a membership row is looked up.
  *
- * `ctx.dryRun` selects the writer, not a recorder-level bypass: `createDryRunWriter()` mints
- * a placeholder UUID instead of writing, so `convert()`'s real per-record classification logic — which
- * determines `created`/`skipped`/`conflicted`/`flagged`, not just "was something written" — runs
- * identically in both modes. That is what lets `routeOutcome()` above report the true outcome even in
- * a dry run, rather than the coarser "every record is a placeholder create" a dry run gets when
- * `write()` is simply never invoked (`../recorder.ts`'s own documented, general limitation for a phase
- * with no way to determine an outcome short of attempting the write).
+ * `ctx.dryRun` selects the writer rather than bypassing at the recorder: the dry-run writer mints a
+ * placeholder UUID, so the per-record classification that decides
+ * `created`/`skipped`/`conflicted`/`flagged` runs identically in both modes, and `routeOutcome()`
+ * reports the true outcome even in a dry run instead of "every record is a placeholder create".
  */
 export const usersPhase = definePhase({
   id: 'users',
@@ -87,8 +73,7 @@ export const usersPhase = definePhase({
       writer,
       ctx.systemGroupIds
     )
-    // Handed to the content phase (dependsOn: ['users']) — see context.ts's own doc on
-    // `userIdMap` for why this is a live Map reference, not a snapshot.
+    // Read by the content phase as a live reference, not a snapshot.
     ctx.userIdMap = userImporter.idMap
 
     return {
@@ -103,14 +88,9 @@ export const usersPhase = definePhase({
         }
       },
       users: {
-        // -> `userImporter.providerFallbacks` (the admin-facing "these accounts need a password reset"
-        //    list — see `createProviderFallbackUserConverter()`'s own doc) is only complete once every
-        //    `users` record has actually been classified, so it is logged here, after `yield*`
-        //    delegates to the real source and returns — the same "drain fully, then report" point
-        //    `phases/content.ts`'s orphaned-pageHistory backfill uses (whole-branch review Important
-        //    #3). Neither `PhaseResult` nor `PhaseReport` has a field shaped for this list (the same
-        //    reporting-shape gap `routeOutcome()`'s own doc comment describes for a group's
-        //    dropped-permissions note), so `ctx.log?.()` is the only place it can go today.
+        // -> `providerFallbacks` (the accounts needing a password reset) is complete only once every
+        //    record has been classified, which is why it is logged after `yield*` returns rather
+        //    than per record. No `PhaseReport` field is shaped for the list, so a log is all there is.
         source: async function* () {
           yield* ctx.source.users()
           for (const fallback of userImporter.providerFallbacks) {
@@ -135,9 +115,8 @@ export const usersPhase = definePhase({
         }
       },
       userGroups: {
-        // Two full reads of `users` — once for the `users` entity above, once here (each connector
-        // call re-issues its own query) — an accepted tradeoff: this table is never in
-        // the same volume class as `pages`/`assetData`.
+        // Two full reads of `users` — each connector call re-issues its own query — accepted because
+        // this table is never in the same volume class as `pages`/`assetData`.
         source: () => deriveUserGroupsFromEmbeddedGroups(ctx.source.users()),
         classify: async (record, recorder) => {
           const source = record as SourceRecord

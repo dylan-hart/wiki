@@ -38,14 +38,10 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
 
 /**
- * The one-time display of a fresh set of 2FA recovery codes -- shared between `SetupTfaDialog.vue`
- * (right after activation) and `RecoveryCodesDialog.vue` (after a regeneration on the profile page).
- * Purely presentational: the codes themselves, plus copy/download, and an `acknowledged` model the
- * host dialog gates its close button on -- neither action here closes anything itself, since a
- * setup dialog and a standalone dialog have different things to do once the user is done.
+ * Shared between `SetupTfaDialog.vue` and `RecoveryCodesDialog.vue`. Neither action here closes
+ * anything -- it only sets the `acknowledged` model the host dialog gates its own close button on,
+ * since a setup flow and a standalone dialog have different things to do once the user is done.
  */
-
-// PROPS
 
 const props = defineProps({
   codes: {
@@ -54,18 +50,12 @@ const props = defineProps({
   }
 })
 
-// MODEL
-
 const acknowledged = defineModel('acknowledged', {
   type: Boolean,
   default: false
 })
 
-// I18N
-
 const { t } = useI18n()
-
-// METHODS
 
 async function copyCodes() {
   try {
@@ -87,14 +77,14 @@ async function copyCodes() {
 async function downloadCodes() {
   try {
     // -> No `;charset=` on the type: the save picker uses it as an `accept` key and rejects a type
-    //    with parameters. A Blob built from a JS string is UTF-8 regardless -- same as PageSourceOverlay
+    //    with parameters. A Blob built from a JS string is UTF-8 regardless.
     await fileSave(new Blob([props.codes.join('\n') + '\n'], { type: 'text/plain' }), {
       fileName: 'wiki-recovery-codes.txt',
       extensions: ['.txt']
     })
     acknowledged.value = true
   } catch (err) {
-    // -> The user closing the save picker rejects the same way a real failure would; not worth a toast
+    // -> Closing the save picker rejects the same way a real failure does; not worth a toast
     if (err?.name !== 'AbortError') {
       notify({
         type: 'negative',

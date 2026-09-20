@@ -1,20 +1,16 @@
 import { LitElement, html, css, unsafeCSS } from 'lit'
 import { create } from 'asciinema-player'
-// -> The player's stylesheet, as a string. It is what draws the terminal, and a <link> in the page
-//    cannot reach into this shadow root — see the `cssAsString` plugin in rolldown.config.mjs.
+// -> A <link> in the page cannot reach into this shadow root, so the stylesheet is imported as a
+//    string instead — the `cssAsString` plugin in rolldown.config.mjs is what makes that work.
 import playerCss from 'asciinema-player/dist/bundle/asciinema-player.css'
 import { boolean } from '../shared/props.js'
 import { renderError } from '../shared/render.js'
 import { errorBox } from '../shared/styles.js'
 
-/**
- * Block Asciinema
- */
 export class BlockAsciinemaElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * must stay a plain literal.
    */
   static definition = {
     block: 'asciinema',
@@ -87,7 +83,8 @@ export class BlockAsciinemaElement extends LitElement {
           display: block;
         }
 
-        /* -> The gap below the block. On this element rather than :host: see block-index. */
+        /* -> Not on :host: the app's margin reset in the page beats a :host rule whatever the
+              specificity. */
         .player,
         .error {
           margin-bottom: 16px;
@@ -104,50 +101,22 @@ export class BlockAsciinemaElement extends LitElement {
 
   static get properties() {
     return {
-      /**
-       * Path or URL of the .cast file
-       * @type {string}
-       */
       src: { type: String },
 
-      /**
-       * Name of one of the player's terminal themes
-       * @type {string}
-       */
       theme: { type: String },
 
       /**
-       * Whether to start without being asked
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `autoplay` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `auto-play` — writes `auto-play` into the page.
-       * @type {boolean}
+       * Explicit `attribute`: Lit's default lowercases without inserting a dash (`autoplay`), but
+       * the picker writes `static definition.props[].name` verbatim.
        */
       autoPlay: { ...boolean, attribute: 'auto-play' },
 
-      /**
-       * Whether to start again at the end
-       * @type {boolean}
-       */
       loop: boolean,
 
-      /**
-       * Playback rate, 1 being the speed it was recorded at
-       * @type {number}
-       */
       speed: { type: Number },
 
-      /**
-       * Longest pause to play back, in seconds
-       *
-       * -> Explicit `attribute`, for the same reason as `autoPlay` above: the picker writes the
-       *    dashed `idle-time-limit`, not Lit's default lowercased `idletimelimit`.
-       * @type {number}
-       */
       idleTimeLimit: { type: Number, attribute: 'idle-time-limit' },
 
-      // Internal Properties
       _error: { state: true }
     }
   }
@@ -165,11 +134,9 @@ export class BlockAsciinemaElement extends LitElement {
   }
 
   /**
-   * What to give the player, out of what the author gave the block.
-   *
-   * Only the settings that were actually asked for: an option left out is the player's own default,
-   * which is the one that gets maintained. A speed of zero or a negative one would stop the recording
-   * dead, and a nonsense number would take the player with it, so that one is bounded.
+   * Only the settings actually asked for — an option left out falls to the player's own default,
+   * which is the maintained one. Speed is bounded because zero or a negative value stops the
+   * recording dead and a nonsense number takes the player with it.
    */
   _options() {
     const speed = Number(this.speed)
@@ -186,16 +153,9 @@ export class BlockAsciinemaElement extends LitElement {
   }
 
   /**
-   * Fetch the recording, and say so in the block if it cannot be had.
-   *
-   * The player is given this rather than the address itself, for the sake of what happens when the
-   * address is wrong. Handed a URL it fetches the file on its own, and a fetch that fails leaves an
-   * empty terminal sitting there with the reason in the console — where an author who mistyped a path
-   * will not see it. Fetching it here is the only way to get hold of that failure, which is the
-   * common one: a typo, a file that has moved, or a host that sends no CORS headers.
-   *
-   * The response is handed over whole, which is a source the player takes as it comes; there is
-   * nothing to be gained by reading it here, and it lets the player stream a long recording.
+   * Handed a URL, the player fetches it itself and a failure leaves an empty terminal with the
+   * reason only in the console — invisible to an author who mistyped a path. The response is passed
+   * on whole rather than read here, so the player can still stream it.
    */
   async _fetch(src) {
     try {
@@ -217,9 +177,8 @@ export class BlockAsciinemaElement extends LitElement {
       return
     }
     /*
-      A function rather than the recording itself, so that nothing is fetched until it is played —
-      which is the player's own behaviour, and the right one: a page carrying a recording should not
-      pull the whole thing down before anybody has asked to watch it.
+      A function rather than the recording itself, so nothing is fetched until it is played: a page
+      carrying a recording should not pull the whole thing down unasked.
     */
     this._player = create(
       { data: () => this._fetch(src) },

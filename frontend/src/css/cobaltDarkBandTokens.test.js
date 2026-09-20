@@ -3,14 +3,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * The `--color-dark-3-5`/`-text` rung (OpenProject #2816): `WCardHeader.vue`'s `.w-section-header`
- * band and `WInput.vue`/`WSelect.vue`'s read-only field surface both want `#0e1540`/`#c9d6ff` under
- * Cobalt dark, a value distinct from every existing ramp rung -- see the token's own comment in
- * `tailwind.css`. `cobaltDarkTokens.test.js` pins the token's declared VALUE against the source text;
- * this file is the real-Chromium computed-style check that a consumer actually resolves to it, and
- * that Ledger dark is untouched by the new rung existing (same reasoning and harness as
- * `sectionHeaderRhythm.test.js` -- neither `jsdom` nor `happy-dom` runs a layout/paint engine capable
- * of resolving a `var()` cascade through two stacked body classes).
+ * `cobaltDarkTokens.test.js` pins `--color-dark-3-5`'s declared value against the source text; this
+ * file checks that a consumer actually resolves to it, and that Ledger dark is unaffected by the
+ * rung existing. It needs a real browser because neither `jsdom` nor `happy-dom` resolves a `var()`
+ * cascade through two stacked body classes.
  */
 
 describe(
@@ -29,11 +25,8 @@ describe(
       await browser?.close()
     })
 
-    /**
-     * `.w-section-header` is WCardHeader's band; `.dark\:bg-dark-3-5` is the Tailwind utility
-     * `WInput.vue`/`WSelect.vue`'s readonly surface now carries -- both markup shapes are rendered
-     * under whichever `bodyClass` the caller asks for, and their resolved styles read back together.
-     */
+    // The rung's two consumers, stood in for by their markup: `.w-section-header` is WCardHeader's
+    // band, `.dark\:bg-dark-3-5` the utility `WInput.vue`/`WSelect.vue`'s readonly surface carries.
     async function measure(bodyClass) {
       const page = await browser.newPage()
       try {

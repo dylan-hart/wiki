@@ -3,33 +3,24 @@ import { VueRenderer } from '@tiptap/vue-3'
 import EditorMentionList from '@/components/EditorMentionList.vue'
 
 /**
- * Builds the TipTap `suggestion` option that powers the WYSIWYG editor's `@` mention.
+ * `@` mentions pages, not users: `/_api/users` requires the `read:users`/`manage:users` GLOBAL
+ * permission, an admin-only grant most editors do not hold, so it cannot back a mention every
+ * writer is expected to use. `pages/search` is the same full-text search the link picker and the
+ * global search box already go through.
  *
- * Typing `@` opens a floating list of this site's pages, searched through
- * `GET /sites/:siteId/pages/search` -- the same full-text search `LinkPickerDialog`'s page tab and
- * the global search box already use, rather than standing up a second endpoint for the same thing.
- * (`/_api/users` was the other candidate the task pointed at, but that route requires the
- * `read:users`/`manage:users` GLOBAL permission -- an admin-only grant most editors do not hold --
- * so it cannot back a mention every writer is expected to be able to use.)
- *
- * @param {import('pinia').Store} siteStore Read lazily (`siteStore.id`, not a snapshotted value) so
- *   a suggestion opened before the site has finished loading still resolves against whichever site
- *   is current by the time a query actually fires.
- * @returns {object} The `suggestion` option for `Mention.configure({ suggestion })`.
+ * @param {import('pinia').Store} siteStore Read lazily, so a suggestion opened before the site has
+ *   loaded still resolves against whichever site is current when a query fires.
  */
 export function createPageMentionSuggestion(siteStore) {
   return {
     char: '@',
-    // -> Waits for a pause in typing before hitting the search endpoint; `items()` below still
-    //    short-circuits an empty query for free, this just spares mid-word keystrokes a request each.
+    // -> Spares every mid-word keystroke its own search request.
     debounce: 250,
 
     /**
-     * A blank query (just typed `@`, nothing after it) resolves with no items and no request --
-     * `EditorMentionList` reads `query` itself to tell that apart from a real "nothing matched"
-     * search and shows its own prompt instead of an empty list. A search that legitimately finds
-     * nothing, or a request that fails outright, both resolve to `[]` too: from the popover's side
-     * they are the same "no results" state, and either way it renders a message rather than nothing.
+     * Every empty outcome -- blank query, no match, failed request -- resolves to `[]` rather than
+     * throwing; `EditorMentionList` reads `query` itself to tell a blank query apart from a search
+     * that matched nothing, so the popover always has something to render.
      */
     async items({ query, signal }) {
       const trimmed = query.trim()
@@ -42,19 +33,16 @@ export function createPageMentionSuggestion(siteStore) {
           signal
         }).json()
         return (response?.results ?? []).map((page) => ({
-          // -> `id`/`label` are what the Mention node's default `command` copies onto the inserted
-          //    node's attributes (`data-id` / `data-label`); the path makes a more useful `id` for a
-          //    wiki page mention than the row's opaque database uuid would.
+          // -> `id`/`label` land on the inserted node as `data-id`/`data-label`, so the path is a
+          //    more useful `id` for a page mention than the row's opaque uuid.
           id: page.path,
           label: page.title,
           path: page.path,
           icon: page.icon
         }))
       } catch {
-        // -> Includes a request the plugin itself aborted because the query changed again -- the
-        //    abort is detected by the plugin from `signal`/its own bookkeeping regardless of what is
-        //    returned here, so resolving to `[]` rather than rethrowing keeps this branch simple
-        //    without misrepresenting a superseded request as a resolved "no results" to the popover.
+        // -> Also catches a request the plugin aborted because the query moved on; it tracks that
+        //    from `signal` itself, so `[]` here is not mistaken for a real "no results".
         return []
       }
     },
@@ -69,8 +57,8 @@ export function createPageMentionSuggestion(siteStore) {
             props,
             editor: props.editor
           })
-          // -> No `clientRect` means there is nowhere to anchor a popover -- happens converting the
-          //    document to HTML outside a live view, per `SuggestionProps.clientRect`'s own doc.
+          // -> No `clientRect` (converting the document to HTML outside a live view) means there is
+          //    nowhere to anchor a popover.
           if (!props.clientRect) {
             return
           }
@@ -79,8 +67,7 @@ export function createPageMentionSuggestion(siteStore) {
         onUpdate(props) {
           component.updateProps(props)
         },
-        // -> Forwarded to the list component's own exposed handler for arrow/Enter navigation;
-        //    Escape is handled by the suggestion plugin itself before this is ever asked.
+        // -> Escape never reaches here: the suggestion plugin handles it first.
         onKeyDown(props) {
           return component.ref?.onKeyDown(props) ?? false
         },

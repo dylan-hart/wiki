@@ -7,13 +7,6 @@ import { renderError } from '../shared/render.js'
 import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
-/*
-  Tabler `chevron-left` / `chevron-right` / `x`, pasted verbatim from
-  frontend/src/assets/icons.generated.js (OpenProject #2875 -- blocks.md's ground rules: "Material
-  path SVGs (..., chevrons) -> Tabler"). Declared locally rather than added to
-  blocks/shared/icons.js#MDI_PATHS -- that file is Task #2876's (shared fragments theming), not this
-  one's, to touch.
-*/
 const PREVIOUS_SVG = svg`<svg viewBox="0 0 24 24" aria-hidden="true" data-icon="tabler:chevron-left">
   <path fill="none" stroke="currentColor" stroke-width="1.5" d="m15 6l-6 6l6 6" />
 </svg>`
@@ -24,25 +17,12 @@ const CLOSE_SVG = svg`<svg viewBox="0 0 24 24" aria-hidden="true" data-icon="tab
   <path fill="none" stroke="currentColor" stroke-width="1.5" d="M18 6L6 18M6 6l12 12" />
 </svg>`
 
-/** Where an uploaded file is served from, and so what a bare path in the body is taken to mean. */
 const FILES_PREFIX = '/_files/'
 
-/**
- * An address that already says where it points: a full URL, a protocol-relative one, a data URI —
- * or one of the wiki's own `/_` routes, `/_files/` among them.
- */
+/** `/_` is in the alternation because the wiki's own routes, `/_files/` included, are absolute. */
 const ABSOLUTE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/_)/i
 
-/**
- * The address a line of the body points at.
- *
- * Anything that names its own location is left exactly as written. Everything else is a path into the
- * file manager, which is where the images on a wiki page live — so `photos/summer.jpg` and
- * `/photos/summer.jpg` both mean `/_files/photos/summer.jpg`, and an author can paste the path the
- * file manager shows without having to remember the prefix. Wiki routes are spared that: they all
- * start with `/_`, and `/_files/` is one of them, so a path already carrying the prefix is not given
- * a second one.
- */
+/** Anything else is a file-manager path, so an author can paste what the file manager shows. */
 function resolveSource(value) {
   const address = value.trim()
   if (ABSOLUTE.test(address)) {
@@ -51,10 +31,7 @@ function resolveSource(value) {
   return FILES_PREFIX + address.replace(/^\/+/, '')
 }
 
-/**
- * What to call an image, for a screen reader and for a browser drawing the alt text of one that did
- * not load. The file name is all a list of addresses carries.
- */
+/** Alt text for an image: the file name is all a list of addresses carries. */
 function labelFor(address) {
   const path = address.split(/[?#]/)[0]
   const name = path.split('/').filter(Boolean).at(-1) ?? address
@@ -66,22 +43,10 @@ function labelFor(address) {
   }
 }
 
-/**
- * Block Gallery
- *
- * A grid of thumbnails from a list of addresses, and a lightbox over the whole site to look at any
- * one of them full size. The list is the block's body, one address per line:
- *
- *     ::block-gallery
- *     https://example.com/photo-1.jpg
- *     /photos/photo-2.jpg
- *     ::
- */
 export class BlockGalleryElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * must stay a plain literal.
    */
   static definition = {
     block: 'gallery',
@@ -127,8 +92,6 @@ https://example.com/photo-2.jpg`
         }
 
         /*
-        The grid, and the gap below the block. On this element rather than :host: see block-index.
-
         -> min() rather than the thumbnail size on its own, so a gallery asked for at 300 on a phone
            is one column the width of the phone instead of pushing the page sideways.
       */
@@ -160,10 +123,8 @@ https://example.com/photo-2.jpg`
         }
 
         /*
-          Two opposite corner marks, shown on hover/focus only, Ledger only -- blocks.md: "Hover/focus:
-          Ledger inset ... + #e4676b corner marks". Same technique as the other board blocks; hidden
-          by default and revealed with the ring rather than sized off inset: -5px past the tile's own
-          edge, since a gallery tile (unlike a card) has nothing outside itself to draw into.
+          -> Drawn at inset 0, not the -5px the other board blocks use: a gallery tile has nothing
+             outside itself to draw into.
         */
         .marks {
           display: none;
@@ -186,12 +147,9 @@ https://example.com/photo-2.jpg`
         }
 
         /*
-        A gallery whose tiles take the shape of their images rather than being held square.
-
-        Dropping the ratio is not enough on its own: a grid item stretches to the height of its row,
-        which hands the image back a definite height to be cropped to -- the tallest photo of the row
-        deciding the shape of the rest, which is the thing being unlocked. So the row lets go of them
-        as well, and the image is left to its own height.
+        -> Dropping the ratio is not enough on its own: a grid item stretches to the height of its
+           row, which hands the image back a definite height to be cropped to -- the tallest photo
+           of the row deciding the shape of the rest. So the row lets go of them as well.
       */
         .gallery.is-unlocked {
           align-items: start;
@@ -213,10 +171,7 @@ https://example.com/photo-2.jpg`
           color: var(--block-caption-fg);
           transition: transform 200ms ease;
         }
-        /*
-          -> Ledger: no transform on hover, corner marks + ring are the affordance instead. Cobalt:
-             the existing zoom, --gallery-hover-scale is 1 in Ledger so this is a no-op there too.
-        */
+        /* -> --gallery-hover-scale is 1 in Ledger, where the marks and ring are the affordance */
         .tile:hover img {
           transform: scale(var(--gallery-hover-scale));
         }
@@ -229,13 +184,6 @@ https://example.com/photo-2.jpg`
           }
         }
 
-        /*
-        The lightbox's own dialog shell (the full-viewport <dialog>, its backdrop, its fade
-        transition, and the clickable .stage) is lightboxStyles, from ../shared/lightbox.js --
-        see LightboxController's own doc for why Escape/focus-return/inert-background all come free
-        with it, and for the scroll lock (the one thing that isn't). What's left here is this
-        block's own chrome drawn over that stage: the prev/next/close buttons and the counter.
-      */
         .chrome {
           position: absolute;
           display: flex;
@@ -301,34 +249,15 @@ https://example.com/photo-2.jpg`
   static get properties() {
     return {
       /**
-       * Smallest a thumbnail may be, in pixels
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `thumbnailsize` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `thumbnail-size` — writes `thumbnail-size` into
-       *    the page.
-       * @type {number}
+       * -> Explicit `attribute`: Lit's default lowercases without inserting a dash, so it would
+       *    listen for `thumbnailsize` rather than the `props[].name` the block picker writes.
        */
       thumbnailSize: { type: Number, attribute: 'thumbnail-size' },
 
-      /**
-       * How a thumbnail fills its tile: `cover` or `contain`
-       * @type {string}
-       */
       fit: { type: String },
 
-      /**
-       * Whether a tile takes the shape of its image rather than being held square
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `unlockaspectratio` while the block picker — which writes
-       *    the literal `static definition.props[].name`, `unlock-aspect-ratio` — writes
-       *    `unlock-aspect-ratio` into the page.
-       * @type {boolean}
-       */
       unlockAspectRatio: { ...boolean, attribute: 'unlock-aspect-ratio' },
 
-      // Internal Properties
       _images: { state: true }
     }
   }
@@ -339,11 +268,10 @@ https://example.com/photo-2.jpg`
     this.fit = 'cover'
     this.unlockAspectRatio = false
     this._images = []
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
     this._lightbox = new LightboxController(this, {
       count: () => this._images.length,
-      // -> Preloading is this block's own concern, not the shared primitive's; -1 is the close case
+      // -> index -1 is the close case
       onIndexChange: (index) => {
         if (index >= 0) {
           this._preloadNeighbours(index)
@@ -353,16 +281,9 @@ https://example.com/photo-2.jpg`
   }
 
   /**
-   * Read the list of images out of the block's body.
-   *
-   * The body has been through markdown by the time it gets here, which for a list of addresses leaves
-   * the addresses themselves: linkified or not, the text of the paragraph is what was typed. It is
-   * split on whitespace rather than on line endings alone, so a body whose lines markdown joined into
-   * one still reads as the list it was written as.
-   *
-   * Images markdown drew for itself are collected too, since `![](photo.jpg)` is the other way an
-   * author writes an image and arrives here as an `img` carrying no text at all. A fenced code block
-   * wins outright, as everywhere else: it is the way to hand a block a body markdown has not touched.
+   * Split on whitespace, not line endings: markdown has already joined the author's lines into one
+   * paragraph. Images markdown drew itself are collected too — `![](photo.jpg)` arrives as an `img`
+   * carrying no text — but not out of a fence, which markdown has not touched.
    */
   firstUpdated() {
     const { source, fenced } = readFencedSource(this)
@@ -372,12 +293,10 @@ https://example.com/photo-2.jpg`
         found.push(resolveSource(image.getAttribute('src') ?? ''))
       }
     }
-    // -> An address written once and drawn twice -- as a link and as the image it points at -- is one
-    //    photo, and the order they were written in is the order the gallery shows them in
+    // -> An address markdown both linkified and drew as an image arrives twice, and is one photo
     this._images = [...new Set(found)]
   }
 
-  /** Keep the neighbours of what is showing ready, so a chevron is a step rather than a load. */
   _preloadNeighbours(index) {
     for (const step of [-1, 1]) {
       const image = new Image()
@@ -386,11 +305,8 @@ https://example.com/photo-2.jpg`
   }
 
   /**
-   * The lightbox, empty until it is opened.
-   *
-   * The dialog itself is always in the shadow tree, since it is what `showModal` is called on, but
-   * nothing inside it is built for a lightbox nobody has opened — an image the reader may never ask
-   * for is a photo fetched per gallery on every page it appears on.
+   * The `<dialog>` stays in the shadow tree — `showModal` is called on it — but its contents wait
+   * for it to open: otherwise every gallery on the page fetches a full-size photo nobody asked for.
    */
   _renderLightbox() {
     const address = this._images[this._lightbox.index]
@@ -432,7 +348,6 @@ https://example.com/photo-2.jpg`
                       `
                     : null
                 }
-                <!-- -> Focused on opening, so the lightbox is closable from the keyboard straight away -->
                 <button
                   class="chrome is-close"
                   type="button"

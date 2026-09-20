@@ -39,44 +39,32 @@ import WIcon from './WIcon.vue'
 import { useDictText } from '@/composables/i18nText'
 
 /**
- * Breadcrumb trail.
+ * Takes the trail as an array rather than as child components: the component this replaces walked
+ * its own default slot's vnodes to find them, and an array does the same job while letting the list
+ * be real `<ol>`/`<li>` markup, which is what assistive technology expects.
  *
- * Simplification: the component this replaces took its crumbs as child components and then walked
- * its own default slot's vnodes to find them, so it could inject a separator between each and tag
- * the last one. Passing the trail as an array does the same job without the vnode inspection, and
- * lets the list be real `<ol>`/`<li>` markup -- which is what a breadcrumb trail is, and what
- * assistive technology expects. The only caller builds its crumbs from a store array anyway.
- *
- * Colour follows the original: every crumb BUT the last takes `active-color`, and the last one
- * inherits the surrounding text colour. That reads backwards until you notice the last crumb is
- * the current page -- it is the one that is not a destination.
+ * Every crumb BUT the last takes `active-color`, and the last inherits the surrounding text colour.
+ * That reads backwards until you notice the last crumb is the current page -- it is the one that is
+ * not a destination.
  */
 const props = defineProps({
-  /**
-   * The trail, root first. Each entry is
-   * `{ key?, icon?, label?, ariaLabel?, to?, tooltip? }`; an entry with no `to` renders as plain
-   * text rather than a link.
-   */
+  /** The trail, root first. Each entry is `{ key?, icon?, label?, ariaLabel?, to?, tooltip? }`. */
   items: {
     type: Array,
     required: true
   },
-  /** Theme colour for every crumb except the last. */
   activeColor: {
     type: String,
     default: 'primary'
   },
-  /** Theme colour for the separators. */
   separatorColor: {
     type: String,
     default: null
   },
-  /** Separator text, when the `separator` slot is not used. */
   separator: {
     type: String,
     default: '/'
   },
-  /** Accessible name for the landmark. Falls back to the `common.breadcrumbs.ariaLabel` dictionary entry. */
   ariaLabel: {
     type: String,
     default: null
@@ -89,9 +77,9 @@ const resolvedAriaLabel = computed(
 )
 
 /*
-  Built as inline styles rather than `text-<colour>` classes: the colour names arrive at runtime, so
-  a dynamic class string would never be seen by Tailwind's scanner and the utility would not be
-  generated. Every other w-* component that takes a colour name does the same.
+  Inline styles rather than `text-<colour>` classes: the colour names arrive at runtime, so a
+  dynamic class string would never be seen by Tailwind's scanner and the utility would not be
+  generated. Every other w-* component taking a colour name does the same.
 */
 const activeStyle = computed(() => ({ color: `var(--color-${props.activeColor})` }))
 const separatorStyle = computed(() =>
@@ -100,7 +88,7 @@ const separatorStyle = computed(() =>
 </script>
 
 <style scoped>
-/* Matches the 125% the original used, so an icon-only crumb stays larger than its label */
+/* Oversized on purpose, so an icon-only crumb stays larger than a label crumb */
 .w-breadcrumbs__el-icon {
   font-size: 125%;
 }

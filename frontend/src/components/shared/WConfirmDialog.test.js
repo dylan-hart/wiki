@@ -18,15 +18,13 @@ async function mountDialog(props = {}) {
     props: { title: 'Delete item', message: 'Are you sure?', ...props },
     global: { plugins: [i18n], stubs: { teleport: true } }
   })
-  // -> `useDialogComponent()` mounts the panel hidden and flips `dialogVisible` true on the tick
-  //    after mount (see `composables/dialog.js`), matching `PageDeleteDialog.test.js`'s own pattern.
+  // -> `useDialogComponent()` mounts the panel hidden and flips `dialogVisible` on the tick after
+  //    mount, so nothing is renderable until this resolves
   await flushPromises()
   return wrapper
 }
 
-// -> The OK button is always the last one rendered (cancel comes first, when shown at all -- see
-//    the template's `<w-space />` / cancel / OK ordering), so finding it by elimination works
-//    regardless of what label it carries.
+// -> OK is always the last button rendered, so elimination finds it whatever label it carries
 function okButton(wrapper) {
   const buttons = wrapper.findAll('button')
   return buttons[buttons.length - 1]
@@ -106,10 +104,7 @@ describe('WConfirmDialog', () => {
     it('is not a reachable configuration: persistent is dropped when there is no cancel button', async () => {
       const wrapper = await mountDialog({ persistent: true, cancel: false })
 
-      // -> No cancel button rendered...
       expect(cancelButton(wrapper)).toBeFalsy()
-      // -> ...so WDialog must not be told to block backdrop/Escape dismissal either, or OK would be
-      //    the only way to close the dialog at all.
       expect(dialogPersistentProp(wrapper)).toBe(false)
     })
 
@@ -121,7 +116,6 @@ describe('WConfirmDialog', () => {
     })
 
     it('stays reachable when persistent + destructive are combined without an explicit cancel', async () => {
-      // destructive forces cancel true, so persistent should take effect here
       const wrapper = await mountDialog({ persistent: true, destructive: true, cancel: false })
 
       expect(cancelButton(wrapper)).toBeTruthy()

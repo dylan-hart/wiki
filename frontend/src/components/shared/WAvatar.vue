@@ -1,13 +1,11 @@
 <template>
   <!--
-    `relative` so a `<w-badge floating>` in the slot pins to THIS box. Without it the badge kept
-    looking for a positioned ancestor and found the surrounding card, which put the blueprint icon's
-    indicator dot in the card's far top-right corner instead of on the icon.
+    `relative` so a floating badge in the slot pins to THIS box; without it the badge finds the
+    surrounding card and lands in that card's corner instead of on the avatar.
 
     Deliberately NOT `overflow-hidden`, for the same reason: a floating badge is meant to overhang
     the corner, and a clipping avatar would cut it in half. An image is instead clipped by taking
-    this box's own radius, as the avatar this replaces did -- see `.w-avatar > img` in
-    `css/tailwind.css`.
+    this box's own radius -- `.w-avatar > img` in `css/tailwind.css`.
   -->
   <div
     class="w-avatar relative inline-flex shrink-0 items-center justify-center align-middle"
@@ -22,14 +20,11 @@
 import { computed } from 'vue'
 import { resolveSize } from './metrics'
 
-/**
- * Circular (or squared) container for an image, icon or initials.
- */
 const props = defineProps({
   /**
-   * Any CSS length, or one of the named sizes. Omit it to take the default from CSS, which is what
-   * lets a context set the size -- an avatar in an item's flanking section is smaller. An explicit
-   * value renders as an inline style and beats both.
+   * Any CSS length, or one of the named sizes. Omitted, the size comes from CSS, which is what lets
+   * a context set it -- an avatar in an item's flanking section is smaller. An explicit value
+   * renders as an inline style and beats both.
    */
   size: {
     type: String,
@@ -47,33 +42,25 @@ const props = defineProps({
     type: String,
     default: null
   },
-  /** Square with sharp corners. */
   square: {
     type: Boolean,
     default: false
   },
-  /** Square with rounded corners. */
   rounded: {
     type: Boolean,
     default: false
   },
   /**
-   * Opt in to the aesthetic's own avatar shape: `--radius-avatar`, which is square in Ledger and a
-   * disc in Cobalt, where the other shape props are fixed in both. Never a default -- about 25
-   * callers rely on `rounded-full`.
-   *
-   * - `initials` is the header mark's treatment (`.account-initials`): tracked Barlow Condensed on
-   *   the `--color-account-avatar-bg` tone.
-   * - `plate` is an icon tile in a list row: the `--size-avatar-plate` box (36px Ledger, 26px
-   *   Cobalt). Pass `color`/`text-color` for its tone, but not `size`/`font-size`, which would
-   *   override the aesthetic's size inline.
+   * Opt in to the aesthetic's own avatar shape (`--radius-avatar`): square in Ledger, a disc in
+   * Cobalt, where the other shape props are fixed in both. `plate` (an icon tile in a list row)
+   * sizes itself from `--size-avatar-plate`, so pass `color`/`text-color` for its tone but never
+   * `size`/`font-size`, which render inline and beat the token.
    */
   identity: {
     type: String,
     default: null,
     validator: (value) => ['initials', 'plate'].includes(value)
   },
-  /** Glyph size within the avatar; defaults to 60% of `size`. */
   fontSize: {
     type: String,
     default: null
@@ -103,7 +90,7 @@ const styles = computed(() => {
   return {
     width: size ?? undefined,
     height: size ?? undefined,
-    // -> Keeps an icon or initials proportional to the avatar without a second prop at every site
+    // -> Keeps an icon or initials proportional to the avatar without a second prop at every site.
     fontSize: props.fontSize ?? (size ? `calc(${size} * 0.6)` : undefined),
     backgroundColor: props.color ? `var(--color-${props.color})` : undefined,
     color: props.textColor ? `var(--color-${props.textColor})` : undefined
@@ -112,7 +99,7 @@ const styles = computed(() => {
 </script>
 
 <style scoped>
-/* Default size, in CSS rather than inline so a context (see WItemSection) can override it. */
+/* In CSS rather than inline so a context (WItemSection) can override it. */
 .w-avatar {
   width: 48px;
   height: 48px;

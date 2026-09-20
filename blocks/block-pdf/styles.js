@@ -1,19 +1,7 @@
 import { css } from 'lit'
 
-/**
- * `block-pdf`'s stylesheet, split out of `component.js`.
- *
- * The viewer is the largest block in this directory by a wide margin, and some 250 of its lines were
- * a single `css` template with no logic in it at all (BLK-F9). Two fragments rather than one, since
- * they come from different places and are maintained against different things: `viewerStyles` is
- * this block's own chrome, while `textLayerStyles` is lifted from pdf.js's own stylesheet and has to
- * keep tracking it.
- */
-
-/** The space around a page, and between one page and the next. */
 export const PAGE_GAP = 12
 
-/** The viewer's own chrome: the raised box, the toolbar, the scroller and the pages in it. */
 export const viewerStyles = css`
   :host {
     display: block;
@@ -190,9 +178,8 @@ export const viewerStyles = css`
 `
 
 /**
- * The text layer: a transparent copy of the page's words, positioned over the drawing so they can be
- * selected and searched for. Lifted from pdf.js's own stylesheet, which is 160 kB of viewer chrome
- * this block has no other use for.
+ * A transparent copy of the page's words over the drawing, so they can be selected and searched.
+ * Lifted from pdf.js's own stylesheet, and has to keep tracking it.
  */
 export const textLayerStyles = css`
   .textLayer {

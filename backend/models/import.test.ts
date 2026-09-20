@@ -9,7 +9,6 @@ import { buildPandocArgs, detectImportFormat, MAX_CONCURRENT_PANDOC, pandocCwd }
 
 const execFileAsync = promisify(execFile)
 
-/** Whether a real `pandoc` binary is on PATH, for the one test that shells out to it for real. */
 async function hasPandoc(): Promise<boolean> {
   try {
     await execFileAsync('pandoc', ['--version'])
@@ -19,8 +18,8 @@ async function hasPandoc(): Promise<boolean> {
   }
 }
 
-// -> Resolved once, at module load (top-level await is fine here — this is ESM), so `describe`'s own
-//    callback can stay synchronous and every `test(...)` call is a plain declarative registration.
+// -> Resolved at module load so `describe`'s own callback stays synchronous and every `test(...)`
+//    call is a plain declarative registration
 const pandocAvailable = await hasPandoc()
 
 const PANDOC_DEFINITION: ExtensionDefinition = {
@@ -32,13 +31,8 @@ const PANDOC_DEFINITION: ExtensionDefinition = {
 }
 
 /**
- * `models/import.ts` guards on `CARDINAL.models.extensions`, exactly the way `models/renderQueue.ts`'s
- * `ensureCanRender` guards on Puppeteer — so the extensions model is stubbed here rather than pulled
- * in for real, and `runPandoc` (the one method that actually shells out) is mocked per test so the
- * business logic — format validation, size limits, "no usable content", error surfacing — is
- * verified without a real pandoc binary on the machine running the test. The one test that does need
- * a real conversion is skipped when pandoc isn't installed, the same way DB-backed suites skip
- * without `DATABASE_URL` (see `test/db.ts`).
+ * `runPandoc` — the one method that actually shells out — is mocked per test, so format validation,
+ * "no usable content" and error surfacing are covered without a real pandoc binary.
  */
 describe('page import (pandoc)', () => {
   let isInstalled: ReturnType<typeof mock.fn>
@@ -175,11 +169,6 @@ describe('page import (pandoc)', () => {
   )
 })
 
-/**
- * `format: 'markdown'` (OpenProject #1092) is a pass-through, never reaching `ensureCanImport` or
- * `runPandoc` — verified below by leaving `isInstalled` mocked `false` for the whole suite and never
- * touching `runPandoc` at all, unlike the Pandoc-backed suite above.
- */
 describe('page import (markdown pass-through)', () => {
   let pageImport: typeof import('./import.ts').pageImport
 
@@ -188,7 +177,8 @@ describe('page import (markdown pass-through)', () => {
       models: {
         extensions: {
           getDefinition: mock.fn((key: string) => (key === 'pandoc' ? PANDOC_DEFINITION : null)),
-          // -> Deliberately false for this whole suite: a markdown import must never need Pandoc.
+          // -> Deliberately false for this whole suite: a markdown import is a pass-through that must
+          //    never reach `ensureCanImport` or `runPandoc`
           isInstalled: mock.fn(async () => false)
         }
       }
@@ -273,11 +263,10 @@ describe('page import (markdown pass-through)', () => {
 })
 
 /**
- * OpenProject #2191: `rst` and `docbook` both implement file-inclusion directives pandoc would
- * otherwise honor, and no `cwd` meant a relative include could reach `config.yml` next to the repo
- * root. The argv actually spawned *is* the whole security boundary here (per the module's own header
- * comment on `execFile` vs `exec`), so these assert on the pure argv/cwd builders directly rather
- * than mocking `execFile` or the `node:child_process` module.
+ * `rst` and `docbook` both implement file-inclusion directives pandoc would otherwise honor, so
+ * without `--sandbox` and a `cwd` outside the repo root a relative include can reach `config.yml`.
+ * The argv actually spawned *is* the whole security boundary, so these assert on the pure argv/cwd
+ * builders directly rather than mocking `execFile` or `node:child_process`.
  */
 describe('runPandoc argv (OpenProject #2191: --sandbox)', () => {
   const repoRoot = path.resolve(import.meta.dirname, '..', '..')
@@ -303,12 +292,6 @@ describe('runPandoc argv (OpenProject #2191: --sandbox)', () => {
   })
 })
 
-/**
- * OpenProject #2209/#2192: `runPandoc` gates every call through a process-wide concurrency ceiling
- * (`MAX_CONCURRENT_PANDOC`), so `execPandoc` — the actual spawn, mocked here — is asserted to never
- * have more than that many invocations in flight at once, however many callers invoke `runPandoc`
- * concurrently, and that a rejected conversion still frees its slot for the next caller.
- */
 describe('page import (pandoc concurrency gate, #2209)', () => {
   let pageImport: typeof import('./import.ts').pageImport
 
@@ -368,14 +351,12 @@ describe('page import (pandoc concurrency gate, #2209)', () => {
     })
 
     try {
-      // -> Fill and fail every slot
       await Promise.all(
         Array.from({ length: MAX_CONCURRENT_PANDOC }, () =>
           (pageImport as any).runPandoc('mediawiki', Buffer.from('= x =')).catch(() => {})
         )
       )
 
-      // -> A slot freed by a failure must be immediately usable, not leaked
       execPandoc.mock.mockImplementation(async () => 'recovered')
       const result = await (pageImport as any).runPandoc('mediawiki', Buffer.from('= x ='))
       assert.equal(result, 'recovered')

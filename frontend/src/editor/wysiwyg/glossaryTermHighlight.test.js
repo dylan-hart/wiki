@@ -14,7 +14,6 @@ function buildEditor(content, terms) {
   })
 }
 
-/** Reads the live decorations out of the plugin state the same way `props.decorations` would. */
 function decoratedRanges(editor) {
   const decorationSet = glossaryTermHighlightPluginKey.getState(editor.view.state)
   return decorationSet.find().map((deco) => ({

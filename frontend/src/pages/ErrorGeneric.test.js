@@ -10,14 +10,10 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2110: `.errorpage-code` / `.errorpage-title` used to be fixed at 12rem/5rem with no
- * media query, clamp() or horizontal padding, so a 403/404 screen overflowed a phone-width viewport
- * with no way to scroll to the clipped half (the content box is absolutely centred and
- * shrink-to-fit). jsdom's CSS engine (`cssstyle`) does not understand `clamp()` -- a declaration
- * using it is silently dropped from `document.styleSheets`, which is why the style rules below are
- * asserted against the component's own source text rather than a parsed/computed stylesheet; the
- * render-time assertions cover that the markup structure carrying those classes still mounts and
- * renders content correctly.
+ * Without a viewport-relative size the absolutely-centred, shrink-to-fit content box overflows a
+ * phone-width viewport with no way to scroll to the clipped half. The DOM stub drops a `clamp()`
+ * declaration from `document.styleSheets`, so these rules are asserted against the component's own
+ * source text rather than a parsed stylesheet.
  */
 
 const componentSource = readFileSync(

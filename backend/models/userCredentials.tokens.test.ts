@@ -5,12 +5,9 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import { ensureTemporal } from '../test/temporal.ts'
 
 /**
- * OpenProject #1653: `validateToken()` reads `validUntil` back from a `timestamp` (no time zone)
- * column, so its correctness depends on how the `pg` driver reconstructs the resulting `Date` under
- * the Node process's local `TZ` -- see `docs/audit-2026-08-24/correctness-data-schema.md` §2, and the
- * epic this work package is part of (converting every such column to `timestamptz`). The defect is
- * invisible on a UTC host, which is exactly why it needs coverage that runs off UTC: this suite runs
- * under `TZ=America/New_York` for its duration.
+ * `validateToken()` reads `validUntil` back from a `timestamp` (no time zone) column, so it depends
+ * on how the `pg` driver reconstructs that `Date` under the process's local `TZ` — a mismatch is
+ * invisible on a UTC host, hence `TZ=America/New_York` for this suite's duration.
  */
 describe(
   'userCredentials.generateToken / validateToken under a non-UTC TZ (DB-backed)',

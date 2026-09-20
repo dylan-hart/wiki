@@ -4,14 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import notificationRoutes from './notifications.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * Task 535's API surface: `GET /sites/:siteId/notifications`, `GET
- * .../notifications/unread-count`, and `PATCH .../notifications/:notificationId/read`.
- * `CARDINAL.models.pageWatchEvents` and `CARDINAL.models.users` are stubbed — the model's own persistence and
- * filtering behavior is `models/pageWatchEvents.test.ts`'s DB-backed coverage; this is only the
- * route's request/response wiring, its 401/404 branching, and the actor-name resolution.
- */
-
 let app: FastifyInstance
 let session: any
 let listForUserMock: ReturnType<typeof mock.fn>
@@ -39,8 +31,6 @@ const ROW = {
 before(async () => {
   app = await buildTestApp({
     routes: notificationRoutes,
-    // -> Stand-in for `@fastify/session`, same pattern `api/watching.test.ts` uses: mutable per test
-    //    through the `session` module variable.
     session: () => session,
     wiki: {
       models: {

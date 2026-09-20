@@ -27,8 +27,6 @@ describe('ruleMatchesPage', () => {
       assert.equal(ruleMatchesPage(rule, page({ path: '/geography/countries' })), true)
     })
 
-    // -> OpenProject #2182: a DENY written with uppercase must still deny the (always-lowercased)
-    //    stored page path -- a mismatch here is fail-open and silent, unlike an ALLOW's visible failure.
     test('a DENY rule matches case-insensitively (OpenProject #2182)', () => {
       const rule = makeRule({ match: 'START', mode: 'DENY', path: 'HR/Salaries' })
       assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries/2026' })), true)
@@ -64,7 +62,6 @@ describe('ruleMatchesPage', () => {
       assert.equal(ruleMatchesPage(rule, page({ path: 'geography' })), false)
     })
 
-    // -> OpenProject #2182: same silent-DENY concern as START above, for the EXACT match kind.
     test('a DENY rule matches case-insensitively (OpenProject #2182)', () => {
       const rule = makeRule({ match: 'EXACT', mode: 'DENY', path: 'HR/Salaries' })
       assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), true)
@@ -83,14 +80,11 @@ describe('ruleMatchesPage', () => {
     })
 
     test('an unparseable pattern addresses nothing rather than throwing', () => {
-      // -> Unbalanced group: invalid as a RegExp, must not throw out of ruleMatchesPage
       const rule = makeRule({ match: 'REGEX', path: '(unclosed' })
       assert.doesNotThrow(() => ruleMatchesPage(rule, page()))
       assert.equal(ruleMatchesPage(rule, page()), false)
     })
 
-    // -> OpenProject #2182: the case-insensitivity fold applied to START/END/EXACT must not reach
-    //    REGEX -- an author's deliberate character class (`[A-Z]`) is not a case-folding bug to fix.
     test('is not affected by the START/END/EXACT case-insensitivity fold', () => {
       const rule = makeRule({ match: 'REGEX', path: '^[A-Z]' })
       assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/france' })), false)
@@ -149,7 +143,6 @@ describe('ruleMatchesPage', () => {
     describe('compiled-pattern cache', () => {
       test('matches identically across repeated calls served from the cache', () => {
         const rule = makeRule({ match: 'REGEX', path: '^geography/.*/france$' })
-        // -> First call compiles and caches; subsequent calls must read the same result back
         assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/france' })), true)
         assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/france' })), true)
         assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/germany' })), false)
@@ -176,20 +169,14 @@ describe('ruleMatchesPage', () => {
         const rule = makeRule({ match: 'REGEX', path })
         const target = page({ path: 'geography/countries/france' })
 
-        // -> Compile and cache the original pattern's result
         assert.equal(ruleMatchesPage(rule, target), true)
 
-        // -> Simulate a rule reload (models/groups.ts#reloadCache) changing this pattern's text.
-        //    Mutating `rule.path` in place with the SAME object stands in for what a reload really
-        //    does -- replace the whole rule row with a freshly-parsed one -- while isolating the one
-        //    thing under test: that the cache is keyed on pattern text, not rule identity, so a
-        //    changed pattern is never served the previous pattern's cached compile.
+        // -> Mutating `rule.path` in place stands in for a reload (`models/groups.ts#reloadCache`)
+        //    replacing the rule row.
         clearPageRuleRegexCache()
         rule.path = '^history/'
         assert.equal(ruleMatchesPage(rule, target), false)
 
-        // -> Reverting cleanly proves the cache holds both patterns' results independently, not
-        //    just having permanently forgotten the first one
         clearPageRuleRegexCache()
         rule.path = path
         assert.equal(ruleMatchesPage(rule, target), true)
@@ -213,9 +200,6 @@ describe('ruleMatchesPage', () => {
       assert.equal(ruleMatchesPage(rule, page({ tags: ['EUROPE'] })), true)
     })
 
-    // -> OpenProject #3408: `tags` is a first-class array now, not a comma list parsed out of
-    //    `path` -- a comma list left sitting in `path`, with no `tags` of its own, addresses
-    //    nothing (no legacy fallback).
     test('a comma list left in `path`, with no `tags`, is not honoured', () => {
       const rule = makeRule({ match: 'TAG', path: 'europe, capital', tags: undefined })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['europe'] })), false)
@@ -257,8 +241,6 @@ describe('ruleMatchesPage', () => {
     })
 
     test('a ref with an empty-string locale is excluded by a locale-scoped rule, same as null (fail closed)', () => {
-      // -> `refLocale = page.locale?.toLowerCase()` turns '' into '' -- still falsy -- so an empty
-      //   string fails closed exactly like `null` does, not like a real (if unmatched) code would.
       const rule = makeRule({ match: 'START', path: '', locales: ['en'] })
       assert.equal(ruleMatchesPage(rule, page({ locale: '' })), false)
     })
@@ -292,11 +274,8 @@ describe('ruleMatchesPage', () => {
     })
 
     test('a site-scoped rule matches case-SENSITIVELY, unlike locale scoping', () => {
-      // -> `rule.sites.includes(page.siteId)` -- a bare array membership check, no `.toLowerCase()`
-      //   on either side -- deliberately unlike locale scoping just above. Site ids are UUIDs in
-      //   practice, where casing is not meaningful, but the comparison itself draws no such
-      //   exception: pinned here so a future "make it consistent with locale" cleanup has to be a
-      //   deliberate choice, not an accidental regression.
+      // -> Site ids are UUIDs, where casing carries no meaning. Pinned so a "make it consistent with
+      //    locale" cleanup has to be a deliberate choice.
       const rule = makeRule({ match: 'START', path: '', sites: ['Site-A'] })
       assert.equal(ruleMatchesPage(rule, page({ siteId: 'Site-A' })), true)
       assert.equal(ruleMatchesPage(rule, page({ siteId: 'site-a' })), false)
@@ -336,13 +315,8 @@ describe('ruleMatchesPage', () => {
     })
   })
 
-  /**
-   * OpenProject #2182: page paths are always stored lowercased, but a rule's own `path` is free
-   * text -- an author who typed any uppercase character used to write a rule that silently never
-   * matched anything. Worst for DENY: a mixed-case DENY failed OPEN (whatever broader ALLOW
-   * existed kept deciding), while a mixed-case ALLOW failed visibly. `normalizePath` now folds
-   * case the same way locale/tag comparisons already do.
-   */
+  // -> Page paths are stored lowercased but a rule's `path` is free text. A mixed-case DENY that
+  //    failed to match would fail OPEN, silently: whatever broader ALLOW exists keeps deciding.
   describe('case-insensitive path matching (OpenProject #2182)', () => {
     test('a DENY rule written in mixed case still matches the lowercase-stored page path (START)', () => {
       const rule = makeRule({ match: 'START', mode: 'DENY', path: 'HR/Salaries' })
@@ -360,16 +334,11 @@ describe('ruleMatchesPage', () => {
     })
 
     test('REGEX is unaffected by the case fold -- an author-written character class stays literal', () => {
-      // -> Would behave differently if the pattern itself were lowercased or forced case-insensitive:
-      //    [A-Z] would then match a lowercase page path, which it deliberately must not
       const rule = makeRule({ match: 'REGEX', path: '^[A-Z]' })
       assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), false)
     })
 
     test('REGEX stays case-sensitive for a pattern with no explicit case class -- unlike every other match kind', () => {
-      // -> Page paths are always stored lowercase, so a pattern written in uppercase simply never
-      //    matches an ordinary page path -- the same behavior as before the #2182 fix, deliberately
-      //    left unchanged for this branch
       const rule = makeRule({ match: 'REGEX', path: '^HR/' })
       assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), false)
       const lowercaseRule = makeRule({ match: 'REGEX', path: '^hr/' })
@@ -400,15 +369,10 @@ describe('resolvePageRule / rulesAllow', () => {
     })
     const winner = resolvePageRule([shallow, deep], 'read:pages', page())
     assert.equal(winner?.id, 'deep')
-    // -> The documented edge case: a DENY on the shallower path does NOT override an ALLOW on
-    //    the deeper, more specific one.
     assert.equal(rulesAllow([shallow, deep], 'read:pages', page()), true)
   })
 
   test('a tag rule now outranks a path-shaped rule regardless of specificity (band ranking)', () => {
-    // -> Acceptance scenario: guests DENY START '' (whole site) + FORCEALLOW TAGALL 'public' -- tag
-    //    kinds are their own band above path-shaped kinds (START/END/REGEX), so the FORCEALLOW wins
-    //    even though the DENY covers the entire site.
     const guestDeny = makeRule({ id: 'guest-deny', match: 'START', path: '', mode: 'DENY' })
     const tagForceAllow = makeRule({
       id: 'tag-forceallow',
@@ -421,8 +385,8 @@ describe('resolvePageRule / rulesAllow', () => {
     assert.equal(winner?.id, 'tag-forceallow')
     assert.equal(rulesAllow([guestDeny, tagForceAllow], 'read:pages', target), true)
 
-    // -> Holds against a DEEP path rule too, not just an empty one -- band beats specificity
-    //    outright, it is not merely a tie-break that an empty path happens to lose anyway.
+    // -> Against a DEEP path rule too: band beats specificity outright, it is not a tie-break an
+    //    empty path happens to lose.
     const deepPathDeny = makeRule({
       id: 'deep-path-deny',
       match: 'START',
@@ -434,8 +398,7 @@ describe('resolvePageRule / rulesAllow', () => {
   })
 
   test('match type breaks a tie at equal specificity', () => {
-    // -> Both address the exact same path, so only match type differs:
-    //    START < END < REGEX < EXACT, per MATCH_PRIORITY.
+    // -> START and EXACT sit in different bands, so band is what actually decides this pair.
     const start = makeRule({
       id: 'start',
       match: 'START',
@@ -453,21 +416,18 @@ describe('resolvePageRule / rulesAllow', () => {
   })
 
   test('the full band ordering, pairwise: path kinds < tag kinds < EXACT < CLASSIFICATION', () => {
-    // -> One representative pair per band boundary, each set up so the WEAKER rule would win on
-    //    specificity alone if band did not dominate -- proving band decides first, not specificity.
+    // -> Each `weak` rule would win on specificity alone, so only band dominating specificity can
+    //    make `strong` the winner.
     const target = page({ path: 'a/b/c', tags: ['x'], classification: 'restricted' })
     const boundaries: [GroupRule, GroupRule][] = [
-      // path-shaped (deep path) < tag (single tag) -- band beats specificity outright
       [
         makeRule({ id: 'weak', match: 'START', path: 'a/b/c', mode: 'ALLOW' }),
         makeRule({ id: 'strong', match: 'TAG', tags: ['x'], mode: 'ALLOW' })
       ],
-      // tag < EXACT
       [
         makeRule({ id: 'weak', match: 'TAGALL', tags: ['x'], mode: 'ALLOW' }),
         makeRule({ id: 'strong', match: 'EXACT', path: 'a/b/c', mode: 'ALLOW' })
       ],
-      // EXACT < CLASSIFICATION
       [
         makeRule({ id: 'weak', match: 'EXACT', path: 'a/b/c', mode: 'ALLOW' }),
         makeRule({
@@ -493,11 +453,8 @@ describe('resolvePageRule / rulesAllow', () => {
   })
 
   test('every pairwise comparison among the 6 match types respects the documented band order', () => {
-    // -> Not just adjacent pairs: every one of the 15 combinations of two distinct match types,
-    //    in both array orders, confirming the band order is a total order rather than just the
-    //    chain of neighbors: START < END < REGEX < TAG < TAGALL < EXACT. All rules here are at
-    //    equal (zero) specificity, so this isolates band + within-band match-type tie-break from
-    //    specificity entirely.
+    // -> Every rule here is at zero specificity, so only band and the within-band match-type
+    //    tie-break can decide -- and every pair, not just neighbours, proving a total order.
     const order: GroupRuleMatch[] = ['START', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT']
     const ruleFor = (id: string, match: GroupRuleMatch): GroupRule =>
       makeRule({
@@ -528,8 +485,6 @@ describe('resolvePageRule / rulesAllow', () => {
   })
 
   test('resolvePageRule is stable across array orderings when ranks are distinct', () => {
-    // -> Four rules with strictly different specificity, so the winner is unambiguous and array
-    //    order must never change it. Every permutation of the 4 rules is fed through.
     const target = page({ path: 'geography/countries/france', tags: ['europe'] })
     const rules = [
       makeRule({
@@ -593,12 +548,6 @@ describe('resolvePageRule / rulesAllow', () => {
     assert.equal(rulesAllow(forceRules, 'read:pages', page()), true)
   })
 
-  /**
-   * Feature 357 / task 448: the realistic guests-group ALLOW/DENY/FORCEALLOW scenario, shared with
-   * `models/groups.test.ts`'s DB-backed run of the identical rule set through `checkAccess` — see
-   * `test/permissionScenario.ts`. Proving both agree is what makes this a full-stack check rather
-   * than two hand-written scenarios that happen to look alike.
-   */
   describe('realistic ALLOW/DENY/FORCEALLOW scenario (shared with models/groups.test.ts)', () => {
     for (const { path, expected, note } of GUEST_SCENARIO_CASES) {
       test(`${path}: ${note}`, () => {
@@ -612,8 +561,6 @@ describe('resolvePageRule / rulesAllow', () => {
   })
 
   test('site scoping: a more specific rule scoped to the wrong site falls through to a broader one', () => {
-    // -> The deeper rule would win on specificity alone, but it is scoped to a site the page is
-    //    not on, so it must not match at all — the shallower, unscoped rule should decide instead.
     const scopedToOtherSite = makeRule({
       id: 'other-site',
       match: 'START',
@@ -649,9 +596,6 @@ describe('resolvePageRule / rulesAllow', () => {
 
   describe('CLASSIFICATION precedence (OpenProject #1079)', () => {
     test('a CLASSIFICATION DENY overrides a path ALLOW regardless of specificity', () => {
-      // -> The path ALLOW is maximally specific (an EXACT match on the page's own path) -- under the
-      //    ordinary path/tag specificity rules this would win outright. CLASSIFICATION's own tier is
-      //    what has to override that, not a coincidence of ranking.
       const exactAllow = makeRule({
         id: 'exact-allow',
         match: 'EXACT',
@@ -683,8 +627,6 @@ describe('resolvePageRule / rulesAllow', () => {
         mode: 'DENY',
         classifications: ['restricted']
       })
-      // -> Same rules, but this page is `public` -- the CLASSIFICATION rule does not match it at all,
-      //    so the path ALLOW is free to decide as usual.
       const target = page({ path: 'notes/team-lunch', classification: 'public' })
       const winner = resolvePageRule([exactAllow, classificationDeny], 'read:pages', target)
       assert.equal(winner?.id, 'exact-allow')
@@ -711,14 +653,9 @@ describe('resolvePageRule / rulesAllow', () => {
   })
 
   /**
-   * OpenProject #2093: pins the exact relocation escalation the audit describes -- a group holding
-   * a root ALLOW plus a narrower DENY on `docs/hr` still passes a gate checked at `docs` itself
-   * (the DENY is more specific and wins there), but if the folder `docs/hr` sits under were simply
-   * renamed with no per-descendant check, the DENY's path no longer matches its new location and
-   * the broader ALLOW decides instead. This asserts both halves of that: the DENY wins BEFORE the
-   * move, and would silently stop applying AFTER it (the whole reason `mayRenameEveryDescendant()`
-   * in `api/tree.ts` re-checks every descendant against its POST-rename path rather than trusting
-   * the folder-root check alone).
+   * A path-addressed DENY stops matching once the page moves out from under it, so a folder rename
+   * authorized only at the folder root silently escalates every descendant that DENY covered. This
+   * is why `api/tree.ts`'s rename route re-checks each descendant against its POST-rename path.
    */
   describe('relocation escalation (OpenProject #2093)', () => {
     const rootAllow = makeRule({
@@ -750,8 +687,6 @@ describe('resolvePageRule / rulesAllow', () => {
     })
 
     test('after a naive rename (docs -> docs2, DENY path left unchanged): the DENY no longer matches, and the root ALLOW decides instead', () => {
-      // -> This is exactly the escalation: the same two rules, unchanged, now resolve differently
-      //    purely because the page's address moved out from under a path-addressed DENY
       const winner = resolvePageRule(
         [rootAllow, hrDeny],
         'manage:pages',
@@ -766,15 +701,6 @@ describe('resolvePageRule / rulesAllow', () => {
   })
 })
 
-/**
- * OpenProject #2102: a folder rename authorized only against the folder's own current path, then
- * moved every descendant with it. A group holding ALLOW at the site root plus a narrower DENY on one
- * branch passes the folder-level check and, before this fix, had that branch moved to a path the
- * DENY no longer addressed -- because the rule was written against the OLD path, not the page.
- * Pinned directly against `rulesAllow`, independent of the route/model change: the same rule set
- * must deny `docs/hr/salaries` before the rename and allow it after, which is the escalation a
- * destination-side check exists to catch.
- */
 describe('rename escalation (OpenProject #2102): root ALLOW plus a narrower DENY, path rewritten', () => {
   const rootAllow = makeRule({
     id: 'root-allow',
@@ -800,14 +726,11 @@ describe('rename escalation (OpenProject #2102): root ALLOW plus a narrower DENY
   })
 
   test('after the path is rewritten to docs2/hr/salaries, the DENY no longer matches and the root ALLOW decides', () => {
-    // -> Exactly what `refreshDescendantPaths` would have written for this page had the rename gone
-    //    through unchecked: `docs` renamed to `docs2` carries `docs/hr/salaries` to `docs2/hr/salaries`.
+    // -> The path `models/tree.ts#refreshDescendantPaths` writes for this page when `docs` is
+    //    renamed to `docs2`.
     const after = page({ path: 'docs2/hr/salaries' })
     const winner = resolvePageRule(rules, 'manage:pages', after)
     assert.equal(winner?.id, 'root-allow')
-    // -> The escalation itself: the same rule set that denied this page a moment ago now allows it,
-    //    purely because its path changed -- which is why the destination has to be checked BEFORE
-    //    the rename runs, not decided by whatever the folder-level check already approved.
     assert.equal(rulesAllow(rules, 'manage:pages', after), true)
   })
 })

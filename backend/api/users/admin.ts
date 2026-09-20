@@ -18,13 +18,9 @@ interface UserUpdateBody {
 }
 
 /**
- * What blocks `DELETE /:userId` on a `23503` foreign key violation, keyed by the Postgres constraint
- * name (`db/schema.ts`'s `<table>_<column>_users_id_fkey` naming, confirmed against
- * `db/migrations/*_main/snapshot.json`) -- so the 409 can name the actual relation rather than a
- * hard-coded guess. `remedy` is only ever the reassign advice for the two constraints
- * `CARDINAL.models.users.reassignContent()` actually clears; `pageEditSubmissions.authorId` has no
- * reassign path (see that method's doc comment), so its remedy points at resolving the submission
- * instead.
+ * What blocks `DELETE /:userId` on a `23503`, keyed by the Postgres constraint name so the 409 can
+ * name the actual relation. `remedy` is the reassign advice only for what `reassignContent()`
+ * clears; `pageEditSubmissions.authorId` has no reassign path.
  */
 const DELETE_USER_BLOCKING_RELATIONS: Record<string, { relation: string; remedy: string }> = {
   pages_authorId_users_id_fkey: { relation: 'authored pages', remedy: 'Reassign them first.' },
@@ -38,23 +34,12 @@ const DELETE_USER_BLOCKING_RELATIONS: Record<string, { relation: string; remedy:
 }
 
 /**
- * Who is asking, as the interface needs to know it: the account on the session and the group-wide
- * permissions it holds, or nothing at all for a guest.
+ * Exported because `bootstrap` answers the same question as part of the one call an app load makes.
  *
- * Exported because `bootstrap` answers the same question as part of the one call an app load makes,
- * and two versions of "who is this" would be one too many.
- *
- * The `prefs`-derived fields (`appearance`, `aesthetic`, `contentWidth`, and the rest of
- * `profilePrefsKeys` — `timezone`, `dateFormat`, `timeFormat`, `cvd`, `locale`, `graph`,
- * `iconPicker`) are re-read from the
- * `users` table on every call rather than served from `req.session.user`'s login-time snapshot
- * (OpenProject #3045). `models/users.ts#updateProfile` only refreshes `req.session.user` for the
- * session that made the save, so a different session (a different browser or device, logged in
- * separately) kept serving what it had at login until it logged in again — this is deliberately
- * scoped to just those fields, not `id`/`email`/`name`/`hasAvatar`/`avatarProviderUrl`, which stay
- * off the session snapshot as before. Falls back to the session's own (possibly stale) snapshot when the account row
- * is gone by the time this runs — deleted mid-request, an edge case that already exists today and is
- * not this fix's to solve — rather than a hard failure serving `whoami`/`bootstrap`.
+ * The profile preferences are re-read from the `users` table on every call rather than served from
+ * the session's login-time snapshot: a profile save only refreshes the session that made it, so
+ * another device would keep serving what it had at login. The snapshot remains the fallback when
+ * the account row is already gone.
  */
 export async function whoAmI(req: FastifyRequest): Promise<Record<string, any>> {
   if (!req.session?.authenticated) {
@@ -79,23 +64,16 @@ export async function whoAmI(req: FastifyRequest): Promise<Record<string, any>> 
       iconPicker: profile.iconPicker
     }),
     /*
-      The same list the route permission hook checks against — written onto the session at login from
-      the groups the user belongs to. Nothing is added for the interface's benefit: a control it shows
-      on a permission the session does not hold leads to a button that gets a 403 from the endpoint
-      behind it.
+      The same list the route permission hook checks. Nothing is added for the interface's benefit: a
+      control shown on a permission the session does not hold gets a 403 from the endpoint behind it.
     */
     permissions: req.session.permissions ?? []
   }
 }
 
 /**
- * Refuse a `manage:users` holder any change to a user who is protected by `manage:system`.
- *
  * `manage:users` is deliberately short of the root: an administrator who can rename, re-group, reset
- * the password of, or delete a `manage:system` account can take the instance over through it. Only
- * somebody who already holds `manage:system` may touch one.
- *
- * @returns The refusal to throw, or null when the caller may proceed
+ * the password of, or delete a `manage:system` account can take the instance over through it.
  */
 async function systemUserGuard(req: FastifyRequest, userId: string): Promise<CustomError | null> {
   if (CARDINAL.models.groups.holdsSystemPermission(req)) {
@@ -112,16 +90,12 @@ async function systemUserGuard(req: FastifyRequest, userId: string): Promise<Cus
 }
 
 /**
- * User administration: the account list, the per-account CRUD an administrator performs on somebody
- * else's user, and the instance-wide defaults new accounts are created with. Every route here is
- * gated by `config.permissions` -- `read:users` / `manage:users` -- except `GET /whoami`, which
- * answers about the caller themselves.
+ * Every route here declares `config.permissions` except `GET /whoami`, which answers about the
+ * caller themselves.
  */
 async function routes(app: FastifyInstance) {
   app.get<{
-    // -> `page`/`limit` are non-optional: the querystring schema declares a `default` for each, and
-    //    fastify's AJV runs with `useDefaults`, so a missing param is filled in before the handler
-    //    sees it.
+    // -> Non-optional: the schema's `default` fills a missing `page`/`limit` ahead of the handler
     Querystring: { page: number; limit: number; filter?: string; assignableToGroupId?: string }
   }>(
     '/',
@@ -181,19 +155,14 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * RECENT LOGINS
-   */
-  // -> `limit` is non-optional: the querystring schema declares a `default` for it, and fastify's
-  //    AJV runs with `useDefaults`, so a missing param is filled in before the handler sees it.
+  // -> Non-optional: the schema's `default` fills a missing `limit` ahead of the handler
   app.get<{ Querystring: { limit: number } }>(
     '/recent-logins',
     {
       config: {
-        // -> `access:admin`, not `read:users`: this answers a panel on the admin dashboard, which
-        //    everyone who can open the admin area sees, and it is the same permission `system/info`
-        //    fills the rest of that dashboard with. It is why the answer is identity plus a timestamp
-        //    and nothing else -- the user list, and every account flag on it, still needs `read:users`.
+        // -> `access:admin`, not `read:users`: this fills a panel on the admin dashboard, which
+        //    everyone who can open the admin area sees. It is why the answer is identity plus a
+        //    timestamp and nothing else -- every account flag still needs `read:users`.
         permissions: ['access:admin']
       },
       schema: {
@@ -235,13 +204,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * FALLBACK ACCOUNTS REPORT
-   *
-   * Every migrated provider-fallback account still on `mustChangePwd`, with its original 2.x
-   * `providerKey` — replaces the raw SQL query `docs/migration/migration-runbook.md`'s Step 3 used
-   * to send an administrator to run by hand.
-   */
   app.get(
     '/fallback-accounts',
     {
@@ -322,11 +284,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET USER DEFAULTS
-   *
-   * Instance-wide, not per-site: stored as the `userDefaults` key of the settings table.
-   */
   app.get(
     '/defaults',
     {
@@ -352,9 +309,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE USER DEFAULTS
-   */
   app.put<{ Body: { timezone?: string; dateFormat?: string; timeFormat?: string } }>(
     '/defaults',
     {
@@ -468,9 +422,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE USER
-   */
   app.post<{
     Body: {
       name?: string
@@ -579,14 +530,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> Whatever the account will actually be called, resolved here so the refusal below and the
-      //    welcome email agree with what `createUser` is about to store. `deriveDisplayName` is the
-      //    ONE composer of a display name (`models/users.ts`), so this is not a second derivation --
-      //    an explicit `name` still wins, exactly as `resolveNameFields` treats it.
+      // -> Resolved here so the refusal below and the welcome email agree with what `createUser`
+      //    will store: an explicit `name` wins, as it does in `resolveNameFields`.
       const displayName =
         req.body.name ?? deriveDisplayName(req.body.firstName ?? '', req.body.lastName ?? '')
-      // -> A create carrying neither half nor a name would otherwise silently produce an account
-      //    called '', so the emptiness is refused with the same code an unusable name already used.
+      // -> Also refuses the empty name a create carrying neither half nor a `name` would produce
       if (!/^[^<>"]+$/.test(displayName)) {
         throw new CustomError('userCreateInvalidName', 'Invalid User Name')
       }
@@ -598,8 +546,7 @@ async function routes(app: FastifyInstance) {
       if (await CARDINAL.models.users.getByEmail(req.body.email.toLowerCase())) {
         throw new CustomError('userCreateDuplicateEmail', 'A user with this email already exists.')
       }
-      // -> Refuse up front, before the user is created, rather than creating it and only then
-      //    discovering there is nowhere to send the email from.
+      // -> Before the user is created: afterwards there is an account and nowhere to mail from
       if (req.body.sendWelcomeEmail && !CARDINAL.models.mail.isConfigured()) {
         throw new CustomError(
           'userCreateWelcomeEmailUnavailable',
@@ -645,8 +592,7 @@ async function routes(app: FastifyInstance) {
               userId: id
             })
           } catch (err: any) {
-            // -> The user already exists; a failed welcome email must not turn this into a failed
-            //    creation, same as `resetPassword`'s own sendPasswordResetConfirmed catch.
+            // -> The user already exists: a failed welcome email must not read as a failed creation
             CARDINAL.logger.warn('mail', 'sending the welcome email failed', {
               user: id,
               site: req.body.sendWelcomeEmailFromSiteId,
@@ -666,9 +612,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE USER
-   */
   app.put<{ Params: { userId: string }; Body: UserUpdateBody }>(
     '/:userId',
     {
@@ -787,10 +730,9 @@ async function routes(app: FastifyInstance) {
         throw systemUserRefusal
       }
 
-      // -> Collect only the fields actually provided
       const patch: UserPatch = {}
-      // -> The three name fields go through untouched: `updateUser` is the one owner of the
-      //    derive-unless-authored rule (Feature #2608) and decides what `name` ends up being.
+      // -> The three name fields go through untouched: `updateUser` owns the derive-unless-authored
+      //    rule and decides what `name` ends up being.
       for (const key of [
         'name',
         'firstName',
@@ -874,11 +816,8 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        // -> One transaction for the whole write sequence (OpenProject #1609): a failure partway
-        //    through used to leave an earlier write here already committed behind a bare 500. Session
-        //    clearing on deactivation/group-change (OpenProject #936) and outstanding-token purging on
-        //    deactivation (OpenProject #2094) are both folded into the same method -- see
-        //    `applyUserUpdate`'s own doc comment.
+        // -> One transaction for the whole write sequence -- session clearing and token purging on
+        //    deactivation included -- so a failure partway through leaves nothing committed.
         await CARDINAL.models.users.applyUserUpdate(req.params.userId, {
           patch,
           groups: req.body.groups,
@@ -911,9 +850,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SET USER PASSWORD
-   */
   app.put<{
     Params: { userId: string }
     Body: { newPassword: string; mustChangePassword?: boolean }
@@ -1000,9 +936,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST A USER'S PASSKEYS (ADMIN)
-   */
   app.get<{ Params: { userId: string } }>(
     '/:userId/passkeys',
     {
@@ -1055,9 +988,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REVOKE A USER'S PASSKEY (ADMIN)
-   */
   app.delete<{ Params: { userId: string; passkeyId: string } }>(
     '/:userId/passkeys/:passkeyId',
     {
@@ -1110,9 +1040,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * INVALIDATE A USER'S 2FA (ADMIN)
-   */
   app.post<{ Params: { userId: string }; Body: { strategyId: string } }>(
     '/:userId/tfa/invalidate',
     {
@@ -1326,8 +1253,7 @@ async function routes(app: FastifyInstance) {
 
       /*
         Not your own account, whatever permissions you hold: the request would end the session making
-        it, and an administrator who did it by accident has nothing left to undo it with. Another
-        administrator can — which is also the answer to an account that has to go and cannot ask.
+        it, and an administrator who did it by accident has nothing left to undo it with.
       */
       if (user.id === sessionUserIdOrNull(req)) {
         return reply.conflict('You cannot delete your own account. Another administrator can.')
@@ -1352,10 +1278,8 @@ async function routes(app: FastifyInstance) {
         })
         return reply.code(204).send()
       } catch (err: any) {
-        // -> Several tables reference users without a cascade, so a user who still has a row in one
-        //    of them cannot be removed. That is a conflict to report, not a server fault -- and
-        //    Postgres names the specific constraint that tripped, so the reply can name the specific
-        //    relation instead of guessing at "pages or assets".
+        // -> Several tables reference users without a cascade. A row left in one is a conflict to
+        //    report, not a server fault, and Postgres names the constraint that tripped.
         const pgErr = err.cause?.code ? err.cause : err
         if (pgErr.code === '23503') {
           const blocker = DELETE_USER_BLOCKING_RELATIONS[pgErr.constraint as string]

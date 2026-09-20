@@ -10,16 +10,6 @@ import EditorWysiwyg from './EditorWysiwyg.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/*
-  OpenProject #2449: the WYSIWYG editor already handles rich HTML paste via TipTap/ProseMirror's own
-  paste rules, but had no image-paste-to-asset-upload of its own -- unlike `EditorMarkdown.vue`, which
-  has had this since task 481 (OpenProject #806). These are the WYSIWYG-side proof that a pasted or
-  dropped file becomes a pending asset and a real document node, and that `reloadEditorContent`
-  rewrites the live document once the upload lands -- `helpers/editorFileTransfer.test.js` already
-  covers the shared `shouldClaimPaste`/`hasFiles`/`shouldAcceptDrag` decision logic itself, and
-  `stores/editor.test.js` covers `addPendingAsset`'s own naming rules.
-*/
-
 function mountEditor(initialContent) {
   setActivePinia(createPinia())
   const pageStore = usePageStore()
@@ -39,7 +29,6 @@ function makeFile(name, type = 'image/png') {
   return new File(['x'], name, { type })
 }
 
-/** The lone text node carrying a `link` mark, or `null` if nothing in the doc has one. */
 function findLinkTextNode(editor) {
   let found = null
   editor.state.doc.descendants((node) => {
@@ -50,7 +39,6 @@ function findLinkTextNode(editor) {
   return found
 }
 
-/** The lone `image` node in the document, or `null`. */
 function findImageNode(editor) {
   let found = null
   editor.state.doc.descendants((node) => {
@@ -63,10 +51,7 @@ function findImageNode(editor) {
 
 describe('EditorWysiwyg image-paste-to-asset-upload (OpenProject #2449)', () => {
   beforeEach(() => {
-    // -> `insertAssetClb`/paste both feed `editorStore.addPendingAsset`, which is process-global
-    //    Pinia state -- a fresh store per test (via `setActivePinia` in `mountEditor`) is not enough
-    //    on its own since a stray earlier mount's `pendingAssets` would otherwise leak, so this pass
-    //    is defensive even though each test already mounts its own store.
+    // -> Deliberately empty: `mountEditor` already installs a fresh pinia per test
   })
 
   describe('paste', () => {
@@ -83,8 +68,8 @@ describe('EditorWysiwyg image-paste-to-asset-upload (OpenProject #2449)', () => 
 
       expect(editorStore.pendingAssets).toHaveLength(1)
       const pending = editorStore.pendingAssets[0]
-      // -> `generateUniqueName` set on the paste call site: every browser hands a clipboard-pasted
-      //    file the literal name "image.png", so the minted name must not be that.
+      // -> Every browser names a clipboard-pasted file "image.png", so the paste call site mints a
+      //    unique one instead
       expect(pending.fileName).not.toBe('image.png')
 
       const imageNode = findImageNode(wrapper.vm.editor)
@@ -142,10 +127,8 @@ describe('EditorWysiwyg image-paste-to-asset-upload (OpenProject #2449)', () => 
     })
 
     it('claims a paste whose files list is empty but items carries the file (OpenProject #2518)', async () => {
-      // -> Cross-browser fallback scenario from OpenProject #2450: a browser can leave
-      //    `clipboardData.files` empty for a real pasted file while still populating `.items`.
-      //    `shouldClaimPaste` correctly detects and claims this paste via `pastedFiles()`'s `.items`
-      //    fallback -- this test proves the file is actually inserted, not silently dropped.
+      // -> Some browsers leave `clipboardData.files` empty for a real pasted file and populate
+      //    `.items` instead
       const { wrapper, editorStore } = mountEditor('<p></p>')
       await nextTick()
       await nextTick()
@@ -211,9 +194,8 @@ describe('EditorWysiwyg image-paste-to-asset-upload (OpenProject #2449)', () => 
       await nextTick()
 
       expect(editorStore.pendingAssets).toHaveLength(1)
-      // -> No `generateUniqueName` on the drop call site: unlike paste, a dropped file's name is real
-      //    user intent and must stay untouched (OpenProject #806 follow-up, mirrored from
-      //    `EditorMarkdown.vue`).
+      // -> No unique name minted on the drop path: unlike a paste, a dropped file's name is real
+      //    user intent
       expect(editorStore.pendingAssets[0].fileName).toBe('quarterly-report.pdf')
 
       const linked = findLinkTextNode(wrapper.vm.editor)
@@ -223,9 +205,8 @@ describe('EditorWysiwyg image-paste-to-asset-upload (OpenProject #2449)', () => 
     })
 
     it('claims a drop whose files list is empty but items carries the file (OpenProject #2518)', async () => {
-      // -> Same cross-browser fallback scenario as the paste test above, on the drop path:
-      //    `hasFiles` claims the drop via `pastedFiles()`'s `.items` fallback, and the actual insert
-      //    must go through the same helper rather than the raw (empty) `dataTransfer.files`.
+      // -> Same empty-`files`-but-populated-`items` browser behaviour as the paste case, on the
+      //    drop path
       const { wrapper, editorStore } = mountEditor('<p></p>')
       await nextTick()
       await nextTick()
@@ -349,8 +330,7 @@ describe('EditorWysiwyg image-paste-to-asset-upload (OpenProject #2449)', () => 
 
       wrapper.unmount()
 
-      // -> No assertion beyond "does not throw": the destroyed editor's `state`/`view` would throw if
-      //    the listener were still wired against a torn-down instance.
+      // -> A listener still wired to the destroyed editor would throw on its torn-down `state`/`view`
       expect(() =>
         EVENT_BUS.emit('reloadEditorContent', {
           replacements: [{ from: 'blob:x', to: '/x.png' }]

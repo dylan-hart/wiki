@@ -31,10 +31,6 @@
           :loading="state.loading > 0" />
       </div>
     </div>
-    <!--
-      Same list-beside-a-panel shape AdminAuth uses: a fixed-width list of providers and a panel that
-      takes what is left, wrapping onto its own row rather than squeezing into a 12-column grid.
-    -->
     <div class="flex flex-wrap p-4 gap-4">
       <div class="flex-none">
         <w-card class="rounded bg-dark">
@@ -79,9 +75,6 @@
             <w-toggle v-model="provider.isEnabled" :aria-label="t(`admin.analytics.enabled`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Configuration -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.analytics.providerConfiguration')">
           <w-card-section v-if="!provider.config || Object.keys(provider.config).length < 1">
             <w-banner :class="dark.isActive ? `bg-dark-4 text-grey-5` : `bg-grey-2 text-grey-7`">
@@ -89,21 +82,14 @@
             </w-banner>
           </w-card-section>
           <!--
-            Generic per-prop config form, shared with `AdminAuth.vue`, `AdminComments.vue`,
-            `AdminSearch.vue` and `AdminStorage.vue` -- see `ModuleConfigForm.vue`. `provider.config`
-            is the `buildConfigEditor()`-built editable structure, not the raw stored values;
-            mutating a field's `.value` there, which this component does in place, is what
-            `buildConfigPayload()` in `save()` below reads back.
+            The form mutates each field's `.value` inside `provider.config` in place, which is what
+            `buildConfigPayload()` reads back on save -- there is no model binding to carry it.
           -->
           <module-config-form v-if="provider.config" :config="provider.config" />
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Infobox -->
-        <!-- ----------------------- -->
         <w-card class="mt-4">
           <w-card-section class="text-center">
-            <!-- -> `mx-auto`: `text-center` on the section does nothing for a block-level image,
-                 which sat against the left edge of every card wider than its 300px cap -->
+            <!-- -> `mx-auto`: `text-center` on the section does not centre a block-level image -->
             <img
               class="w-full mx-auto object-contain rounded"
               :src="provider.logo"
@@ -135,21 +121,13 @@ import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.analytics.title')
 }))
-
-// DATA
 
 const { state, refresh, save } = useAdminSettings({
   i18nPrefix: 'admin.analytics',
@@ -177,7 +155,6 @@ const { state, refresh, save } = useAdminSettings({
       }
     })
     state.providers = providers
-    // -> Keep the current selection across a reload, falling back to the first provider
     state.selectedProvider = providers.some((prov) => prov.key === state.selectedProvider)
       ? state.selectedProvider
       : (providers[0]?.key ?? '')
@@ -194,8 +171,6 @@ const { state, refresh, save } = useAdminSettings({
   }
 })
 
-// COMPUTED
-
 const provider = computed(() => {
   return state.providers.find((prov) => prov.key === state.selectedProvider) ?? null
 })
@@ -203,17 +178,10 @@ const provider = computed(() => {
 
 <style scoped>
 /*
-  Provider logos aren't all square (Matomo's is a 341.82x58.32 wordmark) but the list renders them
-  through `w-icon`'s 1em-square box, which stretches a non-square `img:` source to fill it with no
-  `object-fit` of its own (see WIcon.vue). Scoped here rather than fixed in WIcon.vue: this is the
-  only `img:`-kind icon in the app rendering a raw external logo at icon size, so cropping to fill
-  the square (`cover`) beats distorting the wordmark, without changing every other `w-icon` use.
-
-  `object-position: left` alongside it: `cover`'s default center-crop lands on the middle of
-  Matomo's wordmark (its actual icon mark sits in roughly the left quarter of the image), showing
-  two unrecognizable letterforms instead of the mark. Anchoring to the left edge fixes Matomo and
-  is a no-op for Google Analytics and Google Tag Manager's logos, both already square (OpenProject
-  #855).
+  `w-icon` renders an `img:` source in a 1em-square box with no `object-fit` of its own, stretching
+  a non-square provider logo (Matomo's is a wordmark). Cropping to fill beats distorting it, and
+  `left` anchors the crop on the mark -- `cover`'s default centre crop lands mid-wordmark. Scoped
+  here rather than fixed in WIcon.vue: this is the only icon-sized raw external logo in the app.
 */
 .provider-logo-icon :deep(img) {
   object-fit: cover;

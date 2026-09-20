@@ -16,10 +16,9 @@ import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
- * Whether this suite may run at all, and — if so — the credentials to run it with. Mirrors
- * `test/db.ts#hasTestDatabase()`'s `DATABASE_URL` convention: a single `http://user:pass@host:port`
- * URL self-containing the target's root credentials, so there is exactly one thing to set to turn
- * this suite on.
+ * Mirrors `test/db.ts#hasTestDatabase()`'s `DATABASE_URL` convention: one
+ * `http://user:pass@host:port` URL carrying the credentials too, so there is exactly one thing to
+ * set to turn this suite on.
  */
 function s3TestConfig(): { endpoint: string; accessKeyId: string; secretAccessKey: string } | null {
   const raw = process.env.S3_TEST_ENDPOINT
@@ -35,23 +34,13 @@ function s3TestConfig(): { endpoint: string; accessKeyId: string; secretAccessKe
 const s3Test = s3TestConfig()
 
 /**
- * `storage.test.ts` mocks `S3Client.prototype.send` via `aws-sdk-client-mock`, which proves *which*
- * SDK commands this module issues with *which* parameters, but never actually serializes a request,
- * signs it, sends it over a socket, or parses a response — a typo in a parameter name or a wrong
- * signing region would type-check and pass that suite unchanged. This file instead runs the module's
- * real handlers against a real, container-backed MinIO instance (a genuine S3-compatible server:
- * bucket creation, PUT/GET/HEAD/COPY/DELETE object, real request signing) to prove the SDK wiring is
- * functional, not just type-correct — task 545's original requirement, now against a maintained
- * S3-compatible target instead of the archived, permanently audit-flagged `s3rver` (task 3153).
- *
- * Gated `{ skip: !s3Test }`, the same shape `hasTestDatabase()`-gated suites use: with
- * `S3_TEST_ENDPOINT` unset this `describe` reports skipped rather than failing — there is no
- * in-process fallback. `.github/workflows/quality.yml` (a `docker run` MinIO) and
- * `.devcontainer/docker-compose.yml` (a long-running `minio` service) both set it.
- *
- * The bucket name carries a random suffix per run and is torn down in `after()`, so repeated local
- * runs against the same long-lived devcontainer MinIO instance never collide — the same reasoning
- * `setupTestDb()` gives for a randomly-named schema per run.
+ * `storage.test.ts` mocks `S3Client.prototype.send`, which proves *which* SDK commands this module
+ * issues with *which* parameters but never serializes, signs or sends one — a typo in a parameter
+ * name or a wrong signing region type-checks and passes it unchanged. This file runs the real
+ * handlers against a container-backed MinIO instead, gated `{ skip: !s3Test }` the way
+ * `hasTestDatabase()` suites are: with `S3_TEST_ENDPOINT` unset it reports skipped rather than
+ * failing, and there is no in-process fallback. The bucket name carries a random suffix and is torn
+ * down in `after()`, so repeated runs against a long-lived devcontainer MinIO never collide.
  */
 describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s3Test }, () => {
   const bucket = `wiki-emulated-test-${crypto.randomBytes(4).toString('hex')}`
@@ -87,7 +76,7 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
     wikiHandle.restore()
   })
 
-  /** A fresh target per test: a real (never-yet-activated) client per id, pointed at MinIO. */
+  /** A fresh target id per test, so each one activates a real client rather than a cached one. */
   function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
     return makeStorageTarget('s3', {
       title: 'Emulated S3',
@@ -205,9 +194,8 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
   })
 
   test('an unreachable endpoint (e.g. revoked network access) surfaces as a readable Error, not a raw SDK exception', async () => {
-    // -> Port 1 is a privileged, never-listening port: connection is refused deterministically, the
-    //    same shape of failure a revoked-credentials or wrong-region misconfiguration produces —
-    //    ensureBucket's HeadBucket attempt fails, is not a 404, and is rethrown as a plain Error.
+    // -> Port 1 is privileged and never listening, so the connection is refused deterministically:
+    //    `ensureBucket`'s HeadBucket fails with something that is not a 404 and is rethrown.
     const target = makeTarget({ endpoint: 'http://127.0.0.1:1' })
 
     await assert.rejects(
@@ -222,8 +210,7 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
 
   test('an invalid bucket name surfaces as a readable Error, not a raw SDK exception', async () => {
     // -> An empty Bucket fails the SDK's own client-side parameter validation before any request is
-    //    sent — the "wrong bucket" half of task 545's broken-config requirement, deterministic and
-    //    independent of MinIO's own bucket-naming rules.
+    //    sent, so this stays independent of MinIO's own bucket-naming rules.
     const target = makeTarget({ bucket: '' })
 
     await assert.rejects(

@@ -1,43 +1,18 @@
 name: Release
 
-# The gated release channel — see docs/versioning.md, "Channel 2: real releases". Triggered ONLY by
-# a maintainer pushing a `vX.Y.Z[-PRERELEASE]` git tag, never by a push to `scarlett`, a merge, or a
-# green CI run on the continuous alpha channel (`build.yml`, left completely untouched by this
-# file). Every step below through the Docker publish is a hard, fail-closed gate: a GitHub Actions
-# job stops at the first failing step, so nothing after a failure runs, and in particular neither
-# the Docker push nor the GitHub Release creation happen on a red run.
+# The gated release channel: runs only when a maintainer pushes a `vX.Y.Z[-PRERELEASE]` tag. Every
+# step through the Docker publish is a fail-closed gate — a job stops at its first failing step, so
+# a red run neither pushes an image nor creates a GitHub Release.
 #
-# What this workflow deliberately does NOT check, and why that's not an oversight:
-#   - The backend/frontend/blocks/e2e test suites are not re-run here. `build.yml`'s `quality` job
-#     (`quality.yml`) runs the backend/frontend/blocks suites and its own `build` job runs the
-#     Playwright suite, both on every push to `scarlett` — re-running the full Postgres + Playwright
-#     suite a second time here would just be an expensive echo of a check that already happened, not
-#     an independent gate. What this workflow DOES check, as its first two steps (before any other
-#     gate below, `actions/checkout` aside), is that the tagged commit actually went through that
-#     pipeline on `scarlett` and came out green: "Verify tag is contained in scarlett" confirms
-#     `$GITHUB_SHA` is an ancestor of `origin/scarlett` (refusing a tag pushed against a release
-#     branch or any other commit that never reached `scarlett`), and "Verify build.yml succeeded for
-#     this commit" then runs `gh run list --workflow=build.yml --commit=$GITHUB_SHA
-#     --status=success` and fails the job closed if nothing comes back. Together they close the gap
-#     `docs/versioning.md` itself calls out — a tag pushed against a release branch, or against a
-#     `scarlett` commit whose push run was cancelled or skipped, used to publish a Docker image and
-#     GitHub Release having only run this file's own typecheck/lint/format checks below, with
-#     nothing to verify the tagged commit was ever built and tested at all. The chosen fix is this
-#     pair of existence-and-containment checks rather than re-invoking `quality.yml` via `uses:`
-#     here: it preserves the "don't run the same suite twice per commit" reasoning while turning the
-#     assumption into two enforced, fail-closed gates. Together they prove the tagged commit is on
-#     scarlett AND that a green `build.yml` run exists for it; neither re-reads which named steps
-#     passed within that run — docs/release-checklist.md item 2 is still the place a human confirms
-#     that level of detail.
-#   - Epic 13's migration tooling exercised against a real 2.5.x dataset. No CI runner has access to
-#     a real department's 2.5.x data, and faking it with a fixture would defeat the point of the
-#     check (docs/release-checklist.md, item 5, spells this out in full).
-# The migration sign-off above remains a manual sign-off step, performed by a named human and
-# recorded in the release PR description (docs/release-checklist.md, item 5) — it is NOT CI-enforceable
-# here and this workflow makes no attempt to assert it. A release manager who tags without having
-# actually done that manual step has skipped the checklist, not tripped a gate that would have
-# caught it; that remains a process/checklist enforcement problem for that one item, not something
-# this YAML file can fix.
+# Deliberately not checked here:
+#   - The backend/frontend/blocks/e2e suites are not re-run: `build.yml` already ran them for this
+#     commit on `scarlett`. The first two steps enforce that instead — the tag is contained in
+#     `scarlett`, and a successful `build.yml` run exists for the tagged commit. Neither re-reads
+#     which steps passed within that run; docs/audits/release-checklist.md item 2 is where a human
+#     confirms that.
+#   - The migration tooling against a real 2.5.x dataset. No CI runner has one, and a fixture would
+#     defeat the check, so it is NOT CI-enforceable here: it stays a manual sign-off by a named
+#     human, recorded in the release PR (docs/audits/release-checklist.md item 5).
 on:
   push:
     tags:
@@ -47,51 +22,34 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    # OpenProject #2736: no timeout here previously meant GitHub's silent 360-minute default was
-    # the only backstop against a wedged runner -- see quality.yml's own timeout-minutes comment
-    # for the incident that exposed this gap across every workflow in the repo. 45 minutes matches
-    # build.yml's `build` job (this job's own heaviest leg is the same QEMU-emulated multi-arch
-    # Docker build/push/attest), with headroom over the lighter typecheck/lint/format gate and
-    # archive/changelog steps around it.
+    # GitHub's default job timeout is 6 hours. 45 minutes matches build.yml's `build` job: the
+    # heaviest leg here is the same QEMU-emulated multi-arch Docker build.
     timeout-minutes: 45
     permissions:
       contents: write
       packages: write
       actions: read
-      # attestations: write + id-token: write are what let actions/attest-build-provenance below
-      # mint a Sigstore-signed provenance attestation via GitHub's OIDC token and publish it to the
-      # attestations API — neither Docker publish step needs them, only the attestation step does.
+      # Both for actions/attest-build-provenance only: it signs via GitHub's OIDC token and
+      # publishes to the attestations API.
       attestations: write
       id-token: write
 
-    # docker/login-action authenticates as github.repository_owner using the run's GITHUB_TOKEN,
-    # whose packages:write scope only covers that owner's packages -- so the pushed tags must live
-    # under this repo's own namespace, not a hard-coded one that may belong to someone else.
+    # GITHUB_TOKEN's packages:write covers only this repo owner's packages, so the pushed tags must
+    # live under this repo's own namespace, not a hard-coded one.
     env:
       IMAGE_NAMESPACE: ghcr.io/${{ github.repository }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history + tags: both the "previous release tag" lookup below and git-cliff's own
-          # changelog generation need to see every commit and every prior vX.Y.Z tag, not just the
-          # tag that was pushed.
+          # Full history + tags: the previous-release-tag lookup and git-cliff both need every
+          # commit and every prior vX.Y.Z tag.
           fetch-depth: 0
 
-      # --- Release-branch containment (fail closed, before anything else runs) ---------------
-      # This workflow's whole premise (see the file header) is that build.yml's quality/e2e suites
-      # already ran on this exact commit as part of a push to `scarlett` — but nothing enforced
-      # that a tag actually points at a commit that went through that pipeline until this step.
-      # RELEASING.md's runbook has the release manager tag directly off a local `scarlett`
-      # checkout (step 1: "the exact commit on `scarlett`"; step 4: `git tag` then `git push`), so
-      # a legitimate release tag's commit is always reachable from `scarlett`'s own history — an
-      # ancestor check is sufficient here. This is unrelated to squash-merge rewriting individual
-      # PR-branch commits when they land on `scarlett`: that only affects comparing a feature
-      # branch's own commits against `scarlett`, not a tag pushed against `scarlett`'s real tip.
-      # `fetch-depth: 0` above gives full history for the tag ref itself, but the `scarlett`
-      # remote-tracking ref still needs an explicit fetch. Runs as the very first step after
-      # checkout, ahead of the build.yml run-history guard below, so a tag that isn't even on
-      # scarlett never pays for a GitHub API call before failing closed.
+      # RELEASING.md has the release manager tag directly off `scarlett`, so an ancestor check is
+      # sufficient. `fetch-depth: 0` covers the tag ref only; the `scarlett` remote-tracking ref
+      # needs its own fetch. First after checkout, so an off-branch tag fails before the API call
+      # in the next step.
       - name: Verify tag is contained in scarlett
         run: |
           git fetch origin scarlett
@@ -100,12 +58,8 @@ jobs:
             exit 1
           fi
 
-      # --- Fail-closed guard: a build.yml run must exist for this exact commit ---------------
-      # See the header comment above for the full reasoning. This intentionally runs before
-      # anything else in the job but the scarlett-containment check above, so a tag pushed
-      # against a commit that never went through the continuous-alpha pipeline (a release
-      # branch, or a scarlett commit whose push run was cancelled/skipped) never reaches the
-      # quality gates, the Docker publish, or the GitHub Release below.
+      # Catches a scarlett commit whose push run was cancelled, skipped or red. Runs before every
+      # gate below.
       - name: Verify build.yml succeeded for this commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -133,14 +87,9 @@ jobs:
             frontend/package-lock.json
             blocks/package-lock.json
 
-      # --- Hard-required quality gates ------------------------------------------------------
-      # The same typecheck/lint/format/icon-drift checks task #423 wires into build.yml's
-      # push-to-scarlett job, duplicated here as this workflow's own independent gate rather than
-      # shared via `uses:`/`needs:` (which only works between jobs in the same workflow run): a
-      # release tag must never publish on a failure here even if the scarlett-push run for this
-      # exact commit is stale, was skipped, or #423 hasn't landed in build.yml at all yet. Every
-      # step in this section runs before the Docker login/build/push below on purpose — a failure
-      # anywhere in this section stops the job and nothing below it ever runs.
+      # From here to Format Check: quality.yml's typecheck/lint/drift/format checks, repeated as
+      # this workflow's own gate — calling quality.yml via `uses:` would re-run its test suites
+      # too. All of it runs before the Docker login/build/push on purpose.
       # ONNXRUNTIME_NODE_INSTALL=skip: no CUDA download from nuget.org on a GPU-less runner (see
       # quality.yml; enforced by backend/test/workflowInstallEnv.test.ts).
       - name: Install Backend Dependencies
@@ -161,9 +110,6 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      # See quality gate rationale in build.yml (task #423): both check scripts diff the committed
-      # generated bundle against what source + already-`npm ci`-installed data packages produce
-      # right now — a build-time literal-reference scan, no network call, safe on a cold runner.
       - name: Frontend Icons Check
         working-directory: frontend
         run: npm run icons:check
@@ -188,41 +134,20 @@ jobs:
         working-directory: blocks
         run: npx oxlint --deny-warnings
 
-      # Run from backend's own already-installed, version-pinned oxfmt rather than a bare
-      # `npx oxfmt`, which would resolve whatever `latest` happens to be at run time — see
-      # quality.yml's (task #423) own comment for the full reasoning. The root .oxfmtrc.json is
-      # picked up automatically since oxfmt searches upward from each target path.
+      # backend's installed, version-pinned oxfmt: a bare `npx oxfmt` would resolve whatever is
+      # latest at run time.
       - name: Format Check
         run: npx --prefix backend oxfmt --check backend frontend blocks
 
-      # --- Quarantine lane (report-only, on a release too) ------------------------------------
-      # OpenProject #2692 (Feature #2603, Epic #2600). Report-only here as well, and that is the
-      # decision rather than an oversight: Feature #2603's resolved scope says outright that "a lane
-      # that blocks releases is a blocking lane with extra steps and would recreate the trunk-red
-      # problem one gate later". So `continue-on-error: true` -- the one step in this workflow's
-      # otherwise entirely fail-closed gate section that deliberately does not stop the job.
-      #
-      # It sits at the END of that section, after Format Check, precisely so its exception cannot be
-      # misread as applying to anything above it. The script's own summary table and `::error::`
-      # annotations are what make a red lane on a release visible to the release manager, who has
-      # docs/release-checklist.md's manual items to work through on the same run page anyway.
-      #
-      # Covers backend/frontend/blocks, the three workspaces this workflow installs. It runs no e2e
-      # lane, for the same reason it runs no e2e suite: this workflow deliberately does not re-run
-      # what build.yml already ran for this exact commit (see the file header, and the two
-      # fail-closed guards that prove that run happened).
-      #
-      # One known limitation, stated rather than pre-solved: there is no postgres service in this
-      # job. Today's single lane member (backend/mcp/http.flaky.test.ts) needs no database, so the
-      # lane is accurate here. If a DB-backed test ever joins the lane, this step will report it red
-      # for a missing DATABASE_URL rather than for the test's own reason -- a visibly wrong
-      # report-only result, not a blocked release. Add the service container at that point, not
-      # speculatively now.
+      # Report-only on a release too: a quarantine lane that blocks releases is just a blocking
+      # lane. It is the one gate step that does not stop the job, placed last so the exception
+      # cannot be read as covering anything above it.
+      # This job has no postgres service: a DB-backed test joining the lane would report red for a
+      # missing DATABASE_URL. Add the service container when one does.
       - name: Quarantine Lane (report-only)
         continue-on-error: true
         run: ./scripts/ci-quarantine-lane.sh backend frontend blocks
 
-      # --- Version derivation, per docs/versioning.md "Docker tags on a release" -------------
       - name: Derive release version
         id: version
         run: |
@@ -236,8 +161,7 @@ jobs:
           fi
           echo "stable=$STABLE" >> "$GITHUB_OUTPUT"
 
-          # $IMAGE_NAMESPACE:<version> always; $IMAGE_NAMESPACE:latest only rewritten on a stable
-          # (non-prerelease) tag — an -rc.N/-alpha.N/-beta.N tag must never move :latest.
+          # A prerelease (-rc.N/-alpha.N/-beta.N) tag must never move :latest.
           {
             echo "tags<<TAGS_EOF"
             echo "$IMAGE_NAMESPACE:$VERSION"
@@ -269,21 +193,17 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Registers binfmt_misc handlers so Buildx (via its docker-container driver, set up next) can
-      # cross-build the linux/arm64 layer below through QEMU emulation on this amd64 runner — see
-      # OpenProject #2435/#2486. Must run before Buildx setup.
+      # Registers binfmt_misc handlers so Buildx can cross-build the linux/arm64 layer through QEMU
+      # on this amd64 runner. Must run before Buildx setup.
       - name: Set up QEMU
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      # OCI labels/annotations (OpenProject #3392). Only images: plus a handful of custom
-      # label overrides are passed -- source/revision/created/version/licenses are left to the
-      # action's own GitHub-context derivation rather than hardcoded, and this step is consumed
-      # only for its labels/annotations outputs: the shell-computed steps.version.outputs.tags
-      # below (":latest never moves on a prerelease") is left exactly as-is, not replaced by this
-      # action's own tag-generation logic.
+      # Consumed only for its labels/annotations outputs: the tags stay the shell-computed
+      # steps.version.outputs.tags, not this action's own tag generation. Labels not overridden
+      # here (source/revision/created/version/licenses) come from the action's GitHub context.
       - name: Docker image metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -306,19 +226,14 @@ jobs:
           tags: ${{ steps.version.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
-          # SLSA provenance (full/max mode: build definition + materials, not just the minimal
-          # BuildKit default) and an SPDX SBOM, both attached to the image manifest so a puller sees
-          # them without any extra step. The signed, verifiable attestation is the step below —
-          # this is what it has something to attest to.
+          # Max-mode SLSA provenance (build definition + materials, not BuildKit's minimal default)
+          # and an SPDX SBOM, attached to the image manifest. The signed attestation is the next
+          # step.
           provenance: mode=max
           sbom: true
 
-      # Sigstore-signs a provenance attestation over the digest just pushed (keyless, via the
-      # workflow's own GitHub OIDC token — see the job's `id-token`/`attestations` permissions
-      # above) and publishes it to the GHCR image's attestation list. Keyed on the bare repo name +
-      # digest rather than one specific tag: build-push-action pushed every tag in
-      # steps.version.outputs.tags (the version tag, and :latest on a stable release) from this one
-      # build, so they all resolve to the same digest and are all covered by one attestation.
+      # Keyless Sigstore attestation over the pushed digest. Keyed on repo name + digest rather than
+      # a tag: every tag from this build resolves to the same digest, so one attestation covers all.
       # Verify with: gh attestation verify oci://$IMAGE_NAMESPACE:<version> --owner ${{ github.repository_owner }}
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
@@ -327,12 +242,8 @@ jobs:
           subject-digest: ${{ steps.docker_build.outputs.digest }}
           push-to-registry: true
 
-      # --- Release archive + checksum ---------------------------------------------------------
-      # Same shape as build.yml's "Prepare build archive" step, duplicated here (not shared via
-      # `uses:`/`needs:`, which only works between jobs in the same workflow run) so the tagged
-      # release — not just the continuous alpha channel — gets a downloadable, offline-installable
-      # archive attached to its GitHub Release, checksummed so a downloader can verify it wasn't
-      # corrupted or tampered with in transit.
+      # Mirrors build.yml's "Prepare build archive" step — keep in sync — so a tagged release also
+      # gets an offline-installable archive.
       - name: Prepare release archive
         run: |
           mkdir -p _dist/blocks
@@ -349,15 +260,11 @@ jobs:
       - name: Checksum release archive
         run: sha256sum wiki-js.tar.gz > wiki-js.tar.gz.sha256
 
-      # --- Changelog + GitHub Release ---------------------------------------------------------
       - name: Determine previous release tag
         id: prev_tag
         run: |
-          # Newest vX.Y.Z(-prerelease) tag other than the one just pushed, so the changelog covers
-          # exactly the range since the last release — matches docs/versioning.md's "Generating a
-          # changelog" section. When there is no previous tag (this is the first release), leave
-          # `spec` empty: git-cliff then walks the whole history up to this tag, the same "no last
-          # release" behavior that document describes for `--unreleased` today.
+          # With no previous tag (the first release) `spec` stays empty, and git-cliff walks the
+          # whole history up to this tag.
           PREV_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -v -x "$GITHUB_REF_NAME" | head -n1)"
           if [ -n "$PREV_TAG" ]; then
             echo "spec=${PREV_TAG}..${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
@@ -365,9 +272,6 @@ jobs:
             echo "spec=" >> "$GITHUB_OUTPUT"
           fi
 
-      # cliff.toml (task #774) groups commits into Features/Bug Fixes/Refactors/Chores. Runs
-      # against exactly the commit range determined above via the repo-root config, matching
-      # `git-cliff --config cliff.toml <range>` from docs/versioning.md.
       - name: Generate changelog
         id: changelog
         uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0

@@ -2,10 +2,8 @@ import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
-   * NAVIGATION ITEM - Shared rather than inlined per route so `children` can `$ref` itself: a
-   * plain object literal has no way to nest arbitrarily deep, which silently truncated a menu to
-   * two levels regardless of what the tree walk or the stored items actually held (OpenProject
-   * #814 follow-up).
+   * Shared rather than inlined per route so `children` can `$ref` itself: an inline literal cannot
+   * nest arbitrarily deep, and the levels it omits are silently dropped from the response.
    */
   app.addSchema({
     $id: 'NavigationItem',

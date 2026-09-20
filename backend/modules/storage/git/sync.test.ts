@@ -1,13 +1,8 @@
 /**
- * Tests for the two-way `sync` action: fetch/pull-rebase, push, and reverse-mirroring the remote
- * side's changes into the DB.
- *
- * Same approach as `storage.test.ts`/`content.test.ts`: real `git` binaries via `simple-git` against
- * throwaway temp directories — a bare repo standing in for "origin", and two working copies of it (one
- * playing this target's own local repo, one playing an outside collaborator pushing directly to
- * origin) — plus a minimal `CARDINAL` stub. Nothing here needs Postgres: what's under test is which
- * `CARDINAL.models.pages`/`CARDINAL.models.assets` call `sync()` decides to make for a given remote change,
- * which a stub records precisely and a real DB would only obscure behind more setup.
+ * Real `git` binaries via `simple-git` against throwaway temp directories: a bare repo standing in
+ * for "origin", one working copy playing this target's own local repo and one playing an outside
+ * collaborator. No Postgres — what is under test is which `CARDINAL.models.*` call `sync()` decides to
+ * make for a given remote change, which a stub records precisely and a real DB would only obscure.
  */
 import { describe, test, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
@@ -30,7 +25,6 @@ async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix))
 }
 
-/** Installs a `CARDINAL` stub. Model calls are recorded on the returned `calls` object. */
 function installWiki(
   rootPath: string,
   {
@@ -157,15 +151,13 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
 }
 
 /**
- * Git-config environment overrides for one fixture repo's own `git` invocations, injected as
+ * Git-config overrides for one fixture repo's own `git` invocations, injected as
  * `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` rather than written to any config file
  * something else could read. Git applies these with `-c` precedence, so they beat the developer's
- * own `~/.gitconfig` — which is what lets a test stand this machine's git up as a differently
- * configured CI runner's without touching anything outside the child process.
+ * own `~/.gitconfig` without touching anything outside the child process.
  */
 type GitConfigEnv = Record<string, string>
 
-/** `GitConfigEnv` forcing the ambient `git init` default branch (what `init()` picks with no flag). */
 function ambientInitBranchEnv(branch: string): GitConfigEnv {
   return {
     GIT_CONFIG_COUNT: '1',
@@ -175,22 +167,13 @@ function ambientInitBranchEnv(branch: string): GitConfigEnv {
 }
 
 /**
- * The only ambient variables a fixture `git` child is handed, on top of the stated overrides.
- *
- * An ALLOWLIST rather than a deny list, and that is the whole point. simple-git inspects the env it
- * is given and refuses a whole vocabulary of variables outright — not just the `GIT_*` ones, but
- * `EDITOR`, `PAGER`, `PREFIX` and `SSH_ASKPASS` too (`@simple-git/argv-parser`'s env vulnerability
- * table), each throwing `Use of "X" is not permitted without enabling allowUnsafeX` before git even
- * runs. A stock GitHub Actions runner exports `EDITOR`, which is exactly how a deny list of
- * `GIT_*` alone passed locally and failed on CI. Naming what git needs means a variable added to
- * that refusal table later cannot break this suite at all.
- *
- * `PATH` is the load-bearing one: without it git would survive only on `execvp`'s built-in
- * `/usr/bin:/bin` fallback, which is precisely the kind of ambient-environment dependency this
- * suite is being hardened against. The rest are the platform's own plumbing (`HOME` and the
- * Windows quartet for config/temp lookup, `TMPDIR` for git's scratch files, the locale pair so
- * porcelain output stays parseable). Author identity is not among them — every fixture repo sets
- * `user.name`/`user.email` explicitly.
+ * An ALLOWLIST, not a deny list: simple-git refuses a whole vocabulary of variables outright — not
+ * only the `GIT_*` ones but `EDITOR`, `PAGER`, `PREFIX` and `SSH_ASKPASS` too — throwing
+ * `Use of "X" is not permitted without enabling allowUnsafeX` before git even runs, and a stock
+ * GitHub Actions runner exports `EDITOR`. Naming what git needs means a variable added to that
+ * refusal table later cannot break this suite. `PATH` is the load-bearing entry: without it git
+ * survives only on `execvp`'s `/usr/bin:/bin` fallback. No author identity is inherited — every
+ * fixture repo sets `user.name`/`user.email` explicitly.
  */
 const AMBIENT_ENV_KEYS = [
   'PATH',
@@ -207,17 +190,11 @@ const AMBIENT_ENV_KEYS = [
 ] as const
 
 /**
- * A `simpleGit()` instance for a fixture repo, optionally under git-config environment overrides.
- *
- * `.env()` REPLACES the spawned child's whole environment rather than merging into it (simple-git
- * assigns the object straight onto its executor), so `AMBIENT_ENV_KEYS` is laid back underneath the
- * overrides — see that constant for why it is an allowlist and not a `GIT_*` filter.
- *
- * Dropping every ambient `GIT_*` variable falls out of the same allowlist, and is wanted on its own
- * account: this fixture models a *stated* git environment rather than inheriting the developer's,
- * so a `GIT_DIR` or `GIT_CONFIG_COUNT` already in the shell cannot silently fight the overrides.
- * `allowUnsafeConfigEnvCount` is simple-git's opt-in for passing `GIT_CONFIG_COUNT` at all; the
- * values here are literals in this file, never request input.
+ * `.env()` REPLACES the spawned child's whole environment rather than merging into it, so
+ * `AMBIENT_ENV_KEYS` is laid back underneath the overrides. Dropping every ambient `GIT_*` falls out
+ * of that and is wanted anyway: a `GIT_DIR` or `GIT_CONFIG_COUNT` already in the developer's shell
+ * cannot then fight the overrides. `allowUnsafeConfigEnvCount` is simple-git's opt-in for passing
+ * `GIT_CONFIG_COUNT` at all; the values here are literals in this file, never request input.
  */
 function fixtureGit(repoPath: string, env?: GitConfigEnv): ReturnType<typeof simpleGit> {
   if (!env) {
@@ -237,31 +214,21 @@ function fixtureGit(repoPath: string, env?: GitConfigEnv): ReturnType<typeof sim
 }
 
 /**
- * A bare repo standing in for "origin", plus a working copy already pushed to it (`seedPath`).
- *
  * `env` exists for this file's own fixture regression tests, which re-run this helper against a
  * hostile ambient `init.defaultBranch`; every real test leaves it unset.
  */
 async function makeOrigin(env?: GitConfigEnv): Promise<{ originPath: string; seedPath: string }> {
   const originPath = await makeTempDir('wiki-git-sync-origin-')
-  // -> OpenProject #2586 follow-up: the bare origin's own advertised HEAD (what `git clone`
-  //    checks out by default) also defers to the ambient default absent `--initial-branch`, same
-  //    as the seed below — and it is what `makePeer()`'s plain `clone(originPath, '.')` follows.
-  //    Left unset, `origin`'s HEAD points at a branch (e.g. `master`) that never actually gets
-  //    created (only `main` ever does, via the seed's push below), so a peer clone lands on an
-  //    unborn, wrong-named local branch — exactly the "src refspec main does not match any" this
-  //    suite kept failing with on CI, where the ambient default isn't `main`.
+  // -> The bare origin's advertised HEAD is what `makePeer()`'s plain `clone()` follows. Left to
+  //    the ambient default it names a branch that never gets created (only the seed's push below
+  //    creates one), so a peer clone lands on an unborn, wrong-named local branch.
   await fixtureGit(originPath, env).init(true, ['--initial-branch=main'])
 
   const seedPath = await makeTempDir('wiki-git-sync-seed-')
   const seed = fixtureGit(seedPath, env)
-  // -> OpenProject #2586: this suite always pushes/pulls a branch literally named `main` — a
-  //    bare `init()` instead defers to the git binary's own compiled-in default (still `master`
-  //    absent an `init.defaultBranch` override), which is not guaranteed to match across
-  //    machines/CI images. Naming it explicitly here is what makes every later
-  //    `push('origin', 'main')` / `pull('origin', 'main')` in this file environment-independent,
-  //    the same way `repo.ts#ensureBranch` already pins an unborn HEAD rather than trusting the
-  //    ambient default.
+  // -> Every later `push`/`pull` in this file names `main` literally, while a bare `init()` defers
+  //    to the binary's compiled-in default, which is not guaranteed to match across machines or CI
+  //    images. Naming it here is what makes those calls environment-independent.
   await seed.init(false, ['--initial-branch=main'])
   await seed.addConfig('user.name', 'Seed')
   await seed.addConfig('user.email', 'seed@example.com')
@@ -274,12 +241,6 @@ async function makeOrigin(env?: GitConfigEnv): Promise<{ originPath: string; see
   return { originPath, seedPath }
 }
 
-/**
- * A second working copy of `originPath`, standing in for an outside collaborator.
- *
- * `env` is the same fixture-regression escape hatch `makeOrigin()` takes, and is unset everywhere
- * except those tests.
- */
 async function makePeer(
   originPath: string,
   env?: GitConfigEnv
@@ -292,23 +253,17 @@ async function makePeer(
   return { peerPath, peer }
 }
 
-/** The branch HEAD points at, including an unborn one — `branchLocal()` cannot answer that. */
+/** `symbolic-ref` because it answers for an unborn branch too, which `branchLocal()` cannot. */
 async function headBranch(git: ReturnType<typeof simpleGit>): Promise<string> {
   return (await git.raw(['symbolic-ref', '--short', 'HEAD'])).trim()
 }
 
 /**
- * OpenProject #2586. Every one of the `git storage: sync` subtests below failed on CI because these
- * two fixture helpers assumed the branch a bare `git init` produces is named `main` — true on a
- * machine with `init.defaultBranch=main` configured, not true of git's own compiled-in default, and
- * so not true of a stock CI runner. Both halves are now pinned explicitly, and these tests are what
- * hold them pinned.
- *
- * They deliberately drive the REAL `makeOrigin()`/`makePeer()` rather than an inline copy of their
- * bodies: the first attempt at this guard was such a copy, which is exactly why the bare origin's
- * own HEAD stayed broken (and CI stayed red) with a green "#2586 regression test" sitting beside
- * it — the copy had drifted from the helper it was supposed to be protecting before it was even
- * committed.
+ * Guards both fixture helpers against assuming the branch a bare `git init` produces is named
+ * `main`, which is a property of the machine's config rather than of git. They drive the REAL
+ * `makeOrigin()`/`makePeer()` rather than an inline copy of their bodies: the first attempt at this
+ * guard was such a copy, and it drifted from the helpers it was protecting and sat green beside a
+ * red CI.
  */
 describe('git storage: sync test fixtures', () => {
   // -> Not `master`: a name neither git nor this repo would ever pick by accident, so a passing
@@ -316,10 +271,8 @@ describe('git storage: sync test fixtures', () => {
   const hostileEnv = ambientInitBranchEnv('trunk')
 
   test('the hostile-default control: git really does honor the injected init.defaultBranch', async () => {
-    // -> Precondition for every assertion in this describe. If the env injection silently stopped
-    //    applying (a simple-git change to `.env()`, a git change to `GIT_CONFIG_*` precedence), the
-    //    tests below would keep passing while testing nothing at all — this is what turns that into
-    //    a visible failure rather than a vacuous green.
+    // -> Precondition for every assertion in this describe: if the env injection silently stopped
+    //    applying, the tests below would keep passing while testing nothing at all.
     const controlPath = await makeTempDir('wiki-git-sync-control-')
     await fixtureGit(controlPath, hostileEnv).init()
     assert.equal(await headBranch(fixtureGit(controlPath, hostileEnv)), 'trunk')
@@ -333,12 +286,11 @@ describe('git storage: sync test fixtures', () => {
   test("makeOrigin() pins the bare origin's advertised HEAD to `main`, and the seed push really lands there", async () => {
     const { originPath } = await makeOrigin(hostileEnv)
     const origin = fixtureGit(originPath, hostileEnv)
-    // -> The advertised HEAD is what a plain `git clone` of this path checks out. Pointing it at a
-    //    branch the seed never creates is what left `makePeer()` on an unborn local branch.
+    // -> The advertised HEAD is what a plain `git clone` of this path checks out.
     assert.equal(await headBranch(origin), 'main')
-    // -> ...and `main` must be a branch that actually exists here, not just the one HEAD names:
+    // -> ...and `main` must be a branch that actually exists, not just the one HEAD names:
     //    `seed.push('origin', 'main')` is the only thing that ever creates a ref in this repo, so
-    //    this is also the assertion that the push in `makeOrigin()` did not silently fail.
+    //    this also asserts that push did not silently fail.
     assert.deepEqual((await origin.branchLocal()).all, ['main'])
   })
 
@@ -347,8 +299,7 @@ describe('git storage: sync test fixtures', () => {
     const { peer } = await makePeer(originPath, hostileEnv)
     assert.equal(await headBranch(peer), 'main')
     // -> A clone that followed a wrong-named advertised HEAD still "succeeds", just with an unborn
-    //    branch and an empty working copy — so the checked-out commit is the real proof, not the
-    //    branch name alone.
+    //    branch and an empty working copy, so the checked-out commit is the real proof.
     assert.equal((await peer.log()).latest?.message, 'initial')
   })
 })
@@ -421,9 +372,8 @@ describe('git storage: sync', () => {
 
   test('pulls a page a peer created and creates it in the DB', async () => {
     installWiki(localPath, { pages: [] })
-    // -> Establish the local clone/branch and its origin wiring, with at least one commit already
-    //    pulled — `sync()` deliberately treats a repo with no prior local commits as a job for the
-    //    separate "Import Everything" action rather than something it infers on its own.
+    // -> At least one commit must already be pulled: `sync()` deliberately leaves a repo with no
+    //    prior local commits to the separate `importAll` action.
     const { git: localGit } = await ensureRepo(target)
     await localGit.pull('origin', 'main')
 
@@ -454,7 +404,6 @@ describe('git storage: sync', () => {
       pages: [{ id: 'p1', path: 'welcome', locale: PRIMARY_LOCALE, contentType: 'markdown' }]
     })
     const { git: localGit } = await ensureRepo(target)
-    // -> Local is caught up to the file as it stood before the update under test.
     await localGit.pull('origin', 'main')
 
     await fs.writeFile(path.join(peerPath, 'welcome.md'), 'v2 content')
@@ -483,7 +432,6 @@ describe('git storage: sync', () => {
       pages: [{ id: 'p1', path: 'old-name', locale: PRIMARY_LOCALE, contentType: 'markdown' }]
     })
     await ensureRepo(target)
-    // -> Bring the local repo up to date with the peer's first commit before the rename.
     const localGit = simpleGit(target.config.localRepoPath)
     await localGit.pull('origin', 'main')
 
@@ -518,8 +466,8 @@ describe('git storage: sync', () => {
     const localGit = simpleGit(target.config.localRepoPath)
     await localGit.pull('origin', 'main')
 
-    // -> The whole point: the path within the locale is unchanged, only the locale directory moves,
-    //    so a move that carried the path alone would be a no-op that silently left the page in `fr`
+    // -> The path within the locale is unchanged and only the locale directory moves, so a move
+    //    carrying the path alone would be a no-op that silently left the page in `fr`.
     await peer.mv('fr/guide.md', 'guide.md')
     await peer.commit('docs: translate guide into the primary locale')
     await peer.push('origin', 'main')
@@ -559,9 +507,8 @@ describe('git storage: sync', () => {
       await localGit.pull('origin', 'main')
 
       // -> A directory rename, not two individual file renames: git has no first-class notion of a
-      //    folder move, so this is what actually produces the `dir/{old => new}/rest` diff shape
-      //    `parseRenamedPaths` exists to parse — verified directly against a real git diff before
-      //    writing this test, not assumed.
+      //    folder move, so this is what produces the `dir/{old => new}/rest` diff shape
+      //    `parseRenamedPaths` exists to parse.
       await peer.mv('docs/guide', 'docs/handbook')
       await peer.commit('docs: rename guide to handbook')
       await peer.push('origin', 'main')
@@ -614,7 +561,6 @@ describe('git storage: sync', () => {
   })
 
   describe('mass-delete safety guard (OpenProject #2429)', () => {
-    /** Ten pages, seeded into the peer repo and pushed, matching the `pages` given for the DB. */
     async function seedTenPages(peer: ReturnType<typeof simpleGit>, peerPath: string) {
       const pages = Array.from({ length: 10 }, (_, i) => ({
         id: `p${i + 1}`,
@@ -640,8 +586,8 @@ describe('git storage: sync', () => {
       const localGit = simpleGit(target.config.localRepoPath)
       await localGit.pull('origin', 'main')
 
-      // -> 6 of 10 deleted (60%, above the 50% default) in the same commit as an unrelated new page —
-      //    the new page must still land even though the deletions are held back.
+      // -> 6 of 10 deleted (60%, above the 50% default) in the same commit as an unrelated new
+      //    page, which must still land even though the deletions are held back.
       const toDelete = pages.slice(0, 6).map((p) => `${p.path}.md`)
       await peer.rm(toDelete)
       await fs.writeFile(path.join(peerPath, 'unrelated.md'), 'a normal, unrelated change')
@@ -822,9 +768,8 @@ describe('git storage: sync', () => {
         }
       )
 
-      // -> Exactly one surviving row: the old one deleted, a fresh one uploaded at the new path —
-      //    never a rename-in-place (which would silently drop the new bytes) and never both an
-      //    orphaned old row AND a fresh one.
+      // -> Exactly one surviving row: never a rename-in-place, which would silently drop the new
+      //    bytes, and never both an orphaned old row AND a fresh one.
       assert.deepEqual(
         calls.deleteAsset.map((c: any) => c.id),
         ['a1']
@@ -885,7 +830,6 @@ describe('git storage: sync', () => {
     assert.ok(log.all.some((entry) => entry.message === 'docs: create mine'))
   })
 
-  // -> OpenProject #925: sync.mode must be respected, not always run the full two-way sequence.
   test('a push-only target never pulls remote content — its push rejects rather than silently rebasing first', async () => {
     installWiki(localPath, { pages: [] })
     const { git, repoPath } = await ensureRepo(target)
@@ -894,10 +838,9 @@ describe('git storage: sync', () => {
     await git.add('mine.md')
     await git.commit('docs: create mine')
 
-    // -> The remote diverges after local's last pull, exactly the shape "a rebase conflict rejects"
-    //    below exercises for two-way mode. A two-way (or pull-capable) sync would rebase onto this
-    //    first and the push would then succeed; a push-only sync must not — proven here by the raw
-    //    git push itself rejecting as non-fast-forward, since nothing rebased it onto the new tip.
+    // -> The remote diverges after local's last pull. A pull-capable sync would rebase onto this
+    //    first and the push would then succeed; a push-only one must not, which the raw git push
+    //    rejecting as non-fast-forward is what proves.
     const { peer, peerPath } = await makePeer(originPath)
     await fs.writeFile(path.join(peerPath, 'welcome.md'), '# Hello there')
     await peer.add('welcome.md')
@@ -907,7 +850,6 @@ describe('git storage: sync', () => {
     const calls = installWiki(localPath, { pages: [] })
     await assert.rejects(sync({ ...target, sync: { ...target.sync, mode: 'push' } }))
 
-    // -> Rejected before ever reaching the DB-import step, and the peer's file was never pulled down
     assert.equal(calls.createPage.length, 0)
     await assert.rejects(fs.access(path.join(repoPath, 'welcome.md')))
     void peerPath
@@ -930,10 +872,8 @@ describe('git storage: sync', () => {
     const calls = installWiki(localPath, { pages: [] })
     await sync({ ...target, sync: { ...target.sync, mode: 'pull' } })
 
-    // -> Pulled and DB-imported the peer's change...
     assert.equal(calls.createPage.length, 1)
     assert.equal(calls.createPage[0].input.path, 'welcome')
-    // -> ...but never pushed the local one
     const log = await peer.log()
     assert.ok(!log.all.some((entry) => entry.message === 'docs: create mine'))
     void peerPath
@@ -949,12 +889,12 @@ describe('git storage: sync', () => {
     installWiki(localPath, { pages: [] })
     const { git, repoPath } = await ensureRepo(target)
     await git.pull('origin', 'main')
-    // -> An unpushed local change to the same file...
     await fs.writeFile(path.join(repoPath, 'shared.md'), 'local edit')
     await git.add('shared.md')
     await git.commit('docs: local edit')
 
-    // -> ...while the peer changes the same line a different way and gets there first.
+    // -> The peer changes the same line a different way and gets to origin first, which is what
+    //    makes the rebase conflict.
     await fs.writeFile(path.join(peerPath, 'shared.md'), 'peer edit')
     await peer.add('shared.md')
     await peer.commit('docs: peer edit')

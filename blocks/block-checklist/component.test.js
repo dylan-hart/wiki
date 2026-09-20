@@ -8,13 +8,9 @@ import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID as SITE_ID } fro
 const PAGE_ID = 'page-1'
 
 /**
- * Appends a `<block-checklist>` carrying `items` as its light-DOM content, one `<li>` per item — the
- * shape MDC leaves behind for a plain markdown bullet list nested inside `::block-checklist` (see the
- * component's own header comment). Waits for the load this block always kicks off on connect.
- *
- * `settle: 2`: `_load()`'s fetches are awaited but not blocking connectedCallback itself, and chain
- * several hops deep (site -> page-by-hash -> latest execution). Each macrotask turn drains every
- * microtask queued in between, however many hops there are.
+ * The `<ul>`/`<li>` body is the shape MDC leaves behind for a markdown bullet list nested inside
+ * `::block-checklist`. `settle: 2` covers `_load()`'s chained fetches (site -> page-by-hash ->
+ * latest execution); each macrotask turn drains the microtasks queued in between.
  */
 const mountChecklist = ({
   runKey = 'shift-open',
@@ -47,11 +43,8 @@ function stubExecution(overrides = {}) {
 }
 
 /**
- * Stubs `fetch` for the whole chain this block now drives instead of `WIKI_STATE`/`API_CLIENT`:
- * site id + page id + this reader's page permissions (`../shared/site.js`'s `getCurrentPageAccess`),
- * then the checklist routes themselves. `latest`/`history`/`postResult` are each read fresh per call,
- * so a test can reassign them after mounting (matching the old suite's `API_CLIENT.get = vi.fn(...)`
- * re-stubbing style) without having to rebuild the whole mock.
+ * `latest`/`history`/`postResult` are read fresh off `state` per call, so a test can reassign them
+ * after mounting without rebuilding the whole mock.
  */
 function stubFetch({
   permissions = ['write:pages'],
@@ -64,7 +57,7 @@ function stubFetch({
     site: { locales: null },
     onRequest: async (url, init) => {
       if (!url.includes('/checklist/')) {
-        // -> The page-by-hash lookup `getCurrentPageAccess` makes to resolve pageId + viewer.permissions
+        // -> `getCurrentPageAccess`'s page-by-hash lookup, for pageId + viewer.permissions
         return {
           ok: true,
           json: async () => ({ id: PAGE_ID, viewer: { permissions: state.permissions } })
@@ -85,7 +78,6 @@ function stubFetch({
   return { fetchMock, state }
 }
 
-/** Just the checklist-route calls, in call order -- excludes the site/page lookups underneath. */
 function checklistCalls(fetchMock) {
   return fetchMock.mock.calls.map(([url]) => url).filter((url) => url.includes('/checklist/'))
 }
@@ -147,7 +139,6 @@ describe('block-checklist', () => {
 
     const boxes = el.shadowRoot.querySelectorAll('input[type="checkbox"]')
     expect(boxes[0].checked).toBe(true)
-    // -> An already-checked item cannot be checked again
     expect(boxes[0].disabled).toBe(true)
     expect(boxes[1].checked).toBe(false)
     expect(boxes[1].disabled).toBe(false)
@@ -242,7 +233,6 @@ describe('block-checklist', () => {
       expect(row.textContent).toContain('Bob')
       expect(row.textContent).toContain('2 of 2 checked')
 
-      // -> Closing and reopening must not fetch a second time
       el.shadowRoot.querySelector('.history-toggle').click()
       await el.updateComplete
       el.shadowRoot.querySelector('.history-toggle').click()

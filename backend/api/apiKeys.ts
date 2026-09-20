@@ -3,13 +3,7 @@ import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance } from 'fastify'
 import type { KeyExpiration } from '../models/apiKeys.ts'
 
-/**
- * API Keys Routes
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST API KEYS
-   */
   app.get(
     '/',
     {
@@ -37,9 +31,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE API KEY
-   */
   app.post<{
     Body: {
       name: string
@@ -135,18 +126,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> Bearer-token callers never mint keys, admin-issued or personal: `manage:system` on a key
-      //    stands in for a session at the route-permission hook (`index.ts`), but none of `groups`,
-      //    `scope`, `allowedClassifications` or `siteId` below is intersected against the calling
-      //    key's own restrictions, so a site-pinned, classification-restricted PAT could otherwise
-      //    mint itself an unrestricted key with a full expiry term. Session-only, matching what
-      //    `api/users/profile.ts`'s `sessionUserId()` already enforces for the self-service PAT routes.
+      // -> Session-only: none of `groups`, `scope`, `allowedClassifications` or `siteId` below is
+      //    intersected with the calling key's own restrictions, so a restricted key holding
+      //    `manage:system` could otherwise mint itself an unrestricted one.
       if (req.apiKey) {
         return reply.forbidden('API keys cannot be created using another API key.')
       }
-      // -> The `siteId` this validates is a body field pinning the KEY BEING CREATED, not the
-      //    caller's own site -- no `enforceApiKeySite()` call; this route is `manage:system`-only,
-      //    see `helpers/apiKeySite.ts`'s doc comment for why that rules it out.
       const invalid = validateApiKeyInput(req.body, 'Key')
       if (invalid) {
         return reply.badRequest(invalid)
@@ -187,9 +172,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REVOKE API KEY
-   */
   app.post<{ Params: { keyId: string } }>(
     '/:keyId/revoke',
     {
@@ -232,7 +214,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> Same rule as creation above: a bearer-token caller cannot revoke a key, including itself.
+      // -> Session-only, as for creation: a key cannot revoke a key, itself included.
       if (req.apiKey) {
         return reply.forbidden('API keys cannot be revoked using another API key.')
       }

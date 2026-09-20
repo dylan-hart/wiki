@@ -15,19 +15,6 @@ import { installTestWiki } from '../test/mocks.ts'
 let wikiHandle: { restore(): void }
 
 describe('GET /_site/current/<resource> — hostname resolution', () => {
-  /**
-   * Regression / verification coverage for `GET /_site/current/<resource>` (task 745, part 2), the
-   * asset-serving counterpart of `GET /_api/sites/:siteIdorHostname`'s `strict` fix
-   * (`api/sites.test.ts`). Both routes resolve a site the same way — `CARDINAL.models.sites
-   * .getSiteByHostname({ hostname: req.hostname })` — so this suite proves that mechanism actually
-   * picks the right site per-request across multiple hostnames, not just that the model function is
-   * correct in isolation.
-   *
-   * `CARDINAL.models.sites.getSiteByHostname`/`getAsset` are stubbed to reproduce the real model's
-   * exact/wildcard semantics (`models/sites.ts`) rather than pulling in the db/schema/drizzle graph —
-   * same approach as `api/sites.test.ts`.
-   */
-
   const SITE_A = { id: 'site-a', hostname: 'sitea.example.com', config: { assets: { logo: true } } }
   const SITE_B = { id: 'site-b', hostname: 'siteb.example.com', config: { assets: { logo: true } } }
   const SITE_WILDCARD = { id: 'site-wildcard', hostname: '*', config: { assets: { logo: true } } }
@@ -51,8 +38,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
   }
 
   async function getSiteByHostname({ hostname }: { hostname: string }) {
-    // -> Mirrors the real `Sites.getSiteByHostname`'s non-strict lookup: exact match, else the '*'
-    //    wildcard mapping.
+    // -> Mirrors the real `Sites.getSiteByHostname`'s non-strict lookup
     const siteId = sitesMappings[hostname] || sitesMappings['*']
     return siteId ? sites[siteId] : null
   }
@@ -136,19 +122,9 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
   )
 
   /**
-   * Task 759 (the SVG CSP lockdown) plus WP 1826/#2724 (cache headers/validator for the built-in
-   * fallbacks): the ETag/`If-None-Match`/304 branch, the `Content-Security-Policy` header being
-   * conditioned on `asset.mime === svgMimeType`, and both response branches' caching headers — an
-   * uploaded asset and the `replyWithFile` fallback branch (nobody has uploaded anything for this
-   * kind) now share the same `public, no-cache` policy and strong (sha1) `ETag`, each with its own
-   * independent 304 path, so a redeployed fallback's new bytes are never stuck behind a stale
-   * browser cache the way a day-long `max-age` at an unchanging URL used to leave them (#2724).
-   *
-   * Runs its own app + `CARDINAL` stub, saved/restored around the shared `globalThis.CARDINAL` the suite above
-   * uses — same pattern `helpers/images.test.ts`'s Sharp-unavailable describe uses for the same reason:
-   * the route handler reads `CARDINAL` off `globalThis` at request time, so only one stub can be active at
-   * once, and this suite's data (a single site, a mutable asset) doesn't fit the multi-site fixture
-   * above.
+   * Installs its own `CARDINAL` stub over the outer suite's and restores it afterwards: the route reads
+   * `CARDINAL` at request time, so only one stub can be active at once, and this suite's data (a single
+   * site, a mutable asset) doesn't fit the multi-site fixture above.
    */
   describe('GET /_site/current/<resource> — caching, ETag and the SVG Content-Security-Policy header', () => {
     const SITE = {
@@ -160,20 +136,13 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     let localApp: FastifyInstance
     let wikiHandle: { restore(): void }
     let serverDir: string
-    /** What `getAsset` returns for the current test; null reproduces "nothing uploaded". */
     let currentAsset: { data: Buffer; mime: string } | null = null
-    /**
-     * Tracked as a `mock.fn` (WP 1852) so a test can assert a matching conditional request never
-     * calls it — the whole point of answering from `getAssetHash` alone.
-     */
     let getAsset: ReturnType<typeof mock.fn>
 
     before(async () => {
       serverDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-site-fallback-'))
-      // -> Staged from `SITE_ASSET_FALLBACKS['logo']` itself rather than a second copy of the
-      //    literal, so the real `replyWithFile` fallback branch has a real file to stream and this
-      //    setup cannot drift from the table it is standing in for. The fallbacks are resolved
-      //    against `SERVERPATH` now, not `ROOTPATH` (OpenProject #2611).
+      // -> Staged at `SITE_ASSET_FALLBACKS.logo` under a temp `SERVERPATH`, so the real `replyWithFile`
+      //    fallback branch has a real file to stream
       const stagedLogo = path.join(serverDir, SITE_ASSET_FALLBACKS.logo)
       await fs.mkdir(path.dirname(stagedLogo), { recursive: true })
       await fs.writeFile(stagedLogo, '<svg xmlns="http://www.w3.org/2000/svg"><circle/></svg>')
@@ -373,14 +342,6 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
 })
 
 describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
-  /**
-   * Regression test for task 699: `/_site/:siteId/:resource` (logo/favicon/login background) resolves
-   * its own siteId independently of the page/shell hook in `index.ts`, so a disabled site's images
-   * stayed reachable by direct URL forever. Asserts the same contract as `api/bootstrap.test.ts` — a
-   * disabled site answers 403, distinguishable from the pre-existing 404 for a siteId/hostname that
-   * matches nothing.
-   */
-
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
 
@@ -389,9 +350,6 @@ describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
       id: ENABLED_SITE_ID,
       hostname: 'wiki.example.com',
       isEnabled: true,
-      // -> An upload already on file, so the enabled-site test exercises the guard passing the request
-      //    through to the served-bytes branch rather than the on-disk fallback file, which this test
-      //    environment has no built `assets/` directory to serve
       config: { assets: { logo: true } }
     },
     [DISABLED_SITE_ID]: {
@@ -460,12 +418,6 @@ describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
 })
 
 describe('GET /_site/:siteId/<resource> — enforceApiKeySite (OpenProject #2201)', () => {
-  /**
-   * `:siteId` here can be `current`, a hostname, or a real UUID (see `site.ts`), never lifted straight
-   * off the URL the way a params-only site-pin hook expects -- so this route calls
-   * `enforceApiKeySite()` itself once it has resolved the real site behind whichever form was given.
-   */
-
   const SITE_A = {
     id: '11111111-4111-4111-8111-111111111111',
     hostname: 'sitea.example.com',
@@ -527,19 +479,7 @@ describe('GET /_site/:siteId/<resource> — enforceApiKeySite (OpenProject #2201
   })
 })
 
-/**
- * The branding fallbacks used to point at `assets/_assets/`, which is `frontend/`'s `vite build`
- * output and is gitignored — so `node backend` against an unbuilt or merely stale `assets/` served
- * the wrong mark, or nothing at all, and nothing distinguished that from "no logo configured"
- * (OpenProject #2611). They are backend-owned committed files now, which is what makes asserting
- * that they exist a deterministic check rather than one that only holds after somebody has run a
- * build.
- *
- * This iterates `SITE_ASSET_FALLBACKS` rather than re-listing the paths, so a fourth asset kind is
- * covered the moment it is added.
- */
 describe('SITE_ASSET_FALLBACKS — the backend owns its branding fallback files', () => {
-  /** The real `backend/`, i.e. what `CARDINAL.SERVERPATH` resolves to in a running instance. */
   const serverPath = path.join(import.meta.dirname, '..')
 
   for (const [kind, relativePath] of Object.entries(SITE_ASSET_FALLBACKS)) {
@@ -560,12 +500,8 @@ describe('SITE_ASSET_FALLBACKS — the backend owns its branding fallback files'
   }
 
   /**
-   * `frontend/public/_assets/logo-cardinal.svg` is a deliberate second copy — the Vite dev server
-   * and the built bundle answer `/_assets/logo-cardinal.svg` for `AdminLayout.vue` and
-   * `WelcomeOverlay.vue` out of `public/`, a different path space from the backend's own fallback
-   * table, and the two are deliberately not unified. Two copies can drift, though, and a drifted
-   * pair reproduces the exact symptom #2611 was filed for: the admin area showing one mark while
-   * every other surface shows another. This is what stops that.
+   * The two copies serve different path spaces and are deliberately not unified; a drifted pair shows
+   * one mark in the admin area and another on every other surface.
    */
   test('the backend logo fallback is byte-identical to the frontend public copy', async () => {
     const backendCopy = await fs.readFile(path.join(serverPath, SITE_ASSET_FALLBACKS.logo))

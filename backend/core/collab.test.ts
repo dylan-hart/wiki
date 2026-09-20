@@ -1,14 +1,3 @@
-/**
- * `core/collab.ts#participantInfo()`: the "someone else has this page open" accessor, read straight
- * off whatever room already exists. Pure — no `CARDINAL` global, no database.
- *
- * The rest of this module's coverage lives in three siblings, split out of one 1,433-line file
- * (TEST-F14) so the pure/DB boundary is a filename property rather than something a reader has to
- * derive from a `{ skip }` option per describe: `collab.capture.test.ts` (the pre-auth frame buffer
- * and the connection caps), `collab.relay.test.ts` (the peer handshake, chunked relay and seeding)
- * and `collab.crossInstance.db.test.ts`. What more than one of them needs to stand an instance up
- * lives in `test/collabHarness.ts`.
- */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import * as awarenessProtocol from 'y-protocols/awareness'
@@ -16,21 +5,8 @@ import * as Y from 'yjs'
 import collab from './collab.ts'
 
 /**
- * Unit test for `participantInfo()` (task 546): a cheap "someone else has this page open" signal read
- * straight off whatever collab room already exists for a page — no new tracking, no query. Exercised
- * against the real `Awareness` state exactly as `ensureRoom()`/`join()` populate it in production and
- * as `composables/collab.js` sets it client-side (`awareness.setLocalStateField('user', {...})`),
- * rather than a hand-rolled stand-in for the library.
- *
- * Reaches into `collab.rooms` directly instead of going through the websocket handshake in
- * `controllers/collab.ts`, so this is a pure unit test of the accessor rather than of the socket
- * lifecycle — and needs no `CARDINAL` global, since `participantInfo` touches nothing but the room map and
- * the awareness instance already inside it.
- *
- * Every `Awareness` created here is `.destroy()`ed once the test is done with it, exactly as
- * `closeRoomIfEmpty()` does for a real room: the constructor starts an interval timer of its own (to
- * expire stale clients), and leaving one running is an open handle that keeps `node --test` from ever
- * exiting rather than a leak this test's assertions would catch.
+ * Every `Awareness` created here is `.destroy()`ed: its constructor starts an interval timer, and a
+ * live one is an open handle that keeps `node --test` from exiting.
  */
 describe('collab.participantInfo', () => {
   interface Handle {
@@ -50,7 +26,6 @@ describe('collab.participantInfo', () => {
     }
   }
 
-  /** Merges a "remote" client's awareness state into a room's, the way a real join() would. */
   function mergeIn(room: awarenessProtocol.Awareness, remote: awarenessProtocol.Awareness): void {
     awarenessProtocol.applyAwarenessUpdate(
       room,

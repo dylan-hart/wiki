@@ -15,20 +15,9 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-/**
- * OpenProject #788: the self-service counterpart to `ApiKeyCreateDialog.vue`, minus the groups
- * picker -- a personal token always carries the creating user's own current permissions, so there is
- * nothing to pick there, only the `scope`/`siteId` narrowing every admin-issued key also gets.
- *
- * A fresh pinia per mount, same as `ApiKeyCreateDialog.test.js`: the dialog reads classification
- * levels off `adminStore.classificationLevels` (OpenProject #1205's checkbox grid replaced the
- * dialog's own independent fetch), populated by `adminStore.fetchClassificationLevels()` in
- * `onMounted` -- which still goes through the same `API_CLIENT.get('classification-levels')` mock
- * these tests already set up.
- */
 function mountDialog() {
   // -> Opts out of `mountWithApp`'s default `teleport: true` stub: `w-dialog` really teleports its
-  //    body to `document.body`, which is where the layout and scope-tree describes below assert.
+  //    body to `document.body`, which is where the describes below assert.
   return mountWithApp(ProfileApiKeyCreateDialog, { stubs: {} }).wrapper
 }
 
@@ -92,10 +81,6 @@ describe('ProfileApiKeyCreateDialog', () => {
     )
   })
 
-  /**
-   * OpenProject #1205: the checkbox grid that replaced the single-select "ceiling" -- every fetched
-   * level starts checked, which is what makes the default equivalent to the old "No Limit".
-   */
   it('defaults every fetched classification level to checked', async () => {
     globalThis.API_CLIENT.get.mockImplementation((resource) => {
       if (resource === 'classification-levels') {
@@ -137,7 +122,6 @@ describe('ProfileApiKeyCreateDialog', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     wrapper.vm.state.keyName = 'My Token'
-    // -> Uncheck "Public", leaving only "Restricted" checked
     wrapper.vm.state.keyClassifications = ['level-restricted']
     await wrapper.vm.$nextTick()
     await wrapper.vm.create()
@@ -151,12 +135,6 @@ describe('ProfileApiKeyCreateDialog', () => {
   })
 })
 
-/**
- * OpenProject #1292/#1293: the single-column stack of 5 fields is now a responsive 2-column grid
- * (Name spanning both columns, then Expiration/Site and Permission Scopes/Classification Access
- * paired beneath it), collapsing to the original single-column order below the `md` breakpoint. See
- * `WDialog` for why `DOMWrapper(document.body)` is used, as in the scope-tree suite below.
- */
 describe('ProfileApiKeyCreateDialog layout', () => {
   function body() {
     return new DOMWrapper(document.body)
@@ -190,23 +168,15 @@ describe('ProfileApiKeyCreateDialog layout', () => {
 })
 
 /**
- * OpenProject #1261, real-layout regression: the assertions above only check that the inline style
- * string contains `"auto-fit"` -- which was already true when this exact defect shipped, since
- * neither `jsdom` nor `happy-dom` runs a layout engine to catch what that style actually computes to
- * at this dialog's real width. This field shares row 3 of the 2-column grid (#1292/#1293) with
- * Permission Scopes, so `.classification-grid` only ever gets ~half the dialog's ~700px width --
- * measured at ~310px, not the ~618px `ApiKeyCreateDialog.test.js`'s own matching suite covers for the
- * single-column admin form. See `test/realGridLayout.js` for why a real headless Chromium page is
- * what actually answers "how many columns did this render as."
+ * The assertions above only check that the inline style string contains `"auto-fit"`, which stays
+ * true however the grid actually renders: neither `jsdom` nor `happy-dom` runs a layout engine. This
+ * field shares row 3 of the 2-column grid with Permission Scopes, so `.classification-grid` only
+ * ever gets about half the dialog's width -- hence the container width measured below.
  */
 /*
-  Launching a real Chromium is not a 5-second operation when the rest of the suite is running beside
-  it: `vitest` runs matched files across eight workers, and this describe's `before` pays for a
-  browser launch, a page and a stylesheet build while seven other files are transforming. The 5s
-  default timed this out intermittently -- a scheduling fact about the whole run, not anything about
-  the layout being measured, which passes in well under a second once the browser is up.
-  `CHROMIUM_TIMEOUT` (`test/realGridLayout.js`) is the one constant every real-Chromium suite passes
-  for this, rather than each carrying its own literal (OpenProject #2730).
+  `CHROMIUM_TIMEOUT` (`test/realGridLayout.js`), not the 5s default: `beforeAll` pays for a browser
+  launch, a page and a stylesheet build while vitest's other workers are transforming files beside
+  it, which timed out intermittently. The measurement itself takes well under a second.
 */
 describe(
   'ProfileApiKeyCreateDialog classification grid — real layout',
@@ -257,17 +227,6 @@ describe(
   }
 )
 
-/**
- * OpenProject #1272: the same verb-grouped tri-state scope tree (`ApiKeyScopePicker.vue`) as
- * `ApiKeyCreateDialog.vue`'s admin form, replacing the earlier flat `w-select multiple use-chips`
- * field here too. `wrapper.vm.state.keyScope` is still a flat array of scope strings -- the picker
- * only changed the UI reaching it, not the wire shape.
- *
- * `WDialog` renders its content behind a `<teleport to="body">`, which lands it as a real child of
- * `document.body`, outside `@vue/test-utils`'s own tracked tree -- `wrapper.find()` never sees it.
- * Every query below goes through the real DOM instead, via a `DOMWrapper(document.body)` -- same
- * pattern `ApiKeyCreateDialog.test.js`'s own scope-tree suite uses.
- */
 describe('ProfileApiKeyCreateDialog scope tree', () => {
   function body() {
     return new DOMWrapper(document.body)
@@ -288,10 +247,9 @@ describe('ProfileApiKeyCreateDialog scope tree', () => {
   }
 
   /*
-    The three assertions about how the scope picker groups, toggles and narrows are byte-identical
-    between this suite and its sibling key-create dialog's, so they live once, as a `describe.each`
-    over both dialogs, in `apiKeyScopeTree.test.js`. The one below is not shared: it asserts on the
-    route and body THIS dialog posts, which is what differs between the two.
+    The assertions about how the scope picker groups, toggles and narrows are identical between this
+    suite and its sibling key-create dialog's, so they live once as a `describe.each` over both, in
+    `apiKeyScopeTree.test.js`. The one below asserts on the route and body THIS dialog posts.
   */
 
   it('shows the group checkbox as mixed once only some of its scopes are checked, and sends the narrowed list on create', async () => {

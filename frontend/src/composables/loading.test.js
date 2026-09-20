@@ -2,22 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { content, isActive, loading } from './loading'
 
-/**
- * OpenProject #3385: `show()` used to take no parameters at all, so every call site passing
- * `{ message }` (the six auth overlays) had it silently discarded -- a slow login/register/TFA
- * wait rendered a wordless spinner. These tests cover the composable's own mechanics -- the
- * message/caption reactive state and the delay/timer behavior around it -- independent of any one
- * component that calls it.
- */
-
 describe('loading', () => {
   beforeEach(() => {
     vi.useFakeTimers()
   })
 
   afterEach(() => {
-    // -> Module-level singleton, shared across the whole file: undo whatever a test left showing
-    //    or pending so it cannot bleed into the next test.
+    // -> Module-level singleton: whatever a test leaves showing or pending would bleed into the
+    //    next one.
     loading.hide()
     content.message = ''
     content.caption = ''
@@ -91,8 +83,6 @@ describe('loading', () => {
     loading.hide()
 
     expect(isActive.value).toBe(false)
-    // -> Not cleared: the overlay fades out over 200ms, and blanking the text as the fade starts
-    //    would empty the box before it's gone.
     expect(content.message).toBe('Signing in...')
   })
 

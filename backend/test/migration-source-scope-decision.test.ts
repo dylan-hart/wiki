@@ -1,15 +1,7 @@
-// Regression test for docs/migration/decision-source-scope.md. Lives here rather than next to the
-// doc because npm run test's '**/*.test.ts' glob only resolves inside this workspace.
-//
-// Trimmed by OpenProject #2690, one of the settled testing policy's six kept doc-scan assertions:
-// the decision record's prose
-// (the stated rationale, the connection-field list, the cited minimum 2.x version) is deleted —
-// nothing gates a stale decision doc but the next reader. What survives is the one real,
-// nothing-else-covers-it dependency-drift check the decision's whole argument rests on: this branch
-// really does declare only `pg` as a database driver, with none of the four live drivers a
-// MySQL/MariaDB/MSSQL/SQLite connector would need.
-//
-// No database or network access needed at test time: every input is read as plain text/JSON.
+// Covers docs/migration/decision-source-scope.md. Lives here rather than beside the doc because npm
+// run test's '**/*.test.ts' glob only resolves inside this workspace. It asserts the premise that
+// decision rests on — only `pg` is declared — rather than the record's prose, which no test can keep
+// honest anyway.
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -23,7 +15,6 @@ const PACKAGE_JSON_PATH = join(REPO_ROOT, 'backend', 'package.json')
 
 const pkg = JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf8'))
 
-/** Driver packages a live MySQL/MariaDB/MSSQL/SQLite connector would need; none may be present. */
 const NON_POSTGRES_DRIVER_PACKAGES = [
   'mysql',
   'mysql2',

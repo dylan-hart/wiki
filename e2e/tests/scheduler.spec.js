@@ -8,24 +8,16 @@ import {
   seedCompletedHistory,
   withDb
 } from '../helpers/db.js'
-// -> The source of truth for what a fresh instance's Schedule tab lists -- see `rtl.spec.js`'s own
-//    header comment for why importing straight from `backend/` works from this workspace (bare
-//    specifiers inside the imported file resolve against `backend/`'s own `node_modules`, not this
-//    one's). Asserting against this directly, rather than a hardcoded count/list duplicated here, is
-//    what keeps this test from going stale the way it already had: it still expected the original
-//    four entries (and `updateLocales`'s original, since-changed cron) long after `JOB_SCHEDULE_SEED`
-//    had grown to sixteen.
+// -> The source of truth for what a fresh instance's Schedule tab lists: asserting against it
+//    directly, rather than a count/list duplicated here, is what keeps these cases from going stale
+//    as the seed grows.
 import { JOB_SCHEDULE_SEED } from '../../backend/models/jobs.ts'
-// -> Reused, not re-implemented: the "history cap" test below needs to know how many `<tr>`s
-//    `AdminScheduler.vue` actually renders for a given job list, and that is exactly what this
-//    grouping (OpenProject #2337) already computes. It has no framework imports of its own (plain
-//    functions only), so it resolves here the same way the `backend/` import above does.
+// -> Reused rather than re-implemented, so the expected `<tr>` count is derived by exactly the
+//    grouping `AdminScheduler.vue` renders through. Plain functions with no framework imports.
 import { flattenJobHistoryRows } from '../../frontend/src/helpers/jobHistoryGrouping.js'
 
 /**
- * End-to-end verification of AdminScheduler.vue's tabs against a real backend/database -- Schedule
- * and Upcoming are task 579's, Active/Completed/Failed/Retry/history-cap below are task 581's. Runs
- * serially: several cases share the one seeded schedule and its naturally-produced Upcoming queue
+ * Serial: several cases share the one seeded schedule and its naturally-produced Upcoming queue
  * rather than each standing up their own fixture.
  */
 test.describe.configure({ mode: 'serial' })
@@ -48,11 +40,10 @@ test.describe('admin scheduler', () => {
       const row = page.locator('table tbody tr', { hasText: task })
       await expect(row).toHaveCount(1)
       await expect(row).toContainText(cron)
-      // -> Rendered lowercase in the DOM (`props.value`); CSS applies the visual uppercase, so
-      //    match case-insensitively rather than assume text-transform shows up in textContent.
+      // -> Rendered lowercase in the DOM; the uppercase is CSS, which never reaches `textContent`.
       await expect(row).toContainText(/system/i)
-      // -> Created/Updated columns both render `humanizeDate()` under the relative label -- '---'
-      //    is what a null/unparsed value would show, so its absence is the timestamp being real.
+      // -> '---' is what a null/unparsed value renders as, so its absence is the timestamp being
+      //    real.
       await expect(row).not.toContainText('---')
       await expect(row.getByRole('button', { name: 'Run Now' })).toBeVisible()
     }
@@ -69,10 +60,9 @@ test.describe('admin scheduler', () => {
       'purgeRateLimits has been queued and will run shortly.'
     )
 
-    // -> `runNow()` deliberately leaves the Schedule tab's own state untouched (see the code
-    //    comment in AdminScheduler.vue) -- nothing here auto-refreshes Upcoming or Completed. That
-    //    is exactly the UX gap task 579 asks to be recorded; this assertion documents it by polling
-    //    Completed with manual refreshes rather than expecting a live update.
+    // -> `runNow()` deliberately leaves every tab's state untouched -- nothing auto-refreshes
+    //    Upcoming or Completed -- so this polls with manual refreshes rather than expecting a live
+    //    update.
     await page.getByRole('radio', { name: 'Completed' }).click()
     const completedRow = page.locator('table tbody tr', { hasText: 'purgeRateLimits' }).first()
     await expect(async () => {
@@ -85,10 +75,8 @@ test.describe('admin scheduler', () => {
   test('Upcoming tab shows more than one entry, plausible waitUntil, and correct useWorker rendering', async ({
     page
   }) => {
-    // -> The real assertion this exists to make: `addScheduled()` already ran once at boot
-    //    (`scheduler.ts`'s `start()` calls it directly, ahead of the interval), and the bug task
-    //    573/576 fixed capped this at one stale row -- so more than one proves the fix holds
-    //    end-to-end, not just in the unit test.
+    // -> `addScheduled()` already ran at boot (`scheduler.ts#start()` calls it directly, ahead of
+    //    the interval), so a correctly-planned queue holds more than one row.
     const beforeUpcoming = await page.request.get('/_api/scheduler/upcoming').then((r) => r.json())
     expect(beforeUpcoming.length).toBeGreaterThan(1)
 
@@ -96,25 +84,22 @@ test.describe('admin scheduler', () => {
     const windowMs = (24 * 60 + 5) * 60 * 1000
     for (const job of beforeUpcoming) {
       const waitMs = new Date(job.waitUntil).getTime()
-      // -> A few seconds of slack under `now` for clock skew between this process and the
-      //    container; the real bound this proves is the upper one -- addScheduled()'s own
-      //    24h05m planning window.
+      // -> Slack under `now` for clock skew between this process and the container; the bound that
+      //    matters is the upper one, `addScheduled()`'s own 24h05m planning window.
       expect(waitMs).toBeGreaterThan(now - 30_000)
       expect(waitMs).toBeLessThanOrEqual(now + windowMs + 30_000)
     }
 
     await page.getByRole('radio', { name: 'Upcoming' }).click()
     await expect(page.locator('table tbody tr').first()).toBeVisible()
-    // -> Upcoming rows are grouped the same way Active/Completed/Failed already are (OpenProject
-    //    #2830), so a task with 2+ upcoming instances collapses into one summary `<tr>` -- compare
-    //    against the same grouping logic `AdminScheduler.vue` renders through, not the raw job
-    //    count (OpenProject #2882/#2879).
+    // -> A task with 2+ upcoming instances collapses into one summary `<tr>`, so the expected count
+    //    comes from the same grouping `AdminScheduler.vue` renders through, not the raw job count.
     await expect(page.locator('table tbody tr')).toHaveCount(
       flattenJobHistoryRows(beforeUpcoming, new Set()).length
     )
 
-    // -> Every seeded cron task lives in `tasks/simple/` (in-process), so every naturally-scheduled
-    //    row should read In-Process, never Worker.
+    // -> Every seeded cron task lives in `tasks/simple/`, so every naturally-scheduled row reads
+    //    In-Process, never Worker.
     await expect(
       page.locator('table tbody tr', { hasText: 'purgeRateLimits' }).first()
     ).toContainText('In-Process')
@@ -122,37 +107,31 @@ test.describe('admin scheduler', () => {
       'In-Process'
     )
 
-    // -> Nothing in the naturally-produced queue is a worker-thread job (none of the seeded cron
-    //    tasks are), so the "Worker" rendering path is otherwise never exercised live. Plant one
-    //    directly -- see `helpers/db.js` -- to prove the column really distinguishes both states,
-    //    not just the one every seeded row happens to share.
-    // -> Task name suffixed with `uniqueSlug()` so a Playwright retry of this whole test doesn't
-    //    plant a second row under the same task name -- `AdminScheduler.vue` groups multiple
-    //    history/upcoming rows sharing a task name into one collapsed "Show individual runs" row,
-    //    which breaks the row lookups below (task 2373).
+    // -> No seeded cron task is a worker-thread job, so the "Worker" rendering path is otherwise
+    //    never exercised live and the column would pass while distinguishing nothing.
+    // -> `uniqueSlug()` so a Playwright retry doesn't plant a second row under the same task name:
+    //    `AdminScheduler.vue` collapses rows sharing one into a single "Show individual runs" row,
+    //    which breaks the lookups below. Every planted task name below does this for that reason.
     const workerTask = `e2eWorkerProbe-${uniqueSlug()}`
     const workerJobId = await withDb((db) =>
       insertSyntheticJob(db, { task: workerTask, useWorker: true, waitUntilHoursFromNow: 3 })
     )
     await page.getByRole('button', { name: 'Refresh' }).click()
-    // -> Matched on the row's own id (rendered as the small grey line under the task name), not
-    //    just the task name: a rerun against a database that already has a prior run's rows in it
-    //    (anything short of a brand new container) would otherwise match more than one row.
+    // -> Matched on the row's own id, not the task name: a rerun against a database holding a prior
+    //    run's rows would otherwise match more than one row.
     const workerRow = page.locator('table tbody tr', { hasText: workerJobId })
     await expect(workerRow).toContainText(workerTask)
     await expect(workerRow).toContainText('Worker')
     await expect(workerRow).not.toContainText('In-Process')
 
-    // -> Cancel Job on a genuinely-pending row: removes it, refetches (the count below reflects a
-    //    real reload, not a client-side splice -- `cancelJob()` calls `load()` on success).
+    // -> `cancelJob()` calls `load()` on success, so the count below reflects a real refetch rather
+    //    than a client-side splice.
     //
-    //    Selected by its icon rather than `getByRole('button', { name: 'Cancel Job' })`: unlike
-    //    every sibling icon-button on this page (Run Now, Retry Job), this one has no `aria-label`
-    //    -- its only accessible text lives in a `<w-tooltip>` that is `aria-hidden` until hovered
-    //    (see `WTooltip.vue`), so the button's computed accessible name is empty. A real
-    //    accessibility gap this test surfaced live; recorded as follow-up scope rather than fixed
-    //    here (out of scope for a verification-only task) -- see AdminScheduler.vue's Upcoming
-    //    tab, the `body-cell-cancel` template's `<w-btn icon="tabler:square-x">`.
+    //    Selected by its icon, not `getByRole('button', { name: 'Cancel Job' })`: unlike its
+    //    siblings (Run Now, Retry Job) this button carries no `aria-label`, and its only text lives
+    //    in a `<w-tooltip>` that is `aria-hidden` until hovered, leaving its computed accessible
+    //    name empty. FIXME: give `AdminScheduler.vue`'s `body-cell-cancel` `<w-btn>` an
+    //    `aria-label`; the control is unreachable by name for a screen-reader user.
     await workerRow.locator('button:has([data-icon="tabler:square-x"])').click()
     await expect(page.locator('.w-notification').last()).toContainText(
       'Job cancelled successfully.'
@@ -163,7 +142,6 @@ test.describe('admin scheduler', () => {
       .get('/_api/scheduler/upcoming')
       .then((r) => r.json())
     expect(afterCancelUpcoming.some((j) => j.id === workerJobId)).toBe(false)
-    // -> Same grouped-row comparison as above (OpenProject #2882/#2879), not the raw job count.
     await expect(page.locator('table tbody tr')).toHaveCount(
       flattenJobHistoryRows(afterCancelUpcoming, new Set()).length
     )
@@ -172,7 +150,6 @@ test.describe('admin scheduler', () => {
   test('cancelling a job already picked up surfaces cancelJobFailed on the 404, not a raw error', async ({
     page
   }) => {
-    // -> Suffixed with `uniqueSlug()` -- see the worker probe test above (task 2373).
     const raceJobId = await withDb((db) =>
       insertSyntheticJob(db, {
         task: `e2eRaceProbe-${uniqueSlug()}`,
@@ -185,19 +162,17 @@ test.describe('admin scheduler', () => {
     const raceRow = page.locator('table tbody tr', { hasText: raceJobId })
     await expect(raceRow).toBeVisible()
 
-    // -> Simulates an instance picking the job up between this render and the click below -- the
-    //    task brief's own suggested alternative to actually racing the 5s polling loop.
+    // -> Simulates another instance picking the job up between this render and the click below,
+    //    rather than racing the 5s polling loop for real.
     await withDb((db) => deleteJob(db, raceJobId))
 
-    // -> See the sibling test above for why this is selected by icon rather than accessible name.
     await raceRow.locator('button:has([data-icon="tabler:square-x"])').click()
 
     const toast = page.locator('.w-notification').last()
     await expect(toast).toContainText('Failed to cancel the job.')
-    // -> The whole point of the assertion: the server's real 404 reason (`reply.notFound('No
-    //    pending job with this ID.')`, read off ky's `HTTPError#data`), not ky's generic "Request
-    //    failed with status code 404" -- ky/`apiErrorMessage()` losing that would read identically
-    //    to a network failure with no explanation at all.
+    // -> The point of the case: the server's own 404 reason reaches the toast (read off ky's
+    //    `HTTPError#data`), not ky's generic "Request failed with status code 404", which would
+    //    read identically to a network failure.
     await expect(toast).toContainText('No pending job with this ID.')
     await expect(toast).not.toContainText('status code')
   })
@@ -205,10 +180,8 @@ test.describe('admin scheduler', () => {
   test('a job with no handler fails for real, lands under Failed with its own lastErrorMessage, and stays retry-disabled while an automatic retry is owed', async ({
     page
   }) => {
-    // -> `task` need not exist in `tasks/simple/` -- see `helpers/db.js` -- so the real
-    //    `processJob()`/`runJob()` pipeline claims this and genuinely throws trying to call it.
-    //    Suffixed with `uniqueSlug()` so a Playwright retry doesn't plant a second row under the
-    //    same task name -- see the worker probe test above (task 2373).
+    // -> `task` need not exist in `tasks/simple/`, so the real `processJob()`/`runJob()` pipeline
+    //    claims this row and genuinely throws trying to call it.
     const failTask = `e2eFailNow-${uniqueSlug()}`
     const jobId = await withDb((db) =>
       insertSyntheticJob(db, { task: failTask, waitUntilHoursFromNow: 0, maxRetries: 2 })
@@ -225,8 +198,8 @@ test.describe('admin scheduler', () => {
 
     expect(failedRow.state).toBe('failed')
     expect(failedRow.attempt).toBe(1)
-    // -> The real V8 message for calling an undefined property as a function -- proof this is a
-    //    genuine failure from the real pipeline, not a canned string.
+    // -> The real V8 message for calling an undefined property as a function -- proof the failure
+    //    came from the real pipeline, not a canned string.
     expect(failedRow.lastErrorMessage).toMatch(/is not a function/)
 
     await page.getByRole('radio', { name: 'Failed' }).click()
@@ -237,17 +210,15 @@ test.describe('admin scheduler', () => {
     await expect(row).toContainText(failedRow.lastErrorMessage)
 
     // -> Owes an automatic retry (attempt 1 <= maxRetries 2): `runJob` already rescheduled this job
-    //    with backoff, so the manual button stays withheld -- see the template comment.
+    //    with backoff, so the manual button stays withheld.
     await expect(row.getByRole('button', { name: 'Retry Job' })).toBeDisabled()
   })
 
   test('a failed job that already exhausted its retries leaves Retry Job enabled, and clicking it queues a fresh job with a full retry budget', async ({
     page
   }) => {
-    // -> Planted directly in `jobHistory` (see `helpers/db.js`) reading as already exhausted
-    //    (attempt 3 > maxRetries 2) -- a real multi-attempt job would take multiple backoff cycles
-    //    to reach that state, which this test does not have time to wait through.
-    // -> Suffixed with `uniqueSlug()` -- see the worker probe test above (task 2373).
+    // -> Planted as already exhausted (attempt 3 > maxRetries 2): reaching that state for real
+    //    takes multiple backoff cycles this test has no time to wait through.
     const exhaustedTask = `e2eExhaustedProbe-${uniqueSlug()}`
     const originalId = await withDb((db) =>
       insertHistoryJob(db, {
@@ -270,10 +241,9 @@ test.describe('admin scheduler', () => {
       'Job has been rescheduled and will execute shortly.'
     )
 
-    // -> `WIKI.models.jobs.retryJob` calls `scheduler.addJob()` fresh -- the real pipeline then
-    //    claims and fails this too (still no handler named by `exhaustedTask`), landing a brand
-    //    new history row. Finding it at attempt 1/3, not continuing from the exhausted original's
-    //    3/3, is the actual proof of "a full retry budget".
+    // -> `retryJob` queues a fresh job, which the real pipeline claims and fails too (still no
+    //    handler named by `exhaustedTask`), landing a new history row. Finding that row at attempt
+    //    1/3 rather than continuing the original's 3/3 is the proof of "a full retry budget".
     let retried
     await expect(async () => {
       const resp = await page.request
@@ -290,7 +260,6 @@ test.describe('admin scheduler', () => {
   test('reapStaleJobs sweeps a stranded active job to interrupted, and it shows under the Failed tab per MODE_STATES', async ({
     page
   }) => {
-    // -> Suffixed with `uniqueSlug()` -- see the worker probe test above (task 2373).
     const staleId = await withDb((db) =>
       insertHistoryJob(db, {
         task: `e2eStaleActiveProbe-${uniqueSlug()}`,
@@ -319,21 +288,17 @@ test.describe('admin scheduler', () => {
     await expect(row).toContainText('Interrupted')
     await expect(row).toContainText(swept.lastErrorMessage)
 
-    // -> Already exhausted (attempt 3 > maxRetries 2): `reapStaleJobs`'s own "SKIPPED" branch left
-    //    it un-requeued, so nothing is coming on its own -- the manual button should be live.
+    // -> Already exhausted (attempt 3 > maxRetries 2), so `reapStaleJobs` left it un-requeued and
+    //    nothing is coming on its own -- the manual button should be live.
     await expect(row.getByRole('button', { name: 'Retry Job' })).toBeEnabled()
   })
 
   test('an interrupted job that still owes an automatic retry keeps Retry Job disabled too', async ({
     page
   }) => {
-    // -> The UX gap this task closes: `reapStaleJobs` requeues an interrupted row under the exact
-    //    same rule (`attempt <= maxRetries`) it fails one under, but the template's disable
-    //    condition used to check `state === 'failed'` only. Planted directly as already-interrupted
-    //    (see `helpers/db.js`) rather than via a real sweep + wait, since a row that genuinely still
-    //    owes a retry gets requeued and reprocessed by the poller within seconds -- too fast to
-    //    reliably assert against without racing it.
-    // -> Suffixed with `uniqueSlug()` -- see the worker probe test above (task 2373).
+    // -> Planted as already-interrupted rather than swept for real: a row that genuinely still owes
+    //    a retry is requeued and reprocessed by the poller within seconds, too fast to assert
+    //    against without racing it.
     const jobId = await withDb((db) =>
       insertHistoryJob(db, {
         task: `e2eInterruptedPendingProbe-${uniqueSlug()}`,
@@ -347,13 +312,10 @@ test.describe('admin scheduler', () => {
 
     await page.getByRole('radio', { name: 'Failed' }).click()
 
-    // -> Refreshed inside `toPass` rather than clicked once (OpenProject #2589, matching the
-    //    "Run Now" test's own loop above): switching tabs and clicking Refresh fire two overlapping
-    //    `scheduler/jobs` fetches, and this assertion used to hang off whichever render happened to
-    //    be on screen 5s after the second click. This test has been reported red in CI twice with
-    //    no reproduction against a real backend -- the app's rule itself is now pinned
-    //    deterministically in `frontend/src/pages/AdminScheduler.test.js`, so what is left here is
-    //    the round trip, and a round trip is worth retrying rather than sampling once.
+    // -> Refreshed inside `toPass` rather than clicked once: switching tabs and clicking Refresh
+    //    fire two overlapping `scheduler/jobs` fetches, so a single sample hangs off whichever
+    //    render happens to be on screen. The rule itself is pinned deterministically in
+    //    `frontend/src/pages/AdminScheduler.test.js`; what is left here is the round trip.
     const row = page.locator('table tbody tr', { hasText: jobId })
     await expect(async () => {
       await page.getByRole('button', { name: 'Refresh' }).click()
@@ -361,14 +323,13 @@ test.describe('admin scheduler', () => {
     }).toPass({ timeout: 15_000 })
 
     // -> Still owes an automatic attempt (attempt 1 <= maxRetries 2), so the manual button is
-    //    rendered but withheld -- the same rule `failed` gets, which is the whole point of the case.
+    //    rendered but withheld -- the same rule a `failed` row gets.
     await expect(row.getByRole('button', { name: 'Retry Job' })).toBeDisabled()
   })
 
   test('Active tab shows a genuinely in-flight job with the indeterminate spinner', async ({
     page
   }) => {
-    // -> Suffixed with `uniqueSlug()` -- see the worker probe test above (task 2373).
     const jobId = await withDb((db) =>
       insertHistoryJob(db, {
         task: `e2eActiveSpinnerProbe-${uniqueSlug()}`,
@@ -384,7 +345,7 @@ test.describe('admin scheduler', () => {
     await expect(row).toBeVisible()
     await expect(row.locator('.w-circular-progress')).toBeVisible()
     await expect(row).toContainText('Pending')
-    // -> Active rows have no action column at all (`v-if="props.row.state !== 'active'"`)
+    // -> Active rows render no action column at all.
     await expect(row.getByRole('button', { name: 'Retry Job' })).toHaveCount(0)
   })
 
@@ -395,32 +356,20 @@ test.describe('admin scheduler', () => {
       .get('/_api/scheduler/jobs?states=completed&limit=1')
       .then((r) => r.json())
 
-    // -> `taskPrefix` suffixed with `uniqueSlug()` so a Playwright retry doesn't replant the same
-    //    110 `e2eBulkHistoryProbe-<n>` rows under a prefix a previous attempt already used --
-    //    same grouping mechanism as the worker probe test above (task 2373).
     await withDb((db) => seedCompletedHistory(db, 110, `e2eBulkHistoryProbe-${uniqueSlug()}`))
 
     await page.getByRole('radio', { name: 'Completed' }).click()
 
-    // -> `HISTORY_LIMIT` (100) caps what the tab REQUESTS regardless of how many actually match, but
-    //    it does not pin the rendered `<tr>` count at exactly 100: a task that completed more than
-    //    once within that top-100 window collapses into a single summary row (OpenProject #2337's
-    //    grouping, task 2373's own note on the Upcoming test above). The bulk-seeded rows above are
-    //    all uniquely named and can't collide with each other, but a live `storageSyncTick` cron
-    //    (`* * * * *`, ticking for the whole e2e run's one shared `webServer`) deposits its own
-    //    `completed` rows under the SAME task name throughout -- and once it has ticked more than
-    //    once before this test runs, its rows group into one row too, taking the rendered count
-    //    below 100 even though the API cap held. Deriving the expected row count from the same
-    //    grouping logic `AdminScheduler.vue` renders through -- fed the same capped response it
-    //    fetches -- is what keeps this assertion honest about that instead of pinning a bare `100`.
-    // -> Refresh, derive and assert together inside `toPass` rather than once through (OpenProject
-    //    #2589): the UI's own fetch and this fetch are two separate reads of a list the running
-    //    system is still writing to, and every `storageSyncTick` completion displaces the oldest
-    //    bulk-seeded row out of the top-100 window -- changing how many of those 100 share a task
-    //    name, and so the grouped row count, by one. A tick landing between the two reads is
-    //    therefore an off-by-one against a UI that is not wrong, just a moment behind; retrying the
-    //    whole triple converges on a tick-free window instead. The timeout is bounded, so a real
-    //    off-by-N still fails rather than spinning.
+    // -> `HISTORY_LIMIT` (100) caps what the tab REQUESTS, not the rendered `<tr>` count: a task
+    //    completing more than once inside that window collapses into one summary row, and the live
+    //    `storageSyncTick` cron (`* * * * *`) keeps depositing `completed` rows under one task name
+    //    for the whole run. Deriving the expected count from the same grouping `AdminScheduler.vue`
+    //    renders through, fed the same capped response, is what keeps this honest about that
+    //    instead of pinning a bare `100`.
+    // -> Refresh, derive and assert together inside `toPass`: the UI's fetch and this one are two
+    //    reads of a list the running system is still writing to, and a tick landing between them
+    //    displaces a row out of the window -- an off-by-one against a UI that is only a moment
+    //    behind. The bounded timeout still fails a real off-by-N rather than spinning.
     await expect(async () => {
       await page.getByRole('button', { name: 'Refresh' }).click()
       const rawJobs = await page.request
@@ -430,12 +379,9 @@ test.describe('admin scheduler', () => {
       await expect(page.locator('table tbody tr')).toHaveCount(expectedRowCount)
     }).toPass({ timeout: 15_000 })
 
-    // -> The exact total is not asserted: the same live `storageSyncTick` cron deposits its own
-    // `completed` rows for the whole duration of the run (see `backend/models/jobs.ts`), so the
-    // real total can grow between the `before.total` read above and this assertion. Match the shape
-    // and assert the captured number is at least what was seeded, which still proves the caption
-    // renders, that the cap is 100 and that the seeded rows are counted -- without pinning a number
-    // the running system owns.
+    // -> A lower bound, not the exact total: the live `storageSyncTick` cron keeps depositing
+    //    `completed` rows, so the real total can grow between the `before.total` read above and
+    //    this assertion.
     const captionLocator = page.getByText(/Showing the 100 most recent of (\d+) jobs\./)
     await expect(captionLocator).toBeVisible()
     const captionText = await captionLocator.textContent()

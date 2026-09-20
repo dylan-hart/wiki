@@ -6,12 +6,8 @@ import path from 'node:path'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
 /**
- * Covers this task's own logic (617, Feature 394): discovering comment provider modules from disk,
- * giving a site one row per module (`syncSite`), and the "at most one active provider" invariant
- * `setActiveProvider` is responsible for. `refreshFromDisk` is pointed at a throwaway fixture tree
- * rather than the real `modules/comments` — no comments module ships on this branch yet (Feature 390
- * owns the default one, built independently on a sibling branch not yet merged here), and this suite
- * should keep passing unmodified once one lands, since it never depends on which modules are real.
+ * `refreshFromDisk` is pointed at a throwaway fixture tree rather than the real `modules/comments`,
+ * so nothing here depends on which providers actually ship.
  */
 describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -34,12 +30,9 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         'vendor: Test',
         "website: ''",
         'isAvailable: true',
-        // -> Selectable two ways at once here (`codeTemplate: true` below AND its own `comments.ts`
-        //    further down) -- deliberately redundant so this fixture exercises `setActiveProvider`
-        //    regardless of which half of `isSelectable()`'s `hasImplementation || codeTemplate` is
-        //    under test elsewhere; the OpenProject #1962 guard on `setActiveProvider` would otherwise
-        //    refuse every activation this describe block's other tests rely on, for a reason unrelated
-        //    to what those tests cover.
+        // -> Redundant with the `comments.ts` written below: either half of `isSelectable()` alone
+        //    makes `alpha` activatable, so the tests here never trip the non-selectable refusal for
+        //    a reason unrelated to what they cover.
         'codeTemplate: true',
         'props:',
         '  apiKey:',
@@ -69,12 +62,9 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         'props: {}'
       ].join('\n')
     )
-    // -> Also selectable both ways, same as `alpha` above (`codeTemplate: true` on its definition.yml
-    //    plus its own `comments.ts` here).
     await fs.writeFile(path.join(modulesDir, 'beta', 'comments.ts'), 'export {}\n')
-    // -> Stands in for the real `default` provider: the only fixture module here with an actual
-    //    `comments.ts` next to it, so `hasImplementation` is true and it is selectable on that basis
-    //    alone, the same way the real native provider is.
+    // -> Stands in for the real native provider: selectable through `hasImplementation` alone, with
+    //    no `codeTemplate` on its definition.
     await fs.mkdir(path.join(modulesDir, 'default'), { recursive: true })
     await fs.writeFile(
       path.join(modulesDir, 'default', 'definition.yml'),
@@ -90,8 +80,7 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
       ].join('\n')
     )
     await fs.writeFile(path.join(modulesDir, 'default', 'comments.ts'), 'export {}\n')
-    // -> Declares neither `codeTemplate` nor a `comments.ts` -- not selectable, for the write-refusal
-    //    test below.
+    // -> Neither `codeTemplate` nor a `comments.ts`: the non-selectable fixture.
     await fs.mkdir(path.join(modulesDir, 'gamma'), { recursive: true })
     await fs.writeFile(
       path.join(modulesDir, 'gamma', 'definition.yml'),
@@ -159,8 +148,8 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
       ]
     )
 
-    // -> Switching the active provider disables the previous one, and leaves its stored config
-    //    untouched rather than wiping it — flipping back later restores it as it was.
+    // -> Switching disables the previous provider but leaves its stored config, so flipping back
+    //    later restores it as it was.
     await commentProvidersModel.setActiveProvider(fixtures.siteId, 'beta', {})
     providers = await commentProvidersModel.getSiteProviders(fixtures.siteId)
     assert.deepEqual(
@@ -189,12 +178,6 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(result, null)
   })
 
-  /**
-   * OpenProject #1962: a site's stored comment provider must never become a dead end -- the write
-   * side (refusing to ever store a non-selectable module) and the read side (resolving a stored
-   * provider that became non-selectable after the fact back to something that renders) are both
-   * covered here.
-   */
   test('setActiveProvider refuses to activate a non-selectable module, storing nothing', async () => {
     await commentProvidersModel.syncSite(fixtures.siteId)
     await commentProvidersModel.setActiveProvider(fixtures.siteId, 'alpha', { apiKey: 'keep-me' })
@@ -211,22 +194,20 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('a sensitive prop (secret) never leaves a config read, masked or via the PUT response', async () => {
     await commentProvidersModel.syncSite(fixtures.siteId)
-    // -> `setActiveProvider`'s own return value is what `PUT .../comments/providers` sends straight
-    //    back to the client, so it must come back masked without a caller having to ask for it.
+    // -> The return value goes straight back to the client as the PUT response, so it has to be
+    //    masked without a caller asking for it.
     const activated = await commentProvidersModel.setActiveProvider(fixtures.siteId, 'alpha', {
       apiKey: 'not-sensitive',
       secret: 'akismet-key-value'
     })
     assert.equal(activated?.config.secret, '********')
-    // -> A non-sensitive prop on the same provider is untouched.
     assert.equal(activated?.config.apiKey, 'not-sensitive')
 
-    // -> Default (unmasked): `setActiveProvider`'s own internal merge reads through this method, and
-    //    needs the real value to preserve an untouched secret correctly.
+    // -> Unmasked by default: `setActiveProvider`'s own merge reads through here and needs the real
+    //    value to preserve an untouched secret.
     const unmasked = await commentProvidersModel.getSiteProviderByModule(fixtures.siteId, 'alpha')
     assert.equal(unmasked?.config.secret, 'akismet-key-value')
 
-    // -> `{ mask: true }`: what the admin GET route (api/comments.ts) actually returns.
     const maskedList = await commentProvidersModel.getSiteProviders(fixtures.siteId, { mask: true })
     assert.equal(maskedList.find((p) => p.module === 'alpha')!.config.secret, '********')
   })
@@ -237,8 +218,7 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
       secret: 'original-akismet-key'
     })
 
-    // -> Simulates an admin form resubmitting the masked value it was shown, having only changed an
-    //    unrelated field (apiKey) -- the secret field itself was never touched.
+    // -> An admin form resubmitting the mask it was shown, having only changed `apiKey`.
     await commentProvidersModel.setActiveProvider(fixtures.siteId, 'alpha', {
       apiKey: 'changed-value',
       secret: '********'
@@ -251,24 +231,9 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
- * `codeTemplate`/`hasImplementation`/`isSelectable` (Feature #3286 / OpenProject #3303, superseding
- * #1958): `isSelectable()` is `hasImplementation || codeTemplate` -- `hasImplementation` matches
- * `models/storage.ts`'s equivalent gate for storage targets, and `codeTemplate` is restored alongside
- * it as an independent grant. That second half was OFF between #1958 and #3303: an earlier version
- * (Feature 396) treated `codeTemplate: true` (declared on each of Disqus/Commento/Artalk's
- * `definition.yml`) as an independent grant, so a provider with no server-side implementation could
- * still be selected on the theory that a future page-view render path would embed the vendor's own
- * client-side script; no such render path existed yet, so #1958 turned it off and the three providers
- * declared `isAvailable: false` instead of advertising a provider the picker could not actually
- * deliver comments through. #3303 is that render path
- * (`frontend/src/components/PageCommentsEmbed.vue`, driven by `buildSitePayload()`'s
- * `commentsProvider` field, `api/sites.ts`) actually landing, so the condition #1958 was waiting on
- * now holds and both flip back: `codeTemplate` grants selectability again, and all three declare
- * `isAvailable: true`.
- *
- * No `CARDINAL` global/database beyond `SERVERPATH` + a silent logger is needed: `refreshFromDisk()` only
- * reads disk, and points at this repo's own real `modules/comments/` directory (not a fixture) so
- * this test exercises the actual Disqus/Commento/Artalk/default definitions rather than stand-ins.
+ * Unlike the suite above, `refreshFromDisk()` here points at this repo's own real
+ * `modules/comments/`, so these assertions are about the shipped definitions. Disk reads only, hence
+ * no database and a `CARDINAL` carrying nothing but `SERVERPATH` and a logger.
  */
 describe('commentProviders (definition loading)', () => {
   let previousWiki: CardinalGlobal | undefined
@@ -297,7 +262,6 @@ describe('commentProviders (definition loading)', () => {
     assert.equal(disqus.codeTemplate, true)
     assert.equal(commento.codeTemplate, true)
     assert.equal(artalk.codeTemplate, true)
-    // -> `default`'s definition.yml declares no `codeTemplate` key at all
     assert.equal(defaultProvider.codeTemplate, false)
   })
 
@@ -343,10 +307,9 @@ describe('commentProviders (definition loading)', () => {
 
     assert.equal(typeof caption, 'string')
     assert.ok(caption.length > 0, 'caption must not be empty')
-    // -> Must actually communicate the two things an admin needs to know now that #3303's render path
-    //    exists: that this is an external, client-embedded provider, and that its embed is gated per
-    //    reader on the `read:comments` permission -- NOT the pre-#3303 wording claiming page-view
-    //    rendering isn't implemented, which would now be false.
+    // -> The caption has to tell an admin two things: the provider is external and client-embedded,
+    //    and its embed is gated per reader on `read:comments`. Wording claiming page-view rendering
+    //    is unimplemented would be false.
     assert.match(caption, /external/i)
     assert.match(caption, /read:comments|permission/i)
     assert.doesNotMatch(caption, /not.*(?:implement|support)/i)

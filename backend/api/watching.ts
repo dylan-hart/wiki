@@ -3,36 +3,18 @@ import type { WatchNotifyPreference } from '../models/pageWatching.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
- * How `requireActorId` (`helpers/pageAccess.ts`) refuses an anonymous caller here.
- *
- * Watching belongs to an account: it is a list somebody comes back to, and a row has to point at a
- * person for a notification to ever have a recipient. There is no permission for it beyond being
- * logged in — anybody who may read a page may ask to hear about it.
+ * Watching belongs to an account: a row has to point at a person for a notification to have a
+ * recipient. Beyond being logged in, anybody who may read a page may watch it.
  */
 const WATCHER_REQUIRED = 'Watching a page requires a logged in user.'
 
 /**
- * How many watchers the page-watchers listing returns when the caller does not say.
- *
- * Not 3. The design draws three initial plates and a `+N` remainder, but that is the RAIL's cap and
- * it belongs to the rail — a route that hard-coded it would have to be edited to change a number the
- * consumer already knows. Generous enough that no realistic caller has to page, small enough that a
- * page with a thousand watchers cannot be turned into a thousand-row response by omitting a
- * parameter.
+ * Generous enough that no realistic caller has to page, small enough that omitting `limit` cannot
+ * turn a heavily-watched page into a huge response.
  */
 const DEFAULT_WATCHER_LIMIT = 25
 
-/**
- * Page Watching API Routes
- *
- * Who has asked to be told when a page changes. Nothing is sent yet — notifications are not built —
- * so these keep the list: the bell on a page writes to it, the inbox reads it back, and the page
- * metadata rail asks the other direction — who is watching THIS page.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * WATCH A PAGE
-   */
   app.put<{ Params: { siteId: string; pageId: string }; Body: WatchNotifyPreference | undefined }>(
     '/sites/:siteId/pages/:pageId/watch',
     {
@@ -68,11 +50,8 @@ async function routes(app: FastifyInstance) {
         return reply
       }
       /*
-        Watching a page is a thing done TO a page, so it goes through the same gate as reading one: an
-        anonymous requester never gets here at all (refused just above), and a page somebody may not
-        read is answered as though it were not there. A password is not part of it — the watcher is
-        asking to be told when the page changes, not to read what it says — so `isLocked` goes
-        unchecked here on purpose.
+        An unreadable page answers as though it were not there. `isLocked` goes unchecked on purpose:
+        the watcher is asking to be told when the page changes, not to read what it says.
       */
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
       if (!page) {
@@ -89,13 +68,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SET A WATCH'S DELIVERY PREFERENCE
-   */
   app.patch<{ Params: { siteId: string; pageId: string }; Body: WatchNotifyPreference }>(
     '/sites/:siteId/pages/:pageId/watch',
     {
-      // -> Same gate as WATCH/UNWATCH above: readable is the test, and it is per page
+      // -> Only the caller's own watch row is touched, so being logged in is the whole of the check
       schema: {
         summary: "Change a watch's delivery preference",
         description:
@@ -133,13 +109,9 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UNWATCH A PAGE
-   */
   app.delete<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/pages/:pageId/watch',
     {
-      // -> Same as above: readable is the test, and it is per page
       schema: {
         summary: 'Stop watching a page',
         description:
@@ -165,18 +137,15 @@ async function routes(app: FastifyInstance) {
         return reply
       }
       /*
-        The page is NOT loaded first. Unwatching has to keep working for a page that has since been
-        made unreadable, or the row would be stuck there with nothing in the interface able to remove
-        it — and there is nothing to protect anyway: this only ever deletes the caller's own row.
+        The page is NOT loaded first: unwatching has to keep working for a page that has since become
+        unreadable, or the row would be stuck with nothing able to remove it. There is nothing to
+        protect anyway: this only ever deletes the caller's own row.
       */
       await CARDINAL.models.pageWatching.unwatch({ pageId: req.params.pageId, userId })
       return { ok: true, isWatching: false }
     }
   )
 
-  /**
-   * LIST WATCHED PAGES
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/watching',
     {
@@ -206,23 +175,16 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST A PAGE'S WATCHERS
-   */
   app.get<{ Params: { siteId: string; pageId: string }; Querystring: { limit?: number } }>(
     '/sites/:siteId/pages/:pageId/watchers',
     {
       /*
-        No route-level `permissions`: who watches a page is readable by anybody who may read the page
-        itself, and `read:pages` is granted by a group's RULES rather than by the group-wide list that
-        hook consults — declaring it there would refuse everybody, guests included. `requireReadablePage`
-        below is the whole gate, and it is deliberately the same one the page view passes through: a
-        page the reader cannot open (missing, unreadable, or still behind its password) answers before
-        a single watcher's name is read.
+        No route-level `permissions`: `read:pages` is granted by a group's rules, not the group-wide
+        list that hook consults. `requireReadablePage` below is the whole gate, the same one the page
+        view passes through, so a page the reader cannot open answers before a watcher's name is read.
 
-        Unlike the four routes above this one takes no `requireActorId`. Watching is something an
-        ACCOUNT does, but reading who watches is not — the rail draws this section for a signed-out
-        visitor exactly as it does for anybody else.
+        No `requireActorId`, unlike the routes above: watching is something an account does, but
+        reading who watches is not — the rail draws this section for a signed-out visitor too.
       */
       schema: {
         summary: "List a page's watchers",
@@ -259,8 +221,8 @@ async function routes(app: FastifyInstance) {
         return reply
       }
       return CARDINAL.models.pageWatching.listForPage(page.id, {
-        // -> The schema's `default` fills this in for a validated request; the `??` is what keeps the
-        //    model's `limit` non-optional rather than making every caller of it re-decide a default.
+        // -> The schema's `default` already fills this in; the `??` keeps the model's `limit`
+        //    non-optional.
         limit: req.query.limit ?? DEFAULT_WATCHER_LIMIT
       })
     }

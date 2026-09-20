@@ -9,15 +9,8 @@ import { createTestI18n } from '../../test/i18n.js'
 import { stubApi } from '../../test/mocks.js'
 
 /**
- * OpenProject #788: `ProfileApi.vue` is the self-service counterpart to `AdminApi.vue` -- it lists
- * and lets a user manage only their OWN personal access tokens, through `users/profile/api-keys`
- * rather than the admin-only `api-keys` resource, and shows no groups picker or global enable/disable
- * switch (neither makes sense for a token that always carries the caller's own current permissions).
- */
-/**
- * @param {boolean} freshPinia Set false when the caller already activated its own Pinia instance
- *   (and may have pre-seeded store state on it) -- e.g. to set userStore.timezone before the
- *   component's first render, rather than having this overwrite it with a blank one.
+ * @param {boolean} freshPinia Set false when the caller activated its own Pinia instance and
+ *   pre-seeded store state on it, which a fresh one would overwrite before the first render.
  */
 function mountPage({ freshPinia = true } = {}) {
   if (freshPinia) {
@@ -25,8 +18,7 @@ function mountPage({ freshPinia = true } = {}) {
   }
 
   const i18n = createTestI18n({
-    // -> Real wording from backend/locales/en.json:2060, needed so humanizeDate()'s
-    //    t('common.datetime', …) call renders actual text rather than the raw key.
+    // -> Real wording, so `humanizeDate()`'s `t('common.datetime', …)` renders text, not the key.
     common: {
       datetime: '{date} at {time}'
     },
@@ -116,9 +108,8 @@ describe('ProfileApi', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.vm.$nextTick()
 
-    // -> The keys list must not be a casualty of the sites fetch failing -- see OpenProject #788's
-    //    ProfileApi.vue history: bundling both calls into one Promise.all meant a 403 on `sites`
-    //    (the expected case for most of this page's actual audience) took the whole load down with it.
+    // -> A 403 on `sites` is the expected case for most of this page's audience, so bundling both
+    //    calls into one `Promise.all` would take the token list down with it.
     expect(wrapper.vm.state.keys).toHaveLength(1)
     expect(wrapper.vm.state.sites).toStrictEqual([])
   })
@@ -133,8 +124,7 @@ describe('ProfileApi', () => {
     wrapper.vm.revoke(key)
     await wrapper.vm.$nextTick()
 
-    // -> `revoke()` opens a dialog via the shared `openDialogs` list rather than returning anything
-    //    itself, so this reaches into what it queued rather than a return value.
+    // -> `revoke()` returns nothing: what it opened is reachable only through `openDialogs`.
     const { openDialogs } = await import('@/composables/dialog')
     const opened = openDialogs.at(-1)
     expect(opened.props.endpoint).toBe('users/profile/api-keys')
@@ -142,10 +132,6 @@ describe('ProfileApi', () => {
     expect(opened.props.apiKey).toStrictEqual(key)
   })
 
-  // OpenProject #2078: this page renders its "Created on" line through
-  // helpers/datetime.js#humanizeDate() -> userStore.formatDateTime(), not a local
-  // Temporal.Instant#toLocaleString() call of its own -- so a viewer's stored timezone preference
-  // must change what's rendered, the same instant included.
   it('renders createdOn through the store formatter, so a stored timezone changes it', async () => {
     stubApi(
       {
@@ -170,10 +156,8 @@ describe('ProfileApi', () => {
 
     setActivePinia(createPinia())
     const userStore = useUserStore()
-    // -> UTC+9, nowhere near the test runner's own zone -- if this weren't wired through the store
-    //    the rendered cell would still show the runner's default zone instead. Set BEFORE mounting
-    //    so the very first render already reflects it, rather than relying on a later reactive
-    //    re-render to prove the point.
+    // -> UTC+9, nowhere near the runner's own zone, and set BEFORE mounting so the first render
+    //    already reflects it rather than a later reactive re-render.
     userStore.timezone = 'Asia/Tokyo'
     userStore.dateFormat = 'YYYY-MM-DD'
     userStore.timeFormat = '24h'
@@ -183,18 +167,10 @@ describe('ProfileApi', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.vm.$nextTick()
 
-    // -> Same instant as createdAt above, nine hours ahead in Tokyo: 2026-03-04T15:30Z rolls over
-    //    to 2026-03-05 00:30 local -- proof the stored timezone is what produced this text.
+    // -> `createdAt` above, nine hours ahead: 15:30Z rolls over into the next local day.
     expect(wrapper.text()).toContain('2026-03-05 at 00:30')
   })
 
-  /**
-   * OpenProject #2701. This is a list, not a settings form, so what it took from the pattern is the
-   * ROW: a plate, the token's name over everything it says about itself, and one action at the
-   * trailing edge. The warning an unusable token used to carry in a third column is now the plate's
-   * indicator dot plus a line in the hint -- what is pinned here is that it did not simply
-   * disappear in the move.
-   */
   it('draws each token as a settings row, and marks an unusable one on the plate itself', async () => {
     stubApi(
       {
@@ -239,12 +215,10 @@ describe('ProfileApi', () => {
     expect(rows[0].find('.blueprint-icon').exists()).toBe(true)
     expect(rows[0].find('.w-settings-row__hint').text()).toContain('Ending in abcd')
 
-    // -> A usable token has no dot on its plate; the revoked one does, and says so in its hint
     expect(rows[0].find('.blueprint-icon .w-badge').exists()).toBe(false)
     expect(rows[1].find('.blueprint-icon .w-badge').exists()).toBe(true)
     expect(rows[1].find('.w-settings-row__hint').text()).toContain('Revoked')
 
-    // -> Revoke stays the row's one action, and is off on a token already revoked
     const revoke = rows[1]
       .find('.w-settings-row__control')
       .findAll('button')
@@ -252,21 +226,6 @@ describe('ProfileApi', () => {
     expect(revoke.attributes('disabled')).toBeDefined()
   })
 
-  /**
-   * OpenProject #2714: the header band used to be a flex-row cell beside the action buttons, which
-   * collapsed it to the text column's width instead of running edge to edge like every other Profile
-   * page's `.w-section-header`. It must render as `<w-page>`'s own first child, with the buttons in a
-   * separate container below it (the shared `.actions-bar` treatment `ProfileOverlay.vue` styles),
-   * not squeezed into the same flex row.
-   */
-  /**
-   * OpenProject #3283: the empty-state card's `v-if` used to guard on `state.keys.length < 1 &&
-   * state.loading < 1`, so while the initial fetch was still in flight (`loading` already
-   * incremented, `keys` still `[]`) that guard read false and the `v-else` branch -- the
-   * "Access Tokens" tokens card and its header -- rendered immediately with zero rows, then
-   * disappeared once the real (empty or populated) state resolved. Neither card should render
-   * during that window; only the existing `w-inner-loading` spinner should.
-   */
   it('renders neither the empty-state card nor the tokens card while the initial fetch is in flight', async () => {
     let resolveKeys
     globalThis.API_CLIENT.get.mockImplementation((resource) => {
@@ -284,8 +243,6 @@ describe('ProfileApi', () => {
     const wrapper = mountPage()
     await wrapper.vm.$nextTick()
 
-    // -> Fetch is still in flight (`state.loading > 0`, `state.keys` still `[]`) -- neither the
-    //    empty-state card nor the "Access Tokens" tokens card (and its header) should be present.
     expect(wrapper.vm.state.loading).toBeGreaterThan(0)
     expect(wrapper.vm.state.keys).toHaveLength(0)
     expect(wrapper.text()).not.toContain('Access Tokens')
@@ -295,8 +252,6 @@ describe('ProfileApi', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.vm.$nextTick()
 
-    // -> Fetch resolved with zero tokens -- now the empty-state card is the correct, and only,
-    //    branch to render.
     expect(wrapper.text()).toContain('You have not created any personal access tokens yet.')
     expect(wrapper.text()).not.toContain('Access Tokens')
   })
@@ -310,12 +265,11 @@ describe('ProfileApi', () => {
 
     const header = wrapper.find('h1.w-section-header')
     expect(header.exists()).toBe(true)
-    // -> Direct child of the page root, not nested under a flex cell alongside the buttons
+    // -> A flex cell beside the buttons would collapse the band to the text column's width.
     expect(header.element.parentElement).toBe(wrapper.element)
 
     const actionsBar = wrapper.find('.actions-bar')
     expect(actionsBar.exists()).toBe(true)
-    // -> The band itself carries no button -- both live in the actions row below it
     expect(header.findAll('button')).toHaveLength(0)
     expect(actionsBar.find('[aria-label="common.actions.refresh"]').exists()).toBe(true)
     expect(actionsBar.text()).toContain('profile.api.newKeyButton')

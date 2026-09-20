@@ -193,22 +193,13 @@ import { useSiteStore } from '@/stores/site'
 
 import { toMerged } from 'es-toolkit/object'
 
-// STORES
-
 const adminStore = useAdminStore()
 const editorStore = useEditorStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// DATA
-
-/**
- * Fallbacks for options a site may not have stored yet, so that every control renders with a
- * defined value. Must mirror the markdown defaults used by the backend when creating a site.
- */
+/** Must mirror the markdown defaults the backend applies when creating a site. */
 function defaultConfig() {
   return {
     allowHTML: true,
@@ -245,17 +236,14 @@ const quoteStyles = [
 const tabWidthInput = ref(null)
 
 /**
- * `min`/`max` on the native control stop the spinner, not a pasted value -- and, unlike most numeric
- * settings in this app, tab width is also stored with nothing enforcing its shape server-side:
- * `backend/api/schemas/site.ts` types `editors.markdown.config` as `additionalProperties: true`, so
- * a `0` or a pasted-in string genuinely persists.
+ * `min`/`max` on the native control stop the spinner, not a pasted value, and nothing enforces the
+ * shape server-side either -- `backend/api/schemas/site.ts` types `editors.markdown.config` as
+ * `additionalProperties: true`, so a `0` or a pasted string genuinely persists.
  */
 const tabWidthRules = [
   (val) =>
     (Number.isInteger(val) && val >= 1 && val <= 8) || t('admin.editors.markdown.tabWidthInvalid')
 ]
-
-// METHODS
 
 function close() {
   adminStore.$patch({ overlay: '' })

@@ -2,23 +2,15 @@
   <w-layout class="page-history" container>
     <w-header class="card-header">
       <!--
-        20px and accent-coloured, both straight off the design
-        (`ui-redesign/Cardinal Wiki - History 3x.dc.html`, whose header glyph is
-        `<svg width="20" height="20" ... stroke="#f08287">`). It was `size="md"` — 32px, per
-        `components/shared/metrics.js` — with no colour at all, so it inherited the header's white
-        and read as a third the header's height rather than as a mark beside the label.
-
         `accent-dark`, not `accent`: this overlay is drawn on ink in BOTH themes (see the stylesheet
-        note below), so the accent that belongs here is the dark ramp's `#f08287` — which is what the
-        design sets — rather than the light `#e4676b`/`#c14a52` pair. Named, so the hex stays in
-        `css/tailwind.css` where the contrast table (`helpers/accessibility.test.js`) can see it.
+        note below), so the dark ramp's accent is the one that belongs here. Named rather than a
+        hex, so `css/tailwind.css` keeps it where the contrast table can see it.
       -->
       <w-icon name="tabler:history" left size="20px" color="accent-dark" />
       <span>{{ t('history.title') }}</span>
       <!--
-        Centred on the header itself rather than on the space left between the two groups of
-        controls, which are nowhere near the same width — hence absolute rather than a pair of
-        spacers. Ignores the pointer so it can overlap nothing it would block.
+        Absolute rather than a pair of spacers: the two groups of controls are nowhere near the same
+        width, so this centres on the header itself. Pointer-transparent, so it blocks nothing.
       -->
       <span class="page-history-page">{{ pageStore.title }}</span>
       <w-space />
@@ -26,19 +18,13 @@
         <w-spinner class="me-4" v-show="state.loading > 0" color="accent" size="20px" />
       </transition>
       <!--
-        How the two versions are laid against each other. Up here rather than over the diff, so the
-        compare bar below can stay exactly two halves lining up with the editor's own two panes.
-      -->
-      <!--
-        The selected half is filled in the accent and the other left as an outline, which is how the
-        design draws every segmented control (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`'s
-        publish-state row). It used to be white-on-slate either way, so the pair read as two chrome
-        buttons rather than as one control with a state.
+        Up here rather than over the diff, so the compare bar below can stay exactly two halves
+        lining up with the editor's own two panes.
 
-        `accent`, not `accent-fill`: this carries a white label, and `#e4676b` under white text is
-        2.9:1 -- the fill tone is for a surface with no text on it or with ink over it (see
-        `css/tailwind.css`'s own note, and `helpers/accessibility.test.js`, which pins each token
-        against the foreground it is actually drawn under).
+        `accent`, not `accent-fill`: this carries a white label, and the fill tone is for a surface
+        with no text on it or with ink over it -- see `css/tailwind.css` and
+        `helpers/accessibility.test.js`, which pins each token against the foreground it is drawn
+        under.
       -->
       <w-btn-group class="page-history-toggle me-6">
         <w-btn
@@ -59,9 +45,8 @@
           @click="state.inline = true" />
       </w-btn-group>
       <!--
-        `dark.isActive` swaps `accent-fill` for `accent-dark`: `--color-accent-fill` has no
-        dark-mode override of its own (OpenProject #2807), so left alone this close icon drew the
-        light-mode bright tone against a dark ground.
+        `--color-accent-fill` has no dark-mode override of its own, so left alone this close icon
+        draws the light-mode bright tone against a dark ground.
       -->
       <w-btn
         icon="tabler:x"
@@ -76,9 +61,6 @@
       </w-btn>
     </w-header>
 
-    <!-- ----------------------------------------------------- -->
-    <!-- TIMELINE -->
-    <!-- ----------------------------------------------------- -->
     <w-drawer class="page-history-sidebar" :model-value="true" :width="380">
       <w-scroll-area style="height: 100%">
         <div class="page-history-timeline" v-if="state.versions.length > 0">
@@ -91,7 +73,6 @@
             tabindex="0"
             @click="selectVersion(idx)"
             @keydown.enter="selectVersion(idx)">
-            <!-- The subway stop: the line itself is drawn by the item, this is the dot on it. -->
             <div class="page-history-dot" :class="actionStyle(version.action).dot">
               <w-icon :name="actionStyle(version.action).icon" size="14px" />
             </div>
@@ -99,14 +80,9 @@
               <div class="flex items-center gap-2">
                 <strong>{{ actionLabel(version.action) }}</strong>
                 <!--
-                  A square plate, not a pill: see the badge rule in this file's own stylesheet.
-
-                  `accent`, not `primary`: this carries white text, and the design's own badge
-                  (`ui-redesign-cobalt/Cardinal Wiki - History 3x - Cobalt.dc.html`) fills it
-                  `#c8303c` -- the white-text accent role, `--q-accent` -- not the site's primary
-                  brand colour, which under Cobalt is a different, unrelated blue (`#1f4fd6`). The
-                  two happen to be the same tone in Ledger, which is what let this go unnoticed
-                  until there was a second aesthetic to tell them apart (OpenProject #2776).
+                  `accent`, not `primary`: this carries white text, so it takes the white-text
+                  accent role rather than the site's brand colour. The two are the same tone under
+                  Ledger and unrelated under Cobalt, so only the second aesthetic tells them apart.
                 -->
                 <w-badge v-if="idx === 0" color="accent">
                   {{ t('history.current') }}
@@ -117,23 +93,16 @@
               </div>
               <div class="page-history-meta flex items-center gap-1">
                 <span>{{ version.author.name || t('history.unknownAuthor') }}</span>
-                <!--
-                  #1119: provenance -- did the person actually type this, or did an MCP tool call
-                  acting as them? `version.via` comes straight off the `pageHistory` row.
-                -->
                 <w-badge v-if="version.via === 'mcp'" outline color="accent">
                   {{ t('history.viaMcp') }}
                   <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
                 </w-badge>
               </div>
-              <!-- Where it went, which is the whole point of telling a move apart from an edit. -->
               <div class="page-history-meta page-history-path" v-if="version.action === `moved`">
                 /{{ version.path }}
               </div>
             </div>
-            <!--
-              Stops the click from also reaching the item, which would move both letters at once.
-            -->
+            <!-- Reaching the item too would move both letters at once. -->
             <div class="page-history-pick" @click.stop>
               <w-btn
                 flat
@@ -144,13 +113,9 @@
                 :aria-label="t(`history.versionActions`)">
                 <w-menu class="translucent-menu" auto-close anchor="bottom left" self="top left">
                   <!--
-                    `!min-w-0 !pe-2` on each icon section, and literal colour classes rather than
-                    WIcon's `color` prop — both for the same reasons as the profile menu this copies.
-
-                    OpenProject #2741: each `text-blue-7` here carries a literal `dark:text-blue-4`
-                    counterpart for the same reason the profile menu's do — see that file's own note
-                    on why this has to be a literal string rather than a `dark.isActive ? … : …`
-                    conditional on the `color` prop.
+                    Literal colour classes, not `dark.isActive ? … : …` on WIcon's `color` prop:
+                    Tailwind only emits a class it finds literally in the source, so each
+                    `text-blue-7` has to carry a written-out `dark:text-blue-4` counterpart.
                   -->
                   <w-list dense padding style="min-width: 260px">
                     <w-item clickable @click="pick(`a`, version.id)">
@@ -184,10 +149,7 @@
                     </w-item>
                     <template v-if="userStore.can(`write:pages`)">
                       <w-separator class="my-1" />
-                      <!--
-                        Writes over the page, so it reads as the one destructive thing in here — the
-                        same red the profile menu gives its one irreversible entry.
-                      -->
+                      <!-- The one destructive entry in here: it writes over the page. -->
                       <w-item clickable @click="restoreVersion(version)">
                         <w-item-section avatar class="!min-w-0 !pe-2">
                           <w-icon name="tabler:arrow-back-up" class="text-negative" />
@@ -205,12 +167,8 @@
                 </w-menu>
               </w-btn>
               <!--
-                The pair of cursors, as the design draws them: two square mono plates, the one
-                holding this letter in the accent and the other in the chrome tone
-                (`ui-redesign/Cardinal Wiki - History 3x.dc.html`). `pink-6` was a ramp colour
-                standing in for the accent and `dark-3` a panel tone standing in for slate; neither
-                is a colour this language has a use for on a control. Both carry a white letter, so
-                both take a tone that clears contrast under one -- see the mode toggle above.
+                Both plates carry a white letter, so each takes a tone that clears contrast under
+                white -- the accent for the letter this row holds, chrome for the other.
               -->
               <w-btn-group class="page-history-pick-group">
                 <w-btn
@@ -232,22 +190,20 @@
               </w-btn-group>
             </div>
             <!--
-              A row of their own, under the buttons rather than beside them: both are prose that runs
-              on, and the column left over next to the A/B group is too narrow to read either in.
+              A sibling of the dot/body/cursors row, not a child of the body column: both are prose
+              that runs on, and what is left beside the A/B group is too narrow to read either in.
             -->
             <div
               class="page-history-notes"
               v-if="version.reason || version.changedFields.length > 0">
-              <!-- Why, in the author's own words, when the site asks for a reason on save. -->
               <div class="page-history-reason" v-if="version.reason">{{ version.reason }}</div>
               <div class="page-history-fields" v-if="version.changedFields.length > 0">
                 {{ t('history.changedFields', { fields: version.changedFields.join(', ') }) }}
               </div>
             </div>
           </div>
-          <!-- Older versions than the page fetched at first come in one bite at a time, not by
-               scroll -- the timeline is what a reader scans, not what should quietly grow underneath
-               them while they're in the middle of doing that. -->
+          <!-- One bite at a time rather than on scroll: the timeline is what a reader scans, not
+               what should quietly grow underneath them while they are doing it. -->
           <div class="page-history-load-more" v-if="state.nextCursor">
             <w-btn
               outline
@@ -264,9 +220,6 @@
       </w-scroll-area>
     </w-drawer>
 
-    <!-- ----------------------------------------------------- -->
-    <!-- DIFF -->
-    <!-- ----------------------------------------------------- -->
     <w-page-container>
       <w-page class="page-history-main">
         <div class="p-4 text-grey-5" v-if="state.notice">{{ state.notice }}</div>
@@ -279,7 +232,7 @@
                 <div class="page-history-meta truncate">{{ sideCaption(sideA) }}</div>
               </div>
               <!-- A literal class, not `color`: that prop builds one at runtime, which Tailwind
-                   never emits. `ml-auto` puts it on the seam between the two panes. -->
+                   never emits. -->
               <w-icon class="text-grey-6 ml-auto" name="tabler:arrow-right" />
             </div>
             <div class="page-history-side">
@@ -292,15 +245,15 @@
           </div>
           <!--
             An identical diff looks like a failure otherwise: a metadata-only edit leaves the source
-            untouched, and the timeline entry is where what actually changed is listed.
+            untouched, and the timeline entry is where what changed is listed.
           -->
           <div class="page-history-same" v-if="state.sameContent">
             {{ t('history.sameContent') }}
           </div>
           <!--
-            Monaco never sees this pair (see `DIFF_INLINE_CHAR_LIMIT`) -- the container behind it stays
-            in the DOM either way, since an editor already mounted on it from an earlier, smaller
-            comparison needs somewhere to keep living while it is hidden.
+            Monaco never sees this pair. `v-show`, not `v-if`, on the diff container below: an
+            editor already mounted on it from an earlier, smaller comparison needs somewhere to keep
+            living while it is hidden.
           -->
           <div class="page-history-toolarge" v-if="state.diffTooLarge">
             <w-icon name="tabler:alert-triangle" size="md" />
@@ -351,83 +304,58 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
-// PROPS
-
 /**
- * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this prop
- * (OpenProject #2530). Declared here even though this overlay opens with no initial state to read --
- * without a declared prop, the value would fall through onto this component's DOM root instead.
+ * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this prop.
+ * Declared here even though this overlay reads no initial state: undeclared, the value would fall
+ * through onto this component's DOM root instead.
  */
 defineProps({
   overlayOpts: { type: Object, default: () => ({}) }
 })
 
 /**
- * Everything that ever happened to a page, and the difference between any two moments of it.
- *
- * The timeline is the record; A and B are a pair of cursors over it. They are deliberately not "the
- * selected item" — comparing a version against the one immediately before it is only the most common
- * question, not the only one, so clicking an entry sets that up and the two letters then move
- * independently. What the right-hand side shows is always A on the left and B on the right, whichever
- * way round in time they happen to be.
+ * A and B are a pair of cursors over the timeline, deliberately not "the selected item" — comparing
+ * a version against the one immediately before it is only the most common question, not the only
+ * one, so clicking an entry sets that up and the two letters then move independently. A always
+ * draws on the left, whichever way round in time the pair happens to be.
  */
 
-// DARK MODE
-
 const dark = useDark()
-
-// STORES
 
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
-
-// I18N
 
 const { t } = useI18n()
 
-// DATA
-
 const state = reactive({
   loading: 0,
-  /** Newest first, as the API returns them: the first entry is the page as it stands. */
+  /** Newest first, as the API returns them: entry 0 is the page as it stands. */
   versions: [],
-  /**
-   * The route's own paging cursor -- the history is keyset-paginated (OpenProject #1859), so
-   * `state.versions` starts as just the first page rather than the page's whole history. Null once
-   * there is nothing older left to fetch.
-   */
+  /** Keyset paging cursor; null once there is nothing older left to fetch. */
   nextCursor: null,
   /** Separate from `loading`: fetching an older page shouldn't reshow the header's syncing spinner. */
   loadingMore: false,
-  /** The left-hand side. Null against the very first version, where there is nothing to compare to. */
+  /** Null against the very first version, where there is nothing to compare to. */
   aId: null,
-  /** The right-hand side. Never null once there is any history at all. */
+  /** Never null once there is any history at all. */
   bId: null,
-  /** Shown in place of the diff when there is nothing to show one of. */
   notice: '',
   /** Set alongside the models rather than computed: the fetched sources are held outside `state`. */
   sameContent: false,
-  /** Set alongside the models, for the same reason: whether this pair was too large to hand to Monaco. */
   diffTooLarge: false,
-  /** One column with the changes marked in place, rather than the two-column default. */
   inline: false
 })
 
 /**
- * How each kind of change reads on the line. The icon names are literals on purpose: one built at
- * runtime is not inlined by the icon generator.
+ * The icon names are literals on purpose: one built at runtime is not inlined by the icon generator.
  *
- * The dot classes are this component's own, not Tailwind utilities. Each `bg-*` utility resolved
- * through a token the design does not draw here -- `bg-blue-7` is Material's #1e88e5 against the
- * design's #5f78a8, and `bg-positive`/`bg-warning` are the text tier against its fill tier -- and a
- * utility also carries no glyph ink, so every dot took white even where the fill needs $ink over it.
- * The pair now lives together in the stylesheet, where the fill and the ink over it are one rule.
+ * The dot classes are this component's own rather than Tailwind utilities: each `bg-*` utility
+ * resolves through a token tier the design does not draw here, and a utility carries no glyph ink,
+ * so the fill and the ink over it live together as one rule in the stylesheet.
  */
 const ACTION_STYLES = {
   created: { icon: 'tabler:plus', dot: 'is-created' },
@@ -437,37 +365,24 @@ const ACTION_STYLES = {
 }
 const ACTION_FALLBACK = { icon: 'tabler:circle', dot: 'is-other' }
 
-// REFS
-
 const diffEl = ref(null)
 
-/*
-  The diff editor itself lives in `composables/monacoDiff.js` -- mounting it, feeding it a pair of
-  texts and tearing it down are all its concern; which two versions to compare, and how to fetch
-  them, is this overlay's.
-*/
 const { showDiff, setInline, disposeModels, disposeEditor } = useMonacoDiff(diffEl, {
   isInline: () => state.inline
 })
 
-/** The versions whose source has been fetched, keyed by id. Kept out of `state` for the same reason. */
+/** Fetched sources by id, deliberately outside reactive `state`. */
 const contents = new Map()
 
 /** Guards against an out-of-order fetch: only the newest comparison may touch the editor. */
 let applyToken = 0
 
-// COMPUTED
-
 const sideA = computed(() => state.versions.find((v) => v.id === state.aId) ?? null)
 const sideB = computed(() => state.versions.find((v) => v.id === state.bId) ?? null)
-
-// WATCHERS
 
 watch(() => [state.aId, state.bId], applyDiff)
 
 watch(() => state.inline, setInline)
-
-// METHODS
 
 function close() {
   siteStore.$patch({ overlay: '' })
@@ -485,7 +400,6 @@ function sideLabel(version) {
   return version ? humanizeDate(t, version.versionDate) : t('history.emptyPage')
 }
 
-/** Who, and why if they said — the same line the timeline entry carries, on one row. */
 function sideCaption(version) {
   if (!version) {
     return ''
@@ -497,19 +411,13 @@ function sideCaption(version) {
   return version.reason ? `${author} — ${version.reason}` : author
 }
 
-/**
- * What one entry changed: itself as B, and whatever came before it as A.
- *
- * The oldest entry has nothing before it, so A goes empty and the diff shows the page arriving.
- */
+/** The oldest entry has nothing before it, so A goes empty and the diff shows the page arriving. */
 function selectVersion(idx) {
   state.bId = state.versions[idx]?.id ?? null
   state.aId = state.versions[idx + 1]?.id ?? null
 }
 
 /**
- * Move one of the two letters onto a version.
- *
  * The pair can never land on the same entry, so a letter arriving where the other one sits displaces
  * it: normally to the position being vacated, which is a straight swap. The one case that cannot swap
  * is A landing on B while A is nowhere — comparing against the empty page — and there B steps to the
@@ -534,12 +442,7 @@ function pick(slot, id) {
   }
 }
 
-/**
- * A version's source, fetched once.
- *
- * Cached because the two letters walk back and forth over the same handful of entries, and because a
- * version is immutable — there is no state in which a second fetch would answer differently.
- */
+/** Cached: the two letters walk back and forth, and a version is immutable once written. */
 async function loadVersion(id) {
   if (!id) {
     return null
@@ -554,22 +457,16 @@ async function loadVersion(id) {
   return version
 }
 
-/** What a version's source is saved as, by the format it was written in. */
 const FILE_TYPES = {
   markdown: { ext: 'md', mime: 'text/markdown' },
   html: { ext: 'html', mime: 'text/html' }
 }
 
-/**
- * The format a version was written in — which decides how it colours, how it renders and what it
- * downloads as. Taken from the version rather than from the page, since the page may have been
- * converted since.
- */
+/** From the version, not the page: the page may have been converted to another format since. */
 function contentTypeOf(version) {
   return version?.meta?.contentType || version?.meta?.editor || pageStore.editor || 'markdown'
 }
 
-/** A version with its source, with the spinner and the error report the menu actions all want. */
 async function withVersion(version) {
   state.loading++
   try {
@@ -587,21 +484,17 @@ async function withVersion(version) {
 }
 
 /**
- * The HTML for a version's source, produced here for the same reason every save produces it here:
- * the markdown pipeline is a frontend one, and the server would otherwise have to drive a headless
- * browser — an extension most instances do not install.
+ * Rendered on the client, as every save is: the markdown pipeline is a frontend one, and rendering
+ * it server-side would mean driving a headless browser.
  */
 async function renderOf(version, content) {
   if (contentTypeOf(version) !== 'markdown') {
     return content
   }
-  // -> The renderer is configured per site (line breaks, typographer, …), and that configuration
-  //    arrives with the editor configs rather than on its own. `ensureConfigs()`, not a bare
-  //    `configIsLoaded` check: it also refreshes the glossary term list even when the rest of the
-  //    config is already loaded (OpenProject #2789)
+  // -> `ensureConfigs()`, not a bare loaded-check: it also refreshes the glossary term list even
+  //    when the rest of the per-site renderer config is already loaded
   await editorStore.ensureConfigs()
-  // -> Rendered as the page it is a version of, so a relative image in it resolves the way it does
-  //    in the page view rather than against the site root
+  // -> `pagePath` so a relative image resolves as it does in the page view, not against the site root
   return new MarkdownRenderer(editorStore.editors.markdown ?? {}).render(content, {
     pagePath: pageStore.path
   })
@@ -627,14 +520,13 @@ async function downloadVersion(version) {
     return
   }
   const type = FILE_TYPES[contentTypeOf(full)] ?? { ext: 'txt', mime: 'text/plain' }
-  // -> Named for the page and the moment, since a folder of `page.md` files says nothing
   const name = full.path.split('/').at(-1) || 'page'
   const stamp = full.versionDate.slice(0, 19).replace(/[:T]/g, '-')
   try {
     /*
       A bare MIME type, with no `;charset=` on it: the save picker uses this as an `accept` key and
-      rejects a type carrying parameters outright. Nothing is lost by dropping it — a Blob built from
-      a JS string is UTF-8 already.
+      rejects a type carrying parameters outright. Nothing is lost — a Blob built from a JS string
+      is UTF-8 already.
     */
     await fileSave(new Blob([full.content ?? ''], { type: type.mime }), {
       fileName: `${name}-${stamp}.${type.ext}`,
@@ -653,12 +545,9 @@ async function downloadVersion(version) {
 }
 
 /**
- * Put this version's source back on the page.
- *
- * The source only: the page keeps the title, tags and settings it has now. Restoring those too would
- * quietly undo everything done since, and a reader asking for an old version back is asking for the
- * text. Nothing is lost either way — this is an ordinary edit, so it becomes a version of its own
- * with the current state recorded in it.
+ * The source only: the page keeps the title, tags and settings it has now, since restoring those
+ * too would quietly undo everything done since. Nothing is lost either way — this is an ordinary
+ * edit, so it becomes a version of its own with the current state recorded in it.
  */
 function restoreVersion(version) {
   confirm({
@@ -690,8 +579,8 @@ function restoreVersion(version) {
         throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({ type: 'positive', message: t('history.restoreSuccess') })
-      // -> The page behind this overlay is now out of date, and so is the timeline: the restore is
-      //    itself a version, and it is the one worth landing on
+      // -> The restore is itself a version, so both the page behind this overlay and the timeline
+      //    are out of date
       await pageStore.pageLoad({ id: pageStore.id })
       await load()
     } catch (err) {
@@ -706,12 +595,7 @@ function restoreVersion(version) {
   })
 }
 
-/**
- * Start a new page from this version, leaving this one alone.
- *
- * What to do with an old version that is worth keeping but not worth reverting to. The same path
- * picker as duplicating a page, because that is what this is — a duplicate of a page as it was.
- */
+/** For a version worth keeping but not worth reverting to: a duplicate of the page as it was. */
 function branchFrom(version) {
   dialog({
     component: defineAsyncComponent(() => import('./TreeBrowserDialog.vue')),
@@ -736,8 +620,7 @@ function branchFrom(version) {
           path: target.path,
           title: target.title,
           // -> The version's own locale, not the page's current one: a move can re-home a page into
-          //    another locale, so the two genuinely disagree for any version recorded before such a
-          //    move, and a version is a record of what the page WAS.
+          //    another locale, and a version is a record of what the page WAS
           locale: full.locale || pageStore.locale,
           editor: full.meta?.editor || pageStore.editor,
           content,
@@ -746,7 +629,7 @@ function branchFrom(version) {
           icon: full.meta?.icon ?? '',
           tags: full.meta?.tags ?? [],
           // -> A version that was scheduled carries dates this new page has not got, and the API
-          //    rightly refuses that combination
+          //    refuses that combination
           publishState: full.meta?.publishState === 'published' ? 'published' : 'draft',
           reasonForChange: t('history.branchReason', { date: humanizeDate(t, full.versionDate) })
         }
@@ -770,15 +653,13 @@ function branchFrom(version) {
   })
 }
 
-/** The format the page was written in at the time, which is what colours the two sides. */
 function languageOf(version) {
   const type = contentTypeOf(version)
   if (type === 'html') {
     return 'html'
   }
-  // -> A redirect's content is `{kind, target, showInterstitial}` as JSON (see `helpers/pageRedirect.
-  //    js`), not prose -- coloured as markdown, a target such as `/foo_bar` reads as broken emphasis
-  //    syntax rather than as the path it is. JSON is what it actually is, and Monaco already knows it.
+  // -> A redirect's content is JSON (`helpers/pageRedirect.js`), not prose: coloured as markdown, a
+  //    target such as `/foo_bar` reads as broken emphasis syntax rather than as the path it is
   if (type === 'redirect') {
     return 'json'
   }
@@ -799,8 +680,8 @@ async function applyDiff() {
     state.diffTooLarge = tooLargeToDiffInline(a, b)
 
     if (state.diffTooLarge) {
-      // -> Neither version reaches Monaco: the pane is left empty (hidden behind the notice in the
-      //    template) and downloading each side is the one thing offered instead.
+      // -> Neither version reaches Monaco; release the previous pair so the hidden editor is not
+      //    left holding a stale diff
       disposeModels()
       return
     }
@@ -828,11 +709,10 @@ async function load() {
     const res = await API_CLIENT.get(`sites/${siteStore.id}/pages/${pageStore.id}/history`).json()
     state.versions = res?.items ?? []
     state.nextCursor = res?.nextCursor ?? null
-    // -> The timeline says so itself; repeating it in the diff pane would say it twice
+    // -> No notice: the timeline already says so, and the diff pane would say it twice
     if (state.versions.length < 1) {
       return
     }
-    // -> The live version against the one before it: the change the page is carrying right now
     state.bId = state.versions[0].id
     state.aId = state.versions[1]?.id ?? null
   } catch (err) {
@@ -849,8 +729,6 @@ async function load() {
 }
 
 /**
- * Fetch the next, older page of the timeline and append it.
- *
  * Appended, not replacing `state.versions`: `selectVersion`/`pick` index into that array directly,
  * and the already-picked A/B letters must stay put while more history arrives underneath them.
  */
@@ -876,30 +754,20 @@ async function loadMore() {
   }
 }
 
-// MOUNTED
-
 onMounted(load)
 
 onBeforeUnmount(disposeEditor)
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
-/**
- * The subway line: its colour, and the radius of the turn it makes at the end.
- *
- * `var(--color-hairline-dark)`, not the bare `var(--color-hairline-dark)` this held until OpenProject #2776:
- * a Sass variable is a build-time literal, so it never varies with `body.body--cobalt` the way a
- * CSS custom property does. Ledger is unaffected -- `--color-hairline-dark` starts at the exact
- * same `#2a3040` -- but this line, and every other `$dark-*`/`var(--color-hairline-dark)`/`$text-*-dark`
- * reference in this file, were rendering the SAME fixed Ledger-dark tones under Cobalt too, which
- * is the opposite of what "this overlay is drawn on ink in BOTH [site] THEMES" (below) was ever
- * meant to say -- it was never meant to also mean "in both aesthetics."
- */
+/*
+  Selectors are written flat rather than with `&-suffix` nesting: that is Sass string concatenation,
+  which native CSS nesting does not support -- the browser silently drops such a rule.
+
+  Every tone the palette names is read as a `var(--color-*)` custom property rather than a fixed
+  value: the custom property is what `css/tailwind.css` swaps per aesthetic, so a frozen tone would
+  render the same under Cobalt as under Ledger.
+*/
 .page-history {
   /* -> The header is the positioning context for the page title below */
 }
@@ -908,10 +776,9 @@ onBeforeUnmount(disposeEditor)
 }
 .page-history {
   /*
-    -> `left`/`translateX(-50%)` stay physical on purpose (OpenProject #1601's repo-wide pass): this
-       centers the title over the whole header regardless of reading direction, the same centering
-       trick as `WSignal.vue`/`ErrorGeneric.vue` -- not a reading-direction lean. See
-       `frontend/src/logicalSpacing.test.js`.
+    -> `left`/`translateX(-50%)` stay physical on purpose: this centers the title over the whole
+       header regardless of reading direction -- not a reading-direction lean. Allowlisted in
+       `frontend/src/logicalSpacing.test.js` for that reason.
   */
 }
 .page-history-page {
@@ -927,21 +794,18 @@ onBeforeUnmount(disposeEditor)
   font-size: 0.8rem;
   opacity: 0.6;
   /*
-    -> The page's OWN title, so it is set as the author wrote it. `.card-header` (`css/_base.css`)
-       uppercases a dialog's title band, and this span sits inside that band, so it inherited the
-       transform and shouted the page name back. The design draws the two differently on purpose:
-       the `PAGE HISTORY` label beside it declares `text-transform: uppercase` explicitly, and this
-       span declares no transform at all.
+    -> `.card-header` (`css/_base.css`) uppercases a dialog's title band, and this span sits inside
+       that band: without the override it would shout the page's own title back, which the design
+       sets as the author wrote it.
   */
   text-transform: none;
 }
 .page-history {
   /*
-    This overlay is drawn on INK in both themes -- the design's own choice, and the only screen in
-    the app that is (`ui-redesign/Cardinal Wiki - History 3x.dc.html`). A diff is code, and code is
-    read on a dark ground here the way it is in the editor; the light theme has nothing to say about
-    it. So the tones below are Cardinal's dark ramp stated directly rather than through a theme
-    branch: panel for the timeline column, the recessed tone for the diff beside it.
+    This overlay is drawn on INK in both themes, and is the only screen in the app that is: a diff is
+    code, and code is read on a dark ground here the way it is in the editor. So the tones below are
+    the dark ramp stated directly rather than through a theme branch -- panel for the timeline
+    column, the recessed tone for the diff beside it.
   */
 }
 .page-history-sidebar {
@@ -952,7 +816,6 @@ onBeforeUnmount(disposeEditor)
 .page-history-main {
   display: flex;
   flex-direction: column;
-  /* -> Ink, a step BELOW the timeline rail beside it: the diff is the recessed half of the pair */
   background-color: var(--color-dark-5);
   color: var(--color-text-dark);
   /* -> The grid cell already has a height; this claims it so the diff can fill what is left */
@@ -960,25 +823,21 @@ onBeforeUnmount(disposeEditor)
   min-height: 0;
 }
 .page-history {
-  /* The subway line: one continuous rule behind the dots, drawn by the list rather than the items. */
+  /* The timeline rule is drawn once by the list, not per item. */
 }
 .page-history-timeline {
   position: relative;
   padding: 1rem 0;
   /*
-    The line: down behind the dots, then a quarter turn out to the leading edge rather than
-    stopping in mid-air.
-
-    Both halves are ONE border of ONE box -- the trailing and bottom edges of an invisible
-    rectangle, joined by a corner radius -- rather than a straight element meeting a curved one.
-    Two elements cannot be made to match under fractional display scaling: each snaps to the device
-    pixel grid from its own layout box, so at 125% or 150% one lands on a whole device pixel and the
-    other straddles two, and the seam shows as a change of thickness. As a single border there is
-    nothing to line up: the browser rasterises the straight stretch and the curve as one path.
+    The line and the quarter turn it makes at the end are ONE border of ONE box -- the trailing and
+    bottom edges of an invisible rectangle, joined by a corner radius -- rather than a straight
+    element meeting a curved one. Two elements cannot be made to match under fractional display
+    scaling: each snaps to the device pixel grid from its own layout box, so one lands on a whole
+    device pixel while the other straddles two and the seam shows as a change of thickness. As a
+    single border the browser rasterises the straight stretch and the curve as one path.
 
     The box's trailing edge sits under the middle of the dots: 1rem of padding, half of the 28px
-    dot, half of the 2px line. OpenProject #1601: `inset-inline-start`/`border-inline-end`/
-    `border-end-end-radius`, so the turn follows the dots to the leading edge under RTL too.
+    dot, half of the 2px line.
   */
 }
 .page-history-timeline::before {
@@ -1008,17 +867,14 @@ onBeforeUnmount(disposeEditor)
 }
 .page-history-item {
   /*
-    An inset shadow rather than a `border-left`, which is what this was: a border is part of the
-    box, so it pushed the row's contents 3px across and took the dot of every picked entry off the
-    line while the unpicked ones stayed on it.
+    An inset shadow rather than a `border-left`: a border is part of the box, so it would push the
+    row's contents across and take a picked entry's dot off the line while the unpicked ones stay
+    on it.
 
-    `--color-accent-fill`, not `var(--color-primary)`: this is an UNTEXTED highlight (a wash plus an inset
-    bar, the same pairing the file manager's own selected row and the site's active-nav item both
-    use), not a fill carrying text -- the design's own mockup draws it in the accent-fill tone in
-    both aesthetics (`#e4676b`/`#ff4d5a`), never the white-text accent this held instead
-    (OpenProject #2776). `color-mix()` derives the 16%-opacity wash from that same token rather
-    than adding a second, undeclared one -- `_base.css`'s `.header-nav-btn:hover` rule already
-    establishes the pattern.
+    `--color-accent-fill`, not `--color-primary`: this is an UNTEXTED highlight -- a wash plus an
+    inset bar, the same pairing the file manager's selected row and the site's active-nav item use
+    -- not a fill carrying text. `color-mix()` derives the wash from that same token rather than
+    adding a second, undeclared one, as `_base.css`'s `.header-nav-btn:hover` does.
   */
 }
 .page-history-item.is-picked {
@@ -1027,13 +883,9 @@ onBeforeUnmount(disposeEditor)
 }
 .page-history {
   /*
-    The subway stop: 28px, round, ringed in the timeline column's own ground so the line behind it
-    reads as passing UNDER the dot rather than through it. All three measurements are the design's
-    (`ui-redesign/Cardinal Wiki - History 3x.dc.html`).
-
-    The ring was var(--color-dark-5) -- ink, which is the DIFF pane's ground, not this column's. The comment
-    below it already said "the sidebar's own colour"; var(--color-dark-4) is what that actually is, and against
-    var(--color-dark-4) the old ring drew a visible dark halo instead of disappearing.
+    Ringed in the timeline column's own ground (`--color-dark-4`, not the diff pane's
+    `--color-dark-5`) so the line behind it reads as passing UNDER the dot rather than through it.
+    Any other tone draws a visible halo instead of disappearing.
   */
 }
 .page-history-dot {
@@ -1047,16 +899,11 @@ onBeforeUnmount(disposeEditor)
 }
 .page-history {
   /*
-    One fill per kind of change, taken from the design rather than from the Material ramp these used
-    to resolve through: `bg-blue-7` is #1e88e5, where the design's "Updated" dot is #5f78a8, and
-    `bg-positive`/`bg-warning` are the TEXT tier (#3f7a66 / #a8801f) where the design draws the fill
-    tier (#5f9c86 / #d9a441).
-
     Every dot is a fill, so the glyph over it takes whichever ink clears it: white on the two darker
-    fills, var(--color-ink) on the two bright ones. That is how the design draws its own amber "Moved" dot
-    (stroke #1c2233), and it is the rule `css/tailwind.css` states for every `-fill` tone.
+    fills, `--color-ink` on the two bright ones -- the rule `css/tailwind.css` states for every
+    `-fill` tone.
 
-    #5f78a8 is a literal because the palette has no name for it -- it is the only tone on this screen
+    #5f78a8 is a literal because the palette has no name for it: it is the only tone on this screen
     that is neither chrome nor a status. Naming it is a job for the token pass, not for this file.
   */
 }
@@ -1077,7 +924,7 @@ onBeforeUnmount(disposeEditor)
   color: var(--color-ink);
 }
 .page-history {
-  /* -> An action this build has no name for: chrome, so it reads as unclassified rather than as a status */
+  /* -> An action this build has no name for: chrome, so it reads as unclassified, not a status */
 }
 .page-history-dot.is-other {
   background-color: var(--color-slate-soft);
@@ -1095,9 +942,8 @@ onBeforeUnmount(disposeEditor)
 }
 .page-history {
   /*
-    The design sets one tone across all three metadata lines but not one typeface: the timestamp and
-    the destination path are mono, the author's name is the proportional face beside them. They all
-    used to be `-meta` alone, so the whole block came out proportional.
+    One tone across all three metadata lines, but not one typeface: the timestamp and the
+    destination path are mono, the author's name is the proportional face beside them.
   */
 }
 .page-history-time {
@@ -1109,19 +955,14 @@ onBeforeUnmount(disposeEditor)
   font-size: 0.72rem;
 }
 .page-history {
-  /*
-    Square mono plates, uppercase and tracked -- how the design draws both of the entry's markers,
-    the CURRENT cursor and the VIA MCP provenance mark. `WBadge` is already mono/9px/600; what it
-    does not do on its own is the casing or the tracking, and it drew both of these as pills until
-    the `rounded` prop came off (the language zeroes every radius but a genuinely round shape).
-  */
+  /* -> `WBadge` is already mono/9px/600; the casing and the tracking are what it does not do. */
 }
 .page-history-item .w-badge {
   text-transform: uppercase;
   letter-spacing: 0.14em;
 }
 .page-history {
-  /* -> Full width, indented to sit under the entry's text rather than under its dot */
+  /* -> Indented to sit under the entry's text rather than under its dot */
 }
 .page-history-notes {
   flex: 0 0 100%;
@@ -1136,7 +977,7 @@ onBeforeUnmount(disposeEditor)
   word-break: break-word;
 }
 .page-history {
-  /* -> Mono, like every other list of machine names in this language and like the design's own row */
+  /* -> Mono, like every other list of machine names in this language */
 }
 .page-history-fields {
   margin-top: 0.25rem;
@@ -1178,13 +1019,8 @@ onBeforeUnmount(disposeEditor)
   padding: 0 1rem;
 }
 .page-history {
-  /*
-    -> The accent under a white letter, and the mono the design sets both cursors in.
-
-    `var(--color-accent)`, not `var(--color-primary)`: same white-text-fill mixup as the "Current" badge above
-    (OpenProject #2776) -- the design's own A/B plates fill `#c8303c` under Cobalt, `--q-accent`'s
-    value, not the site's unrelated primary blue.
-  */
+  /* -> `--color-accent`, not `--color-primary`: a white letter needs the white-text accent role,
+        the same distinction the "Current" badge above draws. */
 }
 .page-history-letter {
   flex: 0 0 24px;
@@ -1205,21 +1041,16 @@ onBeforeUnmount(disposeEditor)
 }
 .page-history {
   /*
-    Cobalt only (OpenProject #2872, `ui-iteration/README.md` Part 1.1/Part 2 "History (Cobalt) |
-    Side by side / Inline gap + Inline rounded; A/B chips rounded with 4px gap"): a Cobalt `w-btn`
-    is individually rounded (`--radius-control`), so `WBtnGroup.vue`'s touching-squares layout --
-    zero gap, a seam hairline between buttons -- draws two rounded plates overlapping into a lens
-    shape at the seam, with a hairline RULE running through them besides (exactly what Part 1.1's
-    "matte" pass forbids). The design draws a real gap between two separately rounded plates
-    instead, with no line between them at all -- 10px for the Side by side/Inline toggle, 4px for
-    the A/B pick chips (the design's own literal values; `--radius-control` already rounds every
-    corner of every `w-btn`, Cobalt or not, so nothing else here has to change).
+    Cobalt only: a Cobalt `w-btn` is individually rounded (`--radius-control`), so
+    `WBtnGroup.vue`'s touching-squares layout -- zero gap, a seam hairline between buttons -- draws
+    two rounded plates overlapping into a lens shape at the seam, with a hairline rule running
+    through them besides. The design draws a real gap between two separately rounded plates
+    instead, with no line between them at all.
 
     The selector below out-specifies `WBtnGroup.vue`'s own
     `.w-btn-group[data-v-*] > .w-btn:not(:last-child)` (its `[data-v-*]` scope attribute and this
     rule's leading `body` type selector both count once the class tally ties), so no `!important`
-    is needed -- verified by the source-text conformance test alongside this rule, since jsdom here
-    has no compiled token stylesheet to resolve a real cascade against.
+    is needed.
   */
 }
 body.body--cobalt .page-history-toggle {
@@ -1240,8 +1071,8 @@ body.body--cobalt .page-history-pick-group .w-btn:not(:last-child) {
   background-color: var(--color-dark-2);
 }
 .page-history {
-  /* -> Takes the diff pane's own place rather than sitting alongside it, unlike `-same` above: there
-        is no partial diff underneath this one to also show. */
+  /* -> Takes the diff pane's place rather than sitting alongside it, unlike `-same` above: there is
+        no partial diff underneath this one to also show. */
 }
 .page-history-toolarge {
   flex: 1 1 auto;

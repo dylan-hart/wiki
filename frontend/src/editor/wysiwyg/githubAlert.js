@@ -1,24 +1,13 @@
 import { Blockquote } from '@tiptap/extension-blockquote'
 
 /**
- * GitHub-style alerts for the WYSIWYG editor -- `> [!NOTE]` and friends -- ported from
- * `renderers/modules/github-alerts.js`'s own `KINDS`/`MARKER` detection (see that file's doc
- * comments for the mapping onto the content stylesheet's admonition classes) onto marked's
- * `blockquote` token instead of markdown-it's `blockquote_open`/`paragraph_open`/`inline` triplet.
+ * Extends the stock `Blockquote` in place rather than registering a second node under the same
+ * `blockquote` markdown token: `@tiptap/markdown`'s `MarkdownManager.renderNodeToMarkdown` resolves
+ * a renderer through the parse registry (keyed by `markdownTokenName`) before the render registry,
+ * so a separate node sharing that token would also render every plain blockquote as an alert.
  *
- * Extends the stock `Blockquote` node in place -- `kind`/`title` default to `null`/`''` for an
- * ordinary quote -- rather than registering a second, separate node under the SAME `blockquote`
- * markdown token. `@tiptap/markdown`'s `MarkdownManager.renderNodeToMarkdown` resolves a node's
- * renderer via `getHandlerForToken(node.type)`, which checks the PARSE registry (keyed by
- * `markdownTokenName`) before the render registry (keyed by the node's own name): a separate
- * `githubAlert` node sharing `markdownTokenName: 'blockquote'` for parsing would, once registered,
- * also get its `renderMarkdown` picked for every PLAIN `blockquote`-typed node in the document --
- * confirmed empirically (a plain `> quote` round-tripped back out as `> [!NOTE]\n>\n> quote`).
- * One extended node sidesteps that entirely: there is only ever one registration for the
- * `blockquote` token/node name, so this failure mode cannot occur.
- *
- * Registered in `EditorWysiwyg.vue`'s `buildExtensions()` in place of `StarterKit`'s own
- * `blockquote` (`blockquote: false`, the same pattern already used there for `codeBlock`/`link`).
+ * It claims the `blockquote` node name, so `StarterKit` must be registered with `blockquote: false`
+ * alongside it.
  */
 const KINDS = new Map([
   ['note', { className: 'is-info', label: 'Note' }],
@@ -31,7 +20,7 @@ const KINDS = new Map([
 
 const MARKER = /^\[!([a-z]+)\][ \t]*([^\n]*)(?:\n|$)/i
 
-/** The stock Blockquote's own line-prefixing renderer (`@tiptap/extension-blockquote`, unexported). */
+/** Duplicates `@tiptap/extension-blockquote`'s line-prefixing renderer, which it does not export. */
 function renderPlainBlockquote(node, h) {
   if (!node.content) {
     return ''
@@ -53,8 +42,7 @@ export const GithubAlert = Blockquote.extend({
 
   addAttributes() {
     return {
-      // -> `null` (not `'note'`) so a plain blockquote's markdown JSON carries no alert attrs at
-      //    all when serialized -- `alert-block`/`data-alert-kind` only ever appear on a real alert.
+      // -> `null`, not `'note'`, so a plain blockquote serializes with no alert attrs at all.
       kind: { default: null },
       title: { default: '' }
     }
@@ -104,13 +92,10 @@ export const GithubAlert = Blockquote.extend({
     const title = (marker[2] || '').trim()
     const rest = (firstChild.text || '').slice(marker[0].length)
 
-    // -> When the marker was the WHOLE first paragraph (the common case: `> [!NOTE]` on its own
-    //    line, then a blank `>` line, then the body), marked's blockquote tokens are
-    //    `[paragraph("[!NOTE]"), space, paragraph(body)]` -- the leading `space` token is the blank
-    //    line that separated them. Dropped here rather than left in `bodyTokens`: `parseBlockChildren`
-    //    reads a leading `space` as an IMPLICIT blank line before the first real block and inserts an
-    //    extra empty paragraph for it, which is one blank line too many once `renderMarkdown` below
-    //    already puts its own blank line between the marker and the body.
+    // -> For a marker on its own line marked emits `[paragraph("[!NOTE]"), space, paragraph(body)]`.
+    //    `parseBlockChildren` reads that leading `space` as an implicit blank line and inserts an
+    //    empty paragraph for it -- one blank line too many, since `renderMarkdown` below already
+    //    puts its own between marker and body.
     let remainder = token.tokens.slice(1)
     while (remainder[0]?.type === 'space') {
       remainder = remainder.slice(1)
@@ -123,11 +108,9 @@ export const GithubAlert = Blockquote.extend({
         ]
       : remainder
 
-    // -> `blockquote`'s content model is `block+` (at least one child) -- a bare `> [!NOTE]` with no
-    //    body at all would otherwise parse to a node with empty content, which ProseMirror rejects
-    //    outright (`Invalid content for node blockquote`). An empty paragraph placeholder keeps the
-    //    node valid, and round-trips back to nothing (`renderMarkdown`'s own `body ? ... : marker-only`
-    //    branch, below) exactly like a genuinely marker-only alert does.
+    // -> `blockquote`'s content model is `block+`, so a bare `> [!NOTE]` would parse to empty
+    //    content that ProseMirror rejects outright. The placeholder paragraph keeps the node valid
+    //    and round-trips back to a marker-only alert.
     const content = parseChildren(bodyTokens)
 
     return h.createNode(

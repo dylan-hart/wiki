@@ -7,11 +7,7 @@ import { useDictText } from './i18nText.js'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * `useDictText()` wraps `useI18n()`, which only works inside a component's `setup()` -- mounting a
- * tiny probe component through `@vue/test-utils` is how `dark.test.js` and `screen.test.js`'s
- * siblings exercise composables with the same constraint.
- */
+/** `useDictText()` wraps `useI18n()`, which only works inside a component's `setup()`. */
 function mountProbe({ plugins = [] } = {}) {
   let resolved
   const Probe = defineComponent({

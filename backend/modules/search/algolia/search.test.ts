@@ -21,15 +21,12 @@ import type { SearchPagesParams } from '../../../models/search.ts'
 
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 
-/** The engine config both this file's own suite and the shared contract run against. */
 const ALGOLIA_CONFIG = { appId: 'app123', apiKey: 'key456', indexName: 'wiki-test' }
 
 before(() => ensureTemporal())
 
-/** The 28-field superset lives in `test/builders.ts` — see `makeIndexablePage`'s own doc. */
 const fakePage = makeIndexablePage
 
-/** A fake Algolia client: every method a test needs, recording every call it received. */
 function fakeAlgoliaClient() {
   const calls: Record<string, any[]> = {
     setSettings: [],
@@ -75,7 +72,6 @@ function fakeAlgoliaClient() {
   }
 }
 
-/** A module instance wired to a fake client, bypassing any real Algolia network call. */
 function moduleWithFakeClient() {
   const mod = new AlgoliaSearchModule()
   const fake = fakeAlgoliaClient()
@@ -165,10 +161,6 @@ describe('buildFilters()', () => {
     )
   })
 
-  /**
-   * OpenProject #921: a `siteId` embedded with an unescaped quote could otherwise break out of its
-   * filter clause the same way any other value could -- the site id itself is escaped no differently.
-   */
   test('escapes a quote embedded in siteId itself', () => {
     assert.equal(
       buildFilters({ siteId: 'weird"site' }),
@@ -195,7 +187,6 @@ describe('pageToDocument()', () => {
   test('never sends content for a password-protected page', () => {
     const doc = pageToDocument(fakePage({ password: 'letmein' }))
     assert.equal('content' in doc, false)
-    // -> Everything a reader sees without the password is still there
     assert.equal(doc.title, 'The Wandering Kangaroo')
     assert.equal(doc.description, 'A page about kangaroos')
   })
@@ -248,25 +239,15 @@ describe('batchDocuments()', () => {
   })
 
   test('does not split early: near-max-size documents stay in one batch below both caps', () => {
-    // -> With the actual reference constants, MAX_INDEXING_COUNT (1000) documents at just under
-    //    MAX_DOCUMENT_BYTES (10240B) each total ~10.24MB, which is still under MAX_INDEXING_BYTES
-    //    (~10.49MB) -- so the count cap always binds before the byte cap for realistically-sized
-    //    documents, and a batch genuinely split by bytes alone cannot be constructed without a
-    //    document that violates the per-object cap. This instead guards the byte accumulator itself:
-    //    a good number of large-but-valid documents, comfortably under both limits, must not be
-    //    split prematurely by an off-by-one in the running byte total.
+    // -> With the real constants the count cap always binds before the byte cap, so a batch split by
+    //    bytes alone cannot be constructed without a document that violates the per-object cap. This
+    //    guards the byte accumulator instead: large-but-valid documents under both limits must not be
+    //    split by an off-by-one in the running total.
     const big = 'x'.repeat(8000)
     const docs = Array.from({ length: 500 }, (_, i) => doc({ objectID: `p${i}`, description: big }))
     assert.deepEqual(batchDocuments(docs), { batches: [docs], skipped: [] })
   })
 
-  /**
-   * OpenProject #830 (upstream discussion #3675): a page whose document alone exceeds Algolia's
-   * per-object size limit used to make `batchDocuments()` throw, which aborted `rebuild()` entirely --
-   * losing every other, correctly-sized page in the same rebuild, not just the oversized one. It is
-   * now diverted into `skipped` instead, so `rebuild()` can send everything else and just log a
-   * warning for what it couldn't.
-   */
   test('diverts a single document that alone exceeds MAX_DOCUMENT_BYTES into `skipped`, batching the rest', () => {
     const huge = doc({
       objectID: 'p-huge',
@@ -301,23 +282,12 @@ describe('batchDocuments()', () => {
 })
 
 /**
- * The `AlgoliaSearchModule` class itself, exercised against a fake Algolia client (`createClient`
- * overridden per instance) rather than a live account -- see `moduleWithFakeClient()`. `search`'s real
- * `definitions` are loaded from the actual `definition.yml` files on disk so `getEngineConfig()`
- * resolves this module's `appId`/`apiKey`/`indexName` defaults exactly the way the running app would.
- *
- * Task #559: unlike `modules/search/elasticsearch/search.smoke.test.ts`'s companion suite, there is no
- * live-cluster equivalent for this module. Algolia is a hosted SaaS with no self-hostable server to
- * bring up in a `docker-compose.yml` the way Elasticsearch's own image can be -- a real run would mean
- * either committing a throwaway account's live API keys to CI (a secret-management problem no other
- * suite in this repo takes on) or silently skipping in every environment that lacks one, both worse
- * than what this file already does. So this is where Algolia's coverage stops rather than a gap
- * nobody noticed: `moduleWithFakeClient()`'s `calls` recorder is a genuine contract test against
- * `algoliasearch`'s actual method call shapes -- `setSettings`'s `indexName`/`indexSettings`
- * (`init()`, above), `saveObject`'s `indexName`/`body` (`created`/`updated`/`renamed`), `deleteObject`'s
- * `indexName`/`objectID` (`deleted()`), and `searchSingleIndex`'s `searchParams.filters` string built by
- * `buildFilters()` (`query()`) -- asserted against the same request shapes the real SDK method
- * signatures expect, just never sent over the wire.
+ * There is deliberately no live-cluster companion suite here, unlike Elasticsearch's: Algolia is
+ * hosted SaaS with nothing to bring up in a compose file, so a real run would mean either committing
+ * live API keys to CI or skipping in every environment without them. The fake client's `calls`
+ * recorder stands in, asserted against the request shapes the real SDK methods take. The engine
+ * config comes off the real `definition.yml` on disk, so `getEngineConfig()` resolves defaults
+ * exactly as the running app would.
  */
 describe('AlgoliaSearchModule', () => {
   const siteId = 'site-1'
@@ -366,9 +336,9 @@ describe('AlgoliaSearchModule', () => {
   })
 
   test('an index name the operator CLEARED still targets "wiki", not an unnamed index', async () => {
-    // -> `getEngineConfig`'s merge only substitutes a declared default for `undefined`, and an
-    //    emptied text field is stored as `''` — so the module completes empty strings itself
-    //    (`shared.ts#fillEmptyStringDefaults`). This is what the per-engine `|| 'wiki'` used to cover.
+    // -> `getEngineConfig`'s merge substitutes a declared default only for `undefined`, and an
+    //    emptied text field is stored as `''`, so the module completes empty strings itself
+    //    (`shared.ts#fillEmptyStringDefaults`).
     const { mod, calls } = moduleWithFakeClient()
     await mod.init(siteId, { appId: 'app123', apiKey: 'key456', indexName: '' })
 
@@ -386,12 +356,7 @@ describe('AlgoliaSearchModule', () => {
       ;(globalThis as any).CARDINAL.db = previousDb
     })
 
-    /**
-     * The batching and per-locale tally are `test/searchModuleContract.ts`'s to assert, once for
-     * every engine. What is Algolia's alone: the purge goes out as a `deleteBy` scoped to this site
-     * against the configured index, each request is an `addObject`, and each locale entry reports
-     * `dictionary: 'n/a'` — this engine has no per-locale analyzer to name.
-     */
+    /** The batching and per-locale tally are the shared contract's; only these shapes are Algolia's. */
     test('purges this site’s records with a scoped deleteBy, and sends addObject requests', async () => {
       const { mod, calls } = moduleWithFakeClient()
       ;(globalThis as any).CARDINAL.db = stubPageStreamDb([
@@ -415,13 +380,6 @@ describe('AlgoliaSearchModule', () => {
       )
     })
 
-    /**
-     * OpenProject #830 (upstream discussion #3675): a page whose Algolia document exceeds the
-     * per-object size limit used to throw out of `batchDocuments()` uncaught, which aborted the whole
-     * `rebuild()` -- so a single oversized page took every other page in the site down with it. It
-     * must instead be skipped, with the rest of the site still indexed and a warning logged that says
-     * which page and why.
-     */
     test('an oversized page is skipped with a logged warning, the rest of the site still gets indexed', async () => {
       const { mod, calls } = moduleWithFakeClient()
       ;(globalThis as any).CARDINAL.db = stubPageStreamDb([
@@ -449,7 +407,6 @@ describe('AlgoliaSearchModule', () => {
         ;(globalThis as any).CARDINAL.logger.warn = previousWarn
       }
 
-      // -> Both small pages made it into the one batch sent; the huge one did not abort anything.
       assert.equal(calls.batch!.length, 1)
       assert.equal(calls.batch![0].batchWriteParams.requests.length, 2)
       const sentIds = calls
@@ -466,8 +423,8 @@ describe('AlgoliaSearchModule', () => {
         ]
       )
 
-      // -> Admin-visible: a warning names the skipped page in its fields (`path=`, since the sweep
-      //    moved every fact out of the sentence), and the result itself records it too.
+      // -> Asserted against the warning's fields, not its rendered message: the facts live in the
+      //    fields, and the sentence is the logger's to format.
       assert.ok(warnings.some((w) => w.scope === 'search' && w.fields?.path === 'docs/huge-page'))
       assert.equal(result.warnings?.length, 1)
       assert.ok(result.warnings![0]!.includes('docs/huge-page'))
@@ -484,12 +441,6 @@ describe('AlgoliaSearchModule', () => {
       assert.deepEqual(result.locales, [])
     })
 
-    /**
-     * OpenProject #921: `rebuild()` used to `clearObjects` the whole index before re-adding only this
-     * site's pages -- with two sites sharing an app/index (the shared `wiki` default), rebuilding site
-     * A permanently deleted every one of site B's records. It must now purge only its own site's
-     * records via `deleteBy`.
-     */
     test('does not touch another site’s records: rebuild scopes its purge to siteId', async () => {
       const { mod, calls } = moduleWithFakeClient()
       ;(globalThis as any).CARDINAL.db = stubPageStreamDb([fakePage({ id: 'p1' })])
@@ -498,19 +449,14 @@ describe('AlgoliaSearchModule', () => {
 
       assert.equal(calls.deleteBy!.length, 1)
       assert.doesNotMatch(calls.deleteBy![0].deleteByParams.filters, /site-2/)
-      // -> No whole-index clear call exists on the fake client any more -- if `rebuild()` regressed
-      //    back to `clearObjects`, this test would fail with a `TypeError` (no such method), not
-      //    silently pass.
+      // -> The fake client has no whole-index clear method, so a regression to `clearObjects` fails
+      //    with a `TypeError` rather than silently passing.
       assert.equal(typeof calls.clearObjects, 'undefined')
     })
   })
 })
 
-/**
- * The thirteen claims every external engine owes `models/search.ts`, translated into Algolia's own
- * request and response shapes — see `test/searchModuleContract.ts` for what they are and why they
- * live in one place. Everything above this line is Algolia's alone.
- */
+/** The claims every external engine owes; everything above this line is Algolia's alone. */
 runSearchModuleContract('algolia', {
   config: ALGOLIA_CONFIG,
   siteConfig: { search: { engine: 'algolia', engines: { algolia: ALGOLIA_CONFIG } } },

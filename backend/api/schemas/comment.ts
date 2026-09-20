@@ -2,10 +2,8 @@ import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
-   * ADMIN COMMENT - A comment as the site-wide moderation listing (Task 625, Feature 394) hands it
-   * back. Named `AdminComment` rather than `Comment` deliberately: the page-scoped comment routes
-   * (Feature 391) have their own `Comment#` schema, shaped around a single page's thread rather than
-   * a flat, cross-page, filtered page. Keeping the ids distinct avoids a schema collision between them.
+   * The site-wide moderation listing's flat, cross-page shape. Named `AdminComment` so its id does
+   * not collide with `Comment#`, which is shaped around a single page's thread.
    */
   app.addSchema({
     $id: 'AdminComment',
@@ -28,14 +26,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * COMMENT INPUT - The writable fields when posting a comment
-   *
-   * `guestName`/`guestEmail` are only for an unauthenticated poster (task 609, "guest posting"), and
-   * their presence requirement flips depending on the requester: required when `actorFrom(req)` is
-   * null, forbidden (400, not silently dropped) when it isn't. That split depends on the session, which
-   * a JSON Schema has no visibility into, so only the shape each field must have when present — a
-   * non-empty name, an RFC-5322-shaped email — is enforced here; whether either is required or
-   * forbidden at all is `comments.ts`'s job, in the route handler, once it knows which branch applies.
+   * Whether `guestName`/`guestEmail` are required or refused depends on the session, which a JSON
+   * Schema cannot see: only their shape is enforced here, the rest in the route handler.
    */
   app.addSchema({
     $id: 'CommentInput',
@@ -75,19 +67,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * COMMENT UPDATE INPUT - The writable fields when editing an existing comment
-   *
-   * Deliberately narrower than `CommentInput#`: PATCH only ever changes `content` (`api/comments.ts`'s
-   * handler reads nothing else off the body, and echoes the stored `replyTo` back unchanged).
-   * `replyTo`/`guestName`/`guestEmail` are declared here rather than left to `additionalProperties:
-   * false` alone -- this instance's ajv is configured with the Fastify default `removeAdditional:
-   * true` (see `index.ts`'s `ajv` option and `api/watching.test.ts`'s "strips ... rather than
-   * erroring" case), which silently deletes an undeclared property instead of rejecting the request,
-   * i.e. exactly the silent-ignore this schema exists to stop. Declaring the three fields keeps them
-   * on `req.body` so the PATCH handler can reject them itself with a 400, the same way the POST
-   * handler already rejects `guestName`/`guestEmail` from an authenticated poster. A genuinely unknown
-   * field (neither `content` nor one of these three) still falls to `additionalProperties: false` and
-   * is silently dropped, matching every other route in this codebase.
+   * PATCH only ever changes `content`. The other three are declared so they stay on `req.body` for
+   * the handler to refuse with a 400: ajv runs with Fastify's default `removeAdditional: true`,
+   * which silently deletes an undeclared property instead of rejecting the request.
    */
   app.addSchema({
     $id: 'CommentUpdateInput',
@@ -122,13 +104,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * COMMENT - A single comment, with its direct replies nested under it
-   *
-   * `authorId` is null for a guest comment; `authorName` is resolved from the account for a logged in
-   * author and from the stored guest fields otherwise, so a caller reading a comment never needs to
-   * branch on which kind it is. `authorEmail` is deliberately left unset (rather than populated) by
-   * every route except the response to posting a comment, since that is the poster being shown their
-   * own address back — see `api/comments.ts`'s `resolveAuthorName`/POST route for exactly where.
+   * `authorId` is null for a guest comment. `authorEmail` is null from every route except the
+   * response to posting a comment, which shows the poster their own address back.
    */
   app.addSchema({
     $id: 'Comment',

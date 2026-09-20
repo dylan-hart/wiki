@@ -75,10 +75,6 @@ describe('rewriteLinkText', () => {
     assert.equal(result.text, '[Link](docs/new)')
   })
 
-  // -> OpenProject #3379: `LinkPickerDialog.vue` writes a locale-prefixed href for a
-  //    non-primary-locale target (and, on a `forcePrefix` site, for every target), which
-  //    `extractInternalLinks` strips before storing `oldPath` bare -- so a move has to still find
-  //    and rewrite the prefixed occurrence, preserving the prefix.
   describe('with activeLocales (OpenProject #3379)', () => {
     test('rewrites a locale-prefixed href attribute, preserving the locale segment', () => {
       const result = rewriteLinkText('<a href="/fr/docs/old">go</a>', 'docs/old', 'docs/new', [

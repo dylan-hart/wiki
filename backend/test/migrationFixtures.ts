@@ -1,17 +1,7 @@
-/**
- * Shared fixtures for the 2.5.x-to-3.0 migration suites (TEST-F10).
- *
- * Three things were copied verbatim across `migration/`'s test files: a two-line async generator over
- * an array (6 identical copies), an 18-line `SourceConnector` whose every entity generator throws
- * `NotYetImplementedError` (9 copies in 8 files), and a 22-field 2.5.x `pages` row (13 copies in 8
- * files). None of them is what any of those suites is about — a phase test cares which generators it
- * DOES supply, and a staging test cares which one field it changed.
- */
 import { NotYetImplementedError } from '../migration/connector.ts'
 import type { SourceConnector, SourceRecord } from '../migration/connector.ts'
 import type { StagedPage } from '../migration/content-staging.ts'
 
-/** An `AsyncGenerator` over a plain array — what a `SourceConnector` generator has to hand back. */
 export async function* iterate<T>(items: T[]): AsyncGenerator<T> {
   for (const item of items) {
     yield item
@@ -19,12 +9,8 @@ export async function* iterate<T>(items: T[]): AsyncGenerator<T> {
 }
 
 /**
- * A `SourceConnector` whose every entity generator throws `NotYetImplementedError`, with `overrides`
- * spread over it.
- *
- * The throwing default is the point: a phase test names exactly the generators the phase under test
- * is supposed to read, and any OTHER one it reaches for fails loudly rather than quietly yielding an
- * empty sequence that reads as "nothing to import".
+ * Every generator a test does not name throws: a phase reaching for a source it is not supposed to
+ * read fails loudly rather than yielding an empty sequence that reads as "nothing to import".
  */
 export function stubSourceConnector(overrides: Partial<SourceConnector> = {}): SourceConnector {
   const notImplemented = (method: string) => () => {
@@ -48,7 +34,6 @@ export function stubSourceConnector(overrides: Partial<SourceConnector> = {}): S
   } as SourceConnector
 }
 
-/** One 2.5.x `pages` row as a connector yields it — the 22 columns the importers actually read. */
 export function makeSourcePageRow(overrides: Partial<SourceRecord> = {}): SourceRecord {
   return {
     id: 1,
@@ -77,7 +62,6 @@ export function makeSourcePageRow(overrides: Partial<SourceRecord> = {}): Source
   } as SourceRecord
 }
 
-/** One `StagedPage` — the shape `content-staging.ts` hands the page importer, ids already resolved. */
 export function makeStagedPage(overrides: Partial<StagedPage> = {}): StagedPage {
   return {
     oldId: 1,
@@ -107,13 +91,10 @@ export function makeStagedPage(overrides: Partial<StagedPage> = {}): StagedPage 
 }
 
 /**
- * `CREATE TABLE` statements for the 2.5.x tables a connector suite stands up in a real Postgres.
- *
- * A per-table OPT-IN map rather than one "make me a 2.5.x database" call: several of
- * `migration/connectors/postgres.test.ts`'s fixtures are deliberately narrower than the real schema,
- * because what they prove is that `checkShape()` REJECTS them. `pages` is the minimal shape
- * `checkShape()` introspects; `pagesFull` is the wider one a suite that actually reads page content
- * needs.
+ * Per-table opt-in rather than one "make me a 2.5.x database" call: a fixture is often deliberately
+ * narrower than the real schema, because what it proves is that `checkShape()` REJECTS it. `pages`
+ * is the minimal shape `checkShape()` introspects, `pagesFull` the wider one a suite that actually
+ * reads page content needs.
  */
 export const LEGACY_SCHEMA_DDL: Record<string, string> = {
   pages: `

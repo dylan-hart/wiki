@@ -19,13 +19,9 @@ import mdTaskLists from './modules/markdown-it-task-lists'
 import twemoji from '@twemoji/api'
 
 // -> `lib/common`, not the `highlight.js` root: the root registers every language the package ships
-//    (~190, several hundred kB gzipped) into this renderer's chunk regardless of whether any page on
-//    the wiki ever fences one of them. `lib/common` registers ~36 of the most commonly written
-//    languages instead -- `EditorCodeBlockMenu.vue` imports the SAME module, since hljs is a
-//    module-singleton registry: importing anything narrower or wider here than there would silently
-//    split what the fence-language picker offers from what this renderer can actually highlight. A
-//    fence naming a language outside that set still renders -- see the `getLanguage` guard below --
-//    just without highlighting, the same as it always has for a typo'd or unknown language.
+//    into this chunk whether or not a page ever fences one. hljs is a module-singleton registry, so
+//    `EditorCodeBlockMenu.vue` must import the SAME module -- anything narrower or wider here splits
+//    what the fence-language picker offers from what this renderer can highlight.
 import hljs from 'highlight.js/lib/common'
 
 import { escape } from 'es-toolkit/string'
@@ -48,23 +44,13 @@ const quoteStyles = {
 }
 
 /**
- * Whether a link leaves this wiki.
+ * `siteOrigin` -- the site's real, public origin -- is preferred over `globalThis.location?.href`: the
+ * headless re-render (`backend/models/rendering.ts`) runs this same bundle in a browser navigated to
+ * its own loopback address, where `location` would judge an absolute link to this very wiki external
+ * and disagree with what the editor's save produced. The in-editor render is already on the site's
+ * hostname and passes nothing.
  *
- * Resolved against the page's own address, so a relative path, an absolute one and a protocol-relative
- * URL are all judged the same way -- by the host they end up on. `mailto:`, `tel:` and the rest are not
- * pages at all, and are left unmarked: they announce themselves by what they are.
- *
- * `siteOrigin` -- the site's real, public origin -- is preferred over `globalThis.location?.href` when
- * given. The in-editor render runs in the author's own browser, already on the site's hostname, so
- * `location` is correct there and `siteOrigin` is not passed. The headless re-render
- * (`backend/models/rendering.ts`) instead runs the identical bundle in a headless browser navigated to
- * its own loopback address -- `location` there is never the site's hostname, so without `siteOrigin` an
- * absolute link to this same wiki would be judged external, disagreeing with what the editor's save
- * just produced. See OpenProject #1751.
- *
- * With no document to resolve against -- neither a `siteOrigin` nor a browser `location` -- only an
- * absolute URL can be judged, and it is judged external; a relative one fails to parse and comes back
- * internal.
+ * Anything that is not http(s) is not a page at all, and is left unmarked rather than called external.
  */
 function isExternalHref(href, siteOrigin) {
   if (!href) {
@@ -83,36 +69,25 @@ function isExternalHref(href, siteOrigin) {
 }
 
 /**
- * An `<iconify-icon>` written the way a Vue component is, `<iconify-icon icon="tabler:home" />`.
- *
  * The lookahead rather than a `\b`: a hyphen ends a word, so a boundary alone also matches the start
  * of `<iconify-icon-something />` and would close it with the wrong tag.
  */
 const SELF_CLOSED_ICON = /<iconify-icon(?![\w-])([^>]*?)\s*\/>/gi
 
 /**
- * Give a self-closed icon the closing tag it actually needs.
- *
  * `/>` closes nothing in HTML outside the void elements, so the parser hands the icon the rest of the
  * paragraph as children -- and `iconify-icon` draws a shadow root with no slot in it, so that text
- * lands on the page invisible. The form is the one anybody writes, having seen it in every framework
- * for twenty years, and it is unambiguous about what was meant: an icon has no content.
+ * lands on the page invisible. Authors write the self-closed form anyway, and it is unambiguous: an
+ * icon has no content.
  *
- * Done here, over the author's own HTML, rather than over the finished render, so that a `<iconify-icon
- * />` shown INSIDE a code block stays exactly as it was written -- that text is escaped by the time it
- * is rendered and is not raw HTML at all. `models/rendering.ts` lifts out anything that got nested
- * anyway, since a render can also arrive from something that is not this renderer.
+ * Run over the author's own HTML rather than over the finished render, so that an `<iconify-icon />`
+ * shown INSIDE a code block stays exactly as it was written -- that text is escaped by then and is
+ * not raw HTML at all.
  */
 function closeIconTags(html) {
   return html.replace(SELF_CLOSED_ICON, '<iconify-icon$1></iconify-icon>')
 }
 
-/**
- * Renames one attribute on a token, in place -- used to turn `colspan`/`rowspan` (real HTML
- * attributes only on `<td>`/`<th>`) into `aria-colspan`/`aria-rowspan` (the ARIA grid-cell
- * equivalents) before a table cell token is re-rendered as a `<div>`. See the table rules below for
- * why.
- */
 function renameAttr(token, from, to) {
   const i = token.attrIndex(from)
   if (i < 0) {
@@ -123,13 +98,11 @@ function renameAttr(token, from, to) {
   token.attrSet(to, value)
 }
 
-/** Retags a token to `<div>`, then renders it exactly as markdown-it would have rendered its original tag. */
 function asDiv(tokens, idx, options, env, slf) {
   tokens[idx].tag = 'div'
   return slf.renderToken(tokens, idx, options, env, slf)
 }
 
-/** `asDiv`, plus an ARIA `role` -- for a table/row token, whose only structural attribute is the role. */
 function asGridRole(role) {
   return (tokens, idx, options, env, slf) => {
     tokens[idx].attrSet('role', role)
@@ -137,7 +110,6 @@ function asGridRole(role) {
   }
 }
 
-/** `asGridRole`, plus the `colspan`/`rowspan` -> `aria-colspan`/`aria-rowspan` rename -- for a header/data cell. */
 function asGridCell(role) {
   return (tokens, idx, options, env, slf) => {
     const token = tokens[idx]
@@ -148,43 +120,33 @@ function asGridCell(role) {
 }
 
 /**
- * The permission a stripped `<iframe>`/`<script>`/`<style>` was missing, named the way a reader can
- * act on it, and the visible callout `sanitizeForPreview` leaves in the element's place.
- *
  * Shaped to match what an authored `> [!CAUTION]` GitHub-style admonition (`modules/github-alerts.js`'s
  * `caution` kind: `is-danger` / "Caution") renders as, so a reader sees the same object whether the
- * callout came from their own markdown or from this substitution (OpenProject #2911).
+ * callout came from their own markdown or from this substitution.
  *
- * A duplicate of the backend's own `gatedContentPlaceholder()` in `helpers/htmlSanitizePolicy.ts`, not
- * a shared import: there is no module boundary between this frontend workspace and the backend one to
- * share it through, so a wording change has to land in both -- each side's own test pins the exact
- * string.
+ * Duplicated in the backend's `helpers/htmlSanitizePolicy.ts#gatedContentPlaceholder()` rather than
+ * imported -- the two workspaces share no module boundary -- so a wording change has to land in both.
+ * Each side's own test pins the exact string.
  */
 export function gatedContentPlaceholder(permission) {
   return `<blockquote class="is-danger"><p class="alert-title">Caution</p><p>This content requires the ${permission} permission and was not rendered.</p></blockquote>`
 }
 
 /**
- * What the editor preview shows in place of an `<iframe>`/`<script>`/`<style>` this author's own
- * permissions do not allow -- mirroring `write:scripts`/`write:styles` (the very permissions
- * `helpers/htmlSanitizePolicy.ts`'s `RenderPermissions` gates on server-side), so the preview stops
- * silently diverging from what a save is actually about to have sanitized out of it (OpenProject
- * #2911: previously the preview showed the raw embed regardless of the author's own permissions).
+ * Mirrors the `write:scripts`/`write:styles` gate `helpers/htmlSanitizePolicy.ts`'s
+ * `RenderPermissions` applies server-side, so the preview does not silently show an embed the save is
+ * about to sanitize out.
  *
- * Deliberately not folded into `MarkdownRenderer#render()` itself: that method is also what
- * `renderers/headless.js` calls, server-side, for the re-render queue -- and that caller has to keep
- * getting back unsanitized HTML, since it is `models/rendering.ts#postProcess` on the OTHER end of
- * that call that sanitizes it against whichever actor's permissions actually apply. Only a caller
- * that already knows which permissions to render the PREVIEW against -- the editor -- reaches for
- * this at all.
+ * Deliberately not folded into `MarkdownRenderer#render()`: that method is also what
+ * `renderers/headless.js` calls for the re-render queue, and that caller must keep getting back
+ * unsanitized HTML -- `models/rendering.ts#postProcess` on the other end sanitizes it against
+ * whichever actor's permissions actually apply. Only a caller that already knows which permissions
+ * the PREVIEW is for reaches for this.
  *
- * Parses with a `<template>` rather than assigning straight into the live preview DOM: a template's
- * content is inert, so scanning it for a gated tag never risks running the very thing being asked
- * whether it may run, whichever way that question is answered.
+ * Parses into a `<template>` rather than the live preview DOM: a template's content is inert, so
+ * scanning it for a gated tag never risks running the very thing being asked whether it may run.
  *
- * @param {string} html The editor's own rendered HTML -- see `MarkdownRenderer#render`.
- * @param {{ scripts: boolean, styles: boolean }} permissions What THIS author may embed.
- * @returns {string} The same HTML, with anything not permitted replaced by a visible callout.
+ * @param {{ scripts: boolean, styles: boolean }} permissions
  */
 export function sanitizeForPreview(html, permissions) {
   if (permissions?.scripts && permissions?.styles) {
@@ -223,11 +185,10 @@ export class MarkdownRenderer {
       highlight(str, lang) {
         if (['drawio', 'kroki', 'mermaid', 'plantuml'].includes(lang)) {
           /*
-            Left as source, deliberately: a diagram is drawn by the block whose body it is —
-            `block-diagram` for mermaid, `block-plantuml` and `block-kroki` for the others,
-            `block-drawio` for draw.io/mxGraph XML — and each reads the text out of this `pre`. A
-            fence on its own outside a block keeps the panel the stylesheet gives it, which says "a
-            diagram nobody has drawn" rather than pretending to be a code sample.
+            Left as source, deliberately: the diagram is drawn by the block whose body this fence is
+            (`block-diagram`, `block-plantuml`, `block-kroki`, `block-drawio`), each of which reads
+            the text back out of this `pre`. A fence outside any block keeps the panel the stylesheet
+            gives it, which reads as "a diagram nobody has drawn" rather than as a code sample.
           */
           return `<pre class="codeblock-${lang}"><code>${escape(str)}</code></pre>`
         } else {
@@ -235,13 +196,11 @@ export class MarkdownRenderer {
             `getLanguage` first, because `hljs.highlight` THROWS on a language it does not know --
             `ignoreIllegals` only forgives illegal syntax within a language it does. markdown-it takes
             the first word of a fence's info string as the language name, so a fence whose code starts
-            on the opening line (```   <!DOCTYPE rfc [) asks for a language called `<!DOCTYPE`, and the
-            throw took the entire render with it: an empty preview, and -- since the editor patches the
-            store with the result -- an empty render saved over the stored HTML.
+            on the opening line asks for a language called `<!DOCTYPE`, and the throw takes the whole
+            render with it -- an empty preview, and an empty render saved over the stored HTML.
 
-            Unknown language therefore falls back to plain code, and the fallback ESCAPES: `str` is the
-            author's raw source, and the unhighlighted branch used to interpolate it into the markup as
-            it stood. hljs escapes what it emits, so this only ever affected the unhighlighted path.
+            The fallback must ESCAPE: `str` is the author's raw source, and only hljs escapes what it
+            emits.
           */
           const highlighted =
             lang && hljs.getLanguage(lang)
@@ -255,25 +214,19 @@ export class MarkdownRenderer {
               : ''
           // -> `lang` is escaped too: it is whatever the author typed after the backticks, and a quote
           //    in it would otherwise close the attribute and inject markup into the preview
-          // -> A ternary, not `&&`: for a single-line block (`lineCount > 1` false) `&&` short-circuits
-          //    to the boolean `false` itself, which then interpolated as the literal string "false"
-          //    into the class attribute -- and since this render is both preview AND what gets saved,
-          //    that literal class was written into every page's stored HTML permanently
-          //    (OpenProject #946).
+          // -> A ternary, not `&&`: for a single-line block `&&` short-circuits to the boolean
+          //    `false`, which interpolates as the literal string "false" into the class attribute --
+          //    and this render is both the preview AND what gets saved
           return `<pre class="codeblock hljs${lineCount > 1 ? ' line-numbers' : ''}"><code class="language-${escape(lang ?? '')}">${highlighted.value}${lineNums}</code></pre>`
         }
       }
     })
       .use(mdAttrs, {
         // -> `style` is here for the WYSIWYG editor's text-colour/highlight-colour/font-family/
-        //    text-align marks (OpenProject #3398), which serialize as a trailing `{style="…"}` on a
-        //    heading/paragraph's own line -- real `markdown-it-attrs` territory (its "end of block"
-        //    pattern), unlike the inline mark case, which goes through
-        //    `./modules/markdown-it-blocks.js`'s own `wikiSpan` rule instead and needs no allowlist
-        //    change here. `backend/helpers/htmlSanitizePolicy.ts`'s `ALLOWED_STYLES` is what
-        //    actually restricts which CSS declarations inside the attribute survive for an author
-        //    without `write:styles` -- this allowlist only decides whether the `style` ATTRIBUTE
-        //    itself is kept at all.
+        //    text-align marks, which serialize as a trailing `{style="…"}` on a heading/paragraph's
+        //    own line. This allowlist only decides whether the `style` ATTRIBUTE survives at all;
+        //    `backend/helpers/htmlSanitizePolicy.ts`'s `ALLOWED_STYLES` is what restricts the CSS
+        //    declarations inside it for an author without `write:styles`.
         allowedAttributes: ['id', 'class', 'target', 'style']
       })
       .use(mdEmoji)
@@ -287,11 +240,6 @@ export class MarkdownRenderer {
       .use(mdImsize)
       .use(mdGithubAlerts)
       .use(mdGlossary, { terms: config.glossaryTerms })
-      /*
-        `::block-name{...}` block containers, `[text]{.class}` inline spans, and trailing
-        `[text](url){.class}`/`![alt](url){.class}` props -- see the module for the full syntax and
-        why it replaced `markdown-it-mdc` (OpenProject #3071).
-      */
       .use(mdBlocks)
       .use(mdIconShortcode)
       .use(mdTex)
@@ -301,32 +249,17 @@ export class MarkdownRenderer {
     }
 
     /*
-      MultiMarkdown tables: multi-line cells, `^^` rowspans, and a table with no header row -- see
-      `./modules/markdown-it-table.js`'s own doc comment for the syntax and the token shape it emits.
-
-      `multimdTable` is the name the setting has everywhere else -- `base.yml`, `models/sites.ts`, the
-      editor's config overlay -- and this used to read it as `mdmultiTable`, so the plugin was never
-      installed and none of those three features ever actually worked (OpenProject #3110). Fixing the
-      typo alone would not have been enough: `markdown-it-multimd-table`, the third-party plugin this
-      used to install here, calls a `md.utils.assign` helper markdown-it dropped in v14, throwing out
-      of its own constructor on 15 -- and the plugin has had no release since Aug 2023 to fix that in.
-      `./modules/markdown-it-table.js` is a from-scratch replacement, written directly against
-      markdown-it 15's own block-rule API, with no such gap and no shim required.
+      `./modules/markdown-it-table.js` is a from-scratch replacement for `markdown-it-multimd-table`,
+      which calls a `md.utils.assign` helper markdown-it dropped in v14 and so throws out of its own
+      constructor on 15, with no release since Aug 2023 to fix it.
     */
     if (config.multimdTable) {
       this.md.use(mdTable, { multiline: true, rowspan: true, headerless: true })
     }
 
-    // --------------------------------
-    // LINK DESTINATIONS
-    // --------------------------------
-
     /*
-      Where a link goes is decided here, at render time, and recorded as a class -- `is-external-link`
-      -- for the stylesheet to mark. It cannot be decided in CSS: a selector can match on the shape of
-      an href but not compare its host with the wiki's own, which is the whole question.
-
-      The class survives being stored: `models/rendering.ts` keeps `class` on every element.
+      Marked at render time with a class, because it cannot be decided in CSS: a selector can match on
+      the shape of an href but not compare its host with the wiki's own, which is the whole question.
     */
     this.md.renderer.rules.link_open = (tokens, idx, options, env, slf) => {
       if (isExternalHref(tokens[idx].attrGet('href'), env?.siteOrigin)) {
@@ -335,58 +268,21 @@ export class MarkdownRenderer {
       return slf.renderToken(tokens, idx, options, env, slf)
     }
 
-    // --------------------------------
-    // TABLE GRID MARKUP + SCROLL WRAPPER
-    // --------------------------------
-
     /*
-      A rendered table is CSS Grid, not a real `<table>` -- every rule below retags its token to
-      `<div>` and adds the matching ARIA role (`table`, `row`, `columnheader`, `cell`) rather than
-      letting markdown-it emit `<table>`/`<thead>`/`<tbody>`/`<tr>`/`<th>`/`<td>` at all (OpenProject
-      #2997/#3014).
+      A rendered table is CSS Grid, not a real `<table>`: every rule below retags its token to a
+      `<div>` and adds the matching ARIA role. The reason is `border-collapse: collapse` -- combined
+      with an ancestor `overflow: hidden` + `border-radius` clip it is a known cross-browser gap, in
+      which a collapsed table's borders and backgrounds do not respect the ancestor's clip and square
+      corners bleed past a rounded frame. A `<table>` carries that intrinsically, so no
+      container-level fix exists.
 
-      The reason is `border-collapse: collapse`. Three rounds of container-level fixes (#2916, #2935,
-      #2958 -- see `_page-contents.css`'s own TABLES comment) narrowed Cobalt's rounded-corner clip
-      down to a plain `overflow: hidden` box with nothing else on it, and the square corners STILL
-      bled past it. `border-collapse` combined with an ancestor `overflow: hidden` + `border-radius`
-      clip is a known cross-browser rendering gap: a collapsed table's own borders/backgrounds don't
-      reliably respect an ancestor's clip in every engine, no matter how the ancestor box is built. A
-      `<table>` element carries that behaviour intrinsically -- there was no container fix left to
-      try -- so the table itself had to stop being a `<table>`.
+      `thead`/`tbody` render as nothing: an ARIA grid has no row-group concept -- every `role="row"`
+      sits directly under `role="table"` -- and `table`/`row`/`columnheader`/`cell` are the whole of
+      what a screen reader needs to read this back as a table.
 
-      `thead_open`/`thead_close`/`tbody_open`/`tbody_close` render as nothing: the ARIA grid this
-      becomes has no row-group concept of its own -- every `role="row"` sits directly under
-      `role="table"` -- and `table`/`row`/`columnheader`/`cell` are the whole of what a screen reader
-      needs to read this back as a table.
-
-      `th`/`td`'s `colspan`/`rowspan` (set by `./modules/markdown-it-table.js`'s `^^`/`\` continuation
-      syntax -- see the MultiMarkdown tables comment above) are renamed to `aria-colspan`/
-      `aria-rowspan` rather than carried over as-is: those are real HTML attributes only on
-      `<td>`/`<th>`, meaningless on a `<div>`, and the backend sanitizer
-      (`helpers/htmlSanitizePolicy.ts`'s `td`/`th` entries) does not allow them there either --
-      `aria-colspan`/`aria-rowspan` are the ARIA grid-cell equivalents, and already pass its blanket
-      `aria-*` allowance unchanged, so a spanned cell keeps surviving a save with no sanitizer change
-      needed.
-
-      Every rule still ends by delegating to `slf.renderToken(tokens, idx, options, env, slf)`,
-      exactly like `table_open`/`table_close` always did (and `link_open` above) -- only `token.tag`
-      and its attributes are rewritten first (`asDiv`/`asGridRole`/`asGridCell`, `renameAttr`, above),
-      so markdown-it's own attribute rendering, escaping and self-closing logic still does the actual
-      string-building. This is what keeps an author's `markdown-it-attrs` class on the table
-      (`{.some-class}` under it) landing on the SAME token that used to carry it, now rendered as
-      `<div class="some-class" role="table">` instead of `<table class="some-class">`.
-
-      The three scroll/clip/frame wrapper divs below (`.table-wrap` > `.table-clip` > `.table-scroll`,
-      OpenProject #2935/#2958) are unaffected by any of this: `.table-wrap` is the outer,
-      non-scrolling frame (`_page-contents.css`'s `// TABLES` section draws the border, radius,
-      shadow and corner marks on it, and nothing about it ever clips a descendant); `.table-clip` is a
-      plain `overflow: hidden` + the same radius and nothing else, so it has no scrollbar of its own
-      to worry about, which is what lets it clip cleanly; `.table-scroll` is the innermost box that
-      actually gets `overflow-x: auto` and the scrollbar tokens. They wrap whatever `table_open`/
-      `table_close` renders, table or grid alike, and stay exactly as they were -- a plain trio of
-      `<div>`s with no classes of their own beyond `.table-wrap`/`.table-clip`/`.table-scroll`,
-      wrapping at `table_open`/`table_close` so every table is caught regardless of which parser rule
-      produced it, exactly like `link_open` above wraps every link regardless of which rule matched.
+      `colspan`/`rowspan` become `aria-colspan`/`aria-rowspan`: the HTML attributes are meaningless on
+      a `<div>` and the backend sanitizer does not allow them there either, while `aria-*` already
+      passes its blanket allowance, so a spanned cell survives a save with no sanitizer change.
     */
     this.md.renderer.rules.table_open = (tokens, idx, options, env, slf) =>
       `<div class="table-wrap"><div class="table-clip"><div class="table-scroll">${asGridRole('table')(tokens, idx, options, env, slf)}`
@@ -408,27 +304,14 @@ export class MarkdownRenderer {
     this.md.renderer.rules.td_close = asDiv
 
     /*
-      A caption (OpenProject #3023). Left as a real `<caption>`, it is silently DROPPED by every
-      browser's own HTML parser the moment this HTML lands in a live DOM. The WHATWG tree-construction
-      algorithm's "in body" insertion mode treats an orphan `caption` start tag -- one that isn't
-      inside an ACTUAL `<table>` element's own insertion mode -- as a parse error and ignores the
-      token outright, leaving its text to spill out as a bare, unwrapped, unstyled text node instead
-      (verified directly against a real Chromium: `<div role="table"><caption>Cap</caption>…` parses
-      back with the tag gone and plain "Cap" text in its place). Since `table_open` above already
-      retags every table token to a `<div>`, there is no `<table>` anywhere on the rendered page any
-      more for a caption to be "inside" -- this is not a hypothetical, it is what happens on every
-      real save.
+      A caption is retagged too, and has to be: the WHATWG "in body" insertion mode treats a `caption`
+      start tag outside an ACTUAL `<table>` as a parse error and drops it, spilling its text out as a
+      bare text node -- and `table_open` above has already made sure no `<table>` exists for it to be
+      inside. A `<div>` is not subject to that rule.
 
-      Retagging the caption the same way the rest of the table already is fixes it at the root: a
-      `<div>` is never subject to that in-body table-tag rule, so it survives parsing intact with
-      whichever attribute `./modules/markdown-it-table.js` gave it (`style="caption-side: bottom"` for
-      one authored below the table, nothing extra for one authored above). `.table-caption` is what
-      `_page-contents.css`'s grid-caption rules key off of to size and place it -- including, via its
-      `order: 1` rule keyed off that same inline style, putting a bottom caption at the visual end of
-      the grid regardless of where its own tokens sit in the document (the plugin emits a caption's
-      tokens in its own natural authored position, above the rows or after them, rather than always
-      first -- there is no ARIA role for "caption" to give it the way a row or cell gets one, so
-      nothing here depends on DOM order the way an actual `<table>`/`<caption>` pairing would).
+      `.table-caption` is what `_page-contents.css`'s grid rules key off to place it, including
+      ordering a bottom caption (`style="caption-side: bottom"`, set by the table module) to the
+      visual end of the grid, since a caption's tokens sit wherever it was authored.
     */
     this.md.renderer.rules.caption_open = (tokens, idx, options, env, slf) => {
       tokens[idx].attrJoin('class', 'table-caption')
@@ -436,14 +319,7 @@ export class MarkdownRenderer {
     }
     this.md.renderer.rules.caption_close = asDiv
 
-    // --------------------------------
-    // RESOLVE IMAGE SOURCES
-    // --------------------------------
-
     /*
-      Where a picture loads from -- see `fileSrc` for what is rewritten and why the source keeps what
-      the author wrote.
-
       Wrapped around whichever rule is in place rather than replacing it: the default one is what turns
       an image token's children into its `alt` text, and `markdown-it-imsize` has already put the size
       it parsed on the same token.
@@ -460,11 +336,10 @@ export class MarkdownRenderer {
     }
 
     /*
-      And the same for an `<img>` the author wrote as HTML, which never becomes a token to hold an
-      attribute -- so it is the rendered text that is rewritten, after whatever rule produced it.
-      Raw HTML is also where a self-closed `<iconify-icon />` turns up, and it is fixed in the same
-      pass for the same reason: this is the only point at which the author's own markup is still
-      distinguishable from the markup the renderer produced.
+      An `<img>` the author wrote as HTML never becomes a token to hold an attribute, so it is the
+      rendered text that gets rewritten. A self-closed `<iconify-icon />` is fixed in the same pass:
+      these two rules are the only point at which the author's own markup is still distinguishable
+      from the markup the renderer produced.
     */
     const passthrough = (tokens, idx) => tokens[idx].content
     for (const rule of ['html_block', 'html_inline']) {
@@ -473,20 +348,11 @@ export class MarkdownRenderer {
         closeIconTags(rewriteHtmlImages(renderHtml(tokens, idx, options, env, slf), env?.pagePath))
     }
 
-    // --------------------------------
-    // TWEMOJI
-    // --------------------------------
-
     /*
       Drawn from this instance, never from a CDN: the callback replaces twemoji's default `base` +
       size + extension entirely, so the `src` is the whole path and nothing upstream is contacted for
       it. `vite.config.js` puts the SVGs at `/_assets/svg/twemoji/` — copied into the build output,
       served out of `node_modules` in dev — so the two have to agree on this path.
-
-      The artwork comes from the same upstream project as this parser, at a pinned tag (see
-      `twemoji-assets` in `package.json`). They are separate dependencies, so the build checks that
-      every emoji a page can hold still resolves to a file — an emoji the parser knows and the asset
-      set does not is a broken image in a page.
     */
     this.md.renderer.rules.emoji = (token, idx) => {
       return twemoji.parse(token[idx].content, {
@@ -496,10 +362,7 @@ export class MarkdownRenderer {
       })
     }
 
-    // --------------------------------
-    // Inject line numbers for preview scroll sync
-    // --------------------------------
-
+    // -> For the editor preview's scroll sync
     this.linesMap = []
     const injectLineNumbers = (tokens, idx, options, env, slf) => {
       let line
@@ -515,21 +378,15 @@ export class MarkdownRenderer {
     this.md.renderer.rules.heading_open = injectLineNumbers
     this.md.renderer.rules.blockquote_open = injectLineNumbers
 
-    // --------------------------------
-    // Where the tabsets are, for the editor's preview
-    // --------------------------------
-
     /*
-      Every tabset in the document, in order, as the source line range of each of its panels.
+      Every tabset, in order, as the source line range of each of its panels.
 
-      This is for the editor: a `block-tabs` in the preview keeps which panel is open in its own state,
-      and the preview is rebuilt from scratch on every keystroke — so without this, writing inside the
-      second panel of a tabset threw the author back to the first one, and no amount of preserving state
-      across the rebuild would say WHICH panel they are working in.
+      For the editor: a `block-tabs` in the preview keeps which panel is open in its own state, and the
+      preview is rebuilt from scratch on every keystroke — so without a way to say WHICH panel the
+      caret is in, writing inside the second panel throws the author back to the first.
 
-      Read from the token stream rather than by scanning the source for `::block-tab`, so it is the
-      parser's opinion of where each panel begins and ends, and it cannot drift from the markup the same
-      parse produced. Only line numbers are kept: everything else about a panel is already in the render.
+      Read from the token stream rather than by scanning the source for `::block-tab`, so it cannot
+      drift from the markup the same parse produced.
     */
     this.tabsMap = []
     this.md.core.ruler.push('collect_tabsets', (state) => {
@@ -556,17 +413,15 @@ export class MarkdownRenderer {
   }
 
   /**
-   * @param {string} src Markdown source.
-   * @param {string} [pagePath] Path of the page this source belongs to, without a leading slash. What
-   *                            a relative image resolves against -- see `fileSrc`.
-   * @param {string} [siteOrigin] The site's real public origin (e.g. `https://wiki.example.com`), for
-   *                              `isExternalHref` to judge a link's destination against. Only the
-   *                              headless re-render passes this -- see `isExternalHref`'s own comment.
+   * @param {string} [pagePath] Path of the page this source belongs to, without a leading slash --
+   *                            what a relative image resolves against (`fileSrc`).
+   * @param {string} [siteOrigin] The site's real public origin. Only the headless re-render passes
+   *                              this -- see `isExternalHref`.
    */
   render(src, { pagePath = '', siteOrigin } = {}) {
     this.linesMap = []
-    // -> A fresh env every time, whatever the caller passed: markdown-it keeps per-render state in it
-    //    (footnotes and references), and one shared between renders would carry the last one's
+    // -> A fresh env every time: markdown-it keeps per-render state in it (footnotes, references),
+    //    and one shared between renders would carry the last one's
     return this.md.render(src, { pagePath, siteOrigin })
   }
 
@@ -575,23 +430,21 @@ export class MarkdownRenderer {
   }
 
   /**
-   * Which tabset panel a source line is inside, as the pair of indices that finds it in the render.
-   *
    * The innermost panel wins, so a tabset within a tabset answers for its own lines: the map is built
-   * outermost-first, and a later match is therefore a deeper one.
+   * outermost-first, so a later match is a deeper one and the loop keeps the last rather than the
+   * first.
    *
    * @param {number} line A 1-based editor line, as Monaco counts them.
-   * @returns {{tabset: number, tab: number}|null} Indices among the document's tabsets and that
-   *          tabset's panels, or null when the line is not inside one.
+   * @returns {{tabset: number, tab: number}|null} Indices into `tabsMap`, or null outside any tabset.
    */
   getTabAtLine(line) {
     let found = null
     for (const [tabset, tabs] of this.tabsMap.entries()) {
       for (const [tab, map] of tabs.entries()) {
         /*
-          `map` is 0-based and ends one past the panel's last line of content, which is exactly the line
-          its `::` sits on -- so the end is inclusive here, and a caret resting on the marker that closes
-          a panel still counts as being in it.
+          `map` is 0-based and ends one past the panel's last line of content -- exactly the line its
+          closing `::` sits on -- so the end is treated as inclusive and a caret resting on that
+          marker still counts as being in the panel.
         */
         if (line - 1 >= map[0] && line - 1 <= map[1]) {
           found = { tabset, tab }

@@ -45,7 +45,6 @@ describe('textChunking', () => {
 
     assert.ok(result.length > 1)
 
-    // indices are sequential starting at 0
     result.forEach((chunk, i) => assert.equal(chunk.index, i))
 
     const step = CHUNK_SIZE_WORDS - CHUNK_OVERLAP_WORDS
@@ -56,7 +55,6 @@ describe('textChunking', () => {
       assert.equal(chunk.text, expected)
     })
 
-    // consecutive chunks share exactly CHUNK_OVERLAP_WORDS words of overlap
     for (let i = 1; i < result.length; i++) {
       const prevWords = result[i - 1].text.split(' ')
       const currWords = result[i].text.split(' ')
@@ -67,7 +65,6 @@ describe('textChunking', () => {
       }
     }
 
-    // last chunk reaches the end of the content with no duplicate trailing chunk
     assert.ok(result[result.length - 1].text.endsWith(`word${totalWords - 1}`))
   })
 
@@ -79,11 +76,9 @@ describe('textChunking', () => {
   })
 
   test('does not produce a redundant final chunk wholly contained in the previous overlap', () => {
-    // one step past a chunk boundary by a small remainder
     const totalWords = CHUNK_SIZE_WORDS + 5
     const text = words(totalWords)
     const result = chunkText(text)
-    // should be exactly 2 chunks: [0, CHUNK_SIZE_WORDS) and [step, totalWords)
     assert.equal(result.length, 2)
     assert.equal(
       result[1].text.split(' ').length,

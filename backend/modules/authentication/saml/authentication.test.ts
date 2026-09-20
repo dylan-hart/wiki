@@ -7,19 +7,16 @@ import { inflateRawSync } from 'node:zlib'
 import { after, before, test } from 'node:test'
 import SamlAuthentication from './authentication.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
-// -> A deep import into `@node-saml/node-saml`'s own compiled output, not the package's public entry
-//    point: `signXml` is the low-level XML-signing primitive its own test suite uses to build signed
-//    fixtures, and is the most direct way to hand this suite a genuinely, cryptographically signed
-//    SAMLResponse to validate against — rather than a hand-typed one that only looks like one.
+// -> A deep import into `@node-saml/node-saml`'s compiled output, not the package's public entry
+//    point: `signXml` is the XML-signing primitive its own test suite builds fixtures with, and the
+//    most direct way to get a cryptographically signed SAMLResponse rather than one that only looks
+//    signed.
 import { signXml } from '@node-saml/node-saml/lib/xml.js'
 
 /**
- * This module talks SAML to a real identity provider, so — per the task's own suggestion — this suite
- * stands up a throwaway self-signed certificate (via `openssl`, the same tool a real deployment's own
- * admin would use) as a one-off test IdP, and signs its own SAMLResponse fixtures against it. What is
- * exercised is genuinely `@node-saml/node-saml`'s signature/audience/clock-skew validation — not a
- * mock standing in for it — covering exactly the four scenarios the task calls out: a valid assertion
- * with claim extraction, a tampered one, an expired one, and both AuthnRequest bindings.
+ * A throwaway self-signed certificate (via `openssl`) stands in for an identity provider, and every
+ * SAMLResponse fixture below is really signed against it, so what is exercised is
+ * `@node-saml/node-saml`'s own signature/audience/clock-skew validation rather than a mock of it.
  */
 
 let tmpDir: string
@@ -59,17 +56,16 @@ const ASSERTION_XPATH =
   '//*[local-name(.)="Assertion" and namespace-uri(.)="urn:oasis:names:tc:SAML:2.0:assertion"]'
 
 /**
- * Stands in for the id `api/auth/provider.ts`'s `/auth/:strategyId/authorize` route would have
- * generated and carried on `req.session.authFlow` — every fixture below is signed as if it were
- * answering an AuthnRequest with this `InResponseTo`, and every `profile()` call hands the matching
- * `authnRequestId` back, the same round trip the real callback route performs.
+ * Stands in for the id `api/auth/provider.ts` would have generated and carried on
+ * `req.session.authFlow`: every fixture below is signed with this `InResponseTo`, and every
+ * `profile()` call hands the matching `authnRequestId` back.
  */
 const REQUEST_ID = '_test-authn-request-1'
 
 /**
- * The two claim URIs `authentication.ts` reads a separated name from, restated here as literals
- * rather than imported: this suite is asserting that the module reads THESE specific standard
- * claims, so sharing the module's own constants would make the assertion vacuous.
+ * Restated as literals rather than imported from `authentication.ts`: what this suite asserts is
+ * that the module reads THESE specific standard claims, so sharing its constants would make the
+ * assertion vacuous.
  */
 const GIVEN_NAME_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname'
 const SURNAME_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname'
@@ -78,7 +74,6 @@ function iso(d: Date): string {
   return d.toISOString().replace(/\.\d+Z$/, 'Z')
 }
 
-/** A hand-built, unsigned SAMLResponse, with a full attribute statement and a controllable validity window. */
 function buildResponseXml({
   notBefore,
   notOnOrAfter,
@@ -100,13 +95,13 @@ function buildResponseXml({
   /** Omit entirely (`null`) to build a response with no `InResponseTo` attribute at all. */
   inResponseTo?: string | null
   /**
-   * The standard WS-Federation givenname/surname claims (Feature #2608). `null` omits the
-   * `<Attribute>` element entirely, for an identity provider that issues no separated name at all;
-   * `''` emits it with an empty value, which several real IdPs do for a mononym.
+   * `null` omits the `<Attribute>` element entirely, for an identity provider that issues no
+   * separated name at all; `''` emits it with an empty value, which several real ones do for a
+   * mononym.
    */
   givenName?: string | null
   surname?: string | null
-  /** A `picture` claim, present on every fixture -- `mappingPicture` is what makes a test read it or not. */
+  /** Present on every fixture -- whether a test reads it is `mappingPicture`. */
   picture?: string | null
 }): string {
   const groupValues = groups.map((g) => `<saml:AttributeValue>${g}</saml:AttributeValue>`).join('')
@@ -243,15 +238,11 @@ test('authorizationUrl: refuses a strategy with no entryPoint/issuer/cert config
 })
 
 /*
-  Upstream discussion #5180: passport-saml versions below 3.0 could be configured with no IdP
-  certificate at all, letting anyone forge an assertion and impersonate a user — the identity provider
-  was never actually consulted. These two tests isolate `cert` specifically (entryPoint and issuer both
-  present) rather than relying on the "something is missing" test above, and cover both places a
-  certless config could otherwise slip through: building the outgoing request, and validating an
-  incoming response. `buildSaml()`'s own `if (!entryPoint || !issuer || !cert)` guard is what refuses
-  it here — `@node-saml/node-saml` 5.1.0 (this module's SAML implementation, the actively maintained
-  successor to `passport-saml`) also asserts `idpCert` as required at its own construction time, so the
-  same config is refused twice over even if this module's guard were ever removed.
+  Upstream discussion #5180: passport-saml below 3.0 could be configured with no IdP certificate at
+  all, letting anyone forge an assertion and impersonate a user. These two isolate `cert` specifically
+  (entryPoint and issuer both present) rather than relying on the "something is missing" test above,
+  and cover both places a certless config could otherwise slip through: building the outgoing request,
+  and validating an incoming response.
 */
 test('authorizationUrl: refuses a strategy with entryPoint and issuer but no cert (no IdP certificate bypass)', async () => {
   const auth = new SamlAuthentication('strategy1', {
@@ -284,10 +275,9 @@ test('profile: refuses to validate a response against a strategy with entryPoint
 })
 
 /*
-  `buildSaml()` is private; these three reach into it the same way the rest of this suite already
-  reaches past TypeScript's compile-time-only `private` to exercise real `@node-saml/node-saml`
-  behavior (`.options` is where the constructed `SAML` instance stores what it resolved each field to,
-  including its own `audience || issuer` fallback and `maxAssertionAgeMs` default).
+  These three reach past TypeScript's compile-time-only `private` to exercise real
+  `@node-saml/node-saml` behavior: `.options` is what the constructed `SAML` instance resolved each
+  field to, its own `audience || issuer` fallback and `maxAssertionAgeMs` default included.
 */
 test('buildSaml: an empty configured audience defaults to the strategy issuer, never to false', () => {
   const auth: any = new SamlAuthentication('strategy1', {
@@ -331,16 +321,11 @@ test('profile: validates a genuinely signed assertion and extracts the mapped cl
   assert.equal(profile.email, 'alice@example.com')
   assert.equal(profile.name, 'Alice Example')
   assert.deepEqual(profile.groups, ['editors', 'admins'])
-  // -> BASE_CONF configures no mappingPicture, so this stays absent even though the fixture
-  //    assertion itself carries a `picture` claim -- "didn't say" is what an unmapped claim means.
+  // -> BASE_CONF maps no picture, so this stays absent even though the fixture assertion itself does
+  //    carry a `picture` claim.
   assert.equal(profile.picture, undefined)
 })
 
-/*
-  OpenProject #3237. `mappingPicture` mirrors `mappingUID`/`mappingEmail`/`mappingDisplayName`: an
-  optional claim mapping, absent unless configured, with no `NameID`-style fallback since nothing on
-  the assertion itself is ever a picture URL.
-*/
 test('profile: reads a mapped picture claim into profile.picture', async () => {
   const auth = new SamlAuthentication('strategy1', { ...BASE_CONF, mappingPicture: 'picture' })
   const profile = await auth.profile({
@@ -372,11 +357,6 @@ test('profile: leaves profile.picture absent when the identity provider reports 
   assert.equal(profile.picture, undefined)
 })
 
-/*
-  Feature #2608. The two claim URIs are fixed rather than configurable mapping props -- see the
-  constants in `authentication.ts` -- so what is asserted here is that an assertion carrying the
-  standard claims produces both halves, and one carrying neither produces neither.
-*/
 test('profile: reads the standard givenname/surname claims into the separated halves', async () => {
   const auth = new SamlAuthentication('strategy1', BASE_CONF)
   const profile = await auth.profile({
@@ -456,7 +436,6 @@ test('profile: rejects a tampered assertion (signature no longer verifies)', asy
       issueInstant: iso(now)
     })
   )
-  // -> Flip a claim after signing: same well-formed, signed-looking document, different content
   const tampered = signed.replace('alice@example.com', 'mallory@evil-corp.com')
   const tamperedBody = Buffer.from(tampered).toString('base64')
 
@@ -493,9 +472,7 @@ test('profile: rejects an assertion whose validity window has passed outside acc
       body: { SAMLResponse: body, RelayState: 's' }
     }),
     // -> With `validateInResponseTo` on, `node-saml` re-checks the `SubjectConfirmationData` window
-    //    before it ever reaches the plain `Conditions` check this used to fail on, and rejects with a
-    //    different message for the same underlying reason (an assertion outside its validity window)
-    //    -- either wording is the same expiry being refused.
+    //    before the plain `Conditions` check, so the same expiry is refused under either wording.
     /expired|subject confirmation/i
   )
 })
@@ -507,9 +484,8 @@ test('profile: an assertion just inside acceptedClockSkewMs is accepted', async 
   })
   const now = new Date()
   const body = validResponseBase64({
-    // -> Expired two minutes ago, but within the 5-minute accepted skew. IssueInstant is kept close to
-    //    NotOnOrAfter (a realistic, short assertion validity window) so `maxAssertionAgeMs`'s own fixed
-    //    ceiling isn't what's actually under test here — `NotOnOrAfter` still is.
+    // -> Expired two minutes ago, but within the 5-minute accepted skew. IssueInstant is kept close
+    //    to NotOnOrAfter so `maxAssertionAgeMs`'s fixed ceiling is not what refuses this instead.
     notBefore: iso(new Date(now.getTime() - 4 * 60_000)),
     notOnOrAfter: iso(new Date(now.getTime() - 2 * 60_000)),
     issueInstant: iso(new Date(now.getTime() - 3 * 60_000))
@@ -551,7 +527,7 @@ test('profile: rejects an assertion whose audience does not match', async () => 
 })
 
 test('profile: cert config with a pipe-joined pair of certificates still validates against either one', async () => {
-  // -> A second, unrelated self-signed cert pasted alongside the real one, as during a rotation
+  // -> A second, unrelated self-signed cert alongside the real one, as during a rotation
   const otherDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-saml-test-other-'))
   const otherCertPath = path.join(otherDir, 'other-cert.pem')
   const otherKeyPath = path.join(otherDir, 'other-key.pem')
@@ -603,10 +579,6 @@ test('profile: rejects a callback with no SAMLResponse at all (the GET login cal
   )
 })
 
-/*
-  Feature 2145: default audience, `validateInResponseTo`, and the outbound AuthnRequest id.
-*/
-
 test('authorizationUrl: pins the outbound AuthnRequest ID to the id it was handed, rather than letting node-saml invent one', async () => {
   const auth = new SamlAuthentication('strategy1', {
     ...BASE_CONF,
@@ -645,9 +617,7 @@ test('profile: rejects a response with no InResponseTo at all', async () => {
 
 test('profile: rejects a response whose InResponseTo does not match this login flow’s own AuthnRequest id (replayed against a different login)', async () => {
   const auth = new SamlAuthentication('strategy1', BASE_CONF)
-  // -> Signed for a login whose AuthnRequest id was REQUEST_ID (the default), but this flow's own
-  //    session recorded a different one -- exactly what a captured SAMLResponse replayed against a
-  //    freshly-started login looks like.
+  // -> Signed with the builder's default REQUEST_ID, while this flow's session recorded another id.
   const body = validResponseBase64()
 
   await assert.rejects(
@@ -665,8 +635,6 @@ test('profile: rejects a response whose InResponseTo does not match this login f
 })
 
 test('profile: with no configured audience, the assertion is still checked -- against the strategy issuer', async () => {
-  // -> `audience` blanked out: `buildSaml()` must fall back to `issuer`, not skip the check the way
-  //    passing `false` used to.
   const auth = new SamlAuthentication('strategy1', { ...BASE_CONF, audience: '' })
   // -> Signed for `AUDIENCE`, which is also BASE_CONF's `issuer` -- the fallback this asserts
   const profile = await auth.profile({

@@ -10,16 +10,9 @@ import type { PageActor } from '../models/pages.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
- * DB-backed route test for `PATCH`/`DELETE /sites/:siteId/tags/:tag` (OpenProject #1873).
- *
- * `manage:pages` is a page rule permission — decided PER PAGE against the real rule matching in
- * `helpers/pageRules.ts`, not a group-wide list — so this runs the real routes, the real
- * `groups`/`pages`/`tags`/`search` models and a real, migrated database (see `test/db.ts`), mirroring
- * `api/comments.admin.test.ts`'s shape for the same reason: a stubbed `checkAccess` would only prove
- * the route calls a function, not that per-page scoping actually works.
- *
- * There is no real session plugin here — `req.session` is set directly by an `onRequest` hook from a
- * per-test-mutable `testSession` variable, which is all `CARDINAL.models.groups.actorForRequest` reads.
+ * `manage:pages` is a page rule permission, decided per page against the real rule matching in
+ * `helpers/pageRules.ts`. Real models and a migrated database for that reason: a stubbed
+ * `checkAccess` would only prove the route calls a function, not that per-page scoping works.
  */
 describe('PATCH/DELETE /sites/:siteId/tags/:tag (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -37,11 +30,6 @@ describe('PATCH/DELETE /sites/:siteId/tags/:tag (DB-backed)', { skip: !hasTestDa
     ;({ search: searchModel } = await import('../models/search.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
-    // -> `buildTestApp` installs the REAL error handler, which is what shapes `reply.notFound()`
-    //    etc. into the `ApiError` schema (`ok`/`error`/`statusCode`/`message`) the routes' own 404
-    //    response schemas declare — without it, `@fastify/sensible`'s bare
-    //    `{statusCode, error, message}` fails schema serialization (missing `ok`) and the route
-    //    answers 500 instead of 404. No `wiki`: `setupTestDb()` already installed the real one.
     app = await buildTestApp({ routes: tagsRoutes, session: () => testSession })
   })
 
@@ -137,7 +125,6 @@ describe('PATCH/DELETE /sites/:siteId/tags/:tag (DB-backed)', { skip: !hasTestDa
       actor
     )
 
-    // -> Grants manage:pages on scope-a only — NOT scope-b.
     await setGroupRules([rule({ path: 'scope-a' })])
     testSession = {
       authenticated: true,

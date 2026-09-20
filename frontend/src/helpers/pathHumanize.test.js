@@ -105,10 +105,6 @@ describe('humanizePathSegment', () => {
     })
   })
 
-  // Table snapshotting the current (text-case-backed at capture time) output across representative
-  // segments — acronyms, minor words, digits, single words, leading/trailing hyphens — and every
-  // output style, so the OpenProject #3164 swap to an in-house transform is verifiably
-  // byte-identical. `acronyms` is shared across every row; a row not using it passes `undefined`.
   const acronyms = new Map([
     ['uss', 'USS'],
     ['irv', 'IRV']
@@ -122,21 +118,18 @@ describe('humanizePathSegment', () => {
     ['getting-started', 'pascalCase', undefined, 'GettingStarted'],
     ['getting-started', 'titleCase', undefined, 'Getting Started'],
 
-    // single word
     ['runners', 'lower', undefined, 'runners'],
     ['runners', 'upper', undefined, 'RUNNERS'],
     ['runners', 'camelCase', undefined, 'runners'],
     ['runners', 'pascalCase', undefined, 'Runners'],
     ['runners', 'titleCase', undefined, 'Runners'],
 
-    // minor word in the middle vs. at an edge
     ['state-of-the-art', 'titleCase', undefined, 'State of the Art'],
     ['of-all-things', 'titleCase', undefined, 'Of All Things'],
     ['state-of-the-art', 'camelCase', undefined, 'stateOfTheArt'],
     ['state-of-the-art', 'pascalCase', undefined, 'StateOfTheArt'],
 
-    // digits: a leading digit word, and a digit word after the first position (text-case's
-    // pascalCaseTransform prefixes a non-first digit-leading word with `_`)
+    // a digit-leading word after the first position is prefixed with `_`, not capitalized
     ['v2-release', 'lower', undefined, 'v2-release'],
     ['v2-release', 'upper', undefined, 'V2-RELEASE'],
     ['v2-release', 'camelCase', undefined, 'v2Release'],
@@ -147,12 +140,10 @@ describe('humanizePathSegment', () => {
     ['2-factor-auth', 'camelCase', undefined, '2FactorAuth'],
     ['2-factor-auth', 'pascalCase', undefined, '2FactorAuth'],
 
-    // leading/trailing hyphens (stripped by split('-').filter(Boolean) before any case transform)
     ['-getting-started', 'titleCase', undefined, 'Getting Started'],
     ['getting-started-', 'titleCase', undefined, 'Getting Started'],
     ['-getting-started-', 'camelCase', undefined, 'gettingStarted'],
 
-    // acronyms across styles and positions
     ['uss-runners', 'lower', acronyms, 'USS-runners'],
     ['uss-runners', 'upper', acronyms, 'USS-RUNNERS'],
     ['uss-runners', 'camelCase', acronyms, 'USSRunners'],

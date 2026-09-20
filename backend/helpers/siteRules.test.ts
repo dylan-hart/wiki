@@ -44,20 +44,16 @@ describe('resolveSiteRule', () => {
     const rules = [makeRule({ id: 'site-a-only', sites: ['site-a'], mode: 'ALLOW' })]
     assert.equal(resolveSiteRule(rules, 'site:theme', 'site-a')?.id, 'site-a-only')
 
-    // -> No rule addresses site-b at all, which is denied by default, not merely un-granted
     assert.equal(resolveSiteRule(rules, 'site:theme', 'site-b'), null)
   })
 
   test('a DENY rule from one group overrides a broader ALLOW from a second group the actor belongs to', () => {
-    // -> Simulates pooling `rulesForGroups()` across two of the actor's groups: a broad grant from
-    //    one group, narrowed by a DENY scoped to one site from another.
     const broadAllow = makeRule({ id: 'broad-allow', sites: [], mode: 'ALLOW' })
     const scopedDeny = makeRule({ id: 'scoped-deny', sites: ['site-a'], mode: 'DENY' })
     const pooled = [broadAllow, scopedDeny]
 
     assert.equal(resolveSiteRule(pooled, 'site:theme', 'site-a')?.id, 'scoped-deny')
 
-    // -> site-b is untouched by the DENY, so the broad ALLOW still decides it
     assert.equal(resolveSiteRule(pooled, 'site:theme', 'site-b')?.id, 'broad-allow')
   })
 

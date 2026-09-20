@@ -57,35 +57,22 @@ const actions = {
   }
 }
 
-// ROUTER
-
 const route = useRoute()
 const router = useRouter()
-
-// STORES
 
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('common.error.title')
 }))
 
-// MOUNTED
-
 /*
-  A site can choose to skip this screen entirely for a visitor who is not logged in: with
-  `bypassUnauthorized` on, being refused a page sends them to sign in rather than to a page whose only
-  purpose is to offer them a login button.
-
-  Only when nobody is logged in. Somebody who IS signed in and still refused has nothing to gain from
-  the login screen, and sending them there would bounce them straight back.
+  With `bypassUnauthorized` on, a refused visitor is sent to sign in rather than to a screen whose
+  only purpose is to offer them a login button. Only when nobody is logged in: somebody already
+  signed in and still refused would be bounced straight back here.
 */
 onMounted(() => {
   if (
@@ -96,8 +83,6 @@ onMounted(() => {
     router.replace('/login')
   }
 })
-
-// COMPUTED
 
 const error = computed(() => {
   if (route.params.action && actions[route.params.action]) {
@@ -119,11 +104,8 @@ const error = computed(() => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Flat selectors, not `&-suffix` nesting: that is a Sass string-concatenation idiom, and native
+   CSS nesting silently drops such a rule. */
 .errorpage {
   background: var(--color-dark-6) radial-gradient(ellipse, var(--color-dark-4), var(--color-dark-6));
   color: #fff;

@@ -6,19 +6,14 @@ import { makeSite } from '../test/builders.ts'
 import type { BlockDefinition } from './blocks.ts'
 
 /*
- * `Rendering.postProcess` is what a save (and a headless server-side re-render, which drives the
- * very same frontend pipeline through Puppeteer — see the model's own header comment) both go
- * through before anything is stored. What is genuinely this file's own to cover, without a database,
- * is the sanitize step: whether a diagram block survives it with its element and fenced body intact,
- * which is the "block-vs-fence handoff" the diagram blocks depend on (`firstUpdated()` in each of
- * `block-diagram`, `block-kroki`, `block-plantuml` reads its source out of exactly the `<pre>` this
- * locks down). `getEnabledKeys` is the one call in the path that is real SQL orchestration rather
- * than logic worth exercising here, so it is the one thing stubbed -- `CARDINAL.models.blocks.definitions`
- * itself is a plain in-memory array (read from the compiled manifest at boot, not a query), so it is
- * given real fixtures shaped exactly like the three diagram blocks' own `static definition.props`.
+ * The "block-vs-fence handoff" these suites lock down: `firstUpdated()` in each of `block-diagram`,
+ * `block-kroki` and `block-plantuml` reads its source out of exactly the `<pre>` the sanitize step
+ * is asserted to leave intact.
  *
- * The allowlists those blocks are sanitized against are `helpers/htmlSanitizePolicy.ts`'s, and are
- * covered on their own in `helpers/htmlSanitizePolicy.test.ts`.
+ * `getEnabledKeys` is the one call in the path that is real SQL, so it is the one thing stubbed;
+ * `definitions` is a plain in-memory array read from the compiled manifest, so the fixtures below
+ * are shaped like the three diagram blocks' own `static definition.props`. The allowlists
+ * themselves belong to `helpers/htmlSanitizePolicy.ts` and are covered in its own suite.
  */
 
 const DIAGRAM_BLOCKS: BlockDefinition[] = [
@@ -61,10 +56,9 @@ const DIAGRAM_BLOCKS: BlockDefinition[] = [
 ]
 
 /*
- * Two more fixtures, alongside the diagram blocks above: one whose declared prop is camelCase (the
- * DOM -- and an author typing it, or Lit reflecting it -- only ever spells this lowercase), and a
- * second block declaring no such prop at all, to prove `blockAllowances()` widening one tag's
- * allow-list doesn't leak onto another's.
+ * One block whose declared prop is camelCase -- the DOM only ever spells that lowercase -- and a
+ * second declaring no such prop, to prove `blockAllowances()` widening one tag's allow-list never
+ * leaks onto another's.
  */
 const CAMEL_PROP_BLOCKS: BlockDefinition[] = [
   {
@@ -85,11 +79,8 @@ const CAMEL_PROP_BLOCKS: BlockDefinition[] = [
 
 let enabledBlocks = new Set<string>()
 
-/** Custom blocks (OpenProject #2132) -- the shape `models/blocks.ts#getCustomBlockDefinitions()` returns. */
 let customBlocks: { block: string; props: { name: string }[] }[] = []
 
-// -> A `createWikiStub()` global rather than `test/db.ts`'s `setupTestDb()`: nothing under test here
-//    reaches the database, so the only real dependency is `CARDINAL.models.blocks` itself
 const wiki = installTestWiki({
   models: {
     blocks: {
@@ -165,13 +156,12 @@ describe('rendering.postProcess: diagram block-vs-fence handoff', () => {
   })
 
   test('drops the block, but keeps the fenced body as plain text, when the block is disabled for the site', async () => {
-    enabledBlocks = new Set() // -> nothing enabled
+    enabledBlocks = new Set()
     const html = blockHtml('block-diagram', 'theme="auto"', 'mermaid', 'A --&gt; B')
 
     const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
 
     assert.doesNotMatch(result.render, /block-diagram/)
-    // -> The fenced source itself is ordinary content and survives the block around it being stripped
     assert.match(result.render, /<pre class="codeblock-mermaid"><code>A --&gt; B<\/code><\/pre>/)
   })
 
@@ -188,13 +178,9 @@ describe('rendering.postProcess: diagram block-vs-fence handoff', () => {
 })
 
 /*
- * `blockAllowances()` used to read only `CARDINAL.models.blocks.definitions` -- the compiled manifest,
- * which a custom block (a `blocks` row with `isCustom: true`, uploaded through `api/blocks.ts`) has no
- * entry in at all. That meant `block-<customTag>` never reached the sanitizer's allowlist and was
- * silently stripped from every saved page, however the editor's own preview rendered it. OpenProject
- * #2132 admits custom blocks from `getCustomBlockDefinitions()` (stubbed here as the mutable
- * `customBlocks`, mirroring `enabledBlocks` above) the same way built-ins are admitted -- gated on
- * being enabled, and with only the prop names the block's own upload declared.
+ * A custom block has no entry in the compiled `definitions` manifest, so unless `blockAllowances()`
+ * also admits `getCustomBlockDefinitions()`, `block-<customTag>` never reaches the sanitizer's
+ * allowlist and is stripped from every saved page however the editor's preview rendered it.
  */
 describe('rendering.postProcess: custom blocks admitted to blockAllowances (OpenProject #2132)', () => {
   test("keeps a custom block's tag and declared prop, but strips an attribute it never declared", async () => {
@@ -210,14 +196,13 @@ describe('rendering.postProcess: custom blocks admitted to blockAllowances (Open
   })
 
   test('drops the element, but keeps its text content, when the custom block is not enabled for the site', async () => {
-    enabledBlocks = new Set() // -> nothing enabled, including the custom block below
+    enabledBlocks = new Set()
     customBlocks = [{ block: 'gallery-custom', props: [{ name: 'caption' }] }]
     const html = '<block-gallery-custom caption="Trip photos">content</block-gallery-custom>'
 
     const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
 
     assert.doesNotMatch(result.render, /block-gallery-custom/)
-    // -> Same as any other disallowed tag: the element goes, the text inside it stays
     assert.match(result.render, /content/)
   })
 })
@@ -234,8 +219,6 @@ describe('rendering.postProcess: lowercase spelling of a camelCase block prop (O
 
   test('still strips a prop declared on one block tag when written on a different block tag', async () => {
     enabledBlocks = new Set(['checklist', 'gallery'])
-    // -> `runKey`/`runkey` is declared on block-checklist, not block-gallery -- widening
-    //    block-checklist's allow-list must not leak the attribute onto a sibling tag
     const html = '<block-gallery runkey="daily"></block-gallery>'
 
     const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
@@ -293,11 +276,9 @@ describe('rendering.postProcess: internal link extraction (OpenProject #881)', (
 })
 
 /*
-  OpenProject #3379: `LinkPickerDialog.vue` writes a locale-prefixed href (`/fr/guide`) for a
-  non-primary-locale target, and -- on a `forcePrefix` site -- for every target, including the
-  primary locale. `extractInternalLinks` has to strip that prefix before storing, since the three
-  consumers of `pages.links` (backlinks, `/_graph`, `relinkReferencingPages`) all match on the bare
-  path in the linking page's own locale.
+  `LinkPickerDialog.vue` writes a locale-prefixed href (`/fr/guide`) for a non-primary-locale
+  target, and for every target on a `forcePrefix` site. It is stripped before storing, since every
+  consumer of `pages.links` matches on the bare path in the linking page's own locale.
 */
 describe('rendering.postProcess: internal link extraction strips a locale prefix (OpenProject #3379)', () => {
   test('strips a non-primary-locale prefix from a link target', async () => {
@@ -366,37 +347,18 @@ describe('rendering.postProcess: internal link extraction strips a locale prefix
 })
 
 /*
-  OpenProject #829, item 1: upstream issue #1839 ("Mermaid renders in the live edit preview but not
-  on the saved/reloaded page") and discussion #6446 (the identical pattern for KaTeX formulas) both
-  describe a render-then-reload regression. This fork's architecture cannot reproduce either report
-  by construction, and this test is what pins that down rather than leaving it as an assertion in a
-  comment:
-
-   - A diagram (`block-diagram`/`block-kroki`/`block-plantuml`) is a Lit custom element that draws
-     itself in `firstUpdated()` -- a browser lifecycle hook that fires identically whichever DOM path
-     upgraded the element. `pages/Index.vue`'s route watcher (`{ immediate: true }`, so it also fires
-     on a page loaded directly rather than navigated to) scans the loaded content for
-     `:not(:defined)` custom elements and imports their component the same way `EditorMarkdown.vue`'s
-     live preview does -- there is no separate "preview renderer" and "saved-page renderer" to drift
-     apart. What this test can verify without a browser is the half that actually lives here: that
-     `postProcess` -- what a save (and what a headless re-render replays) both run -- does not
-     itself strip or mangle the block element or the fenced source `firstUpdated()` reads out of it,
-     which is the one way a reload-only regression could hide in this file.
-   - Literal `$…$`/`$$…$$` TeX (Task 624) is resolved to real KaTeX HTML/MathML at the point the
-     editor's own render runs (`renderers/markdown.js`), not deferred to a script that has to run
-     again on every future view -- so the stored/reloaded page needs no client-side re-render step
-     for a formula to appear at all, unlike a design where "render" and "display" are separate
-     passes that can disagree. This test's job is to confirm `postProcess`'s sanitize step is what
-     `helpers/htmlSanitizePolicy.test.ts` already proved in isolation -- keeps that literal markup
-     byte-for-byte -- when it runs alongside a diagram block in the same document, not just alone.
+  Upstream issue #1839 ("Mermaid renders in the live edit preview but not on the saved/reloaded
+  page") and discussion #6446 (KaTeX, same shape) report a render-then-reload regression this fork
+  cannot reproduce by construction: a diagram draws itself in `firstUpdated()`, which fires on
+  whichever DOM path upgraded the element, and TeX resolves to KaTeX markup at render time rather
+  than by a script that has to run again on every view. What is checkable without a browser is that
+  `postProcess` strips neither the block element nor the fenced source `firstUpdated()` reads out.
 */
 describe('rendering.postProcess -- render, save, reload (OpenProject #829)', () => {
   test('keeps a mermaid diagram block and a resolved inline KaTeX formula both intact through the same save-time pass a reload replays', async () => {
     enabledBlocks = new Set(['diagram'])
-    // -> A trimmed but structurally real `katex.renderToString(..., { output: 'htmlAndMathml' })`
-    //    shape: the MathML the policy suite already proved survives sanitization on its own, now
-    //    alongside a diagram block in one document -- the actual "did the editor's own HTML come
-    //    back out the other end of a save" question this item asks.
+    // -> Trimmed but structurally real `katex.renderToString(..., { output: 'htmlAndMathml' })`
+    //    output, so the MathML the policy suite covers alone is exercised beside a block here
     const katexHtml =
       '<span class="katex"><span class="katex-mathml">' +
       '<math xmlns="http://www.w3.org/1998/Math/MathML"><semantics>' +
@@ -414,11 +376,8 @@ describe('rendering.postProcess -- render, save, reload (OpenProject #829)', () 
 
     const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
 
-    // -> The formula: fully resolved, static markup a reload can display with no re-render step
     assert.match(result.render, /class="katex"/)
     assert.match(result.render, /\\pi r\^2/)
-    // -> The diagram: the element and its fenced source, exactly what `firstUpdated()` needs to draw
-    //    it again on whichever DOM path upgraded the element this time
     assert.match(result.render, /<block-diagram theme="auto">/)
     assert.match(
       result.render,
@@ -429,18 +388,10 @@ describe('rendering.postProcess -- render, save, reload (OpenProject #829)', () 
 })
 
 /*
- * `postProcess` used to sanitize before `inlineIcons()`, so the last step that draws more
- * markup into the document (an icon's SVG body, resolved from a third party) ran AFTER the only step
- * that filtered what a page may contain -- `isSafeIconBody` (`models/icons.ts`) is a denylist over the
- * icon's raw, still HTML-entity-encoded body at ingest time, and never sees what that decodes to once
- * `iconSvg()`'s own `$(...)` call parses it straight into the live DOM, entity-decoding attribute
- * values exactly like a browser would. OpenProject #2139 closes the gap with a second sanitize pass
- * after `inlineIcons()`, against the identical options object the first pass used.
- *
- * `CARDINAL.models.icons` is stubbed only with what `inlineIcons()`/`iconSvg()` actually call --
- * `parseRef`, `resolveIcons`, `renderInlineSvg` -- keyed off a `resolvedIcons` map this describe block
- * populates per test, the same "minimal stub of the one real dependency" approach the file's own
- * header comment already uses for `CARDINAL.models.blocks`.
+ * `inlineIcons()` draws third-party markup into the document, so it needs a sanitize pass of its
+ * own after it: `isSafeIconBody` (`models/icons.ts`) is a denylist over the still entity-encoded
+ * body at ingest, and never sees what that decodes to once `iconSvg()`'s `$(...)` parses it into a
+ * DOM the way a browser would.
  */
 describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #2139)', () => {
   const resolvedIcons = new Map<string, { body: string }>()
@@ -460,20 +411,17 @@ describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #21
       }
       return { icons, notFound: names.filter((name) => !icons[name]) }
     },
-    // -> A trimmed stand-in for the real `iconToSVG`/`iconToHTML`/`replaceIDs` pipeline: wraps the
-    //    icon's body in an <svg> exactly the way the real method does, without needing a real
-    //    IconifyIcon shape -- what's under test is `postProcess`'s two sanitize passes, not this
-    //    method's own rendering, which has no coverage gap of its own to fill here.
+    // -> Stands in for the real `iconToSVG`/`iconToHTML`/`replaceIDs` pipeline without needing a
+    //    real IconifyIcon shape: what is under test is the two sanitize passes, not this rendering
     renderInlineSvg(icon: { body: string }) {
       return `<svg viewBox="0 0 24 24">${icon.body}</svg>`
     }
   }
 
   test('removes an entity-encoded javascript: href that only exists after inlineIcons, not before', async () => {
-    // -> `&#106;avascript:` is `javascript:` with its first letter as a numeric character reference --
-    //    `isSafeIconBody`'s denylist matches the literal string `javascript:`, so this passes ingest,
-    //    and only becomes a real `javascript:` value once something HTML-parses it (`iconSvg()`'s
-    //    `$(...)` call does exactly that, the same as a browser would).
+    // -> `&#106;avascript:` is `javascript:` with its first letter as a character reference:
+    //    `isSafeIconBody` matches the literal string, so this passes ingest and only becomes a real
+    //    `javascript:` value once `iconSvg()`'s `$(...)` HTML-parses it
     resolvedIcons.set('mdi:trap', {
       body: '<a href="&#106;avascript:alert(1)">click</a><circle cx="12" cy="12" r="10"></circle>'
     })
@@ -483,7 +431,6 @@ describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #21
 
     assert.doesNotMatch(result.render, /javascript:/i)
     assert.doesNotMatch(result.render, /\shref=/)
-    // -> The rest of the icon body, which is not itself dangerous, still comes through
     assert.match(result.render, /<circle cx="12" cy="12" r="10">/)
   })
 
@@ -501,12 +448,9 @@ describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #21
 })
 
 /*
- * OpenProject #2911: an `<iframe>`/`<script>`/`<style>` stripped for lacking `write:scripts`/
- * `write:styles` used to simply vanish, with nothing in the stored render saying why -- which is also
- * what let a page look fine to whoever last saved it (with the permission) while quietly losing the
- * embed for anyone re-rendering without it. `applyPermissionPlaceholders`'s own unit coverage lives
- * in `helpers/htmlSanitizePolicy.test.ts`; what belongs here is that `postProcess` actually wires it
- * in ahead of the real `sanitizeHtml()` pass, against the same allowlist a block or icon goes through.
+ * `applyPermissionPlaceholders`'s own unit coverage lives in `helpers/htmlSanitizePolicy.test.ts`;
+ * what belongs here is that `postProcess` wires it in ahead of the real `sanitizeHtml()` pass, so a
+ * tag stripped for a missing permission leaves a visible callout rather than silently vanishing.
  */
 describe('rendering.postProcess: visible callout for a permission-gated tag (OpenProject #2911)', () => {
   test('replaces an <iframe> with a "write:scripts" callout when the actor lacks the permission', async () => {
@@ -518,7 +462,6 @@ describe('rendering.postProcess: visible callout for a permission-gated tag (Ope
     assert.match(result.render, /<blockquote class="is-danger">/)
     assert.match(result.render, /<p class="alert-title">Caution<\/p>/)
     assert.match(result.render, /write:scripts permission and was not rendered/)
-    // -> The surrounding content survives untouched, same as any other stripped element
     assert.match(result.render, /<p>before<\/p>/)
     assert.match(result.render, /<p>after<\/p>/)
   })
@@ -555,12 +498,9 @@ describe('rendering.postProcess: visible callout for a permission-gated tag (Ope
 })
 
 /*
- * OpenProject #2459 (Feature #2418's Scope): `postProcess` reads a site's admin-configured
- * `allowedUrlSchemes` off `CARDINAL.sites[siteId].config` and passes it through to `sanitizeOptions()`.
- * The scheme-filtering logic itself (dedupe, the categorical javascript:/vbscript:/data: denylist)
- * is `helpers/htmlSanitizePolicy.test.ts`'s to cover -- what belongs here is only that this model
- * actually reaches for the right config key for the right site, and that a site without one behaves
- * exactly as before.
+ * The scheme-filtering logic itself is `helpers/htmlSanitizePolicy.test.ts`'s to cover -- what
+ * belongs here is only that this model reaches for the right site's `allowedUrlSchemes` config key,
+ * and that a site without one falls back to the defaults.
  */
 describe('rendering.postProcess: site-configured allowedUrlSchemes (OpenProject #2459)', () => {
   test('a link using a site-configured custom scheme survives sanitization', async () => {

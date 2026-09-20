@@ -5,19 +5,14 @@ import ClassificationReportDrillDialog from './ClassificationReportDrillDialog.v
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * OpenProject #1081: `AdminClassification.vue`'s coverage report opens this dialog when an admin
- * clicks a level's count -- "everything currently classified as X", paginated newest-updated first
- * against `GET pages/classification-report/:levelId`.
- */
 async function mountDialog(props) {
   const i18n = createTestI18n()
   const wrapper = mount(ClassificationReportDrillDialog, {
     props: { levelId: 'level-restricted', levelName: 'Restricted', ...props },
     global: { plugins: [i18n], stubs: { teleport: true } }
   })
-  // -> `useDialogComponent()` mounts hidden and flips visible on the next tick, same as
-  //    `ClassificationResolutionDialog.test.js` -- then the mounted-hook fetch itself.
+  // -> `useDialogComponent()` mounts hidden and flips visible on the next tick; the second flush is
+  //    the mounted-hook fetch
   await flushPromises()
   await flushPromises()
 

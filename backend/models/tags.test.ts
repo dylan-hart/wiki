@@ -7,13 +7,8 @@ import type { PageActor, PageInput } from './pages.ts'
 import type { AccessActor, GroupRule } from './groups.ts'
 
 /**
- * DB-backed test for `tags.getPopularTags()` (OpenProject #3046): "Popular Tags", capped to 10,
- * ranked by 60-day content activity rather than `getTags()`'s all-time usage count.
- *
- * Runs the real query against a real, migrated database (see `test/db.ts`) because the thing under
- * test IS the SQL — the recency filter and the aggregation — not something a mock of the query
- * builder would verify. `createPage()`'s `createdAt`/`updatedAt` overrides are what let a single test
- * simulate "old, heavily-tagged content" vs. "recently active content" without waiting real time.
+ * `createPage()`'s `createdAt`/`updatedAt` overrides are what let one test simulate old versus
+ * recently-active content without waiting real time.
  */
 describe('tags.getPopularTags() (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -47,8 +42,7 @@ describe('tags.getPopularTags() (DB-backed)', { skip: !hasTestDatabase() }, () =
   const OLD_TIMESTAMP = '2020-01-01T00:00:00.000Z'
 
   test('ranks by recent activity, not all-time usage count', async () => {
-    // -> 'stale' carries three old pages nobody has touched in years; 'fresh' carries just one,
-    //    updated moments ago. All-time usage would rank 'stale' first -- 60-day activity must not.
+    // -> All-time usage would rank 'stale' (three old pages) above 'fresh' (one, just now).
     for (const path of ['stale-a', 'stale-b', 'stale-c']) {
       await pagesModel.createPage(
         fixtures.siteId,
@@ -88,7 +82,6 @@ describe('tags.getPopularTags() (DB-backed)', { skip: !hasTestDatabase() }, () =
     const popular = await tagsModel.getPopularTags(fixtures.siteId, { limit: 10 })
 
     assert.equal(popular.length, 10)
-    // -> 'shared' is carried by all 12 pages -- the most active tag -- and must sort first.
     assert.equal(popular[0]!.tag, 'shared')
     assert.equal(popular[0]!.usageCount, 12)
   })
@@ -106,13 +99,11 @@ describe('tags.getPopularTags() (DB-backed)', { skip: !hasTestDatabase() }, () =
       ...overrides
     })
 
-    // -> Readable + recent: counts.
     await pagesModel.createPage(
       fixtures.siteId,
       pageInput({ path: 'scoped/readable-recent', tags: ['scoped-tag'] }),
       actor
     )
-    // -> Readable but stale: must not count even though the actor may read it.
     await pagesModel.createPage(
       fixtures.siteId,
       pageInput({
@@ -123,7 +114,6 @@ describe('tags.getPopularTags() (DB-backed)', { skip: !hasTestDatabase() }, () =
       }),
       actor
     )
-    // -> Recent but outside the actor's readable scope: must not count even though it is active.
     await pagesModel.createPage(
       fixtures.siteId,
       pageInput({ path: 'unscoped/recent-but-unreadable', tags: ['scoped-tag'] }),

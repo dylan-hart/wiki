@@ -13,13 +13,9 @@ import { groups, type GroupRule } from './groups.ts'
 import { GUEST_SCENARIO_RULES, GUEST_SCENARIO_CASES } from '../test/permissionScenario.ts'
 
 /**
- * OpenProject #788: `groupIdsForRequest()` used to only ever look at `req.session` — an
- * API-key-authenticated request (no session) always fell through to the guests-group fallback,
- * regardless of what groups the key actually carried, so every page-rule check made for a request
- * authenticated by an API key (`checkAccess()`/`mayOnPage()`, both built on this) was silently deciding
- * against the PUBLIC's rules instead of the key's own. Pure request/response, no DB involved, so this
- * runs unconditionally rather than gated on `hasTestDatabase()` — only the guest fallback needs a CARDINAL
- * stub at all, for `CARDINAL.data.systemIds.guestsGroupId`.
+ * Pure request/response, no DB involved, so this runs unconditionally rather than gated on
+ * `hasTestDatabase()` — only the guest fallback needs a `CARDINAL` stub at all, for
+ * `CARDINAL.data.systemIds.guestsGroupId`.
  */
 describe('groups.groupIdsForRequest', () => {
   let previousWiki: any
@@ -81,7 +77,7 @@ describe('groups.groupIdsForRequest', () => {
 })
 
 /**
- * OpenProject #930: `actorForRequest` is where an API key's `scope` reaches `AccessActor` at all --
+ * `actorForRequest` is where an API key's `scope` and site pin reach `AccessActor` at all --
  * `checkAccess()`/`mayHoldPermissionSomewhere()`/`checkSiteAccess()` only ever see what this returns.
  */
 describe('groups.actorForRequest', () => {
@@ -116,10 +112,6 @@ describe('groups.actorForRequest', () => {
     })
   })
 
-  /**
-   * OpenProject #2189/#2199: `actorForRequest()` is where an API key's site pin reaches
-   * `AccessActor` at all -- `checkAccess()`/`checkSiteAccess()` only ever see what this returns.
-   */
   test("carries a site-pinned API key's siteId through onto the actor", () => {
     const req = {
       apiKey: {
@@ -225,11 +217,6 @@ describe('groups.actorForRequest', () => {
   })
 })
 
-/**
- * OpenProject #1127: the actor `models/renderQueue.ts`'s background re-render job passes to
- * `glossary.getCachedTerms` when reprocessing already-published content with no specific reader to
- * speak for.
- */
 describe('groups.guestActor', () => {
   let previousWiki: any
 
@@ -251,13 +238,11 @@ describe('groups.guestActor', () => {
 })
 
 /**
- * `groups.checkAccess` is the one place a page permission is decided — it pools a set of groups'
- * rules and hands them to `helpers/pageRules.ts`, which
- * Task 753 already covers rule-matching logic for in isolation. What is genuinely `models/groups.ts`'s
- * own to cover is the wiring around that: rules are stored as a `jsonb` column and reloaded from it
- * into an in-memory cache (`reloadCache`), and `checkAccess` reads that cache rather than the database
- * on every call — so this suite needs a real row round-tripping through Postgres, not a mock of the
- * query builder.
+ * `helpers/pageRules.test.ts` already covers the rule-matching in isolation. What is genuinely
+ * `models/groups.ts`'s to cover is the wiring: rules live in a `jsonb` column, are reloaded from it
+ * into an in-memory cache (`reloadCache`), and `checkAccess` reads that cache rather than the
+ * database on every call — so this needs a real row round-tripping through Postgres, not a mock of
+ * the query builder.
  */
 describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -284,7 +269,6 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ...overrides
   })
 
-  /** Writes `rules` onto the fixture group and reloads the in-memory cache from it. */
   async function setGroupRules(rules: GroupRule[]): Promise<void> {
     await fixtures.db.update(groupsTable).set({ rules }).where(eq(groupsTable.id, fixtures.groupId))
     await groupsModel.reloadCache()
@@ -404,11 +388,9 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * Task 551's audit-sweep finding: callers that span many pages (search is the only one today) used
-   * to approximate "may write pages" by reading `actor.permissions` — the GLOBAL, group-wide list —
-   * for `write:pages`/`manage:pages`, which are page-rule permissions no group's `permissions` column
-   * legitimately carries. `mayHoldPermissionSomewhere()` replaces that scan with a real (if
-   * deliberately coarse) question against the actor's rules.
+   * `write:pages`/`manage:pages` are page-rule permissions, so no group's group-wide `permissions`
+   * column legitimately carries them: a caller spanning many pages has to ask the rules, coarsely,
+   * rather than scan `actor.permissions`.
    */
   test('mayHoldPermissionSomewhere answers true for a permission granted by a rule scoped to one path, even though it is absent from the group-wide permission list', async () => {
     await setGroupRules([rule({ path: 'engineering', roles: ['write:pages'] })])
@@ -449,12 +431,10 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2121: `mayHoldPermissionSomewhere()` is page-blind, so unlike `checkAccess()` it has
-   * no single page's classification to compare `allowedClassifications` against. The decision (see the
-   * comment at the method's `manage:system` guard) is to leave the `manage:system` short-circuit as the
-   * very first check regardless of a non-null allow-set: every caller only uses this as a coarse
-   * pre-filter ahead of a real per-page `checkAccess()`, which is where `allowedClassifications` is
-   * actually enforced. This pins that answer so it cannot silently regress into a page-blind denial.
+   * `mayHoldPermissionSomewhere()` is page-blind, so it has no single page's classification to
+   * compare `allowedClassifications` against. The `manage:system` short-circuit deliberately stays
+   * the first check regardless: callers use this only as a coarse pre-filter ahead of a real
+   * per-page `checkAccess()`, which is where the allow-set is enforced.
    */
   test('mayHoldPermissionSomewhere stays true for a manage:system actor even with a non-null allowedClassifications allow-set', async () => {
     await setGroupRules([])
@@ -484,11 +464,9 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2146/#2162: `mayHoldPermissionSomewhere()` used to pool every rule of every group
-   * the actor belongs to with no regard for `rule.sites` at all, so a `write:pages` rule scoped to
-   * one site answered "true" for every other site too — unlocking that other site's unpublished
-   * drafts and password-protected excerpts through the search route's `maySeeEverything` switch for
-   * an actor whose delegation covered only one site.
+   * Pooling an actor's rules with no regard for `rule.sites` would make a `write:pages` rule scoped
+   * to one site answer true for every other site — which `mcp/auth.ts#maySeeEverything` turns into
+   * that other site's unpublished drafts and password-protected excerpts in a search result.
    */
   test("mayHoldPermissionSomewhere answers false for a site the actor's only matching rule is not scoped to, and true for the site it is scoped to", async () => {
     const otherSiteId = 'a1e6c6a2-51e2-4b3f-9a8b-2b6f2b7c9a10'
@@ -532,13 +510,10 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #930: an API key's `scope` only narrows the group-wide permission UNION
-   * (`narrowToScope()` in `models/apiKeys.ts`) -- `groupIds` themselves are handed through
-   * unnarrowed, so a key scoped to `['read:pages']` still resolved every page permission its
-   * groups' rules granted, since neither `checkAccess()` nor `mayHoldPermissionSomewhere()`
-   * consulted scope at all. These lock down the fix: a permission absent from `scope` is refused
-   * before any rule is even resolved, and `null`/absent scope (a session, or an unscoped key)
-   * stays unrestricted.
+   * An API key's `scope` only narrows the group-wide permission UNION (`narrowToScope()` in
+   * `models/apiKeys.ts`); `groupIds` themselves are handed through unnarrowed. So `checkAccess()` and
+   * `mayHoldPermissionSomewhere()` have to consult scope themselves -- otherwise a key scoped to
+   * `['read:pages']` still resolves every page permission its groups' rules grant.
    */
   test('a scoped actor is refused a page-rule permission outside its scope, even though a rule grants it (OpenProject #930)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages', 'write:pages'], mode: 'ALLOW' })])
@@ -635,11 +610,6 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
-  /**
-   * OpenProject #1205 (replacing the earlier #1055 single-value ceiling): an actor whose
-   * `allowedClassifications` allow-set does not name a page's classification may never be granted a
-   * page permission on it, regardless of what its groups' rules say.
-   */
   test('an allowedClassifications-scoped actor is refused on a page outside its allow-set, even though a rule grants it (OpenProject #1205)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
     const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
@@ -665,7 +635,6 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     assert.equal(groupsModel.checkAccess(capped, 'read:pages', publicPage), true)
     assert.equal(groupsModel.checkAccess(capped, 'read:pages', restrictedPage), false)
-    // -> An uncapped actor is unaffected -- the same rule grants it on both pages
     const uncapped = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(groupsModel.checkAccess(uncapped, 'read:pages', restrictedPage), true)
 
@@ -673,10 +642,9 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2119: the `allowedClassifications` allow-set now sits ABOVE the `manage:system`
-   * short-circuit — an administrator's credential opted into a classification-scoped allow-set is
-   * still held to it, unlike every other rule `manage:system` bypasses. The untested combination the
-   * task calls out: an actor holding BOTH `manage:system` AND a non-null allow-set.
+   * The `allowedClassifications` allow-set sits ABOVE the `manage:system` short-circuit — an
+   * administrator's credential opted into a classification-scoped allow-set is still held to it,
+   * unlike every other rule `manage:system` bypasses.
    */
   test('an actor holding manage:system AND a non-null allowedClassifications is refused a page outside its allow-set, and still allowed one inside it (OpenProject #2119)', async () => {
     await setGroupRules([])
@@ -701,13 +669,12 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       classification: restricted.id
     }
 
-    // -> No rule at all grants read:pages here — the only reason either of these could pass is the
-    //    manage:system bypass, which is exactly what's being narrowed.
+    // -> No rule at all grants read:pages here, so the only thing either of these could pass on is
+    //    the manage:system bypass — which is exactly what the allow-set narrows.
     assert.equal(groupsModel.checkAccess(capped, 'read:pages', publicPage), true)
     assert.equal(groupsModel.checkAccess(capped, 'read:pages', restrictedPage), false)
 
-    // -> A manage:system actor with a null/absent allow-set is unaffected — the existing
-    //    "manage:system bypasses every rule" case above must still pass.
+    // -> A null/absent allow-set is unaffected: manage:system still bypasses every rule.
     const uncappedAdmin = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
     assert.equal(groupsModel.checkAccess(uncappedAdmin, 'read:pages', restrictedPage), true)
 
@@ -715,11 +682,10 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2189/#2199: `AccessActor.siteId` closes `checkAccess()` itself against a foreign
-   * site, engine-side rather than only at the routing layer -- an actor built from an API key
-   * pinned to one site must never be granted a page permission on ANOTHER site's page, even a
-   * `manage:system`-holding one, for the same "administrator's own choice at mint time" reasoning
-   * #2119 established for `allowedClassifications`.
+   * `AccessActor.siteId` closes `checkAccess()` itself against a foreign site, engine-side rather
+   * than only at the routing layer: an actor built from an API key pinned to one site is never
+   * granted a page permission on ANOTHER site's page, even holding `manage:system` -- the pin is the
+   * minting administrator's own choice, the same reasoning `allowedClassifications` follows.
    */
   test('a site-pinned actor is refused on a page belonging to a different site, even holding manage:system (OpenProject #2199)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
@@ -745,10 +711,8 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(groupsModel.checkAccess(pinnedAdmin, 'read:pages', foreignSitePage), false)
   })
 
-  // -> Fails closed the same as a site-scoped rule (`ruleMatchesPage()` in `helpers/pageRules.ts`)
-  //    treats an unknown page siteId against a site-restricted rule -- see `withinSitePin()`'s own
-  //    doc comment. Locked down again, with a different page ref, at "a siteId-pinned actor is
-  //    refused checkAccess on a page ref with no site context at all (null)" below.
+  // -> Fails closed, the same way `helpers/pageRules.ts`'s `ruleMatchesPage()` treats an unknown page
+  //    siteId against a site-restricted rule.
   test('a site-pinned actor is refused when the page ref has no known siteId (null)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
     const pinned = { groupIds: [fixtures.groupId], permissions: [], siteId: fixtures.siteId }
@@ -795,12 +759,6 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
-  /**
-   * OpenProject #2189/#2199: an actor built from an API key pinned to one site (`AccessActor.siteId`)
-   * must never be granted a page permission on a DIFFERENT site's page, even when a rule would
-   * otherwise grant it everywhere (`sites: []`) — the same "narrow, never grant beyond" guarantee
-   * `scope`/`allowedClassifications` already enforce, now for the site pin.
-   */
   test('a siteId-pinned actor is refused checkAccess on a different site, even though a rule grants it everywhere', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW', sites: [] })])
 
@@ -821,7 +779,6 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(groupsModel.checkAccess(pinned, 'read:pages', pinnedPage), true)
     assert.equal(groupsModel.checkAccess(pinned, 'read:pages', otherSitePage), false)
 
-    // -> An actor with a null/absent site pin is unaffected -- the same rule grants it on both
     const unpinned = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(groupsModel.checkAccess(unpinned, 'read:pages', otherSitePage), true)
   })
@@ -842,11 +799,9 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2119: `allowedClassifications` used to be compared AFTER the `manage:system`
-   * short-circuit, so a `manage:system`-holding actor's allow-set was dead code -- the exact bypass
-   * `api/users/profile.ts`'s personal-token create route promises a PAT holder it will not have. The comparison now runs first, so
-   * a `manage:system` actor with a non-null allow-set is refused outside it and still allowed inside
-   * it, alongside `manage:system bypasses every rule` above, which stays true for a null allow-set.
+   * The allow-set is compared BEFORE the `manage:system` short-circuit -- compared after, a
+   * `manage:system`-holding actor's allow-set would be dead code, and the `allowedClassifications`
+   * cap `api/users/profile.ts`'s personal-token create route offers would be a promise it cannot keep.
    */
   test('manage:system does not bypass a non-null allowedClassifications allow-set (OpenProject #2119)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'DENY' })])
@@ -880,13 +835,10 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * Feature 357 / task 448: the realistic guests-group ALLOW/DENY/FORCEALLOW scenario from the task
-   * description, run through the full stack this time — the same `GUEST_SCENARIO_RULES` from
-   * `test/permissionScenario.ts` written to a real group row, reloaded through the real in-memory
-   * cache (`reloadCache()`), and decided by the real `checkAccess`, rather than calling
-   * `resolvePageRule` directly the way `helpers/pageRules.test.ts`'s identical scenario does. Both
-   * files asserting the same four cases against the same rule set is what proves the pure-function
-   * engine and the DB-backed model built on top of it agree.
+   * The same `GUEST_SCENARIO_RULES` as `helpers/pageRules.test.ts`, written to a real group row and
+   * decided through the real cache and `checkAccess` rather than by calling `resolvePageRule`
+   * directly — both files asserting the same cases against the same rule set is what proves the
+   * pure-function engine and the DB-backed model built on it agree.
    */
   test('a broad ALLOW, a narrower DENY subtree, and a FORCEALLOW hole in it — full stack', async () => {
     await setGroupRules(GUEST_SCENARIO_RULES)
@@ -907,13 +859,6 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     }
   })
 
-  /**
-   * OpenProject #2199: an actor built from an API key pinned to one site (`AccessActor.siteId`) must
-   * be refused for a page on any other site -- including a page whose own `siteId` is unknown/null --
-   * even though the matching rule's own `sites` is empty (the default, granting every site). A null
-   * pin (an instance-wide key, or a session) is unaffected: it behaves exactly as it did before the
-   * pin existed.
-   */
   test('checkAccess refuses a page on a foreign site once the actor carries a site pin (OpenProject #2199)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW', sites: [] })])
 
@@ -923,7 +868,6 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const nullPin = { groupIds: [fixtures.groupId], permissions: [], siteId: null }
     const absentPin = { groupIds: [fixtures.groupId], permissions: [] }
 
-    // -> Allowed on its own pinned site
     assert.equal(
       groupsModel.checkAccess(pinnedToA, 'read:pages', {
         path: 'anything',
@@ -933,7 +877,6 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       }),
       true
     )
-    // -> Refused on a different site, even though the rule itself grants every site
     assert.equal(
       groupsModel.checkAccess(pinnedToA, 'read:pages', {
         path: 'anything',
@@ -943,7 +886,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       }),
       false
     )
-    // -> Refused on a page whose own site is unknown -- not the pinned site either
+    // -> A page whose own site is unknown is not the pinned site either
     assert.equal(
       groupsModel.checkAccess(pinnedToA, 'read:pages', {
         path: 'anything',
@@ -953,7 +896,6 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       }),
       false
     )
-    // -> A null pin (explicit) is unaffected on either site
     for (const site of [siteA, siteB]) {
       assert.equal(
         groupsModel.checkAccess(nullPin, 'read:pages', {
@@ -965,7 +907,6 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         true
       )
     }
-    // -> An absent pin (the field never set) behaves exactly as a null one
     assert.equal(
       groupsModel.checkAccess(absentPin, 'read:pages', {
         path: 'anything',
@@ -979,11 +920,10 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
- * `groups.actorForUserId` (OpenProject #2173) — the `AccessActor` counterpart to `actorForRequest`
- * for a code path that has only a stored `userId`, no live request: a page-watch notification is
- * queued once at change time but sent, and read from the inbox, much later, so the actor it checks
- * `read:pages` against has to be resolved fresh from CURRENT group membership rather than carried
- * from whenever the watch was first set up.
+ * The `AccessActor` counterpart to `actorForRequest` for a code path that has only a stored
+ * `userId`, no live request: a page-watch notification is queued once at change time but sent, and
+ * read from the inbox, much later, so the actor it checks `read:pages` against has to be resolved
+ * fresh from CURRENT group membership rather than carried from when the watch was set up.
  */
 describe('groups.actorForUserId (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -1038,11 +978,11 @@ describe('groups.actorForUserId (DB-backed)', { skip: !hasTestDatabase() }, () =
 })
 
 /**
- * OpenProject #1858: `rulesForGroups()` used to `flatMap` over `rulesCache` fresh on every call --
- * `checkAccess`/`checkSiteAccess`/`mayHoldPermissionSomewhere` each call it at least once per request,
- * often once per item when a caller filters a list. It now memoises the pooled array per group set,
- * invalidated by `reloadCache()` (called both directly, by `broadcastReload()`, and indirectly, by the
- * inbound `reloadGroups` event handler wired up in `subscribeToEvents()`).
+ * `rulesForGroups()` memoises the pooled rule array per group set rather than re-`flatMap`ping
+ * `rulesCache` on every call: `checkAccess`/`checkSiteAccess`/`mayHoldPermissionSomewhere` each call
+ * it at least once per request, often once per item when a caller filters a list. The memo is
+ * invalidated by `reloadCache()` -- reached directly, and through `subscribeToEvents()`'s inbound
+ * `reloadGroups` handler.
  */
 describe('groups.rulesForGroups memoisation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -1123,11 +1063,11 @@ describe('groups.rulesForGroups memoisation (DB-backed)', { skip: !hasTestDataba
     const page = { path: 'anything', locale: 'en', siteId: null, classification: null, tags: [] }
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
 
-    // -> Populate the memo entry for this group set
+    // -> Populates the memo entry for this group set
     assert.equal(groupsModel.checkAccess(actor, 'read:pages', page), true)
 
-    // -> Change the underlying rule directly in the db, then reload -- without invalidation this
-    //    would keep answering from the stale memoised pool
+    // -> Changed directly in the db so only `reloadCache()`'s invalidation can make the next check
+    //    see it -- without one it would keep answering from the stale memoised pool
     await fixtures.db
       .update(groupsTable)
       .set({ rules: [rule({ path: '', roles: ['read:pages'], mode: 'DENY' })] })
@@ -1142,11 +1082,11 @@ describe('groups.rulesForGroups memoisation (DB-backed)', { skip: !hasTestDataba
     const page = { path: 'anything', locale: 'en', siteId: null, classification: null, tags: [] }
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
 
-    // -> Populate the memo entry
+    // -> Populates the memo entry
     assert.equal(groupsModel.checkAccess(actor, 'read:pages', page), true)
 
-    // -> Change the row directly (bypassing broadcastReload), then drive the inbound handler exactly
-    //    the way another cluster instance's event would
+    // -> Changed directly, bypassing `broadcastReload()`, then the inbound handler is driven exactly
+    //    the way another cluster instance's event would drive it
     await fixtures.db
       .update(groupsTable)
       .set({ rules: [rule({ path: '', roles: ['read:pages'], mode: 'DENY' })] })
@@ -1163,11 +1103,10 @@ describe('groups.rulesForGroups memoisation (DB-backed)', { skip: !hasTestDataba
 })
 
 /**
- * `groups.checkSiteAccess` is the site-scoped counterpart to `checkAccess` (see
- * `helpers/siteRules.ts`), reusing the same `rules` column and in-memory cache — so, like
- * `checkAccess` above, what belongs here is the wiring (cache reload, `manage:system` bypass,
- * pooling across an actor's groups), not the resolution algorithm itself, which
- * `helpers/siteRules.test.ts` already covers in isolation.
+ * The site-scoped counterpart to `checkAccess` (see `helpers/siteRules.ts`), reusing the same `rules`
+ * column and in-memory cache — so, like `checkAccess` above, what belongs here is the wiring (cache
+ * reload, `manage:system` bypass, pooling across an actor's groups), not the resolution algorithm
+ * itself, which `helpers/siteRules.test.ts` already covers in isolation.
  */
 describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -1235,7 +1174,6 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
     await groupsModel.reloadCache()
 
     const actor = { groupIds: [fixtures.groupId, secondGroup!.id], permissions: [] }
-    // -> The DENY from the second group wins over the broad ALLOW from the first, on this one site
     assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), false)
     // -> A site the DENY does not name is untouched: the broad ALLOW still decides it
     assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', 'unrelated-site'), true)
@@ -1273,17 +1211,8 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   /**
-   * OpenProject #2189/#2199: same engine-level closure as `checkAccess()` -- a site-pinned actor
-   * (an API key's `siteId`) is refused `checkSiteAccess()` for any OTHER site, even a
-   * `manage:system`-holding one, ahead of that bypass for the same "administrator's own choice at
-   * mint time" reasoning.
-   *
-   * OpenProject #2338 (a duplicate finding of the same #2189/#2199 fix, filed from an audit pass
-   * that ran just before it merged): this is the exact scenario -- an actor holding `manage:system`
-   * alongside a non-null `siteId` pin -- the WP asked to fix. This test already proves the pin wins;
-   * `checkSiteAccess()` also had a second, now-dead copy of this same guard sitting AFTER the
-   * `manage:system` bypass (unreachable once the pre-bypass guard below is in place), which #2338's
-   * fix removed as pure dead-code cleanup with no behavior change.
+   * The site pin is checked AHEAD of the `manage:system` bypass, the same engine-level closure
+   * `checkAccess()` makes.
    */
   test('a site-pinned actor is refused checkSiteAccess for a different site, even holding manage:system (OpenProject #2199, #2338)', async () => {
     await fixtures.db
@@ -1313,12 +1242,10 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   /**
-   * OpenProject #930: `site:*` names are not offered in an API key's scope vocabulary at all
-   * (`ALL_PERMISSIONS` in `helpers/permissions.ts` is `GLOBAL_PERMISSIONS` + `PAGE_PERMISSIONS`
-   * only), so any actor with a non-null scope can never name one -- a scoped key therefore never
-   * reaches site-admin surfaces through `checkSiteAccess()`, regardless of what its groups' rules
-   * grant, exactly the same "narrow, never grant beyond" guarantee `checkAccess()` now enforces for
-   * page permissions.
+   * `site:*` names are not offered in an API key's scope vocabulary at all (`ALL_PERMISSIONS` in
+   * `helpers/permissions.ts` is `GLOBAL_PERMISSIONS` + `PAGE_PERMISSIONS` only), so an actor with a
+   * non-null scope can never name one -- a scoped key therefore never reaches a site-admin surface
+   * through `checkSiteAccess()`, whatever its groups' rules grant.
    */
   test('checkSiteAccess refuses every site permission once an actor carries a scope', async () => {
     await fixtures.db
@@ -1342,11 +1269,6 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
     assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), true)
   })
 
-  /**
-   * OpenProject #2199: the same site-pin boundary `checkAccess()` enforces, for `checkSiteAccess()`.
-   * A rule granting every site (`sites: []`) still may not be used to administer a site outside a
-   * pinned actor's own site; a null pin is unaffected.
-   */
   test('checkSiteAccess refuses a foreign site once the actor carries a site pin (OpenProject #2199)', async () => {
     await fixtures.db
       .update(groupsTable)
@@ -1368,10 +1290,8 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   /**
-   * `checkSiteAdminAccess` is the "or the global permission still covers it" wrapper five route files
-   * used to each carry their own copy of (finding API-F3). It resolves the request's own actor, so
-   * these drive it through a synthetic `req` rather than an `AccessActor` — the four cases below are
-   * exactly the ones each of those wrappers was written to answer.
+   * `checkSiteAdminAccess` resolves the request's own actor, so these drive it through a synthetic
+   * `req` rather than an `AccessActor`.
    */
   const reqWith = (permissions: string[], groupIds: string[] = []): any => ({
     session: { authenticated: true, user: { id: 'u1' }, groups: groupIds, permissions }
@@ -1403,7 +1323,7 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
       groupsModel.checkSiteAdminAccess(req, 'manage:sites', 'site:theme', fixtures.siteId),
       true
     )
-    // -> The rule names one site; another is not delegated, and no global permission covers it either
+    // -> Another site is neither named by the rule nor covered by a global permission
     assert.equal(
       groupsModel.checkSiteAdminAccess(req, 'manage:sites', 'site:theme', 'some-other-site'),
       false
@@ -1426,7 +1346,7 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
 
   /**
    * The global half is site-blind on purpose: `manage:sites` is not addressed by any rule, so it
-   * covers every site — which is what "keeps working exactly as before delegation existed" means.
+   * covers every site.
    */
   test('checkSiteAdminAccess treats the global permission as covering every site', async () => {
     await fixtures.db
@@ -1444,11 +1364,10 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
 })
 
 /**
- * OpenProject #3408: a rule's `tags` gains the same write-time fold `path` already had for
- * START/END/EXACT (trim/lowercase/de-dupe, `models/groups.ts#normalizeRuleTags`) -- covered here
- * rather than as a pure unit test of the private `normalizeRulePaths` because the thing actually
- * worth proving is that `updateGroup` applies it and a subsequent read reflects it, which needs a
- * real row round-tripping through Postgres.
+ * A rule's `tags` gets the same write-time fold `path` has for START/END/EXACT (trim/lowercase/
+ * de-dupe, `models/groups.ts#normalizeRuleTags`). Covered here rather than as a pure unit test of
+ * that function because what is worth proving is that `updateGroup` applies it and a subsequent read
+ * reflects it, which needs a real row round-tripping through Postgres.
  */
 describe(
   'groups.updateGroup rule tag normalization (DB-backed)',
@@ -1519,14 +1438,11 @@ describe(
 )
 
 /**
- * OpenProject #966: `createGroup`/`updateGroup`/`deleteGroup` used to call `this.reloadCache()`
- * directly, which only ever refreshes this instance's own in-memory cache — a revoked permission
- * (or a newly-granted one) took effect on the instance that handled the write, but every other
- * instance in a cluster kept serving its stale copy until an admin ran "Flush Caches" or the
- * instance restarted. `broadcastReload()` is the fix: every write path now goes through it instead
- * of `reloadCache()` directly, and it emits on `CARDINAL.events.outbound` (which `core/db.ts`'s real
- * NOTIFY-based bus, unused here, is what actually carries to other instances — see
- * `dev/multi-instance-verify/README.md` §8).
+ * Every write path goes through `broadcastReload()` rather than `reloadCache()` directly:
+ * `reloadCache()` only refreshes this instance's own in-memory cache, so a revoked (or newly
+ * granted) permission would keep being served stale by every other instance in a cluster until an
+ * admin ran "Flush Caches" or the instance restarted. The emit lands on `CARDINAL.events.outbound`,
+ * stubbed here — `core/db.ts`'s NOTIFY-based bus is what carries it between instances for real.
  */
 describe('groups.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -1536,7 +1452,7 @@ describe('groups.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () 
     fixtures = await setupTestDb()
     ;({ groups: groupsModel } = await import('./groups.ts'))
     // -> `updateGroup()` -> `clampGuestPatch()` reads `CARDINAL.data.systemIds.guestsGroupId`
-    //    unconditionally; the minimal `CARDINAL` from `setupTestDb()` leaves `CARDINAL.data` empty.
+    //    unconditionally, and `setupTestDb()`'s minimal `CARDINAL` leaves `CARDINAL.data` empty.
     CARDINAL.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
   })
 
@@ -1587,13 +1503,10 @@ describe('groups.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () 
 })
 
 /**
- * OpenProject #2555: `permissions` (the group-wide column, validated against the closed
- * `GlobalPermission#` enum by `PUT /groups/:groupId`) used to be seeded with `PAGE_PERMISSIONS`
- * strings (`read:pages`/`read:assets`/`read:comments`) by both `init()`'s Users/Guests rows and
- * `createGroup()` -- values that are not GLOBAL permissions at all, so a straight fetch-then-PUT of
- * any freshly-seeded group 400'd once that schema was tightened (commit `a3a6c799`). The fix is at
- * the source: neither seeding path writes a page-permission string into `permissions` any more --
- * page access still comes entirely from the seeded rule's `roles`, unchanged.
+ * `permissions` is the group-wide column, validated against the closed `GlobalPermission#` enum by
+ * `PUT /groups/:groupId`, so a page-permission string seeded into it by `init()` or `createGroup()`
+ * makes a straight fetch-then-PUT of that freshly-seeded group 400. Page access comes from the
+ * seeded rule's `roles` instead.
  */
 describe(
   'groups seeding: no page-permission strings in the global permissions column (DB-backed)',

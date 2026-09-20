@@ -1,15 +1,10 @@
 import { DiagramImageElement } from '../shared/diagram-image.js'
 
-/** The default server, which is the one Kroki runs for everybody. */
 const DEFAULT_SERVER = 'https://kroki.io'
 
 /**
- * Everything Kroki draws, as it is named in a URL.
- *
- * Kroki is a front end to a shelf of diagram tools rather than one of its own, so unlike PlantUML the
- * language has to be named alongside the source — the same text is a valid diagram in more than one
- * of these. `diagramsnet` is the one Kroki documents that is left out: the public server answers 503
- * for it.
+ * Every language Kroki draws, as it is named in a request. `diagramsnet` is the one Kroki documents
+ * that is deliberately left out: the public server answers 503 for it.
  */
 const TYPES = [
   'actdiag',
@@ -42,14 +37,10 @@ const TYPES = [
   'wireviz'
 ]
 
-/**
- * Block Kroki
- */
 export class BlockKrokiElement extends DiagramImageElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time into `compiled/blocks.manifest.json`, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'kroki',
@@ -58,10 +49,9 @@ export class BlockKrokiElement extends DiagramImageElement {
       'Draws a diagram through a Kroki server — Graphviz, D2, BPMN, Vega, Structurizr, TikZ and two dozen more.',
     icon: 'tabler:topology-star',
     /*
-      Fenced, and named `kroki` whatever the diagram language turns out to be, since that is the block
-      reading it. The fence is also what keeps markdown off the source: `--` becomes a dash, a line
-      opening with `*` or `#` is read as a list or a heading, an indented line becomes a code block of
-      its own, and `_` opens emphasis.
+      Named `kroki` whatever the diagram language is, since that is the block reading it. The fence
+      is what keeps markdown off the source — dashes, `*`, `#`, `_` and indentation all mean
+      something to it.
     */
     template: `\`\`\`kroki
 digraph G {
@@ -74,7 +64,7 @@ digraph G {
         type: 'select',
         label: 'Diagram type',
         // -> Written out rather than taken from TYPES above: the manifest is read out of this file's
-        //    syntax tree at build time, where a name is just a name
+        //    syntax tree at build time, where an identifier has no value to look up
         options: [
           'actdiag',
           'blockdiag',
@@ -138,11 +128,9 @@ digraph G {
       }
     ],
     /**
-     * Site-level fields an admin sets once for the whole site, as opposed to `props` above, which an
-     * author sets per use in the editor. Same field name as the `server` prop above on purpose — an
-     * admin's site-wide server is what `propDefault()` (`frontend/src/helpers/blocks.js`) seeds the
-     * picker's `server` field from, the same way block-map's `config`/`props` pair does for its own
-     * tile-server fields.
+     * Set once per site by an admin, where `props` above are per use by an author. The field name
+     * matches the `server` prop deliberately: `propDefault()` (`frontend/src/helpers/blocks.js`)
+     * seeds the picker's field from the site-wide value by name.
      */
     config: [
       {
@@ -156,10 +144,6 @@ digraph G {
   }
 
   static properties = {
-    /**
-     * The diagram language the source is written in
-     * @type {string}
-     */
     type: { type: String }
   }
 
@@ -184,9 +168,8 @@ digraph G {
     return 'kroki'
   }
 
-  /** Kroki needs to be told which of its languages `source` is written in — it cannot tell from the
-   *  text alone. Falls back to `graphviz` for an unrecognised `type`, the same fallback the old
-   *  GET-URL path used. */
+  /** Kroki has to be told which of its languages the source is in — it cannot tell from the text
+   *  alone, since the same text is a valid diagram in more than one of them. */
   _extraBody() {
     return { diagramType: TYPES.includes(this.type) ? this.type : 'graphviz' }
   }

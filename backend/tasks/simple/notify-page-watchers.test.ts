@@ -4,16 +4,6 @@ import { task as notifyPageWatchers } from './notify-page-watchers.ts'
 import type { NotifyPageWatchersPayload, QueuedWatcher } from './notify-page-watchers.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 
-/**
- * Unit coverage for this task's own branching (recording, the immediate-send loop, per-recipient
- * failure isolation) against a stubbed model layer — `models/pageWatching.ts#listWatchers` and
- * `models/pages.ts#notifyWatchers`'s own SQL orchestration are covered DB-backed in
- * `models/pages.test.ts`'s "pages watch-notification trigger" suite, which also exercises this task's
- * real implementation end to end (including the OpenProject #2173 re-check added below, against a real
- * `read:pages` grant). This file exists specifically to pin the re-check's OWN branching in isolation,
- * the same way `send-watch-digests.test.ts` does for its sibling task.
- */
-
 let wikiHandle: { restore(): void }
 let recordMany: ReturnType<typeof mock.fn>
 let markDelivered: ReturnType<typeof mock.fn>
@@ -50,8 +40,7 @@ beforeEach(() => {
     events.map((event, i) => ({ id: `event-${i}`, userId: event.userId }))
   )
   markDelivered = mock.fn(async () => {})
-  // -> Pass-through by default (OpenProject #2173): every watcher may read the page unless a test
-  //    below says otherwise.
+  // -> Pass-through by default: every watcher may read the page unless a test says otherwise.
   filterReadable = mock.fn(async (_userId: string, events: unknown[]) => events)
   getById = mock.fn(async (id: string) => ({ id, name: 'Someone', email: `${id}@example.com` }))
   sendPageWatchNotification = mock.fn(async () => {})
@@ -97,13 +86,6 @@ describe('notify-page-watchers task', () => {
   })
 })
 
-/**
- * OpenProject #3203: a `deleted` event's rows are recorded synchronously by
- * `models/pages.ts#notifyWatchers`, before the page row `pageWatchEvents.pageId`'s foreign key
- * depends on is deleted — this job must not call `recordMany()` a second time for them, both because
- * that would duplicate the row and because the page row it would try to insert against may already be
- * gone by the time this job runs off the scheduler queue.
- */
 describe('notify-page-watchers task — recordedEvents (OpenProject #3203)', () => {
   test('skips recordMany entirely when the payload already carries recordedEvents', async () => {
     await notifyPageWatchers(
@@ -146,11 +128,6 @@ describe('notify-page-watchers task — recordedEvents (OpenProject #3203)', () 
   })
 })
 
-/**
- * OpenProject #2173: `filterReadable` is re-checked once per immediate watcher, right before the send
- * — a scheduler backlog can put real time between the synchronous `read:pages` check that built this
- * payload and this job actually running.
- */
 describe('notify-page-watchers task — read:pages re-check (OpenProject #2173)', () => {
   test('an immediate watcher who fails the re-check gets no mail, and their event is left unmarked', async () => {
     filterReadable.mock.mockImplementation(async () => [])
@@ -159,7 +136,7 @@ describe('notify-page-watchers task — read:pages re-check (OpenProject #2173)'
 
     assert.equal(sendPageWatchNotification.mock.calls.length, 0)
     assert.equal(markDelivered.mock.calls.length, 0)
-    // -> Still recorded -- recording happens before the per-watcher re-check, unconditionally
+    // -> Recording happens before the per-watcher re-check, unconditionally.
     assert.equal(recordMany.mock.calls.length, 1)
   })
 

@@ -7,17 +7,8 @@ import { ensureDirectory } from './connection.ts'
 import type { PageFrontMatterInput } from '../../../helpers/pageSerialization.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
-/**
- * Writing a site's pages to an SFTP target as files — the page half of the `exportAll` action. Asset
- * export (Task 523) and wiring this into `exportAll` itself with connection setup and logging
- * (Task 524) are separate, sibling pieces built on top of this.
- */
-
-/** How many rows one batch pulls from Postgres. Fixed rather than tunable: this exists purely to keep
- *  memory bounded on a large wiki, not as a knob anyone needs to turn. */
 const PAGE_BATCH_SIZE = 200
 
-/** The columns `exportPages` actually needs off a page row. */
 export interface PageExportRow extends PageFrontMatterInput {
   id: string
   locale: string
@@ -33,15 +24,13 @@ export type PageBatchFetcher = (params: {
 }) => Promise<PageExportRow[]>
 
 /**
- * One page of rows for a site, ordered and keyset-paginated on `id` rather than offset — this table
- * has no `knex`-style `.stream()` in this fork's plain `pg`/Drizzle setup, so a fixed-size, explicit
- * batch is what keeps a full-wiki export from holding every page's content in memory at once.
+ * Keyset-paginated on `id` rather than offset: there is no `.stream()` in this fork's plain
+ * `pg`/Drizzle setup, so explicit fixed-size batches are what keep a full-wiki export from holding
+ * every page's content in memory at once.
  *
- * Gate: `publishState !== 'draft'`. 2.5.x excluded `isPrivate` pages from export, a column and
- * concept this fork's `pages` table doesn't have (no per-page privacy flag — see `db/schema.ts`); a
- * draft is the equivalent "not meant to be public yet" state here, so it is what gets excluded in its
- * place. `scheduled` and `published` both export, matching 2.5.x exporting anything not private
- * regardless of its publish window.
+ * Drafts are the exclusion because the `pages` table has no per-page privacy flag — a draft is this
+ * schema's "not meant to be public yet". `scheduled` and `published` both export, regardless of
+ * their publish window.
  */
 async function fetchPageBatch({
   siteId,
@@ -75,27 +64,17 @@ async function fetchPageBatch({
     .limit(pageSize)
 }
 
-/** What `remotePathForPage` needs to know about the site a page belongs to. */
 export interface PageExportLocaleInfo {
-  /** `site.config.locales.primary` — the locale that never gets a path prefix. */
   defaultLocale: string
   /**
-   * Whether non-default locales get a path prefix at all.
-   *
-   * This fork's site config has no dedicated "locale namespacing" toggle the way 2.5.x's `lang`
-   * config did — `locales: { primary, active, forcePrefix, showMenu }` (see `models/sites.ts`) is the
-   * whole of it, and `forcePrefix` answers a different question (whether the *default* locale is
-   * also prefixed in page URLs, which never applies here — the default locale is never namespaced on
-   * export, per spec). The equivalent gate chosen for export is "does this site actually run more
-   * than one locale": `site.config.locales.active.length > 1`. A single-locale site has nothing to
-   * disambiguate a prefix from, so every page writes flat regardless of what its `locale` column
-   * happens to say; a multi-locale site prefixes every locale but the default, exactly as 2.5.x's
-   * namespacing did once turned on.
+   * Whether non-default locales get a path prefix. Site config carries no namespacing toggle of its
+   * own — `forcePrefix` answers a different question (whether the *default* locale is prefixed in
+   * page URLs, which never applies on export) — so the gate is "does this site actually run more
+   * than one locale": `locales.active.length > 1`.
    */
   namespacingEnabled: boolean
 }
 
-/** Derive `PageExportLocaleInfo` from a cached site config (`CARDINAL.sites[siteId]`). */
 export function resolveLocaleInfo(
   site: { config?: { locales?: { primary?: string; active?: string[] } } } | undefined
 ): PageExportLocaleInfo {
@@ -106,15 +85,6 @@ export function resolveLocaleInfo(
   }
 }
 
-/**
- * The path a page is written to on the remote target, relative to the target's `basePath`:
- * `<localeCode>/<path>.<ext>` when namespacing applies and the page isn't in the site's default
- * locale, else plain `<path>.<ext>`. Extension comes from `contentType` via
- * `extensionForContentType` (Task 521's shared helper).
- *
- * Implements sftp's primary-bare serialization convention, per the locale-architecture decision's
- * §5.3.
- */
 export function remotePathForPage(
   page: Pick<PageExportRow, 'locale' | 'path' | 'contentType'>,
   localeInfo: PageExportLocaleInfo
@@ -126,21 +96,12 @@ export function remotePathForPage(
 }
 
 /**
- * Write every eligible page of a site to an SFTP target, batching reads so a large wiki never sits
- * fully in memory at once.
- *
  * A no-op when `pages` isn't in `target.contentTypes.activeTypes` — an admin can turn page sync off
- * for this target independently of the module supporting it at all, and `exportAll` is expected to
- * still run whatever other content types are enabled.
+ * for this target independently of the module supporting it at all, and `exportAll` still runs
+ * whatever other content types are enabled.
  *
- * @param client A connected SFTP client, e.g. from `connectSftp`.
- * @param target The site's configured target; `target.config.basePath` is where files land, and
- *   `target.siteId` is which site's pages get exported.
- * @param options.localeInfo Defaults to resolving the real site from `CARDINAL.sites`; override in tests.
- * @param options.fetchBatch Defaults to a real `CARDINAL.db` query; override in tests.
- * @param options.onProgress Called once per batch written (not per page) with the running total, so a
- *   caller can log progress at a granularity useful for a large export. Never called for a no-op run
- *   (content type inactive, or zero eligible pages).
+ * `onProgress` fires once per batch written, not per page, so a large export's logging stays
+ * bounded; it is never called for a no-op run.
  */
 export async function exportPages(
   client: Client,

@@ -8,8 +8,8 @@ import { getFileExtension, storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
 import { sites as sitesTable } from '../db/schema.ts'
 import type { StorageTarget } from './storage.ts'
 
-// -> `refreshFromDisk()` reads real files under `modules/storage`, so the only setup needed is a
-//    minimal `CARDINAL` global pointing at this checkout's `backend/` directory — no database involved.
+// -> `refreshFromDisk()` reads the real files under `modules/storage`, so `SERVERPATH` has to point
+//    at this checkout's `backend/`. No database is involved.
 before(async () => {
   await ensureTemporal()
   global.CARDINAL = {
@@ -60,7 +60,6 @@ test('the disk module has a storage.ts implementation, so its dump/backup/import
   )
 })
 
-/** Builds a minimal target for the given module, as `getSiteTargets` would shape one. */
 function makeTarget(moduleKey: string): StorageTarget {
   const definition = storage.getDefinition(moduleKey)!
   return {
@@ -172,10 +171,6 @@ test('validateTarget rejects a scheduleOverride that is neither a duration nor a
   assert.match(invalid ?? '', /not a valid ISO-8601 duration or cron expression/)
 })
 
-// ---------------------------------------------------------------------------------------------
-// validateTarget() -- disk module's deep `validateConfig` hook (see `StorageModule.validateConfig`)
-// ---------------------------------------------------------------------------------------------
-
 test('validateTarget rejects enabling the disk target with a relative path', async () => {
   const target = makeTarget('disk')
   const invalid = await storage.validateTarget(target, {
@@ -228,8 +223,8 @@ test('validateTarget rejects saving disk config with a path that is a file, not 
 })
 
 test('validateTarget skips the deep disk path check when neither config nor isEnabled changes', async () => {
-  // -> `makeTarget`'s disk target has no `path` configured at all -- if the deep check ran here, it
-  //    would reject. It must not run for a patch that touches neither `config` nor `isEnabled`.
+  // -> `makeTarget`'s disk target has no `path` at all, so the deep check would reject if it ran --
+  //    which is what makes a `null` result here proof that it did not.
   const target = makeTarget('disk')
   const invalid = await storage.validateTarget(target, {
     id: target.id,
@@ -238,14 +233,9 @@ test('validateTarget skips the deep disk path check when neither config nor isEn
   assert.equal(invalid, null)
 })
 
-// ---------------------------------------------------------------------------------------------
-// dispatch()
-// ---------------------------------------------------------------------------------------------
-
 /**
- * Builds a raw `storage` table row for one real module (`git`/`disk` on disk in this checkout), as
- * `CARDINAL.db.select().from(storageTable)` would return it — i.e. what `getSiteTargets` merges with the
- * module's definition to build a `StorageTarget`.
+ * `getSiteTargets` merges the row with the module's own definition, so `moduleKey` has to name a
+ * module that really exists on disk.
  */
 function makeRow(
   moduleKey: string,
@@ -275,9 +265,8 @@ function makeRow(
 }
 
 /**
- * Points `CARDINAL.db` at a fake that answers `getSiteTargets`'s `select().from().where()` chain with
- * `rows`, and `CARDINAL.scheduler.addJob` at a fake that records calls instead of touching a real queue.
- * Neither is used by anything else `dispatch()` calls, so this is the whole surface it needs mocked.
+ * The `select().from().where()` chain and `scheduler.addJob` are the whole `CARDINAL` surface
+ * `dispatch()` touches, so faking both is enough to run it with no database or queue.
  */
 function fakeDispatchDeps(rows: object[]) {
   const jobs: { task: string; payload: Record<string, any> }[] = []
@@ -295,10 +284,6 @@ function fakeDispatchDeps(rows: object[]) {
   } as unknown as CardinalGlobal
   return jobs
 }
-
-// ---------------------------------------------------------------------------------------------
-// getSiteTargets()
-// ---------------------------------------------------------------------------------------------
 
 test('getSiteTargets threads the siteId argument onto every target it returns', async () => {
   fakeDispatchDeps([makeRow('git'), makeRow('disk')])
@@ -372,8 +357,8 @@ test('dispatch maps asset:edit to the assetUploaded handler', async () => {
   assert.equal(jobs[0].payload.handler, 'assetUploaded')
 })
 
-// -> OpenProject #3384: asset:move used to have no STORAGE_HANDLERS entry at all, so a moved asset's
-//    stale copy was never cleaned up on a blob or git target.
+// -> Without a `STORAGE_HANDLERS` entry for `asset:move`, a moved asset's stale copy is never
+//    cleaned up on a blob or git target.
 test('dispatch maps asset:move to the assetMoved handler, carrying previousFolderPath through', async () => {
   const jobs = fakeDispatchDeps([makeRow('s3', { activeTypes: ['images'], syncMode: 'push' })])
   const queued = await storage.dispatch('asset:move', {
@@ -418,8 +403,8 @@ test("dispatch does not classify a small asset as large, even when only 'large' 
   assert.equal(jobs.length, 0)
 })
 
-// -> OpenProject #927: dispatch's large-file classification must agree with the blob targets' own
-//    (helpers/blobTarget.ts's belongsInTarget/categoryOf) on both decimal thresholds and the boundary.
+// -> dispatch's large-file classification must agree with the blob targets' own
+//    (`helpers/blobTarget.ts`) on both decimal thresholds and the boundary.
 test('dispatch classifies an asset at exactly the largeThreshold as large (an at-or-above boundary, not strictly over)', async () => {
   fakeDispatchDeps([
     makeRow('s3', { activeTypes: ['large'], largeThreshold: '1KB', syncMode: 'push' })
@@ -475,9 +460,9 @@ test('dispatch is a no-op without a siteId or a content id', async () => {
 })
 
 test('dispatch never queues a job for a module with no write-path content handlers', async () => {
-  // -> disk only implements validateConfig/dump/importAll/backup/dailyBackup -- config- and
-  //    manual-action-only, per the module's own storage.ts. Content-type coverage and sync mode both
-  //    match here; only the handler-support check should be stopping the queue.
+  // -> Content-type coverage and sync mode both match here, so only the handler-support check can
+  //    be stopping the queue: `disk` implements manual actions and config validation, no content
+  //    handlers.
   const jobs = fakeDispatchDeps([makeRow('disk', { activeTypes: ['images'], syncMode: 'push' })])
   const queued = await storage.dispatch('asset:upload', {
     id: 'a1',
@@ -494,16 +479,11 @@ test('getSiteTargets reports supportsContentSync per module', async () => {
   const targets = await storage.getSiteTargets('site-1')
   const git = targets.find((t) => t.module === 'git')
   const disk = targets.find((t) => t.module === 'disk')
-  // -> git implements created/updated/renamed/deleted; disk implements none of STORAGE_HANDLERS
+  // -> git implements the content handlers; disk implements none of them
   assert.equal(git?.sync.supportsContentSync, true)
   assert.equal(disk?.sync.supportsContentSync, false)
 })
 
-// ---------------------------------------------------------------------------------------------
-// tickScheduledSyncs()
-// ---------------------------------------------------------------------------------------------
-
-/** Builds a raw `storage` row with just the columns `tickScheduledSyncs` reads. */
 function makeTickRow(
   moduleKey: string,
   overrides: { syncMode?: string; scheduleOverride?: string | null; lastTickAt?: Date | null } = {}
@@ -520,9 +500,8 @@ function makeTickRow(
 }
 
 /**
- * Points `CARDINAL.db` at a fake answering `getTargets`'s `select().from().where()` chain with `rows`,
- * and a fake `update().set().where()` that records what it was asked to set instead of touching a
- * real row. `CARDINAL.scheduler.addJob` records calls and, unless told to fail, succeeds.
+ * The recorded `update().set()` values are how a test sees whether `lastTickAt` was advanced;
+ * `addJobSucceeds: false` reproduces a queue that refused the job.
  */
 function fakeTickDeps(
   rows: object[],
@@ -604,8 +583,8 @@ test("tickScheduledSyncs queues a target once its module's schedule has elapsed"
 test("tickScheduledSyncs honors a target's own scheduleOverride over the module's declared schedule", async () => {
   const now = Temporal.Now.instant()
   const lastTickAt = new Date(now.subtract({ minutes: 2 }).epochMilliseconds)
-  // -> git's own module schedule is PT5M, so 2 minutes elapsed would not be due on its own -- but
-  //    this target's scheduleOverride is PT1M, which 2 minutes clears
+  // -> git's module schedule is PT5M, so 2 minutes elapsed would not be due on its own; the
+  //    target's PT1M override is the only thing that can make it due
   const { jobs } = fakeTickDeps([
     makeTickRow('git', { syncMode: 'sync', scheduleOverride: 'PT1M', lastTickAt })
   ])
@@ -615,28 +594,21 @@ test("tickScheduledSyncs honors a target's own scheduleOverride over the module'
 })
 
 /**
- * OpenProject #823 item 4 (upstream #2443: "sync-interval setting doesn't actually take effect once
- * changed"). `tickScheduledSyncs()` re-reads `scheduleOverride` off the `storage` row fresh on every
- * call — there is no separately-scheduled per-target cron job baking the interval in at server start
- * the way 2.5.x's own scheduler did, only this one `* * * * *` tick (`storageSyncTick`, `models/
- * jobs.ts`) that checks every target's *current* row against `now`. So an admin shortening a target's
- * interval takes effect on the very next tick (within the minute), with no restart, and — the sharper
- * version of the bug report — without even waiting out however much of the *old*, longer interval was
- * already elapsed: this simulates exactly that by ticking once under a long interval (not yet due),
- * then shortening it and ticking again a few seconds later.
+ * `scheduleOverride` is re-read off the row on every tick — no per-target cron job bakes the
+ * interval in at boot — so a shortened interval applies without waiting out however much of the
+ * old, longer one had already elapsed.
  */
 test('tickScheduledSyncs picks up a shortened scheduleOverride on its very next tick, no restart needed', async () => {
   const t0 = Temporal.Now.instant()
   const lastTickAt = new Date(t0.epochMilliseconds)
   const rows = [makeTickRow('git', { syncMode: 'sync', scheduleOverride: 'PT1H', lastTickAt })]
 
-  // -> Under the original hour-long interval, 30 seconds later is nowhere near due.
   const { jobs: jobsBefore } = fakeTickDeps(rows)
   const queuedBefore = await storage.tickScheduledSyncs(t0.add({ seconds: 30 }))
   assert.equal(queuedBefore, 0)
   assert.equal(jobsBefore.length, 0)
 
-  // -> An admin shortens the interval to a minute — the same row, freshly read, not a new target.
+  // -> The same row, freshly read, not a new target.
   rows[0].scheduleOverride = 'PT1M'
   const { jobs: jobsAfter } = fakeTickDeps(rows)
   const queuedAfter = await storage.tickScheduledSyncs(t0.add({ seconds: 65 }))
@@ -655,23 +627,13 @@ test('tickScheduledSyncs does not advance lastTickAt when the job fails to queue
 })
 
 /**
- * OpenProject #823 item 5 (upstream #2082, open: "once the remote goes unreachable then recovers,
- * sync never resumes automatically — only a manual Force Sync works, and even that doesn't restore
- * the schedule"). `tickScheduledSyncs()` is stateless with respect to whether the *previous* queued
- * job actually succeeded — `lastTickAt` only tracks when a sync was last *queued* (see the doc above
- * this method), never whether it completed. So a target whose remote was unreachable for several
- * ticks in a row is due again on the very next tick once its interval has re-elapsed, with nothing
- * to "restore": the schedule was never suspended in the first place. Job-level failure/retry is a
- * separate, orthogonal concern the scheduler's own backoff handles (`core/scheduler.ts`); this test
- * is about the *tick* logic specifically not caring, which is what makes automatic resumption
- * inherent rather than something a fix has to add back in.
+ * `lastTickAt` records when a sync was last *queued*, never whether it completed, so the tick has no
+ * notion of a remote having been unreachable and nothing suspends the schedule. Job-level retry is
+ * the scheduler's own concern.
  */
 test('tickScheduledSyncs re-queues a target on schedule regardless of how many prior ticks were never actually retried — auto-resume needs no state to restore', async () => {
   const now = Temporal.Now.instant()
   const dueAgo = new Date(now.subtract({ minutes: 10 }).epochMilliseconds)
-  // -> Nothing here distinguishes "the last 5 queued syncs all failed because the remote was down"
-  //    from "the last sync succeeded" -- tickScheduledSyncs has no such state to consult, which is
-  //    exactly the point: it queues again because the interval elapsed, full stop.
   const { jobs, updates } = fakeTickDeps([
     makeTickRow('git', { syncMode: 'sync', scheduleOverride: 'PT5M', lastTickAt: dueAgo })
   ])
@@ -679,8 +641,6 @@ test('tickScheduledSyncs re-queues a target on schedule regardless of how many p
   assert.equal(queued, 1)
   assert.equal(jobs.length, 1)
   assert.equal(jobs[0].payload.handler, 'sync')
-  // -> `lastTickAt` advances the same as any other successful *queue* -- next tick will judge
-  //    "due" against this new timestamp, same as if the remote had never gone down at all.
   assert.ok(updates[0].values.lastTickAt instanceof Date)
 })
 
@@ -692,10 +652,6 @@ test('tickScheduledSyncs logs and skips a target with an unparseable schedule ov
   assert.equal(queued, 0)
   assert.equal(jobs.length, 0)
 })
-
-// ---------------------------------------------------------------------------------------------
-// tickScheduledSyncs() -- cron-expression scheduleOverride (Issue #3197)
-// ---------------------------------------------------------------------------------------------
 
 test('tickScheduledSyncs queues a target that has never ticked with a cron scheduleOverride, same as a duration', async () => {
   const { jobs } = fakeTickDeps([
@@ -753,22 +709,12 @@ test('tickScheduledSyncs logs and skips a target with a cron scheduleOverride th
   assert.equal(jobs.length, 0)
 })
 
-/**
- * Task 545: confirm end-to-end that the three cloud module `storage.ts` files landed by tasks
- * 540/541/544 are actually wired through `models/storage.ts` — `hasImplementation()` flips true,
- * `getSiteTargets()` exposes their `exportAll` action, and `executeAction()` genuinely dispatches to a
- * module's handler — plus the config-validation edge cases `validateConfig`/`validateTarget` already
- * enforce that a cloud target's props exercise (e.g. s3's mode-gated enums).
- */
-
 const silentLogger = { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} }
 
 describe('storage / validateConfig, validateTarget (pure, real s3 definition read from disk)', () => {
   let previousWiki: CardinalGlobal
 
   before(async () => {
-    // -> A plain `fs.readdir`/`fs.readFile` under `modules/storage`, no database — the one thing it
-    //    needs from `CARDINAL` is `SERVERPATH` pointed at this checkout's real `backend/` directory.
     // -> Captured here, not at describe-body-eval time: `describe()` bodies run during test
     //    collection, before the file-level `before()` above has set `global.CARDINAL` at all.
     previousWiki = global.CARDINAL
@@ -780,9 +726,8 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
   })
 
   after(() => {
-    // -> Restores the file-level `CARDINAL` (set in the top-level `before()` above) rather than deleting
-    //    it outright -- the bare `runDailyBackups` tests below this describe run against that same
-    //    global and need it back in place, not gone.
+    // -> Restored rather than deleted: the bare `runDailyBackups` tests below this describe run
+    //    against that same global and need it back in place.
     global.CARDINAL = previousWiki
   })
 
@@ -800,9 +745,8 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
 
   test('a mode-gated enum prop is still validated against its own enum regardless of the current mode', () => {
     // -> `awsRegion` is only shown in the admin area `if mode eq aws` (definition.yml), but
-    //    `validateConfig` has no notion of that UI gate — it validates every incoming key against its
-    //    own prop declaration, so a bogus `awsRegion` is refused even while `mode` is `do`. This is the
-    //    "s3's mode-gated props" edge case task 545 calls out explicitly.
+    //    `validateConfig` has no notion of that UI gate — it validates every incoming key against
+    //    its own prop declaration, so a bogus `awsRegion` is refused even while `mode` is `do`.
     const invalid = storage.validateConfig('s3', { mode: 'do', awsRegion: 'mars-central-1' })
     assert.match(invalid ?? '', /"mars-central-1" is not a valid value for Region/)
   })
@@ -892,9 +836,6 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
   })
 })
 
-/**
- * Pure unit tests for `getFileExtension` — no DB needed, this is a plain string mapping.
- */
 describe('storage: getFileExtension', () => {
   test('maps markdown to md', () => {
     assert.equal(getFileExtension('markdown'), 'md')
@@ -914,11 +855,6 @@ describe('storage: getFileExtension', () => {
   })
 })
 
-// ---------------------------------------------------------------------------------------------
-// runDailyBackups()
-// ---------------------------------------------------------------------------------------------
-
-/** Builds a raw `storage` row for the `disk` module, with `config.createDailyBackups` settable. */
 function makeDiskRow(
   siteId: string,
   overrides: { isEnabled?: boolean; createDailyBackups?: boolean } = {}
@@ -939,11 +875,9 @@ function makeDiskRow(
 }
 
 /**
- * Points `CARDINAL.db` at fakes answering both queries `runDailyBackups()` makes: the sites list (via
- * `.from(sitesTable)`), and each site's storage rows in turn (via `getSiteTargets` -> `getTargets` ->
- * `.from(storageTable).where(...)`) — matched by call order rather than by inspecting the drizzle
- * `where()` expression, since `runDailyBackups()` is known to query one site right after another, in
- * the same order `sites` lists them.
+ * Each site's storage rows are matched by call order rather than by inspecting the drizzle
+ * `where()` expression, which relies on `runDailyBackups()` querying one site right after another,
+ * in the same order `sites` lists them.
  */
 function fakeDailyBackupDeps(sites: { id: string }[], rowsPerSite: object[][]) {
   const warnings: { message: string; fields?: Record<string, any> }[] = []
@@ -972,11 +906,9 @@ function fakeDailyBackupDeps(sites: { id: string }[], rowsPerSite: object[][]) {
 }
 
 /**
- * Swaps `storage.modules['disk']` for a fake `dailyBackup` implementation for the duration of `fn`,
- * bypassing `ensureModule()`'s real dynamic import (and therefore the real filesystem) entirely --
- * `ensureModule()` returns whatever already sits in `this.modules[key]` before it ever consults a
- * definition or imports anything, so pre-seeding the cache is enough. Restores whatever was cached
- * before (nothing, on a fresh `storage` instance) afterwards, even if `fn` throws.
+ * Pre-seeding the cache is enough to bypass `ensureModule()`'s real dynamic import, and therefore
+ * the real filesystem: it returns whatever already sits in `this.modules[key]` before it ever
+ * consults a definition or imports anything.
  */
 async function withFakeDiskModule(
   dailyBackup: (target: StorageTarget) => Promise<void>,
@@ -1080,15 +1012,11 @@ test('runDailyBackups skips a module with no dailyBackup handler (e.g. db)', asy
 })
 
 /**
- * OpenProject #823 item 8 (upstream #2343: "backup path specifically broken for git-backed storage").
- * That bug was 2.5.x's generic backup routine making disk-path assumptions that did not hold for a
- * git target. Here, backup is a *module-owned* action declared (or not) per `definition.yml` rather
- * than one generic routine every module is forced through — `git`'s own definition declares no
- * `createDailyBackups` prop and no `backup`/`dailyBackup` action at all (its commit history plus
- * pushing to `origin` already is its backup), so there is no shared disk-shaped code path for a git
- * target to break through. This is the "documented reason it doesn't apply" the WP allows for, proven
- * two ways: `runDailyBackups()` silently skips a git target exactly like it does `db` above, and the
- * live `definition.yml` genuinely declares no backup-shaped action to expose in the admin area.
+ * Backup is a module-owned action declared (or not) per `definition.yml` rather than one generic
+ * routine every module is forced through, so there is no shared disk-shaped code path for a git
+ * target to break through: `git`'s own definition declares no `createDailyBackups` prop and no
+ * `backup`/`dailyBackup` action at all, its commit history plus pushing to `origin` being its
+ * backup.
  */
 test('runDailyBackups skips a git target — the module declares no dailyBackup handler', async () => {
   fakeDailyBackupDeps(

@@ -1,8 +1,3 @@
-/**
- * Pure-unit coverage for the RTL test locale seed's own data shape -- no `CARDINAL` global, no database
- * (this is not SQL orchestration worth a real Postgres instance
- * for; the only logic worth locking down is the shape of the row and the `upsert` call it builds).
- */
 import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -26,15 +21,11 @@ const enStrings: Record<string, string> = JSON.parse(
 )
 
 /**
- * Feature-detects between the two shapes real engines ship for `Intl.Locale`'s text-direction info --
- * mirrors `frontend/src/stores/site.js`'s `textDirection()` (feature 413, task 727), which this test
- * exists to stay in agreement with. Some Node builds (this sandbox's local macOS Node) expose the
- * earlier draft's `.textInfo` GETTER; a real Chromium build -- and, per OpenProject #2587, at least
- * one Node build used by CI -- exposes `Intl.Locale.prototype.getTextInfo()` as a METHOD instead, with
- * no `.textInfo` getter at all. Reading `.textInfo.direction` unconditionally throws
- * `TypeError: Cannot read properties of undefined (reading 'direction')` on that shape, which is
- * exactly the CI failure #2587 reports -- not a missing-ICU-data problem, since both shapes read from
- * the same CLDR-backed data once resolved.
+ * Engines ship two shapes for `Intl.Locale`'s text-direction info: the earlier draft's `.textInfo`
+ * GETTER, or `getTextInfo()` as a METHOD with no getter at all. Reading `.textInfo.direction`
+ * unconditionally throws `TypeError: Cannot read properties of undefined (reading 'direction')` on
+ * the second -- both read the same CLDR data once resolved, so it is never missing ICU data. Mirrors
+ * `frontend/src/stores/site.js`'s `textDirection()`, which this test stays in agreement with.
  */
 function textDirection(locale: any): string | undefined {
   if (typeof locale.getTextInfo === 'function') {
@@ -44,11 +35,9 @@ function textDirection(locale: any): string | undefined {
 }
 
 /**
- * Every code a real vendored locale could resolve to, straight off the live `metadata.js` -- what
- * `models/locales.ts#refreshFromDisk()` itself iterates. Used below to confirm (not merely assume)
- * that `RTL_TEST_LOCALE`/`LTR_TEST_LOCALE` really do share a code with a real locale today, which is
- * the premise the `setWhere` freshness guard (OpenProject #2371, see `refreshFromDisk()`'s own
- * comment) exists to make safe.
+ * Straight off the live `metadata.js`, exactly what `models/locales.ts#refreshFromDisk()` iterates,
+ * so the cases below confirm rather than assume that both fixtures share a code with a real locale --
+ * the premise `refreshFromDisk()`'s `setWhere` freshness guard exists to make safe.
  */
 async function realVendoredLocaleCodes(): Promise<string[]> {
   const metadata = (await import('../locales/metadata.js')).default
@@ -64,23 +53,16 @@ describe('RTL_TEST_LOCALE', () => {
   })
 
   it('resolves as RTL via the same Intl.Locale CLDR check the frontend uses', () => {
-    // -> `frontend/src/stores/site.js`'s `describeLocales()` resolves `isRTL` from this same
-    //    feature-detected direction read rather than the db column -- this asserts the two stay in
-    //    agreement rather than merely trusting the hand-set `isRTL: true` above.
-    // -> `textInfo`/`getTextInfo()` are TC39 stage-3 additions not yet reflected in TypeScript's lib
-    //    types, hence the `any` in `textDirection`'s signature -- same runtime API `describeLocales()`
-    //    calls.
+    // -> `describeLocales()` resolves `isRTL` from this same direction read rather than the db
+    //    column, so this checks the two agree rather than trusting the hand-set `isRTL: true` above.
+    // -> `textInfo`/`getTextInfo()` are TC39 stage-3 additions TypeScript's lib types don't carry
+    //    yet, hence the `any` in `textDirection`'s signature.
     assert.equal(textDirection(new Intl.Locale(RTL_TEST_LOCALE.code)), 'rtl')
   })
 
   /**
-   * Regression coverage for OpenProject #2587: on a Node build that exposes `getTextInfo()` as a
-   * method with no `.textInfo` getter at all (matching a real Chromium build, and apparently at
-   * least one Node build CI runs against), reading `.textInfo.direction` unconditionally throws
-   * `TypeError: Cannot read properties of undefined (reading 'direction')`. Mirrors
-   * `frontend/src/stores/site.test.js`'s "Chrome-shaped Intl.Locale" case: the simulated class still
-   * delegates to a real `Intl.Locale` for the actual CLDR direction data, so this only locks in the
-   * shape handling, not a stubbed answer.
+   * The simulated class delegates to a real `Intl.Locale` for the CLDR direction data, so what this
+   * locks in is the shape handling, not a stubbed answer.
    */
   it('still resolves RTL via getTextInfo() on a Node build with no .textInfo getter', () => {
     const RealLocale = Intl.Locale
@@ -89,14 +71,10 @@ describe('RTL_TEST_LOCALE', () => {
         throw new TypeError('textInfo is not a function or its return value is not iterable')
       }
       override getTextInfo() {
-        // -> Delegate through the same feature-detecting `textDirection()` helper, not a bare
-        //    `.textInfo.direction` read: on a Node build where the REAL `Intl.Locale` is itself
-        //    already getTextInfo()-only (no `.textInfo` getter at all -- exactly the CI shape this
-        //    test simulates), reading `.textInfo` directly throws before this override's caller
-        //    ever sees a result. `textDirection()` on a genuine, unpatched `RealLocale` instance
-        //    resolves correctly regardless of which shape that real object actually has.
-        //    The cast is what `Intl.Locale['getTextInfo']` demands: it declares `direction` as the
-        //    `'ltr' | 'rtl'` union, and `textDirection()` answers a plain string.
+        // -> Through the feature-detecting helper, never a bare `.textInfo.direction` read: the real
+        //    `Intl.Locale` underneath may itself be getTextInfo()-only, where that read throws
+        //    before the caller sees a result. The cast satisfies `getTextInfo`'s declared
+        //    `'ltr' | 'rtl'` return, which `textDirection()` answers with a plain string.
         return {
           direction: textDirection(new RealLocale(this.toString())) as 'ltr' | 'rtl'
         }
@@ -111,31 +89,23 @@ describe('RTL_TEST_LOCALE', () => {
   })
 
   /**
-   * The mirror image of the case above, and the other half of OpenProject #2587's coverage: a Node
-   * build exposing ONLY the earlier draft's `.textInfo` getter, with no `getTextInfo()` method at
-   * all. Without it, `textDirection()`'s fallback branch is dead in every environment the suite
-   * actually runs in -- CI's Node is `getTextInfo()`-only so it never reaches the fallback, and a
-   * local Node that happens to expose BOTH shapes takes the `getTextInfo()` branch first and never
-   * reaches it either -- so deleting that fallback would go uncaught until someone ran on a
-   * getter-only build. Asserting both shapes here is what makes this file's protection independent
-   * of whichever `Intl.Locale` shape the running engine happens to ship.
+   * The mirror image of the case above. Without it `textDirection()`'s fallback branch is dead in
+   * every environment the suite actually runs in -- an engine exposing both shapes takes the
+   * `getTextInfo()` branch first -- so deleting the fallback would go uncaught until someone ran on
+   * a getter-only build.
    */
   it('still resolves RTL via the .textInfo getter on a Node build with no getTextInfo() method', () => {
     const RealLocale = Intl.Locale
     class TextInfoGetterOnlyLocale extends RealLocale {
       get textInfo(): any {
-        // -> Delegates to a genuine, unpatched `RealLocale` through the same feature-detecting
-        //    helper (never a bare `.textInfo` read), for the same reason the getTextInfo()-only
-        //    case above does: the real `Intl.Locale` under this test may itself be either shape,
-        //    and only `textDirection()` resolves correctly against both. The answer is therefore
-        //    real CLDR data, not a stub -- this locks in the shape handling, nothing else.
+        // -> Through the same helper on an unpatched `RealLocale`, for the reason the case above
+        //    gives: the answer stays real CLDR data whichever shape the engine ships.
         return { direction: textDirection(new RealLocale(this.toString())) }
       }
     }
-    // -> `getTextInfo` is inherited from `RealLocale.prototype` on a build that has it, so merely
-    //    declining to declare it here would NOT produce a getter-only instance. Shadowing it with
-    //    `undefined` is what makes `typeof locale.getTextInfo === 'function'` genuinely false and
-    //    sends `textDirection()` down the fallback branch this test exists to exercise.
+    // -> `getTextInfo` is inherited from `RealLocale.prototype` on a build that has it, so simply
+    //    not declaring it would NOT produce a getter-only instance; shadowing it with `undefined` is
+    //    what sends `textDirection()` down the fallback branch.
     Object.defineProperty(TextInfoGetterOnlyLocale.prototype, 'getTextInfo', {
       value: undefined,
       writable: true,
@@ -150,8 +120,6 @@ describe('RTL_TEST_LOCALE', () => {
   })
 
   it('shares its code with a real, currently-vendored Localazy locale', async () => {
-    // -> See `LTR_TEST_LOCALE`'s mirrored test below for why this collision is asserted rather than
-    //    avoided (OpenProject #2371).
     const realLocalazyCodes = await realVendoredLocaleCodes()
     assert.ok(realLocalazyCodes.includes(RTL_TEST_LOCALE.code))
   })
@@ -211,11 +179,6 @@ describe('seedRtlTestLocale', () => {
   })
 })
 
-/**
- * Mirrors the `RTL_TEST_LOCALE` coverage above for the second, non-RTL fixture WP #1662 added --
- * `e2e/tests/rtl.spec.js`'s content-vs-interface-locale cases need a real, non-right-to-left
- * translation locale to activate alongside `ar`, and this is its own data shape / upsert coverage.
- */
 describe('LTR_TEST_LOCALE', () => {
   it('is a genuine, non-right-to-left locale row, distinct from RTL_TEST_LOCALE', () => {
     assert.equal(LTR_TEST_LOCALE.code, LTR_TEST_LOCALE_CODE)
@@ -226,21 +189,13 @@ describe('LTR_TEST_LOCALE', () => {
   })
 
   it('resolves as non-RTL via the same Intl.Locale CLDR check the frontend uses', () => {
-    // -> Mirrors the RTL row's own CLDR-agreement check above -- see its comment.
     assert.notEqual(textDirection(new Intl.Locale(LTR_TEST_LOCALE.code)), 'rtl')
   })
 
   it('shares its code with a real, currently-vendored Localazy locale', async () => {
-    // -> `es` (like `RTL_TEST_LOCALE`'s `ar`) genuinely is one of the languages
-    //    `locales/metadata.js` currently declares, with a real `locales/es.json` on disk --
-    //    `models/locales.ts#refreshFromDisk()` treats it as a real locale it owns and resyncs on
-    //    every boot. This is safe (OpenProject #2371) specifically because that function's
-    //    `onConflictDoUpdate` now carries a `setWhere` freshness guard checked against the row's
-    //    live `updatedAt`, not a stale snapshot -- see its own comment. Asserting the collision here
-    //    (rather than merely asserting it away, as this test used to) is what would catch a
-    //    regression if that guard were ever removed: a future edit reverting it has nothing else in
-    //    this file to fail against, since this fixture no longer avoids the collision by picking an
-    //    unclaimed code.
+    // -> The collision with a real vendored locale is asserted, not avoided: it is only safe because
+    //    `refreshFromDisk()`'s `onConflictDoUpdate` carries a `setWhere` freshness guard against the
+    //    row's live `updatedAt`, and this assertion is what would fail if that guard were removed.
     const realLocalazyCodes = await realVendoredLocaleCodes()
     assert.ok(realLocalazyCodes.includes(LTR_TEST_LOCALE.code))
   })

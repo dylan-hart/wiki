@@ -1,13 +1,6 @@
 /**
- * `models/storage.ts`'s database-backed half: which modules ship an implementation, what
- * `getSiteTargets()` reads back for a site, and how `executeAction` is wired to a target — run
- * against a real, migrated Postgres, because what is under test IS the row round trip (a target row
- * seeded by `syncSite`, its stored secrets masked on read and preserved on write).
- *
- * Lifted out of `models/storage.test.ts` (TEST-F14/TEST-F16), which was 52 describes of pure unit
- * tests around this one DB-backed block — the extreme case the survey names. The pure/DB boundary is
- * a filename property now, so a reader (and a `node --test` invocation with no `DATABASE_URL`) can
- * tell the two apart without opening either.
+ * Runs against a real, migrated Postgres because what is under test IS the row round trip: a target
+ * row seeded by `syncSite`, its stored secrets masked on read and preserved on write.
  */
 import assert from 'node:assert/strict'
 import path from 'node:path'
@@ -26,10 +19,9 @@ describe(
 
     before(async () => {
       fixtures = await setupTestDb()
-      // -> `test/db.ts` computes `SERVERPATH` as `path.join(process.cwd(), 'backend')`, which is
-      //    correct when the process is launched from the repo root but not from `backend/` itself —
-      //    this repo's convention (run backend commands from backend/) is the latter.
-      //    Repointed here rather than in the shared fixture, which is owned by a different feature.
+      // -> `test/db.ts` computes `SERVERPATH` from `process.cwd()`, which is wrong when the runner
+      //    is launched from `backend/` — this repo's convention. The dynamic module import below
+      //    resolves against it, so it is repointed here.
       CARDINAL.SERVERPATH = path.join(import.meta.dirname, '..')
       await storage.refreshFromDisk()
       await storage.syncSite(fixtures.siteId)
@@ -43,11 +35,8 @@ describe(
       assert.equal(storage.getDefinition('s3')?.hasImplementation, true)
       assert.equal(storage.getDefinition('azure')?.hasImplementation, true)
       assert.equal(storage.getDefinition('gcs')?.hasImplementation, true)
-      // -> Tasks 521/522/523 gave sftp a real storage.ts too (connection.ts + pages.ts + assets.ts,
-      //    orchestrated by exportAll) -- it is no longer the config-only contrast case it once was.
-      //    Every module under modules/storage now ships a real storage.ts, so there is no
-      //    remaining config-only module to assert `false`
-      //    against here.
+      // -> Every module under modules/storage ships a real storage.ts, so there is no config-only
+      //    module to assert `false` against.
       assert.equal(storage.getDefinition('sftp')?.hasImplementation, true)
     })
 
@@ -77,9 +66,7 @@ describe(
       const s3Target = targets.find((t) => t.module === 's3')!
 
       let calledWith: any
-      // -> Swap the cached implementation for a spy: `executeAction` is what's under test here, not
-      //    the s3 SDK itself (covered separately by `modules/storage/s3/storage.emulated.test.ts`
-      //    against a real S3-compatible server).
+      // -> Spied rather than real: `executeAction` is under test here, not the s3 SDK.
       storage.modules.s3 = {
         exportAll: async (target: any) => {
           calledWith = target
@@ -120,19 +107,17 @@ describe(
         true
       )
 
-      // -> Default (unmasked): every internal caller (dispatch/executeAction/backups) needs
-      //    the real value, so it must still be there.
+      // -> Unmasked by default: every internal caller needs the real value.
       targets = await storage.getSiteTargets(fixtures.siteId)
       assert.equal(
         targets.find((t) => t.module === 'sftp')!.config.password,
         'super-secret-password'
       )
 
-      // -> `{ mask: true }`: what the admin GET route actually returns to the client.
+      // -> `{ mask: true }`: what the admin GET route returns to the client.
       const maskedTargets = await storage.getSiteTargets(fixtures.siteId, { mask: true })
       const maskedSftp = maskedTargets.find((t) => t.module === 'sftp')!
       assert.equal(maskedSftp.config.password, '********')
-      // -> A non-sensitive prop on the same target is untouched by masking.
       assert.equal(maskedSftp.config.authMode, 'password')
     })
 
@@ -144,8 +129,8 @@ describe(
         config: { authMode: 'password', password: 'original-secret' }
       })
 
-      // -> Simulates an admin form resubmitting the masked value it was shown, having only changed
-      //    an unrelated field (basePath) -- the password field itself was never touched.
+      // -> An admin form resubmitting the masked value it was shown, having only changed an
+      //    unrelated field.
       targets = await storage.getSiteTargets(fixtures.siteId)
       const current = targets.find((t) => t.module === 'sftp')!
       await storage.updateTarget(fixtures.siteId, current, {

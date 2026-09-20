@@ -3,11 +3,8 @@ import { apiReadinessOnRequest } from '../helpers/apiReadiness.ts'
 import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 
 /**
- * Registers every shared JSON Schema a route file may `$ref`.
- *
- * Exported (TEST-F2) so a test harness booting a subset of the route files registers the exact same
- * set this does, rather than each suite maintaining its own hand-picked list of `registerSchemas`
- * imports that drifts as schemas are added.
+ * Exported so a test harness booting a subset of the route files registers the exact set this does,
+ * rather than a hand-picked list that drifts as schemas are added.
  */
 export async function registerAllSchemas(app: FastifyInstance) {
   await import('./schemas/analytics.ts').then((m) => m.registerSchemas(app))
@@ -36,9 +33,7 @@ export async function registerAllSchemas(app: FastifyInstance) {
   await import('./schemas/notification.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/page.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/pageImport.ts').then((m) => m.registerSchemas(app))
-  // -> Named `registerParamsSchemas` rather than `registerSchemas` like its 33 neighbours: this file
-  //    registers path-PARAMETER shapes, not an entity, and the distinct name is what keeps a route
-  //    file's `params: { $ref: 'SiteIdParams#' }` traceable to it.
+  // -> `registerParamsSchemas`, not `registerSchemas`: path-parameter shapes, not an entity.
   await import('./schemas/params.ts').then((m) => m.registerParamsSchemas(app))
   await import('./schemas/replication.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/scheduler.ts').then((m) => m.registerSchemas(app))
@@ -51,42 +46,21 @@ export async function registerAllSchemas(app: FastifyInstance) {
   await import('./schemas/watcher.ts').then((m) => m.registerSchemas(app))
 }
 
-/**
- * API Routes
- */
 async function routes(app: FastifyInstance) {
-  // -> Refuses every `/_api` request with 503 (+ `Retry-After`) until `postBoot()` has populated the
-  //    caches (`CARDINAL.sites`, auth strategies, groups/locales/approvals/classification) every route
-  //    below reads from — `app.listen()` (`index.ts`) starts accepting connections before `postBoot()`
-  //    runs, and a request landing in that window would otherwise see empty/incomplete data instead
-  //    (OpenProject #3322, e.g. `GET authentication/modules` answering `[]`). Registered first, before
-  //    any route file, so it covers `sites.ts` below (registered directly on this plugin) as well as
-  //    every route inside the guarded `contentApp` encapsulation. `/_live`, `/_ready`, static assets
-  //    and the app-shell fallback are all outside this `/_api`-prefixed plugin and stay unaffected.
+  // -> 503 (+ `Retry-After`) until `postBoot()` has filled the caches every route reads from:
+  //    `app.listen()` accepts connections before it runs. Registered first, so it covers `sites.ts`
+  //    below as well as the `contentApp` scope.
   app.addHook('onRequest', apiReadinessOnRequest)
 
-  // Register schemas
   await registerAllSchemas(app)
 
-  // Register routes
-
-  // -> `sites.ts` administers the site RECORD itself — including `PUT /sites/:siteId`, which is how
-  //    `isEnabled` is flipped in either direction, and `DELETE /sites/:siteId`. Registered directly on
-  //    `app`, outside the guarded `contentApp` encapsulation below, so both keep working on an already
-  //    -disabled site: a `siteEnabledPreHandler` that also covered this route would make a
-  //    disabled site permanently un-re-enableable through the API, since the very route that flips
-  //    `isEnabled` back to `true` would itself already be refused with `isEnabled === false`. None of
-  //    `sites.ts`'s own routes were ever among the nine hand-applied `guardSiteEnabled` call sites
-  //    either — this preserves that, rather than changing it as a side effect of centralizing the rest.
+  // -> Registered outside the guarded `contentApp` scope: `PUT /sites/:siteId` is how `isEnabled`
+  //    is flipped back to `true`, so a `siteEnabledPreHandler` covering it would make a disabled
+  //    site permanently un-re-enableable through the API.
   app.register(import('./sites.ts'), { prefix: '/sites' })
 
-  // -> Every other `:siteId`-scoped route is genuinely site CONTENT or a site-scoped FEATURE (pages,
-  //    the tree, assets, comments, navigation, search, storage targets, auth, blocks, approvals, ...),
-  //    not administration of the site record — guarding these is exactly what OpenProject task 1593
-  //    closes the hole on. A nested `register()` is a real Fastify encapsulation boundary: a hook
-  //    added inside it (`contentApp.addHook`) applies only to routes registered within this same
-  //    child scope and its own descendants, not to `sites.ts` above, which was registered directly on
-  //    the outer `app`.
+  // -> A nested `register()` is a real encapsulation boundary: the hook applies only to routes
+  //    registered within this child scope, not to `sites.ts` above.
   app.register(async (contentApp) => {
     contentApp.addHook('preHandler', siteEnabledPreHandler)
 

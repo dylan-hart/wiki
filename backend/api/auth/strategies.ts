@@ -2,17 +2,11 @@ import { actorFromRequest } from '../../models/auditLog.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
- * Authentication strategy administration (`manage:system`): the modules this instance ships, the
- * strategies configured from them, and creating, updating or deleting one.
- *
- * One route in here is deliberately not `manage:system`: `GET /authentication/synced-groups` carries
- * no strategy secrets — just group and strategy ids/display names — so it is reachable by
- * `manage:users`/`manage:groups` too, for the group-assignment warning UIs that need it (WP #2440).
+ * `GET /authentication/synced-groups` is deliberately not `manage:system`: it carries no strategy
+ * secrets — just group and strategy ids/display names — so user and group administrators can reach
+ * it too, for the group-assignment warning UIs.
  */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST AUTHENTICATION MODULES
-   */
   app.get(
     '/authentication/modules',
     {
@@ -40,9 +34,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST CONFIGURED STRATEGIES
-   */
   app.get(
     '/authentication/strategies',
     {
@@ -70,9 +61,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * COUNT VISIBLE SITES PER STRATEGY
-   */
   app.get(
     '/authentication/strategies/visible-site-counts',
     {
@@ -97,9 +85,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET CONFIGURED STRATEGY
-   */
   app.get<{ Params: { strategyId: string } }>(
     '/authentication/strategies/:strategyId',
     {
@@ -138,9 +123,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE STRATEGY
-   */
   app.post<{ Body: Record<string, any> }>(
     '/authentication/strategies',
     {
@@ -208,9 +190,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE STRATEGY
-   */
   app.put<{ Params: { strategyId: string }; Body: Record<string, any> }>(
     '/authentication/strategies/:strategyId',
     {
@@ -299,8 +278,7 @@ async function routes(app: FastifyInstance) {
       }
 
       // -> Config holds OAuth client secrets and LDAP bind passwords, so `detail` names which
-      //    top-level fields changed rather than their values -- `changedFields` never descends into
-      //    `patch.config` itself. Mirrors `storage.targetUpdated` in `api/storage.ts`.
+      //    top-level fields changed, never their values
       await CARDINAL.models.auditLog.record({
         event: 'auth.strategyUpdated',
         actor: actorFromRequest(req),
@@ -317,9 +295,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE STRATEGY
-   */
   app.delete<{ Params: { strategyId: string } }>(
     '/authentication/strategies/:strategyId',
     {
@@ -369,9 +344,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST GROUPS AT RISK OF PROVIDER SYNC REVERSION
-   */
   app.get(
     '/authentication/synced-groups',
     {

@@ -3,12 +3,6 @@ import assert from 'node:assert/strict'
 import { users as usersTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
-/**
- * `getFallbackAccounts()` is SQL orchestration over a dynamically-keyed JSONB path (the `auth`
- * column, keyed by strategy id) — exactly the `models/pages.test.ts`-style case that calls
- * for a real database rather than a query builder mock, since a mock of the JSONB `->`/`->>`
- * operators would mostly just be re-describing the SQL under test rather than verifying it.
- */
 describe('users.getFallbackAccounts (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   const localStrategyId = '10000000-0000-4000-8000-000000000099'
@@ -18,9 +12,8 @@ describe('users.getFallbackAccounts (DB-backed)', { skip: !hasTestDatabase() }, 
       return
     }
     fixtures = await setupTestDb()
-    // -> `setupTestDb()`'s CARDINAL stub defaults `data.systemIds` to `{}` (see `test/mocks.ts`) —
-    //    `getFallbackAccounts()` reads `CARDINAL.data.systemIds.localAuthId` directly, the same way
-    //    `models/login.ts#clearMigratedFallbackLocalAuth` does, so this suite supplies one.
+    // -> `setupTestDb()`'s CARDINAL stub defaults `data.systemIds` to `{}`, and
+    //    `getFallbackAccounts()` reads `localAuthId` straight off it.
     CARDINAL.data.systemIds.localAuthId = localStrategyId
   })
 
@@ -41,9 +34,8 @@ describe('users.getFallbackAccounts (DB-backed)', { skip: !hasTestDatabase() }, 
         name: 'Pending Older',
         isActive: true,
         isVerified: true,
-        // -> Explicit, distinct `createdAt` values (rather than relying on the column's own
-        //    `defaultNow()` across two sequential inserts) so the ordering assertion below cannot
-        //    flake on two rows landing in the same microsecond.
+        // -> Explicit, distinct `createdAt`s rather than the column's own `defaultNow()`, so the
+        //    ordering assertion cannot flake on two inserts landing in the same microsecond.
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
         auth: {
           [localStrategyId]: {
@@ -74,7 +66,7 @@ describe('users.getFallbackAccounts (DB-backed)', { skip: !hasTestDatabase() }, 
       .returning({ id: usersTable.id })
 
     // -> Already relinked via SSO: `clearMigratedFallbackLocalAuth` clears both fields together, so
-    //    this account must NOT appear even though it once was a fallback account.
+    //    this row must not appear.
     await fixtures.db.insert(usersTable).values({
       email: 'relinked@example.com',
       name: 'Relinked',

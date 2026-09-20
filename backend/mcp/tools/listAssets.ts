@@ -33,25 +33,13 @@ export interface ListedAsset {
 }
 
 /**
- * List the assets (uploaded files) in one folder of a site's tree, restricted to what the configured
- * key may read.
+ * `api/assets.ts` has no listing route: asset listing is `GET /sites/:siteId/tree` filtered to
+ * `types: ['asset']`, so this calls that same `tree.getTree()` and layers on the `read:assets` filter
+ * `helpers/pageAccess.ts#visibleTreeItems` applies REST-side.
  *
- * `backend/api/assets.ts` (the REST route this feature otherwise wraps — upload/get/download/rename/
- * delete) has no listing route of its own: asset listing lives in `GET /sites/:siteId/tree`
- * (`api/tree.ts`), one call filtered to `types: ['asset']`, which is also what the file manager itself
- * calls. This tool calls that same model method, `CARDINAL.models.tree.getTree()`, directly — the same
- * "call the model method the REST route calls" pattern `list_navigation` already uses for
- * `tree.browse()` — then applies the per-item permission filter `helpers/pageAccess.ts#mayOnAsset`/
- * `visibleTreeItems` apply on the REST side: `read:assets`, judged on the asset's own path, with a
- * `classification` of `null` since an asset (unlike a page) carries none.
- *
- * No `browse` feature gate: that setting only governs the reader-facing sidebar
- * (`GET /sites/:siteId/tree/browse`) — the general tree listing this mirrors, and every route in
- * `api/assets.ts`, do not check it either.
- *
- * `getTree()` does not 404 on an unknown folder path — an unmatched `parentPath` just yields no rows —
- * so an empty or nonexistent folder both answer an empty list here too, matching
- * `GET /sites/:siteId/tree`'s own behavior (its response schema has no 404).
+ * No `browse` feature gate — that setting governs only the reader-facing sidebar, and neither the
+ * general tree listing nor `api/assets.ts` checks it. `getTree()` does not 404 on an unknown folder
+ * path, so a nonexistent folder answers an empty list rather than an error.
  */
 export async function handleListAssets(
   ctx: McpAuthContext,
@@ -74,8 +62,7 @@ export async function handleListAssets(
         path: item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName,
         siteId: site.id,
         locale,
-        // -> An asset carries no classification of its own — same as `mayOnAsset()`/
-        //    `visibleTreeItems()` in `helpers/pageAccess.ts`.
+        // -> An asset carries no classification of its own, as in `helpers/pageAccess.ts#mayOnAsset`
         classification: null
       })
     )

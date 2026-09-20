@@ -7,18 +7,9 @@ import { nextTick, reactive, ref } from 'vue'
 import { deriveDisplayName, useDerivedDisplayName } from './displayName.js'
 
 /**
- * Feature #2608, Task #2642.
- *
- * `deriveDisplayName` has to agree, character for character, with
- * `backend/models/users.ts#deriveDisplayName` -- the server compares a submitted `name` against its
- * own derivation to decide whether the name is hand-authored, so any divergence here authors
- * accounts nobody meant to author.
- *
- * `useDerivedDisplayName` is what keeps a form's display-name field current while the reader edits a
- * half. It reads and writes plain reactive fields rather than owning any state of its own, so it is
- * exercised directly against a `reactive({...})` rather than through a mounted component; the two
- * surfaces that use it (`ProfileInfo.vue`, `UserEditOverlay.vue`) have their own suites for the
- * rendered behaviour.
+ * `useDerivedDisplayName` reads and writes plain reactive fields rather than owning state of its
+ * own, so it is exercised against a bare `reactive({...})`; the forms that use it have their own
+ * suites for the rendered behaviour.
  */
 describe('deriveDisplayName', () => {
   it('joins the two halves with a single space', () => {
@@ -136,9 +127,8 @@ describe('useDerivedDisplayName', () => {
   })
 
   /*
-    `UserEditOverlay.vue` loads a record by REPLACING its container (`state.user = user`), so the
-    getter is not a convenience -- watchers bound to the object it threw away would silently stop
-    firing, which is the failure this covers.
+    A form can load a record by REPLACING its container (`state.user = user`), so the getter is not a
+    convenience -- watchers bound to the object it threw away would silently stop firing.
   */
   it('follows a container that is replaced wholesale', async () => {
     const container = ref(makeFields())
@@ -165,15 +155,11 @@ describe('useDerivedDisplayName', () => {
 })
 
 /**
- * The one cross-workspace claim in this file, and the reason it is worth a source read rather than a
- * comment: a divergence between the two derivations is silent and permanent. The server decides
- * whether a display name is hand-authored by comparing a submitted `name` against ITS derivation, so
- * a form deriving even slightly differently -- a different separator, a missing trim -- would mark
- * every account it touched as authored, and no later half edit would ever move the name again.
- *
- * Asserted against the backend's source text rather than by importing it: `backend/` is a separate,
- * independently-installed TypeScript workspace with its own `WIKI` global, and pulling one of its
- * modules into a Vitest run would drag that whole boot surface in for a two-line function.
+ * A divergence between the two derivations is silent and permanent -- every account the form
+ * touched would read as hand-authored and no later half edit would move its name again -- so the
+ * agreement is worth a source read rather than a comment. Asserted against the backend's source
+ * text rather than by importing it: `backend/` is a separate, independently-installed TypeScript
+ * workspace whose whole boot surface would come along for a two-line function.
  */
 describe('deriveDisplayName agrees with the backend', () => {
   const BACKEND_USERS = resolve(

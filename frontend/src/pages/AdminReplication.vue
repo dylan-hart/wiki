@@ -33,9 +33,6 @@
     </div>
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12 lg:col-span-7">
-        <!-- ----------------------- -->
-        <!-- Warning -->
-        <!-- ----------------------- -->
         <!--
           The warning is about the whole page, not a setting in it, so it is its own banner above the
           card rather than a settings row with nothing at its trailing edge.
@@ -50,9 +47,6 @@
             }}</w-card-section>
           </w-card-section>
         </w-card>
-        <!-- ----------------------- -->
-        <!-- Configuration -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.replication.title')">
           <w-settings-row
             icon="tabler:link"
@@ -117,25 +111,17 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { useAdminStore } from '@/stores/admin'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// STORES
-
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.replication.title')
 }))
 
-// DATA
-
 /**
- * Fallbacks for config keys the API may not return yet, so that every control renders with a
- * defined value. Must mirror the `replication` defaults seeded by the backend (`base.yml`).
+ * Every control needs a defined value even for a key the API does not answer with. Mirrors the
+ * `replication` defaults the backend seeds (`base.yml`).
  */
 function defaultConfig() {
   return {
@@ -148,9 +134,7 @@ function defaultConfig() {
 
 const { state, load } = useAdminSettings({
   i18nPrefix: 'admin.replication',
-  // -> Instance-wide settings, not one site's: no site picker, no reload on switching site
   siteScoped: false,
-  // -> This form has never raised the full-screen overlay to read its own values
   overlay: false,
   defaults: defaultConfig,
   fetch: () => API_CLIENT.get('replication/config').json(),
@@ -165,14 +149,10 @@ const { state, load } = useAdminSettings({
   }
 })
 
-// VALIDATION
-
 /**
- * Mirrors `backend/api/replication.ts#validateCronSchedule()`'s minimum-interval floor as immediate
- * client-side feedback -- the server remains the authority (config can be set via the API directly),
- * this only saves an admin the round trip to discover the same rejection. Replication is a
- * wipe-and-replace pull of the entire instance, which is why the floor is generous but non-zero: see
- * the backend's own comment for the full reasoning (OpenProject #2509).
+ * Mirrors `backend/api/replication.ts#validateCronSchedule()`'s floor as immediate feedback -- the
+ * config is also settable through the API, so the server stays the authority. The floor exists
+ * because each run is a wipe-and-replace pull of the whole instance.
  */
 const MIN_CRON_INTERVAL_MINUTES = 60
 
@@ -198,8 +178,6 @@ const rulesCronSchedule = [
     return true
   }
 ]
-
-// METHODS
 
 async function save() {
   if (state.loading > 0) {

@@ -5,13 +5,9 @@ import AdminAnalytics from './AdminAnalytics.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Coverage for Task 597: the rebuilt page fetches `GET /_api/analytics/modules` (the disk-discovered
- * provider definitions) and the site's own `GET /_api/sites/:id` (which carries whatever is already
- * stored under `analytics.providers`), merges the two the same way AdminAuth.vue's
- * `buildConfigEditor(mod.props, values)` does, and PUTs the whole `analytics.providers` object back on
- * Apply. `google` here stands in for a provider that already has stored config; `matomo` stands in for
- * one that has never been configured, so its module defaults must appear in both the rendered form and
- * the saved payload.
+ * `google` stands in for a provider that already has stored config; `matomo` for one that has never
+ * been configured, so its module defaults must appear in both the rendered form and the saved
+ * payload.
  */
 const MODULES = [
   {

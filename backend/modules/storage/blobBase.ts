@@ -2,60 +2,44 @@ import { belongsInTarget, objectKeyFor } from '../../helpers/blobTarget.ts'
 import type { StorageModule, StorageTarget } from '../../models/storage.ts'
 
 /**
- * The shape every cloud blob storage target has in common — `s3`, `azure` and `gcs`.
+ * What every cloud blob storage target has in common — `s3`, `azure` and `gcs` differ only in which
+ * SDK writes the bytes. A factory rather than a base class, since a storage module is a plain
+ * object; each module keeps its own SDK imports, client construction and the driver callbacks below.
  *
- * The three modules differ only in which SDK writes the bytes: the activation cache, the object key,
- * the error wrapping and all six handlers (`assetUploaded`/`assetDeleted`/`assetRenamed`/`assetMoved`/
- * `exportAll`/`getDirectUrl`) were byte-identical across them modulo the SDK noun. That shared half lives here, as
- * a factory rather than a base class since a storage module is a plain object; each module keeps its
- * own SDK imports, its client construction, its bucket/container verification and the five driver
- * callbacks below, and exports `blobStorageModule(driver)` as its default.
- *
- * Deliberately free of any cloud SDK import of its own — like `helpers/blobTarget.ts`, which it builds
- * on — so a module pulling this in never drags in another module's SDK.
+ * Deliberately free of any cloud SDK import of its own, so a module pulling this in never drags in
+ * another module's SDK.
  */
 
 /**
- * How long a direct-access URL stays valid. Minutes, not hours: it's generated per request for one
- * browser to fetch immediately, not something meant to be bookmarked or cached client-side. Shared by
- * all three blob targets so they behave the same from the admin's point of view.
+ * Minutes, not hours: a direct-access URL is generated per request for one browser to fetch
+ * immediately, not something meant to be bookmarked or cached client-side.
  */
 export const DIRECT_ACCESS_TTL_SECONDS = 5 * 60
 
 /**
- * How long a failed activation is remembered before the next call is allowed to retry it.
- *
- * Long enough that a broken credential is not re-probed (paying the SDK's own connect/retry
- * latency) on every image request an instance serves in that window; short enough that an admin
- * who just fixed the target's config sees it recover within one session rather than needing a
- * restart. Independent of `DIRECT_ACCESS_TTL_SECONDS`, which governs a signed URL's own lifetime,
- * not how long a failure is cached.
+ * Long enough that a broken credential is not re-probed — paying the SDK's own connect/retry latency
+ * — on every image request an instance serves in that window; short enough that an admin who just
+ * fixed the target's config sees it recover within one session rather than needing a restart.
  */
 const ACTIVATION_FAILURE_TTL_MS = 30_000
 
-/** Where one asset of a target lives in the bucket/container. */
 export function keyFor(target: StorageTarget, folderPath: string, fileName: string): string {
   return objectKeyFor({ siteId: target.siteId, folderPath, fileName })
 }
 
 /**
- * The SDK-specific half of a blob target — everything `blobStorageModule` cannot do without knowing
- * which cloud it is talking to.
- *
- * @typeParam C The client this driver hands back from `build` and receives on every other callback:
- *   an `S3Client`, a `ContainerClient`, a `Bucket`.
+ * The SDK-specific half of a blob target, parameterised on that SDK's own client type — everything
+ * `blobStorageModule` cannot do without knowing which cloud it is talking to.
  */
 export interface BlobDriver<C> {
-  /** The target's name as the `exportAll` log line reads it, e.g. `S3`, `Azure Blob Storage`, `GCS`. */
+  /** The target's name as the `exportAll` log line reads it. */
   label: string
   /**
-   * Build the client for a target's config and verify (where reasonable, create) its bucket/container
-   * — 2.5.x's `init()`, run once per config by the activation cache below. Every failure should be
-   * thrown as a plain `Error` with a readable message, so it reaches the admin UI through
-   * `executeAction`'s existing `catch (err) { reply.badRequest(err.message) }`.
+   * Build the client and verify (where reasonable, create) its bucket/container — run once per
+   * config by the activation cache below. Throw a plain `Error` with a readable message: that is
+   * what reaches the admin UI through `executeAction`'s `reply.badRequest(err.message)`.
    */
   build(config: Record<string, any>): C | Promise<C>
-  /** Write an asset's bytes at `key`, replacing whatever is there. */
   put(
     client: C,
     key: string,
@@ -63,43 +47,32 @@ export interface BlobDriver<C> {
     mimeType: string,
     config: Record<string, any>
   ): Promise<void>
-  /** Delete the object at `key`. */
   remove(client: C, key: string): Promise<void>
-  /** Server-side copy `sourceKey` to `destinationKey` — the source is removed separately. */
+  /** A server-side copy — no bytes round-trip here; the source is removed separately. */
   copy(
     client: C,
     sourceKey: string,
     destinationKey: string,
     config: Record<string, any>
   ): Promise<void>
-  /** A short-lived, read-only URL for `key`, signed locally wherever the SDK allows it. */
+  /** A read-only URL for `key`, signed locally wherever the SDK allows it. */
   sign(client: C, key: string, ttlSeconds: number): Promise<string>
 }
 
-/**
- * The `StorageModule` for one blob driver: the five handlers `models/storage.ts` dispatches to, over a
- * per-target activation cache.
- */
 export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
   /**
-   * One activated client per target, keyed by target id and invalidated the moment the target's stored
-   * config changes (a credential rotation, a bucket rename). This is what "activation" means here: the
-   * client is built and its bucket/container verified once per config, matching 2.5.x's `init()` —
-   * which ran once when the module was enabled — without a corresponding lifecycle hook existing yet
-   * on this branch's `models/storage.ts` to call it from. Every handler below routes through
-   * `getClient()`, so the first call any target makes (an admin's "Export All" click, or a dispatched
-   * write) both builds the client and verifies its destination.
+   * One activated client per target, invalidated the moment the target's stored config changes (a
+   * credential rotation, a bucket rename). `models/storage.ts` has no enable-time lifecycle hook to
+   * build it from, so every handler below routes through `getClient()` instead: the first call any
+   * target makes both builds the client and verifies its destination.
    */
   const activated = new Map<string, { configKey: string; ready: Promise<C>; failedAt?: number }>()
 
   /**
-   * The activated client for a target, (re-)verifying it whenever the stored config changed.
-   *
    * A failed activation is cached too, for `ACTIVATION_FAILURE_TTL_MS`: within that window this
-   * replays the same rejection rather than re-probing the SDK, and once it elapses the next call —
-   * the admin retrying the action after fixing credentials, say, or simply the next request that
-   * comes in — verifies again. A successful activation always replaces whatever was cached, failed
-   * or not, so there is no separate "clear the failure" path to call.
+   * replays the same rejection rather than re-probing the SDK, and once it elapses the next call
+   * verifies again. A successful activation always replaces whatever was cached, failed or not, so
+   * there is no separate "clear the failure" path to call.
    */
   async function getClient(target: StorageTarget): Promise<C> {
     const configKey = JSON.stringify(target.config)
@@ -125,7 +98,6 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
     return entry.ready
   }
 
-  /** Wrap an SDK call so a failure reaches the caller as a readable `Error`, not a raw SDK exception. */
   async function withErrors<T>(action: string, fn: () => Promise<T>): Promise<T> {
     try {
       return await fn()
@@ -134,13 +106,11 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
     }
   }
 
-  /** An asset was created, or an existing one had its bytes replaced. */
   async function assetUploaded(target: StorageTarget, data: Record<string, any>): Promise<void> {
     const client = await getClient(target)
     const content = await CARDINAL.models.assets.getContent(data.id)
     if (!content) {
-      // -> Deleted again between the write that triggered this and this handler actually running;
-      //    nothing left to push
+      // -> Deleted again between the write that triggered this and this handler running
       return
     }
     const key = keyFor(target, data.folderPath, data.fileName)
@@ -149,47 +119,38 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
     )
   }
 
-  /** An asset was deleted. */
   async function assetDeleted(target: StorageTarget, data: Record<string, any>): Promise<void> {
     const client = await getClient(target)
     const key = keyFor(target, data.folderPath, data.fileName)
     await withErrors(`delete "${key}"`, () => driver.remove(client, key))
   }
 
-  /** An asset moved to a new name within the same folder. */
   async function assetRenamed(target: StorageTarget, data: Record<string, any>): Promise<void> {
     const client = await getClient(target)
     const sourceKey = keyFor(target, data.folderPath, data.previousFileName)
     const destinationKey = keyFor(target, data.folderPath, data.fileName)
 
     await withErrors(`rename "${sourceKey}" to "${destinationKey}"`, async () => {
-      // -> A server-side copy (no bytes round-trip through this process) followed by deleting the
-      //    source once the copy has landed, the same shape 2.5.x used.
       await driver.copy(client, sourceKey, destinationKey, target.config)
       await driver.remove(client, sourceKey)
     })
   }
 
-  /** An asset moved to a new folder, keeping its name (OpenProject #3384). */
   async function assetMoved(target: StorageTarget, data: Record<string, any>): Promise<void> {
     const client = await getClient(target)
     const sourceKey = keyFor(target, data.previousFolderPath, data.fileName)
     const destinationKey = keyFor(target, data.folderPath, data.fileName)
 
     await withErrors(`move "${sourceKey}" to "${destinationKey}"`, async () => {
-      // -> Same shape as `assetRenamed`: a server-side copy followed by deleting the source once the
-      //    copy has landed.
       await driver.copy(client, sourceKey, destinationKey, target.config)
       await driver.remove(client, sourceKey)
     })
   }
 
   /**
-   * Push every asset of this target's site to the target, filtered through its own `contentTypes`
-   * (`activeTypes` / `largeThreshold`) exactly as configured in the admin area — nothing upstream of
-   * this filters assets by content type, so `exportAll` is the one place it has to happen. This is also
-   * where a target gets its first real activation if it has never had a write dispatched to it yet:
-   * `getClient()` verifies (and where reasonable, creates) the destination before anything is sent.
+   * Filtered through the target's own `contentTypes`: nothing upstream of this filters assets by
+   * content type, so it is the one place that can happen. Also where a target that has never had a
+   * write dispatched to it gets its first activation, destination verification included.
    */
   async function exportAll(target: StorageTarget): Promise<void> {
     const client = await getClient(target)
@@ -214,12 +175,9 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
   }
 
   /**
-   * A short-lived, read-only URL for one asset — the primitive `assetDelivery.directAccess` needs to
-   * redirect a browser straight to the bucket instead of streaming the file through the wiki server.
-   * `s3`/`azure`/`gcs` are the only targets that declare `assetDelivery.isDirectAccessSupported: true`;
-   * `models/assetServing.ts`'s `directUrlFor()` calls this (as `StorageModule.getDirectUrl`) whenever a
-   * target both enables `assetDelivery.directAccess` and has a module implementing it — asset first,
-   * target second, matching every other `StorageModule` handler's argument order.
+   * What `assetDelivery.directAccess` needs to redirect a browser straight to the bucket instead of
+   * streaming the file through the wiki server. Asset first, target second, matching every other
+   * `StorageModule` handler's argument order.
    */
   async function getDirectUrl(
     asset: { folderPath: string; fileName: string },

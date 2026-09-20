@@ -5,13 +5,6 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * The per-row "Send Test Event" button re-validates a SAVED webhook without opening the edit
- * dialog, via the same `POST /_api/hooks/test` the edit dialog itself calls — task 644 requires it
- * pass the persisted hook's own `url`/`authHeader`/`acceptUntrusted` through that same body shape
- * rather than a second, hookId-based endpoint.
- */
-
 const HOOK = {
   id: 'hook-1',
   name: 'My Webhook',

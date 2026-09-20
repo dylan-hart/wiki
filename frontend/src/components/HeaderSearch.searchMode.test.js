@@ -5,12 +5,8 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #3138: a semantic-search toggle icon-button docked immediately to the LEFT of the
- * Browse by Tags button, `tabler:sparkles` (the same icon `AdminSearch.vue`'s semantic-enabled row
- * uses), absent entirely rather than merely disabled when the site has no semantic search
- * (`siteStore.features.semanticSearch`). It only ever flips a LOCAL pending mode -- navigation to
- * `/_search` (carrying that mode as `?mode=`) happens on submit, either Enter or a toggle click made
- * while a query is already typed.
+ * The toggle only flips a local pending mode: navigation to `/_search`, carrying it as `?mode=`,
+ * happens on submit -- Enter, or a toggle click made while a query is already typed.
  */
 
 async function mountWithSemantic({ semanticSearch = true, initialPath = '/', search = '' } = {}) {

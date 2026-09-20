@@ -5,7 +5,6 @@ import WOtpInput from './WOtpInput.vue'
 
 import { createTestI18n } from '../../../test/i18n.js'
 
-/** All six `.otp-input` boxes, in DOM order. */
 function boxes(wrapper) {
   return wrapper.findAll('input.otp-input')
 }

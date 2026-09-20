@@ -1,59 +1,34 @@
 import { computed, ref } from 'vue'
 
 /**
- * The field chrome both text-entry components draw — `WInput` and `WSelect`.
- *
- * The two carried the same label/hint/error/frame logic by copy, parameterised in practice by only
- * two things: what each counts as "active" (focus for an input, an open dropdown for a select) and
- * whether it draws a frame at all (a `standout` select does not). Everything else — the props, the
- * validation, the computed styles — was identical, which is what lives here.
- *
- * The markup those styles feed is `components/shared/WFieldFrame.vue`, which is internal to those
- * two components and deliberately not registered in `components/shared/index.js`.
- *
- * ## Cardinal
- *
- * A field is a square box with a hairline edge, and its label stands ABOVE it. The Material
- * treatment this replaces — a rounded outline notched open by a fieldset legend so a label could
- * ride up into the border, thickening from 1px to 2px on focus — is gone entirely, along with
- * `w-input-outline`, `w-input-float` and their three interlocking measurements.
- *
- * Two consequences worth knowing:
- *
- *  - The frame is one pixel in EVERY state; only its colour changes (hairline at rest, the faint
- *    slate under the pointer, chrome slate on focus, the accent fill on error). It is still drawn
- *    as an inset ring rather than a real border, so a field's box never changes size — which also
- *    means a caller's own `border-*` utility does not fight it.
- *  - There is no `outlined` prop. Cardinal has no underlined field variant, so every field is the
- *    boxed one and there is nothing to opt into.
+ * The label/hint/error/frame logic `WInput` and `WSelect` share. The markup it feeds is
+ * `components/shared/WFieldFrame.vue`, internal to those two components and so deliberately absent
+ * from `components/shared/index.js`.
  */
 
 /**
- * The twelve props a field of either kind declares identically. Spread into each component's own
- * `defineProps`, which then adds whatever is genuinely its own.
+ * Spread into each field component's own `defineProps`, which then adds whatever is genuinely its
+ * own.
  */
 export const fieldProps = {
   label: {
     type: String,
     default: null
   },
-  /** Accessible name for the control, used only when there is no `label` to associate instead. */
+  /** Used only when there is no `label` to associate instead. */
   ariaLabel: {
     type: String,
     default: null
   },
   /**
-   * Marks the field as one that has to be filled in.
-   *
-   * Draws a red asterisk beside the label and tells assistive technology the same thing through
-   * `aria-required`; it does not validate anything or set the native `required` attribute, since the
-   * form around it owns when and how it complains.
+   * Asterisk plus `aria-required` only: it validates nothing and does not set the native `required`
+   * attribute, since the form around it owns when and how it complains.
    */
   required: {
     type: Boolean,
     default: false
   },
-  /** Helper text below the control, replaced by the error message when invalid. */
+  /** Replaced by the error message while the field is invalid. */
   hint: {
     type: String,
     default: null
@@ -62,7 +37,7 @@ export const fieldProps = {
     type: Boolean,
     default: false
   },
-  /** Shows the value but does not accept a change. Keeps full contrast, unlike `disabled`. */
+  /** Refuses changes but keeps full contrast, unlike `disabled`. */
   readonly: {
     type: Boolean,
     default: false
@@ -72,24 +47,18 @@ export const fieldProps = {
     default: false
   },
   /**
-   * Focuses the real control once mounted.
+   * A declared prop rather than a bare HTML attribute: the component's root is a wrapping `<div>`,
+   * so a fall-through `autofocus` would land on a non-focusable element, and the native attribute
+   * only reliably fires for an element present at page load. Declaring it keeps it out of `$attrs`
+   * and lets `onMounted` call the exposed `focus()` instead.
    *
-   * A declared prop rather than a bare HTML attribute, because the component's root is a wrapping
-   * `<div>` -- the real control sits a level down, and a plain `autofocus` attribute lands on that
-   * wrapper by default, where it does nothing (a `<div>` isn't focusable), and only reliably fires
-   * for an element present when the page itself loads besides. Declaring it here both keeps it out
-   * of `$attrs` (so it doesn't also sit inertly on the wrapper) and gives the component a moment --
-   * `onMounted` -- to call the already-exposed `focus()` itself.
-   *
-   * A field that mounts after the page has already loaded -- inside a dialog, say -- needs a
-   * different trigger than `onMounted`, since the dialog's own content is not in the DOM yet at that
-   * point; see `composables/dialog.js`'s `useDialogComponent({ autofocus })` for that case.
+   * A field mounting inside a dialog needs a later trigger than `onMounted`, since the dialog's
+   * content is not in the DOM yet: `composables/dialog.js`'s `useDialogComponent({ autofocus })`.
    */
   autofocus: {
     type: Boolean,
     default: false
   },
-  /** Drops the reserved line beneath the control. */
   hideBottomSpace: {
     type: Boolean,
     default: false
@@ -103,8 +72,7 @@ export const fieldProps = {
    * When to run `rules`:
    *   false        validate on every change
    *   true         stay silent until the first blur, then validate on every change
-   *   'ondemand'   never validate automatically -- only when `validate()` is called, which is
-   *                what the enclosing WForm does on submit
+   *   'ondemand'   only when `validate()` is called, which is what `WForm` does on submit
    */
   lazyRules: {
     type: [Boolean, String],
@@ -117,17 +85,16 @@ export const fieldProps = {
  * @param {object} options.props The component's own props bag.
  * @param {import('vue').Ref<boolean>} options.active What this control counts as active: focus for
  *   a text input, an open dropdown for a select.
- * @param {import('vue').Ref<boolean>} options.hovered Pointer-over, for the ring — which is an
- *   inline style, so CSS `:hover` cannot reach it.
- * @param {import('vue').Ref<boolean>} options.hasValue Whether the field holds anything.
+ * @param {import('vue').Ref<boolean>} options.hovered Pointer-over. Needed as state because the
+ *   ring is an inline style, which CSS `:hover` cannot reach.
+ * @param {import('vue').Ref<boolean>} options.hasValue
  * @param {import('vue').Ref<boolean>} options.hasLeadingAdornment Whether anything sits in front of
  *   the value (a `prepend` slot, a prefix), which occupies the resting label's place.
- * @param {import('vue').Ref<string>} options.surface The field's own background classes, which is
- *   the one part of `controlClasses` the two components genuinely disagree about.
- * @param {import('vue').Ref<boolean>} [options.noFrame] The control draws no frame at all and takes
- *   no floating label — `WSelect`'s `standout` variant, which carries its state in its fill.
- * @param {import('vue').Ref<string>} [options.extraClasses] One more class slot on the control, for
- *   whatever is that component's alone (`WSelect`'s cursor affordance).
+ * @param {import('vue').Ref<string>} options.surface Background classes -- the one part of
+ *   `controlClasses` the two components genuinely disagree about.
+ * @param {import('vue').Ref<boolean>} [options.noFrame] No frame and no floating label --
+ *   `WSelect`'s `standout` variant, which carries its state in its fill.
+ * @param {import('vue').Ref<string>} [options.extraClasses]
  */
 export function useFieldFrame({
   props,
@@ -142,11 +109,8 @@ export function useFieldFrame({
   const errorMessage = ref(null)
 
   /**
-   * Runs `rules` and records the first failure.
-   *
-   * @param {*} [value] Value to test. Defaults to the current model, but callers reacting to a
-   *   change must pass the *new* value: the prop still holds the old one until the parent re-renders.
-   * @returns {boolean} Whether the value is valid.
+   * @param {*} [value] Defaults to the current model, but a caller reacting to a change must pass
+   *   the *new* value: the prop still holds the old one until the parent re-renders.
    */
   function validate(value = props.modelValue) {
     for (const rule of props.rules) {
@@ -161,13 +125,10 @@ export function useFieldFrame({
   }
 
   /*
-    See the note in `WFieldFrame`'s template: held open only when a message could occupy it.
-
-    `Boolean()` around the WHOLE expression, not just the error half. `props.hint` is a STRING, and
-    `false || ('some hint' || ...)` evaluates to that string -- so a field with a hint handed
-    `WFieldFrame` its `showsBottom` as text, which is declared `type: Boolean` and warns on every
-    such mount. It rendered correctly regardless (the value only ever feeds a `v-if`), which is why
-    it survived: this composable's own suite asserted `toBeTruthy()`, which a string passes.
+    `Boolean()` wraps the WHOLE expression, not just the error half: `props.hint` is a string, so
+    `false || ('some hint' || ...)` evaluates to that string and `WFieldFrame` -- which declares
+    `showsBottom` as `type: Boolean` -- warns on every such mount. A `toBeTruthy()` assertion passes
+    either way, so a test will not catch a regression here.
   */
   const showsBottom = computed(() =>
     Boolean(
@@ -176,18 +137,12 @@ export function useFieldFrame({
   )
 
   /**
-   * The field frame, drawn as an inset ring rather than a real border.
+   * The frame is an inset ring, not a border: insets take no part in layout, so the field's box
+   * never changes size and a caller's own `border-*` utility does not fight it. It stays one pixel
+   * in every state and marks focus by darkening instead of thickening.
    *
-   * Insets take no part in layout, so a field's box is the same size whatever the frame is doing --
-   * which is what lets the colour change on hover, focus and error without nudging the control's
-   * contents by a pixel, and what keeps a caller's own `border-*` utility from fighting it.
-   *
-   * One pixel in every state. The Material treatment this replaces thickened to 2px on focus (and
-   * needed the inset trick to avoid a reflow when it did); Cardinal marks focus by DARKENING the
-   * hairline to the chrome slate instead, which is quieter and does not need the field to grow.
-   *
-   * Built as an inline style on purpose: the colour depends on four pieces of state, and an
-   * arbitrary Tailwind class would be one more thing that has to survive the scanner.
+   * An inline style rather than a class, because the colour depends on four pieces of state and a
+   * computed Tailwind class name would not survive the content scanner.
    */
   const frameColor = computed(() =>
     errorMessage.value
@@ -200,7 +155,6 @@ export function useFieldFrame({
   )
 
   const controlStyle = computed(() => {
-    // -> `standout` carries its state in its fill and draws no frame at all
     if (noFrame?.value) {
       return undefined
     }

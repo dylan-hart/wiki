@@ -1,7 +1,6 @@
 <template>
   <w-scroll-area class="sidebar-nav">
-    <!-- -> The primary navigation landmark: distinct from `PageToc`'s own `<nav>` so the two are
-            reachable and tellable apart from the landmarks rotor -->
+    <!-- -> Labelled so the landmarks rotor tells this apart from `PageToc`'s own `<nav>` -->
     <nav :aria-label="t(`common.sidebar.browse`)">
       <w-list class="sidebar-nav-list" dense>
         <template v-for="item of siteStore.nav.items" :key="item.id">
@@ -11,19 +10,14 @@
             header
             >{{ item.label }}</w-item-label
           >
-          <!-- -> One nav item, plus its expansion behavior if it has children -- recursive, so a
-                  folder nested any number of levels deep still draws its own contents rather than
-                  only the first level under the sidebar root -->
           <nav-sidebar-item v-else-if="item.type === `link`" :item="item" />
           <w-separator v-else-if="item.type === `separator`" />
         </template>
       </w-list>
-      <!-- -> Right-click empty space to create at this menu's own generator root -- only meaningful
-              when there is a real tree backing this menu (auto/mixed); a static menu's links may not
-              correspond to any page at all. The root is `siteStore.nav.rootPath`/`rootId`, not
-              always the locale root: a page/folder-level navigation override's own generator root is
-              its own section (OpenProject #2442), and only a site-wide menu's root is the locale
-              root. -->
+      <!-- -> Right-click empty space to create. Only meaningful with a real tree behind the menu
+              (auto/mixed): a static menu's links need not correspond to any page. The root is the
+              menu's own generator root -- a page-level navigation override generates from its own
+              section, not the locale root. -->
       <page-new-menu
         v-if="canCreateAtRoot"
         context-menu
@@ -50,25 +44,18 @@ import { useUserStore } from '@/stores/user'
 import PageNewMenu from '@/components/PageNewMenu.vue'
 import NavSidebarItem from './NavSidebarItem.vue'
 
-// -> The shared, tree-wide open/closed state for every folder row below (OpenProject #2846):
-//    provided once here, at the tree's root, and injected by each recursive `NavSidebarItem`
-//    instance -- see `composables/navExpansionState.js` for why.
+// -> Must be provided here, at the tree's root: every recursive `NavSidebarItem` injects this one
+//    shared open/closed state rather than holding its own.
 useProvideNavExpansionState()
-
-// STORES
 
 const route = useRoute()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
 
 const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
-
-// COMPUTED
 
 const canCreateAtRoot = computed(
   () =>
@@ -77,27 +64,19 @@ const canCreateAtRoot = computed(
 )
 
 /**
- * The menu id this route actually wants: a content page's own inherited id
- * (`pageStore.navigationId`, set exclusively by `pageStore.pageLoad()`) for the routes that render
- * one, or the site's default id (`siteStore.navigationId`, from the bootstrap payload) for every
- * other `MainLayout` route -- the knowledge graph, tags browse -- which never call `pageLoad()` and
- * so would otherwise leave `pageStore.navigationId` at `null` forever (OpenProject #2527). A
- * content route deliberately keeps using `pageStore.navigationId` alone, with no fallback, while it
- * is still `null` mid-load -- see `MainLayout.vue`'s `isSidebarMiniForced` for why that gap matters
- * there.
+ * Only `pageStore.pageLoad()` ever sets `pageStore.navigationId`, so a non-content `MainLayout`
+ * route (graph, tags browse) would sit at `null` forever without the site default. A content route
+ * gets no such fallback on purpose: `null` mid-load is a state `MainLayout.vue` relies on.
  */
 const effectiveNavigationId = computed(() =>
   route.meta.contentPage ? pageStore.navigationId : siteStore.navigationId
 )
 
-// WATCHERS
-
 watch(
   effectiveNavigationId,
   (newValue) => {
-    // -> The "already showing this menu" gate now lives in `fetchNavigation()` itself (OpenProject
-    //    #1012), so a same-tab invalidation elsewhere in the app can bypass it with `forceRefresh`
-    //    without this watcher needing to know why.
+    // -> No "already showing this menu" gate here: `fetchNavigation()` owns it, so an invalidation
+    //    elsewhere can bypass it with `forceRefresh` without this watcher knowing why.
     siteStore.fetchNavigation(newValue)
   },
   { immediate: true }
@@ -106,37 +85,17 @@ watch(
 
 <style>
 /*
-  Just under the width `MainLayout` gives this sidebar's drawer as `overlayBelow` (1200), which is where it
-  stops being a column beside the content and starts overlaying it. Not one of the app's shared breakpoints
-  -- it belongs to this sidebar -- so it is stated here and cross-referenced there.
-*/
-
-/*
-  Diffed against `Page View 3x - Cobalt`/`Page View Dark 3x - Cobalt` (OpenProject #2774). The
-  column's own text, its section kicker and the active-row treatment go through
-  `--color-sidebar-*`/`--nav-active-inset` below, matching the mockups' dark-navy chrome.
-
-  The item and expansion-arrow GLYPHS take `--color-sidebar-icon` from this file rather than from
-  their own `color` prop. `WIcon` builds that prop's class at runtime (`text-${color}`) and Tailwind
-  only emits a utility it can see spelled out literally somewhere in source, so the prop resolves to
-  nothing at all and the glyph falls through to the row's inherited ink -- which is Ledger's chrome
-  slate on a light column, and unreadably dark on Cobalt's indigo one. This rule is the icon-safe
-  entry point that note asked for: an unlayered declaration (so it beats any utility that IS emitted)
-  naming the token the sidebar already has for exactly this, whose Ledger value is the same
-  `--color-slate-faint` the prop asked for.
+  Nav glyphs take their colour from here rather than from `WIcon`'s own `color` prop: that prop's
+  class is built at runtime (`text-${color}`), and Tailwind only emits a utility spelled out
+  literally in source, so the prop resolves to nothing and the glyph falls through to the row's
+  inherited ink -- unreadably dark on Cobalt's indigo column. Unlayered, so it beats any utility
+  that IS emitted.
 */
 .sidebar-nav .w-item .w-icon,
 .sidebar-nav .w-expansion-item__arrow {
   color: var(--color-sidebar-icon);
 }
 
-/*
-  A section heading between groups of nav items -- the language's own chrome overline, the same voice
-  the metadata rail's headings and the admin sidebar's section labels use
-  (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html` sets "DOCUMENTATION" above the tree exactly this
-  way). It used to take `text-caption`, which is the app's small BODY size, so a heading read as one
-  more nav row set slightly smaller than the rest.
-*/
 .sidebar-nav-header {
   padding: 0 18px 10px;
   color: var(--color-text-caption);
@@ -151,49 +110,35 @@ watch(
 .body--dark .sidebar-nav-header {
   color: var(--color-text-caption-dark);
 }
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Don't re-nest the rules below as `&-header`/`&-list`: selector concatenation is a Sass idiom,
+   and native CSS nesting silently drops such a rule rather than matching it. */
 @charset "UTF-8";
 .sidebar-nav {
   /*
-    The column's own foreground, stated rather than inherited: the drawer takes the site's chosen
-    sidebar colour (or, in dark mode, the ramp -- see `css/_base.css`), and what a nav row inherits
-    from the layout above it is the document's own ink either way.
-
-    Through `--color-sidebar-text` (`tailwind.css`, OpenProject #2767) rather than the bare `var(--color-slate)`
-    constant: Ledger's own default for the token is `var(--color-slate)`, the same literal value, so
-    this is unchanged for Ledger and is what lets Cobalt's own light nav text (`#d7deff`, legible on
-    the dark navy sidebar ground its own `--q-sidebar` default paints) take over.
+    Stated rather than inherited: a nav row would otherwise inherit the document's ink, which is
+    wrong over whatever sidebar colour the site picked. Via `--color-sidebar-text` so Cobalt's own
+    light nav text can take over; Ledger's value for the token is the plain slate this had before.
   */
   color: var(--color-sidebar-text);
-  /* -> Fills whatever the drawer's flex column has left over, rather than subtracting the action bar
-     and footer bar by hand: both are conditional, so a fixed `calc()` left dead space at the bottom
-     for an anonymous reader (no footer bar) and for a site with no action bar at all. `min-height: 0`
-     is what lets it shrink below its content so the scroll area actually scrolls. */
+  /* -> Fills whatever the drawer's flex column has left over. A fixed `calc()` cannot: the action
+     bar and footer bar are both conditional, so it left dead space when either was absent.
+     `min-height: 0` is what lets this shrink below its content so the scroll area actually
+     scrolls. */
   flex: 1 1 0;
   min-height: 0;
-  /* -> A flex column of its own, so `> nav` below can be sized by the SAME flex layout pass as this
-     element's own (flex-computed, potentially fractional-pixel) height -- see the comment there for
-     why that, rather than a percentage height, is what this needs to be. */
+  /* -> A flex column of its own, so `> nav` below is sized in the SAME layout pass as this
+     element's own height. */
   display: flex;
   flex-direction: column;
-  /* -> The `<nav>` inside this scroll area has no height rule of its own, so with few or zero items
-     it collapses to its content's height and leaves empty space below it that is inside
-     `.sidebar-nav` but OUTSIDE `<nav>` -- exactly the space `WMenu`'s root-level context-menu
-     trigger binds to. Without this, right-clicking that empty space (the case that matters most:
-     an empty or near-empty sidebar, where "right-click to create the first page" is the whole
-     point) has no `<nav>` surface under the pointer to bind to, and does nothing.
+  /* -> `<nav>` must fill this scroll area: with few or zero items it would otherwise collapse to
+     its content, leaving space inside `.sidebar-nav` but outside `<nav>` -- and that is exactly
+     where `WMenu`'s root context-menu trigger binds, so right-clicking an empty sidebar to create
+     the first page would do nothing.
 
-     `flex: 1 0 auto` rather than a percentage height (OpenProject #2535): a percentage height here
-     resolves against `.sidebar-nav`'s own flex-computed height in a SEPARATE layout pass, and that
-     height can be a fractional pixel value -- the two passes can round it differently, leaving `nav`
-     a hair taller than the actual available space and tripping `w-scroll-area`'s `overflow-auto`
-     even though nothing is actually cut off. Flex-growing `nav` inside `.sidebar-nav`'s own flex
-     column keeps both figures resolved by the same algorithm/pass, which does not have that
-     mismatch, while still guaranteeing `nav` is at least as tall as `.sidebar-nav`. */
+     `flex: 1 0 auto` rather than a percentage height: a percentage resolves against this element's
+     flex-computed, possibly fractional-pixel height in a SEPARATE pass, and the two passes can
+     round differently, leaving `nav` a hair too tall and tripping `w-scroll-area`'s
+     `overflow-auto` with nothing actually cut off. */
 }
 .sidebar-nav > nav {
   flex: 1 0 auto;
@@ -204,10 +149,8 @@ watch(
 }
 .sidebar-nav {
   /*
-    A first item that is a link -- on its own or as a group with children -- needs the space a first
-    header brings with it. A dense row's padding is 2px, so its label started hard against the rule under
-    the site header; a header's own `p-4` already stands it 16px clear, which is why this is only for the
-    two link shapes and not for every first child.
+    Only the two link shapes, not every first child: a dense row's 2px padding leaves its label
+    hard against the rule under the site header, while a header's own `p-4` already clears it.
   */
 }
 .sidebar-nav-list > .w-item:first-child,
@@ -218,9 +161,8 @@ watch(
   padding-top: 10px;
 }
 .sidebar-nav .w-list {
-  /* -> The chevron is what says the row opens, so it is not the secondary content a trailing
-     section is dimmed for: it takes the sidebar's own chrome tone at full strength. Set on the
-     icon rather than on its section, which is what makes it beat the inherited dimmed colour. */
+  /* -> The chevron says the row opens, so it is not the secondary content a trailing section is
+     dimmed for. Set on the icon, not its section, to beat that inherited dimming. */
 }
 .sidebar-nav .w-list .w-expansion-item__arrow {
   color: var(--color-slate-soft);
@@ -230,56 +172,29 @@ watch(
 }
 .sidebar-nav .w-list {
   /*
-    The row holding the page being read: lifted onto the content column's own white, with a 2px
-    accent bar down the edge it shares with the rest of the sidebar and its label in ink.
+    `router-link-exact-active` is `RouterLink`'s own, so the mark follows the reader with nothing
+    tracked here -- and a row rendered as a plain `<a>` (an address leaving the wiki, or a new tab)
+    never carries it, which is right: the reader is never already there.
 
-    This replaces a notch bitten out of the sidebar's inner edge -- a triangle painted in the
-    colour of the page beyond it, so the mark was a piece of the sidebar MISSING rather than
-    something drawn on it. That worked because the sidebar was a saturated column against a white
-    page; on Cardinal's tint the two grounds are four percent apart and the absence read as a
-    smudge. A bar states the same thing, and states it on the edge the reader is already scanning.
-
-    `router-link-exact-active` is `RouterLink`'s own, so the mark follows the reader without this
-    component tracking anything: a row rendered as a plain `<a>` -- an address that leaves the wiki
-    or opens in a new tab -- never carries it, which is right, because a reader is never already
-    there.
-
-    OpenProject #3364 (corrected scope): `.is-graph-selected` shares every rule below verbatim,
-    selector-for-selector, rather than a lookalike of its own -- explicit product direction was that
-    the sidebar row for whatever page the reader SELECTED while `/_graph` is open (clicking it there,
-    `composables/navSidebarDestination.js#isSelected`) must be styled EXACTLY like this "currently
-    reading this page" row, not merely similarly. It only ever binds on a leaf `<w-item>`
-    (`NavSidebarItem.vue`), same reach `router-link-exact-active` itself has -- a folder header is
-    never eligible either way (a click that anchors a folder never marks it "selected": see
-    `isSelected()`'s own anchor-trumps-selected guard).
+    `.is-graph-selected` (`navSidebarDestination.js#isSelected`) deliberately shares every rule
+    below selector-for-selector rather than approximating them: product direction is that the row
+    selected from the graph reads as EXACTLY the "reading this page" row, not merely like it.
   */
 }
 .sidebar-nav .w-list .w-item.router-link-exact-active,
 .sidebar-nav .w-list .w-item.is-graph-selected {
   background-color: var(--color-surface);
   color: var(--color-ink);
-  /*
-    The "Nav item, active" role table row (same doc/section as the base `.w-item` rule above) is
-    `600 13.5px sans` in both aesthetics -- the weight step is what marks the active row, same as
-    the Contents rail's own active entry (§4.4); this one just isn't a §4 swap, since neither
-    aesthetic changes it.
-  */
   font-weight: 600;
   /*
-    Logical, and paired with the padding below rather than layered over it: the bar is a real
-    border, so it takes 2px off the row's own inline-start padding and the label has to give
-    them back, or an active row's text would step 2px further in than its neighbours'.
-
-    Which physical side "inline-start" resolves to is the reader's direction, and that is the
-    right question here -- unlike the notch this replaces, which had to follow the CONTENT
-    column (a site setting) rather than the reading direction, and needed a `--flipped` variant
-    to do it. A bar on the edge you start reading from needs no such thing.
+    A real border, not an inset shadow, so it eats 2px of the row's inline-start padding -- the
+    padding below gives those back, or an active row's label would step 2px further in than its
+    neighbours'. Logical, so the bar sits on the edge the reader starts from.
   */
   border-inline-start: 2px solid var(--color-accent-fill);
   /*
-    Matches `.w-item`'s own depth-scaled base padding below (OpenProject #2951) minus these 2px
-    -- not a flat 14px, which would yank an active row nested N levels deep back toward the edge
-    regardless of how deep it actually sits, out of step with every other row at that depth.
+    Must track the depth-scaled base padding below, not a flat 14px: a flat value would yank an
+    active row nested N levels deep back toward the edge, out of step with its siblings.
   */
   padding-inline-start: calc(1rem + var(--nav-depth, 0) * 10px - 2px);
 }
@@ -298,12 +213,9 @@ watch(
 }
 .sidebar-nav .w-list .w-item.router-link-exact-active {
   /*
-    Cobalt marks the active row with a solid accent fill and white ink rather than Ledger's
-    white-on-tint row (`Page View 3x - Cobalt` mockup), via `--nav-active-inset` -- an INSET
-    box-shadow rather than a real border, so it draws inside the row's own box and needs no
-    compensating `padding-inline-start` the way the border above does. One rule for both themes:
-    `tailwind.css`'s Cobalt-dark block does not restate either token, since both mockups draw the
-    identical treatment.
+    Cobalt's mark is `--nav-active-inset`, an INSET box-shadow: it draws inside the row's own box,
+    so unlike the border above it needs no compensating `padding-inline-start`. One rule for both
+    Cobalt modes -- the dark block restates neither token.
   */
 }
 body.body--cobalt .sidebar-nav .w-list .w-item.router-link-exact-active,
@@ -318,22 +230,14 @@ body.body--cobalt .sidebar-nav .w-list .w-item.is-graph-selected .w-icon {
   color: var(--color-sidebar-active-text);
 }
 /*
-  OpenProject #3362/#3365: a visual indicator on whichever row is the knowledge graph's current
-  anchor (`route.query.path`) while `/_graph` is open -- `NavSidebarItem.vue` binds `is-graph-anchor`
-  off the shared `isAnchor(item)` predicate (`composables/navSidebarDestination.js`). Colored to the
-  same literal hex as the graph canvas's own anchor ring (`HIGHLIGHT_RING_COLOR`, `#ffd600`,
-  `graphDraw.js`) so a reader can tell the row and the yellow-ringed node are the same page/folder --
-  a ring, not the accent-fill "current page" treatment above, so the two states -- reading a page
-  versus the graph being anchored on it -- stay visually distinct rather than reusing one signal for
-  both. In practice they never coincide anyway: `route.path` stays `/_graph` the whole time the graph
-  is open, so `router-link-exact-active` (which needs a row's own resolved route to match) never
-  fires on any sidebar row while this indicator can.
+  Marks the row the knowledge graph is anchored on. The hex duplicates `graphDraw.js`'s
+  `HIGHLIGHT_RING_COLOR` deliberately -- keep the two in sync, or the row and its yellow-ringed
+  node stop reading as the same page. A ring rather than the accent fill above, so "reading this
+  page" and "the graph is anchored here" stay distinct signals.
 
-  `.w-expansion-item.is-graph-anchor > .w-expansion-item__header`, not a bare descendant selector,
-  for the folder case: the class binds on `NavSidebarItem.vue`'s `<w-expansion-item>` tag, which
-  Vue's attribute fallthrough lands on that component's own root `.w-expansion-item` wrapper, not on
-  its nested header row (`WExpansionItem.vue`'s template has the header as a direct child of that
-  wrapper) -- unlike the leaf `<w-item>` branch, whose own root element carries the class directly.
+  The folder case needs the `>` child combinator: `is-graph-anchor` falls through onto
+  `WExpansionItem`'s root wrapper, and a bare descendant selector would also catch nested rows'
+  headers. The leaf branch carries the class on its own element.
 */
 .sidebar-nav .w-list .w-item.is-graph-anchor,
 .sidebar-nav .w-list .w-expansion-item.is-graph-anchor > .w-expansion-item__header {
@@ -341,44 +245,15 @@ body.body--cobalt .sidebar-nav .w-list .w-item.is-graph-selected .w-icon {
 }
 .sidebar-nav .w-list {
   /*
-    OpenProject #3011: the plain hover/press tint on a non-active row must be a saturated blue
-    LIGHTENING wash in Cobalt, not `WItem.vue`'s shared gray darken/lighten -- the sidebar's own
-    surface is always dark navy in Cobalt (`--q-sidebar`, `#10194a` light-Cobalt / `#0e1540`
-    dark-Cobalt, `helpers/aestheticDefaults.js`'s `AESTHETIC_DEFAULT_COLORS`/
-    `AESTHETIC_DARK_CHROME`), so a Cobalt LIGHT row still needs LIGHTENING, not the `bg-black/8`
-    darkening `WItem.vue` applies whenever the app's `.body--dark` MODE class is absent -- wrong
-    whenever the row's own surface is dark regardless of app mode. Cobalt DARK already gets a
-    lightening tint from `WItem.vue`'s `dark:hover:bg-white/14`, so it isn't "backwards" there, but
-    it's a flat gray-white wash rather than the requested saturated blue.
+    The sidebar's hover/press tint lives at the bottom of this block, not here -- see
+    "Hand-converted @at-root escapes".
 
-    `!important` is what beats `WItem.vue`'s own Tailwind `hover:`/`active:`/`dark:hover:`/
-    `dark:active:` utility classes. `@at-root` with the full selector (rather than `&`) is what
-    keeps this from nesting under the surrounding `.sidebar-nav .w-list` scope, which it doesn't
-    need: `.w-item--clickable` is shared by menus/lists on ordinary light surfaces too, where the
-    generic black/8 treatment stays correct, so scoping through `.sidebar-nav` in the selector is
-    what confines this to the sidebar's own rows. The active-row fill just above
-    (`--color-sidebar-active-bg`) is untouched -- this only changes the tint on non-active rows.
+    The inset and radius apply to EVERY row, not only the active one, or the two would sit at
+    different widths and an inactive row's hover would still run edge to edge. Ledger's values for
+    both tokens are `0`, so it draws as a full-bleed band there.
 
-    OpenProject #3252: native CSS nesting has no `@at-root` equivalent, so this pair (and its
-    `.body--dark` sibling) is hand-converted to plain, unnested rules at the bottom of this style
-    block rather than nested here -- see "Hand-converted @at-root escapes" below.
-  */
-  /*
-    Cobalt's rows are plates rather than full-bleed bands: `Page View 3x - Cobalt` insets the whole
-    list 10px from the column's edges and rounds each row's corner, so the active fill reads as a
-    chip the reader could have clicked rather than as a stripe across the column. On EVERY row, not
-    only the active one, or the two would sit at different widths and the inactive rows' hover
-    would still run edge to edge.
-
-    Through `--radius-control`/`--nav-item-inset` so the rule is one statement: Ledger's values are
-    `0`, which is exactly what it draws today.
-
-    `font-size`/`font-weight` here are the "Nav item" role from the typography role table
-    (`ui-iteration-cobalt-typography/cobalt-typography.md` §3 "Sidebar") -- identical in both
-    aesthetics, only the row's own `color` (`--color-sidebar-text` above) differs between them.
-    Left unset, a row's label inherited the page's `body { font-size: 14px }` fallback (§2's "leak
-    to check for") instead of the sidebar's own 13.5px/400 role; the icon stays unaffected, since
-    `WItemSection`'s own `.w-item-section--side > .w-icon` rule sets its `font-size` explicitly.
+    `font-size`/`font-weight` are stated because an unset label inherits the page's 14px body size
+    instead of the sidebar's own role; the icon is unaffected, `WItemSection` sets its size.
   */
 }
 .sidebar-nav .w-list .w-item {
@@ -388,79 +263,37 @@ body.body--cobalt .sidebar-nav .w-list .w-item.is-graph-selected .w-icon {
   font-size: 13.5px;
   font-weight: 400;
   /*
-    OpenProject #2827: an open group's children used to be marked with a colored rail, a
-    background wash that compounded one step darker per nesting level, and a mitred elbow
-    pseudo-element turning the rail out of the row above -- the same treatment `NavEditOverlay`
-    draws for a nested nav item. That reading was dropped entirely: indentation and the
-    `.w-expansion-item__arrow` chevron are the only nesting cues left, so a deeper item shows
-    its depth by position alone, not by color.
+    Indentation and the chevron are the only nesting cues -- a deeper row shows its depth by
+    position, never by colour.
 
-    Per-level indent is real padding on the row's OWN box (OpenProject #2951), not a nested
-    chain of ancestor `.w-expansion-item__content` boxes each narrowing themselves by a
-    transparent `border-inline-start` -- what this used to be, and what #2951's directed fix
-    retired. `--nav-depth` is `NavSidebarItem.vue`'s own `depth` prop (0 at the sidebar root,
-    +1 per recursive level), threaded explicitly and set as this custom property on each row's
-    own root element -- see `NavSidebarItem.vue#depthStyle`'s own comment for why it lands here
-    reliably even for a folder row (whose style binds to `.w-expansion-item`, one level up).
-    Added on top of the row's base `px-4` (1rem) inline-start padding, so a depth-0 row renders
-    exactly as it always has, and `var(--nav-depth, 0)`'s fallback keeps a bare, prop-less match
-    at zero extra indent rather than guessing at one lane's worth.
+    Per-level indent is real padding on the row's OWN box rather than a chain of ancestor wrappers
+    each narrowing themselves by a transparent border, which is what makes every row span the
+    navbar's full width AT EVERY DEPTH: nothing upstream narrows its box per level, so a deeply
+    nested row's far edge lines up with a root row's.
 
-    This is also what makes every row span the navbar's full width AT EVERY DEPTH: nothing
-    upstream of this (`.w-list`, `.w-expansion-item__content`) narrows its own box per level any
-    more, so a deeply nested row's right edge lines up with a root row's, not with however many
-    ancestor borders happened to eat into it.
+    `--nav-depth` is `NavSidebarItem.vue`'s `depth` prop, set on each row's own root element. It
+    is added on top of the base 1rem padding, and the `0` fallback keeps a prop-less match at zero
+    extra indent rather than guessing at a lane's worth.
   */
   padding-inline-start: calc(1rem + var(--nav-depth, 0) * 10px);
   /*
-    Hovering a row lights ONE dot per ancestor indent lane it actually sits inside -- a depth
-    cue that appears only while navigating, rather than cluttering the tree at rest (OpenProject
-    #2906). This used to live on the shared ancestor `.w-expansion-item__content` wrapper as one
-    `::before` tiled with a `radial-gradient` every 8px down the wrapper's ENTIRE height -- which
-    is every row inside it, several levels of descendants included -- so instead of one dot per
-    row it drew a repeating column, and its `:has(:hover)` trigger matched as soon as ANY
-    descendant, at any depth, was hovered: a row nested three levels deep lit all three
-    ancestors' lanes at once, not just the lanes it actually sits inside.
+    Hovering a row lights ONE dot per ancestor indent lane it sits inside -- a depth cue that
+    appears only while navigating rather than cluttering the tree at rest.
 
-    The dot moved onto each ROW's own `::before` instead, which is what gives it a real notion
-    of "this one row's height" to center on, and a real hover trigger that is just `&:hover`, no
-    `:has()` needed at all: a folder's header row sits BESIDE its own `.content` (siblings, per
-    `WExpansionItem.vue`), never inside it, so no `.w-item` is ever a DOM ancestor of another --
-    hovering one can never put a second one into `:hover` state the way a shared ancestor
-    wrapper could.
+    It hangs off the ROW, which is what gives it one row's height to centre on and lets the
+    trigger be a plain `:hover`: a folder's header row sits BESIDE its own content wrapper, never
+    inside it, so no row is ever a DOM ancestor of another and no `:has()` is needed. On a shared
+    ancestor instead, hovering any descendant at any depth lit every enclosing lane at once.
 
-    That first fix scoped the hover correctly but still drew exactly one dot, reaching back only
-    the single CLOSEST lane, regardless of how many `.content` wrappers actually enclosed the
-    row (OpenProject #2932). `--nav-depth` fixed that -- but the fix reached BACKWARD from the
-    row's own edge (`inset-inline-start: calc((depth * -10px) - inset)`, `width: depth * 10px`),
-    which anchors the trail's NEAR end (closest to the icon) at the row's own fixed position and
-    grows the FAR end further away from the navbar edge as depth increases: exactly backward
-    from the wanted cue (anchored at the edge, reaching toward the icon), and the reported
-    Cobalt symptom -- dots flush against or past the column edge with no breathing room -- was
-    the same root cause, since the reach-back depended on subtracting `--nav-item-inset` to
-    compensate for the row's own gutter margin (OpenProject #2951).
+    Keep `--nav-item-inset` OUT of the offset below. `inset-inline-start` resolves against this
+    row's PADDING box, which never includes the row's own `margin-inline`, so compensating for
+    that margin here double-counts: it once resolved to Ledger's full 16px, landing the trail
+    flush on the icon. A flat `6px` gives both aesthetics the same gap.
 
-    Now that the indent lives on the row's own padding instead of a nested border chain (above),
-    the dot needs no reach-back math. `inset-inline-start` on this absolutely-positioned
-    `::before` is measured relative to `.w-item`'s own PADDING box, which never includes that
-    element's own `margin` -- `margin-inline: var(--nav-item-inset)` above sits OUTSIDE this box
-    entirely, invisible to this property. #2996 mistakenly treated it as visible, "correcting"
-    this offset to `calc(16px - var(--nav-item-inset, 0px))` on the theory that doing so kept
-    both aesthetics at the same true distance from the navbar's own left edge -- it doesn't:
-    Cobalt's row margin (10px) already opens its own gap before the dot trail even starts, so
-    that formula's 6px there landed correctly BY ACCIDENT, while Ledger's `--nav-item-inset`
-    fallback of 0 made the same formula resolve to 16px -- exactly where the icon itself sits
-    (`padding-inline-start` above), leaving Ledger's dot trail starting flush on the icon with no
-    gap at all (OpenProject #3031). The fix is a flat, aesthetic-independent `6px`: added to
-    Cobalt's own 10px row margin it reproduces Cobalt's already-correct 16px true offset
-    unchanged, and on its own it gives Ledger the same 10px gap before its icon that Cobalt has
-    always had. `width` still scales with `--nav-depth`, so it is the FAR end (toward the icon)
-    that moves as depth increases, but it is now 4px narrower per lane than the depth-indent
-    padding reserves, tightening the gap before the icon (clamped to `0px` at depth 0 via
-    `max()`, never a negative width). The dot image itself is a `repeat-x` tile exactly one lane
-    (10px) wide, so it draws once per lane crossed rather than once for the whole box regardless
-    of its width. `@media (hover: hover)` keeps a touch tap from leaving a lane lit (`WItem.vue`'s
-    own `:has(:disabled):hover` rule uses the same guard).
+    `width` scales with depth so the FAR end (toward the icon) is what moves, 4px narrower per
+    lane than the indent reserves, `max()`-clamped so depth 0 is never negative. The image is a
+    `repeat-x` tile exactly one lane wide, so it draws once per lane crossed rather than once for
+    the whole box. `@media (hover: hover)` keeps a touch tap from leaving a lane lit.
   */
 }
 .sidebar-nav .w-list .w-item::before {
@@ -482,22 +315,11 @@ body.body--cobalt .sidebar-nav .w-list .w-item.is-graph-selected .w-icon {
 }
 .sidebar-nav {
   /*
-    The active row's own bar follows the READING direction, not `sidebarPosition`, and so needs
-    nothing said about it here -- which is the whole reason it replaced the notch. That notch needed
-    two overrides this file no longer carries, plus a `sidebar-nav--flipped` class on the root to
-    drive one of them: a `--flipped` rule to bite it out of the other edge when a site puts its
-    sidebar on the right, and a breakpoint rule to suppress it entirely once the drawer overlays the
-    page, since a mark made of the page showing through has nothing to show through while it floats
-    OVER that page. Neither applies to a bar.
-  */
-  /*
-    A group heading: Cardinal's chrome overline, in tracked uppercase Roboto Mono. `!important`
-    because `WItemLabel`'s `header` variant sets its own colour.
+    `:not(.body--cobalt)` on the dark rules below: they are aesthetic-blind, so their specificity
+    would otherwise beat the token-based base colours and clobber Cobalt dark's own (correct,
+    inherited from Cobalt light) `--color-sidebar-*` values with Ledger's dark literals.
 
-    `:not(.body--cobalt)` on this and the `&-header` dark override below (OpenProject #2774): both
-    are aesthetic-blind `.body--dark` rules whose specificity would otherwise beat the token-based
-    base color regardless of aesthetic, clobbering Cobalt dark's own (already-correct, inherited
-    unchanged from Cobalt light) `--color-sidebar-*` values with Ledger's dark literals.
+    The heading's `!important` is there because `WItemLabel`'s `header` variant sets its own colour.
   */
 }
 .body--dark:not(.body--cobalt) .sidebar-nav {
@@ -513,8 +335,8 @@ body.body--cobalt .sidebar-nav .w-list .w-item.is-graph-selected .w-icon {
   font-weight: 600;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  /* -> WItemLabel's uniform `p-4` leaves the heading floating between its own group and the one
-     above it; tightening the bottom side ties it to the links it labels */
+  /* -> `WItemLabel`'s uniform `p-4` leaves the heading floating midway between its own group and
+     the one above; a tighter bottom side ties it to the links it labels. */
   padding-bottom: 4px;
 }
 .body--dark:not(.body--cobalt) .sidebar-nav-header {
@@ -522,14 +344,14 @@ body.body--cobalt .sidebar-nav .w-list .w-item.is-graph-selected .w-icon {
 }
 
 /*
-  Hand-converted @at-root escapes (OpenProject #3252). Both rules below used to read
-  `@at-root body.body--cobalt[.body--dark] .sidebar-nav .w-item--clickable { ... }` deliberately
-  WITHOUT `&`, nested inside `.sidebar-nav .w-list .w-item.is-active` above -- see that block's own
-  comment for why the full literal selector (rather than `&`) is what confines the rule to the
-  sidebar's own rows without inheriting the surrounding `.w-list` scope. Native CSS nesting has no
-  `@at-root`; a plain nested rule here would compile to `.sidebar-nav .w-list .w-item.is-active
-  body.body--cobalt .sidebar-nav .w-item--clickable`, which cannot match anything (`body` is never a
-  descendant of `.sidebar-nav`) -- so these stay flat, top-level rules instead.
+  Hand-converted @at-root escapes. These must stay flat, top-level rules: native CSS nesting has no
+  `@at-root`, so nesting them back under a `.sidebar-nav` rule above would compile to a selector
+  with `body` as a descendant of `.sidebar-nav`, which can never match.
+
+  Cobalt's sidebar surface is dark navy in BOTH modes, so a Cobalt light row needs a lightening
+  wash; `WItem.vue` darkens whenever the app's `.body--dark` class is absent, which is wrong for a
+  dark surface under a light app. `!important` beats `WItem.vue`'s own Tailwind state utilities,
+  and the `.sidebar-nav` scope keeps ordinary light-surface menus on the generic treatment.
 */
 body.body--cobalt .sidebar-nav .w-item--clickable {
   &:hover {

@@ -1,11 +1,3 @@
-/**
- * `Users.init()`'s admin-seeding logic (OpenProject #3141): a fresh database with no `ADMIN_PASS`
- * gets a random, per-install admin password rather than the old fixed `'12345678'` fallback, logged
- * exactly once so the operator can find it. Pure unit coverage — `CARDINAL.db.insert` is stubbed to
- * capture the rows `init()` writes rather than opening a real database, since nothing under test here
- * is SQL orchestration; see `models/users.crud.test.ts` / `models/users.reassignContent` for where the
- * DB-backed case actually applies.
- */
 import { afterEach, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import bcrypt from 'bcryptjs'
@@ -26,7 +18,6 @@ const IDS: SystemIds = {
   classificationRestrictedId: 'classification-restricted-id'
 }
 
-/** Captures every `.values(...)` call made against a `CARDINAL.db.insert(table)` stub. */
 interface CapturedInsert {
   table: unknown
   rows: any[]
@@ -49,14 +40,10 @@ function installWikiWithDbCapture(): {
       }))
     }
   })
-  // -> `installTestWiki`'s default logger is a shared silent no-op; this suite asserts on `error`
-  //    specifically (the level `init()` must use so the one-time password always renders), so it is
-  //    replaced per-call the same way `createSilentLogger`'s own doc comment describes.
   CARDINAL.logger.error = errorLog
   return { restore: handle.restore, inserts, errorLog }
 }
 
-/** The row `init()` inserted for the admin account, out of the two-row `usersTable` insert. */
 function adminRow(inserts: CapturedInsert[]): any {
   const usersInsert = inserts.find((insert) =>
     insert.rows.some((row) => row.id === IDS.userAdminId)

@@ -2,12 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { mountGraph } from './graphFixtures.js'
 
-/*
- * OpenProject #2478 (Feature #2414's Scope): the graph filter panel's keyword input. This is
- * deliberately UI-only coverage -- no network call and no effect on the rendered graph yet. Wiring
- * the keyword to `GET sites/:siteId/pages/search` (#2479) and highlighting matched nodes (#2480) are
- * separate work packages with their own suites once they land.
- */
 describe('Graph.vue filter panel keyword input (OpenProject #2478)', () => {
   it('renders a w-input labeled via graph.filters.keyword, alongside the tags/folderDepth/locale controls', async () => {
     const wrapper = await mountGraph({
@@ -17,9 +11,8 @@ describe('Graph.vue filter panel keyword input (OpenProject #2478)', () => {
     const panel = wrapper.find('.graph-view-filters')
     expect(panel.exists()).toBe(true)
     expect(panel.text()).toContain('xx-keyword')
-    // -> A w-input, not a w-select: an existing Graph.fallback.test.js test counts `.w-select`s
-    //    under this same panel to assert the locale filter's own visibility, so the keyword control
-    //    must not add one.
+    // -> A w-input, not a w-select: `Graph.fallback.test.js` counts `.w-select`s under this panel
+    //    to assert the locale filter's visibility, so the keyword control must not add one.
     expect(panel.findAll('.w-input').length).toBeGreaterThan(0)
   })
 

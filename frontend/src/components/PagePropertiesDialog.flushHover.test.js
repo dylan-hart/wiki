@@ -13,14 +13,9 @@ import { createTestI18n } from '../../test/i18n.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #3470 (Feature #3464): the two icon buttons in the Page Properties dialog's title
- * `.w-toolbar` (docs link, close) take the shared `.flush-hover-btn` primitive (`css/_base.css`,
- * #3465), so their hover is a square cell running the band's full height and touching the panel's
- * right edge, in Ledger and Cobalt, light and dark.
- *
- * Two layers: the mounted component (which classes the buttons carry) and the real CSS in real
- * Chromium (the cascade fight against WBtn's inline `min-height`/`padding` and the `!important`
- * radius rule is what makes this worth testing at all -- and it is where the corner clipping shows).
+ * The real-Chromium layer is what makes this worth testing: the cascade fight against WBtn's inline
+ * `min-height`/`padding` and the `!important` radius rule only resolves in a real layout, and so
+ * does the corner clipping.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url))

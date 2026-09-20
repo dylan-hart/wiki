@@ -50,40 +50,26 @@ import { useSiteStore } from '@/stores/site'
 import { PICKABLE_EDITORS } from '@/helpers/editorPicker'
 
 /**
- * Picks which editor a new page should open in.
+ * Reuses `AdminEditors.vue`'s own `admin.editors.*Name` / `*Description` locale keys rather than
+ * duplicating the wording, so the two listings cannot drift apart.
  *
- * Lists whichever of `PICKABLE_EDITORS` this site currently has active (`siteStore.editors`,
- * populated from `GET sites/:siteId`'s `editors.<id>.isActive`), each with the same name/description
- * copy `AdminEditors.vue` shows for it -- reusing the very same `admin.editors.*Name` /
- * `admin.editors.*Description` locale keys rather than duplicating the wording, so the two can never
- * drift apart.
- *
- * Opened via `pickEditor()` (`helpers/editorPicker.js`), which is also what decides whether to open
- * this at all -- a single active editor skips it entirely. This component only has to render
- * whatever list it is handed and answer with one of them:
- *
- *   dialog({ component: EditorPickerDialog }).onOk(({ editor }) => ...)
+ * `pickEditor()` (`helpers/editorPicker.js`) decides whether to open this at all -- a site with a
+ * single active editor never sees it.
  */
-
-// EMITS
 
 defineEmits([...dialogComponentEmits])
 
-// DIALOG
-
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
-
-// STORES
 
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// COMPUTED
-
-/** Icon per editor id, matching `AdminEditors.vue`'s own `editors` array. */
+/*
+  FIXME: these are leftover 2.x asset names, not Iconify references -- `WIcon` resolves anything
+  without a `<prefix>:` to `kind: 'none'`, so every plate in this list draws empty. Use the
+  `tabler:*` names `AdminEditors.vue` already lists for the same editors.
+*/
 const EDITOR_ICONS = {
   asciidoc: 'asciidoc',
   code: 'html',
@@ -97,8 +83,6 @@ const activeEditors = computed(() =>
     icon: EDITOR_ICONS[id]
   }))
 )
-
-// METHODS
 
 function select(editor) {
   onDialogOK({ editor })

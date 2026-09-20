@@ -9,10 +9,9 @@ import OidcAuthentication, { mapOidcProfile } from './authentication.ts'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
- * `authorizationUrl` is exercised for real here (no `OidcAuthentication.prototype` mocking) via the
- * `useDiscovery: false` branch of `configuration()`, which builds a `client.Configuration` directly
- * from the endpoints given rather than fetching a discovery document — so this needs no network and
- * still runs the actual `openid-client` `buildAuthorizationUrl` call.
+ * Exercised for real, with no `OidcAuthentication.prototype` mocking: the `useDiscovery: false`
+ * branch builds a `client.Configuration` straight from the endpoints given rather than fetching a
+ * discovery document, so the actual `openid-client` `buildAuthorizationUrl` runs with no network.
  */
 describe('OidcAuthentication#authorizationUrl', () => {
   const manualConf = {
@@ -45,7 +44,6 @@ describe('OidcAuthentication#authorizationUrl', () => {
     })
     const url = new URL(await auth.authorizationUrl(flow))
     assert.equal(url.searchParams.get('claims'), claims)
-    // -> The generic params this module has always sent are still present alongside it
     assert.equal(url.searchParams.get('redirect_uri'), flow.redirectUri)
     assert.equal(url.searchParams.get('state'), flow.state)
   })
@@ -91,10 +89,8 @@ describe('OidcAuthentication#authorizationUrl', () => {
 })
 
 /**
- * `mapOidcProfile` is where every OIDC preset's group-claim mapping actually lives — the branded
- * presets (`auth0/authentication.ts` and friends) inherit it unchanged by delegating to this module,
- * so exercising it here covers them too; each preset's own test only has to prove its config reaches
- * this class unmodified (see e.g. `auth0/authentication.test.ts`).
+ * Every branded OIDC preset delegates its claim mapping here, so these cases cover them too — a
+ * preset's own test only has to prove its config reaches this class unmodified.
  */
 describe('mapOidcProfile', () => {
   const conf = { emailClaim: 'email', displayNameClaim: 'name' }
@@ -189,11 +185,6 @@ describe('mapOidcProfile', () => {
     assert.equal(profile.email, 'person@example.com')
   })
 
-  /*
-    Feature #2608. Every OIDC preset inherits these too, for the same reason the group-claim tests
-    above cover them: `auth0`, `okta`, `microsoft`, `keycloak` and `gitlab` all map through this one
-    function, so a claim read added here is a claim read added to all of them.
-  */
   test('reads the standard given_name/family_name claims into the separated halves', () => {
     const profile = mapOidcProfile(conf, 'sub-1', {
       email: 'person@example.com',
@@ -203,8 +194,7 @@ describe('mapOidcProfile', () => {
     })
     assert.equal(profile.firstName, 'Alice')
     assert.equal(profile.lastName, 'Example')
-    // -> `name` keeps coming from the display-name claim; deriving it from the halves is
-    //    `models/users.ts`'s job, not this mapper's.
+    // -> Deriving `name` from the halves is `models/users.ts`'s job, not this mapper's.
     assert.equal(profile.name, 'Alice Example')
   })
 
@@ -278,10 +268,6 @@ describe('mapOidcProfile', () => {
     assert.equal('lastName' in profile, false)
   })
 
-  /*
-    Feature #3208. Every OIDC preset inherits this too, the same way it inherits the group-claim and
-    name-halves mapping above.
-  */
   test('reads the standard picture claim into the profile', () => {
     const profile = mapOidcProfile(conf, 'sub-1', {
       email: 'person@example.com',

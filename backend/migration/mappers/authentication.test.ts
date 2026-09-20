@@ -9,16 +9,10 @@ import {
 import { installTestWiki } from '../../test/mocks.ts'
 
 /**
- * `mapAuthenticationRow(s)` (task 765) tests.
- *
- * The resolver under test is the *real* `CARDINAL.models.authentication` singleton, not a hand-rolled
- * fake — per the task description ("going through `Authentication.buildConfig`/`validateConfig` ...
- * against each module's `definition.yml` props"), so this suite boots the minimal slice of `CARDINAL`
- * that `getModule`/`buildConfig`/`validateConfig` actually touch: `CARDINAL.data.authentication`,
- * populated by `refreshStrategiesFromDisk()` reading the real
- * `backend/modules/authentication/*\/definition.yml` files straight off disk. None of the three
- * methods this mapper calls touches `CARDINAL.db`, so this needs no database — see `worker.ts`'s own
- * minimal-`CARDINAL` pattern for the precedent this mirrors.
+ * The resolver is the *real* `CARDINAL.models.authentication` singleton, so the mapper is checked
+ * against each module's on-disk `definition.yml` rather than a fake's idea of one. None of
+ * `getModule`/`buildConfig`/`validateConfig` touches `CARDINAL.db`, so `installTestWiki` plus
+ * `refreshStrategiesFromDisk()` is the whole harness — no database.
  */
 
 let wikiHandle: { restore(): void }
@@ -87,9 +81,8 @@ describe('buildAllowedEmailRegex', () => {
   test('the trailing $ anchor is load-bearing: without it, a domain with a malicious suffix would pass', () => {
     const regex = buildAllowedEmailRegex(['example.com'])
     const unanchoredAtEnd = new RegExp(regex.replace(/\$$/, ''))
-    // -> Exactly the case the trailing $ exists to prevent: users.ts's `new RegExp(pattern).test(email)`
-    //    has no anchoring of its own, so a pattern missing $ would accept "example.com" as a mere
-    //    prefix of the actual domain rather than requiring it to be the whole domain.
+    // -> `login.ts#assertAllowedProviderEmail` tests the stored pattern as-is, adding no anchoring of
+    //    its own, so a pattern missing $ accepts "example.com" as a mere prefix of the real domain.
     assert.ok(unanchoredAtEnd.test('user@example.com.evil.org'))
     assert.equal(new RegExp(regex).test('user@example.com.evil.org'), false)
   })
@@ -158,8 +151,7 @@ describe('mapAuthenticationRow', () => {
   })
 
   test('unsupported module: no 3.0 definition.yml -> unsupported, no row', async () => {
-    // -> 'firebase' has no backend/modules/authentication/firebase/ directory as of this writing
-    //    (ldap gained one after this test was originally written against it -- see Feature 354).
+    // -> The fixture depends on there being no backend/modules/authentication/firebase/ directory.
     const result = mapAuthenticationRow(baseRow({ key: 'firebase', strategyKey: 'firebase' }), {
       resolver: await resolver()
     })

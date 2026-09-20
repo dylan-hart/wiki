@@ -1,31 +1,7 @@
 /**
- * Structural checks for OpenProject #2684 ("Build the pinned CI-parity image, replacing
- * `.devcontainer/`'s current setup"), under Feature #2601.
- *
- * The image's claim is that a green run inside it means a green run in CI. That claim decays
- * silently -- nothing fails, the container just quietly stops being what the runner is -- so the
- * parts of it that ARE mechanically checkable are checked here:
- *
- *   * the Node patch is pinned exactly, declared once, and nothing downstream defeats the pin
- *     (all three of which were false before this WP: the Dockerfile digest-pinned 26.7.0,
- *     docker-compose.yml overrode it with a floating `VARIANT: 26`, and devcontainer.json layered
- *     a third, nvm-managed Node on top via the `devcontainers/features/node` feature);
- *   * every tool a workflow installs onto the runner before it can run the gate -- pandoc, a
- *     pinned git-cliff, Playwright's chromium -- is in the image, at the SAME version;
- *   * the git configuration is stated rather than inherited from the host (Bug #2586);
- *   * only what CI has starts by default; a developer-only service sits behind a compose profile.
- *
- * The cross-check this file originally deferred -- that `.github/workflows/*.yml`'s own
- * `node-version:` equals the image's pin -- landed with Task #2685 and is asserted below. It is
- * the half of Feature #2601 that a comment cannot hold on its own: an image on 26.8.1 and a
- * workflow on 26.5.0 are both "Node 26", so the drift is invisible until something breaks in one
- * place and not the other. #2685 also settled what `engines` means next to a pin, and that
- * decision is asserted here rather than only written down -- see its describe block.
- *
- * Neither `.devcontainer/` nor `.github/` has a test workspace of its own to sit next to, so this
- * lives here as a structural/self-consistency check against repo-root files -- the same category
- * `devcontainerDatabaseUrl.test.ts`, `postgres-version-consistency.test.ts` and
- * `devcontainerPuppeteerVersion.test.ts` already establish for this exact directory.
+ * The devcontainer's claim is that a green run inside it means a green run in CI, and that claim
+ * decays silently -- nothing fails, the container just quietly stops being what the runner is. The
+ * mechanically checkable parts of it are asserted here so the decay has to announce itself.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -38,12 +14,9 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const read = (relPath: string) => fs.readFileSync(path.join(REPO_ROOT, relPath), 'utf8')
 
 /**
- * Drops whole-line comments (`#` for YAML/shell, `//` for the JSONC devcontainer.json).
- *
- * Every "this must NOT appear" check below is about the configuration, not about the prose
- * explaining it -- and the prose necessarily quotes the very things being forbidden ("it passed
- * `VARIANT: 26`...", "...no longer needs `npm run install-browsers`"). Without this, documenting a
- * rule is what breaks it.
+ * Every "this must NOT appear" check below is about the configuration, not the prose explaining it
+ * -- and that prose necessarily quotes the very strings being forbidden. Without this, documenting
+ * a rule is what breaks it.
  */
 function withoutComments(text: string): string {
   return text
@@ -59,7 +32,6 @@ const QUALITY_YML = read('.github/workflows/quality.yml')
 
 const compose: any = load(read('.devcontainer/docker-compose.yml'))
 
-/** The value of a single-valued `ARG <name>=<value>` line in the Dockerfile. */
 function dockerArg(name: string): string {
   const matches = [...DOCKERFILE.matchAll(new RegExp(`^ARG ${name}=(.+)$`, 'gm'))]
   assert.equal(
@@ -70,7 +42,6 @@ function dockerArg(name: string): string {
   return matches[0]![1]!.trim()
 }
 
-/** A dependency's version from any of a package.json's dependency sections. */
 function declaredVersion(relPath: string, name: string): string {
   const pkg = JSON.parse(read(relPath))
   const version =
@@ -81,7 +52,6 @@ function declaredVersion(relPath: string, name: string): string {
 
 const WORKFLOWS_DIR = '.github/workflows'
 
-/** Every workflow file GitHub Actions would actually pick up, sorted for a stable failure message. */
 function workflowFiles(): string[] {
   return fs
     .readdirSync(path.join(REPO_ROOT, WORKFLOWS_DIR))
@@ -90,11 +60,8 @@ function workflowFiles(): string[] {
 }
 
 /**
- * Every `node-version:` in one workflow file, with the line it sits on.
- *
- * Read out of the source text rather than the parsed YAML on purpose: the parse loses line numbers,
- * and a failure here is only actionable if it names the line to edit. Nothing else in these files
- * spells `node-version`, so a textual scan and a parse would agree anyway.
+ * Scanned out of the source text rather than the parsed YAML: the parse loses line numbers, and a
+ * failure here is only actionable if it names the line to edit.
  */
 function nodeVersionsIn(relPath: string): { line: number; value: string }[] {
   return read(relPath)
@@ -124,15 +91,13 @@ describe('devcontainer CI parity: the pinned Node patch (#2684)', () => {
   })
 
   test('the build asserts at image-build time that the running Node matches NODE_VERSION', () => {
-    // A digest and a version literal can disagree -- someone bumps one and forgets the other. That
-    // has to fail the build, or the image ships a runtime every comment in the repo misdescribes.
+    // A digest and a version literal can disagree -- one bumped, the other forgotten. That has to
+    // fail the build rather than ship an image whose runtime nothing in the repo describes.
     assert.match(DOCKERFILE, /node -v/)
     assert.match(DOCKERFILE, /v\$\{NODE_VERSION\}/)
   })
 
   test('docker-compose.yml passes no build args, so it cannot override the pin', () => {
-    // The concrete regression this guards: `VARIANT: 26` here silently defeated a carefully
-    // digest-pinned Dockerfile for the whole life of the previous setup.
     assert.equal(
       compose.services.app.build.args,
       undefined,
@@ -166,15 +131,11 @@ describe('devcontainer CI parity: the pinned Node patch (#2684)', () => {
 })
 
 describe('devcontainer CI parity: CI runs the same pinned patch (#2685)', () => {
-  // Deferred from #2684 with nothing to pin TO -- the workflows still said `26.x` while it landed.
-  // This is the assertion that makes the parity claim non-drifting rather than merely true on the
-  // day it was written: `26.8.1` in the image and `26.5.0` on the runner are both "Node 26", so a
-  // divergence produces no error anywhere, just a test that passes in one place and not the other.
+  // `26.8.1` in the image and `26.5.0` on the runner are both "Node 26", so this divergence
+  // produces no error anywhere -- just a test that passes in one place and not the other.
   const workflows = workflowFiles()
 
   test('there are workflow files to scan at all', () => {
-    // Guards the scan itself: a rename of the directory, or a glob that stops matching, would
-    // otherwise turn every check below into a vacuous pass over an empty list.
     assert.ok(
       workflows.length > 0,
       `expected .yml workflow files under ${WORKFLOWS_DIR}/, found none -- the scan below is only ` +
@@ -207,9 +168,8 @@ describe('devcontainer CI parity: CI runs the same pinned patch (#2685)', () => 
   })
 
   test('every setup-node step declares a node-version, rather than taking the runner default', () => {
-    // setup-node with no node-version installs whatever the runner image already ships, which is
-    // the floating resolution this Feature exists to remove -- reintroduced by omission instead of
-    // by a range, and invisible in a diff that only greps for `26.x`.
+    // setup-node with no node-version installs whatever the runner image ships: the same floating
+    // resolution a range gives, reintroduced by omission and invisible to a grep for `26.x`.
     for (const name of workflows) {
       const text = read(`${WORKFLOWS_DIR}/${name}`)
       const setupSteps = [...text.matchAll(/uses:\s*actions\/setup-node@/g)].length
@@ -224,20 +184,14 @@ describe('devcontainer CI parity: CI runs the same pinned patch (#2685)', () => 
 })
 
 describe('the pin and `engines` answer different questions (#2685)', () => {
-  // #2685 was asked to decide whether `engines` moves with the pin. It does not, and this block is
-  // where that decision is enforced rather than merely written down.
-  //
-  //   * the pin (ARG NODE_VERSION / node-version:) is "what we run" -- one exact patch, so the
-  //     image and the runner cannot resolve different ones;
-  //   * `engines` is "what this code is compatible with" -- a floor, for whoever installs it.
-  //
-  // Collapsing the second into the first would make `npm ci` refuse a perfectly compatible 26.9.0
-  // and turn every currency bump into a lockstep edit across four package.json files, buying no
-  // correctness. What DOES need policing is the pair drifting a major apart, which is a real
-  // incompatibility rather than a bookkeeping difference -- so that is what is asserted.
+  // `engines` deliberately does NOT move with the pin: the pin is "what we run" (one exact patch,
+  // so image and runner cannot resolve different ones), `engines` is "what this code is compatible
+  // with" (a floor, for whoever installs it). Collapsing them would make `npm ci` refuse a
+  // compatible 26.9.0 and turn every bump into a four-file lockstep edit, buying no correctness.
+  // Only the pair drifting a whole major apart is a real incompatibility, so that is what is
+  // asserted.
   const WORKSPACES = ['backend', 'frontend', 'blocks', 'e2e'] as const
 
-  /** `engines.node` for a workspace, or null where it declares none (blocks/ and e2e/ today). */
   function enginesNode(workspace: string): string | null {
     return JSON.parse(read(`${workspace}/package.json`)).engines?.node ?? null
   }
@@ -250,8 +204,8 @@ describe('the pin and `engines` answer different questions (#2685)', () => {
     test(`${workspace}/package.json's engines.node stays a floor, not a second copy of the pin`, () => {
       const declared = enginesNode(workspace)
       if (declared === null) {
-        // No `engines` is a legitimate state for a workspace nobody installs as a dependency; the
-        // rule is about the shape of the statement when one IS made, not about making one.
+        // No `engines` is legitimate for a workspace nobody installs as a dependency: the rule is
+        // about the shape of the statement when one IS made, not about making one.
         return
       }
       assert.match(
@@ -305,8 +259,8 @@ describe('devcontainer CI parity: the tools the gate needs (#2684)', () => {
   })
 
   test('git-cliff is fetched for the running architecture, not hard-coded to x86_64', () => {
-    // This image is built natively on arm64 too (Apple Silicon); an x86_64-only tarball installs a
-    // binary that cannot execute at all there.
+    // The image is built natively on arm64 too; an x86_64-only tarball installs a binary that
+    // cannot execute there at all.
     assert.match(DOCKERFILE, /dpkg --print-architecture/)
     assert.match(DOCKERFILE, /aarch64-unknown-linux-gnu/)
     assert.match(DOCKERFILE, /x86_64-unknown-linux-gnu/)
@@ -321,7 +275,7 @@ describe('devcontainer CI parity: the tools the gate needs (#2684)', () => {
 
   test('the browser lives on a shared path, not in the installing user\u2019s home', () => {
     // The install runs as root; the container runs as `node`. A browser under /root/.cache is
-    // invisible to it, and frontend/test/realGridLayout.js reports that as a SKIP, not a failure.
+    // invisible to it, and a browser-backed suite reports that as a SKIP, not a failure.
     assert.match(DOCKERFILE, /^ENV PLAYWRIGHT_BROWSERS_PATH=\/ms-playwright$/m)
     assert.match(DOCKERFILE, /chmod -R a\+rX "\$PLAYWRIGHT_BROWSERS_PATH"/)
   })
@@ -366,15 +320,13 @@ describe('devcontainer CI parity: a pinned, newer git built from source (#3215)'
   })
 
   test('git is built with make prefix=/usr, not the default /usr/local', () => {
-    // The whole point of building from source ourselves rather than using
-    // devcontainers/features/git: installing to /usr instead of /usr/local keeps the system config
-    // at /etc/gitconfig, which the git-configuration RUN below this one depends on.
+    // Installing to /usr rather than /usr/local keeps the system config at /etc/gitconfig, which
+    // the git-configuration RUN depends on -- the reason for building from source at all.
     assert.match(DOCKERFILE, /make prefix=\/usr NO_RUST=1 -j"\$\(nproc\)" all/)
     assert.match(DOCKERFILE, /make prefix=\/usr NO_RUST=1 install/)
   })
 
   test('the build asserts at image-build time that the installed git matches GIT_VERSION', () => {
-    // Same drift-cannot-ship-quietly reasoning as the Node pin assertion above.
     assert.match(DOCKERFILE, /actual="\$\(git --version \| awk '\{print \$3\}'\)"/)
     assert.match(DOCKERFILE, /if \[ "\$actual" != "\$\{GIT_VERSION\}" \]; then/)
   })
@@ -392,9 +344,8 @@ describe('devcontainer CI parity: a pinned, newer git built from source (#3215)'
 
 describe('devcontainer CI parity: git is configured, not inherited (#2684, Bug #2586)', () => {
   test('init.defaultBranch is stated explicitly', () => {
-    // #2586: a fixture ran `git init` with no --initial-branch and pushed `main`. The developer's
-    // host had init.defaultBranch=main configured and the runner did not, so fifteen subtests
-    // passed locally and failed in CI and could not be reproduced on the machine that wrote them.
+    // An inherited init.defaultBranch is how a `git init` fixture passes on the author's host and
+    // fails on the runner, reproducible on neither machine from the other.
     assert.match(DOCKERFILE, /git config --system init\.defaultBranch \S+/)
   })
 
@@ -404,9 +355,8 @@ describe('devcontainer CI parity: git is configured, not inherited (#2684, Bug #
   })
 
   test('the git feature is not enabled, which would orphan those settings', () => {
-    // devcontainers/features/git builds git under /usr/local, whose system config is
-    // /usr/local/etc/gitconfig -- so everything written to /etc/gitconfig above would still be on
-    // disk and silently no longer read.
+    // That feature's git lives under /usr/local, whose system config is /usr/local/etc/gitconfig --
+    // so everything written to /etc/gitconfig above stays on disk and is silently no longer read.
     assert.doesNotMatch(
       withoutComments(DEVCONTAINER_JSON),
       /"ghcr\.io\/devcontainers\/features\/git:/
@@ -420,9 +370,8 @@ describe('devcontainer CI parity: git is configured, not inherited (#2684, Bug #
 
 describe('devcontainer CI parity: only what CI has starts by default (#2684)', () => {
   test('every service beyond app, db and minio is behind a compose profile', () => {
-    // minio joined the CI-equivalent set alongside db in #3153: quality.yml's own MinIO container
-    // stands in for the archived s3rver, so the devcontainer's `minio` service must start by
-    // default too, the same way `db` does.
+    // `minio` is CI-equivalent, not a developer tool: quality.yml runs a MinIO container of its
+    // own, so this one has to start by default the same way `db` does.
     for (const [name, service] of Object.entries<any>(compose.services)) {
       if (name === 'app' || name === 'db' || name === 'minio') {
         assert.equal(
@@ -441,7 +390,6 @@ describe('devcontainer CI parity: only what CI has starts by default (#2684)', (
   })
 
   test('pgAdmin specifically is one of them', () => {
-    // Named because the parent Feature calls it out by name as the worked example.
     assert.deepEqual(compose.services.pgadmin.profiles, ['tools'])
   })
 

@@ -1,28 +1,20 @@
 import { reactive } from 'vue'
 
 /**
- * Toast notifications.
+ * Toast notifications: a module singleton rather than a composable, since there is one stack for the
+ * whole app and nothing here needs a component instance.
  *
- * A plain module singleton rather than a composable -- there is exactly one notification stack for
- * the whole app, and nothing here depends on a component instance. `<w-notifications>` (mounted
- * once in App.vue) renders `queue`.
- *
- * Scope note: this covers only what the app actually calls. A survey of the 252 existing call sites
- * found just `type` (positive / negative / warning), `message`, `caption`, `icon` and `timeout` in
- * use, so the positioning / html features of the plugin this replaces are intentionally absent. A
- * single `action` (label + callback) was added for OpenProject #2073's undo-discard toast -- still
- * far short of that plugin's full multi-action API, and not meant to grow into it; add a second
- * action only if a real second call site needs one. Grouping is kept, because it is not opt-in:
- * repeating the same message -- a save that fails on every keystroke, say -- otherwise fills the
- * screen with identical toasts. A notification carrying an `action` is never grouped: its callback
- * closes over state (e.g. a specific discarded-content snapshot) that a merged, count-bumped toast
- * could silently go stale against.
+ * Deliberately narrow -- this covers what the app actually calls, and is not meant to grow back into
+ * the full API of the plugin it replaces; add a second `action` only when a real call site needs
+ * one. Grouping is not opt-in: a message that repeats on every keystroke would otherwise fill the
+ * screen with identical toasts. A notification carrying an `action` is never grouped, because that
+ * callback closes over state a merged, count-bumped toast could silently go stale against.
  */
 
 /**
  * @typedef {object} NotificationAction
- * @property {string} label Button text.
- * @property {() => void} onClick Called when clicked; the toast is then dismissed.
+ * @property {string} label
+ * @property {() => void} onClick The toast is dismissed afterwards.
  */
 
 /** @type {Array<{ id: number, type: string, message: string, caption: string|null, icon: string, timeout: number, count: number, action: NotificationAction|null }>} */
@@ -36,25 +28,10 @@ let seq = 0
  */
 const timers = new Map()
 
-/**
- * Visual presets per type. Icons are Iconify references (`<prefix>:<name>`) resolved through
- * `<w-icon>`, matching the equivalents from the mdi-v7 icon set that were previously in use.
- */
 const PRESETS = {
   /*
-    Cardinal fills each toast in the status colour it is about, and picks the foreground per fill
-    rather than defaulting to white: `warning` is the one light enough to need dark ink over it
-    (#d9a441 under white is 2.5:1, under `--color-ink` 7.0:1). `info` is the chrome slate, which is
-    also what the design's fourth, action-carrying toast is drawn in.
-
-    `bg-positive`/`bg-negative`/`bg-warning`/`bg-info` resolve through `--q-positive`/`-negative`/
-    `-warning`/`-info`, seeded per-aesthetic by `helpers/aestheticDefaults.js#aestheticStatusColors()`
-    and applied by `App.vue#applyTheme()` (OpenProject #2814, resolving the gap Feature #2763/#2772
-    logged: these four used to be fixed Ledger literals -- two hardcoded, two never even set --
-    regardless of aesthetic). `Primitives Dark 3x - Cobalt.dc.html`'s own toast swatches
-    (`#1f7a5f`/`#a8262f`/`#d9a441`/`#1f2a6b`) are dark-mode-specific values the `--q-*` architecture
-    still has no override slot for (same acknowledged gap as `--q-header`/`--q-sidebar`) -- Cobalt
-    seeds one value used in both light and dark, left for future work alongside that gap.
+    The foreground is picked per fill rather than defaulting to white: `warning` is the one fill
+    light enough to need dark ink over it (#d9a441 is 2.5:1 under white, 7.0:1 under `--color-ink`).
   */
   positive: { icon: 'tabler:circle-check', classes: 'bg-positive text-white' },
   negative: { icon: 'tabler:alert-triangle', classes: 'bg-negative text-white' },
@@ -64,10 +41,7 @@ const PRESETS = {
 
 const DEFAULT_TIMEOUT = 5000
 
-/**
- * Remove a notification by id. Safe to call for an id that has already gone.
- * @param {number} id
- */
+/** Safe to call for an id that has already gone. */
 export function dismiss(id) {
   clearTimeout(timers.get(id))
   timers.delete(id)
@@ -77,7 +51,6 @@ export function dismiss(id) {
   }
 }
 
-/** (Re)starts a notification's auto-dismiss timer. A timeout of 0 means it stays until dismissed. */
 function schedule(n) {
   clearTimeout(timers.get(n.id))
   if (n.timeout > 0) {
@@ -88,22 +61,19 @@ function schedule(n) {
   }
 }
 
-/** Two notifications are the same notification when they would render identically. */
+/** Two notifications group together when they would render identically. */
 function groupKey({ type, message, caption, icon }) {
   return JSON.stringify([type, message, caption, icon])
 }
 
 /**
- * Show a notification.
- *
  * @param {object|string} opts Options, or a bare string treated as the message.
  * @param {'positive'|'negative'|'warning'|'info'} [opts.type='info']
  * @param {string} opts.message
- * @param {string} [opts.caption] Secondary line, rendered smaller and dimmed.
+ * @param {string} [opts.caption]
  * @param {string} [opts.icon] Iconify reference, overriding the type preset.
- * @param {number} [opts.timeout=5000] Auto-dismiss delay in ms; 0 disables auto-dismiss.
- * @param {NotificationAction} [opts.action] A single labeled button, e.g. an "Undo" offer. Never
- *   grouped with another notification -- see the module doc comment above.
+ * @param {number} [opts.timeout=5000] Milliseconds; 0 disables auto-dismiss.
+ * @param {NotificationAction} [opts.action] Never grouped with another notification.
  * @returns {() => void} Dismisses this notification.
  */
 export function notify(opts) {
@@ -123,10 +93,8 @@ export function notify(opts) {
   const key = groupKey({ type, message, caption, icon: resolvedIcon })
 
   /*
-    A repeat of a notification already on screen bumps its count instead of stacking a second copy,
-    and restarts its timer -- otherwise the merged toast would inherit the remaining time of the
-    first one and could vanish immediately after the repeat that produced it. Skipped for an
-    actioned notification, per the module doc comment above.
+    A repeat bumps the existing count and restarts the timer -- inheriting the first toast's
+    remaining time would let the merged one vanish immediately after the repeat that produced it.
   */
   if (!action) {
     const existing = queue.find((n) => n.key === key)

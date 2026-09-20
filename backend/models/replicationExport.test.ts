@@ -17,12 +17,9 @@ import {
 import type { SiteRow } from '../db/schema.ts'
 
 /**
- * `buildSnapshot` is almost entirely SQL orchestration (every table in Feature #2437's full-parity
- * scope, unfiltered by site) piped straight into a tar/gzip archive on disk, so a mock of the query
- * builder would mostly just be re-describing the code under test -- same reasoning as
- * `models/export.test.ts`. This suite runs it against a migrated, per-run-fresh database and reads
- * the resulting tarball back, seeding a SECOND site to prove the snapshot really is instance-wide and
- * not accidentally scoped to `fixtures.siteId` alone.
+ * `buildSnapshot` is SQL orchestration piped straight into a tar/gzip archive, so a mock of the
+ * query builder would mostly re-describe the code under test. A SECOND site is seeded to prove the
+ * snapshot really is instance-wide and not accidentally scoped to `fixtures.siteId` alone.
  */
 describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -50,9 +47,8 @@ describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase
       })
       .returning()
     secondSiteId = secondSite!.id
-    // -> `pages.ts#createPage` checks the in-memory `CARDINAL.sites` cache, not the DB row directly --
-    //    `setupTestDb()` already registers the fixture site there; this second one needs the same
-    //    registration or `createPage(secondSiteId, ...)` below 404s as an unknown site.
+    // -> `createPage` checks the in-memory `CARDINAL.sites` cache, not the DB row, so this second
+    //    site needs registering there too or it 404s as unknown
     CARDINAL.sites[secondSiteId] = secondSite! as SiteRow
   })
 
@@ -61,13 +57,12 @@ describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase
     await teardownTestDb()
   })
 
-  /** Reads every entry of a gzipped tar file back into a `{ name: Buffer }` map. */
   async function readTarball(filePath: string): Promise<Record<string, Buffer>> {
     const entries: Record<string, Buffer> = {}
     await listTarball({
       file: filePath,
       onReadEntry: (entry) => {
-        // -> `create()` emits a directory entry for `assets/` itself, ahead of the files inside it.
+        // -> The archive carries a directory entry for `assets/` itself, ahead of its files
         if (entry.type !== 'File') {
           return
         }
@@ -138,7 +133,7 @@ describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase
     const exportedPages = JSON.parse(entries['pages.json']!.toString('utf8'))
     assert.ok(exportedPages.some((p: any) => p.id === pageOnSiteOne.id))
     assert.ok(exportedPages.some((p: any) => p.id === pageOnSiteTwo.id))
-    // -> Regenerated columns must not have made it into the export
+    // -> `ts`/`searchContent` are derived, stripped rather than carried into the archive
     assert.equal('ts' in exportedPages[0], false)
     assert.equal('searchContent' in exportedPages[0], false)
 
@@ -157,7 +152,7 @@ describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase
     const assetManifest = JSON.parse(entries['assets/manifest.json']!.toString('utf8'))
     const exportedAsset = assetManifest.find((a: any) => a.id === asset!.id)
     assert.ok(exportedAsset)
-    // -> The bytes travel as their own archive entry, not inlined into the JSON manifest
+    // -> Bytes travel as their own archive entry, never inlined into the JSON manifest
     assert.equal('data' in exportedAsset, false)
     assert.deepEqual(entries[`assets/${asset!.id}.data`], assetData)
   })
@@ -178,10 +173,9 @@ describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase
 
     const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
 
-    // -> The seeded, non-system fixture group still makes it through...
     assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))
-    // -> ...and, unlike `exportSite`, so does the isSystem row: a whole-instance wipe-and-replace has
-    //    nothing on the target already seeded to collide with.
+    // -> A wipe-and-replace has nothing seeded on the target for an isSystem row to collide with,
+    //    so unlike `exportSite` it carries them
     assert.ok(exportedGroups.some((g: any) => g.id === systemGroup!.id))
   })
 
@@ -249,7 +243,6 @@ describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase
     const result = await replicationExportModel.buildSnapshot()
     await replicationExportModel.deleteExport(result.filePath)
     await assert.rejects(fs.access(result.filePath))
-    // -> Idempotent: a second delete of an already-gone file must not throw
     await replicationExportModel.deleteExport(result.filePath)
   })
 })

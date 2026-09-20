@@ -1,12 +1,9 @@
 /**
- * The shared component library.
- *
- * Registered globally in `boot/components.js`, so templates use `<w-btn>` / `<w-card>` without
- * importing anything -- the same ergonomics Quasar's auto-import gave, which is what keeps the
- * migration diffs to the tags themselves.
+ * Registered globally by `boot/components.js`, so templates write `<w-btn>` / `<w-card>` with no
+ * import.
  *
  * Every component here is deliberately scoped to how this app actually uses it rather than to the
- * full API of the component it replaces; see the note at the top of each file where they differ.
+ * full API of the component it replaces; the note at the top of each file says where they differ.
  */
 import WAvatar from './WAvatar.vue'
 import WBadge from './WBadge.vue'

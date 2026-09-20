@@ -13,7 +13,6 @@ describe('WChip', () => {
   })
 
   it('draws its corner off --radius-pill, not a hardcoded square', () => {
-    // -> `0` under Ledger (unchanged), a real pill radius under Cobalt (OpenProject #2767/#2772)
     const wrapper = mount(WChip, { props: { label: 'tag' } })
 
     expect(wrapper.classes()).toContain('rounded-pill')
@@ -41,8 +40,6 @@ describe('WChip', () => {
     expect(clickable.emitted('click')).toHaveLength(1)
   })
 
-  // -> OpenProject #3123: title is a declared prop (not left to $attrs fallthrough), matching
-  //    WBadge.vue/WBtn.vue's convention -- SearchResultHopBadge.vue relies on this.
   it('renders a native title tooltip', () => {
     const wrapper = mount(WChip, { props: { label: 'Tag', title: 'Related result' } })
 
@@ -60,7 +57,6 @@ describe('WChip', () => {
     await removeBtn.trigger('click')
 
     expect(wrapper.emitted('remove')).toHaveLength(1)
-    // -> `@click.stop` on the remove button: it must not also bubble into the chip's own click
     expect(wrapper.emitted('click')).toBeUndefined()
   })
 

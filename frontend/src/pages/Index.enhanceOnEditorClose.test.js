@@ -10,18 +10,10 @@ import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 
 /**
- * OpenProject #3061 regression: `enhanceRenderedContent()` (the code-copy button pass) is driven, in
- * `Index.vue`, by a `watch([() => pageStore.render, highlightTerm, () => pageStore.title], ...)`
- * against the reading view's `pageContents` template ref. On save, `pageStore.pageSave()` `$patch`es
- * `pageStore.render` a tick BEFORE `editorStore.isActive` flips to `false` (`pageSaveFlow.js`'s
- * `saveChangesCommit`), so that watcher fires while `pageContents` is still null (the `v-else` reading
- * branch hasn't mounted yet -- the editor still is) and hits `enhanceRenderedContent`'s `if (!root)
- * return` guard as a silent no-op. Nothing re-triggers it once the reading DOM actually mounts, so the
- * copy button never appeared until some later, unrelated change to one of the three watched sources.
- *
- * This suite drives that exact sequence directly against the stores, the same shape
- * `saveChangesCommit` produces, rather than through a real save round trip -- the save flow itself
- * (`pageSaveFlow.js`) already has its own coverage, and is not what this bug is in.
+ * `pageSaveFlow.js`'s `saveChangesCommit` patches `pageStore.render` a tick BEFORE
+ * `editorStore.isActive` flips to `false`, so `Index.vue`'s enhance watcher fires while the reading
+ * branch -- and its `pageContents` template ref -- is still unmounted, and nothing re-triggers it
+ * once that DOM mounts. Driven straight against the stores: the save flow has its own coverage.
  */
 
 const STUBS = {
@@ -95,24 +87,18 @@ describe('Index.vue: code-copy button appears after edit-and-save (OpenProject #
     const { wrapper, editorStore, pageStore } = await mountAt('/some-page')
     await flushPromises()
 
-    // -> Author is mid-edit: the editor is mounted, so the `v-else` reading branch -- and its
-    //    `pageContents` template ref -- is not.
     editorStore.$patch({ isActive: true, editor: 'markdown' })
     pageStore.$patch({ notFound: false, isLocked: false, editor: '' })
     await flushPromises()
 
     expect(wrapper.find('pre.codeblock button.code-copy').exists()).toBe(false)
 
-    // -> `pageStore.pageSave()`'s own `$patch`, landing WHILE the editor is still active -- this is
-    //    the write that used to fire the watcher against a still-null `pageContents`.
     pageStore.$patch({ render: CODE_BLOCK_HTML })
     await flushPromises()
 
     expect(wrapper.find('.page-contents').exists()).toBe(false)
     expect(wrapper.find('pre.codeblock').exists()).toBe(false)
 
-    // -> `saveChangesCommit`'s later `$patch({ isActive: false, editor: '' })` -- nothing about
-    //    `pageStore.render`/`title` or the highlight term changes here, only this.
     editorStore.$patch({ isActive: false, editor: '' })
     await flushPromises()
 
@@ -129,7 +115,6 @@ describe('Index.vue: code-copy button appears after edit-and-save (OpenProject #
     pageStore.$patch({ notFound: false, isLocked: false, editor: '', render: CODE_BLOCK_HTML })
     await flushPromises()
 
-    // -> The editor closes onto the lock screen, not the reading view -- `pageContents` stays null.
     pageStore.$patch({ isLocked: true })
     editorStore.$patch({ isActive: false, editor: '' })
     await flushPromises()

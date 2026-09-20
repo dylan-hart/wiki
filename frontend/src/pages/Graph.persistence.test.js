@@ -1,15 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mountGraph } from './graphFixtures.js'
 
-/*
- * OpenProject #2854: the five graph view controls (`groupBy`, `sizeBy`, `sizeCountMode`,
- * `pageviewsWindow`, `pageviewClientTypes`) persisted onto the signed-in reader's own profile, under
- * `prefs.graph`, through the existing profile PATCH route -- loaded on mount (`loadGraphPrefs()`),
- * saved debounced on change (`saveGraphPrefs()`/`debouncedSaveGraphPrefs`). See
- * `backend/api/users/profile.test.ts` and `backend/models/users.profile.test.ts` for the backend
- * half of the same contract, and `Graph.sizing.test.js` for #2853's own defaults this suite builds
- * on rather than re-covers.
- */
 describe('Graph.vue graph view preference persistence', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -95,10 +86,6 @@ describe('Graph.vue graph view preference persistence', () => {
       delayProfileResolution: true
     })
 
-    // -> Tracking is disabled, so a persisted 'visits' has nothing to size by -- same invariant as
-    //    the "falls a persisted sizeBy of 'visits' back to 'edits'" case above, but with the two
-    //    loads settling in the OPPOSITE order (profile after pageviews) that
-    //    `loadGraphPrefs()` didn't used to reconcile against on its own.
     expect(wrapper.vm.sizeBy).toBe('edits')
   })
 

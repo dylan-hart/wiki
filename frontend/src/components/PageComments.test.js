@@ -60,11 +60,8 @@ function findButton(wrapper, text) {
 }
 
 /**
- * A `ThreadedComment` fixture shaped exactly like `backend/models/comments.ts`'s `listForPage()`
- * response -- nested `replies`, `authorName` pre-resolved server-side (`authorId` set means it came
- * off the joined user row, `null` means `guestName`) -- since Feature 391's route is not yet on this
- * branch (see the cross-branch note in this task's report) and the sibling `comments-data-model`
- * branch's `ThreadedComment` shape is this test's ground truth for what the real endpoint will send.
+ * Shaped like `backend/models/comments.ts`'s `listForPage()` response: `replies` nested rather than
+ * flat, `authorName` resolved server-side (`authorId: null` means it came from `guestName`).
  */
 function comment(overrides = {}) {
   return {
@@ -198,8 +195,8 @@ describe('PageComments', () => {
     expect(wrapper.find('.page-comments-count').classes()).toEqual(
       expect.arrayContaining(['text-text-caption', 'dark:text-text-caption-dark'])
     )
-    // The section root carries the body colour so the h2 and the reply textarea (`color: inherit`)
-    // do not fall back to the default black in dark mode. `text-body-dark` is not a defined token.
+    // On the root so the h2 and the reply textarea (`color: inherit`) do not fall back to black in
+    // dark mode. The dark token is `text-dark` -- there is no `text-body-dark`.
     expect(wrapper.find('.page-comments').classes()).toEqual(
       expect.arrayContaining(['text-text-body', 'dark:text-text-dark'])
     )
@@ -267,7 +264,6 @@ describe('PageComments', () => {
   })
 
   it('caps visual indent depth at 3 levels, flattening deeper replies to the max indent', async () => {
-    // 4 levels deep: root -> r1 -> r2 -> r3 -> r4 (depths 0,1,2,3,4 uncapped)
     const deepest = comment({ id: 'r4', replyTo: 'r3' })
     const level3 = comment({ id: 'r3', replyTo: 'r2', replies: [deepest] })
     const level2 = comment({ id: 'r2', replyTo: 'r1', replies: [level3] })
@@ -283,7 +279,6 @@ describe('PageComments', () => {
     const indents = items.map((item) =>
       Number.parseFloat(item.attributes('style').match(/margin-inline-start:\s*([\d.]+)px/)[1])
     )
-    // -> depths 0,1,2,3,3 -- the 4th-level reply (r4) does not indent past the 3rd level (r3)
     expect(indents[3]).toBe(indents[4])
     expect(indents[3]).toBeGreaterThan(indents[2])
   })
@@ -311,7 +306,6 @@ describe('PageComments', () => {
     notifyQueue.splice(0, notifyQueue.length)
     const { wrapper } = await mountComments()
 
-    // -> Loading resolves to the empty state rather than hanging, even though the fetch failed
     expect(wrapper.text()).not.toContain('Loading comments...')
     expect(notifyQueue).toHaveLength(1)
     expect(notifyQueue[0]).toMatchObject({
@@ -391,13 +385,6 @@ describe('PageComments', () => {
     expect(pageStore.commentsCount).toBe(2)
   })
 
-  /*
-    Feature 391's shipped route (`feature/comments-rest-api`, read read-only for this task) does not
-    put `canEdit` / `canDelete` on the wire -- `toPublicComment()` there sends `authorId` only, never
-    a resolved boolean -- so per task 630's explicit fallback, edit/delete gate on `manage:comments`
-    alone rather than on a per-comment flag that does not exist yet. See the doc comment on
-    `canModerate` in `PageComments.vue`.
-  */
   it('shows edit/delete controls only for a viewer who holds manage:comments', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
     const { wrapper: withModerate } = await mountComments({ canModerate: true })
@@ -418,7 +405,6 @@ describe('PageComments', () => {
 
     await wrapper.find('.page-comments-edit-toggle').trigger('click')
 
-    // -> Pre-filled with the raw markdown, not the rendered HTML
     const textarea = wrapper.find('textarea')
     expect(textarea.exists()).toBe(true)
     expect(textarea.element.value).toBe('raw markdown, never rendered')
@@ -446,10 +432,6 @@ describe('PageComments', () => {
     })
   })
 
-  // -> The API client does not throw for exactly HTTP 400 (`boot/api.js`'s `throwHttpErrors`), so
-  //    a refusal on this route resolves with a parsed `{ ok: false, message }` envelope rather than
-  //    rejecting. Without an explicit check, the envelope's `undefined` fields would overwrite the
-  //    comment's real content and render.
   it('shows the server message and leaves the comment content unchanged on a 400 refusal to save an edit', async () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve([comment({ content: 'raw markdown, never rendered' })])
@@ -473,15 +455,12 @@ describe('PageComments', () => {
       message: 'Unexpected Error',
       caption: 'Refused.'
     })
-    // -> Still in edit mode, with the raw content untouched -- not clobbered by the envelope's
-    //    undefined `content`/`render`.
     expect(wrapper.find('textarea').exists()).toBe(true)
     expect(wrapper.html()).not.toContain('<p>Hello there</p>')
   })
 
-  // -> Same `throwHttpErrors` quirk as above, but this route never calls `.json()` on success --
-  //    it reads the raw `Response`, so the check is against `resp.ok` (the fetch API's own flag)
-  //    rather than a parsed envelope's `ok` field.
+  // -> This route reads the raw `Response` rather than calling `.json()` on success, so the refusal
+  //    check is against `resp.ok`, not a parsed envelope's `ok` field.
   it('shows the server message and does not remove the comment on a 400 refusal to delete', async () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve([comment({ id: 'root', authorName: 'Root Author' })])
@@ -589,10 +568,9 @@ describe('PageComments', () => {
   })
 
   /**
-   * OpenProject #1671: the edit textarea's bare `autofocus` attribute never did anything --
-   * `WInput.vue` exposes no such prop. `startEdit()` now focuses it itself, via the `focus()` method
-   * `WInput.vue` exposes, once the `nextTick` after `editingIds` gains the id lands the field in the
-   * DOM (it's a `v-if` swap inside this already-mounted component, not a fresh mount of its own).
+   * Focus comes from `startEdit()` calling `WInput`'s `focus()` on the next tick, not from an
+   * `autofocus` attribute: the field is a `v-if` swap inside an already-mounted component, so it
+   * never mounts afresh for the browser to autofocus.
    */
   it('focuses the edit textarea once it appears', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
@@ -607,12 +585,6 @@ describe('PageComments', () => {
     expect(document.activeElement).toBe(editField.element)
   })
 
-  /**
-   * OpenProject #2609: this component used to derive its own initials off the first TWO words, while
-   * `AccountMenu.vue` and `CollabPresence.vue` each took the first and LAST -- so a three-part name
-   * drew `DJ` here and `DH` everywhere else. All three now call `helpers/initials.js`; the guest
-   * single-letter rule is the one thing that stayed local.
-   */
   describe('avatar initials', () => {
     async function avatarTextFor(overrides) {
       API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment(overrides)]) })
@@ -636,10 +608,6 @@ describe('PageComments', () => {
       expect(await avatarTextFor({ authorId: null, authorName: 'anonymous visitor' })).toBe('A')
     })
 
-    /**
-     * OpenProject #3473: the mark follows the aesthetic like the header's `.account-initials`
-     * (30px, 11px display type, square Ledger / disc Cobalt) instead of a fixed 24px primary disc.
-     */
     it("draws as the header's identity initials mark, not a fixed primary disc", async () => {
       API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
       const { wrapper } = await mountComments()

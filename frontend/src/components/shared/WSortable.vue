@@ -11,32 +11,20 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import Sortable from 'sortablejs'
 
 /**
- * A thin wrapper around `sortablejs` for a slot-rendered, drag-reorderable list (OpenProject #3165,
- * replacing `sortablejs-vue3`).
- *
- * Deliberately narrower than the library it replaces: only the `item` slot is supported (neither
- * `NavItemEditor.vue` nor `AdminLogin.vue`, the two call sites, use `header`/`footer`), and only
- * `update`/`end` are emitted -- every other SortableJS callback (`choose`, `sort`, `add`, `move`, ...)
- * is reachable directly through `options`, since those keys are passed to the `Sortable` constructor
- * unmodified. That last point is also the one place this wrapper behaves differently on purpose:
- * `sortablejs-vue3` silently overrode a user-supplied `options.onMove` with its own (to translate it
- * into a `move` event), which meant a consumer setting `onMove` directly in `options` -- exactly what
- * `NavItemEditor.vue`'s `sortableOptions.onMove` does, to block dragging into the generated block --
- * was never actually reaching SortableJS. Here `options` is spread as-is, so `onMove` (and any other
- * callback set directly in `options`) works the way a reader of that code would expect.
+ * Deliberately narrower than `sortablejs-vue3`, which it replaces: only the `item` slot, and only
+ * `update`/`end` emitted. Every other SortableJS callback is reachable through `options`, whose
+ * keys reach the `Sortable` constructor unmodified -- including `onMove`, which `sortablejs-vue3`
+ * silently overrode with a wrapper of its own, so a consumer setting it never reached SortableJS.
  */
 const props = defineProps({
-  /** The list being reordered. */
   list: {
     type: Array,
     required: true
   },
-  /** The field name on each item holding a unique value, or a function `(item) => key`. */
   itemKey: {
     type: [String, Function],
     required: true
   },
-  /** Options passed straight through to the `Sortable` constructor. */
   options: {
     type: Object,
     default: null
@@ -44,9 +32,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
-  /** The list's order changed within this container -- carries the native SortableJS event. */
+  /** Order changed within this container. */
   'update',
-  /** A drag ended, whether or not the order actually changed -- carries the native SortableJS event. */
+  /** A drag ended, whether or not the order actually changed. */
   'end'
 ])
 
@@ -70,8 +58,8 @@ onUnmounted(() => {
   sortable = null
 })
 
-// React to option changes -- e.g. `NavItemEditor.vue`'s `sortableOptions.disabled` toggling with the
-// menu's mode.
+// The constructor takes a snapshot of `options`, so a later change has to be pushed into the live
+// instance key by key.
 watch(
   () => props.options,
   (options) => {

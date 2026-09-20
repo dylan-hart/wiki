@@ -4,35 +4,20 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #2767 ("Cobalt light token block in tailwind.css (shape + color, including the radii
- * sweep)"). `tailwind.css` is plain CSS, not a module anything here can import and read live custom
- * property values off -- there is no compiled stylesheet in this test environment (`test.css: true`
- * runs SFC `<style>` blocks through Sass, not this file) and no real layout engine to resolve `var()`
- * cascades against. Asserting against the SOURCE TEXT directly is the established pattern for this
- * (`_base.test.js`'s `.q-*` sweep, `.header`/`.bg-header` token-only check), and is what actually
- * pins the shape of a hand-edited token file down.
+ * `tailwind.css` is plain CSS, not a module whose custom properties anything here can read live, and
+ * this environment has neither a compiled stylesheet of it nor a layout engine to resolve `var()`
+ * cascades against -- so these assertions read its SOURCE TEXT directly. Contrast over these tokens
+ * belongs to `cobaltContrast.test.js`, the one place that measures it.
  *
- * This suite checks three things the acceptance criteria call for:
- *   1. every shape token from the handoff's table exists, with a Ledger no-op default and a distinct
- *      Cobalt value under `body.body--cobalt`;
- *   2. every color token from the handoff's Chrome / Paper-and-text / The-live-edge tables exists the
- *      same way, and the three accent roles stay distinct rather than collapsing into one value;
- *   3. no `cobalt:` Tailwind variant was introduced, and no `--q-*` admin-configurable brand color
- *      was given a `body.body--cobalt` override (that would silently beat a site's own saved color --
- *      see the token block's own comment, and OpenProject #2768's `aestheticDefaults.js`).
- *
- * WCAG AA contrast over these tokens is `cobaltContrast.test.js`'s job (OpenProject #2782), not
- * this file's -- it used to carry its own small hardcoded-hex "clears AA" describe block here, which
- * was consolidated into that dedicated, token-sourced suite rather than kept as a second copy.
+ * A `--q-*` override under `body.body--cobalt` would silently beat a site's own saved brand color;
+ * those defaults belong to `helpers/aestheticDefaults.js` instead, which is why one test forbids it.
  */
 
 const CSS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'tailwind.css')
 const source = readFileSync(CSS_PATH, 'utf-8')
 
-// Split once on the `body.body--cobalt {` rule so "Ledger default" and "Cobalt override" assertions
-// read against the correct half without each test re-deriving the split. Falls back to an empty
-// Cobalt slice (rather than throwing at module load) if the block is ever removed -- every token
-// test below then fails informatively instead of the whole file erroring out at collection time.
+// A missing block yields an empty Cobalt slice rather than throwing at module load, so every token
+// test fails informatively instead of the file erroring out at collection time.
 const cobaltBlockStart = source.indexOf('body.body--cobalt {')
 const ledgerSource = cobaltBlockStart === -1 ? source : source.slice(0, cobaltBlockStart)
 const cobaltBlockEnd = cobaltBlockStart === -1 ? -1 : source.indexOf('\n}', cobaltBlockStart)
@@ -44,7 +29,6 @@ describe('body.body--cobalt block', () => {
   })
 })
 
-/** Finds `--name: value;` (or a multi-line value up to the next `--` or closing brace) in a slice. */
 function declaredValue(slice, name) {
   const re = new RegExp(`--${name}:\\s*([\\s\\S]*?);`, 'm')
   const match = slice.match(re)
@@ -64,13 +48,10 @@ describe('Cobalt shape tokens (radii sweep)', () => {
     'radius-dialog': { ledger: '0', cobalt: '12px' },
     'radius-pill': { ledger: '0', cobalt: '12px' },
     'radius-mark': { ledger: '0', cobalt: '4px' },
-    // -> Matte pass (OpenProject #2856): the Cobalt value is a 0-blur, 1px-spread ring, not a drop
-    //    shadow -- every plate that reads `--shadow-card` (WCard, the page-content/TOC/tags-revision
-    //    floating cards, the actions rail, search result cards, graph panels, nav-edit cards, ...)
-    //    gets its hairline border for free from this one value, with no per-consumer change.
+    // -> A 0-blur, 1px-spread ring rather than a drop shadow, so every plate reading `--shadow-card`
+    //    gets its Cobalt hairline from this one value with no per-consumer change.
     'shadow-card': { ledger: 'none', cobalt: '0 0 0 1px #dfe5f5' },
-    // -> The Edit/Add/primary-button glow is dropped outright (OpenProject #2856): no plate to give
-    //    a ring to, unlike --shadow-card above.
+    // -> `none` under both: a button is no plate, so there is nothing to give a ring to instead.
     'shadow-primary': { ledger: 'none', cobalt: 'none' },
     'border-card': { ledger: '1px solid var(--color-hairline)', cobalt: '0' },
     'corner-marks': { ledger: 'block', cobalt: 'none' },
@@ -84,19 +65,15 @@ describe('Cobalt shape tokens (radii sweep)', () => {
     },
     'page-header-fg': { ledger: 'var(--color-ink)', cobalt: 'var(--color-white)' },
     'page-header-radius': { ledger: '0', cobalt: '8px' },
-    // -> The banner sits on its own solid gradient, not low-contrast on `#f2f5ff`, so the matte pass
-    //    drops its glow with no border replacement (OpenProject #2856).
+    // -> The banner sits on its own solid fill, not low-contrast on the paper ground, so it needs
+    //    neither a glow nor a ring in its place.
     'page-header-shadow': { ledger: 'none', cobalt: 'none' },
-    // -> The horizontal and top margins differ (OpenProject #2970), so these are two
-    //    direction-specific tokens rather than one shared value feeding both `margin-inline` and
-    //    `margin-block-start` in `Index.vue`. The mockup's stated `margin:10px 24px 0` put the top
-    //    gap at 10px, but Dylan's hands-on review (OpenProject #2998) found the computed top margin
-    //    should be 0, matching the Ledger no-op default.
+    // -> Two direction-specific tokens, not one shared value: `Index.vue` feeds `margin-inline` and
+    //    `margin-block-start` separately, and only the horizontal gap is non-zero under Cobalt.
     'page-header-margin-inline': { ledger: '0', cobalt: '24px' },
     'page-header-margin-block-start': { ledger: '0', cobalt: '0' },
-    // -> A menu, tooltip, dialog or drawer is an overlay on the scrim, not one of the matte pass's
-    //    plates, so both go straight to `none` under Cobalt with no ring replacement (OpenProject
-    //    #2856) -- unlike Ledger, which is unaffected and keeps its own values (below).
+    // -> An overlay sits on the scrim rather than on the page, so Cobalt drops the shadow with no
+    //    ring in its place; Ledger keeps its own values.
     'shadow-menu': {
       ledger:
         '0 1px 5px rgb(0 0 0 / 0.2), 0 2px 2px rgb(0 0 0 / 0.14), 0 3px 1px -2px rgb(0 0 0 / 0.12)',
@@ -116,7 +93,6 @@ describe('Cobalt shape tokens (radii sweep)', () => {
 
 describe('Cobalt color tokens', () => {
   const colorTokens = {
-    // Reused generic tokens, redefined for Cobalt
     ink: { ledger: '#1c2233', cobalt: '#10194a' },
     paper: { ledger: '#f5f6f9', cobalt: '#f2f5ff' },
     tint: { cobalt: '#e6edff' },
@@ -129,7 +105,6 @@ describe('Cobalt color tokens', () => {
     'accent-wash': { ledger: '#fdeced', cobalt: '#ffe9eb' },
     'accent-strong': { ledger: '#a83f45', cobalt: '#1f4fd6' },
     'positive-fill': { ledger: '#5f9c86', cobalt: '#22a37f' },
-    // New, narrowly-scoped chrome tokens
     'header-eyebrow': { cobalt: '#dfe6ff' },
     'header-search-bg': { cobalt: 'rgb(255 255 255 / 0.16)' },
     'header-search-placeholder': { cobalt: '#e6ecff' },
@@ -184,9 +159,8 @@ describe('Cobalt color tokens', () => {
   })
 
   it("applies the corrected #c8303c, never the mockups' uncorrected #ff4d5a, for a fill carrying white text", () => {
-    // -> This file owns no `--q-accent` override (that role is OpenProject #2768's admin-default
-    //    territory), so the one white-text-bearing role it DOES declare -- the accent tag chip's text
-    //    -- is the direct check available here.
+    // The block declares no `--q-accent` override, so the accent tag chip's text is the only
+    // white-text-bearing role available to check here directly.
     expect(declaredValue(cobaltSource, 'color-tag-chip-accent-text')).toBe('#c8303c')
     expect(cobaltSource).not.toMatch(/#ff4d5a.*white|white.*#ff4d5a/i)
   })
@@ -195,37 +169,26 @@ describe('Cobalt color tokens', () => {
 describe('admin-configurable brand colors are left alone', () => {
   it('declares no --q-* override inside body.body--cobalt', () => {
     /*
-      A DECLARATION, not a mention: the block's comments name `--q-header`/`--q-sidebar`/`--q-info`
-      precisely to explain why each is left to the admin default rather than overridden here, and a
-      bare substring match reads those explanations as the violation they warn against.
+      Anchored to match a DECLARATION, not a mention: the block's own comments name `--q-*` tokens to
+      explain why each is left to the admin default, and a bare substring match would read those
+      explanations as the violation they warn against.
     */
     expect(cobaltSource).not.toMatch(/^\s*--q-[a-z-]+\s*:/m)
   })
 })
 
-/*
-  The tokens this pass added on top of #2767's own block, each because a screen-level diff against the
-  mockups turned up a rule that could not follow the aesthetic without one. Same shape as the tables
-  above -- Ledger's value is the constant the rule already drew, Cobalt's is what the mockup draws --
-  and pinned here so a later edit to either half fails as a token change rather than as a screenshot
-  nobody re-took.
-*/
 describe('Cobalt tokens added by the screen-level pass', () => {
   const addedTokens = {
-    // -> The header band's own foreground: `#1f4fd6` under white type and white icon strokes
     'header-fg': { ledger: 'var(--color-ink)', cobalt: '#fff' },
     'header-icon': { ledger: 'var(--color-slate-soft)', cobalt: '#fff' },
     'header-search-fg': { ledger: 'var(--color-text-body)', cobalt: '#fff' },
     'header-search-border': { ledger: 'var(--color-hairline)', cobalt: 'transparent' },
-    // -> The sidebar's own bands, which sit on the sidebar ground rather than on the app's chrome
     'sidebar-actions-text': { ledger: 'var(--color-slate)', cobalt: '#c5cff5' },
-    // -> A dialog's title band: Ledger's near-black raised rung, Cobalt's own raised indigo
     'dialog-header-bg': { ledger: 'var(--color-dark-2)', cobalt: '#1c2a70' },
-    // -> An accent fill carrying white text, so the accent tone and never `--color-accent-fill`
+    // -> An accent fill carrying white text, so the accent tone and never `--color-accent-fill`.
     'account-avatar-bg': { ledger: 'var(--color-slate)', cobalt: 'var(--color-accent)' },
     'segment-selected': { ledger: 'var(--color-primary)', cobalt: 'var(--color-accent)' },
     'tree-root-icon': { ledger: 'var(--color-slate-soft)', cobalt: 'var(--color-accent-strong)' },
-    // -> The slate ramp, moved onto Cobalt's own indigo hue
     slate: { ledger: '#38465f', cobalt: '#1e2a5e' },
     'slate-soft': { ledger: '#64789f', cobalt: '#7b88bd' },
     'slate-faint': { ledger: '#8a99b8', cobalt: '#b6bfe0' },
@@ -242,10 +205,9 @@ describe('Cobalt tokens added by the screen-level pass', () => {
   )
 
   /*
-    The floating-card motif, and the masthead's own pieces. Every Ledger value here has to be the
-    do-nothing one -- transparent, `0`, `none` -- because that is what makes one rule express both
-    aesthetics: a section written as `background: var(--float-bg); padding: var(--float-pad)` has to
-    render EXACTLY as it did before under Ledger, or the rule is a Cobalt feature with a Ledger
+    Every Ledger value here has to be the do-nothing one -- transparent, `0`, `none`: a section
+    written as `background: var(--float-bg); padding: var(--float-pad)` must render under Ledger
+    exactly as it did before the token existed, or the rule is a Cobalt feature with a Ledger
     regression attached.
   */
   const ledgerNoOps = {

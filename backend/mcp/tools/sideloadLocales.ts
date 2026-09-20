@@ -3,17 +3,9 @@ import { McpToolError, type McpAuthContext, type McpAuthContextGetter } from '..
 import { toResult } from './shared.ts'
 
 /**
- * Rescan `<dataPath>/locales/` for locale-pack JSON files and load them into the DB — the MCP-facing
- * wrapper around `POST /_api/locales/sideload` (`api/locales.ts`), for an agent that needs to trigger
- * an offline locale reload without going through the REST surface directly. Delegates to the exact
- * same model call the REST route makes, `CARDINAL.models.locales.sideloadFromDataPath({ force: true })` —
- * always force-reloading every file found there, regardless of its last-modified time, same as the
- * route.
- *
- * Unlike `render_diagram`, which only uses `manage:system` to exempt a caller from its rate limit,
- * this is a hard gate: the REST route declares `permissions: ['manage:system']` with no lesser-
- * privilege path at all, so a caller lacking it is refused outright rather than falling through to
- * some narrower behavior.
+ * Wraps the same `CARDINAL.models.locales.sideloadFromDataPath({ force: true })` that
+ * `POST /_api/locales/sideload` (`api/locales.ts`) calls — every file found is reloaded regardless of
+ * its last-modified time, as on the route.
  */
 export async function handleSideloadLocales(ctx: McpAuthContext): Promise<CallToolResult> {
   if (!ctx.permissions.includes('manage:system')) {

@@ -17,19 +17,15 @@ import {
 
 /**
  * The settings row's whole claim is a RHYTHM -- every row the same height, every control on the same
- * trailing edge, the rule between rows rather than after the last one. None of that is checkable
- * under `happy-dom`, which runs no layout engine at all and reports every rect as zero, so this
- * suite renders the real markup in real headless Chromium and measures it. `hasChromium()` skips the
- * suite cleanly on a machine where `npm run install-browsers` has not been run.
+ * trailing edge, the rule between rows rather than after the last one -- and none of that is
+ * checkable under `happy-dom`, which runs no layout engine at all and reports every rect as zero. So
+ * this suite measures the real markup in real headless Chromium, `hasChromium()` skipping it cleanly
+ * where `npm run install-browsers` has not been run.
  *
- * Two style sources have to reach the page or the measurement is of an unstyled DOM:
- *
- * - `buildAppCss()` compiles `src/css/tailwind.css` through the real Tailwind pipeline, which is
- *   where the design tokens and every utility class live.
- * - the components' own SCOPED styles, which Tailwind never sees. Vitest's `css: true` runs each
- *   SFC's style block and injects it into the test document as a `<style>` element, so they are
- *   collected from there after the mount -- and asserted non-empty, so a change to how Vitest
- *   handles CSS fails as itself rather than silently measuring a naked row.
+ * Two style sources have to reach the page or the measurement is of an unstyled DOM: `buildAppCss()`
+ * for the design tokens and utility classes, and the components' own SCOPED styles, which Tailwind
+ * never sees -- Vitest's `css: true` injects each SFC's style block into the test document, so they
+ * are collected from there after the mount and asserted non-empty.
  */
 const CARD_WIDTH = 560
 
@@ -68,9 +64,9 @@ function mountFixture() {
 }
 
 /**
- * Every `<style>` Vitest injected for the SFCs mounted so far. Scoped rules carry `[data-v-...]`
- * attribute selectors, and `wrapper.html()` carries the matching attributes, so the two line up in
- * the browser exactly as they do in the app.
+ * Scoped rules carry `[data-v-...]` attribute selectors and `wrapper.html()` carries the matching
+ * attributes, so collecting Vitest's injected style elements lines the two up in the browser exactly
+ * as they line up in the app.
  */
 function collectMountedStyles() {
   return [...document.querySelectorAll('style')].map((el) => el.textContent).join('\n')
@@ -90,8 +86,7 @@ describe(
       const html = wrapper.html()
       const scopedCss = collectMountedStyles()
 
-      // -> The precondition, asserted rather than assumed: no scoped CSS means no plate, no padding
-      //    and no rule, and every number below would be measuring a bare DOM.
+      // -> Asserted rather than assumed: with no scoped CSS every number below measures a bare DOM.
       expect(scopedCss).toContain('w-settings-row')
 
       const appCss = await buildAppCss()
@@ -157,10 +152,8 @@ describe(
     })
 
     /**
-     * The plate, not the text, is what sets a row's height -- which is what makes the rhythm hold for
-     * a row with no hint, a row whose control is 18px tall and a row whose control is 30px alike. If
-     * the text column ever outgrows the plate (it did, at the app's inherited `line-height: 1.5`),
-     * every row starts measuring itself off its own wording instead.
+     * If the text column outgrows the plate -- as it does at the app's inherited `line-height: 1.5` --
+     * every row starts measuring itself off its own wording and the rhythm goes.
      */
     it('lets the 34px plate, not the wording, set the height', () => {
       for (const row of measured.rows) {
@@ -209,8 +202,8 @@ describe(
     })
 
     it('paints that rule in the tint, not the hairline the card edge uses', () => {
-      // -> `--color-tint` (#eef1f7). The card's own edge is `--color-hairline` (#dbe1ec); a rule as
-      //    strong as the edge would read as the card splitting into several.
+      // -> `--color-tint` (#eef1f7), not the card edge's stronger `--color-hairline`, which would
+      //    read as the card splitting into several.
       for (const row of measured.rows.slice(1)) {
         expect(row.borderTopColor).toBe('rgb(238, 241, 247)')
       }

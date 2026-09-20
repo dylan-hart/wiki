@@ -8,10 +8,8 @@ import { mountWithApp } from '../../test/mount.js'
 import { FIXTURE_GRAPH, GRAPH_MESSAGES, ZERO_PAGEVIEWS, mountGraph } from './graphFixtures.js'
 
 /*
- * Asserting actual pixel output is out of practical reach for a unit test -- a real
- * testing-strategy limitation, not an oversight (per the design spec's own admission). This suite
- * checks the simulation initializes, the canvas element exists, and every edge/group mode switch
- * lands, without throwing.
+ * Pixel output is out of practical reach for a unit test, so this suite checks that the simulation
+ * initializes, the canvas exists and each mode switch lands without throwing, never what is drawn.
  */
 describe('Graph.vue rendering (OpenProject #891)', () => {
   it('mounts, fetches the graph, and renders a canvas with no console errors', async () => {
@@ -23,9 +21,8 @@ describe('Graph.vue rendering (OpenProject #891)', () => {
     })
   })
 
-  // -> OpenProject #1863: the fetch's `sizing` param tracks whichever "Size by" mode is active at
-  //    load time -- not a fixed 'edits', which the test above (mounting at the default mode) can't
-  //    tell apart from a hardcoded value.
+  // -> The test above mounts at the default mode, so it cannot tell a `sizing` param that tracks
+  //    `sizeBy` apart from a hardcoded 'edits'.
   it('sends the currently-active sizeBy mode as the sizing param on (re)load', async () => {
     const router = await createTestRouter(['/:pathMatch(.*)*'])
 
@@ -47,8 +44,8 @@ describe('Graph.vue rendering (OpenProject #891)', () => {
     })
   })
 
-  // -> OpenProject #1621/#1629: `forceLink().id()` used to resolve on the bare `path`, so an
-  //    `en`/`fr` pair sharing a path collapsed to a single d3-force node with no error.
+  // -> A `forceLink().id()` resolving on the bare `path` collapses an `en`/`fr` pair into a single
+  //    d3-force node silently, with no error.
   it('same-path translations render as two distinct, separately-keyed nodes', async () => {
     const router = await createTestRouter(['/:pathMatch(.*)*'])
 
@@ -92,8 +89,7 @@ describe('Graph.vue rendering (OpenProject #891)', () => {
     const realNodes = wrapper.vm.nodes.filter((node) => !node.synthetic)
     expect(realNodes).toHaveLength(2)
     expect(realNodes.map((node) => node.id).sort()).toEqual(['en:docs/intro', 'fr:docs/intro'])
-    // -> Both nodes share the same `path` (by design -- translations are same-path), but remain two
-    //    separate objects in the simulation's node list rather than one collapsing onto the other.
+    // -> Translations are same-path by design; the locale, not the path, is what keeps them apart.
     expect(realNodes.every((node) => node.path === 'docs/intro')).toBe(true)
     expect(realNodes[0]).not.toBe(realNodes[1])
   })
@@ -118,19 +114,16 @@ describe('Graph.vue rendering (OpenProject #891)', () => {
     }
     const frIntro = { ...enIntro, locale: 'fr', title: 'Intro (FR)' }
 
-    // -> The path-hierarchy edge builder and the default (null) locale filter are what actually
-    //    exercised the pre-fix bug in production -- both translations visible together, chained
-    //    into the path-hierarchy simulation by `startSimulation()`'s `forceLink().id()` accessor.
+    // -> No locale filter, so both translations stay visible together and the path-hierarchy edge
+    //    builder chains each into the simulation.
     const wrapper = await mountGraph({ graph: { nodes: [enIntro, frIntro], edges: [] } })
 
     const simNodes = wrapper.vm.nodes.filter((n) => n.path === 'intro')
     expect(simNodes).toHaveLength(2)
     expect(simNodes[0]).not.toBe(simNodes[1])
 
-    // -> d3-force's link force resolves each edge's `source`/`target` to the actual node object it
-    //    matched by id the moment it's attached to the simulation -- before the pre-fix accessor
-    //    (`.id((d) => d.path)`), both translations' leaf edges would have resolved `target` to
-    //    whichever one `nodeById` kept last, i.e. the exact same object twice.
+    // -> d3-force resolves each edge's `source`/`target` to the node object it matched by id when
+    //    the link force is attached, so a path-keyed accessor hands both edges the same object.
     const introLinks = wrapper.vm.simulation
       .force('link')
       .links()

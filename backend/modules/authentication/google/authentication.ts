@@ -2,23 +2,15 @@ import * as client from 'openid-client'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 import { providerNameHalves } from '../../../models/authentication.ts'
 
-/** Google's issuer, from which every endpoint and signing key is discovered. */
 const ISSUER = 'https://accounts.google.com'
 
 /**
- * Map Google's verified ID-token claims onto a `ProviderProfile`.
+ * Exported standalone so the claim reading can be asserted without a network round trip or a signed
+ * token; everything upstream of it is `openid-client`'s own tested job.
  *
- * Exported standalone for the same reason `oidc/authentication.ts`'s `mapOidcProfile` is: everything
- * upstream of it — discovery, the code exchange, the ID token's signature/issuer/audience/nonce — is
- * `openid-client`'s own already-tested job, so the claim reading is the part worth asserting
- * directly, and doing so needs neither a network round trip nor a signed token.
- *
- * Unlike the generic OIDC module there are no configurable claim names here: this is Google, and
- * Google issues the OpenID Connect standard `given_name`/`family_name` (Feature #2608), and the
- * standard `picture` claim for the account's avatar (Feature #3208) — absent whenever Google does
- * not report one, never a fabricated default. An account whose Google profile carries only a given
- * name keeps an empty last name — that is the mononym case, and `models/users.ts` derives the
- * display name from whatever halves it is handed.
+ * No configurable claim names, unlike the generic OIDC module: Google issues the standard
+ * `given_name`/`family_name`/`picture`. A half Google does not report is left off the profile
+ * rather than defaulted, so a mononym stays one.
  */
 export function mapGoogleProfile(
   conf: Record<string, any>,
@@ -46,18 +38,15 @@ export function mapGoogleProfile(
 }
 
 /**
- * Google
+ * The generic OIDC flow with the issuer fixed, plus two Google specifics:
  *
- * Google is an OpenID Connect provider, so this is the generic flow with the issuer fixed and two
- * things Google specifically needs saying about:
+ *   - a required Workspace domain is checked against the `hd` claim, not just asked for — `hd` on
+ *     the authorization request is a hint to the account chooser, not a promise about the answer;
+ *   - `email_verified` is honoured, because an account here is matched by email address and an
+ *     unverified one says nothing about who holds the mailbox.
  *
- *   - a Workspace domain can be required, and the claim is checked HERE as well as asked for — `hd`
- *     on the authorization request is a hint to the account chooser, not a promise about the answer;
- *   - `email_verified` is honoured, because an account on this wiki is matched by email address and
- *     an unverified one says nothing about who holds the mailbox.
- *
- * Written against `openid-client` rather than by hand for the reason the generic module is: the ID
- * token has to be verified, and a token nobody verified still logs somebody in.
+ * On `openid-client` rather than hand-rolled because the ID token has to be verified, and a token
+ * nobody verified still logs somebody in.
  */
 export default class GoogleAuthentication {
   strategyId: string

@@ -20,11 +20,6 @@ describe('WCard', () => {
     expect(wrapper.classes()).toContain('flex-nowrap')
   })
 
-  /*
-   * `--radius-card` / `--shadow-card` are `0` / `none` under Ledger (unchanged from before this
-   * task) and real values under Cobalt (`body.body--cobalt`, OpenProject #2767/#2772) -- one pair
-   * of classes, no aesthetic branch.
-   */
   it('draws its corner and elevation off --radius-card / --shadow-card', () => {
     const wrapper = mount(WCard)
 
@@ -33,13 +28,8 @@ describe('WCard', () => {
   })
 
   /*
-   * OpenProject #2811: the hairline border used to be a plain Tailwind `border-hairline`/
-   * `dark:border-hairline-dark` utility pair, because `--border-card` had no dark-mode-specific
-   * value yet. Now that `tailwind.css`'s `body.body--dark` block gives it one, the border reads
-   * through the token instead -- `jsdom` has no real CSS cascade to resolve `var()` against (see
-   * `cobaltTokens.test.js`'s own rationale for asserting against source text instead), so this
-   * checks the old ad hoc utility classes are gone and the component's own scoped style declares
-   * the token, the same way `AccountMenu.test.js` asserts against a sibling component's source.
+   * The test environment has no CSS cascade to resolve `var()` against, so the token can only be
+   * checked against the component's own source text.
    */
   it('draws its edge off --border-card rather than a hardcoded hairline utility pair', () => {
     const wrapper = mount(WCard)

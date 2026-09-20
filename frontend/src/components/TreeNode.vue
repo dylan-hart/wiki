@@ -1,9 +1,5 @@
 <template>
   <li class="treeview-node" :style="indentStyle">
-    <!-- NODE -->
-    <!-- -> `tabindex`/`role`/`@keydown` give this row the same keyboard operability
-            `NavSidebarItem.vue`'s `WItem`-based rows already have (OpenProject #3063) -- Enter/Space
-            activates it exactly as a click would, modifiers included. -->
     <div
       class="treeview-label"
       tabindex="0"
@@ -11,9 +7,8 @@
       @click="handleLabelClick"
       @keydown="handleLabelKeydown"
       :class="{ active: isActive }">
-      <!-- -> `color="slate-faint"` matches `NavSidebarItem.vue`'s own folder/page glyph exactly
-              (OpenProject #3064) -- this row's icon otherwise drew at full row-ink strength, next
-              to the main navbar's own muted tone. -->
+      <!-- -> `slate-faint` holds this glyph at the main navbar's muted tone rather than full row
+              ink, so the two trees read alike. -->
       <w-icon :name="icon" size="sm" color="slate-faint" @click.stop="toggleNode()" />
       <div class="treeview-label-text">
         {{ displayMode === 'path' ? node.fileName : node.title }}
@@ -23,7 +18,6 @@
         v-if="isActive"
         name="tabler:chevron-right"
         :color="dark.isActive ? `yellow-9` : `brown-4`" />
-      <!-- RIGHT-CLICK MENU -->
       <w-menu
         v-if="contextActionList.length > 0"
         context-menu
@@ -48,10 +42,8 @@
         </w-card>
       </w-menu>
     </div>
-    <!-- SUB-LEVEL -->
-    <!-- -> Bare `v-if`, no transition wrapper: expand/collapse shows/hides children instantly,
-            matching `NavSidebarItem.vue`'s own children, which have never animated (OpenProject
-            #3090). -->
+    <!-- -> Bare `v-if`, no animation wrapper: expand/collapse is instant, matching the main
+            navbar's own children. -->
     <tree-level
       v-if="hasChildren && isOpened"
       :parent-id="props.node.id"
@@ -68,8 +60,6 @@ import { descendantFolderIds, ancestorFolderIds } from '@/helpers/treeNodes'
 
 import TreeLevel from './TreeLevel.vue'
 
-// PROPS
-
 const props = defineProps({
   depth: {
     type: Number,
@@ -85,8 +75,6 @@ const props = defineProps({
   }
 })
 
-// INJECT
-
 const nodes = inject('nodes')
 const loaded = inject('loaded')
 const opened = inject('opened')
@@ -95,33 +83,17 @@ const selection = inject('selection')
 const emitLazyLoad = inject('emitLazyLoad')
 const contextActionList = inject('contextActionList')
 
-// DATA
-
 const state = reactive({
   isContextMenuShown: false,
   isLoading: false
 })
 
-// COMPOSABLES
-
 const dark = useDark()
 
-// COMPUTED
-
 /**
- * The `--tree-depth` custom property `TreeNav.vue`'s stylesheet reads for both this row's own
- * indentation (`.treeview-label`'s `padding-inline-start`) and its hover-only depth-cue dots (OpenProject
- * #3064) -- the same mechanism `NavSidebarItem.vue#depthStyle` sets `--nav-depth` with for the main
- * navbar, right down to set unconditionally (including at depth 0) rather than only past some
- * threshold, so the rule reading it never needs a fallback that could silently drift from what a
- * real depth-0 row computes anyway.
- *
- * Indentation used to be a correction instead: `.treeview-node`'s own `border-left` (2px) plus its
- * parent `.treeview-level`'s `padding-left` (19px) each applied once per nesting level as REAL DOM
- * offset, and `--indent` (`${depth * 21}px`) existed only to pull `.treeview-label`'s box back out
- * to the tree's true left edge so its `active`/hover background still spanned the full width
- * (OpenProject #853). Depth is now the only thing that indents a row at all -- there is no ancestor
- * offset left to correct for.
+ * `TreeNav.vue`'s stylesheet reads `--tree-depth` for both this row's indentation and its depth-cue
+ * dots. Set unconditionally, including at depth 0, so those rules never rely on a fallback value
+ * that could drift from what a real depth-0 row computes.
  */
 const indentStyle = computed(() => ({ '--tree-depth': String(props.depth) }))
 
@@ -142,13 +114,9 @@ const isActive = computed(() => {
   return state.isContextMenuShown || selection.value === props.node.id
 })
 
-// METHODS
-
 /**
- * Fetches this folder's own children if they haven't been fetched yet -- the lazy-load half of a
- * plain toggle, split out so the new isolate/cycle gestures below can force this folder open and
- * still trigger the same fetch a click would, rather than opening it onto whatever (possibly empty)
- * `children` it already happens to carry.
+ * Split out of the plain toggle so the isolate and cycle gestures can force a folder open and still
+ * trigger the same fetch a click would, rather than opening it onto stale `children`.
  */
 async function ensureChildrenLoaded(isCurrent = false) {
   if (loaded[props.node.id]) {
@@ -183,11 +151,8 @@ function openNode() {
 }
 
 /**
- * Ctrl+click expand/collapse cycle (OpenProject #3063, mirroring `NavSidebarItem.vue`'s
- * `runExpandCycle`/OpenProject #2847/#2890): a two-state cycle over this folder's own descendant
- * folders -- collapse them all if every one is currently open, otherwise expand them all -- and
- * this folder's OWN state is force-opened as part of the same cycle, never toggled, so the change
- * is always immediately visible even when there is nothing below it to cycle.
+ * This folder's own state is force-opened rather than toggled, so the gesture stays visible even on
+ * a folder with nothing below it to cycle.
  */
 async function runExpandCycle() {
   const descendants = descendantFolderIds(nodes, props.node.id)
@@ -199,15 +164,6 @@ async function runExpandCycle() {
   await ensureChildrenLoaded()
 }
 
-/**
- * Isolate this folder (OpenProject #3063, mirroring `NavSidebarItem.vue`'s `runIsolateClick`/
- * OpenProject #2848/#3057/#3062): opens it and its ancestor chain, and collapses every OTHER known
- * folder in the tree -- except when it is already open, which instead just closes it alone, exactly
- * like a plain click would.
- *
- * Triggered by shift+click by default, or by a bare left-click once the shared
- * `isolateOnLeftClick()` profile toggle is switched on -- see `handleLabelClick` below for which.
- */
 async function runIsolateClick() {
   const targetId = props.node.id
   if (opened[targetId]) {
@@ -222,14 +178,9 @@ async function runIsolateClick() {
 }
 
 /**
- * The single click entry point for this row's label (see the template): decides which of the three
- * mutually-exclusive gestures a click is, then runs it -- ctrl+click always wins and always cycles
- * (`runExpandCycle`), regardless of shift or the isolate-on-left-click toggle; otherwise whether
- * this click isolates (`runIsolateClick`) depends on `isolateOnLeftClick()`: OFF (the default) means
- * shift+click isolates and a bare click falls through to the existing `openNode()` (select + regular
- * toggle, entirely unchanged); ON swaps the two. Unlike `NavSidebarItem.vue`'s equivalent dispatcher,
- * this needs no capture-phase/`currentTarget` guard: this row owns exactly one native click listener
- * on its own element, with no nested component's own click binding to out-race.
+ * The three gestures are mutually exclusive and ordered: ctrl+click always cycles, whatever shift
+ * or the isolate-on-left-click toggle say. The toggle then swaps which of shift+click and a bare
+ * click isolates.
  */
 function handleLabelClick(event) {
   if (event.ctrlKey) {
@@ -244,8 +195,6 @@ function handleLabelClick(event) {
   openNode()
 }
 
-/** Keyboard parity for `handleLabelClick` above (OpenProject #3063), matching `WItem.vue`'s own
- *  Enter/Space handling -- modifiers held on the keypress carry through unchanged. */
 function handleLabelKeydown(event) {
   if (event.key === 'Enter' || event.key === ' ') {
     // -> Space would otherwise scroll the page

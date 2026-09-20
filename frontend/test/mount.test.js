@@ -9,15 +9,6 @@ import { createTestRouter } from './router.js'
 import { mountWithApp } from './mount.js'
 import { seedAdmin, seedPage, seedSite, seedUser, stubRouter } from './fixtures.js'
 
-/**
- * `mountWithApp` replaces the 76 per-file `mountDialog`/`mountPage`/`mountOverlay`/`mountEditor`
- * helpers the survey counted (TEST-F5) -- the same four lines each: a fresh pinia, a `createI18n`, a
- * `mount()` with `global.plugins`, and (in 92 places) a single-field store seed before the mount.
- *
- * Store seeding stays OPT-IN at the call, deliberately: `pages/ProfileInfo.test.js` and others
- * assert against a store nothing has touched, so a helper that seeded by default would quietly
- * change what they cover. Nothing is written to a store unless `stores` names it.
- */
 const Probe = {
   props: { label: { type: String, default: '' } },
   template: '<div class="probe">{{ label }}{{ $t("probe.title") }}</div>'
@@ -91,12 +82,7 @@ describe('mountWithApp', () => {
   })
 
   it('applies each named seed onto its store BEFORE the component mounts', () => {
-    /*
-      Reads the seeded values in `setup()` -- i.e. during mount, not after it. A component that
-      branches on store state at setup time (which most of the pages under test do) is the case this
-      ordering exists for: `Object.assign`ing the stores after `mount()` would leave it having
-      already rendered the unseeded branch.
-    */
+    // -> A `setup()`-time read renders the unseeded branch if the seeds land after `mount()`.
     const Reader = {
       setup: () => ({ seen: `${useSiteStore().id}/${useUserStore().permissions.join(',')}` }),
       template: '<div class="seen">{{ seen }}</div>'
@@ -112,7 +98,6 @@ describe('mountWithApp', () => {
           flags: { loaded: true }
         }
       })
-    // -> The component saw the seeded values as it rendered, not just afterwards.
     expect(wrapper.find('.seen').text()).toBe('site-1/manage:sites')
     expect(siteStore.id).toBe('site-1')
     expect(userStore.permissions).toEqual(['manage:sites'])

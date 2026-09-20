@@ -18,15 +18,13 @@ function contextWith(overrides: Partial<MigrationContext> = {}): MigrationContex
   }
 }
 
-/** A source whose iteration rejects on the first `next()` — how a connector method that fails from
- * inside the stream, rather than when called, reaches `readEntity()`. */
+/** A connector that fails from inside the stream rather than when called. */
 function failsDuringIteration(error: Error): () => AsyncIterable<unknown> {
   return () => ({
     [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(error) })
   })
 }
 
-/** Yields `count` bare records. */
 async function* recordsOf(count: number): AsyncGenerator<unknown> {
   for (let i = 0; i < count; i++) {
     yield { id: i }

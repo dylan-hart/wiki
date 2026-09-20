@@ -58,14 +58,10 @@
       :key="n.id"
       :data-node-id="n.id"
       :transform="`translate(${n.pos.x} ${n.pos.y})`">
-      <!-- OpenProject #3290: this inner <g> carries the CSS hover scale/filter and the outer <g>
-           above carries only the SVG `transform="translate(...)"` positioning attribute. A CSS
-           `transform` on an element REPLACES an SVG presentation-attribute `transform` on that same
-           element rather than composing with it -- putting both on one <g> made every hover snap the
-           node to local origin (0,0), which happens to be exactly where the "pages" node sits
-           (`helpers/storageDeliveryGraph.js`'s `pages: { x: 0, y: 0 }`), so every other node appeared
-           to jitter toward it. Splitting the two transforms onto parent/child nodes keeps them
-           independent. -->
+      <!-- The hover scale/filter belongs on this inner <g>, never on the outer one carrying the
+           positioning `transform` attribute: a CSS `transform` REPLACES an SVG
+           presentation-attribute `transform` on the same element rather than composing with it, so
+           sharing one <g> snaps every node to local origin on hover. -->
       <g class="storage-delivery-graph__node">
         <rect
           :x="-NODE_RADIUS"
@@ -103,22 +99,11 @@
 import { computed } from 'vue'
 
 /**
- * Replaces `v-network-graph` (OpenProject #3116/#3084): a small purpose-built SVG renderer over
- * `helpers/storageDeliveryGraph.js#generateGraph()`'s `{ nodes, edges, layouts, paths }` output,
- * which does all the actual layout math (fixed x/y per node on a 15-unit grid) -- this component is
- * a pure presentational pass over it, with no dependency, no zoom/pan, and no dead selection state.
- *
- * The geometry constants below (node radius, edge margin/gap/width, label margin, icon inset, the
- * border-radius fallback, the static dash length) are v-network-graph's own former config values,
- * uniformly rescaled by NODE_SCALE so the default node radius becomes 3.75 -- comfortably smaller
- * than the 15-unit row spacing `generateGraph()` lays adjacent content-type nodes out on. Rescaling
- * everything by the same factor preserves the original proportions (trim distance relative to node
- * size, parallel-edge spacing relative to edge width, ...) exactly; only the absolute unit changes,
- * which `viewBox` + `preserveAspectRatio` below fit to the actual card width with no JS of its own.
- * These ratios were confirmed by rendering the real library (with the config this page used to pass
- * it) against representative `generateGraph()` output in real headless Chromium and reading back its
- * rendered SVG geometry -- including the "edges sharing a node pair spread into evenly-spaced
- * parallel lines" behaviour the streaming-delivery branch's three wiki<->target-module edges exercise.
+ * All layout math is `helpers/storageDeliveryGraph.js#generateGraph()`'s; this is a presentational
+ * pass over its output. Every geometry constant below is scaled by the one NODE_SCALE factor, which
+ * keeps their relative proportions while putting the node radius comfortably inside the 15-unit row
+ * spacing `generateGraph()` lays adjacent nodes out on -- only the absolute unit changes, and
+ * `viewBox` + `preserveAspectRatio` fit that to the card width with no JS of their own.
  */
 
 const NODE_SCALE = 3.75 / 16
@@ -164,8 +149,6 @@ const nodeList = computed(() =>
   }))
 )
 
-/** Groups edge ids sharing the same unordered node pair, in `edges`' own insertion order -- the
- *  only shape that matters for the parallel-offset formula below. */
 const edgeGroups = computed(() => {
   const groups = new Map()
   for (const [id, edge] of Object.entries(props.edges)) {
@@ -181,10 +164,9 @@ const renderedEdges = computed(() => {
   for (const group of edgeGroups.value) {
     const n = group.length
 
-    // -> The perpendicular axis edges sharing this node pair are spread along is computed once per
-    //    group, off the pair's two node ids in a fixed (sorted) order -- not off any one edge's own
-    //    source/target, which can point either way. Using each edge's own direction here would flip
-    //    the offset's sign for a reversed edge and collapse two "parallel" lines back onto one.
+    // -> The axis the group spreads along comes from the pair's node ids in a fixed (sorted) order,
+    //    not from any one edge's own source/target: a reversed edge would flip the offset's sign and
+    //    collapse two "parallel" lines back onto one.
     const [nodeA, nodeB] =
       group[0].edge.source < group[0].edge.target
         ? [group[0].edge.source, group[0].edge.target]
@@ -206,8 +188,6 @@ const renderedEdges = computed(() => {
 
       const ux = dx / len
       const uy = dy / len
-      // -> Evenly-spaced parallel offset for edges sharing this node pair: 0 for a lone edge, and
-      //    symmetric +/-(width+gap) multiples centered on the source-target line otherwise.
       const offset = ((n - 1) / 2 - k) * (EDGE_WIDTH + EDGE_GAP)
 
       const trim = NODE_RADIUS + EDGE_MARGIN
@@ -235,8 +215,6 @@ const renderedEdges = computed(() => {
   return result
 })
 
-/** The missing-origin overlay: a thicker, translucent line reusing an already-trimmed edge's own
- *  computed endpoints rather than re-deriving its own geometry. */
 const renderedPaths = computed(() => {
   const byId = new Map(renderedEdges.value.map((e) => [e.id, e]))
   const result = []
@@ -296,12 +274,9 @@ const viewBox = computed(() => {
   }
 }
 
-/* Restores the node hover affordance `v-network-graph` drew by default (OpenProject #3134) --
-   dropped outright when #3116 replaced it with this plain SVG renderer. There is no old custom
-   config to transcribe (AdminStorage.vue never overrode `node.hover`), so this is a fresh,
-   theme-agnostic restatement: scale the node around its own center rather than the SVG origin, and
-   brighten its fill via `filter` rather than a hardcoded color so it reads correctly against any
-   node color and either theme. */
+/* `transform-box: fill-box` scales the node around its own center rather than the SVG origin, and
+   the hover highlight is a `filter` rather than a hardcoded color so it reads correctly against any
+   node color in either theme. */
 .storage-delivery-graph__node {
   cursor: pointer;
   transform-box: fill-box;

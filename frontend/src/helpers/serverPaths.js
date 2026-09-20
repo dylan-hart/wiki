@@ -1,6 +1,5 @@
 /**
- * Paths the server owns rather than the page tree: build assets, the API, block bundles, uploaded
- * files, icons, per-site files, thumbnails and avatars.
+ * Paths the server owns rather than the page tree.
  *
  * One list, because two different things ask the same question of a URL and must not drift apart:
  * which links the router should keep its hands off (`renderedContent.js`), and which image sources
@@ -17,7 +16,7 @@ export const SERVER_PATHS = [
   '/_user/'
 ]
 
-/** Whether a root-relative path is one of them. */
+/** `path` must be root-relative: this is a prefix test, not a URL parse. */
 export function isServerPath(path) {
   return SERVER_PATHS.some((prefix) => path.startsWith(prefix))
 }

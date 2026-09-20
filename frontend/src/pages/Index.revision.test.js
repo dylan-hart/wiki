@@ -11,26 +11,16 @@ import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
 /**
- * OpenProject #2652 -- the Revision section in the page metadata rail, the consumer half of Feature
- * #2607 (its producer half, #2651, puts `revision: { ordinal, changeCount }` on the page read).
- * #2735 adds `revision.via` and the "via MCP" badge next to the author name, reusing the history
- * timeline's own badge and locale keys (`PageHistoryOverlay.vue`).
- *
- * The section has three renderings and the difference between them is ABSENCE, never a zero, so
- * that is what these assert:
- *
- *   1. full       -- `rev 14 · 6 changes`, the author, the relative time
- *   2. no history -- `rev 1` alone: no interpunct and no `0 changes` clause after it
- *   3. no history PERMISSION -- the author and the time alone: `revision` is missing from the
- *      payload entirely, and the rev line goes with it while the section stays
+ * The rail's Revision section renders by ABSENCE, never by a zero: no change clause where there is
+ * nothing to diff against, and no `revision` key at all -- which is how the read answers a reader
+ * without `read:history` -- where the whole rev line goes but the section stays.
  *
  * Driven through the real page read rather than by writing `pageStore.revision` directly: the
- * payload's shape IS the contract under test here (a missing key and a present-but-partial object
- * mean two different things), and a test that patched the store by hand would prove the template
- * reads a field without proving the store keeps that field honest.
+ * payload's shape IS the contract (a missing key and a present-but-partial object mean two different
+ * things), and a hand-patched store would prove the template reads a field without proving the store
+ * keeps that field honest.
  */
 
-/** A page as the read route returns one, with only what `Index.vue` and `pagePatch` actually read. */
 function pagePayload(overrides = {}) {
   return {
     id: 'page-1',
@@ -54,10 +44,9 @@ function pagePayload(overrides = {}) {
 }
 
 /*
-  Real English for the keys these tests read the rendered text of; every other `t()` call in this
-  view renders as its bare key, which none of them look at. The plural form is the one from
-  `backend/locales/en.json`, pipes and all -- `revisionChanges` is passed a count, so a single-form
-  message here would not exercise the same resolution path the app takes.
+  Real English only for the keys these tests read the rendered text of; every other `t()` call in
+  this view renders as its bare key. `revisionChanges` keeps both plural forms, pipe and all: it is
+  passed a count, so a single-form message would not take the resolution path the app takes.
 */
 const MESSAGES = {
   'common.page.revision': 'Revision',
@@ -101,7 +90,6 @@ function mountIndex() {
   return mounted
 }
 
-/** Mounts the view on a loaded page, and hands back the rail's Revision section. */
 async function mountWithPage(payload) {
   stubApi(new Map([[/^sites\/.*\/pages\//, payload]]))
 
@@ -149,9 +137,8 @@ describe('Index.vue: the rail’s Revision section (#2652)', () => {
   })
 
   it('treats a zero change count as nothing to diff against rather than as a count of zero', async () => {
-    // -> The server never sends a zero (absence is how it says "nothing to compare against"), so
-    //    this is the defensive half of the same rule: a zero that somehow arrives must not draw a
-    //    clause claiming zero lines changed.
+    // -> The server never sends a zero -- absence is how it says "nothing to compare against" -- so
+    //    this is the defensive half: a zero that does arrive must not draw a clause claiming one.
     const { section } = await mountWithPage(
       pagePayload({ revision: { ordinal: 3, changeCount: 0 } })
     )
@@ -161,8 +148,6 @@ describe('Index.vue: the rail’s Revision section (#2652)', () => {
   })
 
   it('omits the rev line, but keeps the section, for a reader without `read:history`', async () => {
-    // -> No `revision` key at all: that IS the permission answer, and it is the only difference
-    //    between this payload and the first test's.
     const { heading, section } = await mountWithPage(pagePayload())
 
     expect(heading?.exists()).toBe(true)
@@ -171,8 +156,7 @@ describe('Index.vue: the rail’s Revision section (#2652)', () => {
   })
 
   it('formats the timestamp through `userStore.formatRecent`, not as a date of its own', async () => {
-    // -> Inside the last week, which is the branch `formatRecent` exists for: a weekday and a time
-    //    rather than the full date `formatDateTime` would give.
+    // -> Inside the last week, which is the branch `formatRecent` exists for.
     const updatedAt = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString()
     const { section, i18n } = await mountWithPage(
       pagePayload({ updatedAt, revision: { ordinal: 4, changeCount: 2 } })
@@ -181,13 +165,12 @@ describe('Index.vue: the rail’s Revision section (#2652)', () => {
     const expected = useUserStore().formatRecent(i18n.global.t, updatedAt)
     expect(expected).not.toBe('')
     expect(section.text()).toContain(expected)
-    // -> And not the raw stored value, which is what a template interpolating `updatedAt` would show
     expect(section.text()).not.toContain(updatedAt)
   })
 
   it('draws no empty section before a page has landed in the store', async () => {
-    // -> Every real page has an author and a last-saved moment, so this is the loading state, not a
-    //    page: a heading over three blank lines is what the guard prevents.
+    // -> Every real page has an author and a last-saved moment, so a payload missing both is the
+    //    loading state, not a page.
     const { heading, section } = await mountWithPage(pagePayload({ authorName: '', updatedAt: '' }))
 
     expect(heading).toBe(undefined)
@@ -196,9 +179,9 @@ describe('Index.vue: the rail’s Revision section (#2652)', () => {
 })
 
 /**
- * The store half: `revision` is stated explicitly by `pageLoad` rather than left to `pagePatch`'s
- * spread of the response, because the key is ABSENT for a reader without `read:history` -- and a
- * spread of a payload that does not carry it would leave the previous page's ordinal standing.
+ * `pageLoad` states `revision` explicitly rather than leaving it to `pagePatch`'s spread of the
+ * response: the key is ABSENT for a reader without `read:history`, and a spread of a payload that
+ * does not carry it would leave the previous page's ordinal standing.
  */
 describe('pageStore.revision across loads (#2652)', () => {
   it('keeps what the page read sent', async () => {
@@ -226,9 +209,8 @@ describe('pageStore.revision across loads (#2652)', () => {
   })
 
   it('is cleared by a save, whose response carries no revision of its own', async () => {
-    // -> A save is exactly what moves the page along its history, so the ordinal this store holds
-    //    is out of date the moment the write lands. Absence -- the section falling back to the
-    //    author and the time -- is honest where the pre-save count would be a wrong number.
+    // -> A save is what moves the page along its history, so the held ordinal is stale the moment
+    //    the write lands; absence is honest where the pre-save count would be a wrong number.
     const { pageStore } = await mountWithPage(pagePayload({ revision: { ordinal: 9 } }))
 
     const usePageStoreScoped = usePageStore()
@@ -244,9 +226,8 @@ describe('pageStore.revision across loads (#2652)', () => {
 })
 
 /**
- * OpenProject #2735: the "via MCP" badge, reused verbatim from the history timeline
- * (`PageHistoryOverlay.vue`) -- did the person actually type this revision, or did an MCP tool call
- * acting as them? `revision.via` comes straight off `Page#.revision` (backend half: #2734).
+ * The "via MCP" badge answers a question the author name alone cannot: did the person type this
+ * revision, or did an MCP tool call acting as them?
  */
 describe('Index.vue: the rail’s “via MCP” badge (#2735)', () => {
   it('draws the badge after the author name for an MCP-authored revision', async () => {
@@ -283,8 +264,8 @@ describe('Index.vue: the rail’s “via MCP” badge (#2735)', () => {
   })
 
   /**
-   * OpenProject #2913: the badge must read in the accent color, not the muted `slate-pale` tone --
-   * `WBadge.vue`'s `outline` styling resolves `color` straight to `style="color: var(--color-...)"`.
+   * `WBadge.vue`'s `outline` styling resolves `color` straight to `style="color: var(--color-...)"`,
+   * which is why this reads the inline attribute rather than a class.
    */
   it('renders the badge in the accent color, not slate-pale', async () => {
     const { section } = await mountWithPage(
@@ -300,10 +281,9 @@ describe('Index.vue: the rail’s “via MCP” badge (#2735)', () => {
 })
 
 /**
- * And the strings themselves, read out of what the backend actually serves rather than out of the
- * table above: the component asks for four keys by name and interpolates three placeholders into
- * them, none of which the mounted tests can catch a typo in -- an unknown key renders as its own
- * name and a missing placeholder simply renders nothing.
+ * The strings as the backend serves them, not as the table above states them: an unknown key renders
+ * as its own name and a missing placeholder renders nothing, so no mounted test can catch a typo in
+ * either.
  */
 describe('the Revision section’s locale keys (#2652)', () => {
   const strings = JSON.parse(

@@ -1,8 +1,6 @@
 /**
- * Shared positioning for the floating elements (`WMenu`, `WTooltip`).
- *
- * Placement is expressed the way the existing markup already writes it -- an `anchor` point on the
- * trigger and a `self` point on the floating element, each `"<vertical> <horizontal>"`, e.g.
+ * Placement is expressed the way the markup already writes it -- an `anchor` point on the trigger
+ * and a `self` point on the floating element, each `"<vertical> <horizontal>"`, e.g.
  * `anchor="bottom right" self="top right"`.
  */
 
@@ -24,8 +22,6 @@ function parse(spec, fallback) {
 }
 
 /**
- * Compute fixed-position coordinates for a floating element.
- *
  * @param {DOMRect} anchorRect Trigger bounding box, in viewport coordinates.
  * @param {{ width: number, height: number }} floatSize Measured size of the floating element.
  * @param {object} opts
@@ -42,9 +38,8 @@ export function anchoredPosition(anchorRect, floatSize, { anchor, self, offset =
   let top = anchorRect.top + anchorRect.height * a.v - floatSize.height * s.v + offset[1]
 
   /*
-    Keep the element on screen. Clamping beats flipping here: every current placement opens against
-    an edge that has room, so a flip would only ever fire on a near-miss and would move the element
-    much further than nudging it does.
+    Clamping beats flipping here: placements open against an edge that has room, so a flip would
+    only ever fire on a near-miss and would move the element much further than nudging it does.
   */
   const margin = 8
   const maxLeft = window.innerWidth - floatSize.width - margin

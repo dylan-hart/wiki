@@ -8,20 +8,6 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 import { createRecordingApp, referencesApiError } from '../test/routeRecorder.ts'
 
 describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683)', () => {
-  /**
-   * Task #683: `/sites/:siteId/approvals/rules` (GET/POST/PUT/DELETE) — the routes behind
-   * `AdminApprovals.vue` — used to gate on the blanket route-level `manage:sites`. They
-   * now also accept the site-scoped `site:approvals` permission from task #682 (`checkSiteAccess()`),
-   * checked in-handler via `checkSiteAdminAccess` since `config.permissions` cannot express a
-   * per-site check.
-   *
-   * The submission/review routes (`/sites/:siteId/approvals/submissions/...`,
-   * `/sites/:siteId/pages/:pageId/suggestions/self`) are deliberately untouched by task #683 — they
-   * are page-scoped review permissions (`review:pages`, decided per-page by `helpers/pageRules.ts`),
-   * not a site-admin surface, per the delegated-per-site-administration decision's §3 mapping of
-   * `site:approvals` to the rules routes specifically. Covered separately below.
-   */
-
   const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'
   const RULE_ID = 'a1b2c3d4-e5f6-4789-9abc-def012345678'
   const SUBMITTER_GROUP = 'b2c3d4e5-f6a7-489a-bcde-f01234567890'
@@ -49,8 +35,6 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   async function getRule() {
     return existingRule
   }
-  // -> Mutable per-test, task #1616: default empty (every group id resolves), one test below
-  //    overrides it to prove `rejectUnknownGroups` now sends a coded `ERR_UNKNOWN_GROUPS` message.
   let unknownGroupIdsToReturn: string[] = []
   async function hasUnknownGroupIds() {
     return unknownGroupIdsToReturn.length > 0
@@ -89,8 +73,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   let app: FastifyInstance
 
   before(async () => {
-    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
-    //    plugin-only app has to register it to answer that case the way the real app does.
+    // -> The unknown-site 404 is this hook's, not each handler's, so a plugin-only app has to
+    //    register it to answer that case the way the real app does.
     const guardedRoutes: FastifyPluginAsync = async (instance) => {
       instance.addHook('preHandler', siteEnabledPreHandler)
       await instance.register(approvalsRoutes)
@@ -98,8 +82,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
 
     app = await buildTestApp({
       routes: guardedRoutes,
-      // -> The site-permission stub takes no `req`, so it reads this suite's per-test grants off a
-      //    module-level variable, populated once per request.
+      // -> The `checkSiteAccess` stub takes no `req`, so each request's grants reach it through a
+      //    suite-level variable.
       session: (req: any) => {
         currentSitePermissionHeader = req.headers['x-test-site-permissions']
         return undefined
@@ -108,8 +92,6 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
         sites,
         models: {
           groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess, hasUnknownGroupIds },
-          // -> Rule CRUD moved to `models/approvalRules.ts` when `models/approvals.ts` was split;
-          //    the rule routes reach it there now.
           approvalRules: {
             getRules,
             getRule,
@@ -190,9 +172,6 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     assert.equal(createRuleCalls.length, 1)
   })
 
-  // -> #1616: this used to be a hardcoded `No such group: <ids>` English sentence, which surfaced
-  //    verbatim in the UI instead of translating like the rest of a `t(key, fallback)` screen.
-  //    Assert the coded `ERR_*` shape, not any particular wording.
   test('creating a rule with an unknown group id is rejected with a coded error', async () => {
     unknownGroupIdsToReturn = [SUBMITTER_GROUP]
     const res = await app.inject({
@@ -274,14 +253,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
 
 describe('approve/reject submission routes — response schema covers reachable statuses (task 2355)', () => {
   /**
-   * The approve/reject submission routes deliberately declare no route-level `config.permissions`
-   * (the actor check is in-handler instead, via `actorFrom`/`reviewerFor` — the "No route-level
-   * permissions" convention) so `responseErrors.test.ts`'s blanket 401/403 check, which
-   * only scans routes with a non-empty `config.permissions`, can never catch a missing 401 on either
-   * of them. OpenProject #2355: the reject route's response schema once omitted 401 even though its
-   * handler can (defensively) return `reply.unauthorized()`, the same shape the approve route above
-   * it already had. This is a narrow regression guard for exactly that gap, using the same
-   * recording-stub technique as `responseErrors.test.ts` rather than booting a real Fastify instance.
+   * These routes declare no `config.permissions` (the actor check is in-handler), and
+   * `responseErrors.test.ts`'s blanket 401/403 scan only covers routes that do.
    */
 
   test('approve and reject routes both declare 401 and 404 as ApiError', async () => {

@@ -4,14 +4,9 @@
       <p class="auth-subtitle">{{ t('auth.registerSubTitle') }}</p>
       <w-form ref="form" @submit="register">
         <!--
-          Five 40px fields carrying their own name as a placeholder, no label above -- the shape
-          `Cardinal Wiki - Auth Screens 3x.dc.html` draws, and the same conversion the login form
-          above it made. The chrome itself lives in `pages/Login.vue`'s `.auth` stylesheet, since
-          this screen only ever renders inside that column.
-
-          The name is two authored halves rather than one to split: an account created here is this
-          instance's own, so the display name derives from them server-side (Feature #2608) and no
-          parsing is ever applied. The last name is optional, for a mononym.
+          Field chrome lives in `pages/Login.vue`'s `.auth` stylesheet -- this screen only ever
+          renders inside that column. The name is two authored halves, never parsed: the display
+          name derives from them server-side, and the last name is optional for a mononym.
         -->
         <w-input
           class="auth-field auth-field--sm"
@@ -78,12 +73,6 @@
           lazy-rules="ondemand">
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
-        <!--
-          OpenProject #2779: `color="accent"`, not `primary` -- both auth mockups draw this in the
-          "accent fill carrying white text" role (`--color-accent`, `#c8303c` under Cobalt), distinct
-          from `--color-primary` now that Ledger's `colorPrimary`/`colorAccent` no longer stand in for
-          one another. `WBtn` itself applies the matching Cobalt glow (OpenProject #2813).
-        -->
         <w-btn
           class="auth-marks w-full mt-2.5"
           type="submit"
@@ -104,20 +93,11 @@
         icon="tabler:circle-arrow-left"
         @click="emit(`back-to-login`)" />
     </template>
-    <!-- ----------------------------------------------------- -->
-    <!-- REGISTER CHECK EMAIL SCREEN -->
-    <!-- ----------------------------------------------------- -->
     <template v-else-if="props.screen === `registerCheckEmail`">
       <!--
-        `accent-fill`, not `primary`: the glyph is a 48px line drawing carrying no text of its own,
-        and the bright tone is the one the language reserves for exactly that (`primary` is the
-        darkened tone, for accent TEXT and for a fill under a white label). The design draws it at
-        `#e4676b`.
-
-        `dark.isActive` swaps it for `accent-dark` under dark mode -- `--color-accent-fill` has no
-        dark-mode override of its own (OpenProject #2807), so left alone this drew the same bright
-        Ledger/Cobalt tone against a dark ground that `--color-accent-dark` exists to replace it
-        with, the same swap `w-input-control`'s error ring makes in `tailwind.css`.
+        `accent-fill` is the bright tone, for a glyph carrying no text of its own; `primary` is the
+        darkened tone, for accent TEXT or a fill under a white label. It has no dark-mode override
+        of its own, so dark mode must swap in `accent-dark` or this draws bright on a dark ground.
       -->
       <div class="flex flex-col items-center pt-3.5 text-center">
         <w-icon
@@ -161,36 +141,17 @@ import { passwordStrengthBadge } from '@/helpers/passwordStrength'
 
 import { useSiteStore } from '@/stores/site'
 
-/**
- * The self-registration screens of `AuthLoginPanel.vue`: the sign-up form, and the "check your
- * emails" screen a site with email validation on ends it at.
- *
- * Split out of the panel because the five fields it fills in are read by nothing else -- the panel's
- * own reset and change-password screens ask for a password too, but their own -- so the only thing
- * it needs from the sign-in attempt is which strategy to register against.
- */
-
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// PROPS
-
 const props = defineProps({
-  /** Which of the two screens to draw: `register` or `registerCheckEmail`. */
   screen: {
     type: String,
     required: true
   },
-  /** The strategy to register against. */
   strategyId: {
     type: String,
     default: null
@@ -198,8 +159,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['registered', 'back-to-login'])
-
-// DATA
 
 const state = reactive({
   newFirstName: '',
@@ -209,25 +168,13 @@ const state = reactive({
   newPasswordVerify: ''
 })
 
-// REFS
-
 const firstNameIpt = ref(null)
 const form = ref(null)
 
-// COMPUTED
-
 const passwordStrength = computed(() => passwordStrengthBadge(state.newPassword, t))
 
-/**
- * See `AuthLoginPanel`'s own `chromeColor`: the chrome tone, lightened for the ink ground.
- *
- * OpenProject #2779: left as the generic, non-aesthetic `slate`/`slate-light` under Cobalt too -- see
- * `AuthLoginPanel.vue`'s identical note on its own `chromeColor` for why this is flagged rather than
- * fixed here.
- */
+/** Same chrome-tone tokens as `AuthLoginPanel.vue`'s own `chromeColor` -- keep the two in sync. */
 const chromeColor = computed(() => (dark.isActive ? 'slate-light' : 'slate'))
-
-// VALIDATION RULES
 
 const firstNameValidation = firstNameRules(t)
 const lastNameValidation = lastNameRules(t)
@@ -235,17 +182,6 @@ const emailValidation = emailRules(t)
 const passwordValidation = passwordRules(t)
 const passwordVerifyValidation = passwordVerifyRules(t, () => state.newPassword)
 
-// METHODS
-
-/**
- * REGISTER
- *
- * `nextAction: 'verify'` means the strategy requires email validation: the account was created
- * unverified and a link was mailed to it, so this shows a "check your email" screen instead of
- * calling `handleLoginResponse()` -- there is no session to establish yet. Any other `nextAction`
- * (validation off) is a login exactly like every other successful auth attempt, so it's handed to
- * the same response handler the rest of this panel uses.
- */
 async function register() {
   loading.show({
     message: t('auth.registering')
@@ -267,9 +203,6 @@ async function register() {
     if (resp.ok) {
       state.newPassword = ''
       state.newPasswordVerify = ''
-      // -> Where the flow goes next -- the check-your-email screen or straight into a session -- is
-      //    the panel's to decide, the same as it is for every other successful auth attempt. It also
-      //    owns the login form's own password field, which a completed registration clears.
       emit('registered', resp)
     } else {
       throw new Error(resp.message || 'ERR_REGISTRATION_FAILED')
@@ -283,12 +216,6 @@ async function register() {
   }
 }
 
-// MOUNTED
-
-/*
-  The panel used to focus this from its own `switchTo('register')`, on the tick after the screen
-  changed. Mounting IS that moment now -- this component exists only while the register screen is up.
-*/
 onMounted(() => {
   firstNameIpt.value?.focus()
 })

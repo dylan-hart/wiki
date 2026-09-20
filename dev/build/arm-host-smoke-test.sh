@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
-# Confirms a published Cardinal.js 3.x image actually RUNS correctly on a real arm64 host, not merely
-# that its manifest lists linux/arm64 (that half is `backend/scripts/verify-arm64-manifest.ts`, run
-# from anywhere, no arm64 hardware needed). This script is the other half of OpenProject #2488
-# ("Verify published multi-arch manifest on a real ARM host") and must be run ON a genuine arm64
-# machine — a Raspberry Pi 4/5, an arm64 cloud VM, or Apple Silicon's own arm64 Docker Desktop VM —
-# not under QEMU emulation, which would defeat the point: QEMU can make an amd64 image "run" on
-# arm64 (slowly, emulated) and would silently pass even if the pushed arm64-native layer is broken.
-# See docs/release-checklist.md for where this fits in the release runbook.
-#
-# Usage:
-#   ./dev/build/arm-host-smoke-test.sh ghcr.io/<owner>/<repo>:<version>
+# Confirms a published image actually RUNS on a real arm64 host, not merely that its manifest lists
+# linux/arm64 (that half is `backend/scripts/verify-arm64-manifest.ts`, which needs no arm64
+# hardware). Must be run ON a genuine arm64 machine, never under QEMU emulation: QEMU can make an
+# amd64 image "run" on arm64 and would pass even if the pushed arm64-native layer is broken.
+# See docs/audits/release-checklist.md for where this fits in the release runbook.
 set -euo pipefail
 
 IMAGE_REF="${1:?Usage: $0 <image-ref>}"

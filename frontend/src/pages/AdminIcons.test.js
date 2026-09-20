@@ -8,11 +8,9 @@ import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
 /**
- * OpenProject #2947: mirrors `AdminLocale.vue`'s "Offline Sideload" card, gated by `manage:system`,
- * for `POST /_api/icons/sideload` (`backend/api/icons.ts`, OpenProject #2946). The response shape
- * is icons-specific -- `{ loaded: { prefix, iconCount }[], skipped: { prefix, error }[] }` -- which
- * differs from the locale route's `{ loaded: string[], skipped: { code, error }[] }`, so the
- * success/failure captions here map over `.prefix`/`.error` rather than joining plain codes.
+ * `icons/sideload` answers `{ loaded: { prefix, iconCount }[], skipped: { prefix, error }[] }`,
+ * not the locale route's flat `{ loaded: string[], skipped: { code, error }[] }` — which is why the
+ * captions asserted below are built from `.prefix`/`.error` rather than joined codes.
  */
 
 const SETS = [{ prefix: 'mdi', name: 'Material Design Icons', iconCount: 12, info: {} }]
@@ -83,7 +81,6 @@ describe('AdminIcons: offline sideload control', () => {
       message: '1 icon set(s) loaded successfully.',
       caption: 'tabler'
     })
-    // -> A newly-loaded set should show up without a manual page refresh
     expect(API_CLIENT.get).toHaveBeenCalledWith('icons/sets')
   })
 

@@ -11,11 +11,7 @@ import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * The regex `extractTags()` replaces (see `searchTags.js`'s own header comment for the full
- * derivation). Kept here, private to the test file, purely as an oracle to differential-test
- * against on cases too fiddly to hand-verify -- never re-exported for production use.
- */
+/** The regex `extractTags()` replaces, kept as a differential-test oracle. */
 const legacyTagsInQueryRgx = /#[a-z0-9-㐀-䶿一-鿿]+(?=(?:[^"]*(?:")[^"]*(?:"))*[^"]*$)/g
 
 function legacyExtractTags(query) {
@@ -75,9 +71,8 @@ describe('extractTags', () => {
   })
 
   it('completes promptly on a ~100KB adversarial query (long tag run + many quotes)', () => {
-    // Deliberately NOT differential-tested against `legacyExtractTags` here -- this exact shape
-    // (a long tag run followed by a long run of quotes) is the quadratic-backtracking case being
-    // fixed, so running the old regex against it would defeat the point of the test.
+    // Deliberately NOT differential-tested against `legacyExtractTags`: this shape is the
+    // quadratic-backtracking case, so the old regex would hang here.
     const query = `#${'a'.repeat(50_000)}${'"'.repeat(50_000)}`
     const start = performance.now()
     const tags = extractTags(query)
@@ -94,11 +89,7 @@ describe('MAX_QUERY_LENGTH', () => {
   })
 })
 
-/*
- * `useMinWidth` (via `useScreen`) calls `window.matchMedia` -- happy-dom supplies one, but this
- * mirrors `Index.test.js`'s own defensive stub rather than assuming so, since nothing else in this
- * file needs the real implementation.
- */
+/* `useMinWidth` (via `useScreen`) calls `window.matchMedia`, which happy-dom may not supply. */
 beforeEach(() => {
   window.matchMedia =
     window.matchMedia ??
@@ -148,12 +139,10 @@ function resultItem(locale, path, title) {
 }
 
 /**
- * WP #1728: `state.results` is replaced wholesale on any filter change (the `deep: true` watcher on
- * `state.params`), but the `w-item` row for each result had no `:key` -- Vue fell back to patching
- * rows in place by index instead of keying them by identity, reusing a row's DOM element (and any
- * component-internal state it held: focus, scroll position, in-flight transitions) across two
- * completely unrelated results. This asserts a row's DOM element is actually replaced, not patched
- * in place, when the result set changes to a different page of results at the same array index.
+ * `state.results` is replaced wholesale on any filter change (the `deep: true` watcher on
+ * `state.params`). Without a `:key` on each result row, Vue patches rows by index instead of
+ * identity, reusing a row's DOM element -- and the state it holds: focus, scroll position,
+ * in-flight transitions -- across two unrelated results.
  */
 describe('Search.vue results list keying (WP #1728)', () => {
   it('replaces a row DOM element (does not reuse it) when the result set changes to unrelated results', async () => {
@@ -165,16 +154,13 @@ describe('Search.vue results list keying (WP #1728)', () => {
     ]
     await flushPromises()
 
-    // -> Select the row by the actual link it renders (`localizedPagePath`, no locale prefix here
-    //    since `siteStore.localeRouting.useLocales` defaults falsy) rather than a class guess: the
-    //    results list is the only `w-item v-for` in the template keyed off `state.results`.
+    // -> The href carries no locale prefix: `siteStore.localeRouting.useLocales` defaults falsy.
     const firstRowBefore = wrapper.find('a[href="/page-one"]')
     expect(firstRowBefore.exists()).toBe(true)
     const firstElBefore = firstRowBefore.element
 
-    // -> A wholesale replacement: an unrelated result set with no keys in common with the first,
-    //    same array length and same index-0 position -- exactly the "any filter change" case the
-    //    bug description calls out.
+    // -> No keys in common with the first set, same length and same index-0 position: the shape
+    //    index-patching would silently survive.
     wrapper.vm.state.results = [
       resultItem('en', 'page-three', 'Page Three'),
       resultItem('en', 'page-four', 'Page Four')
@@ -185,17 +171,10 @@ describe('Search.vue results list keying (WP #1728)', () => {
     expect(firstRowAfter.exists()).toBe(true)
     expect(firstRowAfter.element).not.toBe(firstElBefore)
 
-    // -> The stale row is gone outright, not merely relabeled in place
     expect(wrapper.find('a[href="/page-one"]').exists()).toBe(false)
   })
 })
 
-/**
- * Cobalt typography role-table conformance (OpenProject #2984, "Search" §3): the empty-query
- * prompt carried no type role of its own before this -- just the ambient inherited size/color --
- * so it is the one role in this table that needed a real fix rather than already resolving
- * correctly through the existing color tokens.
- */
 describe('Search.vue empty-query prompt (OpenProject #2984)', () => {
   it('renders the empty-query prompt in its own italic type role when no search has run', async () => {
     const { wrapper } = await mountSearch()
@@ -203,7 +182,6 @@ describe('Search.vue empty-query prompt (OpenProject #2984)', () => {
     const prompt = wrapper.find('.layout-search-empty-prompt')
     expect(prompt.exists()).toBe(true)
     expect(prompt.find('em').exists()).toBe(true)
-    // -> Not the "no results for a query" wording -- that is a different role, unstyled by this WP
     expect(wrapper.find('.layout-search-empty-prompt').text()).not.toBe('')
   })
 
@@ -219,15 +197,7 @@ describe('Search.vue empty-query prompt (OpenProject #2984)', () => {
   })
 })
 
-/**
- * OpenProject #2006: a restricted reader's page rules can drop rows the search engine itself
- * matched, which makes the reported `totalHits` a floor rather than an exact count -- see
- * `backend/modules/search/db/search.test.ts` for the backend half (the flag itself) and this file
- * for the frontend half (labeling it). Real i18n messages, not the empty stub `TagsBrowse.test.js`
- * uses, since what is under test here IS the wording the two keys (`search.totalResults` /
- * `search.totalResultsApprox`) produce. Also carries `search.loadMore`, shared with the offset-paging
- * tests below (OpenProject #2001) since both groups mount the real `Search` component.
- */
+/** Real messages, not an empty stub: the wording these keys produce is itself under test. */
 function createSearchI18n() {
   return createTestI18n({
     search: {
@@ -293,8 +263,6 @@ async function mountSearchWithResponse(searchResponse) {
   const wrapper = mount(Search, {
     global: {
       plugins: [router, i18n],
-      // -> Real HeaderNav/FooterNav/MainOverlayDialog pull in more stores and API calls than this
-      //    test cares about; stubbed by name so the page around them still renders for real.
       stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
     }
   })
@@ -303,11 +271,7 @@ async function mountSearchWithResponse(searchResponse) {
   return { wrapper, siteStore, userStore, i18n }
 }
 
-/**
- * Mounts against `initialPath`, queuing `firstResponse` ahead of the immediate `route.query`
- * watcher's own search request -- the same mount-time ordering `TagsBrowse.test.js` documents for
- * its own route-driven watcher.
- */
+/** `firstResponse` has to be queued before mount: the `route.query` watcher fires immediately. */
 async function mountSearchWithOffset(initialPath = '/_search?q=test', firstResponse) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
@@ -321,10 +285,8 @@ async function mountSearchWithOffset(initialPath = '/_search?q=test', firstRespo
   const wrapper = mount(Search, {
     global: {
       plugins: [router, createSearchI18n()],
-      // -> Layout chrome, irrelevant to offset paging. HeaderNav in particular pulls in
-      //    HeaderSearch, whose onMounted() unconditionally focuses its search field whenever the
-      //    route starts with `/_search` -- exactly this page's own route -- which throws under
-      //    happy-dom with nothing real to focus.
+      // -> HeaderNav pulls in HeaderSearch, whose onMounted() focuses its search field whenever
+      //    the route starts with `/_search`, which throws under happy-dom with nothing to focus.
       stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
     }
   })
@@ -337,11 +299,7 @@ function findLoadMoreButton(wrapper) {
   return wrapper.findAll('button').find((b) => b.text() === 'Load More')
 }
 
-/**
- * Mounts with `siteStore.features.semanticSearch` set before the component's own `onMounted()`
- * runs, and (like `mountSearchWithOffset`) queues `firstResponse` ahead of the immediate
- * `route.query` watcher's own request when one is given.
- */
+/** `features.semanticSearch` has to be set before the component's `onMounted()` reads it. */
 async function mountSearchWithMode({
   semanticEnabled = true,
   initialPath = '/_search?q=onboarding',
@@ -520,13 +478,10 @@ describe('Search.vue offset paging (OpenProject #2001)', () => {
 })
 
 /**
- * OpenProject #3136 -- `watch(() => state.params, debounce(performSearch, 500), { deep: true })`
- * let Vue's own `(newValue, oldValue, onCleanup)` watch-callback arguments flow straight through
- * the debounced wrapper into `performSearch(append = false)`, so `append` received the (always
- * truthy) new `state.params` object instead of defaulting to `false`. `runSearchRequest` then
- * reused the stale `state.offset` left over from the initial load instead of resetting to 0,
- * which -- once `state.offset` had advanced past `totalHits` -- made every filter/sort change
- * request a page past the end of the results and come back empty.
+ * Vue passes `(newValue, oldValue, onCleanup)` to a watch callback, so wiring `performSearch`
+ * straight into `watch(() => state.params, debounce(performSearch, 500), { deep: true })` makes
+ * its `append` parameter truthy: `runSearchRequest` then reuses the stale `state.offset` and every
+ * filter change requests a page past the end of the results.
  */
 describe('Search.vue filter/sort changes re-search from offset 0 (OpenProject #3136)', () => {
   beforeEach(() => {
@@ -587,16 +542,6 @@ describe('Search.vue filter/sort changes re-search from offset 0 (OpenProject #3
   })
 })
 
-/**
- * OpenProject #2697 -- handoff 2's Search screen.
- *
- * Two deliberate removals from 2.x and one new row shape. The removals are only half visible from
- * here: the dark radial band behind the card is CSS, and is measured in `Search.layout.test.js`
- * alongside the 150px trailing column and the pinned header strips. What a mounted component can
- * answer -- and what the WP asks for by name -- is that the floating Back button is gone from the
- * DOM ENTIRELY rather than merely hidden by a media query, that no handler was left behind for it,
- * and that a result row renders the five parts the design gives it.
- */
 const FIXTURE_RICH_RESULT = {
   id: 'p9',
   path: 'docs/ingest/credentials',
@@ -619,11 +564,10 @@ describe('Search.vue result rows and the removed Back control (OpenProject #2697
       suggestion: null
     })
 
-    // -> Gone from the DOM, not hidden: the class the old rule keyed off no longer exists either
     expect(wrapper.find('.layout-search-back').exists()).toBe(false)
     expect(wrapper.html()).not.toContain('circle-arrow-left')
-    // -> And no dead handler behind it. `<script setup>` bindings are exposed on the instance, so
-    //    a surviving `goBack` would be a function here rather than `undefined`.
+    // -> `<script setup>` bindings are exposed on the instance, so a surviving `goBack` would be a
+    //    function here rather than `undefined`.
     expect(wrapper.vm.goBack).toBeUndefined()
   })
 
@@ -649,28 +593,22 @@ describe('Search.vue result rows and the removed Back control (OpenProject #2697
     expect(row.find('.layout-search-rowpath').text()).toBe('/docs/ingest/credentials')
 
     /*
-      OpenProject #2716: this date used to go through `humanizeDate` (the long absolute form), the
-      same as tag results and Inbox Watching, while the page view's own "Last modified" line already
-      used the short recent form -- so the same fact about the same page read differently depending
-      on which list it was found in. `FIXTURE_RICH_RESULT.updatedAt` is a fixed 2026-08-01 date, well
-      beyond `formatRecent`'s 7-day window, so this asserts against `formatRecent`'s own (fallback)
-      output rather than a hand-written absolute string.
+      `FIXTURE_RICH_RESULT.updatedAt` sits well beyond `formatRecent`'s 7-day window, so this
+      asserts against `formatRecent`'s own fallback output rather than a hand-written absolute
+      string.
     */
     expect(row.find('.layout-search-rowdate').text()).toBe(
       userStore.formatRecent(i18n.global.t, FIXTURE_RICH_RESULT.updatedAt)
     )
 
-    // -> The matched-term treatment is the shared `.text-highlight`, not a Search-only class
     const excerpt = row.find('.layout-search-rowexcerpt')
     expect(excerpt.classes()).toContain('text-highlight')
     expect(excerpt.find('b').text()).toBe('credentials')
   })
 
   /*
-    OpenProject #3122: a semantic result carries `chunkText` (the matched embedding chunk) and no
-    `highlight` -- the route/schema fix restores this field to the payload, and this is the frontend
-    half: render it as the excerpt, as plain text rather than `v-html`, since it is raw stored
-    content, not pre-escaped highlight markup with `<b>` wrapping.
+    `chunkText` (the matched embedding chunk) is raw stored content, not pre-escaped highlight
+    markup, so it renders as plain text rather than through `v-html`.
   */
   it("renders a semantic result's chunkText as its excerpt when it carries no highlight", async () => {
     const { wrapper } = await mountSearchWithResponse({
@@ -741,7 +679,6 @@ describe('Search.vue result rows and the removed Back control (OpenProject #2697
       'security'
     ])
 
-    // -> No empty tag row left drawing a gap under the date
     expect(untagged.find('.layout-search-rowdate').exists()).toBe(true)
     expect(untagged.find('.layout-search-rowtags').exists()).toBe(false)
   })
@@ -786,7 +723,6 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     wrapper.vm.setSearchMode('semantic')
     await flushPromises()
 
-    // -> The query box itself is untouched by the mode switch
     expect(siteStore.search).toBe('onboarding')
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search/semantic',
@@ -947,12 +883,9 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     wrapper.vm.setSearchMode('semantic')
     await flushPromises()
 
-    // -> Still shown, not hidden entirely: Path/Tags/Locale/Editor/Publish State remain usable
     expect(wrapper.find('.layout-search-sd').attributes('style') ?? '').not.toContain(
       'display: none'
     )
-    // -> Sort By is the one control still gone -- its section-header text no longer appears, and
-    //    "Filters" (the only remaining section-header inside the sidebar) is now first
     expect(wrapper.findAll('.section-header').map((el) => el.text())).not.toContain('search.sortBy')
     expect(wrapper.findAll('.section-header').at(0).text()).toBe('search.filters')
   })
@@ -986,10 +919,9 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
 })
 
 /**
- * OpenProject #3138: `HeaderSearch.vue`'s own new mode toggle carries its pending mode as a `mode`
- * query param on the navigation to `/_search` -- these confirm this page reads it back on load (and
- * on any later route-query change) to initialize/update `state.mode`, so a semantic search started
- * from the header lands here already in Semantic mode rather than requiring a second click.
+ * `HeaderSearch.vue` carries its pending mode as a `mode` query param on the navigation to
+ * `/_search`, so a semantic search started from the header has to land here already in Semantic
+ * mode rather than requiring a second click.
  */
 describe('Search.vue reads the mode query param (OpenProject #3138)', () => {
   it('initializes state.mode to semantic and queries the semantic endpoint when ?mode=semantic', async () => {
@@ -1082,9 +1014,8 @@ describe('Search.vue reads the mode query param (OpenProject #3138)', () => {
 })
 
 /**
- * OpenProject #3106: the hop-2 "related via" indicator. `SearchResultHopBadge.test.js` owns the
- * badge's own draw/no-draw rules across every `hop` value; this only confirms `Search.vue` threads a
- * result's `hop` field through to the row that renders it, with no re-derivation of its own.
+ * `SearchResultHopBadge.test.js` owns the badge's own draw/no-draw rules across every `hop` value;
+ * this only confirms `Search.vue` threads a result's `hop` through to the row that renders it.
  */
 function createSearchI18nWithHop() {
   return createTestI18n({
@@ -1150,10 +1081,9 @@ describe('Search.vue hop-2 "related via" indicator (OpenProject #3106)', () => {
 })
 
 /**
- * OpenProject #3223: the semantic-mode similarity match badge.
  * `SearchResultSimilarityBadge.test.js` owns the badge's own draw/no-draw and rounding rules across
- * every `distance` value; this only confirms `Search.vue` threads a result's `distance` field through
- * to the row that renders it, with no re-derivation of its own.
+ * every `distance` value; this only confirms `Search.vue` threads a result's `distance` through to
+ * the row that renders it.
  */
 function createSearchI18nWithSimilarity() {
   return createTestI18n({
@@ -1212,11 +1142,6 @@ describe('Search.vue similarity match badge (OpenProject #3223)', () => {
     expect(wrapper.find('.search-result-similarity-badge').exists()).toBe(false)
   })
 
-  /*
-    OpenProject #3293: the badge used to sit on the title line, wrapping with `item.title` inside
-    `.layout-search-rowtitle`, with an icon and a `w-chip` pill border. It now lives in the top-right
-    meta column, as plain text, in the date's own place.
-  */
   it('renders the badge inside the top-right meta column, not on the title line', async () => {
     const { wrapper } = await mountSearchWithSimilarityResponse({
       results: [{ ...FIXTURE_RICH_RESULT, distance: 0.13, hop: 1 }],
@@ -1236,9 +1161,8 @@ describe('Search.vue similarity match badge (OpenProject #3223)', () => {
   })
 
   /*
-    A semantic result carries no `updatedAt` at all (`SemanticSearchResult`'s wire schema has no such
-    field), so the keyword-mode "no date" `'---'` fallback must not leak into the meta column behind
-    the badge -- it should show only the match percentage, nothing else.
+    A semantic result carries no `updatedAt` (`SemanticSearchResult`'s wire schema has no such
+    field), so the keyword-mode `'---'` fallback must not leak into the meta column behind the badge.
   */
   it('shows the match percentage rather than the "---" no-date placeholder for a semantic row', async () => {
     const { wrapper } = await mountSearchWithSimilarityResponse({

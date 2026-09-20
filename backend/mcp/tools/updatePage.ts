@@ -17,8 +17,6 @@ const updatePageInputSchema = {
     .string()
     .uuid()
     .describe('The page to update. See `search_pages`/`get_page` for the id.'),
-  // -> No `list_sites` pointer in this one's hint: the caller already holds the page id, which is not
-  //    something `list_sites` would have told them
   siteId: siteIdArg('Which site the page belongs to.', 'Omit on a single-site instance.'),
   title: z.string().min(1).optional(),
   content: z
@@ -43,18 +41,14 @@ export interface UpdatePageArgs {
 }
 
 /**
- * Update a page, gated exactly like `PATCH /_api/sites/:siteId/pages/:pageId` (`api/pages/write.ts`): a
- * personal access token only (see `pageActorFor()`'s doc comment), and `write:pages` ON THIS PAGE —
- * checked against the page as it stands, so a rule scoped to one branch is honored the same way it is
- * for the REST route.
+ * Gated like `PATCH /_api/sites/:siteId/pages/:pageId` (`api/pages/write.ts`): a personal access token
+ * only (see `pageActorFor()`), and `write:pages` on the page as it stands.
  *
- * No `expectedUpdatedAt`/optimistic-concurrency argument: that guard exists for a human editor with a
- * stale copy open in a browser tab, which has no equivalent here — an MCP caller has no "copy it was
- * looking at" to go stale, only the read it made moments before this call.
+ * No `expectedUpdatedAt`/optimistic-concurrency argument: that guard is for a human editor with a
+ * stale copy open in a browser tab, which an MCP caller has no equivalent of.
  *
- * `content` with no accompanying render is exactly what `models/pages.ts#updatePage()` itself now
- * handles (OpenProject #1716): it confirms up front that this instance can actually render the page,
- * then queues the same headless-browser render a stale stored page's re-render would get.
+ * No `render` is sent with changed `content`: `models/pages.ts#updatePage()` confirms this instance
+ * can render the page and queues a headless-browser render itself.
  */
 export async function handleUpdatePage(
   ctx: McpAuthContext,
@@ -102,8 +96,6 @@ export async function handleUpdatePage(
     throw new McpToolError('This page does not exist.')
   }
 
-  // -> #1118: same reasoning as `createPage.ts`'s own instrumentation -- instance-wide visibility that
-  //   an agent wrote this, separate from `pageHistory`'s own per-page attribution (#1119).
   await CARDINAL.models.auditLog.record({
     event: 'mcp.writeToolCalled',
     actor: auditActorFor(ctx),

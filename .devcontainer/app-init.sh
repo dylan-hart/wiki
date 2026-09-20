@@ -14,17 +14,9 @@ echo "Waiting for DB container to come online..."
 echo "Waiting for MinIO container to come online..."
 /usr/local/bin/wait-for localhost:9000 -- echo "MinIO ready"
 
-# `npm ci` rather than `npm install`, in all four workspaces, for the same reason this whole image
-# exists: CI runs `npm ci`, so this environment runs `npm ci`. It installs exactly what the lockfile
-# says instead of whatever the ranges resolve to this morning, and it fails loudly on a lockfile that
-# has drifted out of step with its package.json -- which is a signal worth getting here rather than
-# discovering on a red pipeline. Use plain `npm install` by hand when you are deliberately adding or
-# updating a dependency.
-#
-# Puppeteer, which server-side page rendering needs, is a declared `optionalDependencies` entry in
-# backend/package.json (OpenProject #2289) -- the install below already fetches it, the same way
-# it fetches sharp. No separate install step, and no version to derive from definition.yml, remains
-# here: `--omit=optional` is the one escape hatch for a source checkout that wants to skip it.
+# `npm ci`, not `npm install`, because CI runs `npm ci`: it installs exactly what the lockfile says
+# and fails on a lockfile that has drifted from its package.json. Use `npm install` by hand when
+# deliberately adding or updating a dependency.
 echo "Installing backend dependencies..."
 cd /workspace/backend
 npm ci
@@ -38,10 +30,8 @@ cd /workspace/blocks
 npm ci
 npm run build
 
-# e2e/ is the fourth workspace and is installed here too, because the Playwright leg is meant to run
-# inside this container rather than on a developer's host (Feature #2601). Its browser is already in
-# the image -- see the Dockerfile's PLAYWRIGHT_BROWSERS_PATH block -- so neither this workspace nor
-# frontend/ needs the per-machine `npm run install-browsers` step each used to require separately.
+# No browser install for e2e/ or frontend/: Playwright's Chromium is baked into the image (the
+# Dockerfile's PLAYWRIGHT_BROWSERS_PATH).
 echo "Installing e2e dependencies..."
 cd /workspace/e2e
 npm ci

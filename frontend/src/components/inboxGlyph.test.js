@@ -9,26 +9,15 @@ import HeaderNav from './HeaderNav.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2619: "the inbox affordance draws the glyph of the thing it opens" is one rule held
- * in three files with nothing enforcing it, and it broke exactly the way that predicts --
- * `InboxOverlay` moved its own header icon and its `watching` sidenav entry to `tabler:inbox`, while
- * both entry points into it stayed on `tabler:bell`, each with a comment still asserting the
- * agreement they had just lost.
- *
  * The two entry points are one affordance, not two: `HeaderNav.vue`'s badged button is what a wide
- * viewport shows, and `HeaderActionsMenu.vue`'s row is the same thing collapsed below 900px. Fixing
- * only the button would have made the header's inbox glyph depend on window width.
- *
- * Written as one `describe.each` over both rather than a copy in each component's own suite, per the
- * cross-component convention (`editorMarkupShared.test.js`, `apiKeyScopeTree.test.js`) -- and
- * asserted as an EQUALITY against `InboxOverlay.vue` rather than against a hardcoded name, so
- * whichever of the three moves next drags the others with it instead of drifting silently again.
+ * viewport shows, and `HeaderActionsMenu.vue`'s row is the same thing collapsed below 900px -- fix
+ * one alone and the header's inbox glyph depends on window width. Asserted as an EQUALITY against
+ * `InboxOverlay.vue` rather than against a hardcoded name, so whichever of the three moves next
+ * drags the others with it instead of drifting silently.
  *
  * The destination's icon is read out of its source text rather than by mounting `InboxOverlay`:
- * that component statically imports `InboxReview.vue` and therefore `monaco-editor`, so mounting it
- * needs file-level `vi.mock` hoists (see `InboxOverlay.test.js`'s own header) that would then apply
- * to the two components this file actually exercises. `InboxOverlay.test.js`'s own dark-mode
- * describe reads its source the same way.
+ * that component statically imports `monaco-editor`, and the file-level `vi.mock` hoists mounting
+ * it would need then apply to the two components this file actually exercises.
  */
 const inboxOverlaySource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), 'InboxOverlay.vue'),
@@ -36,21 +25,18 @@ const inboxOverlaySource = readFileSync(
 )
 
 /**
- * The `watching` entry of `InboxOverlay.vue`'s `sidenav` computed -- the exact tab both entry points
- * open onto (`overlayOpts: { tab: 'watching' }`). Matched non-greedily and within a bounded window
- * so a later entry's icon cannot be picked up if this one ever loses its own.
+ * Matched non-greedily and within a bounded window, so a later sidenav entry's icon cannot be picked
+ * up if the `watching` entry ever loses its own.
  */
 function watchingSidenavIcon() {
   return inboxOverlaySource.match(/key: 'watching',[\s\S]{0,200}?icon: '([^']+)'/)?.[1]
 }
 
 /*
-  `useMinWidth` (via `useScreen`) calls `window.matchMedia`, and `composables/screen.js` caches one
-  ref per breakpoint at MODULE scope for the whole file -- so this has to be stubbed wide BEFORE the
-  first mount seeds that cache, which is what puts `HeaderNav` in its uncollapsed branch (the one
-  that renders the button at all) rather than handing off to `HeaderActionsMenu`. Nothing in this
-  file needs the narrow branch, so a single wide stub is enough; `HeaderNav.test.js` documents the
-  harder case where one file wants both.
+  `composables/screen.js` caches one ref per breakpoint at MODULE scope for the whole file, so
+  `matchMedia` has to be stubbed wide BEFORE the first mount seeds that cache. Wide is what puts
+  `HeaderNav` in its uncollapsed branch, the one that renders the button at all; nothing in this file
+  needs the narrow branch.
 */
 beforeEach(() => {
   window.matchMedia = vi.fn().mockImplementation((query) => ({
@@ -73,12 +59,6 @@ const messages = {
   }
 }
 
-/**
- * Each case resolves the one `<w-icon>` its component draws for the inbox affordance. `HeaderNav`'s
- * is inside the badged button; `HeaderActionsMenu`'s is the avatar section of the row labelled with
- * the same `inbox.title` string, reached by opening the menu first (a plain DOM click on the trigger
- * -- see `HeaderActionsMenu.test.js` for why that is enough).
- */
 const entryPoints = [
   {
     name: 'HeaderNav (wide viewport, the badged header button)',

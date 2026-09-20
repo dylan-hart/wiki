@@ -9,13 +9,7 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-/**
- * `useNavCreateMenu()` is the shared implementation both `NavSidebarItem.vue` (per-item context
- * menu) and `NavSidebar.vue` (empty-space, locale-root context menu) call rather than each closing
- * over its own copy -- see the composable's own header comment for why. Mounted through a tiny host
- * component the same way `navSidebarDestination.test.js` tests its own composable, so `computed()`
- * has a live component instance to attach to.
- */
+/** Mounted through a host component so the composable's `computed()`s have an instance to bind to. */
 async function mountNavCreateMenu() {
   setActivePinia(createPinia())
   let captured

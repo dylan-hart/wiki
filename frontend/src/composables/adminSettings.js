@@ -11,62 +11,37 @@ import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
 /**
- * The load/save skeleton every admin settings page is built around.
- *
- * Sixteen `Admin*.vue` pages wrote out the same shape by hand: a `state.loading` gauge counted up and
- * back down around each request, the full-screen overlay shown and hidden with it, a negative toast
- * on a failed load, a positive one on a successful save and a negative one carrying the server's own
- * error code translated where the page has a message for it, and -- for the site-scoped pages -- a
- * watcher reloading everything when the admin switches site plus the mounted guard that starts it
- * off. Only the request and the payload ever really differed, and where anything else did it was
- * drift rather than design (a missing caption, a raw English fallback, an overlay shown by the
- * watcher instead of by `load()` itself).
- *
- * What a page keeps is what is genuinely its own: `defaultConfig()`, the requests, the payload
- * mapping and any action beyond loading and saving.
- *
- * `load()` also owns not silently reverting a reader's own edit (Task #3195): a response is applied
- * only if no newer `load()` call has since started and no tracked field -- `state.config`, each
- * `extraState` key, or both together when a page configures both -- changed while its fetch was in
- * flight -- otherwise it is dropped rather than merged over whatever the reader has done since.
- *
  * @param {object} opts
  * @param {string} opts.i18nPrefix The page's locale key stem -- `<prefix>.loadFailed`,
  *   `<prefix>.saveSuccess`, `<prefix>.saveFailed`, `<prefix>.refreshSuccess`, and the stem the
  *   server's `err.data.error` code is looked up under.
- * @param {object} [opts.keys] Per-message overrides for the four keys above, for a page whose stem
- *   does not follow the convention (`AdminEditors.vue` says `fetchFailed`, not `loadFailed`).
+ * @param {object} [opts.keys] Per-message overrides for those four keys, for a page whose stem does
+ *   not follow the convention.
  * @param {boolean} [opts.siteScoped] Whether this page edits one site (the default). A site-scoped
  *   page reloads when `adminStore.currentSiteId` changes, never fetches without one, and gates
- *   `onSavedCurrentSite` on it; a system-wide page (mail, security, flags) does none of that.
- * @param {boolean} [opts.overlay] Whether `load()` raises the full-screen overlay. True by default;
- *   the list-shaped pages (approvals, glossary, deleted pages) never showed one.
+ *   `onSavedCurrentSite` on it.
+ * @param {boolean} [opts.overlay] Whether `load()` raises the full-screen overlay.
  * @param {() => object} [opts.defaults] The config every control binds to before anything is
  *   loaded. Given, the composable owns `state.config` and each load merges the fetched values over a
  *   fresh copy of it; omitted, there is no `state.config` and the page takes its loaded state
  *   through `onLoaded`.
- * @param {object} [opts.extraState] Further fields to seed `state` with -- the page-specific state
- *   that lives alongside the config (a provider list, a "this site has a background" flag).
- * @param {(siteId: string) => Promise<any>} opts.fetch The page's own read request(s). Called with
- *   the administered site id, which is `null` for a page that is not site-scoped.
+ * @param {object} [opts.extraState] Further fields to seed `state` with, alongside the config.
+ * @param {(siteId: string) => Promise<any>} opts.fetch Called with the administered site id; a page
+ *   that is not site-scoped ignores it.
  * @param {(resp: any) => object} [opts.pick] The part of the response that is the config, when it is
- *   a sub-object (`(site) => site.theme`). Defaults to the whole response. Called inside `load()`'s
- *   own `try`, so it MAY throw -- a response that does not hold what this page expected reads as a
- *   failed load and raises the load-failure toast, rather than merging garbage into `state.config`.
- *   It may also read the page's current state (`state`, a store), since it runs after the fetch
- *   resolved; it must not write any, which is `onLoaded`'s job.
- * @param {(resp: any) => void} [opts.onLoaded] Everything else the same response carries, for the
- *   state a page keeps outside its config.
- * @param {(siteId: string, config: object) => Promise<any>} [opts.commit] The page's own write
- *   request. A page with nothing to save (a listing, a read-only report) leaves it out.
- * @param {(config: object) => any} [opts.onSaved] Runs after a successful commit, awaited before the
- *   gate below.
+ *   a sub-object. Defaults to the whole response. Called inside `load()`'s own `try`, so it MAY
+ *   throw -- a response that does not hold what this page expected reads as a failed load rather
+ *   than merging garbage into `state.config`. It may read the page's current state; it must not
+ *   write any, which is `onLoaded`'s job.
+ * @param {(resp: any) => void} [opts.onLoaded] Everything else the same response carries.
+ * @param {(siteId: string, config: object) => Promise<any>} [opts.commit] Omitted by a page with
+ *   nothing to save.
+ * @param {(config: object) => any} [opts.onSaved] Awaited before `onSavedCurrentSite`.
  * @param {(config: object) => any} [opts.onSavedCurrentSite] Runs after a successful commit, but
  *   only when the site just saved is the one the admin's own browser is reading -- what makes an
  *   edit to the current site take effect on screen instead of only after a reload.
  * @returns {{ state: object, load: () => Promise<void>, save: () => Promise<boolean>,
- *   refresh: () => Promise<void> }} `save()` answers whether the commit went through, for the page
- *   that has something of its own to do only when it did.
+ *   refresh: () => Promise<void> }}
  */
 export function useAdminSettings({
   i18nPrefix,
@@ -101,13 +76,11 @@ export function useAdminSettings({
     ...extraState
   })
 
-  // -> Task #3195: `load()` re-fires on the `currentSiteId` watcher below, and its own response can
-  //    land well after it was sent (the watcher itself commonly fires a redundant, unchanged-data
-  //    reload shortly after mount, once `currentSiteId` settles). Applying a response unconditionally
-  //    would silently revert whatever the reader has since done to `state.config`/`extraState` (e.g.
-  //    toggling a locale). `requestGeneration` drops a response whose `load()` call has since been
-  //    superseded by a newer one; `snapshotTracked()` drops a response whose tracked fields changed
-  //    under it while its fetch was in flight, superseded or not.
+  // -> The `currentSiteId` watcher re-fires `load()`, and a response can land well after it was
+  //    sent, so applying one unconditionally would silently revert whatever the reader has since
+  //    done to `state.config`/`extraState`. `requestGeneration` drops a response whose `load()` call
+  //    has been superseded by a newer one; `snapshotTracked()` drops one whose tracked fields
+  //    changed under it while its fetch was in flight, superseded or not.
   let requestGeneration = 0
 
   function snapshotTracked() {
@@ -123,8 +96,6 @@ export function useAdminSettings({
   }
 
   async function load() {
-    // -> The guard the site-scoped pages spelled out in `onMounted` (and, in a few, at the top of
-    //    `load()`): with no site chosen there is nothing to address a request to.
     if (siteScoped && !adminStore.currentSiteId) {
       return
     }
@@ -136,9 +107,7 @@ export function useAdminSettings({
     const before = snapshotTracked()
     try {
       const resp = await fetch(adminStore.currentSiteId)
-      // -> This response is stale -- either a newer `load()` has since started, or the reader edited
-      //    a tracked field while this fetch was in flight -- so applying it would silently overwrite
-      //    something more current. Drop it rather than merge.
+      // -> Anything else is a stale response: drop it rather than merge it over something newer.
       if (generation === requestGeneration && snapshotTracked() === before) {
         if (defaults) {
           state.config = toMerged(defaults(), (pick ? pick(resp) : resp) ?? {})
@@ -176,8 +145,8 @@ export function useAdminSettings({
       notify({
         type: 'negative',
         message: t(messageKeys.saveFailed),
-        // -> The server's own error code where this page has a message for it, its message where it
-        //    does not: `/_api` failures come back as `{ ok, error, statusCode, message }`.
+        // -> The page's own wording for the server's error code where it has one, the server's own
+        //    message where it does not.
         caption: t(
           `${i18nPrefix}.${err.data?.error}`,
           apiErrorMessage(err, t('common.error.unexpected'))

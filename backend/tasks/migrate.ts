@@ -1,21 +1,14 @@
 /* eslint-disable no-console -- CLI entry point: the `usage:` text and the fatal-exit lines are stdout/stderr for a person at a terminal, not log records. */
 /**
- * Wiki.js 2.5.x -> 3.0 migration CLI.
+ * Wiki.js 2.5.x -> 3.0 migration CLI. Standalone entry point (`npm run migrate -- <args>` from
+ * `backend/`), deliberately never imported by `index.ts`, `worker.ts` or `core/scheduler.ts`'s
+ * `tasks/simple/` discovery: it opens a second, *foreign* (2.x) database connection alongside the
+ * 3.0 destination, which nothing else in this codebase does or should do.
  *
- * Standalone entry point: run via `node backend/tasks/migrate.ts <args>` or `npm run migrate --
- * <args>` from `backend/`. Deliberately never imported by `index.ts`, `worker.ts`, or
- * `core/scheduler.ts`'s `tasks/simple/` discovery — this opens a second, *foreign* (2.x) database
- * connection alongside the 3.0 destination, which nothing else in this codebase does or should do.
- *
- * The bootstrap (`../migration/bootstrap.ts`) is modeled on `worker.ts`'s minimal `CARDINAL` global, not
- * `index.ts`'s full boot: no HTTP server, no scheduler, no cache, no collab websockets — just enough
- * to talk to the 3.0 destination database and run the model methods each import phase needs. It is
- * shared with `verify-migration.ts` (Feature 421 task 748), which needs the exact same runtime for
- * post-import verification. Unlike `worker.ts`, this legitimately runs `dbManager.init()` with
- * `checkForLegacyInstall` still in effect: the *destination* must be a current 3.0 schema, so
- * refusing a 2.x-shaped destination is exactly the right check here, only ever run against the
- * destination, never the 2.x source (which is read through the separate `SourceConnector` interface
- * — Feature 412 — and is expected to look like a 2.x database).
+ * `../migration/bootstrap.ts` gives it `worker.ts`'s minimal `CARDINAL` rather than `index.ts`'s full
+ * boot — no HTTP server, scheduler, cache or collab websockets. Unlike `worker.ts` it runs
+ * `dbManager.init()` with `checkForLegacyInstall` in effect: the *destination* must be a current 3.0
+ * schema. The 2.x source is read through `SourceConnector` instead and never sees that check.
  */
 
 import fs from 'node:fs/promises'
@@ -43,17 +36,14 @@ async function main(): Promise<void> {
 
   const CARDINAL = await bootstrapMigrationRuntime('migrate-cli')
 
-  // -> No `source` field: `args.source` is a whole `ParsedSource`, credentials included. The source
-  //    is described (kind and location only) by `runAgainstDestination` below.
+  // -> No `source` field: `args.source` is a whole `ParsedSource`, credentials included.
   CARDINAL.logger.info('migrate', '2.5.x -> 3.0 migration cli', {
     site: args.siteId,
     dryRun: args.dryRun
   })
 
-  // Unlike index.ts's server, this process has nothing else keeping the event loop alive once it's
-  // done — an open pg Pool does, though, so without closing it here the CLI would exit its own logic
-  // but never actually return control to whoever ran it (a real bug an operator would hit on every
-  // invocation, dry-run or not).
+  // An open pg Pool keeps the event loop alive, and unlike index.ts's server nothing else here does:
+  // without closing it the CLI finishes its work but never returns control to whoever ran it.
   try {
     await runAgainstDestination(CARDINAL, args)
   } finally {
@@ -62,22 +52,14 @@ async function main(): Promise<void> {
 }
 
 /**
- * Resolves `--render-mode`'s `'auto'` (the default) into a concrete `'queue'`/`'passthrough'` before a
- * `MigrationContext` is ever built — `phases/content.ts` itself never checks Puppeteer availability
- * (see `context.ts`'s `renderMode` doc for why: keeping that phase ignorant of Puppeteer/`renderQueue`
- * keeps its own tests, and this file's `entities()` synchronous-return contract, unaffected). `'queue'`/
- * `'passthrough'` given explicitly pass straight through unchanged — an operator who explicitly asked
- * for `'queue'` gets exactly that, including the `renderPuppeteerMissing` refusal `createPage()`'s own
- * `ensureCanRender()` throws per page if this destination turns out not to have Puppeteer after all,
- * rather than a silent, unrequested fallback to `'passthrough'`.
+ * Resolves `'auto'` before a `MigrationContext` is ever built, which is what keeps `phases/content.ts`
+ * ignorant of Puppeteer and `renderQueue` entirely. An explicit `'queue'`/`'passthrough'` passes
+ * through unchanged: an operator who asked for `'queue'` gets the per-page `renderPuppeteerMissing`
+ * refusal from `createPage()` if this destination has no Puppeteer, not a silent fallback.
  *
- * This is what fixes the migration's own long-standing default gap (2.5.x's already-rendered HTML
- * carried straight through onto a destination whose asset-serving convention it does not match — a
- * `/_files/`-less image `src` that renders in the editor's live preview, which resolves `content`
- * fresh, but not on the published page, which serves this stale `render` blob as-is): a fresh
- * destination almost always has Puppeteer (the Dockerfile installs the distro Chromium package it
- * needs unconditionally), so `'auto'` gets a real, correct 3.0 render for every markdown page without
- * the operator having to know this distinction exists at all.
+ * `'passthrough'` keeps 2.x's stored render, whose image `src`es do not carry 3.0's `/_files/`
+ * convention — they resolve in the editor's live preview (which re-renders `content`) but not on the
+ * published page, which serves the stored blob as-is.
  */
 async function resolveRenderMode(
   CARDINAL: CardinalGlobal,
@@ -154,10 +136,6 @@ async function runAgainstDestination(
       }
     }
 
-    // Dry-run/report mode (Feature 421 task 744): the console table is always printed, regardless of
-    // `--dry-run` — it is exactly as informative for a live run, and `--report-file` additionally
-    // writes it as JSON for diffing between runs (e.g. two dry runs against the same source/
-    // destination pair, to confirm nothing changed).
     const reports = results.map((result) => result.report ?? emptyPhaseReport(result.phase))
     process.stdout.write(`\n${formatReportTable(reports)}\n`)
     if (args.reportFile) {
@@ -165,19 +143,14 @@ async function runAgainstDestination(
       CARDINAL.logger.info('migrate', 'report written', { path: args.reportFile })
     }
 
-    // Static post-migration notices (Issue #3192, Feature 421 task 3217) — always printed,
-    // dry-run or not, same reasoning as the report table above: a record class no phase reads at
-    // all (2.x API tokens, Slack/Discord notification config) has nothing to feed the per-record
-    // `unmappable` mechanism, so this is the only place the operator learns it didn't carry forward.
+    // A record class no phase reads at all (2.x API tokens, Slack/Discord notification config) has
+    // nothing to feed the per-record `unmappable` mechanism, so these static notices are the only
+    // place an operator learns it did not carry forward.
     const noticesText = formatPostMigrationNotices(POST_MIGRATION_NOTICES)
     if (noticesText) {
       process.stdout.write(`\n${noticesText}\n`)
     }
 
-    // -> Whole-branch review Important #4: a live (non-dry-run) run must exit non-zero, with a clear
-    //    message naming which phase(s), when any phase had no real write path at all against the
-    //    source in use — see `../migration/exit-status.ts`'s own doc comment for the full "why" (a
-    //    bundle source's still-stubbed phases used to silently exit 0 on a real, partial migration).
     const notImplementedPhases = notImplementedPhaseIds(results)
     if (!args.dryRun && notImplementedPhases.length > 0) {
       CARDINAL.logger.error(

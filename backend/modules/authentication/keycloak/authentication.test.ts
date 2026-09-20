@@ -81,13 +81,6 @@ describe('KeycloakAuthentication', () => {
     }
   })
 
-  /**
-   * This is the WP's own worked example: upstream's dedicated Keycloak strategy had no group-claim
-   * mapping at all, unlike its Generic OpenID Connect strategy (OpenProject #826). This fork closes
-   * that gap by routing Keycloak through the same `OidcAuthentication`/`mapOidcProfile` every other
-   * OIDC preset uses, rather than special-casing it — so the fields simply pass through, same as any
-   * other preset.
-   */
   test('carries mapGroups/groupsClaim/groupsScope through to the internal OidcAuthentication unchanged, closing the gap Task/OpenProject #826 called out for Keycloak specifically', () => {
     const kc = new KeycloakAuthentication('strategy-1', {
       baseUrl: 'https://sso.example.com',

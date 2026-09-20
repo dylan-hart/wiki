@@ -6,7 +6,7 @@
     </w-toolbar>
     <w-card-section>
       <!--
-        `self-start` on every button: WForm stacks with `flex-col`, so a button left to its own devices
+        `self-start` on every button: WForm stacks with `flex-col`, so a button left to itself
         stretches to the full width of the dialog.
       -->
       <div class="w-section-header">{{ t('editor.pageRel.position') }}</div>
@@ -36,11 +36,8 @@
             v-model="state.caption" />
         </div>
         <!--
-          `-mt-2` so this sits the same distance below the field above it as the two fields sit from
-          each other. An outlined field carries `my-2` around its control, so the form's `gap-4`
-          lands 8px further down than the 16px those margins put between two stacked fields. Applies
-          whichever field is last: the caption is hidden for a centred relation, and the label above
-          it is spaced the same way.
+          `-mt-2`: an outlined field carries `my-2` around its control, so the form's `gap-4` lands
+          8px further down than the 16px those margins put between two stacked fields.
         -->
         <w-btn
           class="self-start rounded -mt-2"
@@ -59,7 +56,6 @@
             color="primary"
             outline
             @click="selectTarget" />
-          <!-- -> The chosen target, spelled out: the button says what it does, not what it picked -->
           <div class="text-caption font-robotomono min-w-0 flex-1 truncate">
             {{ state.target || '—' }}
           </div>
@@ -144,8 +140,6 @@ import { dialog } from '@/composables/dialog'
 import IconPickerDialog from './IconPickerDialog.vue'
 import LinkPickerDialog from './LinkPickerDialog.vue'
 
-// PROPS
-
 const props = defineProps({
   editId: {
     type: String,
@@ -153,16 +147,10 @@ const props = defineProps({
   }
 })
 
-// STORES
-
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   pos: 'left',
@@ -172,16 +160,10 @@ const state = reactive({
   target: ''
 })
 
-// REFS
-
 const iptRelLabel = ref(null)
-
-// COMPUTED
 
 const canSubmit = computed(() => state.label.length > 0)
 const isEditMode = computed(() => Boolean(props.editId))
-
-// WATCHERS
 
 watch(
   () => state.pos,
@@ -203,16 +185,9 @@ watch(
   }
 )
 
-// METHODS
-
 const emit = defineEmits(['close'])
 
-/*
-  The same picker the editor's Insert Link uses, opened on whatever this relation already points at.
-
-  No new-tab option: a relation is stored as a target and nothing else — see the shape written in
-  `create()` — so offering the choice would be offering to discard it.
-*/
+/* No new-tab option: a relation stores a target and nothing else, so the choice would be lost. */
 function selectTarget() {
   dialog({
     component: LinkPickerDialog,
@@ -273,8 +248,6 @@ function createAndClose() {
   emit('close')
 }
 
-// MOUNTED
-
 onMounted(() => {
   if (props.editId) {
     const rel = pageStore.relations.find((r) => r.id === props.editId)
@@ -294,16 +267,10 @@ onMounted(() => {
 
 <style>
 /*
-  The section headings, in the treatment the profile pages and the page properties panel use.
-
   `.w-section-header` carries its own 16px inset and expects a column that has none, so the card
-  section's padding is given back around it -- the band then spans the dialog and its text lines up
-  with the fields under it. `--w-section-bleed` is how that is said: once, on the box that does the
-  padding, rather than as an inline negative margin on each of the four bands. Their bottom margin
-  goes too: three of these are items in the form's `flex-col gap-4`, so the 16px gap is already the
-  space beneath them, and the heading's own margin would add to it rather than replace it. That gap
-  is also what clears the two rules trailing below the heading, which is what the `-mb-3` these
-  replaces was fighting.
+  section's padding is given back around it -- through `--w-section-bleed`, once on the box that does
+  the padding rather than as a negative margin on each band. Their bottom margin goes because three
+  of them are items in the form's `flex-col gap-4`, which is already the space beneath them.
 */
 .page-relation-dialog {
   --w-section-bleed: 16px;
@@ -313,9 +280,8 @@ onMounted(() => {
   }
 
   /*
-    The first one is also the top of the section, so it takes that padding as well. Only the margin:
-    the 16px used to be handed straight back as `padding-top`, which left this one band 34px tall
-    like every other but with its text sitting 5px below the centre they are all aligned on.
+    The first band is also the top of the section, so it takes that padding too -- as margin only;
+    handing it back as `padding-top` puts its text below the centre the other bands align on.
   */
   > .w-card-section > .w-section-header:first-child {
     margin-block-start: -16px;

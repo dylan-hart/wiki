@@ -9,61 +9,31 @@ import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /*
-  Why swagger-ui and not @scalar/api-reference.
+  swagger-ui rather than @scalar/api-reference: Scalar is a Vue application that injects its
+  stylesheet as a `<style>` into `document.head`, with nowhere to hand it a shadow root instead, so
+  it either draws unstyled inside one or forces this block into the light DOM against page-global
+  `@layer` rules that shift cascade order site-wide. swagger-ui's UMD bundle
+  (`dist/swagger-ui-bundle.js`) is self-contained (React included, no bare imports left for the
+  bundler to chase), mounts into whatever node it is handed via `domNode`, and its CSS is scoped
+  under a `.swagger-ui` root class with no document-level side effects — the `unsafeCSS` +
+  shadow-root pattern the other library-backed blocks use.
 
-  2.5.x's openapi-core rendered a spec into read-only HTML documentation embedded in the page — a
-  narrow job. @scalar/api-reference is a Vue 3 application: `createApiReference()` mounts a
-  `createApp()` tree and, per its own standalone build (`dist/standalone/lib/html-api.js`), injects
-  its stylesheet as a single `<style id="scalar-style">` into `document.head` rather than into
-  wherever it was mounted — there is nowhere to hand it a shadow root instead. Every other block here
-  styles itself off `:host` in its own shadow root; Scalar's
-  approach would mean either rendering this block into the light DOM against page-global CSS `@layer
-  scalar-base` rules that could shift cascade order for the whole site, or mounting it inside a shadow
-  root where its injected stylesheet then never reaches in and it draws unstyled. Its dependency graph
-  is also a full Vue runtime plus an "API Client" request console and an AI agent chat panel bundled
-  in — a much larger surface than "render a spec as docs," and its standalone browser build alone is
-  ~3.3MB of JS across chunks before this repo's own bundling touches it.
-
-  swagger-ui's UMD bundle (`dist/swagger-ui-bundle.js`) is a self-contained webpack build — React
-  included, nothing left as an external bare import for the bundler to chase down — that mounts into
-  whatever DOM node it is handed via `domNode`, shadow root included, and its CSS
-  (`dist/swagger-ui.css`) is a plain stylesheet scoped under a `.swagger-ui` root class with no
-  document-level side effects. That drops straight into the `unsafeCSS` + shadow-root pattern
-  `block-katex` and `block-map` already use for a bundled library's stylesheet, and keeps the surface
-  to what 2.5.x actually had: a spec rendered as documentation, with "Try it out" as one config flag
-  rather than a whole separate API client product.
-
-  Getting this specific file takes an explicit `resolve.alias` in `rolldown.config.mjs`, not just the
-  bare `import SwaggerUIBundle from 'swagger-ui'` below. `rolldown.config.mjs`'s `platform: 'browser'`
-  puts `browser` in the resolved condition set (unlike the old rollup config's
-  `resolve({ exportConditions: ['production'] })`, which never requested it), and swagger-ui's own
-  `exports` map picks a DIFFERENT, non-self-contained ESM build under that condition --
-  `dist/swagger-ui-es-bundle-core.js`, which imports bare specifiers like `base64-js` that are meant
-  to be resolved by a consuming bundler, not run as-is. Rolldown happily bundles it, but the result
-  throws at render time (confirmed directly: it registers and imports cleanly, matching the same
-  shallow check the #3175 spike ran, but a real `SwaggerUIBundle({ domNode, spec, ... })` call against
-  the unaliased build throws `TypeError: o is not a function` and renders nothing into the shadow
-  root -- the shallow "did it register" check the spike used doesn't exercise this at all). The alias
-  pins this one import back to the same file the old build used, sidestepping the exports-map
-  condition question entirely for this one package.
+  Reaching that specific file takes the `resolve.alias` in `rolldown.config.mjs`, not just the bare
+  `import SwaggerUIBundle from 'swagger-ui'` below: `platform: 'browser'` puts `browser` in the
+  resolved condition set, and swagger-ui's `exports` map picks a different, non-self-contained ESM
+  build under it (`dist/swagger-ui-es-bundle-core.js`, whose bare imports like `base64-js` expect a
+  consuming bundler). Rolldown bundles that happily and it imports cleanly — a real
+  `SwaggerUIBundle({ domNode, spec, ... })` call is what then throws `TypeError: o is not a function`
+  and renders nothing, so "did it register" proves nothing about this package.
 */
 
-/** Every HTTP method swagger-ui knows how to draw an "Execute" button for. */
 const ALL_SUBMIT_METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
 
 /**
- * What to hand `SwaggerUIBundle` for one instance of this block: a URL to fetch the spec from, an
- * already-parsed spec object read out of the block's own body, or an error explaining why neither
- * was possible. `url` wins over `body` when both are given — an author who filled in a URL almost
- * certainly left the starter body untouched.
+ * `url` wins over `body` when both are given — an author who filled in a URL almost certainly left
+ * the starter body untouched. Kept apart from `firstUpdated()` so what a reader ends up seeing is
+ * testable without mounting swagger-ui and its React tree.
  *
- * Kept apart from `firstUpdated()` so the actual point of this block — what a reader ends up seeing —
- * is directly testable without mounting swagger-ui (and its React tree) at all, the same reasoning
- * `resolveTileSettings` in `block-map` documents.
- *
- * @param {string} url This instance's `url` prop.
- * @param {string} body The block's light-DOM body, fenced or not, exactly as `readFencedSource()`
- *   reads it — see `../shared/body.js` for why `textContent` is what undoes markdown's escaping.
  * @returns {{ url: string } | { spec: object } | { error: string }}
  */
 export function resolveSpecSource(url, body) {
@@ -93,14 +63,10 @@ export function resolveSpecSource(url, body) {
   return { spec }
 }
 
-/**
- * Block OpenAPI
- */
 export class BlockOpenapiElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of this source text at build time into `compiled/blocks.manifest.json`, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'openapi',
@@ -109,10 +75,9 @@ export class BlockOpenapiElement extends LitElement {
       'Renders an OpenAPI (Swagger) spec — fetched from a URL, or written inline — into interactive API documentation.',
     icon: 'tabler:api',
     /*
-      Fenced, and not as a nicety: an inline spec is YAML or JSON, and both are full of characters
-      markdown reads as its own — an unindented mapping key looks like a paragraph, `-` opens a list,
-      `#` opens a heading. Inside a fence it arrives as typed. Ignored entirely once `url` is set —
-      see `firstUpdated()`.
+      Fenced because YAML and JSON are full of characters markdown reads as its own — an unindented
+      mapping key looks like a paragraph, `-` opens a list, `#` opens a heading. Inside a fence the
+      spec arrives as typed.
     */
     template: `\`\`\`yaml
 openapi: 3.0.3
@@ -224,25 +189,14 @@ paths:
 
   static get properties() {
     return {
-      /**
-       * Where to fetch the spec from, client-side. Beats the block's own body when both are given —
-       * an author who filled in a URL almost certainly left the starter body untouched.
-       * @type {string}
-       */
       url: { type: String },
 
       /**
-       * Whether the "Execute" button appears on every operation, letting a reader send a real
-       * request at the API this spec describes from inside the wiki page.
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `tryitout` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `try-it-out` — writes `try-it-out` into the page.
-       * @type {boolean}
+       * Explicit `attribute`: Lit's default lowercases the property name without inserting a dash,
+       * so it would listen for `tryitout` while the block picker writes `try-it-out` into the page.
        */
       tryItOut: { type: Boolean, ...boolean, attribute: 'try-it-out' },
 
-      // Internal Properties
       _error: { state: true }
     }
   }
@@ -252,14 +206,10 @@ paths:
     this.url = ''
     this.tryItOut = true
     this._error = ''
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
   }
 
-  /**
-   * Mounts swagger-ui into `container`, from either a URL (the `DownloadUrl` plugin does the actual
-   * fetching) or an already-parsed spec object.
-   */
+  /** The `DownloadUrl` plugin is what fetches the spec when `source` is a URL. */
   _mount(container, source) {
     SwaggerUIBundle({
       domNode: container,
@@ -271,8 +221,8 @@ paths:
   }
 
   /*
-    The container swagger-ui mounts its own React tree into has to exist in the DOM first, i.e. once
-    `render()` has run once — see block-map for the same reasoning around Leaflet.
+    swagger-ui mounts its own React tree into `.container`, which does not exist until `render()` has
+    run once.
   */
   firstUpdated() {
     const { source } = readFencedSource(this)

@@ -1,10 +1,6 @@
 /**
- * Ambient declarations for the `CARDINAL` global singleton.
- *
  * `CARDINAL` is assembled in `backend/index.ts` (and a minimal subset in `backend/worker.ts`) and is
- * reachable from every module without importing it. Members that come from typed dependencies are
- * typed properly here; the ones backed by our own not-yet-converted modules are left loose and
- * should be replaced with `typeof import('...')` as each module moves to TypeScript.
+ * reachable from every module without importing it.
  */
 
 import type { FastifyInstance } from 'fastify'
@@ -28,8 +24,8 @@ declare global {
     cache: LRUCache<string, any>
     /**
      * HA propagation buses. Event names are dynamic (they travel over postgres NOTIFY), so the
-     * event map is left open — `Record<string, any>` is also what makes dataless `emit(name)`
-     * calls legal, since Emittery's default `unknown` payload forbids them.
+     * event map is left open — `Record<string, any>` is also what makes dataless `emit(name)` calls
+     * legal, since Emittery's default `unknown` payload forbids them.
      */
     events: {
       inbound: Emittery<Record<string, any>>
@@ -44,25 +40,14 @@ declare global {
     /**
      * Boot-time feature flags for optional capabilities that depend on something outside this
      * codebase's control -- an extension the connected Postgres role may not be permitted to
-     * install, say. Set once, in `core/db.ts#syncSchemas()` (which calls
-     * `core/pgvectorBootstrap.ts#bootstrapPgvector()`), and read by every consumer rather than each
-     * re-probing for itself.
+     * install, say. Set once, in `core/db.ts#syncSchemas()`, and read by every consumer rather than
+     * each re-probing for itself. `semanticSearch` is false when the connected role lacked privilege
+     * to create the `vector` extension, or the server has no pgvector installed at all.
      *
-     * `semanticSearch` (Task #3095) is true once `bootstrapPgvector()` has successfully created the
-     * `vector` extension, the `pageEmbeddingChunks` table and its HNSW index at boot -- false when
-     * the connected role lacked privilege to create the extension, or the Postgres server has no
-     * pgvector installed at all. Every Feature under Epic #3050 (local embedding pipeline / semantic
-     * search) reads this rather than re-probing.
-     *
-     * Optional here (rather than always-present): a worker thread never calls `syncSchemas()` itself
-     * to compute it, so `worker.ts` instead reads it out of piscina's `workerData`
-     * (`core/scheduler.ts`'s pool construction, forwarded once at pool-creation time, the same
-     * transport `INSTANCE_ID`'s `parentInstanceId` uses) and assigns it onto its own
-     * minimal `CARDINAL` before that value is ever read -- so `capabilities` DOES reach a
-     * worker-thread task, just via a different route than the main process's own `syncSchemas()`
-     * write (OpenProject #3124). Still optional because a test `CARDINAL` stub that never sets it
-     * should read `undefined` rather than throw. Every consumer reads it as
-     * `CARDINAL.capabilities?.semanticSearch`.
+     * Optional rather than always-present: a worker thread does not compute it, and instead reads it
+     * out of piscina's `workerData` and assigns it onto its own minimal `CARDINAL` before the value
+     * is ever read -- and a test `CARDINAL` stub that never sets it should read `undefined` rather
+     * than throw. Every consumer reads it as `CARDINAL.capabilities?.semanticSearch`.
      */
     capabilities?: {
       semanticSearch: boolean
@@ -73,7 +58,7 @@ declare global {
      * YAML and JSONB, so it stays intentionally untyped.
      */
     config: any
-    /** Contents of `base.yml` — set by configSvc.init(), not by index.ts */
+    /** Contents of `base.yml` — set by `configSvc.init()`, not by `index.ts`. */
     data: any
 
     collab: typeof import('../core/collab.ts').default
@@ -85,16 +70,14 @@ declare global {
     models: typeof import('../models/index.ts').default
 
     /**
-     * Cached site configs, keyed by site id (OpenProject #3144). Loaded and kept current by
-     * `models/sites.ts`'s `reloadCache()` (a `ClusterReloaded` subclass, so every instance in a
-     * cluster reloads together). `SiteRow` is `sites`' real Drizzle row type -- see its own comment
-     * in `db/schema.ts` for why its `config` field stays `Record<string, any>` rather than a fully
-     * pinned shape.
+     * Cached site configs, keyed by site id -- `sitesMappings` is the hostname index onto them. Kept
+     * current by `models/sites.ts`'s `reloadCache()` (a `ClusterReloaded` subclass, so every
+     * instance in a cluster reloads together).
      */
     sites: Record<string, import('../db/schema.ts').SiteRow>
     sitesMappings: Record<string, string>
 
-    /** Only present in worker threads (see worker.ts) */
+    /** Only present in worker threads. */
     ensureDb?: () => Promise<boolean | void>
   }
 

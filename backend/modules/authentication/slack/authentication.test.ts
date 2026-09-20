@@ -10,13 +10,6 @@ import OidcAuthentication from '../oidc/authentication.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-/*
- * Slack was reclassified from OAuth2-only to OIDC during this task: "Sign in with Slack" publishes
- * `/.well-known/openid-configuration` and issues a verifiable ID token (confirmed live against
- * https://slack.com/.well-known/openid-configuration and https://docs.slack.dev/authentication/sign-in-with-slack/
- * — see docs/auth-provider-audit.md). So, like Auth0/Okta/Twitch, this is an `OidcPreset` — no local
- * `client.discovery`/`buildAuthorizationUrl`/`authorizationCodeGrant` calls.
- */
 describe('SlackAuthentication', () => {
   test('is an OidcPreset, delegating protocol logic rather than copying it', () => {
     const slack = new SlackAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
@@ -115,9 +108,8 @@ describe('SlackAuthentication', () => {
   })
 
   test('name halves the OIDC mapping already established are kept, not re-guessed from the display string', async () => {
-    // -> Slack publishes given_name/family_name under the `profile` scope this preset requests. If the
-    //    shared OIDC mapping starts reading them, what the provider actually said has to survive this
-    //    preset untouched — the naive split is a fallback, never an overwrite.
+    // -> Slack publishes given_name/family_name under the `profile` scope this preset requests, so
+    //    the case is real: the naive split is a fallback, never an overwrite.
     const profileMock = mock.method(OidcAuthentication.prototype, 'profile', async () => ({
       id: 'U0123456',
       email: 'person@example.com',
@@ -143,10 +135,9 @@ describe('SlackAuthentication', () => {
 
   test("the display-name split is this preset's own, not something OidcPreset does for every preset", async () => {
     /*
-      Blast-radius guard. `OidcPreset` is the shared base behind auth0, okta, microsoft, keycloak,
-      gitlab, twitch and slack. A display-name split placed on it would fire for the five providers
-      that do report real `given_name`/`family_name` claims and silently pre-empt them, so the
-      fallback belongs on the presets whose provider issues one string and nothing else.
+      A display-name split placed on the shared `OidcPreset` would fire for every provider that does
+      report real `given_name`/`family_name` claims and silently pre-empt them, so the fallback
+      belongs on the presets whose provider issues one string and nothing else.
     */
     const profileMock = mock.method(OidcAuthentication.prototype, 'profile', async () => ({
       id: 'U0123456',

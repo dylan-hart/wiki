@@ -1,18 +1,14 @@
 <template>
   <!--
-    `row` is the phone form: the field is not squeezed between the site title and the header's
-    buttons but has a row of the whole width to itself, opened from a search button. Slightly
-    shorter than the header proper, so the two read as a bar and a drawer under it rather than as
-    two headers.
+    `row` is the phone form, a full-width row of its own. Shorter than the header proper, so the two
+    read as a bar and a drawer under it rather than as two headers.
   -->
   <w-toolbar :style="{ height: row ? `52px` : `64px` }" v-if="siteStore.features.search">
     <!--
-      The positioning context for the panel below, and the width it matches. The toolbar cannot be
-      it: the panel would then span the toolbar's padding as well, and with no positioned ancestor
-      at all it stretched to the whole window.
-
-      Full toolbar height rather than just the field's, with the field centred inside it, so that
-      `top: 100%` on the panel lands on the bottom edge of the header instead of 12px above it.
+      The panel's positioning context and the width it matches. The toolbar cannot be it: the panel
+      would then span the toolbar's padding as well, and with no positioned ancestor at all it
+      stretches to the whole window. Full toolbar height, with the field centred inside it, so the
+      panel's `top: 100%` lands on the bottom edge of the header.
     -->
     <div class="header-search relative flex h-full min-w-0 flex-1 flex-col justify-center">
       <div
@@ -45,9 +41,9 @@
             @blur="checkSearchFocus" />
 
           <!--
-            `mousedown.prevent` keeps the press from pulling focus out of the input: the blur would
-            swap the badge to its right (see below) and the resulting reflow shifts this button out
-            from under the pointer before it can be released, eating the click.
+            `mousedown.prevent` keeps the press from blurring the input -- the same guard every
+            other control in and around this panel needs: the blur closes the panel out from under
+            the click before it can fire.
           -->
           <button
             v-if="siteStore.search.length > 0"
@@ -59,17 +55,9 @@
             <w-icon name="tabler:x" />
           </button>
           <!--
-            Always shown, focused or not (OpenProject #3227) -- it used to give way on focus to either
-            nothing or a "Press Enter" hint, which shrank `.header-search-field` by the hint's own width
-            right as the field gained focus. That reflow shifted the mode-toggle and tags buttons docked
-            beside it, which was most visible clicking the mode-toggle button while the field already had
-            focus: the click's own `mousedown` blurs the field first (it carries no `mousedown.prevent`,
-            unlike the buttons that must stay clickable while the panel is open), the hint popped back in,
-            and the button the reader was aiming at moved out from under the pointer. A static hint keeps
-            `.header-search-field`'s width constant across every focus change instead.
-
-            Never in `row` form: that is the phone field, opened by a button, and a keyboard shortcut is
-            not something the device it exists for can offer.
+            Shown regardless of focus: a hint that comes and goes on focus changes
+            `.header-search-field`'s width, which shifts the buttons docked beside it out from under
+            the pointer mid-click. Never in `row` form -- the phone has no keyboard to shortcut with.
           -->
           <span
             v-if="!row"
@@ -81,18 +69,8 @@
         </div>
 
         <!--
-          -> Semantic search mode toggle (OpenProject #3138), docked immediately to the LEFT of the
-             Browse by Tags button -- same icon (`tabler:sparkles`) as the admin -> Search page's own
-             semantic-enabled row (`AdminSearch.vue`). Absent entirely, not merely disabled, when the
-             site doesn't have semantic search available: `siteStore.features.semanticSearch` is the
-             same combined flag `Search.vue`'s own in-page mode toggle already gates on, never
-             re-derived here. Never in `row` form, for the same reason as the tags button beside it.
-
-          A toggle, not a navigation link: clicking it flips `state.searchMode` (the header's own
-          pending mode, separate from `Search.vue`'s `state.mode` -- there is no results page open
-          yet for this control to reach into) and, only when a query is already typed, immediately
-          resubmits under the new mode so the click has a visible effect rather than silently
-          arming a mode nothing reflects back.
+          `siteStore.features.semanticSearch` is the same combined flag `Search.vue`'s own in-page
+          mode toggle gates on -- never re-derived here.
         -->
         <button
           v-if="!row && siteStore.features.semanticSearch"
@@ -106,16 +84,9 @@
           <w-tooltip>{{ t('search.modeSemantic') }}</w-tooltip>
         </button>
         <!--
-          -> 2.5.x parity (OpenProject #987, #1120, #1218): docked flush against the search field's
-             right edge so the two read as one continuous pill, matching the 2.5.x reference. Never
-             in `row` form -- that is the phone field's own full-width row, with no room for a second
-             control glued to it; the phone header falls back to `HeaderActionsMenu`'s overflow menu
-             instead for its other icon buttons (see `HeaderNav`), and this one simply isn't offered
-             there below the breakpoint.
-
-          `tabler:tags` rather than the previous `tabler:hash`: a `#` glyph reads as an operator, not a
-          tag, and doesn't match either the reference icon or every other tag control in the app
-          (`PagePropertiesDialog.vue`, `Index.vue`).
+          Docked flush against the field's right edge so the two read as one continuous pill. Not
+          offered in `row` form -- the phone's full-width field has no room for a control glued to
+          it, and its other icon buttons live in `HeaderActionsMenu`'s overflow menu instead.
         -->
         <router-link
           v-if="!row"
@@ -129,19 +100,8 @@
 
       <div class="searchpanel" ref="searchPanel" v-if="searchPanelIsShown">
         <!--
-          The live-preview results, above the tag/operator content: they are what a query in progress
-          is actually for, where the tips below are only ever relevant once the field is empty or the
-          reader is stuck. Gated on `searchPreviewIsActive` (the same 2-character floor the fetch
-          itself is gated on in the watcher below) so an empty or 1-character query -- `previewResults`
-          freshly reset to `[]` by `resetPreview()` -- reads as "nothing typed yet", not as "searched
-          and found nothing".
-        -->
-        <!--
-          Independent of the loading/empty/found states below -- a shareable link is meaningful the
-          moment there is a query at all, including below the 2-character preview floor where none of
-          those three has anything to say yet. `mousedown.prevent` for the same reason as the clear
-          button and result rows below: without it the field blurs before the click fires, closing the
-          panel out from under it.
+          Gated on the query alone, not on the preview states below: a shareable link is meaningful
+          below the 2-character preview floor too, where none of those has anything to say yet.
         -->
         <div class="searchpanel-header searchpanel-copylink-row" v-if="siteStore.search">
           <span
@@ -171,14 +131,6 @@
         </template>
         <template v-else-if="searchPreviewIsActive && state.previewResults.length < 1">
           <div class="searchpanel-header">{{ t('common.header.searchNoResult') }}</div>
-          <!--
-            Only ever present alongside a genuine zero-hit result: the backend computes `suggestion`
-            solely when `totalHits === 0` and a query was given (see `search.suggestTitle()`), so no
-            separate "active" gate is needed here beyond the field itself being set.
-
-            `mousedown.prevent` for the same reason as the result rows and copy-link button above --
-            without it the field blurs before the click fires, closing the panel first.
-          -->
           <button
             v-if="state.previewSuggestion"
             type="button"
@@ -190,11 +142,6 @@
         </template>
         <template v-else-if="searchPreviewIsActive && state.previewResults.length > 0">
           <w-list dense class="searchpanel-results">
-            <!--
-              `mousedown.prevent` for the same reason as the clear button above: without it, pressing
-              a row blurs the input first, which closes the panel (`searchPanelIsShown` goes false)
-              before the click that would follow the mousedown ever fires.
-            -->
             <w-item
               v-for="item of previewResultRows"
               :key="item.path"
@@ -205,9 +152,8 @@
                 <w-icon :name="item.icon || defaultPageIcon" />
               </w-item-section>
               <!--
-                `lines="1"` on all three -- a title, path or excerpt long enough to wrap would grow the
-                row past the panel's fixed width instead of the panel's own horizontal scrollbar it does
-                not have; ellipsising keeps every row exactly as tall as its neighbours.
+                Ellipsised, not wrapped: the panel has a fixed width and no horizontal scroll, and
+                every row has to stay exactly as tall as its neighbours.
               -->
               <w-item-section>
                 <w-item-label lines="1">{{ item.title }}</w-item-label>
@@ -240,13 +186,6 @@
             </w-chip>
           </div>
         </template>
-        <!--
-          Collapsed by default every time the panel opens (the watcher below resets the ref once the
-          panel closes) -- clicking the header is what reveals the four tip rows. `@mousedown.prevent`
-          for the same reason as every other clickable control in this panel above: without it, the
-          field blurs on press before the click fires, and `searchPanelIsShown` closing the panel out
-          from under it eats the click.
-        -->
         <button
           type="button"
           class="searchpanel-header searchpanel-operators-toggle"
@@ -297,29 +236,20 @@ import { log } from '@/helpers/log'
 import { isApplePlatform } from '@/helpers/platform'
 import { notify } from '@/composables/notify'
 
-/**
- * Below this many characters, `searchHint`'s copy in the panel is the whole answer -- tags and
- * operators, not results -- so a preview fetch would only be a request for `''`/`'a'` that the API
- * would happily run and every keystroke below the floor would refire it for nothing.
- */
+/** Below this, the panel's own tag and operator tips are the whole answer, so a fetch buys nothing. */
 const PREVIEW_QUERY_MIN_LENGTH = 2
 
-/** A handful, not a page of them -- this is a live preview under the field, not the results screen. */
 const PREVIEW_RESULTS_LIMIT = 5
 
-/** Long enough that a fast typist's keystrokes collapse into one request, short enough to still feel live. */
 const PREVIEW_DEBOUNCE_MS = 300
 
 /**
- * The query with the operator/tag punctuation the panel's own tips describe stripped out: a leading
- * `!`/`-`/`#` on a word (exclusion, tag reference), and `"`/`*`/`,`/`|` wherever they occur (phrase
- * quoting, wildcard, OR). None of that is text to search FOR, so a query built entirely out of it --
- * `-a`, `#a`, `!"`, a bare `*` -- can clear `PREVIEW_QUERY_MIN_LENGTH` in raw length while carrying
- * under 2 real characters, which is exactly the query the floor exists to filter out.
+ * Length with the operator/tag punctuation stripped: a leading `!`/`-`/`#` on a word, and
+ * `"`/`*`/`,`/`|` wherever they occur. A query built entirely out of those -- `-a`, `#a`, a bare
+ * `*` -- clears `PREVIEW_QUERY_MIN_LENGTH` in raw length while carrying nothing to search FOR.
  *
- * Used only to gate whether a preview fetch is worth firing; the raw, unstripped query is still what
- * actually gets sent -- the operators are real syntax to the backend's `websearch_to_tsquery`, not
- * noise to be cleaned up before it sees them.
+ * Gating only: the raw, unstripped query is still what gets sent, since the operators are real
+ * syntax to the backend's `websearch_to_tsquery` rather than noise.
  */
 function realQueryLength(query) {
   return query
@@ -328,47 +258,32 @@ function realQueryLength(query) {
     .join('').length
 }
 
-// PROPS
-
 const props = defineProps({
-  /**
-   * Render as a row of its own rather than inline in the header bar. What the phone header opens;
-   * see `HeaderNav`.
-   */
+  /** What the phone header opens; see `HeaderNav`. */
   row: {
     type: Boolean,
     default: false
   }
 })
 
-// STORES
-
 const siteStore = useSiteStore()
-
-// ROUTER
 
 const router = useRouter()
 const route = useRoute()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   searchIsFocused: false,
   previewResults: [],
   previewLoading: false,
   previewTotal: 0,
-  /** The backend's "did you mean" title, only ever set alongside a real, zero-hit query. */
+  /** The backend sets this only alongside a real, zero-hit query. */
   previewSuggestion: null,
   /**
-   * 'keyword' (default) or 'semantic' (OpenProject #3138) -- the header's OWN pending mode, set by
-   * `toggleSearchMode` below and carried as the `mode` query param on the navigation to `/_search`
-   * that submitting the search performs. Distinct from `Search.vue`'s own `state.mode`: that is the
-   * results page's live mode once a search is already showing, this is only ever a reader's not-yet-
-   * submitted choice.
+   * The header's own not-yet-submitted choice, carried as the `mode` query param on the navigation
+   * to `/_search`. Distinct from `Search.vue`'s `state.mode`, which is the live mode of a results
+   * page already showing.
    */
   searchMode: 'keyword'
 })
@@ -376,23 +291,15 @@ const state = reactive({
 const searchPanel = ref(null)
 const searchField = ref(null)
 
-/**
- * Whether the "Search Operators" hints are expanded -- collapsed by default every time the panel
- * opens (OpenProject #2995), with no persisted state: the watcher below resets this back to `false`
- * whenever the panel closes, so a reader who expanded it once does not find it still open on the
- * next open. Popular Tags, above it, is unaffected and stays always visible.
- */
+/** Deliberately not persisted: the watcher below resets it whenever the panel closes. */
 const searchOperatorsExpanded = ref(false)
 const searchOperatorsId = useId()
 
 /**
- * Bumped on every fetch that is started or invalidated. A response is only applied if this still
- * matches the token it was issued under -- otherwise a slower, earlier request landing after a
- * faster, later one would clobber the fresher results with stale ones.
+ * Bumped on every fetch started or invalidated. A response is applied only under a still-matching
+ * token, so a slower earlier request cannot clobber a faster later one's results.
  */
 let previewRequestToken = 0
-
-// COMPUTED
 
 const searchPanelIsShown = computed(() => {
   return (
@@ -402,10 +309,9 @@ const searchPanelIsShown = computed(() => {
 })
 
 /**
- * Ranked by 60-day content activity, capped to 10, by `GET sites/:siteId/tags/popular` (OpenProject
- * #3046) -- `siteStore.popularTags`, not the all-time/unlimited `siteStore.tags` the tag-edit
- * autocomplete and the tag-browse page still use. The backend already returns these sorted and
- * capped; the sort/slice here are a defensive belt-and-braces, not the primary ranking.
+ * `siteStore.popularTags` (ranked by recent content activity and capped server-side), not the
+ * all-time `siteStore.tags` the tag-edit autocomplete uses. The sort and slice here are
+ * belt-and-braces, not the primary ranking.
  */
 const popularTags = computed(() => {
   return orderBy(siteStore.popularTags, ['usageCount'], ['desc'])
@@ -416,50 +322,39 @@ const popularTags = computed(() => {
 const defaultPageIcon = DEFAULT_PAGE_ICON
 
 /**
- * `⌘K` on macOS/iOS/iPadOS, `Ctrl+K` everywhere else -- Ctrl+K is the OS-level emacs
- * kill-to-end-of-line binding on macOS, so the hint would otherwise tell Mac users to press a
- * combination that does something else entirely. `isApplePlatform()` itself only needs checking
- * once -- the platform a session is running on does not change mid-session -- but this still has
- * to be a `computed()`, not a plain `const`: `t()`'s RESULT is what's reactive here.
- * `boot/i18n.js` creates the i18n instance with empty messages and loads the active locale's
- * catalog asynchronously afterward, so a component that sets up before that load finishes gets the
- * raw key back from `t()`. A one-time read freezes that raw key into the const for the rest of the
- * component's mounted lifetime even after the real messages land moments later; a computed
- * re-evaluates once they do.
+ * Apple platforms are hinted `⌘K`: Ctrl+K there is the OS-level emacs kill-to-end-of-line binding,
+ * so the hint would name a combination that does something else entirely.
+ *
+ * A `computed`, not a `const`, even though the platform cannot change mid-session: `boot/i18n.js`
+ * starts the i18n instance with empty messages and loads the catalog asynchronously, so a one-time
+ * `t()` read before it lands would freeze the raw key in for the component's whole lifetime.
  */
 const searchShortcutHint = computed(() =>
   isApplePlatform() ? t('common.header.searchShortcutMac') : t('common.header.searchShortcutOther')
 )
 
 /**
- * Whether the query is long enough for `state.previewResults` to actually mean something -- the same
- * floor the fetch watcher below is gated on, by real (operator/tag-stripped) length rather than raw
- * length. Below it, `resetPreview()` has left `previewResults` at `[]`, which is indistinguishable
+ * Below the floor `resetPreview()` has left `previewResults` at `[]`, which is indistinguishable
  * from a real zero-hit search unless this is checked first.
  */
 const searchPreviewIsActive = computed(() => {
   return realQueryLength(siteStore.search ?? '') >= PREVIEW_QUERY_MIN_LENGTH
 })
 
-/** Defensive cap to match the panel's "up to 5 rows" -- the API request already limits to this many. */
+/** Defensive -- the request already asks for no more than this many. */
 const previewResultRows = computed(() => state.previewResults.slice(0, PREVIEW_RESULTS_LIMIT))
-
-// WATCHERS
 
 watch(searchPanelIsShown, (newValue) => {
   if (newValue) {
     siteStore.fetchPopularTags()
   } else {
-    // -> Collapsed by default on every open (OpenProject #2995) -- no state to persist.
     searchOperatorsExpanded.value = false
   }
 })
 
 /*
-  Live preview, debounced -- only while the field is actually focused, so a query changed programmatically
-  elsewhere (`addTag`, the `/_search` sync) does not start firing requests behind a panel nobody is
-  looking at. Below the 2-character floor the panel already has something to say (`searchHint`'s tags and
-  operators), so that range is left alone rather than asking the API to resolve `''` or a single letter.
+  Only while the field is actually focused, so a query changed programmatically elsewhere (`addTag`,
+  the `/_search` sync) does not start firing requests behind a panel nobody is looking at.
 */
 watch(
   () => siteStore.search,
@@ -476,13 +371,10 @@ watch(
   }
 )
 
-// METHODS
-
 /*
-  Cmd+K (macOS/iOS) or Ctrl+K (everywhere else) focuses the field -- unless a full-screen overlay is
-  up, in which case this header is behind it and the shortcut belongs to whatever is in front.
-  FileManager has a search field of its own and claims it; the rest simply have nothing to focus, and
-  pulling focus into a field the user cannot see is worse than the key doing nothing.
+  Ignored while a full-screen overlay is up: this header is behind it, so the shortcut belongs to
+  whatever is in front (FileManager has a search field of its own and claims it). Pulling focus into
+  a field the reader cannot see is worse than the key doing nothing.
 */
 function handleKeyPress(ev) {
   if (siteStore.features.search && !siteStore.overlayIsShown) {
@@ -500,11 +392,7 @@ function onSearchEnter() {
   submitSearch()
 }
 
-/**
- * Navigates to `/_search` carrying the current query and the header's own pending mode (OpenProject
- * #3138) -- `replace` when a results page is already open (refining an in-place search), `push`
- * otherwise, exactly as this used to inline before the mode toggle needed the same two call sites.
- */
+/** `replace` when a results page is already open -- that is refining a search in place, not a step. */
 function submitSearch() {
   const query = { q: siteStore.search, mode: state.searchMode }
   if (route.path === '/_search') {
@@ -516,9 +404,8 @@ function submitSearch() {
 }
 
 /**
- * Flips the header's pending Keyword/Semantic mode (OpenProject #3138). When a query is already
- * typed, also resubmits immediately under the new mode -- otherwise the click would have no visible
- * effect until the reader separately pressed Enter, which reads as the toggle having done nothing.
+ * Resubmits immediately when a query is already typed: otherwise the click has no visible effect
+ * until the reader separately presses Enter, which reads as the toggle having done nothing.
  */
 function toggleSearchMode() {
   state.searchMode = state.searchMode === 'semantic' ? 'keyword' : 'semantic'
@@ -534,21 +421,17 @@ function checkSearchFocus(ev) {
 }
 
 /**
- * Put the caret in the field.
- *
- * Exposed because in `row` form the field is not focused by being mounted: focusing it is what draws
- * the panel below it, and a panel appearing mid-slide is layout and a `backdrop-filter` blur landing
- * in the middle of an animation. `HeaderNav` owns that transition, so it calls this when the slide has
- * finished -- see its `@after-enter`.
+ * Exposed for `HeaderNav`: in `row` form, focusing the field is what draws the panel below it, so
+ * it has to wait until the row's slide-in has finished (its `@after-enter`) rather than land a
+ * layout pass and a `backdrop-filter` blur in the middle of the animation.
  */
 function focus() {
   searchField.value?.focus()
 }
 
 /**
- * Clears the loading flag and the last-fetched preview, and invalidates any request still in flight --
- * a response that lands after this runs is for a query the field no longer holds, and would otherwise
- * overwrite the reset with stale results.
+ * Also invalidates any request still in flight: its response is for a query the field no longer
+ * holds, and would otherwise overwrite this reset with stale results.
  */
 function resetPreview() {
   debouncedFetchPreview.cancel()
@@ -560,14 +443,8 @@ function resetPreview() {
 }
 
 /**
- * Runs the actual request. Not called directly outside this file -- `debouncedFetchPreview` below is
- * what the watcher drives, so a burst of keystrokes collapses into one call.
- *
- * Branches on `state.searchMode` (OpenProject #3292) the same way `submitSearch()`/`Search.vue`'s
- * `performSearch()` do: Semantic mode is a separate route, not a parameter on the keyword one (the
- * keyword route's querystring schema has no semantic/mode field at all), so a semantic preview calls
- * `.../pages/search/semantic` with just `query`/`limit` -- mirroring `Search.vue`'s
- * `performSemanticSearch()` -- instead of the keyword endpoint below.
+ * Semantic mode is a separate route rather than a parameter on the keyword one -- the keyword
+ * route's querystring schema has no mode field at all.
  */
 async function fetchPreview(query) {
   const token = ++previewRequestToken
@@ -580,7 +457,6 @@ async function fetchPreview(query) {
     const resp = await API_CLIENT.get(endpoint, {
       searchParams: { query, limit: PREVIEW_RESULTS_LIMIT }
     }).json()
-    // -> A newer request started (or the field was cleared/unmounted) while this one was in flight
     if (token !== previewRequestToken) {
       return
     }
@@ -610,11 +486,7 @@ function clearSearch() {
   searchField.value.focus()
 }
 
-/**
- * Copies a shareable link to the current search -- the same `q` query param `Search.vue`'s route
- * watcher already reads (`route.query.q`) -- to the clipboard. Mirrors `ApiKeyCopyDialog.vue`'s
- * `copyKey()`: try the copy, notify either way.
- */
+/** The `q` param is what `Search.vue`'s route watcher reads, so the link opens a live search. */
 async function copySearchLink() {
   const url = `${window.location.origin}/_search?q=${encodeURIComponent(siteStore.search)}`
   try {
@@ -630,11 +502,8 @@ async function copySearchLink() {
 }
 
 /**
- * Replaces the query with the "did you mean" suggestion and re-runs the search.
- *
- * Just an assignment: `siteStore.search` is what the live-preview watcher above already tracks, and
- * the field stays focused (the suggestion link's `@mousedown.prevent` kept it that way), so the
- * watcher's own gate on `state.searchIsFocused` fires it exactly the way typing would.
+ * A bare assignment re-runs the search: the field stays focused (the link's `@mousedown.prevent`),
+ * so the preview watcher's own focus gate fires it exactly the way typing would.
  */
 function applySuggestion() {
   if (!state.previewSuggestion) {
@@ -645,16 +514,9 @@ function applySuggestion() {
 }
 
 /**
- * A preview result row's in-app link -- the page's own localized path, plus the active search query
- * carried forward as a `?highlight=` query param (OpenProject #3067) so the landing page can offer an
- * in-page highlight/find for it, the same way the knowledge graph's click-through already does
- * (`Graph.vue#fallbackHref`, OpenProject #2540). `Index.vue`'s existing `applyKeywordHighlight`
- * consumer needs no change to read this -- it already reads `route.query.highlight` off whatever
- * navigation lands on it.
- *
- * `siteStore.search` (not `item.highlight`, which is the backend's own matched-text snippet with
- * `<b>` markup) is what the reader actually typed, so it is what a find-in-page pass should look
- * for. No query means no param, matching the graph's own "nothing to carry forward" behavior.
+ * Carries the query as `?highlight=` for the landing page's own in-page find (`Index.vue`'s
+ * `applyKeywordHighlight`). `siteStore.search` is what the reader typed; `item.highlight` is the
+ * backend's matched-text snippet with `<b>` markup, which is not what a find should look for.
  */
 function resultHref(item) {
   const path = localizedPagePath(item.path, item.locale, siteStore.localeRouting)
@@ -668,8 +530,6 @@ function addTag(tag) {
   }
   searchField.value.focus()
 }
-
-// MOUNTED
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeyPress)
@@ -686,33 +546,18 @@ defineExpose({ focus, state })
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 @charset "UTF-8";
 /*
-  The header search box.
-
   Deliberately not built on WInput: that is a form field -- label, hint line, error line -- and this
-  is none of those. It owns its own markup and styling rather than fighting a component's.
-
-  Cardinal draws it as a square box on the header's paper tint with a hairline edge, capped at 480px
-  and centred in the bar. The pill this replaces was a dark slab that INVERTED to white when you
-  used it -- which made sense on a black header, where a field had to be darker still to read as a
-  well; on a white plate it was the loudest thing in the chrome, and inverting it had nowhere to go.
-  Focus darkens the hairline to the chrome slate instead, exactly as a form field does.
+  is none of those, so it owns its own markup and styling rather than fighting a component's.
 */
 .header-search {
   max-width: 480px;
   margin: 0 auto;
   /*
-    Ground, edge and placeholder tone all come from the `--color-header-search-*` tokens
-    (`tailwind.css`, OpenProject #2767) rather than the generic paper/hairline/caption trio: the
-    field sits ON the header band, so it has to follow the band. Ledger's values for the three are
-    exactly the constants this rule used to name, so nothing moves there; Cobalt's are a
-    `rgba(255,255,255,.16)` well with no edge at all, which is what its own mockup draws.
+    Ground, edge and placeholder tone come from the `--color-header-search-*` tokens rather than the
+    generic paper/hairline/caption trio: the field sits ON the header band, so it follows the band
+    rather than the page surface.
   */
 }
 .header-search-field {
@@ -731,13 +576,9 @@ defineExpose({ focus, state })
 }
 .header-search {
   /*
-    Docked against the tags button below (never in `row` form, which stands alone). The field's own
-    `border-radius` above is one value for all four corners, but a docked field only OWNS its two
-    start-side (left, in LTR) corners -- `.header-search-tags-btn` already squares off its own
-    start-side corners to sit flush against this one, so leaving these two rounded drew a stray
-    curved notch at the seam where a straight edge meets a straight edge everywhere else. Logical
-    corner properties, not physical `border-top-right-radius` etc., so the fix follows the reading
-    direction the same way the border/padding around it already do.
+    A docked field owns only its two start-side corners; the tags button squares off its own to sit
+    flush, so leaving these rounded draws a curved notch at the seam. Logical corner properties, so
+    this follows the reading direction the way the border and padding around it already do.
   */
 }
 .header-search-field--docked {
@@ -747,16 +588,10 @@ defineExpose({ focus, state })
 }
 .header-search {
   /*
-    Driven by a class rather than `:focus-within` so the field stays marked while the panel below is
-    being used -- clicking a tag in there moves focus out of the input, and the border flicking back
-    mid-interaction reads as a glitch.
-
-    The class lives on `.header-search-row-inline` (the parent of both the field and the docked tags
-    button below), not on the field itself -- that is what lets the focus ring extend across the
-    field's right edge, which the field never draws (see `--field--docked` above), onto the button's
-    own border instead of stopping where the two controls meet (OpenProject #2718).
-
-    Two classes, so this outranks the `--row` rule above whichever order they end up in.
+    A class rather than `:focus-within`, so the field stays marked while the panel below is in use:
+    clicking a tag in there moves focus out of the input, and the border flicking back
+    mid-interaction reads as a glitch. The class sits on `.header-search-row-inline`, not on the
+    field, so the ring can extend onto the docked buttons' borders instead of stopping at the seam.
   */
 }
 .header-search-row-inline.is-focused .header-search-field {
@@ -778,10 +613,8 @@ defineExpose({ focus, state })
   color: inherit;
   font: inherit;
   /*
-    `font: inherit` above pulls the ancestor chain's font-size, which bottoms out at `body`'s 14px
-    base (`tailwind.css`'s documented fallback, not a role) rather than the search field's own
-    13.5px role (`ui-iteration-cobalt-typography/cobalt-typography.md` §3, identical in Ledger and
-    Cobalt -- only `color` differs between the two aesthetics, so this stays unscoped).
+    `font: inherit` above would otherwise pull `body`'s 14px base rather than the search field's own
+    13.5px role, which is identical in both aesthetics -- hence unscoped.
   */
   font-size: 13.5px;
   outline: none;
@@ -807,7 +640,7 @@ defineExpose({ focus, state })
   color: var(--color-ink);
 }
 .header-search {
-  /* The shortcut hint: a square mono key cap on the field's own ground, as Cardinal sets every key */
+  /* A key cap, set the way Cardinal sets every key. */
 }
 .header-search-kbd {
   flex-shrink: 0;
@@ -823,17 +656,10 @@ defineExpose({ focus, state })
   cursor: pointer;
   user-select: none;
 }
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   Cobalt's header band is the same solid blue in light and dark, so its field, key cap and docked
-  tags button are the same translucent white in both -- and the `.body--dark` block below, which is
-  aesthetic-blind, would otherwise repaint them in the app's dark surface tones. This block comes
-  first and the `:not(.body--cobalt)` on that block is what keeps them apart, the same shape
-  `HeaderNav.vue`'s own eyebrow rule uses.
+  tags button stay the same translucent white in both. The `:not(.body--cobalt)` on the
+  aesthetic-blind dark block below is what keeps the app's dark surface tones off them.
 */
 body.body--cobalt .header-search-clear:hover {
   color: #fff;
@@ -846,12 +672,9 @@ body.body--cobalt .header-search-kbd {
 }
 
 /*
-  -> Written flat, not nested inside the `.header-search` block above: nesting
-     `.header-search-row-inline.is-focused &-field` there flattens to
-     `.header-search-row-inline.is-focused body.body--cobalt .header-search-field`, which requires
-     `body.body--cobalt` to appear as a DESCENDANT of `.is-focused` -- backwards from the real DOM,
-     where `body.body--cobalt` is always the top-level ancestor, so it can never match
-     (OpenProject #2994). Written flat here, matching the tags-btn pattern below.
+  -> Flat, not nested inside a `.header-search` wrapper: a `&-field` shorthand there flattens the
+     aesthetic class to a DESCENDANT of `.is-focused`, backwards from the real DOM where
+     `body.body--cobalt` is always the top-level ancestor, so the rule can never match.
 */
 body.body--cobalt .header-search-row-inline.is-focused .header-search-field {
   background-color: rgb(255 255 255 / 0.26);
@@ -872,7 +695,7 @@ body.body--cobalt .header-search-mode-btn {
   }
 }
 
-/* -> Only the tags button, the row's actual outer-right control here, gets the rounded corner. */
+/* -> Only the row's outer-right control gets the rounded corner. */
 body.body--cobalt .header-search-tags-btn {
   border-radius: 0 var(--radius-control) var(--radius-control) 0;
 }
@@ -883,22 +706,14 @@ body.body--cobalt .header-search-mode-btn.is-active {
 }
 
 /*
-  -> The other half of Cobalt's shared focus ring: without this override, the base cobalt tags-btn
-     rule's `border-color: transparent` above wins and the button stays visually unchanged while the
-     field lights up, breaking the grouped-control effect Ledger's equivalent rule already produces
-     (OpenProject #3037). Matches the field's own focused border color at line 765 exactly, so the
-     two controls read as one lit ring when the row is focused. Extended to the mode toggle by
-     #3138, for the same reason.
+  -> The other half of Cobalt's shared focus ring: without it the base cobalt button rule's
+     see-through border wins and the buttons stay unchanged while the field lights up. The color
+     matches the field's own focused border, so the row reads as one lit ring.
 */
 body.body--cobalt .header-search-row-inline.is-focused .header-search-mode-btn,
 body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   border-color: rgb(255 255 255 / 0.4);
 }
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .body--dark:not(.body--cobalt) .header-search-field {
   background-color: var(--color-dark-4);
   border-color: var(--color-hairline-dark);
@@ -916,13 +731,6 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   color: var(--color-text-caption-dark);
 }
 
-/*
-  -> Written flat, not nested inside the `.header-search` block above: the same backwards-nesting
-     mistake as the Cobalt rule above, and the one actually reported (OpenProject #2994) -- nesting
-     `.header-search-row-inline.is-focused &-field` there flattens to
-     `.header-search-row-inline.is-focused .body--dark:not(.body--cobalt) .header-search-field`,
-     which can never match the real DOM. Written flat here, matching the tags-btn pattern below.
-*/
 .body--dark:not(.body--cobalt) .header-search-row-inline.is-focused .header-search-field {
   background-color: var(--color-dark-3);
   border-color: var(--color-slate-light);
@@ -930,13 +738,9 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
 }
 
 /*
-  The browse-by-tags button docked to the search field's trailing edge (OpenProject #987, #1120,
-  #1218) -- the same 36px box and hairline edge as `.header-search-field`, sharing the field's own
-  border rather than drawing a second one beside it, so the seam reads as one control.
-
-  `.header-search-mode-btn` (OpenProject #3138) is its sibling one seam further in, docked between
-  the field and this button rather than replacing either -- same box, same hairline, sharing every
-  rule below that doesn't depend on which end of the row a control sits at.
+  Docked to the field's trailing edge, sharing the field's own border rather than drawing a second
+  one beside it, so the seam reads as one control. The two buttons share every rule here that does
+  not depend on which end of the row a control sits at.
 */
 .header-search-tags-btn,
 .header-search-mode-btn {
@@ -964,28 +768,22 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
 }
 
 /*
-  -> The mode button sits BETWEEN the field and the tags button, not at the row's outer edge, so it
-     owns no rounded corner of its own (square all around, matching the tags button's own base
-     shape) and hands its own trailing edge off to the tags button's leading border -- the same
-     "the earlier control omits the shared border, the later one draws it" rule
-     `.header-search-field--docked` already uses against this button.
+  -> The mode button sits BETWEEN the field and the tags button, so it hands its trailing edge to
+     the tags button's leading border -- the same "the earlier control omits the shared border, the
+     later one draws it" rule `.header-search-field--docked` uses against this button.
 */
 .header-search-mode-btn {
   border-inline-end: 0;
 }
 
-/* -> The pressed state: filled with the accent wash, same vocabulary as an active tag chip. */
 .header-search-mode-btn.is-active {
   background-color: var(--color-accent-wash);
   color: var(--color-accent-strong);
 }
 
 /*
-  -> The other half of the shared focus ring above: the field's own `is-focused` rule darkens its
-     top/bottom/left edges, but its right edge is never drawn (`--field--docked`) -- these two
-     buttons draw the rest of that edge between them, so each needs its own border darkened for the
-     ring to read as continuous across every control rather than stopping where the first two meet
-     (OpenProject #2718, extended for the mode toggle by #3138).
+  -> The field's trailing edge is never drawn (`--docked`); these two buttons draw the rest of it
+     between them, so each needs its own border darkened for the focus ring to read as continuous.
 */
 .header-search-row-inline.is-focused .header-search-tags-btn,
 .header-search-row-inline.is-focused .header-search-mode-btn {
@@ -1014,18 +812,10 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
 .body--dark:not(.body--cobalt) .header-search-row-inline.is-focused .header-search-mode-btn {
   border-color: var(--color-slate-light);
 }
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
-  Hangs off the field, matching its width -- `inset-inline-start: 0; inset-inline-end: 0` against the
-  wrapper rather than a width of its own, so the two cannot drift apart.
-
-  The wrapper is the full height of the header, so `top: 100%` puts the panel flush against its
-  bottom edge; square top corners then read as a continuation of the header rather than a card
-  floating under it.
+  Matched to the field's width by `inset-inline-*` against the wrapper rather than a width of its
+  own, so the two cannot drift apart. Square top corners so the panel reads as a continuation of the
+  header rather than a card floating under it.
 */
 .searchpanel {
   position: absolute;
@@ -1040,11 +830,8 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   padding: 0.5rem 1rem 1rem;
   box-shadow: 0 8px 24px rgba(28, 34, 51, 0.12);
   /*
-    A short viewport (a phone in `row` form, or any window a reader has made shorter than its width)
-    otherwise lets the panel grow past the bottom of the screen once results are added on top of the
-    tag/operator content -- there was no cap on it before because that content alone never got tall
-    enough to matter. 80px leaves room for the toolbar above it (52px in `row` form, 64px inline) plus
-    a margin, so the panel never quite touches the edge of the viewport it is measured against.
+    A short viewport otherwise lets the panel grow past the bottom of the screen. 80px clears the
+    toolbar above it (52px in `row` form, 64px inline) plus a margin.
   */
   max-height: calc(100vh - 80px);
   overflow-y: auto;
@@ -1059,7 +846,7 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   align-items: center;
 }
 .searchpanel {
-  /* -> The loading header's spinner sits beside its copy rather than above it */
+  /* -> Spinner beside its copy, not stacked above it. */
 }
 .searchpanel-status {
   gap: 8px;
@@ -1068,7 +855,7 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   margin-bottom: 0.5rem;
 }
 .searchpanel {
-  /* Plain `<button>`, not `w-btn` -- it reads as a line of text within the empty-preview state, not a UI control */
+  /* Plain `<button>`, not `w-btn`: it reads as a line of text, not as a UI control. */
 }
 .searchpanel-suggestion-link {
   display: block;
@@ -1077,7 +864,7 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   opacity: 0.85;
   text-align: start;
   cursor: pointer;
-  /* -> The suggested title is unbounded page content, same as a result row's -- ellipsis, not wrap/overflow */
+  /* -> An unbounded page title, same as a result row's: ellipsis, not wrap. */
   max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
@@ -1095,10 +882,8 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
 }
 .searchpanel {
   /*
-    The "Search Operators" header row is a `<button>` (Preflight already strips its border/background/
-    padding), not a `<div>`, so it needs `width: 100%` -- a button shrink-wraps its content by default,
-    where the div it replaces was block-level -- plus its own cursor, since `.searchpanel-header`
-    itself carries none.
+    A `<button>` shrink-wraps its content rather than filling the row like the block-level headers
+    beside it, so it needs `width: 100%`, plus its own cursor -- `.searchpanel-header` carries none.
   */
 }
 .searchpanel-operators-toggle {
@@ -1115,7 +900,7 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   }
 }
 .searchpanel {
-  /* -> A search operator, set the way Cardinal sets every inline code run: a tinted square chip */
+  /* -> Set the way Cardinal sets every inline code run. */
 }
 .searchpanel code {
   background-color: var(--color-tint);
@@ -1127,14 +912,9 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   font-weight: 500;
 }
 .searchpanel {
-  /* -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s */
-  /*    `@layer components`, shared with `Search.vue`'s full results screen this panel previews. */
+  /* -> `.text-highlight` (the matched-term treatment) lives in `css/tailwind.css`'s */
+  /*    `@layer components`, shared with the full results screen this panel previews. */
 }
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .body--dark .searchpanel {
   background-color: var(--color-dark-3);
   border-color: var(--color-hairline-dark);

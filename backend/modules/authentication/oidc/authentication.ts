@@ -2,7 +2,6 @@ import * as client from 'openid-client'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 import { providerNameHalves } from '../../../models/authentication.ts'
 
-/** A claim value as OIDC providers report it: one value, several, or (rarely) neither. */
 function asStringArray(value: unknown): string[] {
   if (value === undefined || value === null) {
     return []
@@ -11,32 +10,17 @@ function asStringArray(value: unknown): string[] {
 }
 
 /**
- * Map the merged ID-token claims and userinfo response onto a `ProviderProfile`, using the configured
- * claim names. Exported standalone (mirroring `buildOidcConfig` in `preset.ts`) so the claim-mapping —
- * including the `mapGroups`/`groupsClaim` behavior every OIDC preset inherits — can be asserted
- * directly, with no network or ID-token verification involved: everything upstream of this is
- * `openid-client` itself, already covered by its own test suite.
+ * An account here is matched by email address, so an address the provider itself has not verified
+ * says nothing about who holds the mailbox. Only an explicitly `false` `email_verified` refuses the
+ * login -- a provider that omits the claim entirely (many do) contradicts nothing.
  *
- * `email_verified` is honoured the way `google/authentication.ts` already does: an account here is
- * matched by email address, so an address the provider itself has not verified says nothing about who
- * holds the mailbox. Every OIDC preset (auth0, okta, microsoft, keycloak, gitlab, twitch, slack) routes
- * through this same function, so the check applies to all of them with no per-preset code. Only a
- * claim that is explicitly `false` refuses the login -- a provider that omits the claim entirely (many
- * do) is not assumed unverified, since there is nothing to contradict.
+ * Splitting the display name when the provider issues no `given_name`/`family_name` is deliberately
+ * NOT done here: that fallback is per-module, and this shared mapper would apply it to every OIDC
+ * preset.
  *
- * The separated name halves come from OIDC's own standard `given_name`/`family_name` claims, each
- * overridable by `firstNameClaim`/`lastNameClaim` for a provider that puts them somewhere else — the
- * same shape `displayNameClaim` already has, since a claim name is exactly the kind of thing an
- * administrator has to be able to correct. They are read here and nowhere else: whether either half
- * is written to the account, and what `name` derives to, is `models/users.ts`'s decision (Feature
- * #2608), not this module's. Deliberately NOT done here: splitting the display name when the
- * provider issues no halves at all — that fallback is per-module (Task #2641), and doing it in this
- * shared mapper would silently apply it to every OIDC preset.
- *
- * The avatar URL comes from OIDC's own standard `picture` claim, overridable by `pictureClaim` for a
- * provider that puts it somewhere else. Absent (rather than a fabricated default) whenever the claim
- * is missing or not a non-blank string — `models/users.ts#syncAvatarFromProvider` treats absence as
- * "the provider did not say" and leaves any existing avatar alone (Feature #3208).
+ * A missing or blank `picture` claim leaves the key absent rather than fabricating a default —
+ * `models/users.ts#syncAvatarFromProvider` reads absence as "the provider did not say" and leaves
+ * any existing avatar alone.
  */
 export function mapOidcProfile(
   conf: Record<string, any>,
@@ -60,21 +44,18 @@ export function mapOidcProfile(
       info[conf.firstNameClaim || 'given_name'],
       info[conf.lastNameClaim || 'family_name']
     ),
-    // -> `undefined` (module did not look) versus `[]` (looked, provider reported none) matters to
-    //    `syncProviderGroups()` — see `ProviderProfile.groups`'s own doc comment — so the key itself
-    //    is only ever present when `mapGroups` is on, never set to `undefined`.
+    // -> `undefined` (module did not look) and `[]` (looked, provider reported none) mean different
+    //    things to `syncProviderGroups()`, so the key is absent unless `mapGroups` is on, never set
+    //    to `undefined`.
     ...(conf.mapGroups ? { groups: asStringArray(info[conf.groupsClaim || 'groups']) } : {}),
     ...(typeof picture === 'string' && picture.trim() ? { picture } : {})
   }
 }
 
 /**
- * Generic OpenID Connect / OAuth2
- *
- * The authorization code flow with PKCE, against any provider that speaks OpenID Connect. What makes
- * it OIDC rather than bare OAuth2 is the ID token: a signed statement of who signed in, which is
- * verified here against the provider's published keys — issuer, audience, nonce and signature — before
- * anything is believed about the person behind it.
+ * The authorization code flow with PKCE. What makes it OIDC rather than bare OAuth2 is the ID token:
+ * a signed statement of who signed in, verified against the provider's published keys — issuer,
+ * audience, nonce and signature — before anything is believed about the person behind it.
  *
  * That verification is why this goes through `openid-client` rather than a handful of `fetch` calls.
  * The requests themselves are trivial; the checks around them are where a mistake is silent, because
@@ -87,8 +68,8 @@ export default class OidcAuthentication {
   module?: string
 
   /**
-   * The provider as `openid-client` sees it. Built once and kept: with discovery on it is a network
-   * round trip, and it is the same answer for every login until the strategy is saved again.
+   * Cached: with discovery on, building this is a network round trip, and the answer is the same for
+   * every login until the strategy is saved again.
    */
   private config: client.Configuration | null = null
 
@@ -98,8 +79,6 @@ export default class OidcAuthentication {
   }
 
   /**
-   * Resolve the provider's metadata.
-   *
    * Discovery is the path worth taking: the endpoints AND the signing keys come from the issuer
    * itself, so a provider rotating either is followed without an administrator editing anything. The
    * manual path exists for providers that publish no discovery document, and needs the JWKS URL for
@@ -134,7 +113,6 @@ export default class OidcAuthentication {
     return this.config
   }
 
-  /** Where to send the browser to sign in. */
   async authorizationUrl({ redirectUri, state, nonce, codeVerifier }: AuthFlow): Promise<string> {
     const config = await this.configuration()
     return client
@@ -146,24 +124,18 @@ export default class OidcAuthentication {
         code_challenge: await client.calculatePKCECodeChallenge(codeVerifier),
         code_challenge_method: 'S256',
         // -> A handful of providers need something extra on the authorization request that no
-        //    other field here covers — Twitch wants a `claims` parameter asking for email even
-        //    though PKCE is in play. Set per-preset via `OidcPresetTemplate.extraAuthParams`.
+        //    other field here covers — Twitch wants a `claims` parameter asking for email.
         ...this.conf.extraAuthParams
       })
       .toString()
   }
 
   /**
-   * The scope string actually requested: the configured scopes, plus — when `mapGroups` is on and
-   * `groupsScope` names one not already present — whatever scope the provider needs before it will
-   * put group membership on the ID token or userinfo response at all.
-   *
-   * This exists because upstream's Generic OpenID Connect strategy could map a `groups` claim while
-   * never requesting the scope that made a provider populate it, so membership silently vanished on
-   * login (OpenProject #826). `groupsScope` is opt-in and provider-specific — Okta and Keycloak both
-   * gate group membership behind a scope literally named `groups`, but plenty of providers (Auth0's
-   * claim comes from a rule/Action, Microsoft's from the app manifest) need no extra scope at all, so
-   * there is no universally-correct default to assume here.
+   * The configured scopes, plus — when `mapGroups` is on — whatever scope the provider needs before
+   * it will report group membership at all: mapping a `groups` claim without requesting that scope
+   * silently yields no membership. `groupsScope` is opt-in and provider-specific (Okta and Keycloak
+   * gate membership behind a scope literally named `groups`; Auth0's comes from a rule/Action and
+   * Microsoft's from the app manifest, needing none), so there is no correct default to assume.
    */
   private effectiveScope(): string {
     const base: string = this.conf.scopes || 'openid profile email'
@@ -175,8 +147,6 @@ export default class OidcAuthentication {
   }
 
   /**
-   * Turn the code the provider sent back into who signed in.
-   *
    * `authorizationCodeGrant` is what does the checking: it refuses a response whose state does not
    * match the one this flow started with, exchanges the code with the PKCE verifier, and validates
    * the ID token's signature, issuer, audience and nonce. Everything after it is reading claims.
@@ -199,9 +169,9 @@ export default class OidcAuthentication {
     }
 
     /*
-      The userinfo endpoint is consulted when the provider has one, because a provider is free to keep
-      claims out of the ID token and behind it — several put the email address there only. Its answer
-      is merged over the token's, and `fetchUserInfo` checks that it is about the same subject.
+      A provider is free to keep claims out of the ID token and behind the userinfo endpoint —
+      several put the email address there only. Its answer is merged over the token's, and
+      `fetchUserInfo` checks that it is about the same subject.
     */
     let info: Record<string, any> = claims
     if (config.serverMetadata().userinfo_endpoint) {
@@ -214,7 +184,6 @@ export default class OidcAuthentication {
     return mapOidcProfile(this.conf, claims.sub, info)
   }
 
-  /** Where a logout should continue, so that the session at the provider ends too. */
   logoutUrl(): string | null {
     return this.conf.logoutURL || null
   }

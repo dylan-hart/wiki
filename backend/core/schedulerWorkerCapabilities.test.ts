@@ -1,19 +1,7 @@
 /**
- * `CARDINAL.capabilities` reaching a worker thread (OpenProject #3124, triaged from Issue #3117).
- *
- * `core/db.ts#syncSchemas()` sets `CARDINAL.capabilities` once, on the main process, at boot.
- * `worker.ts` builds its own minimal `CARDINAL` and never called `syncSchemas()` itself, so
- * `CARDINAL.capabilities` always read `undefined` on a worker thread -- which made
- * `tasks/workers/embed-page.ts#embedPage()`'s `if (!CARDINAL.capabilities?.semanticSearch) return` guard
- * always true in production, silently no-opping the scheduled per-page embedding job regardless of
- * whether pgvector was actually installed and enabled.
- *
- * The fix forwards `CARDINAL.capabilities` through the same `workerData` object `INSTANCE_ID`'s
- * `parentInstanceId` already travels on (`core/scheduler.ts`'s `poolOptions`), at pool-creation
- * time -- after the db boot phase that populates it. Own file rather than a describe inside
- * `core/schedulerWorkerIdentity.test.ts`, matching that file's own reasoning for being separate from
- * `core/scheduler.test.ts`: this one starts a real thread instead of staying source-scan-only for its
- * transport proof.
+ * `worker.ts` builds its own minimal `CARDINAL` and never calls `syncSchemas()`, so
+ * `CARDINAL.capabilities` reaches a worker thread only through the pool's `workerData`. Without it a
+ * worker task guarding on a capability (`tasks/workers/embed-page.ts`) silently no-ops.
  */
 
 import assert from 'node:assert/strict'
@@ -60,8 +48,7 @@ describe('worker thread capabilities', () => {
   })
 
   test("piscina's workerData really does carry capabilities into the thread", async () => {
-    // -> The claim a source scan cannot make, mirroring
-    //    `schedulerWorkerIdentity.test.ts`'s parentInstanceId proof.
+    // -> The claim a source scan cannot make
     const capabilities = { semanticSearch: true }
     const pool = new Piscina<unknown, unknown>({
       filename: path.join(backendDir, 'test/fixtures/workerCapabilitiesWorker.ts'),

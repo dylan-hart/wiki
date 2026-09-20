@@ -11,7 +11,6 @@ import {
 
 import { installTestWiki } from '../test/mocks.ts'
 
-/** A stub extractor shaped like `@huggingface/transformers`'s pipeline output, with no real inference. */
 function makeExtractor(overrides: { data?: ArrayLike<number>; fail?: Error } = {}) {
   return mock.fn(async (_text: string, _options: { pooling: 'mean'; normalize: boolean }) => {
     if (overrides.fail) {
@@ -54,19 +53,16 @@ describe('extractEmbedding', () => {
 
 describe('isEmbeddingAvailable', () => {
   test('is optimistic before any load has been attempted', () => {
-    // -> This process may or may not have already exercised `embedText` in an earlier test file (each
-    //    `*.test.ts` file is its own process under `node --test`, so within this file nothing has
-    //    attempted a real load yet unless a test below forces one).
+    // -> Each `*.test.ts` file is its own process under `node --test`, so nothing has attempted a
+    //    load yet. Must run before the forced load failure below.
     assert.equal(isEmbeddingAvailable(), true)
   })
 })
 
 /**
- * `embedText` consults `@huggingface/transformers` (via a lazy dynamic `import()`) before ever
- * building a pipeline, so this covers the "unusable on this platform" path the same way
- * `helpers/images.test.ts` covers Sharp being reported installed but failing to import: by renaming
- * `node_modules` out of the way for the duration of one test and restoring it in `finally`, rather
- * than needing `--experimental-test-module-mocks` to intercept the import directly.
+ * `embedText` imports `@huggingface/transformers` lazily, so the "unusable on this platform" path
+ * is forced by renaming the package out of `node_modules` for one test, rather than needing
+ * `--experimental-test-module-mocks` to intercept the import.
  */
 describe('embedText — model unavailable', () => {
   let wikiHandle: { restore(): void }
@@ -87,19 +83,14 @@ describe('embedText — model unavailable', () => {
       if (err.code !== 'ENOENT') {
         throw err
       }
-      // -> Nothing installed to rename out of the way; import() will fail on its own
-      //    (ERR_MODULE_NOT_FOUND), which is the same outcome this test verifies either way.
+      // -> Nothing installed to rename: import() fails on its own, which is the same outcome.
     }
 
     try {
       const warn = mock.fn((_scope: string, _message: string, _fields?: unknown) => {})
-      // -> `models` deliberately carries no `extensions` key -- `test/mocks.ts#createWikiStub`
-      //    defaults `models` to `{}`, so this reproduces `backend/worker.ts`'s exact pre-fix shape
-      //    (and would reproduce it again if a future edit there ever dropped `extensions`). Before the
-      //    fix, `getExtractor()`'s catch block called `CARDINAL.models.extensions.noteLoadFailure()`
-      //    unconditionally here and threw `Cannot read properties of undefined (reading
-      //    'noteLoadFailure')` before the warn log below ever ran, escaping `embedText()`'s "never
-      //    throws" contract as an unhandled job failure.
+      // -> `models` deliberately carries no `extensions` key (`createWikiStub` defaults it to
+      //    `{}`), as a worker thread's minimal `CARDINAL.models` might: the failure path must still
+      //    not throw.
       wikiHandle = installTestWiki({ logger: { warn, debug: mock.fn() } })
 
       const result = await embedText('irrelevant')
@@ -107,10 +98,10 @@ describe('embedText — model unavailable', () => {
       assert.equal(result, null)
       assert.equal(warn.mock.calls.length, 1)
       assert.equal(warn.mock.calls[0].arguments[0], 'search')
-      // -> The failure is now cached for the rest of this process, same as a real failed load would be
+      // -> The failure is cached for the rest of this process
       assert.equal(isEmbeddingAvailable(), false)
 
-      // -> A second call does not attempt another import — it short-circuits on the cached failure
+      // -> so a second call short-circuits rather than attempting another import
       const secondResult = await embedText('irrelevant again')
       assert.equal(secondResult, null)
     } finally {
@@ -122,12 +113,9 @@ describe('embedText — model unavailable', () => {
 })
 
 /**
- * The real import-failure trigger above can only fire once per process (`getExtractor()`'s own
- * `if (loadFailed) return null` guard), so it is spent proving the extensions-absent regression is
- * fixed. Whether `CARDINAL.models.extensions.noteLoadFailure()` is called *before or after* the warn
- * log, when `extensions` IS present, is instead verified as a source-order fact rather than by forcing
- * a second live failure — this is what actually guarantees a future failure in `noteLoadFailure`
- * itself (or in whatever recording step replaces it) can never suppress the warn log again.
+ * The real import failure above can only fire once per process (`loadFailed` short-circuits every
+ * later call), so warn-before-record with `extensions` present is pinned as a source-order fact
+ * instead: a throw from `noteLoadFailure` must never be able to suppress the warn log.
  */
 describe('getExtractor catch block source order — OpenProject #3295', () => {
   test('warns before calling CARDINAL.models.extensions?.noteLoadFailure()', async () => {

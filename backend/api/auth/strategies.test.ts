@@ -9,11 +9,7 @@ import { installTestWiki } from '../../test/mocks.ts'
 
 let wikiHandle: { restore(): void }
 
-/**
- * #1616: `POST /authentication/strategies` used to answer an unknown `module` with a hardcoded
- * English sentence, which surfaced verbatim in the UI instead of translating like the rest of a
- * `t(key, fallback)` screen. Assert the coded `ERR_*` shape rather than any particular wording.
- */
+/** The UI translates by error code, so assert the coded `ERR_*` shape rather than any wording. */
 describe('POST /authentication/strategies (unknown module)', () => {
   let app: FastifyInstance
 
@@ -45,13 +41,6 @@ describe('POST /authentication/strategies (unknown module)', () => {
   })
 })
 
-/**
- * OpenProject #2234: a strategy save is one of the most permission-affecting operations in the
- * product (it decides which strategies exist, are enabled, and which groups they auto-enroll), and
- * left no audit record at all before this. DB-backed, against the real `models/authentication.ts`
- * and `models/auditLog.ts` -- the point under test is that a real update through the real route
- * writes a real row, not that a stub was called with the right arguments.
- */
 describe(
   'PUT /authentication/strategies/:strategyId — records auth.strategyUpdated (DB-backed)',
   { skip: !hasTestDatabase() },
@@ -62,11 +51,8 @@ describe(
 
     before(async () => {
       fixtures = await setupTestDb()
-      // -> `validateStrategy()` (`models/authentication.ts`) reads `CARDINAL.data.systemIds.localAuthId`
-      //    unconditionally to decide whether the strategy being saved is the un-disableable built-in
-      //    one -- `setupTestDb()` leaves `CARDINAL.data` empty, so this has to be set before any save can
-      //    run at all. Deliberately not the fixture strategy's own id, so it is treated as an
-      //    ordinary (not built-in) strategy, matching what this test is actually saving.
+      // -> Deliberately not the fixture strategy's own id, so it saves as an ordinary strategy
+      //    rather than the un-disableable built-in one
       ;(globalThis as any).CARDINAL.data.systemIds = { localAuthId: 'not-this-strategy' }
 
       const [strategy] = await fixtures.db
@@ -83,8 +69,7 @@ describe(
       app = await buildTestApp({
         routes: authenticationRoutes,
         ajv: true,
-        // -> Stand-in for `@fastify/session` + the real login-established `req.session.user`: what
-        //    `actorFromRequest()` (`models/auditLog.ts`) reads to name the actor.
+        // -> What `actorFromRequest()` reads to name the actor
         session: () => ({ user: { id: fixtures.userId, name: 'Fixture User' } })
       })
     })
@@ -116,18 +101,11 @@ describe(
       assert.equal(entry.targetId, strategyId)
       assert.equal(entry.detail.module, 'test-module')
       assert.deepEqual([...entry.detail.changedFields].sort(), ['config', 'displayName'])
-      // -> `detail` names which fields changed, never their values -- the secret submitted above
-      //    must not surface anywhere in the recorded entry.
       assert.doesNotMatch(JSON.stringify(entry.detail), /super-secret-value/)
     })
   }
 )
 
-/**
- * OpenProject #2440: unlike the rest of this file, `GET /authentication/synced-groups` is reachable
- * without `manage:system` — it names no secrets, only group/strategy ids and display names, so the
- * admin group-assignment warning UI (gated on `manage:users`/`manage:groups`) can call it directly.
- */
 describe('GET /authentication/synced-groups', () => {
   let app: FastifyInstance
 
@@ -183,9 +161,6 @@ describe('GET /authentication/synced-groups (none of the four allowed permission
     app = await buildTestApp({
       routes: authenticationRoutes,
       permissions: true,
-      // -> Authenticated, but holding an unrelated permission -- distinct from holding none at all,
-      //    which `permissionPreHandler` answers 401 for instead (an empty/absent permission list is
-      //    treated as not authenticated, not merely as lacking this route's permission).
       session: { authenticated: true, permissions: ['read:pages'], groups: [] }
     })
   })
@@ -201,12 +176,6 @@ describe('GET /authentication/synced-groups (none of the four allowed permission
   })
 })
 
-/**
- * OpenProject #2557: `AdminAuth.vue` warns when an enabled strategy is shown by no site's login
- * screen. Unlike `/authentication/synced-groups` above, this one carries `manage:system` like the
- * rest of this file -- it is fetched alongside the masked strategy list the admin screen already
- * requires that permission for, and names strategy ids with no display-facing secret of their own.
- */
 describe('GET /authentication/strategies/visible-site-counts', () => {
   let app: FastifyInstance
 
@@ -279,12 +248,6 @@ describe('GET /authentication/strategies/visible-site-counts (no manage:system)'
   })
 })
 
-/**
- * OpenProject #2469: `allowedEmailDomains` is a per-strategy config field (a friendlier alternative
- * to `allowedEmailRegex`), wired through the same create/update routes as every other strategy
- * field. DB-backed against the real route + model, same pattern as the `auth.strategyUpdated`
- * describe above.
- */
 describe(
   'authentication strategies routes: allowedEmailDomains',
   { skip: !hasTestDatabase() },
@@ -295,9 +258,8 @@ describe(
     before(async () => {
       fixtures = await setupTestDb()
       ;(globalThis as any).CARDINAL.data.systemIds = { localAuthId: 'not-this-strategy' }
-      // -> `createStrategy()`/`validateStrategy()` resolve the module through `getModule()`, which
-      //    reads `CARDINAL.data.authentication` -- populated from real on-disk `definition.yml` files
-      //    the same way `models/authentication.test.ts`'s own suites do.
+      // -> `getModule()` reads `CARDINAL.data.authentication`, filled here from the real on-disk
+      //    `definition.yml` files
       await CARDINAL.models.authentication.refreshStrategiesFromDisk()
 
       app = await buildTestApp({ routes: authenticationRoutes, ajv: true })

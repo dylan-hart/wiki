@@ -1,29 +1,16 @@
 /**
- * Real-headless-Chromium layout measurement for `Graph.vue`'s right-rail control rows (OpenProject
- * #2892) -- neither `jsdom` nor `happy-dom` runs a layout engine (see `test/realGridLayout.js`'s own
- * header comment), so whether the SIZE BY row's two `w-btn-toggle` groups actually wrap onto two
- * lines at the panel's real content width can only be answered by a real browser.
+ * Real-headless-Chromium layout measurement for `Graph.vue`'s right-rail control rows: neither
+ * `jsdom` nor `happy-dom` runs a layout engine, so whether the SIZE BY row's two `w-btn-toggle`
+ * groups wrap at the panel's real content width can only be answered by a real browser.
  *
- * The CSS handed to that browser is read straight from the real source rather than hand-copied:
- * `buildAppCss()` (the app's actual `src/css/tailwind.css`, Preflight included) plus `Graph.vue`'s
- * own `<style scoped>` block and `WBtnToggle.vue`'s own `<style scoped>` block, both read off disk
- * and extracted verbatim -- already plain, valid CSS, so no compile step is needed (OpenProject
- * #3254 dropped the Sass pipeline this harness used to run the extracted text through). This is what
- * keeps the harness from silently drifting out of sync with the component it measures the way a
- * re-typed CSS snippet could.
- *
- * No Vue SFC compile happens here either (that would mean bundling `Graph.vue`'s full import graph --
- * d3, the canvas draw pipeline -- through a real `vite build` just to get its CSS out), so skipping
- * `@vitejs/plugin-vue`'s scoped-style transform has two consequences, both handled here:
- *  - No `data-v-*` scoping attribute is added anywhere. That's fine for a bounding-box measurement:
- *    the same plain class selectors the real component renders still match, since scoping only ever
- *    narrows a selector's reach, never changes what a matching class looks like.
- *  - A scoped `:deep(X)` rule is normally rewritten by that same Vue transform into a plain
- *    `[data-v-hash] X` descendant selector (the wrapping pseudo-class itself is stripped, not
- *    something a real browser understands on its own). `stripVueDeep()` below does the same
- *    mechanical rewrite -- `SELECTOR :deep(INNER)` -> `SELECTOR INNER` -- before the text reaches the
- *    page, so a `:deep()` rule in `Graph.vue`'s stylesheet behaves under this harness the same way it
- *    behaves once actually built.
+ * The CSS is extracted off disk from the real sources rather than hand-copied, so the harness
+ * cannot drift out of sync with what it measures. No SFC compile happens (that would mean bundling
+ * `Graph.vue`'s whole import graph through a real `vite build` just to get its CSS out), so
+ * `@vitejs/plugin-vue`'s scoped-style transform never runs. Two consequences, both handled here:
+ *  - nothing carries a `data-v-*` attribute, which is harmless for a bounding-box measurement --
+ *    scoping only narrows a selector's reach, it never changes what a matching class looks like;
+ *  - `:deep(X)` is never rewritten into the plain descendant selector a browser understands, so
+ *    `stripVueDeep()` does that rewrite by hand.
  */
 
 import { readFileSync } from 'node:fs'
@@ -50,18 +37,13 @@ function extractStyleBlock(filePath, openTag) {
   return source.slice(contentStart, end)
 }
 
-/** See the header comment's `:deep()` paragraph above. */
 function stripVueDeep(css) {
   return css.replace(/:deep\(([^)]*)\)/g, '$1')
 }
 
 let compiledCssPromise = null
 
-/**
- * The combined CSS the real `.graph-view-controls` markup renders with. Memoized per test process --
- * the Tailwind build underneath it is not free, and every caller in a given run wants the identical
- * output.
- */
+/** Memoized per test process: the Tailwind build underneath is not free. */
 export function buildGraphControlCss() {
   if (!compiledCssPromise) {
     compiledCssPromise = (async () => {
@@ -69,12 +51,10 @@ export function buildGraphControlCss() {
       const graphCss = stripVueDeep(extractStyleBlock(graphVuePath, '<style scoped>'))
       const toggleCss = extractStyleBlock(btnTogglePath, '<style scoped>')
       /*
-        `.graph-view-right-rail` is `position: absolute` in production (it floats over the graph
-        canvas) -- harmless there since its own `top`/`right` are relative to a positioned ancestor,
-        but with none here it would position against the viewport instead of flowing in place. This
-        harness only cares about the panel's own width/wrap behaviour, so pinning it `static` is the
-        one deliberate divergence from the real stylesheet, kept to a single override rule rather than
-        touching the extracted source.
+        `.graph-view-right-rail` is `position: absolute` in production, where its `top`/`right`
+        resolve against a positioned ancestor; with none here it would position against the viewport
+        instead of flowing in place. Only its width and wrap behaviour matter, so it is pinned
+        `static` -- the one deliberate divergence, kept out of the extracted source.
       */
       return `${tailwindCss}\n${graphCss}\n${toggleCss}\n.graph-view-right-rail{position:static!important;}`
     })()
@@ -83,11 +63,9 @@ export function buildGraphControlCss() {
 }
 
 /**
- * Renders `html` (the real `.graph-view-right-rail` markup, pulled from an actual `@vue/test-utils`
- * mount via `.html()`) in a real headless Chromium page and reports whether the SIZE BY row
- * (`.graph-view-control-row`) wrapped its two `w-btn-toggle` groups onto separate lines.
- * `browser` is caller-managed (open once per test file in `beforeAll`, close in `afterAll`), same
- * convention as `measureClassificationGrid` in `test/realGridLayout.js`.
+ * `html` is the real `.graph-view-right-rail` markup, pulled from an `@vue/test-utils` mount via
+ * `.html()`. `browser` is caller-managed -- opened once per test file in `beforeAll`, closed in
+ * `afterAll` -- the same convention `test/realGridLayout.js` uses.
  */
 export async function measureGraphControlRow({ browser, html }) {
   const css = await buildGraphControlCss()

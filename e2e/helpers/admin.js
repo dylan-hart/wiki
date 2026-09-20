@@ -5,55 +5,36 @@ import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../playwright.config.js'
 export { ADMIN_EMAIL, ADMIN_PASSWORD }
 
 /**
- * A short, collision-resistant suffix for path/hostname values a spec creates -- so re-running the
- * suite against a database that already has last run's pages and sites in it (anything short of a
- * brand new container) doesn't collide with them. Time-based rather than random: readable in a
- * failure screenshot/trace, and still unique enough for a suite that runs one worker at a time.
+ * A collision-resistant suffix for paths and hostnames a spec creates, so re-running against a
+ * database that still holds a previous run's pages and sites doesn't collide with them. Time-based
+ * rather than random: readable in a failure trace, and unique enough for a one-worker suite.
  */
 export function uniqueSlug() {
   return Date.now().toString(36)
 }
 
 /**
- * `.account-avbtn` (`AccountMenu.vue`) only renders above `HeaderNav.vue`'s 900px
- * `isActionsCollapsed` breakpoint -- below it, the account/admin/notification buttons it would
- * otherwise show are folded into `HeaderActionsMenu.vue`'s "More Actions" dropdown instead, whose
- * trigger (`aria-label="common.header.moreActions"`) is what actually renders there. The two
- * breakpoints are mutually exclusive, so waiting on either is a correct, viewport-agnostic signal
- * that the authenticated header has rendered -- unlike a bare `.account-avbtn` wait, which
- * `viewport-narrow.spec.js`'s sub-900px `test.use({ viewport })` timed out on outright (task 2114).
+ * `.account-avbtn` (`AccountMenu.vue`) renders only above `HeaderNav.vue`'s 900px
+ * `isActionsCollapsed` breakpoint; below it those buttons fold into `HeaderActionsMenu.vue`'s "More
+ * Actions" dropdown instead. The two are mutually exclusive, so waiting on either is a
+ * viewport-agnostic signal that the authenticated header rendered -- a bare `.account-avbtn` wait
+ * times out outright under a sub-900px `test.use({ viewport })`.
  */
 function authenticatedShellMarker(page) {
   return page.locator('.account-avbtn').or(page.getByRole('button', { name: 'More Actions' }))
 }
 
 /**
- * How long to wait for `authenticatedShellMarker` to appear after a login, instead of the suite's
- * global 5s `expect.timeout` (`playwright.config.js`) -- a successful login is never a router push:
- * `AuthLoginPanel.vue`'s `handleLoginResponse` 'redirect' branch always does a real
- * `window.location.replace()` (a full teardown/rebuild of the whole app through `bootstrap`), and
- * unless `prefers-reduced-motion` is set it first burns a fixed, unconditional 320ms
- * (`EXIT_FLOURISH_MS`) on the exit-flourish animation before that navigation even starts. That is a
- * fundamentally heavier round trip than an ordinary in-SPA assertion -- 320ms of dead time, then a
- * real page load (asset fetch, JS boot, another `bootstrap` fetch, mount) -- and is exactly what CI
- * load pushes past 5s (OpenProject #3306, the confirmed shared cause of a hard failure in
- * `scheduler.spec.js`'s `reapStaleJobs` test plus three specs independently flagged flaky in the
- * same CI run -- `glossary.spec.js`, `scheduler.spec.js`'s own `beforeEach`, and
- * `viewport-narrow.spec.js` -- each failing at its own call into this wait). 15s matches the
- * suite's existing convention for other CI-load-sensitive waits (`toPass({ timeout: 15_000 })`,
- * used repeatedly in `scheduler.spec.js`).
+ * Longer than the suite's global 5s `expect.timeout`, because a successful login is never a router
+ * push: `AuthLoginPanel.vue`'s `handleLoginResponse` burns a fixed `EXIT_FLOURISH_MS` on the exit
+ * animation (unless `prefers-reduced-motion`) and then does a real `window.location.replace()` --
+ * asset fetch, JS boot, another `bootstrap` fetch, mount. CI load pushes that past 5s.
  */
 const AUTHENTICATED_SHELL_TIMEOUT = 15_000
 
 /**
- * Fills the login form already on screen and submits it -- no navigation, and no assertion about
- * what comes back. Split out from `loginAsAdmin` because three specs sign in somewhere other than a
- * fresh `/login` visit (a second site's hostname reached through its own "Login" link, a second
- * browser context for a non-admin account, a `page.goto('/login')` whose RESPONSE the caller wants
- * to assert on first) and each had re-typed these three lines for itself (BLK-F6).
- *
- * What proves the login worked is the caller's own next assertion -- `expectAuthenticatedShell`,
- * or something more specific -- which is why there is none here.
+ * Submits the form already on screen, for a login somewhere other than a fresh `/login` visit. It
+ * asserts nothing on purpose: the caller's own next assertion is what proves the login worked.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} email
@@ -66,9 +47,8 @@ export async function submitLogin(page, email, password) {
 }
 
 /**
- * Flow 1's login, factored out because flow 2 and flow 3 both need an authenticated admin before
- * their own flow starts. Drives the real login form -- see `AuthLoginPanel.vue` -- rather than
- * seeding a session cookie directly, so every spec exercises the same login path flow 1 asserts on.
+ * Drives the real login form rather than seeding a session cookie, so every spec that needs an
+ * authenticated admin exercises the same login path `auth.spec.js` asserts on.
  *
  * @param {import('@playwright/test').Page} page
  */
@@ -79,17 +59,6 @@ export async function loginAsAdmin(page) {
 }
 
 /**
- * Asserts the authenticated shell is on screen: the account menu button that only renders for
- * `userStore.authenticated` (`HeaderNav.vue`), and no "Login" link standing in for it.
- *
- * Through `authenticatedShellMarker` rather than a bare `.account-avbtn`, for the viewport reason
- * that helper's own comment gives -- `loginAsAdmin` already waited on the marker, and this assertion
- * disagreeing with it below 900px was exactly the trap task 2114 hit.
- *
- * Called both from `loginAsAdmin`-driven specs and directly after `submitLogin` (`auth.spec.js`,
- * `multi-site.spec.js`) -- both paths go through the same full-page-reload login, so this uses the
- * same `AUTHENTICATED_SHELL_TIMEOUT` `loginAsAdmin` does (OpenProject #3306).
- *
  * @param {import('@playwright/test').Page} page
  */
 export async function expectAuthenticatedShell(page) {
@@ -98,8 +67,6 @@ export async function expectAuthenticatedShell(page) {
 }
 
 /**
- * Asserts the page shows the guest/logged-out shell: a "Login" link, and no account menu.
- *
  * @param {import('@playwright/test').Page} page
  */
 export async function expectGuestShell(page) {
@@ -108,24 +75,14 @@ export async function expectGuestShell(page) {
 }
 
 /**
- * Opens the markdown editor on a new page at `path`, names it `title`, and leaves the caret in the
- * body editor ready to be typed into.
+ * Leaves the caret in the body editor, ready to be typed into.
  *
- * The first of the three steps `createAndPublishPage` is built out of. Split out because
- * `assets.spec.js` has to interleave a File Manager round trip between typing the body and saving,
- * which the whole-flow helper has no hook for -- so it had re-narrated the title-field and
- * Monaco-mount handling for itself (BLK-F6).
+ * `origin` makes the create-page navigation absolute, which a second site needs: a bare
+ * `page.goto('/_create/...')` resolves against `playwright.config.js`'s `baseURL` whatever origin
+ * `page` is currently showing, silently creating the page back on the default site.
  *
- * `origin`, when given, makes the create-page navigation absolute -- required for
- * `multi-site.spec.js`'s second site, whose hostname differs from `playwright.config.js`'s
- * `baseURL`: a bare `page.goto('/_create/...')` resolves against that `baseURL` regardless of
- * which origin `page` is currently showing, which would silently create the page back on the
- * default site instead of the one this call is meant to be exercising.
- *
- * `locale`, when given, creates the page under that content locale instead of the site's default
- * (`pages/Index.vue`'s `/_create` route reads it straight off `?locale=`, per `stores/page.js`'s
- * `pageCreate`) -- for `rtl.spec.js`'s content-vs-interface-locale cases, which need a page whose
- * own locale differs from the interface locale rather than one at the site's primary.
+ * `locale` creates the page under that content locale instead of the site's default (the
+ * `/_create` route reads it straight off `?locale=`).
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ path: string, title: string, origin?: string, locale?: string }} args
@@ -134,68 +91,45 @@ export async function openMarkdownEditor(page, { path, title, origin = '', local
   const localeQuery = locale ? `&locale=${locale}` : ''
   await page.goto(`${origin}/_create/markdown?path=${path}${localeQuery}`)
 
-  // -> The page title: a `contenteditable="plaintext-only"` span (`PageHeader.vue`), not an
-  //    <input> -- but one with `aria-label="Title"`, which is what gives a contenteditable region
-  //    an accessible textbox role in the first place, so `getByLabel` resolves it like a real form
-  //    field. Driven with real keystrokes rather than `.fill()`: `.fill()` sets `textContent`
-  //    directly and fires one synthetic `input` event, which this non-standard contenteditable
-  //    value handles inconsistently under load -- typing (and blurring, which is what commits the
-  //    field's tidied value in `onEditableBlur`) is what an author actually does, and is reliable
-  //    where `.fill()` was seen to flake under the full suite's slightly different timing.
+  // -> The title is a `contenteditable="plaintext-only"` span (`PageHeader.vue`), not an <input>;
+  //    its `aria-label="Title"` is what gives it an accessible textbox role for `getByLabel`.
+  //    Driven with real keystrokes rather than `.fill()`, which sets `textContent` directly and
+  //    fires one synthetic `input` event this non-standard value handles inconsistently under
+  //    load. The blur is load-bearing: it commits the field's tidied value (`onEditableBlur`).
   const titleField = page.getByLabel('Title', { exact: true })
   await titleField.click()
   await page.keyboard.type(title)
   await titleField.blur()
 
-  // -> Monaco mounts into `.editor-markdown-editor` asynchronously (it is a lazy chunk -- see
-  //    `EditorMarkdown.vue`), and clicking the container before it has actually rendered its own
-  //    focusable surface is a click with nothing under it to focus: keystrokes then have nowhere to
-  //    go but wherever focus already was, which is how a title fill was seen landing in the content
-  //    editor instead. Waiting for Monaco's own `.monaco-editor` root makes the click land on a
-  //    real, focusable editor rather than racing its mount.
+  // -> Monaco mounts into `.editor-markdown-editor` asynchronously (a lazy chunk), and clicking
+  //    the container before it has rendered its own focusable surface is a click with nothing to
+  //    focus: the keystrokes then land wherever focus already was.
   await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
   await page.locator('.editor-markdown-editor').click()
 }
 
 /**
- * Types `body` into the already-focused markdown editor and waits for it to reach the preview pane.
+ * The markdown editor must already hold focus -- `openMarkdownEditor` leaves it that way.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} body
- * @param {{ paste?: boolean, previewWaitText?: string }} [options] `paste` pastes the whole string
- *   at once instead of typing it. `previewWaitText` is what to wait for in the rendered preview,
- *   defaulting to `body` itself.
+ * @param {{ paste?: boolean, previewWaitText?: string }} [options]
  */
 export async function typeBody(page, body, { paste = false, previewWaitText = body } = {}) {
   if (paste) {
     /*
-      `page.keyboard.type()` sends one real keydown/keyup per character, which is exactly what
-      Monaco's per-character auto-closing-bracket/quote logic (its markdown language config pairs
-      `{}`, `[]`, `()`, quotes and backticks) watches for. MDC block syntax
-      (`::block-x{prop="value"}`) and fenced code blocks are built entirely out of those characters,
-      and a naive per-character replay of a body that nests them (an attribute list, a run of three
-      backticks) risks a doubled or swallowed character the editor's own type-over-the-auto-close
-      heuristic doesn't cleanly cancel out.
+      A REAL clipboard paste, not `page.keyboard.insertText()`: `insertText` fires a raw DOM `input`
+      event that Monaco's `TextAreaInput` runs through its ordinary typed-input/auto-indent pipeline
+      (`autoIndent: 'full'`, the app's untouched default), not its clipboard-paste handling. For a
+      multi-line body with an indented line inside a fenced code block, that pipeline's per-newline
+      indent computation mis-fires partway through and re-indents every following line, cascading to
+      the end of the document; once a `::block-x{...}` opener sits at 4+ spaces, CommonMark/MDC
+      parses it as an indented code block and the custom element never renders at all.
+      Per-character typing has its own hazard -- Monaco's auto-closing of brackets, quotes and
+      backticks, which MDC attribute lists and fences are built out of.
 
-      A REAL clipboard paste is required, not `page.keyboard.insertText()` -- that was tried first
-      and does NOT take "the same path a real paste takes" as an earlier version of this comment
-      claimed. `insertText` fires a raw DOM `input` event that Monaco's `TextAreaInput` processes
-      through its ordinary typed-input/auto-indent pipeline (`autoIndent: 'full'`, the app's
-      untouched default), not its dedicated clipboard-paste handling. For a multi-line body whose
-      content includes an indented line inside a fenced code block (a YAML block under
-      `block-infobox` in `csp.spec.js`, say), that pipeline's per-newline indent computation
-      mis-fires partway through and re-indents every following line by the same amount, cascading to
-      the end of the document -- confirmed with a standalone repro against the pinned `monaco-editor`
-      build (OpenProject #2588). Once a later `::block-x{...}` line sits at 4+ spaces of leading
-      whitespace, CommonMark/MDC parses it as an indented code block instead of a block opener, so
-      the custom element never renders -- which is exactly what made `block-spoiler` (and everything
-      typed after it) vanish from `csp.spec.js`, while `markdown-it-mdc` itself, given the identical
-      string directly, was already confirmed innocent (OpenProject #2372). A genuine clipboard paste
-      does not go through that mis-firing pipeline at all: confirmed the exact same body round-trips
-      unchanged through a real `navigator.clipboard.writeText()` + paste keystroke, at the same
-      `autoIndent: 'full'` default. Opt-in, not the default: every existing caller keeps typing for
-      real, since that is what an author actually does and plain prose has no brackets/backticks/
-      indentation for either code path to ever misfire on.
+      Opt-in rather than the default: typing is what an author actually does, and plain prose has
+      no brackets, backticks or indentation for either path to misfire on.
     */
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
     await page.evaluate((text) => navigator.clipboard.writeText(text), body)
@@ -204,24 +138,18 @@ export async function typeBody(page, body, { paste = false, previewWaitText = bo
     await page.keyboard.type(body)
   }
 
-  // -> `EditorMarkdown.vue` syncs Monaco's content into `pageStore.content` on a 500ms debounce
-  //    (`onDidChangeModelContent`) -- clicking "Create Page" before it fires would save an empty
-  //    page. Waiting on the debounced render landing in the DOM is a real signal that the sync
-  //    happened, not a fixed sleep guessed at. `previewWaitText` defaults to the raw `body`, which
-  //    only actually appears verbatim in the rendered preview for callers whose body is plain
-  //    prose/markdown with no block/math syntax that renders into something else entirely -- a
-  //    caller writing MDC blocks or KaTeX passes a plain-text sentinel found elsewhere in `body`.
+  // -> `EditorMarkdown.vue` syncs Monaco's content into `pageStore.content` on a debounce
+  //    (`onDidChangeModelContent`); saving before it fires stores an empty page, and the debounced
+  //    render landing in the DOM is the real signal that the sync happened. `previewWaitText`
+  //    defaults to the raw `body`, which appears verbatim only for plain prose -- a caller writing
+  //    MDC blocks or KaTeX passes a plain-text sentinel found elsewhere in `body`.
   await expect(page.locator('.editor-markdown-preview-content')).toContainText(previewWaitText)
 }
 
 /**
- * Publishes what is in the editor at `path`, through the real save dialog, and waits for the
- * redirect to the new page's own URL.
- *
- * `locale` must match whatever `openMarkdownEditor` was given: the page's real URL comes out
+ * `locale` must match whatever `openMarkdownEditor` was given: a page's real URL comes out
  * locale-prefixed whenever that locale isn't the site's primary (`localizedPagePath` in
- * `helpers/pagePaths.js`, which `pageStore.editorExitPath` -- where this redirects to on save --
- * already uses), so the final URL assertion expects that prefix too.
+ * `helpers/pagePaths.js`), so the URL assertion below expects that prefix too.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} path
@@ -230,30 +158,22 @@ export async function typeBody(page, body, { paste = false, previewWaitText = bo
 export async function savePage(page, path, { locale } = {}) {
   await page.getByRole('button', { name: 'Create Page' }).click()
 
-  // -> Non-home pages go through the save dialog (`TreeBrowserDialog.vue`, `mode: 'savePage'`). Its
-  //    path field auto-slugs from the title on every keystroke until the path field itself gets
-  //    focused (`onPathFocus` sets `pathDirty`) -- so without this, the dialog would silently save
-  //    under a title-derived path instead of the one this test asked for and asserts against below.
+  // -> The save dialog's path field auto-slugs from the title on every keystroke until the field
+  //    itself is focused (`TreeBrowserDialog.vue`'s `onPathFocus` sets `pathDirty`), so filling it
+  //    explicitly is what stops the page being saved under a title-derived path instead.
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Path Name').fill(path)
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
 
-  // -> `pageSave` replaces the route with the page's real path once the create request resolves
-  //    (`stores/page.js`), so this is the save completing, not a fixed wait.
   const expectedPath = locale ? `${locale}/${path}` : path
   await expect(page).toHaveURL(new RegExp(`/${expectedPath}$`))
 }
 
 /**
- * Flow 2's core: create a page at `path` in the markdown editor, type `body` into it, and publish
- * it through the real save dialog -- shared between `page-publish.spec.js` (which IS flow 2) and
- * `multi-site.spec.js` (which needs a real published page on each site to prove they don't share
- * one, without re-narrating how the editor is driven).
+ * Nothing but the three steps above, in order: a spec needing to do something between two of them
+ * calls them directly rather than re-inlining their handling.
  *
- * Nothing but the three steps above, in order: a spec that needs to do something between two of
- * them calls them directly rather than re-inlining any of their handling.
- *
- * Leaves `page` on the new page's own URL, rendered -- not the editor -- once it resolves.
+ * Leaves `page` on the new page's own URL, rendered -- not the editor.
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ path: string, title: string, body: string, origin?: string, pasteBody?: boolean, previewWaitText?: string, locale?: string }} args

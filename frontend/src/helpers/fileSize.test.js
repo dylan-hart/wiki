@@ -53,13 +53,8 @@ describe('formatFileSize', () => {
   })
 })
 
-// Task 3178: replaces the `filesize` dependency's `filesize(bytes, { base: 2, standard: 'jedec' })`
-// call. These values pin the exact strings that call produced, captured against the real
-// `filesize@11.0.22` package before it was removed, so a future change to `formatFileSize` cannot
-// silently drift from what readers were already shown. 2 ** 30 - 1 is the one entry that looks
-// surprising at a glance: it is one byte short of 1 GB, but rounds to "1024.00" at the MB step, and
-// `formatFileSize` (matching `filesize`) promotes that to the next unit rather than printing the
-// threshold value verbatim.
+// 2 ** 30 - 1 is the entry that looks wrong at a glance: one byte short of 1 GB, it rounds to
+// "1024.00" at the MB step and is promoted to the next unit rather than printed verbatim.
 describe('formatFileSize table (pinned against filesize@11.0.22, base 2 / jedec)', () => {
   const TABLE = [
     [0, '0 B'],
@@ -71,8 +66,6 @@ describe('formatFileSize table (pinned against filesize@11.0.22, base 2 / jedec)
     [2 ** 20, '1 MB'],
     [2 ** 30 - 1, '1 GB'],
     [5 * 2 ** 40, '5 TB'],
-    // -> A realistic `os.totalmem()` shape (16 GiB) -- the same value the backend's ramTotal table
-    //    test in `backend/helpers/common.test.ts` uses.
     [17179869184, '16 GB']
   ]
 

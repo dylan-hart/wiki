@@ -9,17 +9,10 @@ import { buildAppCss, chromium, hasChromium, CHROMIUM_TIMEOUT } from '../../test
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #3017 (Feature #3010): the site footer (`Index.vue`'s `<w-footer><footer-nav /></w-footer>`,
- * the last child of `.page-container-scrl`) becomes a `position: fixed`, full-viewport-width bar pinned
- * to the bottom of the window under Cobalt, instead of the last item in the scrolling article column --
- * Ledger keeps the original stacked-in-flow behaviour unchanged.
- *
- * Real browser, not `jsdom`/`happy-dom`: this is a genuine `position: fixed` layout claim (stays put
- * while an ancestor scrolls, spans the full window width even past a reserved scrollbar gutter), and
- * neither DOM emulator runs a layout engine at all -- `getBoundingClientRect()` comes back zeroed
- * regardless of the CSS under either (see `test/realGridLayout.js`'s own docstring, and
- * `Index.pageHeaderCobalt.test.js`/`Index.breadcrumbCobalt.test.js` for the same reasoning applied to
- * paint-only assertions on this same file).
+ * Real browser, not `jsdom`/`happy-dom`: a `position: fixed` claim (stays put while an ancestor
+ * scrolls, spans the full window width even past a reserved scrollbar gutter) is genuine layout, and
+ * neither DOM emulator runs a layout engine -- `getBoundingClientRect()` comes back zeroed
+ * regardless of the CSS under either.
  */
 
 const frontendRoot = join(import.meta.dirname, '..', '..')
@@ -30,19 +23,16 @@ function sfcStyles(relativePath) {
 }
 
 function compileSfcStyles(relativePath) {
-  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
-  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
-  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  // -> No compile step: every SFC `<style>` block is plain CSS, native nesting included, which the
+  //    real Chromium below parses as-is.
   return sfcStyles(relativePath)
 }
 
 /**
- * The footer exactly as `Index.vue` renders it, wrapped in the same `.page-container-scrl` ancestor
- * its own new stylesheet rule scopes to (see that rule's comment for why the ancestor is load-bearing:
- * this file's `<style>` is unscoped, so an unqualified `.w-footer` selector would also reach
- * `FileManager.vue`'s and `Search.vue`'s own unrelated footers). A tall filler div stands in for a long
- * article, so the real test below can prove the bar stays at the window's bottom edge rather than
- * merely trusting the computed `position` value.
+ * Wrapped in the `.page-container-scrl` ancestor the Cobalt rule scopes to: `Index.vue`'s `<style>`
+ * is unscoped, so an unqualified `.w-footer` selector would also reach `FileManager.vue`'s and
+ * `Search.vue`'s own footers. The tall filler stands in for a long article, so the bar's pinning is
+ * proved by geometry rather than by the computed `position` value alone.
  */
 async function mountFooterHtml() {
   const { wrapper } = mountWithApp(WFooter, {
@@ -73,7 +63,6 @@ async function mountFooterHtml() {
   )
 }
 
-/** Every computed value + geometry the assertions below need, for one aesthetic. */
 async function measureFooter({ browser, css, html, bodyClasses, viewport }) {
   const page = await browser.newPage({ viewport })
   try {
@@ -136,8 +125,7 @@ describe(
       })
 
       expect(ledger.position).toBe('static')
-      // -> Below the 2000px filler, exactly where the scrolling column's last child belongs -- not
-      //    pinned to the 500px-tall viewport's own bottom edge.
+      // -> Below the tall filler, where the scrolling column's last child belongs.
       expect(ledger.rect.bottom).toBeGreaterThan(viewport.height)
     })
 
@@ -155,15 +143,12 @@ describe(
       expect(cobalt.bottom).toBe('0px')
       expect(cobalt.insetInlineStart).toBe('0px')
       expect(cobalt.insetInlineEnd).toBe('0px')
-      // -> Above the overlay nav drawer's z-40/scrim's z-30 (`WDrawer.vue`), so it stays the topmost
-      //    thing on screen even with a drawer open.
+      // -> Above `WDrawer.vue`'s overlay drawer and its scrim, so a drawer never covers the bar.
       expect(cobalt.zIndex).toBe('45')
-      // -> Spans the WHOLE viewport width, not merely the article column's -- pinned by `insetInline`
-      //    rather than `width: 100vw`, so it is unaffected by the scrollbar this fixture's tall filler
-      //    content forces into existence.
+      // -> Pinned by `insetInline` rather than `width: 100vw`, so a reserved scrollbar gutter does
+      //    not push it past the viewport's right edge.
       expect(cobalt.rect.left).toBe(0)
       expect(cobalt.rect.width).toBeCloseTo(viewport.width, 0)
-      // -> Flush with the window's own bottom edge, not the scrolling column's.
       expect(cobalt.rect.bottom).toBeCloseTo(viewport.height, 0)
     })
 

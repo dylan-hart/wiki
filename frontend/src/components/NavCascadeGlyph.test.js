@@ -3,11 +3,7 @@ import { mount } from '@vue/test-utils'
 
 import NavCascadeGlyph from './NavCascadeGlyph.vue'
 
-/**
- * One bar-state assertion per row `NavEditMenu.vue`'s Ledger restyle draws (Task #2799), matching
- * the mode -> bar-state table in `ui-redesign-nav/HANDOFF.md` §1: parent / this page / descendants,
- * top to bottom.
- */
+/** Bar states top to bottom: parent / this page / descendants. */
 function barKinds(mode, root = false) {
   const wrapper = mount(NavCascadeGlyph, { props: { mode, root } })
   return wrapper.findAll('rect').map((rect) => {

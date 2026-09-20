@@ -4,9 +4,8 @@ import { paginate } from '../helpers/pagination.ts'
 import type { FastifyRequest } from 'fastify'
 
 /**
- * Every event kind this table records, grouped by the subject it happened to. Closed, the same way
- * `PAGE_PERMISSIONS` and the other permission lists this codebase uses are closed -- a caller passes one of
- * these strings, never an assembled one.
+ * Every event kind this table records, grouped by the subject it happened to. A closed vocabulary,
+ * like the permission lists: a caller passes one of these strings, never an assembled one.
  */
 export const AUDIT_EVENTS = [
   'user.created',
@@ -29,64 +28,44 @@ export const AUDIT_EVENTS = [
   'glossaryTerm.deleted',
   'login.success',
   'login.failed',
-  /**
-   * OpenProject #1081: a page's classification changed, either way -- a raise or a lowering
-   * (`manage:classification`-guarded), an auto-bump on move, or a bulk resolve of a classification
-   * conflict. `detail` carries `{ from, to }` (level ids) so the listing can say what changed without
-   * a second lookup.
-   */
+  /** `detail` carries `{ from, to }` (level ids), so a listing can say what changed in one read. */
   'page.classificationChanged',
-  // -> #1118: MCP activity. Deliberately only these two, not one per read tool call too -- a read on
-  //   a busy agent integration (`search_pages`/`get_page`/`list_navigation`/`list_sites`) would be
-  //   noisy at this table's granularity with little corresponding benefit, while a session opening and
-  //   a write are exactly the two things "what can an agent holding my token actually reach" needs
-  //   answered here. Instrumented in `mcp/http.ts` (session lifecycle, HTTP transport) and
-  //   `mcp/stdio.ts` (session lifecycle, stdio transport) for the former, and `mcp/tools/createPage.ts`
-  //   /`updatePage.ts` for the latter -- the write tools are the same handlers regardless of which
-  //   transport called them, so this fires for both.
+  // -> MCP activity, deliberately only these two rather than one per read tool call as well: a read
+  //   on a busy agent integration would be noisy at this table's granularity, while a session
+  //   opening and a write are what "what can an agent holding my token reach" actually needs.
   'mcp.sessionOpened',
   'mcp.writeToolCalled',
-  // -> #2231: every write route in `api/system/` -- instance-wide administration with no per-target
-  //   row of its own (no `targetType` fits), so `detail` alone carries what changed. For
-  //   `flagsUpdated`/`securityUpdated`, `detail` is the exact `patch` object `pickFlags`/`pickFields`
-  //   already produced -- filtered to each model's own closed field list, which is what guarantees an
-  //   `auth`/`mail` settings blob (never in either list) can never reach it even if a caller's request
-  //   body carried one.
+  // -> Instance-wide administration, with no per-target row of its own (no `targetType` fits), so
+  //   `detail` alone carries what changed. For `flagsUpdated`/`securityUpdated` it is the exact
+  //   `patch` `pickFlags`/`pickFields` produced, already filtered to each model's own closed field
+  //   list -- which is what keeps an `auth`/`mail` settings blob out of it even if the request body
+  //   carried one.
   'system.flagsUpdated',
   'system.securityUpdated',
   'system.extensionInstalled',
   'system.apiStateUpdated',
   'system.metricsUpdated',
   'system.pageviewsUpdated',
-  // -> #2491: an operator changed the instance-level scheduled-replication settings (source URL,
-  //   bearer token, cron schedule, or the enable toggle). `detail` is the same filtered patch
-  //   pattern as the siblings above, with `bearerToken` masked rather than dropped, so a diff of
-  //   what changed stays visible without ever writing the raw secret to the log.
+  // -> Same filtered-patch `detail` as the siblings above, with `bearerToken` masked rather than
+  //   dropped: the diff stays visible without the raw secret reaching the log.
   'system.replicationUpdated',
-  // -> #2288: an operator rotated `pageviews.hashKey`, breaking correlation between pre- and
-  //   post-rotation `visitorHash` rows on purpose.
+  // -> Rotating `pageviews.hashKey` breaks correlation between pre- and post-rotation
+  //   `visitorHash` rows, on purpose.
   'system.pageviewsHashKeyRotated',
   'system.certificatesRegenerated',
   'system.sessionsInvalidated',
   'system.pageHistoryPurged',
   'system.contentExported',
   'system.contentImported',
-  // -> OpenProject #3400: an operator queued the run-once legacy-WYSIWYG-JSON conversion job
-  //   (`POST /_api/system/wysiwyg/convert`).
   'system.wysiwygJsonConverted',
-  // -> #2489: an instance-wide replication snapshot was queued (Epic #2437's scheduled clean-slate
-  //   replication, source side). Distinct from `system.contentExported`, which is the existing
-  //   per-site "Export content" utility -- this is the whole instance, a different archive format,
-  //   and a different feature.
+  // -> The whole instance in the replication archive format, not `system.contentExported`'s
+  //   per-site "Export content" utility.
   'system.replicationSnapshotExported',
-  // -> Feature #2437: a whole-instance wipe-and-replace snapshot restore, distinct from
-  //   `system.contentImported` (one site's content) — see `models/replicationImport.ts`.
+  // -> A whole-instance wipe-and-replace snapshot restore, not `system.contentImported`'s one site.
   'system.replicationImported',
   /**
-   * OpenProject #2237: the audit log auditing its own configuration. `retentionChanged`'s `detail`
-   * carries `{ from, to }` (days); `purged`'s carries `{ count, cutoff }` -- see `purge()`'s own
-   * comment for why recording this is necessary but not sufficient to make the log tamper-evident on
-   * its own.
+   * The audit log auditing its own configuration. `retentionChanged`'s `detail` carries
+   * `{ from, to }` (days); `purged`'s carries `{ count, cutoff }`.
    */
   'auditLog.retentionChanged',
   'auditLog.purged'
@@ -94,7 +73,6 @@ export const AUDIT_EVENTS = [
 
 export type AuditEvent = (typeof AUDIT_EVENTS)[number]
 
-/** What kind of thing an event happened to. */
 export const AUDIT_TARGET_TYPES = [
   'user',
   'group',
@@ -102,36 +80,27 @@ export const AUDIT_TARGET_TYPES = [
   'site',
   'storageTarget',
   'authStrategy',
-  // -> #1118: `mcp.writeToolCalled`'s target is the page (or, per #2446, the asset) the tool call
-  //   wrote, not the calling key (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the target
-  //   is what makes the log entry answer "what did the agent write", not just "an agent wrote
-  //   something".
+  // -> `mcp.writeToolCalled` targets the page or asset the tool wrote, not the calling key (that is
+  //   `mcp.sessionOpened`'s `apiKey` target), so the entry answers what the agent wrote.
   'page',
-  // -> #2443/#2445/#2446: `mcp.writeToolCalled`'s target for `upload_asset`, `rename_asset` and
-  //   `delete_asset`, the same reasoning as `page` above applied to the asset write tools.
   'asset',
   'glossaryTerm',
-  // -> #2229: the target of a `system.*`/`auth.*`/`auditLog.*` event -- there is no row to point at,
-  //   so `targetId` for these stays '' and `targetLabel` names the setting/module changed instead.
+  // -> For a `system.*`/`auth.*`/`auditLog.*` event there is no row to point at, so `targetId`
+  //   stays '' and `targetLabel` names the setting or module changed instead.
   'system'
 ] as const
 
 export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number]
 
-/** How long, in days, a fresh instance keeps audit log entries before the retention job trims them. */
 export const DEFAULT_AUDIT_LOG_RETENTION_DAYS = 365
 
 /**
- * The lowest `retentionDays` `PUT /_api/audit-log/settings` will accept (OpenProject #2237).
+ * The lowest `retentionDays` `PUT /_api/audit-log/settings` accepts.
  *
- * The route used to allow `1`. Combined with `POST /_api/scheduler/schedule/:scheduleId/run`
- * queueing the seeded `cleanAuditLog` job immediately rather than waiting for its 00:35 cron, and
- * `purge()` reading the retention value live at run time, an operator -- or a compromised
- * `manage:system` session or API key -- could set `retentionDays: 1`, trigger the job, and delete
- * effectively the whole log in one `delete` before restoring a longer window: a de facto wipe with
- * no trace beyond a `CARDINAL.logger.info` line naming no actor. This floor does not make the log
- * tamper-evident by itself (see `purge()`'s own comment below), but it does mean a single retention
- * change can no longer function as a full wipe.
+ * Without a floor the pieces compose into a wipe: `purge()` reads the retention value live and the
+ * `cleanAuditLog` job can be run on demand, so a `manage:system` session could set a one-day
+ * window, trigger the job and restore the old value. This is not tamper-evidence -- see `purge()`
+ * -- it only stops a single retention change from functioning as a full wipe.
  */
 export const AUDIT_LOG_RETENTION_DAYS_FLOOR = 30
 
@@ -156,7 +125,7 @@ export type AuditLogPage = {
   entries: AuditLogEntry[]
 }
 
-/** Who did this, as every write site resolves it -- a session user, an API key, or nobody (a job). */
+/** A session user, an API key, or nobody (a job). */
 export type AuditActor = {
   id: string | null
   name: string
@@ -164,11 +133,9 @@ export type AuditActor = {
 }
 
 /**
- * Who made this request, for the audit log's `actor` -- a logged-in session, an API key, or nobody.
- *
- * A route calls this rather than reading `req.session.user` itself so that every write site agrees
- * on what an API-key-authenticated request is attributed as: the key carries no user identity of its
- * own (see `ApiKeyIdentity` in `models/apiKeys.ts`), so it is named by its id rather than left blank.
+ * A route calls this rather than reading `req.session.user` itself so every write site agrees on
+ * what an API-key-authenticated request is attributed as: the key carries no user identity of its
+ * own, so it is named by its id rather than left blank.
  */
 export function actorFromRequest(req: FastifyRequest): AuditActor {
   if (req.session?.user) {
@@ -180,7 +147,6 @@ export function actorFromRequest(req: FastifyRequest): AuditActor {
   return { id: null, name: '', ip: req.ip }
 }
 
-/** The entry shape `record()` and `recordMany()` both accept -- one event to write. */
 export type RecordEntry = {
   event: AuditEvent
   actor: AuditActor
@@ -192,8 +158,6 @@ export type RecordEntry = {
 }
 
 /**
- * Audit log model
- *
  * An append-only record of instance-wide, permission-affecting events -- see the table's own doc
  * comment in `db/schema.ts` for what is and is not in scope. Written from the API layer, where the
  * acting session/API key is already resolved, rather than threaded through every model method that
@@ -201,10 +165,8 @@ export type RecordEntry = {
  */
 class AuditLog {
   /**
-   * Record one event.
-   *
-   * A failure here is logged and swallowed, the same as `pageHistory.record()`: the log is a record
-   * of what happened, and losing an entry is never a reason to fail the action that produced it.
+   * Record one event. A failure here is logged and swallowed: the log is a record of what happened,
+   * and losing an entry is never a reason to fail the action that produced it.
    */
   async record({
     event,
@@ -233,14 +195,9 @@ class AuditLog {
   }
 
   /**
-   * Record N events in one INSERT — the batched form of `record()`, for a caller that already has a
-   * whole set of entries in hand and would otherwise write them one at a time (the
-   * classification-conflicts resolve route, OpenProject #1902, bumping many pages in one request).
-   *
-   * An empty array is a no-op, same as `bulkSetClassification`'s own empty-input short-circuit,
-   * rather than an error or a zero-row INSERT. A failure here is logged and swallowed, same as
-   * `record()` — the log is a record of what happened, and losing entries is never a reason to fail
-   * the write that produced them.
+   * Record N events in one INSERT, for a caller that already holds a whole set of entries and would
+   * otherwise write them one at a time. An empty array is a no-op rather than a zero-row INSERT,
+   * and a failure is swallowed the same way `record()`'s is.
    */
   async recordMany(entries: RecordEntry[]): Promise<void> {
     if (entries.length < 1) {
@@ -268,10 +225,6 @@ class AuditLog {
     }
   }
 
-  /**
-   * A page of the log, newest first, filtered by whichever of actor/event/date range the caller
-   * supplied.
-   */
   async list({
     actorId,
     event,
@@ -340,10 +293,9 @@ class AuditLog {
   }
 
   /**
-   * Every distinct actor who has ever appeared in the log, for the admin list's actor filter.
-   * Resolved against the live `users` table rather than the log's own snapshotted names, so a
-   * renamed account shows its current name in the filter -- the snapshot on old rows is only there
-   * to survive the account being deleted.
+   * Every distinct actor who has appeared in the log, resolved against the live `users` table
+   * rather than the log's own snapshotted names, so a renamed account shows its current name. The
+   * snapshot on old rows is only there to survive the account being deleted.
    */
   async listActors(): Promise<{ id: string; name: string }[]> {
     const rows = await CARDINAL.db
@@ -354,12 +306,7 @@ class AuditLog {
     return rows
   }
 
-  /**
-   * Drop every entry older than the configured retention window.
-   *
-   * @param retentionDays How many days of history to keep
-   * @returns How many entries were dropped
-   */
+  /** Drop every entry older than `retentionDays`, answering with how many went. */
   async purge(retentionDays: number): Promise<number> {
     const cutoff = new Date(
       Temporal.Now.instant().subtract({ hours: retentionDays * 24 }).epochMilliseconds
@@ -377,13 +324,10 @@ class AuditLog {
     } else {
       CARDINAL.logger.debug('audit', 'no audit log entries to purge', { retentionDays })
     }
-    // OpenProject #2237: record the purge itself, so a shortened retention window at least leaves a
-    // trail of what it did (actor is nobody -- this runs from the `cleanAuditLog` job, not a
-    // request). Necessary but not sufficient on its own: this entry lives in the same table it just
-    // deleted from, so a later run's own (possibly shorter) window can still eat it in turn. The
-    // durable answer -- a `BEFORE DELETE` trigger on `auditLog` admitting only the retention
-    // predicate, or an external sink -- is deliberately out of scope here; file it separately if
-    // wanted.
+    // -> Recording the purge leaves a trail of what a shortened window did (no actor: this runs
+    //    from the `cleanAuditLog` job). Not tamper-evidence, though -- the entry lives in the table
+    //    it just deleted from, so a later, shorter window eats it in turn. That would need a
+    //    `BEFORE DELETE` trigger admitting only the retention predicate, or an external sink.
     await this.record({
       event: 'auditLog.purged',
       actor: { id: null, name: '' },
@@ -392,16 +336,10 @@ class AuditLog {
     return purged
   }
 
-  /** The configured retention window, in days. */
   getRetentionDays(): number {
     return CARDINAL.config.auditLog?.retentionDays ?? DEFAULT_AUDIT_LOG_RETENTION_DAYS
   }
 
-  /**
-   * Update the retention window, in days.
-   *
-   * @returns Whether the setting was saved
-   */
   async setRetentionDays(retentionDays: number): Promise<boolean> {
     CARDINAL.config.auditLog = { retentionDays }
     return CARDINAL.configSvc.saveToDb(['auditLog'])

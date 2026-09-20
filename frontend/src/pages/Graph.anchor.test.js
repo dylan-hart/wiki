@@ -3,21 +3,9 @@ import { flushPromises } from '@vue/test-utils'
 
 import { mountGraph } from './graphFixtures.js'
 
-/*
- * OpenProject #3333 (Feature #3311's own follow-up scope correction to Task #3312, which explicitly
- * scoped this out): once `/_graph?path=` resolves to a NON-ROOT anchor, the rendered graph is
- * restricted to that anchor plus its descendants -- not the whole filtered graph, as Task #3312
- * originally shipped. `activeFilters.folderDepth` is reinterpreted alongside it, as hops-from-the-
- * anchor instead of path-segments-from-the-site-root. `Graph.route.test.js` covers the ?path=
- * resolution/centering/highlighting mechanics themselves; this suite covers the restriction those
- * mechanics now feed, plus `Graph.vue`'s own `watch(focusNodeId, applyFilters)` (this WP's own
- * responsibility per this round's epic-plan note #9742) that keeps it reactive to a later anchor
- * change rather than only the initial mount-time resolution.
- */
-
-// docs -> docs/child -> docs/child/grandchild, plus an unrelated sibling tree ('blog') and an
-// unrelated root-level page ('about') -- enough shape to exercise ancestor/sibling/descendant
-// exclusion and the depth-from-anchor reinterpretation together.
+// An unrelated sibling tree ('blog') and an unrelated root-level page ('about') alongside a three-
+// deep chain: enough shape to exercise ancestor/sibling/descendant exclusion and the depth-from-
+// anchor reinterpretation together.
 const ANCHOR_TREE_GRAPH = {
   nodes: [
     { path: 'docs', locale: 'en', title: 'Docs', icon: null, tags: [], folder: '' },
@@ -53,11 +41,9 @@ describe('Graph.vue anchor + descendants restriction (OpenProject #3333)', () =>
   })
 
   it('excludes root and every other ancestor ABOVE the anchor from the synthetic hierarchy too (OpenProject #3361)', async () => {
-    // -> Every other test in this file asserts only against `!node.synthetic` real paths -- which is
-    //    exactly how this bug shipped unnoticed: `buildPathHierarchyEdges()` used to climb every
-    //    already-restricted real node's full ancestor chain regardless of the anchor, re-synthesizing
-    //    root (and any intermediate ancestor) straight back into `nodes.value`. 'docs/child' sits two
-    //    segments deep, so a pre-fix run would have leaked BOTH '' (root) and 'docs' here.
+    // -> Asserts against ALL paths, unlike every other test here: a `buildPathHierarchyEdges()`
+    //    that climbs a restricted node's full ancestor chain re-synthesizes the excluded ancestors
+    //    back in, and a `!node.synthetic` filter would hide exactly that.
     const wrapper = await mountGraph({
       graph: ANCHOR_TREE_GRAPH,
       initialPath: '/_graph?path=docs/child',
@@ -147,10 +133,7 @@ describe('Graph.vue anchor + descendants restriction (OpenProject #3333)', () =>
     const wrapper = await mountGraph({ graph, initialPath: '/_graph?path=', pageLocale: 'en' })
 
     // -> An empty `?path=` resolves to nothing (`resolveFocusNode`'s own falsy-path no-op), so this
-    //    exercises the same "no anchor" path as no query param at all -- included here as an explicit
-    //    guard that a root/home anchor was never meant to narrow anything, matching
-    //    `graphFilters.test.js`'s "root anchor is unrestricted" unit coverage for the underlying
-    //    function.
+    //    exercises the same "no anchor" path as no query param at all.
     const realPaths = wrapper.vm.nodes.filter((node) => !node.synthetic)
     expect(realPaths).toHaveLength(graph.nodes.length)
   })
@@ -158,16 +141,12 @@ describe('Graph.vue anchor + descendants restriction (OpenProject #3333)', () =>
   it('watch(focusNodeId, ...) re-runs the anchor restriction reactively, not only at mount', async () => {
     const wrapper = await mountGraph({ graph: ANCHOR_TREE_GRAPH })
 
-    // -> Before any anchor: the full graph renders, matching the "no ?path=" case above.
     expect(wrapper.vm.nodes.filter((n) => !n.synthetic)).toHaveLength(
       ANCHOR_TREE_GRAPH.nodes.length
     )
 
-    // -> Simulates what a later re-navigation (this round's sibling Bug fixing the missing
-    //    `route.query.path` watcher, and #3334's live sidebar-click re-homing) will eventually drive
-    //    through `applyRouteFocus()` re-running: both outputs it assigns together changing at once.
-    //    This WP's own responsibility is only that a `focusNodeId` change alone is enough to re-run
-    //    the restriction -- see this watch's own doc comment in `Graph.vue`.
+    // -> Both refs are assigned, because `applyRouteFocus()` sets them together on a re-navigation;
+    //    what is under test is that the `focusNodeId` change alone re-runs the restriction.
     wrapper.vm.routeFocusAnchor = { path: 'docs/child', locale: 'en' }
     wrapper.vm.focusNodeId = 'en:docs/child'
     await flushPromises()

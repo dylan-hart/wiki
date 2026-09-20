@@ -4,14 +4,6 @@ import { task as notifyEventSubscribers } from './notify-event-subscribers.ts'
 import type { NotifyEventSubscribersPayload } from './notify-event-subscribers.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 
-/**
- * Task 2481: unit coverage for this task's own branching — the "no recipient email, skip and warn"
- * guard, per-recipient failure isolation, and what it actually hands `mail.sendEventNotification`.
- * The subscriber list it iterates was already resolved by `models/hooks.ts#Hooks.emit()` before
- * queueing (see that method's own doc comment for why), so this task does no subscription lookup of
- * its own to stub around.
- */
-
 let wikiHandle: { restore(): void }
 let getById: ReturnType<typeof mock.fn>
 let sendEventNotification: ReturnType<typeof mock.fn>
@@ -97,8 +89,6 @@ describe('notify-event-subscribers task', () => {
     assert.deepEqual(call.data, { id: 'comment-1', pageId: 'page-1' })
   })
 
-  // -> `debug`, not `warn`, since the Phase 2 sweep (#2665): the same account with no e-mail
-  //    address recurs on every run, which is a per-item fact rather than a call to act.
   test('skips a subscriber with no email on file, without failing the rest of the batch', async () => {
     getById.mock.mockImplementation(async (id: string) =>
       id === 'user-1'
@@ -131,7 +121,6 @@ describe('notify-event-subscribers task', () => {
     )
 
     assert.equal(sendEventNotification.mock.calls.length, 2)
-    // -> One record per failure, not the old sentence-plus-message pair.
     assert.equal(loggerError.mock.calls.length, 1)
     const [scope, message, fields] = loggerError.mock.calls[0]!.arguments as [string, string, any]
     assert.equal(scope, 'hooks')

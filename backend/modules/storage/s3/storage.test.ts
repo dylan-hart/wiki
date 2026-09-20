@@ -23,11 +23,8 @@ import { runStorageModuleContract } from '../../../test/storageModuleContract.ts
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
- * Pure unit tests: no database, no real network. The S3 SDK's HTTP layer is stubbed via
- * `aws-sdk-client-mock`, which patches `S3Client.prototype.send` — every instance this module
- * constructs is caught by the one mock installed below. `CARDINAL.logger`/`CARDINAL.models.assets` are the
- * only `CARDINAL` members `storage.ts` touches, so that's all the global stub needs to carry — matching
- * the pure-unit-test convention this repo's backend testing follows.
+ * No database, no real network: `aws-sdk-client-mock` patches `S3Client.prototype.send`, so the one
+ * mock installed below catches every client instance this module constructs.
  */
 
 const s3Mock = mockClient(S3Client)
@@ -147,10 +144,8 @@ describe('s3 storage / buildClient mode branching', () => {
   })
 
   test('custom mode falls back to us-east-1 when region is unset, preserving prior behavior', async () => {
-    // -> `definition.yml`'s new `region` prop defaults to 'us-east-1', which is what an existing
-    //    MinIO/custom-mode target resolves to via `models/storage.ts#buildConfig`. buildClient() also
-    //    falls back itself for a bare config with no region set at all (the SDK otherwise throws
-    //    "Region is missing" rather than resolving anything on its own).
+    // -> `definition.yml`'s `region` prop defaults to 'us-east-1' too, so a config that went through
+    //    `models/storage.ts#buildConfig` resolves the same way this bare one does.
     const client = buildClient({
       mode: 'custom',
       endpoint: 'https://minio.example.com',
@@ -290,10 +285,9 @@ describe('s3 storage / ensureBucket (activation)', () => {
 
 describe('s3 storage / per-asset lifecycle', () => {
   /**
-   * The key, the bytes and the content type are `test/storageModuleContract.ts`'s to assert. `Bucket`
-   * is not part of that contract and could not be: `azure` and `gcs` bind their container/bucket into
-   * the client object itself, while every S3 command carries it as an input field of its own — so an
-   * unset or wrong `Bucket` here would be an S3-only defect the shared readers cannot see.
+   * `Bucket` is not part of `test/storageModuleContract.ts` and could not be: `azure` and `gcs` bind
+   * their container/bucket into the client object, while every S3 command carries it as an input
+   * field of its own, so an unset or wrong one is an S3-only defect the shared readers cannot see.
    */
   test('every per-asset command names the configured bucket', async () => {
     s3Mock.on(PutObjectCommand).resolves({})
@@ -352,11 +346,6 @@ describe('s3 storage / per-asset lifecycle', () => {
     const sourceKey = `${target.siteId}/images/old-name.png`
     const destinationKey = `${target.siteId}/images/new-name.png`
     assert.equal(copyCall!.args[0].input.Bucket, 'my-bucket')
-    // -> Every segment of the key is percent-encoded, but the `/` separators between them stay
-    //    literal — `encodeURIComponent(sourceKey)` whole would turn those into `%2F` and address a
-    //    source object that does not exist, a regression `storage.emulated.test.ts` caught against a
-    //    real S3-compatible server (this mocked assertion alone could not: it would happily match
-    //    whatever the code produced, correct or not).
     assert.equal(
       copyCall!.args[0].input.CopySource,
       `my-bucket/${target.siteId}/images/old-name.png`
@@ -409,9 +398,8 @@ describe('s3 storage / exportAll', () => {
 })
 
 /**
- * The ten asset-lifecycle claims every blob storage module owes `models/storage.ts`, read out of the
- * S3 SDK's own command inputs — see `test/storageModuleContract.ts` for what they are and why they
- * live in one place. Everything above this line is this module's alone.
+ * The asset-lifecycle claims every blob storage module owes `models/storage.ts`, read out of the S3
+ * SDK's own command inputs. Everything above this line is this module's alone.
  */
 runStorageModuleContract('s3', {
   makeTarget,
@@ -432,8 +420,8 @@ runStorageModuleContract('s3', {
         s3Mock.commandCalls(DeleteObjectCommand).map((call) => call.args[0].input.Key!),
       copies: () =>
         s3Mock.commandCalls(CopyObjectCommand).map((call) => ({
-          // -> `CopySource` is bucket-qualified and per-segment percent-encoded (its own tests below
-          //    pin that shape); the contract asks about the key, so both are undone here.
+          // -> `CopySource` is bucket-qualified and per-segment percent-encoded; the contract asks
+          //    about the plain key, so both are undone here.
           sourceKey: call.args[0].input
             .CopySource!.split('/')
             .slice(1)

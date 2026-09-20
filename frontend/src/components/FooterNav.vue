@@ -1,9 +1,8 @@
 <template>
   <div class="site-footer">
     <!--
-      The colophon reads as one line of separated parts -- `© 2026 Cardinal wiki · CC BY-SA 4.0 ·
-      Powered by Cardinal.js` -- which is what the design draws. The separator is a real character
-      between spans rather than a border or a gap, so it wraps with them on a narrow screen.
+      The separator is a real character between the spans rather than a border or a gap, so it
+      wraps with them on a narrow screen.
     -->
     <div class="site-footer-line">
       <i18n-t
@@ -41,23 +40,15 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-/**
- * Where "Powered by Cardinal.js" points. The repository, which is this project's own home -- the
- * fork is not Wiki.js and no longer links to js.wiki.
- */
+/** This fork's own home, not upstream's `js.wiki`. */
 const PROJECT_URL = 'https://github.com/dylan-hart/wiki'
 
 import { useSiteStore } from '@/stores/site'
 
 /**
- * Footer content.
- *
- * Content only: the enclosing layout supplies the footer element itself (`<w-footer>`, or
- * `<q-footer>` in a layout not yet migrated). Keeping positioning out of here is what lets the
- * three layouts sharing this component migrate one at a time instead of all together.
+ * Footer CONTENT only: the enclosing layout supplies the `<w-footer>` element itself, so this
+ * component carries no positioning of its own.
  */
-
-// PROPS
 
 const props = defineProps({
   generic: {
@@ -66,19 +57,11 @@ const props = defineProps({
   }
 })
 
-// STORES
-
 const siteStore = useSiteStore()
-
-// I18N
 
 const { t } = useI18n()
 
-// DATA
-
 const currentYear = new Date().getFullYear()
-
-// COMPUTED
 
 const hasSiteFooter = computed(() => {
   return !props.generic && siteStore.company && siteStore.contentLicense
@@ -90,9 +73,8 @@ const isCopyright = computed(() => {
 
 <style scoped>
 /*
-  The colophon at the foot of the article column: Cardinal's tint, ruled off above, set in Roboto
-  Mono at 11px. `--color-text-caption` rather than anything fainter -- this is the one place the site
-  puts its own copyright notice, so it has to be readable, and the caption tier is the floor.
+  `--color-text-caption` rather than anything fainter: this is where the site puts its own copyright
+  notice, so it has to stay readable, and the caption tier is the floor.
 */
 .site-footer {
   background-color: var(--color-tint);
@@ -110,14 +92,10 @@ const isCopyright = computed(() => {
 }
 
 /*
-  Cobalt draws the footer as a dark navy strip in BOTH themes (`Page View 3x - Cobalt`/`Page View
-  Dark 3x - Cobalt` -- the mockups draw the identical `#10194a` bar either way), not the light-blue
-  `--color-tint` this reused: `--color-footer-*` (`tailwind.css`, OpenProject #2767) is the dedicated
-  token set declared for exactly this and was never wired up. Additive rather than a base-rule swap,
-  since `--color-tint`'s own Ledger default is what the unscoped rule above still needs (OpenProject
-  #2774). The light mockup draws no rule at all above the bar; the dark one does, and
-  `--color-hairline-dark` already resolves correctly there via the existing `.body--dark` rule above,
-  so only the light case needs suppressing here.
+  Cobalt draws this bar dark navy in BOTH themes, so it takes the dedicated `--color-footer-*`
+  tokens rather than `--color-tint`. Additive rather than a swap of the base rule, whose Ledger
+  default is still needed. Only light suppresses the rule above the bar: Cobalt dark draws one, and
+  `--color-hairline-dark` already resolves there through the `.body--dark` rule above.
 */
 :global(body.body--cobalt .site-footer) {
   background-color: var(--color-footer-bg);
@@ -129,13 +107,9 @@ const isCopyright = computed(() => {
 }
 
 /*
-  `ui-iteration-cobalt-typography/cobalt-typography.md` §3/§5 (OpenProject #2980): Cobalt dark's
-  copyright line is the caption/kicker dark tier (`--color-text-caption-dark`, `#8b98d6` -- already
-  restated for Cobalt in `tailwind.css`'s `body.body--cobalt.body--dark` block, and already what the
-  Ledger dark rule above this one reads), NOT `--color-footer-text` -- that token was only ever given
-  a light-mode Cobalt value, so left alone it keeps resolving to `#a7b3ea` under Cobalt dark too. The
-  Ledger dark rule above already asks for the right token; it loses the cascade here purely on
-  specificity (two classes vs. this selector's three), so the fix is this one extra notch rather than
+  Cobalt dark's copyright line wants `--color-text-caption-dark`, not `--color-footer-text`, which
+  was only ever given a light-mode Cobalt value. The `.body--dark` rule above already asks for the
+  right token and loses this cascade purely on specificity, so this is one extra notch rather than
   a new token.
 */
 :global(body.body--cobalt.body--dark .site-footer) {
@@ -145,18 +119,13 @@ const isCopyright = computed(() => {
 .site-footer-line {
   text-align: center;
   /*
-    Both `company` and `footerExtra` are free text with no length limit set anywhere they're
-    written (`AdminGeneral.vue`'s inputs carry no `maxlength`) and no truncation logic here --
-    unlike `HeaderNav`'s site title, which sits in a `truncate` cell. A long-but-spaced company name
-    just wraps onto a second line, which is fine, but a single long unbroken token (a pasted URL, a
-    run of digits) has nowhere else to break: Preflight resets the box model but sets no
-    `overflow-wrap`, so without this the footer bar -- which is otherwise exactly `WPageContainer`
-    width -- would push wider than the page instead of wrapping.
+    `company` and `footerExtra` are free text with no length limit and no truncation here, and a
+    single unbroken token (a pasted URL, a run of digits) has nowhere to break. Preflight sets no
+    `overflow-wrap`, so without this the bar pushes wider than the page instead of wrapping.
   */
   overflow-wrap: anywhere;
 }
 
-/* -> The one coloured thing in the bar, which is what the design makes it */
 .site-footer-line a {
   text-decoration: none;
   color: var(--color-accent-strong);
@@ -167,9 +136,8 @@ const isCopyright = computed(() => {
 }
 
 /*
-  Cobalt's own footer link is `--color-footer-link` (`#ff7a84`, identical in both mockups), not the
-  general `--color-accent-strong` this reused -- a dark-navy bar in both themes needs its own link
-  tone rather than the page's own accent, which shifts between light and dark (OpenProject #2774).
+  Cobalt's footer link takes `--color-footer-link`, not the general `--color-accent-strong`: a
+  dark-navy bar in both themes needs its own link tone, where the page accent shifts between them.
 */
 :global(body.body--cobalt .site-footer-line a) {
   color: var(--color-footer-link);

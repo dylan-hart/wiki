@@ -1,18 +1,6 @@
 /**
- * `worker.ts`'s own deliberately minimal `CARDINAL.models` (OpenProject #3295).
- *
- * `worker.ts` is not directly unit-testable: it runs top-level `await`s against the real db/config
- * boot path and reads real `threadId`/`workerData` at module scope, so it cannot simply be imported
- * by a test the way an ordinary module can. Its own coverage is source-scan style instead, matching
- * the existing precedent for this same file: `core/schedulerWorkerIdentity.test.ts` and
- * `core/schedulerWorkerCapabilities.test.ts`.
- *
- * What this guards: `embedPage` worker jobs (`tasks/workers/embed-page.ts`) always run on this
- * thread, and `helpers/embeddings.ts#getExtractor()`'s failure-recovery path calls
- * `CARDINAL.models.extensions.noteLoadFailure()`. Before this fix, `ensureDb()`'s `CARDINAL.models` was
- * `{ settings }` only, so that call threw `Cannot read properties of undefined (reading
- * 'noteLoadFailure')` before the intended warn log ever ran -- turning a load failure this module is
- * explicitly designed to degrade gracefully from into an unhandled job crash instead.
+ * A source scan: `worker.ts` runs top-level `await`s against the real db/config boot path and
+ * reads `threadId`/`workerData` at module scope, so a test cannot import it.
  */
 import assert from 'node:assert/strict'
 import path from 'node:path'

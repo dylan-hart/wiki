@@ -22,8 +22,8 @@ describe('WDate: locale-aware calendar chrome (OpenProject #1604)', () => {
   })
 
   it('renders the weekday row in the app locale, not a hardcoded English array', () => {
-    // -> Scoped to the header row's own class, not `[aria-hidden="true"]` alone -- the nav
-    //    buttons' chevron icons carry that same attribute and would otherwise be swept in too.
+    // -> Scoped to the header row's own class, not `[aria-hidden="true"]` alone: the nav buttons'
+    //    chevron icons carry that attribute too
     const enLabels = mountCalendar('en')
       .findAll('.text-center.text-caption')
       .map((w) => w.text())
@@ -63,19 +63,15 @@ describe('WDate: locale-aware calendar chrome (OpenProject #1604)', () => {
 })
 
 /**
- * OpenProject #1589/#1604: this was the last holdout of the `toLocaleString` + explicit-`undefined`-
- * locale pattern outside the one legitimate site in `stores/user.js`, where the reader's own locale
- * IS the answer -- `formatTimePart`'s zone-labelled branch, which has to format a zoned value
- * directly because the pre-built formatters have no zone to name. Land the repo-wide guard here,
- * next to the fix that closed the last other gap.
+ * Formatting with an undefined locale renders the browser's, not the app's. The one legitimate site
+ * is `stores/user.js`'s zone-labelled branch, where the reader's own locale IS the answer.
  *
- * Asserted by file rather than by `file:line`, so an edit anywhere above it does not fail a guard
- * about where the pattern is used. `*.test.js` is skipped: a test asserting that the app does NOT
- * render the browser default has to build that default to compare against, which is the opposite of
- * the defect this looks for (`stores/user.test.js` does exactly that).
+ * By file, not `file:line`, so an edit above a hit does not fail the guard. `*.test.js` is skipped:
+ * a test proving the app does NOT render the browser default has to build that default to compare
+ * against, which is the pattern this looks for.
  *
- * The needle is assembled at runtime rather than written as one literal: this file's own source is
- * inside the directory the scan walks, so a literal copy of the pattern here would flag itself.
+ * The needle is assembled at runtime rather than written as one literal, since this file's own
+ * source is inside the directory the scan walks and would otherwise flag itself.
  */
 describe('toLocaleString called with an undefined locale -- source-scan guard', () => {
   it('is used nowhere under frontend/src except the one legitimate site', () => {
@@ -110,10 +106,7 @@ function* walk(dir) {
   }
 }
 
-/**
- * `labelFor` mirrors `WDate.vue`'s own month-header formatting -- explicit `commonStore.locale`, not
- * an implicit `undefined`, per the guard above.
- */
+/** Mirrors the component's month-header formatting, explicit locale included per the guard above. */
 function labelFor(year, month, locale = 'en') {
   return Temporal.PlainDate.from({ year, month, day: 1 }).toLocaleString(locale, {
     month: 'long',
@@ -122,8 +115,7 @@ function labelFor(year, month, locale = 'en') {
 }
 
 function monthLabel(wrapper) {
-  // `.font-medium` alone also matches the nav buttons (WBtn carries it too, with no text) --
-  // `.text-body2` is what narrows this to the actual month label.
+  // `.font-medium` alone also matches the nav buttons; `.text-body2` narrows it to the month label.
   return wrapper.find('.text-body2.font-medium').text()
 }
 
@@ -154,7 +146,6 @@ describe('WDate', () => {
     })
     expect(monthLabel(wrapper)).toBe(labelFor(2027, 1))
 
-    // Second click of the two-click cycle: `to` changes, `from` stays put.
     await wrapper.setProps({ modelValue: { from: '2027-01-10', to: '2027-05-20' } })
 
     expect(monthLabel(wrapper)).toBe(labelFor(2027, 1))
@@ -167,7 +158,6 @@ describe('WDate', () => {
     })
     expect(monthLabel(wrapper)).toBe(labelFor(2027, 1))
 
-    // A fresh range restarts at a new `from` (see `pick()`'s `!from || to` branch).
     await wrapper.setProps({ modelValue: { from: '2027-06-05', to: null } })
 
     expect(monthLabel(wrapper)).toBe(labelFor(2027, 6))

@@ -1,29 +1,17 @@
 <template>
   <!--
-    `flex flex-col` in place of the `column` this carried: that was Quasar's flex helper and nothing
-    defines it any more, so the rail was a plain block. Which is why `items-stretch` never stretched
-    the buttons to its width, and why `<w-space />` -- a `flex-grow: 1` spacer -- could not push the
-    last group to the bottom.
-  -->
-  <!--
-    Page Properties keeps the rail's full square; every other button is 48px. The primary action for
-    the page reads as the largest target, and the rest sit quieter beneath it.
-
-    Every button here carries `flush-hover-btn` (`css/_base.css`, OpenProject #3465/#3471): a square
-    hover cell running edge to edge of the rail, no rounded disc. It states no size -- the `h-12`
-    height and the column's own width (`items-stretch`) do, which is 48px in Cobalt's reading rail
-    and 56px in the editor's. Page Properties alone adds `flush-hover-btn--cap` while READING, so it
-    keeps its own rounded corners as the cap on the column (Cobalt's plate radius, below); while the
-    editor is open it drops the cap too, since that rail's hovers are all flat and square.
+    Page Properties keeps the rail's full square; every other button is 48px, so the primary action
+    reads as the largest target and the rest sit quieter beneath it. It alone takes
+    `flush-hover-btn--cap` while READING, capping the column with its own rounded corners; with the
+    editor open that rail's hovers are all flat and square, so the cap goes too.
   -->
   <div
     class="page-actions flex flex-col items-stretch order-last"
     :class="editorStore.isActive ? `is-editor` : ``">
     <template v-if="userStore.can(`write:pages`)">
       <!--
-        Off for a redirection: the panel is contents, tags, ratings, comments and scripts, all of them
-        about a page somebody reads. Disabled rather than hidden, because it is the rail's primary
-        action and the square it occupies is what the rest of the buttons are arranged under.
+        Disabled rather than hidden on a redirection: it is the rail's primary action, and the square
+        it occupies is what the rest of the buttons are arranged under.
       -->
       <w-btn
         class="aspect-square flush-hover-btn"
@@ -46,13 +34,7 @@
         color="white"
         :text-color="hasPendingAssets ? `white` : `accent-wash`"
         :aria-label="t('pageActions.pendingAssetUploads')">
-        <!-- Outside the icon for the same reason as the review badge above -->
         <w-icon name="tabler:photo-cog" />
-        <!--
-          A white counter carrying the rail's own red, which is what the design draws on the filled
-          rail. `orange-9` was Material's amber and belonged to no Cardinal tone at all -- and now
-          sits over a red ground, where it reads as a third colour that means nothing.
-        -->
         <w-badge
           class="page-actions-pending-badge"
           v-if="hasPendingAssets"
@@ -153,15 +135,11 @@
       <w-separator class="my-2" v-if="!isRedirect" inset />
     </template>
     <!--
-      The three below are all about a page's TEXT: what it used to say, what it says in source, and
-      the things that can be done to that text. A redirection has none — its content is a target, the
-      form above is the whole of it, and there is no render for any of these to be about.
+      All three are about a page's TEXT, which a redirection has none of — its content is a target,
+      and there is no render for any of these to be about.
     -->
     <template v-if="!isRedirect">
-      <!--
-        `read:history` is the permission that exists to say who may see what a page used to contain, so
-        the button follows it rather than page read access. The API asks the same question.
-      -->
+      <!-- -> Follows `read:history` rather than page read access, the same question the API asks -->
       <w-btn
         class="h-12 flush-hover-btn"
         v-if="userStore.can(`read:history`)"
@@ -174,12 +152,6 @@
           t('common.page.history')
         }}</w-tooltip>
       </w-btn>
-      <!--
-        Markdown/HTML download instantly (fetch-then-`fileSave`, same as the old Page Source overlay
-        used); PDF drives a headless Chromium render that genuinely takes a few real seconds, so the
-        button itself carries `loading` while it's in flight -- `w-btn`'s own spinner-over-icon, which
-        also disables the button so a second click can't stack a second render underneath the first.
-      -->
       <w-btn
         class="h-12 flush-hover-btn"
         flat
@@ -208,7 +180,7 @@
                 ><w-item-label>{{ t('pages.export.html') }}</w-item-label></w-item-section
               >
             </w-item>
-            <!-- -> Gated on the availability signal task 500 added: no button that just 503s -->
+            <!-- -> No button that would just 503: gated on the site's own availability signal -->
             <w-item clickable v-if="siteStore.pdfExportAvailable" @click="exportPage(`pdf`)">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-deep-orange-9" name="tabler:file-type-pdf" size="sm" />
@@ -221,9 +193,8 @@
         </w-menu>
       </w-btn>
       <!--
-        -> Gated on `read:source`, the same permission the export endpoint's own `format=markdown`
-           branch checks -- no button that would just 403, per the convention `canRerenderPage`
-           documents above.
+        -> `read:source` is what the export endpoint's own `format=markdown` branch checks: no button
+           that would just 403.
       -->
       <w-btn
         class="h-12 flush-hover-btn"
@@ -250,14 +221,11 @@
           t('common.header.pageActions')
         }}</w-tooltip>
         <!--
-          Literal colour classes, not WIcon's `color` prop: that builds `text-<name>` at runtime and
-          Tailwind only emits a utility it can see spelled out, so these icons had been drawing in the
-          inherited text colour rather than the rail's own.
+          Literal colour classes, not WIcon's `color` prop: that builds `text-<name>` at runtime, and
+          Tailwind only emits a utility it can see spelled out in source.
         -->
         <w-menu class="translucent-menu" anchor="top left" self="top right" auto-close>
           <w-list padding style="min-width: 225px">
-            <!-- -> Gated on `canRerenderPage`: needs Puppeteer, and the backend's `ensureCanRender`
-                    rejects any editor but markdown -->
             <w-item clickable v-if="canRerenderPage" @click="rerenderPage">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-slate-soft" name="tabler:wand" size="sm" />
@@ -266,8 +234,6 @@
                 ><w-item-label>{{ t('common.page.rerender') }}</w-item-label></w-item-section
               >
             </w-item>
-            <!-- -> Gated on `canConvertEditor`: `write:pages`, a non-redirect markdown/wysiwyg page,
-                    and both editors active on the site (OpenProject #3399) -->
             <w-item clickable v-if="canConvertEditor" @click="convertEditor">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-slate-soft" name="tabler:replace" size="sm" />
@@ -286,15 +252,9 @@
             </w-item>
             <!--
               Duplicate, rename/move and delete live HERE rather than as three more buttons down the
-              rail. Six icon-only buttons whose labels exist only
-              in a tooltip is five too many for a column 56px wide, and the three that were cut are
-              the three a reader never wants: they act on the page as a FILE, not on its contents,
-              which is what a more menu is for.
-
-              Hidden outright while a suggestion is being written or a page is being created:
-              duplicating, moving or deleting is not part of suggesting a change, and a submitter who
-              happens to hold those rights elsewhere would otherwise find them here. Same condition
-              the three buttons carried, moved with them.
+              rail: icon-only buttons whose labels exist only in a tooltip do not scale in a column
+              56px wide, and these three act on the page as a FILE rather than on its contents, which
+              is what a more menu is for.
             -->
             <template v-if="showsFileActions">
               <w-separator v-if="canDuplicate || canRenameMove || canDelete" class="my-1" />
@@ -330,7 +290,6 @@
       </w-btn>
     </template>
     <w-space />
-    <!-- Which of the two write modes the editor is in, set down the rail's own length. -->
     <span v-if="!showsFileActions && editorStore.isActive" class="page-actions-mode">{{
       editorStore.mode === `suggest`
         ? t('common.actions.suggestedEdit')
@@ -361,56 +320,40 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-// STORES
-
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
 const route = useRoute()
 
-// I18N
-
 const { t } = useI18n()
-
-// REFS
 
 const menuPendingAssets = ref(null)
 
-/** The rename field for whichever pending asset is currently being renamed -- not a dialog, so
- *  there is no `useDialogComponent` to focus it; see `startRenamePendingAsset`. */
 const iptRenamePendingAsset = ref(null)
 
-// DATA
-
 /**
- * Whether an export request is in flight -- a browser launch plus a full page render, several
- * seconds even on a fast page, so the button needs to say so rather than sit inert.
+ * A PDF export is a browser launch plus a full page render, several real seconds even on a fast
+ * page, so the button says so and disables itself rather than letting a second click stack a second
+ * render.
  */
 const exportingPdf = ref(false)
 
 /**
- * The pending asset currently being renamed (OpenProject #878), by `id` -- null when none is. Only
- * one row can be in edit mode at a time, so this and the two refs below are enough state for the
- * whole list rather than something tracked per item.
+ * Only one row is ever in edit mode, so this and the two refs below carry the whole list's rename
+ * state rather than anything tracked per item.
  */
 const editingAssetId = ref(null)
 
-/** The base name (no extension) as currently typed, for the item `editingAssetId` points at. */
 const renameDraft = ref('')
 
-/** That item's fixed extension, carried alongside the draft purely to build the `w-input` suffix. */
 const renameExt = ref('')
 
 /**
- * File extension + MIME for the two formats fetched as text. Kept bare of a `;charset=` parameter:
- * the save picker uses this as an `accept` key and rejects a type carrying one, and a Blob built from
- * a JS string is UTF-8 regardless -- the same fetch-then-`fileSave` pattern the now-retired
- * `PageSourceOverlay.vue` (the old "Page Source" rail button's viewer) had already proven.
+ * No `;charset=` parameter on these MIME types: the save picker uses one as an `accept` key and
+ * rejects a type carrying a parameter, and a Blob built from a JS string is UTF-8 regardless.
  */
 const EXPORT_TEXT_TYPES = {
   markdown: { ext: 'md', mime: 'text/markdown' },
@@ -418,36 +361,27 @@ const EXPORT_TEXT_TYPES = {
 }
 
 /**
- * How long the client gives the PDF export request, in milliseconds -- past `ky`'s own 10s default,
- * which is well under what a browser launch plus navigation plus settling plus `page.pdf()` can take.
- * Not exact: `models/pdfExport.ts`'s own timeouts (navigation 30s + block-settle 15s + PDF 30s) sum to
- * 75s worst case, so this rounds up past that rather than matching it precisely.
+ * Past `ky`'s own 10s default, which is well under what a browser launch plus navigation plus
+ * settling plus `page.pdf()` can take. The server's own timeouts sum to roughly 75s worst case; this
+ * rounds up past that rather than matching it precisely.
  */
 const EXPORT_PDF_TIMEOUT = 90 * 1000
 
-// COMPUTED
-
 const hasPendingAssets = computed(() => editorStore.pendingAssets?.length > 0)
 
-/** `w-input`'s trailing suffix for the rename field -- null (nothing rendered) for the rare pending
- *  asset with no extension at all, rather than a bare dot. */
+/** Null rather than a bare dot, for the rare pending asset with no extension at all. */
 const renameSuffix = computed(() => (renameExt.value ? `.${renameExt.value}` : null))
 
 /**
- * Whether the page this rail is for is a redirection — one being read, edited or created alike, since
- * `pageCreate` puts the editor on the page store as well.
- *
- * A redirection has no text, so most of this rail is about something that is not there: see the
- * individual buttons for what each one loses.
+ * True for a redirection being read, edited or created alike -- `pageCreate` puts the editor on the
+ * page store as well.
  */
 const isRedirect = computed(() => pageStore.editor === 'redirect')
 
 /**
- * Whether Rerender Page may be offered at all: `write:pages` is necessary but not sufficient -- the
- * route also 503s without the Puppeteer extension (mirrored here via `siteStore.pdfExportAvailable`,
- * same signal the PDF export item above already uses) and throws `renderUnsupportedEditor` for any
- * page whose editor isn't `markdown` (backend/models/rendering.ts's `ensureCanRender`). No button that
- * just fails, per OpenProject #858.
+ * `write:pages` is necessary but not sufficient: the route 503s without the Puppeteer extension
+ * (`siteStore.pdfExportAvailable` is the same signal the PDF export item uses) and rejects any page
+ * whose editor is not `markdown`. No button that just fails.
  */
 const canRerenderPage = computed(
   () =>
@@ -455,9 +389,6 @@ const canRerenderPage = computed(
 )
 
 /**
- * Whether the more menu offers the three actions that treat the page as a FILE -- duplicate,
- * rename/move, delete (Cardinal folded them in from the rail; see the menu's own comment).
- *
  * Off while a suggestion is being written or a page is being created: neither is an act ON an
  * existing page, and a submitter who happens to hold those rights elsewhere should not find them
  * offered here. The three permissions below are checked individually on top of this, since a reader
@@ -468,11 +399,9 @@ const showsFileActions = computed(
 )
 
 /**
- * Whether Convert Editor may be offered (OpenProject #3399): the same "acts on an existing page"
- * gate `showsFileActions` already draws, `write:pages` (the flip is an edit like any other), a page
- * currently in `markdown` or `wysiwyg` -- the only pair `PageConvertDialog.vue` converts between --
- * and both of those editors actually active on this site (`siteStore.editors`, the same map
- * `EditorPickerDialog.vue` reads), since there is nothing to convert TO otherwise.
+ * `markdown` and `wysiwyg` are the only pair `PageConvertDialog.vue` converts between, and both have
+ * to be active on the site or there is nothing to convert TO. The flip is an edit like any other,
+ * hence `write:pages` on top of the "acts on an existing page" gate.
  */
 const canConvertEditor = computed(
   () =>
@@ -486,8 +415,6 @@ const canConvertEditor = computed(
 const canDuplicate = computed(() => userStore.can('write:pages'))
 const canRenameMove = computed(() => userStore.can('manage:pages'))
 const canDelete = computed(() => userStore.can('delete:pages'))
-
-// METHODS
 
 function togglePageProperties() {
   siteStore.$patch({
@@ -504,8 +431,8 @@ function toggleBacklinks() {
 }
 
 function viewPageHistory() {
-  // -> An unsaved page has no `id` yet, and therefore no history to show -- the overlay has nothing
-  //    to fetch, so head it off here rather than opening it to an empty state.
+  // -> An unsaved page has no `id` and so nothing for the overlay to fetch; heading it off here
+  //    beats opening it to an empty state
   if (!pageStore.id) {
     notify.info(t('history.none'))
     return
@@ -513,7 +440,7 @@ function viewPageHistory() {
   siteStore.$patch({ overlay: 'PageHistory', overlayOpts: {} })
 }
 
-/** The page's own name, off its path -- the home page's path is empty, so that falls back to `home`. */
+/** The home page's path is empty, hence the fallback. */
 function exportFileStem() {
   return pageStore.path.split('/').filter(Boolean).pop() || 'home'
 }
@@ -545,13 +472,9 @@ async function exportPageText(format) {
 }
 
 /**
- * Copies the page's raw stored content to the clipboard (OpenProject #2795) -- the same
- * `format=markdown` export endpoint `exportPageText` uses, but copied via `copyToClipboard()`
- * instead of downloaded via `fileSave()`. The endpoint hands back each editor's native raw
- * `content` regardless of the `format` name, so this is literal Markdown for both the `markdown`
- * and `wysiwyg` editors (the latter stores markdown via `@tiptap/markdown` now, not typed Tiptap
- * JSON -- OpenProject #3388); for `code` it's HTML source, and for `asciidoc` it's AsciiDoc source
- * -- which is why the button/tooltip label reads generically rather than "Copy as Markdown".
+ * The export endpoint hands back each editor's native raw `content` regardless of the `format` name:
+ * Markdown for `markdown` and `wysiwyg` alike, HTML source for `code`, AsciiDoc for `asciidoc` --
+ * which is why the label reads generically rather than "Copy as Markdown".
  */
 async function copyPageContent() {
   try {
@@ -570,9 +493,8 @@ async function copyPageContent() {
 }
 
 /**
- * Ask the server to render this page's live view to PDF and save the result -- a binary response, so
- * `.blob()` rather than `.json()`; `ky` still parses a non-2xx body as JSON into `err.data` first (see
- * `helpers/apiError.js`), which is what lets the catch below tell a missing extension apart from
+ * `.blob()` rather than `.json()` for a binary response; `ky` still parses a non-2xx body as JSON
+ * into `err.data` first, which is what lets the catch below tell a missing extension apart from
  * anything else going wrong.
  */
 async function exportPagePdf() {
@@ -590,9 +512,8 @@ async function exportPagePdf() {
     if (err.name === 'AbortError') {
       return
     }
-    // -> Same error name `models/pdfExport.ts`'s `ensureCanExport` throws (mirroring
-    //    `renderPuppeteerMissing` on the render queue) -- told apart from a generic failure so the
-    //    reader knows whether reloading will help or an administrator needs to install something
+    // -> Told apart from a generic failure so the reader learns whether retrying will help or an
+    //    administrator has to install something
     if (err?.data?.error === 'exportPuppeteerMissing') {
       notify({
         type: 'negative',
@@ -622,9 +543,8 @@ function rerenderPage() {
 }
 
 /**
- * Opens `PageConvertDialog.vue` (OpenProject #3399), which runs its own render-equality guard and
- * calls `pageStore.convertEditor()` itself -- this only reloads the page once it reports success,
- * same as `rerenderPage()` above, so the rail and whichever editor is mounted pick up the flip.
+ * The dialog runs its own render-equality guard and calls `pageStore.convertEditor()` itself; this
+ * only reloads once it reports success, so the rail and the mounted editor pick up the flip.
  */
 function convertEditor() {
   dialog({
@@ -646,9 +566,6 @@ function duplicatePage() {
       locale: pageStore.locale
     }
   }).onOk(async (newPageOpts) => {
-    // -> `pageDuplicate` rejects on either its own source-page fetch failing or the `pageCreate` it
-    //    now awaits (OpenProject #1787) rejecting -- previously dropped on the floor here, an
-    //    unhandled rejection with no notify shown, matching `FileManager.vue`'s own duplicate handler
     try {
       await pageStore.pageDuplicate({
         sourcePageId: pageStore.id,
@@ -755,9 +672,8 @@ function removePendingAsset(item) {
 }
 
 /**
- * `w-input`'s `rules` callback for the rename field -- run against the same sanitize/validate pair
- * `commitRenamePendingAsset` uses, so what the field flags as invalid while typing is exactly what
- * would be rejected on commit.
+ * The same sanitize/validate pair `commitRenamePendingAsset` uses, so what the field flags while
+ * typing is exactly what would be rejected on commit.
  */
 function renameBaseNameRule(value) {
   return validateBaseName(sanitizeBaseName(value)) ?? true
@@ -768,10 +684,9 @@ function startRenamePendingAsset(item) {
   editingAssetId.value = item.id
   renameDraft.value = base
   renameExt.value = ext
-  // -> The field is only rendered once `editingAssetId` flips, so the ref is empty until after this
-  //    update has been applied to the DOM. It sits inside the pending-assets `v-for`, which makes Vue
-  //    collect the ref as an array (one entry, since only one item is ever being edited at a time)
-  //    rather than a single instance -- `[0]`, not `.value` directly.
+  // -> The field only renders once `editingAssetId` flips, so the ref is empty until this update
+  //    reaches the DOM. It sits inside the pending-assets `v-for`, so Vue collects the ref as an
+  //    array -- `[0]`, not `.value` directly.
   nextTick(() => {
     iptRenamePendingAsset.value?.[0]?.focus()
   })
@@ -784,24 +699,15 @@ function cancelRenamePendingAsset() {
 }
 
 /**
- * Commits the rename to `editorStore.pendingAssets` directly on the matching item -- there is no
- * server round-trip: `UploadPendingAssetsDialog.vue` reads `item.fileName` only when the page is
- * actually saved, so this is purely local state until then.
+ * Local state only: `UploadPendingAssetsDialog.vue` reads `item.fileName` when the page is actually
+ * saved, so nothing reaches the server until then. Bound to the field's own blur as well as the
+ * confirm button's click -- hence `@mousedown.prevent` on both buttons, without which a click on
+ * Cancel would commit the very edit it means to discard before its own handler ran. An invalid draft
+ * is left as-is, still editing.
  *
- * Bound to the field's own blur as well as the confirm button's click, matching the app's existing
- * convention for a field committed on blur (see `onEditableBlur` on the page title). The confirm and
- * cancel buttons carry `@mousedown.prevent` so clicking either leaves the field focused rather than
- * blurring it first -- without that, a click on Cancel would commit the very edit it meant to
- * discard before its own handler ever ran. An invalid draft (sanitizes down to empty) is left as-is,
- * still editing, with `renameBaseNameRule` already showing why on the field itself.
- *
- * The menu's own `@hide="cancelRenamePendingAsset"` (see the template) still matters even though
- * `WMenu`'s own Escape handling now defers to this field's `@keydown.esc` first (OpenProject #2364)
- * -- `hide` also fires from paths that never dispatch a keydown at all: an outside click, the
- * catcher/resize close, or a second row's own action. Cancelling on `hide` (which `WMenu.vue#hide()`
- * fires before it restores focus) clears `editingAssetId` ahead of the focus-restore blur for all of
- * those paths, so the guard below catches it and the closing menu discards the in-progress edit
- * instead of silently committing whatever was half-typed.
+ * The menu's `@hide="cancelRenamePendingAsset"` covers the closes that dispatch no keydown at all --
+ * an outside click, the catcher/resize close -- clearing `editingAssetId` ahead of the focus-restore
+ * blur, so the guard below discards the half-typed edit instead of silently committing it.
  */
 function commitRenamePendingAsset(item) {
   if (editingAssetId.value !== item.id) {
@@ -817,31 +723,19 @@ function commitRenamePendingAsset(item) {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
-  Just under the width at which the site's nav sidebar stops taking a column of its own -- the number
-  `MainLayout` hands its drawer as `overlayBelow`, and the same one `NavSidebar` states for its own use.
-  Below it the corner button lands in this rail; see the padding rule.
+  1199.98px is just under the width at which the nav sidebar stops taking a column of its own -- the
+  number `MainLayout` hands its drawer as `overlayBelow`. Below it the window-corner button lands in
+  this rail; see the padding rule.
 */
-/** One row of this rail, which is what the bottom group has to clear. Matches the buttons' `h-12`. */
 .page-actions {
   flex: 0 0 56px;
   /*
-    Room at the foot of the rail for the button in the corner of the window -- scroll-to-top, or the
-    contents panel's opener below 750px (`MainLayout` and `pages/Index.vue` respectively). While the nav
-    sidebar has a column of its own that button is a disc straddling the sidebar's inner edge, nowhere
-    near this rail; once the sidebar overlays instead, the button is flush in the bottom-right corner,
-    which is exactly where this rail ends -- and it was landing on top of Delete Page. A tap at the middle
-    of that button's box reached the corner button instead, so the last action in the rail was the one
-    action a reader could not take.
-
-    Padding on the rail rather than a margin on the last button: what is last here depends on the reader's
-    permissions and on whether the editor is open, and the space is owed to whichever of them it turns out
-    to be. The rail scrolls its own overflow, so this is inside what scrolls and cannot be scrolled behind.
+    Room at the foot of the rail for the window-corner button (scroll-to-top, or the contents panel's
+    opener below 750px), which is flush in the bottom-right corner once the nav sidebar overlays --
+    exactly where this rail ends, on top of its last action. Padding on the rail rather than a margin
+    on the last button: which button is last depends on the reader's permissions and on whether the
+    editor is open. The rail scrolls its own overflow, so this cannot be scrolled behind.
   */
 }
 @media (max-width: 1199.98px) {
@@ -851,12 +745,10 @@ function commitRenamePendingAsset(item) {
 }
 .page-actions {
   /*
-    Gone on a phone while a page is being read: the rail is a column of icon buttons whose labels only
-    ever appear in a tooltip, which a touch screen has no way to show -- so it reads as six unexplained
-    glyphs down the edge of an already narrow article.
-
-    Not while the editor is open (`is-editor`), where the rail holds the properties panel and the pending
-    asset queue, and taking it away would leave an author with no way to reach either.
+    Gone on a phone while a page is being read: the labels only ever appear in a tooltip, which a
+    touch screen has no way to show, so the rail reads as unexplained glyphs down the edge of an
+    already narrow article. Not while the editor is open, where the rail holds the properties panel
+    and the pending asset queue and there is no other way to reach either.
   */
 }
 @media (max-width: 599.98px) {
@@ -865,10 +757,8 @@ function commitRenamePendingAsset(item) {
   }
 }
 .page-actions {
-  /*
-    The rail's own ground: the tint, ruled off from the article column beside it. Cardinal's chrome is
-    continuous light slate, so the rail is a strip of the same paper the sidebar is, not a grey block.
-  */
+  /* The rail's ground is the same tint the sidebar takes, ruled off from the article column beside
+     it, rather than a grey block of its own. */
 }
 .body--light .page-actions {
   background-color: var(--color-tint);
@@ -880,14 +770,10 @@ function commitRenamePendingAsset(item) {
 }
 .page-actions {
   /*
-    Cobalt draws the READING rail as a short floating white card rather than Ledger's full-height
-    flush strip (`Page View 3x - Cobalt` mockup) -- `align-self: flex-start` is what lets it stop
-    being stretched to the row's full height by `.page-container`'s `align-items: stretch`, and the
-    margin/radius/shadow are the same card tokens every other floating panel on this screen already
-    uses. Scoped to `:not(.is-editor)` on purpose: the EDITOR's own rail (below) is a full-height
-    accent strip in both aesthetics, which is what `Editor 3x - Cobalt` draws instead -- the two
-    screens genuinely disagree here, and Cobalt's page view is authoritative for the reading rail
-    only (OpenProject #2774).
+    Cobalt draws the READING rail as a short floating card rather than Ledger's full-height flush
+    strip; `align-self: flex-start` is what stops `.page-container`'s `align-items: stretch` from
+    stretching it to the row's full height. Scoped to `:not(.is-editor)` on purpose: the EDITOR's own
+    rail stays a full-height accent strip in both aesthetics.
   */
 }
 body.body--cobalt .page-actions:not(.is-editor) {
@@ -898,36 +784,25 @@ body.body--cobalt .page-actions:not(.is-editor) {
   border-radius: var(--radius-card);
   background-color: var(--color-white);
   /*
-    An INSET ring, not `--shadow-card` (every other consumer's plain outer one): OpenProject #3040.
-    `.page-actions` carries an unconditional `overflow-y: auto` a few rules down, which per spec
-    forces `overflow-x` to compute to `auto` too -- so any child that tried to physically overhang
-    this box (to paint over an OUTER ring sitting past its own edge) would just get clipped there,
-    ring and all, confirmed by screenshotting an isolated repro in real Chromium before landing
-    this. An inset ring instead lives INSIDE the box's own paintable area, in the same paint layer
-    as the background, so the page-properties plate below -- flush with this box's edges, not
-    overhanging them -- covers it in ordinary z-order with no overflow or margin tricks needed.
-    Deliberately local to this one selector rather than flipping the shared `--shadow-card` token
-    itself, which every other floating Cobalt card/panel still draws as a plain outer ring.
-    `--color-hairline` (not `-dark`): this token is already redefined inside `body.body--cobalt.
-    body--dark` to the same value `--shadow-card`'s own dark branch uses, so this stays correct
-    under dark mode with no second, dark-scoped copy of this rule.
+    An INSET ring, not `--shadow-card`'s plain outer one: `.page-actions` carries an unconditional
+    `overflow-y: auto` a few rules down, which per spec forces `overflow-x` to compute to `auto` too,
+    so a child that tried to overhang this box to paint over an outer ring would just be clipped
+    there. Inset, the ring lives in the same paint layer as the background, and the page-properties
+    plate below -- flush with this box's edges -- covers it in ordinary z-order. Local to this
+    selector rather than flipping the shared token, which every other floating Cobalt card still
+    draws as an outer ring. `--color-hairline` (not `-dark`) is already redefined under
+    `body.body--cobalt.body--dark`, so no second dark-scoped copy of this rule is needed.
   */
   box-shadow: inset 0 0 0 1px var(--color-hairline);
   /*
-    The rail's own primary action (Page Properties), lifted into a 48px rounded accent-fill plate --
-    the mockup drew 40px; OpenProject #3471 widened the column and the plate with it -- rather than Ledger's square first cell.
+    The rail's primary action, lifted into a rounded accent-fill plate rather than Ledger's square
+    first cell. Its TOP corners take the CARD's `--radius-card`, not the plate's usual
+    `--radius-control`, and `margin-top` is 0: this cell is flush with the card's left, right and top
+    edges and caps them, rather than sitting inset with the card's hairline showing around it. The
+    bottom corners stay `--radius-control` -- the plate reaches no card corner there.
 
-    OpenProject #3040: the top corners take the CARD's own `--radius-card` (8px), not the plate's
-    usual `--radius-control` (6px), and `margin-top` is 0 rather than an 8px inset -- this plate is
-    the rail's only cell flush with a card edge on three sides (left, right, top; the ring above is
-    the reason those three, and only those three, need it) and is drawn to actually cap the card
-    there, top corners included, rather than sit inset from it with the card's hairline showing
-    around it. The bottom corners stay `--radius-control`: the plate doesn't reach the card's
-    bottom edge, so there's no card corner there to match.
-
-    OpenProject #2813: this plate is a plain cell, not a `WBtn`, so it can't pick up
-    `--shadow-primary` through that component's own `color="accent"` wiring -- it stays a direct,
-    hand-wired consumer on purpose, already keyed off the accent family #2813 decided on.
+    A plain cell, not a `WBtn`, so it cannot pick up `--shadow-primary` through that component's
+    `color="accent"` wiring; it is a hand-wired consumer of the accent family on purpose.
   */
 }
 body.body--cobalt .page-actions:not(.is-editor) > .aspect-square:first-child {
@@ -937,24 +812,17 @@ body.body--cobalt .page-actions:not(.is-editor) > .aspect-square:first-child {
   border-radius: var(--radius-card) var(--radius-card) var(--radius-control) var(--radius-control);
   border-block-end: 0;
   /*
-    `--color-accent`, not `--color-accent-fill`: this plate carries a white glyph, and the
-    handoff's fill/text split puts a white-texted accent surface on `#c8303c` (5.3:1) rather
-    than the untexted `#ff4d5a` (3.1:1) -- the same divergence it flags as a defect in the
-    mockups themselves.
+    `--color-accent`, not `--color-accent-fill`: this plate carries a white glyph, and a white-texted
+    accent surface resolves to `#c8303c` (5.3:1) rather than the untexted `#ff4d5a` (3.1:1).
   */
   background-color: var(--color-accent);
   box-shadow: var(--shadow-primary);
   /*
-    OpenProject #2903: on `.aspect-square:first-child` ITSELF this loses to `w-btn`'s own inline
-    `color` -- the template passes `color="accent-fill"` for this button (Ledger's plain white
-    cell wants that as its glyph colour, and does, since Ledger declares no color rule here to
-    compete with it), and an inline style always beats an external rule on the very same element
-    regardless of specificity. Targeting the icon -- a DESCENDANT of the button the inline style
-    is on -- sidesteps that: a stylesheet rule that specifies `color` for `.w-icon` itself is a
-    specified value for THAT element, which wins over whatever it would otherwise have inherited
-    (inline or not) from its ancestor. Same mechanism the "rest of the rail" rule below already
-    relies on; this plate just wasn't using it, so `--color-accent-fill`'s red rendered on the
-    red-toned `--color-accent` plate instead of the white the mockup draws.
+    The glyph colour is set on the icon, a DESCENDANT, and not on the cell itself: the template
+    passes `color="accent-fill"` (which is what Ledger's plain white cell wants), and an inline style
+    always beats an external rule on the very same element regardless of specificity. A rule that
+    specifies `color` for `.w-icon` is a specified value for THAT element, which wins over whatever
+    it would otherwise inherit from its ancestor. Same mechanism as the rule below.
   */
 }
 body.body--cobalt .page-actions:not(.is-editor) > .aspect-square:first-child .w-icon {
@@ -962,16 +830,12 @@ body.body--cobalt .page-actions:not(.is-editor) > .aspect-square:first-child .w-
 }
 body.body--cobalt .page-actions:not(.is-editor) {
   /*
-    And the rest of the rail's glyphs, which the mockup draws as cobalt strokes on the card rather
-    than the chrome-slate Ledger sets them in. `--color-accent-strong` is `#1f4fd6` under Cobalt
-    (and `#7fa0ff` on its dark ground), which is exactly the tone the mockup uses.
+    The rest of the rail's glyphs, which Cobalt draws as saturated strokes on the card rather than
+    the chrome slate Ledger sets them in.
 
     `.h-12`, not `.aspect-square:not(:first-child)`: Page Properties is the rail's only
-    `.aspect-square` cell (the header comment above explains why -- it alone keeps the full square,
-    every other button is `h-12`), so a `:not(:first-child)` sibling of it never existed to match
-    and this rule was dead from the day it was written -- these buttons kept their inline
-    `slate-soft` (`#7b88bd`, a hairline/stroke tone, not the mockup's saturated link blue) instead.
-    Targeted at `.w-icon` for the same inline-beats-external-on-the-SAME-element reason as above.
+    `.aspect-square` cell -- it alone keeps the full square -- so no sibling of it can ever match
+    that selector. Targeted at `.w-icon` for the same inline-beats-external reason as above.
   */
 }
 body.body--cobalt .page-actions:not(.is-editor) > .h-12 .w-icon {
@@ -982,43 +846,23 @@ body.body--cobalt.body--dark .page-actions:not(.is-editor) {
 }
 .page-actions {
   /*
-    NOT changed here: the mockup's reading rail shows four cells (Edit, History, Export, More) where
-    this component renders whatever the reader's permissions and the page's own state allow (Page
-    Properties, pending assets, history, export, copy content, more -- `write:pages` alone already
-    puts more on screen than the mockup's static four). Reducing the actual button set to match a
-    hero screenshot would be a functional regression dressed as a style fix, so this is a content
-    decision left alone rather than guessed at (OpenProject #2774's acceptance criterion 1).
-  */
-  /*
-    Editing fills the rail, which is what `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` draws: the
-    whole 56px column in the accent, white glyphs on it, the dividers and the mode overline in white
-    at reduced alpha, and the primary cell at the head marked by a wash rather than by a colour of its
-    own. This rail is where the two things only an author can do live, so it is a live edge in
-    Cardinal's own sense, and the header, toolbar and save button all change with it.
-
-    `var(--color-primary)` (#c14a52), not the `#e4676b` the design file paints. Both are the same hue; which one a
-    surface takes is decided by what rides on it, and this one carries white glyphs AND a white 10px
-    overline. `docs/cardinal-reskin-second-pass.md`'s "One deliberate divergence" settles that case:
-    a fill under white text resolves to the darker tone, which clears 4.5:1 where #e4676b is 3.26:1.
-
-    Before this, the rail stayed on the light tint with a 2px accent edge while every button on it
-    still switched to `color="white"` -- so an author editing a page was looking at white glyphs on
-    #eef1f7, i.e. at an empty strip.
+    Editing fills the rail: the whole column in the accent, white glyphs on it, dividers and the mode
+    overline in white at reduced alpha, and the primary cell marked by a wash rather than a colour of
+    its own. This rail is where the two things only an author can do live.
   */
 }
 .page-actions.is-editor {
   /*
-    Both theme scopes, spelled out, because the rail's resting ground just above is itself written
-    as `.body--light &` / `.body--dark &` -- a bare `&.is-editor` would be one class short of those
-    and lose the cascade to them, leaving the fill off entirely.
+    Both theme scopes are spelled out because the rail's resting ground just above is itself
+    theme-scoped: an unscoped `.is-editor` rule would be one class short of it and lose the cascade,
+    leaving the fill off entirely.
   */
   /*
-    `--color-accent`, not `--color-primary`: the two are the same `#c14a52` in Ledger, so this
-    changes nothing there -- but they part company under Cobalt, where `primary` is the aesthetic's
-    cobalt blue and the accent is what an accent SURFACE takes. `Editor 3x - Cobalt` paints this
-    rail `#ff4d5a`; the accent token resolves to `#c8303c` instead, for exactly the reason the
-    paragraph above gives about Ledger's own `#e4676b` -- the rail carries white glyphs and a white
-    overline, and `#ff4d5a` under white is 3.1:1. Same known mockup defect, same correction.
+    `--color-accent`, not `--color-primary`: identical in Ledger, but they part company under Cobalt,
+    where `primary` is that aesthetic's blue and the accent is what an accent SURFACE takes. The
+    accent also resolves darker than the `#e4676b`/`#ff4d5a` the design files paint, which is what
+    clears 4.5:1 under the white glyphs and white overline this rail carries (they are 3.26:1 and
+    3.1:1).
   */
 }
 .body--light .page-actions.is-editor,
@@ -1029,10 +873,9 @@ body.body--cobalt.body--dark .page-actions:not(.is-editor) {
 }
 .page-actions.is-editor {
   /*
-    The design's own dividers: the rail's white, held back so they rule without cutting. Through
-    `--w-hairline-color`, not `background-color`: `.w-hairline` is transparent itself and paints the
-    line on an `::after` that reads that property (`css/tailwind.css`), so a colour set on the
-    element paints nothing at all.
+    Through `--w-hairline-color`, not `background-color`: `.w-hairline` is transparent itself and
+    paints its line on an `::after` that reads that property (`css/tailwind.css`), so a colour set on
+    the element paints nothing at all.
   */
 }
 .page-actions.is-editor .w-separator {
@@ -1040,10 +883,9 @@ body.body--cobalt.body--dark .page-actions:not(.is-editor) {
 }
 .page-actions {
   /*
-    The rail's first cell -- page properties, its primary action -- lifted onto the article column's
-    own white so it reads as the head of the rail rather than as the first of a row of equals. While
-    the rail is filled there is no white to lift it onto, so the design marks it the only way a solid
-    ground can be marked from within: a wash of its own foreground.
+    The rail's first cell reads as its head rather than as the first of a row of equals: lifted onto
+    the article column's own white, or -- once the rail is filled and there is no white to lift it
+    onto -- marked with a wash of its own foreground.
   */
 }
 .body--light .page-actions > .aspect-square:first-child {
@@ -1056,9 +898,9 @@ body.body--cobalt.body--dark .page-actions:not(.is-editor) {
 }
 .page-actions {
   /*
-    Written with `.body--light`/`.body--dark` spelled out rather than relying on source order: the
-    two rules just above are themselves theme-scoped, so an unscoped override would tie on
-    specificity and win only by position -- which the next edit to this file could quietly undo.
+    `.body--light`/`.body--dark` spelled out rather than relying on source order: the two rules just
+    above are themselves theme-scoped, so an unscoped override would tie on specificity and win only
+    by position -- which the next edit to this file could quietly undo.
   */
 }
 .body--light .page-actions.is-editor > .aspect-square:first-child {
@@ -1070,16 +912,12 @@ body.body--cobalt.body--dark .page-actions:not(.is-editor) {
   border-block-end: 0;
 }
 .page-actions {
-  /* -> Taller than the shell only on a very short window, and then it scrolls rather than clipping */
   overflow-y: auto;
   scrollbar-width: none;
   /*
-    Set down the rail in Cardinal's chrome overline: tracked uppercase Roboto Mono.
-
-    White, because this only ever renders while the editor is open and the rail beneath it is
-    therefore filled (see `.is-editor`). The design writes it at 85% alpha; at full opacity it clears
-    4.5:1 on `var(--color-primary)` where the softened version does not, and there is nothing else on the rail for
-    it to be held back from.
+    The mode overline is white at full opacity, not the design's 85%: it only ever renders while the
+    editor is open, so it sits on the filled rail, where full opacity clears 4.5:1 and the softened
+    version does not.
   */
 }
 .page-actions-mode {

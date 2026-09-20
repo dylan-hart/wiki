@@ -35,30 +35,25 @@ import { reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 /**
- * The `@` mention popover for `EditorWysiwyg.vue`, mounted by `createPageMentionSuggestion()`
- * (`@/helpers/editorMentions.js`) through TipTap's suggestion `render()` hook -- see that file for
- * where `items`, `command`, `loading` and `query` come from and how this component's lifecycle is
- * driven. Not used anywhere else, the way `EditorEmojiMenu.vue` / `EditorCodeBlockMenu.vue` are only
- * for their one caller.
+ * Mounted by `createPageMentionSuggestion()` (`@/helpers/editorMentions.js`) through TipTap's
+ * suggestion `render()` hook, which is what supplies every prop below and drives the lifecycle.
  */
 
 const props = defineProps({
-  /** Candidate pages for the current query, already mapped to `{ id, label, path, icon }`. */
+  /** Candidate pages, already mapped to `{ id, label, path, icon }`. */
   items: {
     type: Array,
     default: () => []
   },
-  /** Confirms a selection; TipTap turns this into the mention node's `id`/`label` attributes. */
   command: {
     type: Function,
     required: true
   },
-  /** True from the moment a query is dispatched until `items()` resolves. */
   loading: {
     type: Boolean,
     default: false
   },
-  /** The text typed after `@`. Empty until the reader types something past the trigger character. */
+  /** The text typed after `@`. */
   query: {
     type: String,
     default: ''
@@ -71,8 +66,7 @@ const state = reactive({
   selectedIndex: 0
 })
 
-// -> A fresh result set starts highlighted on its first row, rather than keeping whatever index the
-//    previous (longer or shorter) list happened to have the cursor on.
+// -> Reset rather than carry a cursor position into the previous, differently-sized list
 watch(
   () => props.items,
   () => {
@@ -88,13 +82,11 @@ function select(index) {
 }
 
 /**
- * Driven by `createPageMentionSuggestion()`'s `render().onKeyDown`, which forwards every keydown
- * while the popover is open. Exposed rather than emitted: TipTap's `VueRenderer.ref` reads this
- * straight off the mounted instance (`component.ref?.onKeyDown(props)`), there is no event bus
- * between a ProseMirror plugin and a Vue component for it to emit through.
+ * Exposed rather than emitted: TipTap's `VueRenderer.ref` calls this straight off the mounted
+ * instance, and a ProseMirror plugin has no way to receive a Vue event.
  *
  * @param {{ event: KeyboardEvent }} args
- * @returns {boolean} Whether the key was handled -- swallows it from reaching the editor when true.
+ * @returns {boolean} True swallows the key, keeping it from reaching the editor.
  */
 function onKeyDown({ event }) {
   if (props.items.length < 1) {
@@ -119,11 +111,8 @@ defineExpose({ onKeyDown })
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Kept flat, not nested: a `&-suffix` selector is a Sass concatenation idiom that native CSS
+   nesting silently drops. */
 .editor-mention-list {
   min-width: 220px;
   max-width: 320px;

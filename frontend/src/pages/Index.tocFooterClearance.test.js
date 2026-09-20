@@ -5,43 +5,33 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildAppCss, chromium, hasChromium, CHROMIUM_TIMEOUT } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #3018: the right TOC drawer (`.page-sidebar`, `Index.vue`) has to clear Cobalt's fixed
- * footer bar (`.page-container-scrl .w-footer`, OpenProject #3017/#3010) the same way
- * `MainLayout.footerClearance.test.js` proves `.bg-sidebar` does -- its own content and internal
- * scrollbar should stop above the bar rather than extending underneath or behind it, on both a wide
- * (flex row, stretched by `.page-container`'s `items-stretch`) and a narrow (`.page-sidebar`'s own
- * `position: fixed` overlay, below `$toc-overlay-max`) viewport.
+ * The right TOC drawer (`.page-sidebar`) has to clear Cobalt's fixed footer bar: its content and
+ * internal scrollbar stop above the bar rather than running underneath it, both as a stretched flex
+ * column on a wide viewport and as its own `position: fixed` overlay on a narrow one.
  *
- * Real browser, not `jsdom`/`happy-dom`, for the same reason as `Index.footerCobalt.test.js`: this
- * is genuine box geometry neither DOM emulator's non-existent layout engine can answer.
+ * Real browser: this is box geometry neither DOM emulator's non-existent layout engine can answer.
  */
 
 const frontendRoot = join(import.meta.dirname, '..', '..')
 
 function sfcStyles(relativePath) {
   const source = readFileSync(join(frontendRoot, relativePath), 'utf8')
-  // -> Anchored to the START of a line (Vue SFC convention: a top-level `<style>`/`</style>` tag is
-  //    never indented) rather than a bare `<style[^>]*>`, which a docstring merely MENTIONING
-  //    "<style>" -- `WDrawer.vue`'s own `side` prop comment does exactly this -- would also match,
-  //    swallowing everything up to the real closing tag into one unparseable blob.
+  // -> Anchored to the START of a line, since a top-level SFC `<style>` tag is never indented: a
+  //    bare `<style[^>]*>` would also match a docstring merely MENTIONING the tag -- `WDrawer.vue`'s
+  //    `side` prop comment does -- swallowing the rest of the file into one unparseable blob.
   return [...source.matchAll(/^<style[^>]*>([\s\S]*?)^<\/style>/gm)].map((m) => m[1]).join('\n')
 }
 
 function compileSfcStyles(relativePath) {
-  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
-  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
-  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  // -> No compile step: every SFC `<style>` block is plain CSS, native nesting included, which the
+  //    real Chromium below parses as-is.
   return sfcStyles(relativePath)
 }
 
 /**
- * `.page-container`'s row exactly as `Index.vue` renders it, reduced to what this test needs: the
- * article column (carrying `.page-container-scrl > .w-footer`, the same structure
- * `Index.footerCobalt.test.js` already proves becomes the fixed Cobalt bar) beside `.page-sidebar`
- * with a tall filler standing in for a long contents list. `isOverlay` mirrors the class this
- * component itself only ever applies via its `@media (max-width: $toc-overlay-max)` rule -- there is
- * no viewport-driven CSS class toggle to reproduce here, so `is-open` is simply always present in the
- * narrow fixture, matching a reader who has opened the panel.
+ * `.page-container`'s row reduced to what this test needs, with tall fillers forcing real overflow.
+ * `is-open` tracks the panel being opened, not the viewport, so the narrow fixture simply always
+ * carries it -- a reader who has opened the panel.
  */
 function pageRowHtml({ isOverlay }) {
   return (
@@ -72,8 +62,8 @@ async function measureRow({ browser, css, isOverlay, bodyClasses, viewport }) {
       const sidebar = document.querySelector('.page-sidebar')
       const footer = document.querySelector('.w-footer')
       // -> `document.body`, not `document.documentElement`: the Cobalt override lives on
-      //    `body.body--cobalt` (`tailwind.css`), and a custom property inherits DOWN the tree, not
-      //    up -- reading it off `<html>` would only ever see the bare `:root` default (`0`).
+      //    `body.body--cobalt`, and a custom property inherits DOWN the tree, so `<html>` would only
+      //    ever see the bare `:root` default.
       const footerBarHeight = Number.parseFloat(
         getComputedStyle(document.body).getPropertyValue('--footer-bar-height')
       )
@@ -97,8 +87,8 @@ describe(
     let browser
     let css
     const wideViewport = { width: 1400, height: 700 }
-    // -> Below Index.vue's own `$toc-overlay-max` (749.98px): `.page-sidebar` becomes a
-    //    `position: fixed` overlay instead of a flex-row column.
+    // -> Below the 749.98px breakpoint, where `.page-sidebar` becomes a `position: fixed` overlay
+    //    instead of a flex-row column.
     const narrowViewport = { width: 700, height: 700 }
 
     beforeAll(async () => {
@@ -127,7 +117,6 @@ describe(
       expect(ledger.footerPosition).toBe('static')
       expect(ledger.sidebarPosition).toBe('static')
       expect(ledger.footerBarHeight).toBe(0)
-      // -> Stretches the full row height, all the way to the row's own bottom edge.
       expect(ledger.sidebarBottom).toBeCloseTo(wideViewport.height, 0)
     })
 
@@ -142,9 +131,8 @@ describe(
 
       expect(cobalt.footerPosition).toBe('fixed')
       expect(cobalt.footerBarHeight).toBeGreaterThan(0)
-      // -> Shrunk by exactly the footer bar's own height, not merely padded internally.
+      // -> The column's own box is shorter, not merely padded internally.
       expect(cobalt.sidebarBottom).toBeCloseTo(wideViewport.height - cobalt.footerBarHeight, 0)
-      // -> No overlap: the column's own bottom edge sits at or above the bar's top edge.
       expect(cobalt.sidebarBottom).toBeLessThanOrEqual(cobalt.footerTop + 0.5)
     })
 

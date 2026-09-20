@@ -1,25 +1,16 @@
 <template>
   <!--
-    `max-w-full`: the field is often a flex item in a fixed-width track -- the admin rows put one
-    in a `flex: 0 0 120px` section. `align-items: stretch` only ever GROWS an item to fill its
-    container; it will not shrink one whose content is wider, so a text input at its natural width
-    pushed the field past the section and out of the card. The cap does the shrinking, and stretch
-    still handles the growing.
+    `max-w-full`: the field is often a flex item in a fixed-width track. `align-items: stretch` only
+    ever GROWS an item to fill its container and will not shrink one whose content is wider, so a
+    text input at its natural width pushes the field out of the card. The cap does the shrinking.
   -->
   <div :class="[variantClass, 'max-w-full', 'min-w-0', rootClass]" :style="rootStyle">
     <!--
-      Cardinal labels a field from ABOVE, always. The Material alternative -- a label standing in the
-      middle of the field at rest and rising into a notch cut in its own outline -- is gone with the
-      rounded outline it rode on, and with the three interlocking measurements that kept the notch
-      lined up under it.
-
-      The design's own screens go further and drop the visible label entirely, letting a section
-      header carry the meaning. That is not portable to this app: a `label` here is frequently the
-      only thing that says what a field is (an admin form's dialogs, the page-properties panel), and
-      dropping it would leave the accessible name on an `aria-label` nobody sighted can read. So a
-      label that is passed is drawn, in Cardinal's own "Field label" role (`.w-field-label` below --
-      500/14px, the ink colour, the same role `WSettingsRow.vue`'s own row label draws), and a field
-      with nothing to say is exactly the bare box the design draws.
+      Cardinal labels a field from ABOVE, always: no Material floating label rising into a notch cut
+      in an outline this design no longer has. The design's own screens go further and drop the
+      visible label entirely, letting a section header carry the meaning, which is not portable
+      here -- a `label` is frequently the only thing that says what a field is, and dropping it
+      would leave the accessible name on an `aria-label` nobody sighted can read.
     -->
     <label v-if="label" :for="labelFor" class="w-field-label mb-1 block">
       {{ label }}
@@ -36,15 +27,11 @@
     </component>
 
     <!--
-      The line under the control that error and hint text occupy.
-
       Held open only when something could actually go there -- a hint, a validating rule, or a
-      message showing right now. Reserving it unconditionally cost every plain field 24px of dead
-      height, and because that height sits inside the field, it pushed the visible control above
-      the centre of whatever row held it: measured at 8px above / 28px below in an item row.
-
-      Where a rule exists the space stays reserved even with nothing to say, so the form does not
-      shift the moment a message appears -- which is the reason to hold it at all.
+      message showing right now. Reserving it unconditionally costs every plain field a line of dead
+      height inside the field, which pushes the visible control above the centre of the row holding
+      it. Where a rule exists the space stays reserved even with nothing to say, so the form does
+      not shift the moment a message appears.
     -->
     <div
       v-if="showsBottom"
@@ -78,15 +65,6 @@ import { ref } from 'vue'
  * inset shadow on it and `controlClasses` sizes it -- so `controlTag` and `controlProps` carry
  * whatever that element is and however the caller wires it, and `controlEl` is exposed for a caller
  * that has to focus it.
- *
- * The ring's error color (`.w-input-control`'s `--w-input-ring-error`, `tailwind.css`) resolves to
- * `var(--color-accent-dark)` in generic dark mode -- `#ff8f97` -- but `Primitives Dark 3x -
- * Cobalt.dc.html`'s own "bad address" field swatch draws its error border as `#ff4d5a`, the same
- * bright value light mode uses (`--color-accent-fill`). The pre-Cobalt convention of lightening
- * accent text/rings for a dark ground doesn't hold for this one Cobalt swatch, so
- * `body.body--cobalt.body--dark .w-input-control` (`tailwind.css`) overrides the ring var back to
- * the bright value for Cobalt dark specifically, leaving every other dark aesthetic's ring
- * unchanged (OpenProject #2817, fixing the gap #2773 logged as a frozen-primitive deferral).
  */
 defineProps({
   /** `w-input` / `w-select` — the hook the stylesheets and call-site selectors reach for. */
@@ -115,7 +93,6 @@ defineProps({
     type: String,
     default: null
   },
-  /** Id of the real control, for the label's `for`. */
   labelFor: {
     type: String,
     default: null
@@ -129,7 +106,6 @@ defineProps({
     type: Object,
     default: () => ({})
   },
-  /** The control's own static classes, which differ between a `<div>` and an unstyled `<button>`. */
   controlBaseClass: {
     type: String,
     default: null
@@ -146,7 +122,6 @@ defineProps({
     type: Boolean,
     default: false
   },
-  /** Id for the hint/error line, for a control pointing at it with `aria-describedby`. */
   bottomId: {
     type: String,
     default: null
@@ -165,14 +140,10 @@ defineExpose({ controlEl })
 <style scoped>
 /*
   Field typography (cobalt-typography.md §3, "Shared primitives"). Explicit rather than the Material
-  `text-caption` utility this used to carry for both the label and the hint/error line -- that
-  utility is `@theme static`'s 12px/400/0.033em-tracking role, which is a Material role reaching a
-  Cardinal-drawn one (the audit's own forbidden case) and, for the label, the wrong size outright:
-  the label's role is 500/14px ("Field label", the same swatch `WSettingsRow.vue`'s own
-  `.w-settings-row__label` draws -- there is no separate control-label swatch, only that one), not
-  400/12px. The hint and error lines are two DIFFERENT sizes in the design (12.5px / 11.5px), which
-  this used to draw identically at 12px; `.w-field-message` carries what both share (family, weight,
-  normal tracking) and the two modifiers below carry the one thing that differs.
+  `text-caption` utility: that is a 12px/400 Material role reaching a Cardinal-drawn one, and the
+  label's own role is 500/14px ("Field label", the same swatch `WSettingsRow.vue`'s row label
+  draws). Hint and error are deliberately two DIFFERENT sizes in the design, so `.w-field-message`
+  carries what they share and each modifier carries only the size.
 */
 .w-field-label {
   font-family: var(--font-sans);

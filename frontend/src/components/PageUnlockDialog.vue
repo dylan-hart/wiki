@@ -56,48 +56,29 @@ import { usePageStore } from '@/stores/page'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 /**
- * Prompts for a password-protected page's password and asks the server to open it.
- *
- * Confirming resolves the dialog only once the server has accepted the password and the page store
- * holds the content — so whoever opened this can take `ok` to mean the page is readable, and a wrong
- * guess leaves the prompt up to try again.
+ * `ok` resolves only once the server has accepted the password and the page store holds the content,
+ * so whoever opened this can take it to mean the page is readable.
  */
-
-// EMITS
 
 defineEmits([...dialogComponentEmits])
 
-// REFS
-
 const iptPassword = ref(null)
 const unlockForm = ref(null)
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptPassword.value
 })
 
-// STORES
-
 const pageStore = usePageStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   password: '',
   isLoading: false
 })
 
-// VALIDATION RULES
-
 const passwordValidation = [(val) => val.length > 0 || t('auth.errors.missingPassword')]
-
-// METHODS
 
 async function unlock() {
   state.isLoading = true
@@ -114,7 +95,6 @@ async function unlock() {
       message:
         err.response?.status === 401 ? t('common.page.lockedWrongPassword') : apiErrorMessage(err)
     })
-    // -> Cleared and refocused, because the next thing a reader does is type it again
     state.password = ''
     iptPassword.value?.focus()
   }

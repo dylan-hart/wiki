@@ -9,11 +9,7 @@ import { notify, queue } from '@/composables/notify'
 
 import { createTestI18n } from '../../../test/i18n.js'
 
-/*
- * `<w-notifications>` renders its stack through `<teleport to="body">`. Stubbing `teleport` (the
- * same convention `WDialog.test.js` uses) renders the content inline in the wrapper instead of into
- * `document.body`, which is all a plain `wrapper.find()` needs here.
- */
+/* Teleport is stubbed so the stack renders inline in the wrapper, which `wrapper.find()` needs. */
 function mountStack() {
   return mount(WNotifications, {
     global: { plugins: [createTestI18n()], stubs: { teleport: true } }
@@ -36,9 +32,6 @@ describe('WNotifications', () => {
     })
   })
 
-  // -> `0` under Ledger (unchanged from before this task), a real value under Cobalt
-  //    (`body.body--cobalt`, OpenProject #2767/#2772), matching "toasts ... take
-  //    `--radius-control`"
   it('draws each toast off --radius-control, not left unrounded', async () => {
     const wrapper = mountStack()
 
@@ -48,8 +41,7 @@ describe('WNotifications', () => {
     expect(wrapper.find('.w-notification').classes()).toContain('rounded-control')
   })
 
-  // -> OpenProject #3029: anchored to the top, the stack could obscure the searchbar. Anchoring to
-  //    the bottom instead applies to both aesthetics identically, with no Ledger/Cobalt split.
+  // -> Anchored to the bottom so the stack cannot obscure the searchbar
   it('anchors the stack to the bottom of the viewport, not the top', () => {
     const wrapper = mountStack()
 
@@ -59,11 +51,9 @@ describe('WNotifications', () => {
   })
 
   /*
-   * The enter/leave slide direction must match the bottom anchor -- a toast rises from the bottom
-   * rather than dropping from the top. jsdom cannot reliably resolve a scoped `<style>` block's
-   * computed transform on a Vue-transition-only class (it's applied and removed within a single
-   * transition frame), so this asserts against the component's own source text instead, the same
-   * way `WCard.test.js` checks a scoped-style declaration jsdom's cascade can't be trusted to run.
+   * jsdom cannot reliably resolve a scoped `<style>` block's computed transform on a
+   * Vue-transition-only class -- it is applied and removed within a single transition frame -- so
+   * this asserts against the component's own source text instead.
    */
   it('slides a toast up from the bottom on enter/leave, not down from the top', () => {
     const source = readFileSync(
@@ -76,12 +66,8 @@ describe('WNotifications', () => {
     )
   })
 
-  // -> OpenProject #3038: the timeout bar is an absolutely-positioned, square-cornered child of
-  //    `.w-notification`, flush at `bottom: 0`. Under Cobalt (`--radius-control: 6px`) it poked past
-  //    the container's now-rounded bottom corners because nothing clipped it. `overflow-hidden` on
-  //    the container is the fix, but the repeat-count badge (`.w-notification-count`) deliberately
-  //    overhangs that same corner (`-bottom-1.5 -left-1.5`) -- so the badge has to live OUTSIDE the
-  //    clipped box, or the same `overflow-hidden` that fixes the bar would cut the badge off instead.
+  // -> `overflow-hidden` is what keeps the square-cornered timeout bar inside the rounded corners,
+  //    so the repeat-count badge that deliberately overhangs the same corner must sit outside it.
   it('clips the timeout bar to the rounded corners without clipping the repeat-count badge', async () => {
     const wrapper = mountStack()
 

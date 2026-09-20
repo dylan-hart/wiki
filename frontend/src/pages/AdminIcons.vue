@@ -52,9 +52,6 @@
     </div>
     <div class="flex flex-wrap gap-4 p-4">
       <div class="w-full lg:min-w-0 lg:flex-1">
-        <!-- ----------------------- -->
-        <!-- Icon Sets -->
-        <!-- ----------------------- -->
         <w-card>
           <w-card-header>
             {{ t('admin.icons.sets') }}
@@ -118,9 +115,6 @@
         </w-card>
       </div>
       <div class="w-full lg:w-auto">
-        <!-- ----------------------- -->
-        <!-- Storage / Cache -->
-        <!-- ----------------------- -->
         <w-card class="rounded" style="width: 350px">
           <w-card-header>
             {{ t('admin.icons.storage') }}
@@ -158,9 +152,6 @@
             </w-item>
           </w-list>
         </w-card>
-        <!-- ----------------------- -->
-        <!-- Offline Sideload -->
-        <!-- ----------------------- -->
         <w-card class="rounded mt-4" style="width: 350px" v-if="canSideload">
           <w-card-header>
             {{ t('admin.icons.sideload') }}
@@ -178,9 +169,6 @@
         </w-card>
       </div>
     </div>
-    <!-- ----------------------- -->
-    <!-- Add Set Dialog -->
-    <!-- ----------------------- -->
     <w-dialog v-model="state.addSetDialog" :aria-label="t('admin.icons.addSet')">
       <w-card style="width: 700px; max-width: 90vw">
         <w-card-section class="flex flex-wrap items-center pb-0">
@@ -275,26 +263,16 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { formatFileSize } from '@/helpers/fileSize'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.icons.title')
 }))
-
-// DATA
 
 const state = reactive({
   loading: 0,
@@ -308,12 +286,8 @@ const state = reactive({
   sideloading: false
 })
 
-// COMPUTED
-
-// -> `POST icons/sideload` (backend/api/icons.ts) is `manage:system`-only -- icon sets are
-//    instance-wide, so there is no site-scoped delegation to check alongside it the way
-//    AdminLocale.vue's `site:locale` gate does; the control is hidden rather
-//    than shown disabled for anyone lacking it.
+// -> Icon sets are instance-wide, so `POST icons/sideload` is `manage:system`-only, with no
+//    site-scoped delegation to check alongside it.
 const canSideload = computed(() => userStore.can('manage:system'))
 
 const filteredAvailableSets = computed(() => {
@@ -330,13 +304,9 @@ const filteredAvailableSets = computed(() => {
   })
 })
 
-// METHODS
-
 /**
- * The Iconify page for the set, which lists every icon it holds with its name.
- *
- * Deliberately not the author's own site: what an administrator needs from here is the names to
- * search for, and the Iconify browser is the catalog those names come from.
+ * The Iconify browser, not the set author's own site: what an administrator needs from here is the
+ * icon names to search for, and Iconify is the catalog those names come from.
  */
 function referenceUrl(set) {
   return `https://icon-sets.iconify.design/${set.prefix}/`
@@ -383,9 +353,7 @@ async function load() {
 }
 
 /**
- * Bring the set metadata up to date with upstream, then reload.
- *
- * Sets seeded at install time have no metadata until this runs, since installing must not depend on
+ * Sets seeded at install time carry no metadata until this runs: installing must not depend on
  * outbound access.
  */
 async function refreshSets() {
@@ -393,20 +361,16 @@ async function refreshSets() {
   try {
     await API_CLIENT.post('icons/sets/refresh').json()
   } catch {
-    // -> Metadata is a nicety; a wiki with no outbound access still serves every icon it holds
+    // -> Metadata is a nicety; a wiki with no outbound access still serves every icon it holds.
   }
   state.loading--
   await load()
 }
 
 /**
- * The air-gapped deployment path (OpenProject #820/#2939): `POST icons/sideload` rescans
- * `<dataPath>/icons/` on the server's own data volume for vendored Iconify collection JSON files an
- * operator placed there out-of-band and (re)loads whatever it finds -- unlike the locale sideload,
- * every file found there is always reloaded, so there is no freshness gate to force past. `loaded`
- * and `skipped` can both be non-empty at once (a partial run), so success/failure isn't a strict
- * either/or -- each is reported on its own, mirroring AdminLocale.vue's sideload() but against the
- * icons route's own response shape ({ loaded: { prefix, iconCount }[], skipped: { prefix, error }[] }).
+ * The air-gapped path: the server rescans `<dataPath>/icons/` for Iconify collection JSON an
+ * operator placed there out-of-band. `loaded` and `skipped` can both be non-empty (a partial run),
+ * so the two toasts below are independent rather than an either/or.
  */
 async function sideload() {
   if (state.sideloading) {
@@ -526,7 +490,6 @@ function confirmDeleteSet(set) {
         type: 'positive',
         message: t('admin.icons.deleteSuccess', { set: set.name })
       })
-      // -> The catalog now offers it again
       const available = state.availableSets.find((s) => s.prefix === set.prefix)
       if (available) {
         available.isAdded = false
@@ -571,12 +534,10 @@ function purgeCache() {
   })
 }
 
-// MOUNTED
-
 onMounted(async () => {
   await load()
-  // -> A set with no metadata has never been described by upstream: seeded at install, or added while
-  //    the API was unreachable
+  // -> Missing metadata means upstream has never described the set: seeded at install, or added
+  //    while the Iconify API was unreachable.
   if (state.sets.some((set) => !set.info?.total)) {
     await refreshSets()
   }
@@ -584,11 +545,8 @@ onMounted(async () => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Flat on purpose: a `&-suffix` selector is Sass string concatenation, and native CSS nesting
+   silently drops such a rule rather than matching it. */
 .admin-icons-icon {
   animation:
     fadeInLeft 0.6s forwards,

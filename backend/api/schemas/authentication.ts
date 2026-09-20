@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * AUTH LOGIN RESULT - Where a login attempt got to, and what the client must do next
-   */
   app.addSchema({
     $id: 'AuthLoginResult',
     type: 'object',
@@ -43,10 +40,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * AUTH FORGOT PASSWORD RESULT - Always the same generic success, whatever `forgotPassword()` did or
-   * didn't do behind it. See `POST /sites/:siteId/auth/forgotPassword`'s description for why.
-   */
+  /** Always the same generic success, so it cannot reveal whether an address has an account. */
   app.addSchema({
     $id: 'AuthForgotPasswordResult',
     type: 'object',
@@ -60,9 +54,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * AUTH MODULE - An authentication module as found on disk
-   */
   app.addSchema({
     $id: 'AuthModule',
     type: 'object',
@@ -107,16 +98,13 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       usernameType: {
         type: 'string'
       },
-      // Deliberately loose: keys and value types come from each module's own `definition.yml` on
-      // disk, so the shape genuinely differs per authentication module (local, OIDC, LDAP, …).
+      // Deliberately loose: keys and value types come from each module's own `definition.yml`.
       props: {
         type: 'object',
         additionalProperties: true,
         description:
           'The module configuration, declared in its `definition.yml`: each entry carries a `type`, `title`, `hint`, `default` and the display hints the admin area renders a control from. A `readOnly` prop is shown but cannot be changed, and is silently kept at its stored value when written to.'
       },
-      // Deliberately loose: same reason as `props` above — which refs a module exposes, and their
-      // keys, are declared per module.
       refs: {
         type: 'object',
         additionalProperties: true,
@@ -126,9 +114,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * AUTH STRATEGY - A configured instance of a module
-   */
   app.addSchema({
     $id: 'AuthStrategy',
     type: 'object',
@@ -187,8 +172,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Admin-chosen allow-list of groups a provider login may grant or revoke via `mapGroups`. Empty by default, meaning a login changes no group memberships. A group carrying `manage:system`, or the root administrators group, is never mapped regardless of this list.'
       },
-      // Deliberately loose: values for whatever `props` the module (see `AuthModule` above)
-      // declares — a different set of keys per module.
       config: {
         type: 'object',
         additionalProperties: true,
@@ -199,10 +182,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * AUTH GROUP SYNC WARNINGS - Which groups an enabled, group-mapping strategy could currently
-   * silently revoke from a user on their next login (WP #2440). Carries no secrets, unlike
-   * `AuthStrategy` above -- just group and strategy ids/names -- so the route it backs needs only
-   * `read:users`/`manage:users`/`read:groups`/`manage:groups`, not `manage:system`.
+   * Groups an enabled, group-mapping strategy could silently revoke from a user on their next
+   * login. Ids and names only, no secrets: that is what lets its route ask less than
+   * `manage:system`.
    */
   app.addSchema({
     $id: 'AuthGroupSyncWarnings',
@@ -234,10 +216,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * AUTH VISIBLE SITE COUNTS - How many sites currently show each configured strategy on their login
-   * screen (OpenProject #2557) -- a strategy id absent from the list has a count of zero.
-   */
+  /** A strategy id absent from the list has a count of zero. */
   app.addSchema({
     $id: 'AuthVisibleSiteCounts',
     type: 'array',
@@ -256,9 +235,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * AUTH STRATEGY INPUT - Used both ways: to create a strategy, and as a partial update
-   */
+  /** Used both ways: to create a strategy, and as a partial update. */
   app.addSchema({
     $id: 'AuthStrategyInput',
     type: 'object',
@@ -322,7 +299,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Allow-list of groups this strategy is permitted to grant/revoke on login via `mapGroups`. The guests group is refused. Empty by default, meaning no group memberships are changed. A group carrying `manage:system`, or the root administrators group, is never mapped regardless of this list.'
       },
-      // Deliberately loose: same reason as `AuthStrategy.config` above.
       config: {
         type: 'object',
         additionalProperties: true,

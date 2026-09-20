@@ -4,15 +4,7 @@ import { sessionCookieName } from '../../helpers/security.ts'
 import type { FastifyInstance } from 'fastify'
 import { loginErrorUrl } from './provider.ts'
 
-/**
- * The public, per-site login surface: which strategies a site offers, and everything a reader can do
- * with the local one -- log in, register, change or reset a password, answer a 2FA challenge, use a
- * passkey, verify an email, log out.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * GET SITE AUTHENTICATION STRATEGIES
-   */
   app.get<{ Params: { siteId: string }; Querystring: { visibleOnly?: boolean } }>(
     '/sites/:siteId/auth/strategies',
     {
@@ -100,15 +92,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      // -> `siteEnabledPreHandler` (`helpers/siteResolution.ts`) has already answered 404 for an unknown
-      //    `:siteId` before any handler here runs, so this is the site, not a maybe —
-      //    `models/sites.ts#getSiteById` is this same map lookup with an `await` in front of it.
+      // -> `siteEnabledPreHandler` has already answered 404 for an unknown `:siteId`
       const site = CARDINAL.sites[req.params.siteId]
-      /*
-        `getActiveStrategies` rather than the raw rows: it completes each config from the module's
-        declared defaults, so a prop added to a module after a strategy was configured reads as its
-        default here instead of as a missing key.
-      */
+      // -> `getActiveStrategies`, not the raw rows: it completes each config from the module's
+      //    declared defaults, so a prop added after a strategy was configured reads as its default
       const activeStrategies = (await CARDINAL.models.authentication.getActiveStrategies()).filter(
         (str: any) => str.isEnabled
       )
@@ -128,16 +115,12 @@ async function routes(app: FastifyInstance) {
                 Named explicitly, like every other field here: this endpoint is public and a strategy's
                 config is where an OAuth client secret lives, so nothing may reach it by spreading.
 
-                Only ever present for a form-based module: a redirect-based strategy's new-account path
-                is `autoProvision`, which is never the public login screen's business to know about --
-                publishing it unauthenticated is exactly what told an attacker which provider currently
-                accepts a self-registration POST (see `models/users.ts#register()`'s `useForm` check).
+                Form-based modules only: a redirect-based strategy's new-account path is
+                `autoProvision`, which is not the public login screen's business to know about.
               */
               ...(authModule?.useForm && { selfRegistration: str.selfRegistration }),
-              /*
-                A module that declares no such prop reads as false, which is correct rather than a
-                default -- a strategy with no password of its own has no password to reset.
-              */
+              // -> A module declaring no such prop reads as false: a strategy with no password of
+              //    its own has none to reset
               allowForgotPassword: str.config?.allowForgotPassword === true,
               strategy: {
                 key: authModule?.key ?? str.module,
@@ -155,9 +138,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LOGIN USING USER/PASS
-   */
   app.put<{
     Params: { siteId: string }
     Body: { strategyId: string; username?: string; password?: string }
@@ -167,7 +147,6 @@ async function routes(app: FastifyInstance) {
       config: {
         publicAccess: true
       },
-      // -> Guessing is what this endpoint is attacked with; see `helpers/rateLimit.ts`
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Login',
@@ -175,10 +154,8 @@ async function routes(app: FastifyInstance) {
         params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
-          // -> `password` is required here too, not just checked deeper in `users.login()`: an
-          //    omitted key skips `minLength`'s check entirely (it only constrains a *present*
-          //    value), so without this a body of `{ strategyId, username }` validated and reached
-          //    the LDAP strategy with `password: undefined`.
+          // -> `minLength` only constrains a present value, so without `password` here a body that
+          //    omits it would validate
           required: ['strategyId', 'password'],
           properties: {
             strategyId: {
@@ -229,10 +206,9 @@ async function routes(app: FastifyInstance) {
         }
       } catch (err: any) {
         if (err instanceof AccountRateLimitedError) {
-          // -> Matches `limitAuthAttempts`' own 429 + `Retry-After` contract, so the two rate
-          //    limiters guarding this endpoint (IP-keyed and account-keyed) signal exhaustion the
-          //    same way to API clients (OpenProject #2361). Checked before the generic `ERR_`-prefix
-          //    branch below, since this error's own message is still `ERR_RATE_LIMITED`.
+          // -> Matches `limitAuthAttempts`' own 429 + `Retry-After` contract, so the IP-keyed and
+          //    account-keyed limiters signal exhaustion the same way. Checked before the `ERR_`
+          //    branch below, since this error's own message is `ERR_RATE_LIMITED`.
           reply.header('Retry-After', String(err.retryAfter))
           return reply.tooManyRequests(
             `Too many attempts. Try again in ${Math.ceil(err.retryAfter / 60)} minute(s).`
@@ -241,10 +217,8 @@ async function routes(app: FastifyInstance) {
         if (err.message.startsWith('ERR_')) {
           return reply.badRequest(err.message)
         } else {
-          // -> An unexpected failure, reported to the client as a generic one — so the cause exists
-          //    nowhere but here. `error`, not `debug` (V8): a 400 the client cannot act on, whose
-          //    reason an operator could not see even at `logLevel: debug`, is something a person
-          //    has to look at. The `authDebug` line stays: it is the admin flag's own firehose.
+          // -> The client only gets a generic code, so this line is the one place the cause exists:
+          //    hence `error`, not `debug`
           CARDINAL.logger.error('auth', 'login failed unexpectedly', { error: err, reqId: req.id })
           CARDINAL.models.flags.authDebug(`Login failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_LOGIN_FAILED')
@@ -253,9 +227,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SELF-REGISTER
-   */
   app.post<{
     Params: { siteId: string }
     Body: {
@@ -272,7 +243,6 @@ async function routes(app: FastifyInstance) {
       config: {
         publicAccess: true
       },
-      // -> Same reasoning as login: a form anyone can submit is what this endpoint is attacked with
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Register a new account',
@@ -344,8 +314,6 @@ async function routes(app: FastifyInstance) {
         if (err.message.startsWith('ERR_')) {
           return reply.badRequest(err.message)
         } else {
-          // -> An unexpected failure, reported to the client as a generic one, matching the login
-          //    route — logged at `error` for the same reason (V8)
           CARDINAL.logger.error('auth', 'registration failed unexpectedly', {
             error: err,
             reqId: req.id
@@ -357,9 +325,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CHANGE PASSWORD
-   */
   app.put<{
     Params: { siteId: string }
     Body: { strategyId: string; continuationToken: string; newPassword: string }
@@ -369,7 +334,6 @@ async function routes(app: FastifyInstance) {
       config: {
         publicAccess: true
       },
-      // -> Guessing is what this endpoint is attacked with; see `helpers/rateLimit.ts`
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Change Password From Login',
@@ -439,15 +403,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REQUEST A PASSWORD RESET
-   *
-   * Always answers the same generic success, whatever `forgotPassword()` did behind it -- an unknown
-   * strategy, one with password resets turned off, an address matching no account, and an address that
-   * does match are all indistinguishable from the outside. Anything but that fixed shape would make
-   * this endpoint an oracle for which addresses have accounts, which is the one thing a "forgot
-   * password" form must never leak.
-   */
   app.post<{
     Params: { siteId: string }
     Body: { strategyId: string; email: string }
@@ -457,7 +412,6 @@ async function routes(app: FastifyInstance) {
       config: {
         publicAccess: true
       },
-      // -> Guessing addresses is what this endpoint is attacked with; see `helpers/rateLimit.ts`
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Request a password reset email',
@@ -493,9 +447,8 @@ async function routes(app: FastifyInstance) {
           siteId: req.params.siteId
         })
       } catch (err: any) {
-        // -> Swallowed rather than reported: even an unexpected failure here must not produce a
-        //    response distinguishable from the success case, or it becomes the oracle this route
-        //    exists to avoid being.
+        // -> Swallowed: even an unexpected failure must be indistinguishable from success, or this
+        //    route becomes an oracle for which addresses have accounts
         CARDINAL.logger.error('auth', 'forgot-password request failed unexpectedly', {
           error: err,
           reqId: req.id
@@ -512,11 +465,8 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
-   * RESET PASSWORD
-   *
-   * Where the link mailed by `forgotPassword` above points. Unlike that request step, failures here
-   * are reported normally -- a bad or expired token, or too short a password -- since none of them
-   * reveal whether any particular address has an account.
+   * Unlike the forgot-password request, failures here are reported normally: none of them reveals
+   * whether an address has an account.
    */
   app.put<{
     Params: { siteId: string }
@@ -527,7 +477,6 @@ async function routes(app: FastifyInstance) {
       config: {
         publicAccess: true
       },
-      // -> Guessing is what this endpoint is attacked with; see `helpers/rateLimit.ts`
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Finish a password reset from the forgot-password email',
@@ -598,14 +547,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SUBMIT A 2FA CODE
-   *
-   * The other half of a login that answered `provideTfa` or `setupTfa`: the continuation token stands
-   * for the login that got that far, and the code proves the second factor. With `setup`, a correct
-   * code also activates the secret the login generated, which is how an account that is required to
-   * use 2FA gets it configured.
-   */
   app.put<{
     Params: { siteId: string }
     Body: {
@@ -620,7 +561,6 @@ async function routes(app: FastifyInstance) {
       config: {
         publicAccess: true
       },
-      // -> Guessing is what this endpoint is attacked with; see `helpers/rateLimit.ts`
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Submit a 2FA Security Code From Login',
@@ -685,9 +625,6 @@ async function routes(app: FastifyInstance) {
         }
       } catch (err: any) {
         if (err instanceof AccountRateLimitedError) {
-          // -> See the login route's own comment above (OpenProject #2361): matches
-          //    `limitAuthAttempts`' 429 + `Retry-After` contract instead of falling through to the
-          //    generic `ERR_`-prefix 400 branch below.
           CARDINAL.models.flags.authDebug(`2FA verification rate-limited: ${err.message}`)
           reply.header('Retry-After', String(err.retryAfter))
           return reply.tooManyRequests(
@@ -709,19 +646,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REQUEST A PASSKEY CHALLENGE
-   *
-   * Takes no identity: a passkey says which account it belongs to, so there is nobody to name until the
-   * assertion comes back. The challenge is remembered on the session.
-   */
   app.post<{ Params: { siteId: string } }>(
     '/sites/:siteId/auth/passkey/challenge',
     {
       config: {
         publicAccess: true
       },
-      // -> Guessing is what this endpoint is attacked with; see `helpers/rateLimit.ts`
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Get the options for logging in with a passkey',
@@ -771,16 +701,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LOGIN USING A PASSKEY
-   */
   app.put<{ Params: { siteId: string }; Body: { authResponse: Record<string, any> } }>(
     '/sites/:siteId/auth/passkey/login',
     {
       config: {
         publicAccess: true
       },
-      // -> Guessing is what this endpoint is attacked with; see `helpers/rateLimit.ts`
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Login With a Passkey',
@@ -837,9 +763,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * VERIFY EMAIL ADDRESS
-   */
   app.get<{ Params: { token: string } }>(
     '/auth/verify/:token',
     {
@@ -886,9 +809,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LOGOUT
-   */
   app.post<{ Params: { siteId: string } }>(
     '/sites/:siteId/auth/logout',
     {
@@ -928,18 +848,12 @@ async function routes(app: FastifyInstance) {
       )
 
       if (req.session) {
-        // -> Drops the stored session, so the cookie the browser still holds refers to nothing
         await req.session.destroy()
       }
-      // -> And clear that cookie too: `destroy()` detaches the session, which leaves the plugin's own
-      //    save hook with nothing to do. Name and options match the registration in `index.ts`: the
-      //    `__Host-` prefix requires a clearing `Set-Cookie` to still carry `Secure; Path=/` (task
-      //    2109 / WP 2105 §2) or the browser rejects the clear the same way it would a real one,
-      //    leaving the stale (now-orphaned) cookie sitting in the browser -- `security.cookieSecure:
-      //    false` drops both, so the clear has to match whichever is actually in effect. `sameSite`
-      //    also mirrors the registration ('lax', not 'strict' -- see index.ts's comment: the
-      //    OAuth/SAML callback is a cross-site top-level navigation back to this origin) so the
-      //    clearing cookie's attributes match the one being cleared exactly (OpenProject #2336).
+      // -> `destroy()` detaches the session, which leaves the plugin's own save hook nothing to
+      //    clear the cookie with. Name and options must match the registration in
+      //    `core/http/session.ts`: the `__Host-` prefix requires even a clearing `Set-Cookie` to
+      //    carry `Secure; Path=/`, or the browser rejects it and keeps the stale cookie.
       reply.clearCookie(sessionCookieName(), {
         path: '/',
         secure: CARDINAL.config.security?.cookieSecure !== false,
@@ -950,9 +864,8 @@ async function routes(app: FastifyInstance) {
         CARDINAL.models.flags.authDebug(
           `User ${user.id} <${user.email}> logged out, redirecting to ${redirect}`
         )
-        // -> No site context: `req.params.siteId` names which site's login page the user happened to
-        //    log out from, not a business site scope for the account -- same reasoning as
-        //    `user:join`/`user:login` in `models/users.ts`. A site-scoped hook must not receive this.
+        // -> No site context: `req.params.siteId` is only the login page the user logged out from,
+        //    not a scope for the account, and a site-scoped hook must not receive this
         await CARDINAL.models.hooks.emit('user:logout', null, {
           userId: user.id,
           ip: req.ip,

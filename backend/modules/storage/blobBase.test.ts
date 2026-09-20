@@ -12,16 +12,13 @@ import { makeStorageTarget } from '../../test/builders.ts'
 import type { StorageTarget } from '../../models/storage.ts'
 
 /**
- * Pure unit tests for the shared blob-target factory, driven by a fake driver rather than any cloud
- * SDK: what is under test here is the part `s3`, `azure` and `gcs` no longer each own — the activation
- * cache, the five handlers, the key computation and the error wrapping — so a stand-in driver that
- * merely records what it was asked to do is exactly the right instrument. Each module's own
- * `storage.test.ts` still covers its SDK callbacks against that SDK's mocking story.
+ * Driven by a fake driver rather than any cloud SDK: what is under test is the part `s3`, `azure`
+ * and `gcs` do not each own — the activation cache, the handlers, the key computation and the error
+ * wrapping. Each module's own `storage.test.ts` covers its SDK callbacks.
  */
 
 installTestWiki({
-  // -> `info` is a `mock.fn()` rather than the silent default: `beforeEach` below resets its call
-  //    history, and one test asserts on what the module logged.
+  // -> `info` is a `mock.fn()` rather than the silent default: one test asserts on what was logged.
   logger: { ...createSilentLogger(), info: mock.fn() },
   models: {
     assets: {
@@ -31,15 +28,14 @@ installTestWiki({
   }
 })
 
-/** The fake driver's "client" — an opaque token, so a test can assert it reached every callback. */
+/** An opaque token, so a test can assert the same client reached every callback. */
 interface FakeClient {
   id: string
 }
 
 /**
- * A driver that records what it was asked to do. Returned unannotated (rather than as a
- * `BlobDriver<FakeClient>`) so each callback keeps its `mock.fn` type — that is what lets a test both
- * assert call arguments and swap one call's implementation with `mockImplementationOnce`.
+ * Returned unannotated rather than as a `BlobDriver<FakeClient>` so each callback keeps its
+ * `mock.fn` type — what lets a test assert call arguments and use `mockImplementationOnce`.
  */
 function makeDriver() {
   return {
@@ -103,7 +99,6 @@ describe('blobBase / activation cache', () => {
 
     assert.equal(driver.build.mock.callCount(), 1)
     assert.equal(driver.remove.mock.callCount(), 2)
-    // -> both calls landed on the one activated client
     const [first, second] = driver.remove.mock.calls
     assert.equal(first!.arguments[0], second!.arguments[0])
   })
@@ -151,8 +146,6 @@ describe('blobBase / activation cache', () => {
       /bad credentials/
     )
 
-    // -> Still within the negative-cache window: the second call replayed the first rejection
-    //    rather than paying the SDK's connect/retry cost again.
     assert.equal(driver.build.mock.callCount(), 1)
     assert.equal(driver.remove.mock.callCount(), 0)
   })
@@ -400,11 +393,7 @@ describe('blobBase / error wrapping', () => {
     )
   })
 
-  /**
-   * `getDirectUrl` is the one handler whose action name is a whole phrase rather than a verb, and
-   * the only one that returns a value rather than resolving — so its wrapper is the easiest to
-   * change without noticing. An admin whose bucket credentials cannot sign reads sees this string.
-   */
+  /** Asserted verbatim: this exact string is what an admin whose credentials cannot sign reads. */
   test('a signing failure names the direct-access action and the key, verbatim', async () => {
     const driver = makeDriver()
     driver.sign.mock.mockImplementationOnce(async () => {

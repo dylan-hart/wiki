@@ -9,37 +9,18 @@ import Login from './Login.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2550: `Login.vue`'s `.auth`/`.auth-content` style block paired a dark
- * `background-color` for `.body--dark` with no `color` override, so every plain, colorless `<p>`
- * across all six auth screens sharing this container (login, forgot/reset/change password,
- * register, TFA) inherited the browser-default black text on top of the now-dark background.
- * Separately, `Login.vue`'s own `text-grey-7` subtitle had no `dark:` pairing at all, unlike the
- * identical color elsewhere in the app (`AccountMenu.vue`).
+ * The claim: every auth screen's text differs between the two themes and neither tone is the
+ * unstyled browser default (black on a dark pane). Asserted off real `getComputedStyle` results,
+ * with the page attached to `document.body` -- the `.body--dark <selector>` ancestor combinator
+ * cannot match otherwise.
  *
- * OpenProject #2627 took that subtitle off the Material grey entirely -- the design sets it in
- * Cardinal's own secondary tier -- so it is now `.auth-lead` with a tone on each side rather than a
- * `text-grey-7` / `dark:text-white` pair. The claim below is unchanged: whatever tone it takes, the
- * two themes must differ and neither may be the browser default.
+ * A fresh mount per theme rather than one instance toggled mid-test: happy-dom returns a stale
+ * `getComputedStyle` on a second read of the same element after only the `body` ancestor's class
+ * changed.
  *
- * Mounts the real `Login.vue` page (its `<style>` block is unscoped, so it applies
- * globally the same way it does in the app) attached to `document.body` -- required for the
- * `.body--dark <selector>` ancestor combinator to actually match -- and reads real, compiled
- * `getComputedStyle` results rather than asserting the source text contains the right-looking
- * string.
- *
- * A fresh mount per theme, rather than one instance with the theme toggled mid-test: see
- * `EditorWysiwyg.darkMode.test.js` for why (happy-dom returns a stale `getComputedStyle` on a second
- * read of the same element after only the `body` ancestor's class changed, under this suite's real,
- * full-size app stylesheet).
- *
- * OpenProject #2779 moved `.auth`'s and `.auth-lead`'s colors off the old Sass `_theme.scss`'s
- * literal `$`-prefixed variables onto the matching `var(--color-*)` custom property, so they now
- * respond to `body.body--cobalt`'s token overrides -- but those custom properties are declared in
- * `css/tailwind.css`, which (per that file's own header comment, and `WBtn.test.js`'s identical
- * convention) is not loaded under Vitest. Seeding the four properties these two selectors reference
- * by hand, with a different value per theme, is what keeps this suite asserting the same claim it
- * always has -- light and dark genuinely differ, and neither is the unstyled browser default -- now
- * that the values come from custom properties instead of baked-in Sass literals.
+ * The colors come from `var(--color-*)` properties declared in `css/tailwind.css`, which is not
+ * loaded under Vitest, so the four this page reads are seeded by hand with a distinct value per
+ * theme.
  */
 const TEXT_BODY_COLORS = { light: 'rgb(1, 2, 3)', dark: 'rgb(4, 5, 6)' }
 const TEXT_SECONDARY_COLORS = { light: 'rgb(7, 8, 9)', dark: 'rgb(10, 11, 12)' }
@@ -60,11 +41,10 @@ const LOCAL_STRATEGY_WITH_FORGOT = {
 }
 
 async function mountForTheme(theme) {
-  // -> Through `useDark()`, not a raw `classList` write -- see `EditorWysiwyg.darkMode.test.js` for
-  //    why a direct `document.body.classList` write would leave reactive state stale.
+  // -> Through `useDark()`, not a raw `document.body.classList` write, which would leave the
+  //    composable's own reactive state stale.
   useDark().set(theme === 'dark')
 
-  // -> See the file header: `tailwind.css` isn't loaded here, so these are seeded by hand.
   document.documentElement.style.setProperty('--color-text-body', TEXT_BODY_COLORS.light)
   document.documentElement.style.setProperty('--color-text-dark', TEXT_BODY_COLORS.dark)
   document.documentElement.style.setProperty('--color-text-secondary', TEXT_SECONDARY_COLORS.light)
@@ -117,16 +97,11 @@ describe('Login.vue dark mode (OpenProject #2550)', () => {
 
   it('gives a plain, colorless <p> nested anywhere under .auth-content a legible, theme-distinct color inherited from the container -- not the browser-default black', async () => {
     const lightWrapper = await mountForTheme('light')
-    // -> Two form strategies would show the panel's own colorless selector prompt directly; a
-    //    single local strategy with `allowForgotPassword` shows a link into the forgot-password
-    //    screen instead, whose subtitle (`AuthLoginPanel.vue`) is the same kind of plain, colorless
-    //    `<p>` the bug affected everywhere else in the flow -- reached through the same real user
-    //    interaction a reader would use, not a synthetic screen switch. `t()` resolves an
-    //    untranslated key to the key itself under this suite's i18n (see `test/i18n.js`), so the
-    //    button's label is literally the translation key.
-    // -> Login.vue's own `<p class="auth-lead">` is always rendered above `<auth-login-panel>`,
-    //    so once the screen has switched there are two `<p>`s in document order; the LAST one is
-    //    the panel's forgot-password subtitle this assertion is actually after.
+    // -> The forgot-password screen's subtitle is a plain, colorless `<p>`, reached through the
+    //    same click a reader would make rather than a synthetic screen switch. The button's label
+    //    is literally the translation key: this suite's i18n resolves an untranslated key to itself.
+    // -> `.auth-lead` sits above `<auth-login-panel>` and stays rendered, so the LAST `<p>` in
+    //    document order is the panel's subtitle this assertion is after.
     await findButtonByText(lightWrapper, 'auth.forgotPasswordLink').trigger('click')
     await nextTick()
     const lightSubtitle = lightWrapper.findAll('p').at(-1)

@@ -10,12 +10,8 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * OpenProject #986: `UserDeleteDialog.vue` gained a "Reassign Content To..." picker, so an admin who
- * hits the ownership conflict never has to leave the delete flow to clear it. `chooseTargetUser()`
- * opens the real `UserSearchDialog` (in its new `singleSelect` mode) via the `dialog()` composable --
- * confirmed here the same way `GroupEditOverlay.test.js` confirms its own nested `UserSearchDialog`
- * use, by asserting on `openDialogs` and firing `closeDialog()` rather than mounting the nested
- * dialog's own tree.
+ * The nested `UserSearchDialog` is driven through `openDialogs` and `closeDialog()` rather than by
+ * mounting its own tree, since the `dialog()` composable is what opens it.
  */
 
 let currentWrapper = null
@@ -131,7 +127,7 @@ describe('UserDeleteDialog confirm()', () => {
 
     expect(API_CLIENT.delete).not.toHaveBeenCalled()
     expect(wrapper.emitted('ok')).toBeUndefined()
-    // -> The raw ERR_ code is translated via localizeError(), not shown to the admin verbatim
+    // -> The raw ERR_ code is translated, not shown to the admin verbatim.
     expect(notifyQueue.at(-1)?.message).toBe('Content cannot be reassigned to the same user.')
     expect(notifyQueue.at(-1)?.type).toBe('negative')
   })

@@ -117,7 +117,6 @@ describe('parseMigrationArgs', () => {
           'db.internal',
           '--source-database',
           'wiki25'
-          // missing --source-user / --source-password
         ]),
       /Incomplete Postgres source.*--source-user.*--source-password/s
     )

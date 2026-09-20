@@ -3,10 +3,6 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { isValidUuid } from './common.ts'
 import { appendCspDirective, frameAncestorsDirective } from './security.ts'
 
-/**
- * What a page/shell request's hostname resolved to, for the site-resolution hook in
- * `core/http/siteRouting.ts`.
- */
 export type RequestSiteResolution =
   | { outcome: 'exempt' }
   | { outcome: 'not-found' }
@@ -14,25 +10,14 @@ export type RequestSiteResolution =
   | { outcome: 'ok'; site: Record<string, any> }
 
 /**
- * Decide what a page/shell request's hostname resolves to, and whether the request should be let
- * through at all.
+ * Same exact-then-`*` precedence as `siteIdForHostname`, so a request sees the site the SEO hook in
+ * `core/http/siteRouting.ts` already used to decide whether to strip a page extension.
  *
- * Mirrors the SEO hook's precedence in `core/http/siteRouting.ts` exactly —
- * `sitesMappings[normalizeHostname(hostname)] || sitesMappings['*']` — so a request sees the same
- * site the SEO hook already used to decide whether to strip a page extension.
+ * `exemptSegments` are first path segments that must reach the app shell whatever the hostname
+ * resolves to — the fix path for a disabled or unmatched site has to survive what it corrects.
  *
- * `exemptSegments` is the caller's list of first path segments that must reach the app shell
- * regardless of what the hostname resolves to — the fix path for a disabled or unmatched site has to
- * survive the very thing it exists to correct.
- *
- * `hostname` is trusted as-is here — the refusal of a forwarded host that names a different site than
- * the socket's own `Host` (task 2085, `docs/audit-2026-08-24/security/13-tenancy-isolation.md` §6)
- * happens one layer up, in Fastify itself: `core/http/server.ts` passes `security.trustProxy` straight
- * through as Fastify's own `trustProxy` option, and once that is a genuine address/CIDR spec rather
- * than a bare `true`, Fastify's vendored `request.hostname` getter (`fastify/lib/request.js`) only
- * reads `X-Forwarded-Host` from a peer address the spec covers, falling back to the raw `Host` header
- * for everyone else. So by the time `hostname` reaches this function it has already been through that
- * check — there is nothing left to compare it against.
+ * `hostname` is trusted as-is. Refusing a forged `X-Forwarded-Host` happens one layer up: Fastify's
+ * `request.hostname` getter only reads that header from a peer `security.trustProxy` covers.
  */
 export function resolveRequestSite({
   firstSegment,
@@ -61,48 +46,25 @@ export function resolveRequestSite({
   return { outcome: 'ok', site }
 }
 
-/** The message every disabled-site `403` answers with — see `guardSiteEnabled`. */
 export const SITE_DISABLED_MESSAGE = 'This wiki site is currently disabled.'
 
-/** The message every unknown-`:siteId` `404` answers with — see `siteEnabledPreHandler`. */
 export const SITE_MISSING_MESSAGE = 'This site does not exist.'
 
 /**
- * The one place a hostname is folded to the form `CARDINAL.sitesMappings` is keyed and looked up by
- * (OpenProject #2127).
- *
- * DNS names are case-insensitive, but `models/sites.ts#reloadCache()` used to key
- * `CARDINAL.sitesMappings` by `site.hostname` exactly as stored (already constrained to lowercase by
- * the site create/update schemas — see `api/sites.ts`'s `^(\*|[a-z0-9.-]+)$` pattern — so the
- * WRITE side was already fine) while every READ side indexed it with `req.hostname` exactly as
- * Fastify's `hostname` getter delivers it — case preserved, only the port stripped. A `Host:
- * Wiki.Example.Com` request for a site stored as `wiki.example.com` therefore matched nothing and
- * fell through to the `*` catch-all, or to "not found" with none configured — an unauthenticated
- * correctness/availability defect for any client or intermediary that preserves `Host` case (curl,
- * some HTTP libraries, some proxies), not an escalation, since a mixed-case `Host` already landed
- * on the same catch-all any unknown hostname reaches.
- *
- * Every lookup (and the write side, belt and braces) routes through this rather than each call
- * site lowercasing for itself, so a future lookup added elsewhere cannot silently reintroduce the
- * mismatch.
+ * `CARDINAL.sitesMappings` is keyed lowercase, while Fastify's `req.hostname` preserves the `Host`
+ * header's case. Every lookup and the write side fold through here rather than lowercasing for
+ * themselves, so a mixed-case `Host` cannot fall through to the `*` catch-all.
  */
 export function normalizeHostname(hostname: string): string {
   return hostname.toLowerCase()
 }
 
 /**
- * Which site a request's hostname resolves to, as `CARDINAL.sitesMappings` answers it.
+ * The one `sitesMappings` lookup — folded hostname, then the `*` catch-all. Never index
+ * `CARDINAL.sitesMappings` with a raw `req.hostname`.
  *
- * The other half of `normalizeHostname`'s job (OpenProject #2127): folding the hostname is only
- * useful if every lookup actually does it, and the lookup itself — `sitesMappings[normalized]`,
- * falling back to the `*` catch-all — was written out at five call sites, one of which
- * (`api/diagrams.ts`) indexed `sitesMappings` with the raw `req.hostname` and so missed a mixed-case
- * `Host` entirely, resolving the catch-all site instead of the one addressed. One function, so a
- * lookup added later cannot reintroduce that.
- *
- * @param strict Refuse the `*` catch-all, answering `undefined` for a hostname no site claims —
- *   what `GET /_api/sites/:siteIdorHostname?strict=true` offers a caller that wants to know whether
- *   this exact hostname is configured, rather than which site would serve it
+ * @param strict Refuse the `*` catch-all: answers whether this exact hostname is configured, rather
+ *   than which site would serve it
  */
 export function siteIdForHostname(
   hostname: string | undefined,
@@ -116,12 +78,8 @@ export function siteIdForHostname(
 }
 
 /**
- * Resolve the site behind a request's own hostname, or null when the request carries none.
- *
- * The three-line ternary `api/users/profile.ts` repeated for each of its hostname-scoped profile features.
- * Not the same question `siteIdForHostname` answers: this one hands back the cached site record
- * (through the model, so a `forceReload` caller elsewhere still shares one code path), and a request
- * with no `Host` at all resolves to nothing rather than to the `*` catch-all.
+ * Unlike `siteIdForHostname`, hands back the site record, and a request with no `Host` at all
+ * resolves to null rather than to the `*` catch-all.
  */
 export async function siteForHostname(
   hostname: string | undefined,
@@ -131,14 +89,9 @@ export async function siteForHostname(
 }
 
 /**
- * Resolve a site named by a path parameter that may be the sentinel `current`, a site id, or a
- * hostname — the three-way spelling `GET /_api/sites/:siteIdorHostname` and `/_site/:siteId/:resource`
- * each wrote out for themselves.
- *
- * `current` means "whichever site this request was addressed to", so it defers to the request's own
- * hostname. Anything shaped like a UUID is an id; anything else is read as a hostname, which is also
- * where a literal `current` on a request carrying no `Host` header lands — deliberately unchanged
- * from what both call sites already did, rather than special-cased into a null.
+ * `param` may be the sentinel `current` (whichever site this request was addressed to), a site id,
+ * or a hostname. A literal `current` on a request carrying no `Host` header is deliberately read as
+ * a hostname rather than special-cased into a null.
  */
 export async function resolveSiteParam(
   param: string,
@@ -155,32 +108,14 @@ export async function resolveSiteParam(
 }
 
 /**
- * Response contract for a site resolved OUTSIDE the page/shell hook in `core/http/siteRouting.ts` —
- * an API route or static controller that already has a siteId or hostname of its own (a JSON
- * endpoint, an image, a downloaded file) rather than one arriving through `resolveRequestSite`
- * above. Those requests are not navigations a browser can be bounced away from, so where the hook
- * redirects to a distinct
- * `/_error/*` page per outcome, these tell the same two outcomes apart by status code instead:
+ * For a site resolved OUTSIDE the page/shell hook in `core/http/siteRouting.ts` — an API route or
+ * static controller. Those requests are not navigations a browser can be bounced to an `/_error/*`
+ * page from, so the outcomes are told apart by status code: a disabled site answers `403` rather
+ * than `404`, so a client can tell "wrong id" from "right id, wait for it to come back". A missing
+ * site is the caller's own 404 to answer, and nothing to guard here.
  *
- * - No site at all behind the id/hostname is indistinguishable from any other missing resource, so
- *   the caller keeps answering its own `reply.notFound(...)` with whatever message fits what it was
- *   looking up — this function has nothing to add there.
- * - A site that exists but has `isEnabled === false` answers `403` here — "exists, access refused",
- *   the same shape a page-rule denial already answers with elsewhere in these routes — rather than
- *   `404`, so a client can tell "wrong id" apart from "right id, wait for it to come back".
- *
- * A caller that already resolved a site row (`bootstrap.ts`, `controllers/site.ts`,
- * `controllers/files.ts`) passes it directly. A caller scoped only to a bare `siteId` (the
- * `/sites/:siteId/...` API routes) passes `CARDINAL.sites[siteId]` — `undefined` for an id that does not
- * exist, which this deliberately treats as "nothing to guard here" rather than a second 404: the one
- * `:siteId` caller left, `siteEnabledPreHandler` below, has already answered that 404 itself before
- * it ever asks this function anything.
- *
- * Returns `true` once a reply has been sent, so the caller answers it with `return reply` — never a
- * bare `return`, which in an `async` handler resolves the promise with `undefined` and makes Fastify
- * write the same reply a second time. See `helpers/httpCache.ts#notModifiedOrPrepare` for the full
- * mechanism (OpenProject #2644); it applies to every helper that sends a reply on its caller's
- * behalf, not just that one.
+ * Returns `true` once a reply has been sent, which the caller answers with `return reply` — never a
+ * bare `return`, which in an `async` handler makes Fastify write the same reply a second time.
  */
 export function guardSiteEnabled(
   site: { isEnabled?: boolean } | null | undefined,
@@ -193,33 +128,16 @@ export function guardSiteEnabled(
   return false
 }
 
-/**
- * A site's per-site iframe-embed allowlist (OpenProject #3275, off Feature #3267's confirmed scope):
- * `site.config.security.embedAllowedOrigins`, defaulting to `[]` — the field #3274 owns (storage +
- * admin UI). Read defensively rather than assuming the shape: today no site's `config` has a
- * `security` sub-key at all (checked against `models/sites.ts`'s default-config blocks when this was
- * written), so a site resolved before #3274 lands, or one that predates the field, both read as "no
- * allowlist" rather than throwing.
- */
 export function embedAllowedOrigins(site: Record<string, any> | null | undefined): string[] {
   const origins = site?.config?.security?.embedAllowedOrigins
   return Array.isArray(origins) ? origins : []
 }
 
 /**
- * Sets the resolved site's `frame-ancestors` CSP directive on the response, layered on top of
- * whatever `core/http/security.ts`'s boot-time helmet registration already put on
- * `Content-Security-Policy` for every other directive — never replacing it. A no-op, leaving the
- * response exactly as helmet already built it, when the site's allowlist is empty (the default): that
- * is the "current behavior unchanged" acceptance case.
- *
- * Called from `core/http/siteRouting.ts#registerSiteResolution`'s `onRequest` hook once a site
- * resolves, which is registered (and therefore runs) after `core/http/security.ts#registerSecurity`'s
- * helmet registration — see `index.ts`'s boot order — so `reply.getHeader()` here already sees
- * whatever helmet set.
- *
- * Takes the narrow reply slice it actually uses (`getHeader`/`header`), matching `guardSiteEnabled`
- * above, so a test can exercise it with a small stand-in rather than a real Fastify reply.
+ * Appends to whatever helmet already put on `Content-Security-Policy`, never replacing it; a no-op
+ * for an empty allowlist. Relies on `core/http/siteRouting.ts#registerSiteResolution`'s hook being
+ * registered after `core/http/security.ts#registerSecurity`, so `reply.getHeader()` already sees
+ * helmet's value.
  */
 export function applyEmbedFrameAncestors(
   site: Record<string, any> | null | undefined,
@@ -236,54 +154,21 @@ export function applyEmbedFrameAncestors(
 }
 
 /**
- * Fastify `preHandler`, registered once for the whole `/_api` tree in `api/index.ts`, that answers
- * both "no such site" and "site disabled" for every route whose path names `siteId`
- * (OpenProject #1587/#1593).
+ * Registered once on `api/index.ts`'s `contentApp` scope: answers the unknown-site 404 and the
+ * disabled-site 403 for every route whose path names `siteId`, so a route under that scope may
+ * assume its site exists, and a new route file inherits both with no call of its own.
  *
- * Before this existed, the guard was nine hand-applied call sites (`bootstrap.ts`, three in
- * `pages.ts`, two in `assets.ts`, one in `graph.ts`, plus the three `controllers/` sites outside
- * `/_api`), which is how a dozen-plus other `:siteId` routes across `pages.ts` (GET PAGE, UNLOCK,
- * page history, the export routes), every read route in `tree.ts`, `assets.ts`'s upload/rename/
- * delete, and everything in `comments.ts`/`navigation.ts`/`liveData.ts`/`glossary.ts` went on
- * answering a disabled site's content indefinitely to a caller that already held its id. A single
- * plugin-level hook closes all of them at once, and a route file added later needs no call of its
- * own to be covered — it inherits this the moment it registers a route under `api/index.ts`.
+ * Hook ORDER decides which answer a caller sees. `core/http/authHooks.ts#permissionPreHandler` is
+ * on the root app and runs BEFORE this, so a route declaring `config.permissions` answers 401/403
+ * first and an unauthorized caller learns nothing about which site ids exist. A route declaring
+ * none — public, or checking a page or `site:*` permission in its handler — answers this 404 before
+ * its own authorization runs. Deliberate: those routes are open to an anonymous caller, so a site
+ * id's existence is already discoverable through them.
  *
- * A plain, exported function rather than an inline `addHook` callback specifically so it can be
- * exercised directly, with a synthetic `req`/`reply`, against every `:siteId` route this instance
- * actually declares (`api/index.test.ts`) without booting a real HTTP server per route or hand-filling
- * each one's querystring/body schema just to get a request past validation and into the hook chain.
- *
- * The unknown-site `404` is the same consolidation one step further out. Thirty-six route handlers
- * across ten files opened with a hand-written site-existence preamble in two spellings — an `await
- * CARDINAL.models.sites.getSiteById(...)` (which is just `CARDINAL.sites[id]`, `models/sites.ts`) answering
- * `'Site does not exist.'`, and a bare `CARDINAL.sites[...]` lookup answering `'This site does not
- * exist.'` — while every OTHER `:siteId` route (all of `pages.ts`, `assets.ts`, `checklists.ts`,
- * `watching.ts`, `notifications.ts`, `graph.ts`, ...) simply never checked, answering "page does not
- * exist" or an empty list for a site id that was never real. One condition, checked in one place,
- * with one message (`SITE_MISSING_MESSAGE`): a route reached from here can assume its site exists,
- * and a route file added later inherits that the moment it registers under `api/index.ts`, exactly
- * as it already inherits the disabled-site 403.
- *
- * Hook ORDER decides which of the two answers a caller sees, and only for one class of route.
- * `index.ts`'s global permission `preHandler` is registered on the root app, so it runs BEFORE this
- * encapsulated one: a route declaring `config.permissions` still answers 401/403 first, and an
- * unauthorized caller learns nothing about which site ids exist. A route that declares none —
- * anything public, and every route that checks a page or `site:*` permission IN ITS HANDLER (which
- * that hook cannot express) — now answers this 404 BEFORE its own authorization runs, where it used
- * to 403 first or fall through to "page does not exist". That reordering is D1, not an oversight:
- * these routes are readable by an anonymous caller in the first place, so a site id's existence was
- * already discoverable through them.
- *
- * `req.params.siteId` reads as `undefined` on a route with no such param, which is neither a missing
- * site nor a disabled one — nothing to answer, so the request passes straight through.
- * `bootstrap.ts`'s own `guardSiteEnabled` call is the one deliberate exception this preHandler does
- * not subsume: that route resolves its site by hostname (`getSiteByHostname`), not a `:siteId` param,
- * so nothing keyed off `req.params.siteId` would ever reach it — its call stays in place.
- *
- * `api/sites.ts` is the other deliberate exception, by virtue of being registered outside the guarded
- * `contentApp` scope (see `api/index.ts`): its routes administer the site RECORD, keep their own
- * `'Site does not exist.'` 404s, and must go on working against a disabled site.
+ * Two deliberate exceptions. `api/bootstrap.ts` resolves its site by hostname, not a `:siteId`
+ * param, so it keeps its own `guardSiteEnabled` call. `api/sites.ts` is registered outside
+ * `contentApp`: it administers the site RECORD, keeps its own 404s, and must go on working against
+ * a disabled site.
  */
 export function siteEnabledPreHandler(
   req: FastifyRequest,

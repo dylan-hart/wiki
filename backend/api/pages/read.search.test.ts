@@ -5,17 +5,6 @@ import readRoutes from './read.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 
-/**
- * Route-wiring tests for `GET /sites/:siteId/pages/search`'s `includeLocaleStatus` flag
- * (OpenProject #2476) -- the admin pages view's per-locale staleness/missing column.
- *
- * `CARDINAL.models.search.query` is stubbed outright (the search engine's own behavior has its own
- * coverage elsewhere -- `modules/search/db/search.test.ts`, `test/searchModuleContract.ts`), so this
- * exercises only what `read.ts` itself does with the flag: leaving `localeStatus` off every result
- * by default, and attaching it -- one batched `getTranslationRows` call, joined against the site's
- * configured primary/active locales -- only when asked.
- */
-
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 
 let searchResults: Array<{ id: string; path: string; locale: string }>
@@ -72,11 +61,6 @@ beforeEach(() => {
   ]
 })
 
-// -> The plain "omits localeStatus... when includeLocaleStatus is not set" test was removed by
-//    OpenProject #2690 (`docs/testing-audit/backend.md`'s `api/pages/read.search.test.ts` row): it
-//    restated the on/off branch declared in `read.ts` itself with no computed value to verify. The
-//    test below is kept in full — it verifies the actual primary/missing/stale state computation,
-//    not just the flag's presence, which is real logic living in this route.
 test('attaches localeStatus per result when includeLocaleStatus=true', async () => {
   const res = await app.inject({
     method: 'GET',

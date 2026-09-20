@@ -4,16 +4,9 @@ import './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-// -> Far enough out that "has this already ended" never becomes true for a test run, whichever
-//    timezone it resolves against.
+// -> Far enough out that no run sees it as already ended, whichever timezone it resolves against
 const FUTURE_DATE = '2099-01-01T00:00'
 
-/**
- * Appends a `<block-countdown>` with the given properties set (mirroring how the picker's
- * attributes reach the element once Lit parses them) and waits for one render. `date` defaults to
- * a far-future value so a test that only cares about another field (timezone, label, ...) never
- * has to think about expiry.
- */
 const mountCountdown = ({ date = FUTURE_DATE, ...rest } = {}) =>
   mountBlock('block-countdown', { props: { date, ...rest } })
 
@@ -23,13 +16,6 @@ describe('block-countdown', () => {
     vi.useRealTimers()
   })
 
-  /*
-    Regression coverage for OpenProject #957/#958: the picker (`blockAttributes` in
-    `frontend/src/helpers/blocks.js`) never writes an attribute for a field left at the prop's own
-    `default` value, and never writes one for a field cleared to `''` either way -- so the constructor
-    default is what an author clearing the Timezone field actually gets. It has to be `''`, matching
-    the prop's own default, for "the reader's own timezone when empty" to be reachable at all.
-  */
   it('defaults to the reader-local timezone when timezone is never set', async () => {
     const el = await mountCountdown()
 

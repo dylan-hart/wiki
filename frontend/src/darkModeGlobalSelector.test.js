@@ -7,33 +7,16 @@ import { describe, expect, it } from 'vitest'
 import { listSourceFiles } from '../test/sourceFiles.js'
 
 /**
- * OpenProject #2740. Verified against the real `@vue/compiler-sfc@3.5.41`: inside a `<style
- * scoped>` block, `:global(body.body--dark) .foo { ... }` does NOT compile to
- * `body.body--dark .foo { ... }` the way the source reads -- the descendant selector after the
- * `:global(...)` wrapper is silently DROPPED, and the rule compiles to the bare `body.body--dark
- * { ... }` only, never matching `.foo` at all. Any non-inherited property in such a rule
- * (background-color, border-color, ...) therefore never reaches the intended element in dark
- * mode, leaving whatever the light-mode rule already set -- this was confirmed as the live root
- * cause of a real "admin settings pages have issues with dark mode" report.
- *
- * The correct idiom -- used throughout this codebase (`WCardHeader.vue`, `FooterNav.vue`,
- * `WTable.vue`, `WList.vue`, `WPagination.vue`, `WBtnToggle.vue`, `WBtnGroup.vue`, `WToggle.vue`,
- * and the 16 occurrences fixed by #2740) -- wraps the WHOLE compound selector inside
- * `:global(...)`: `:global(body.body--dark .foo) { ... }`.
- *
- * `detectBadGlobalSelector` below is the one detector for the anti-pattern, exercised first
- * against known-good and known-bad fixtures so a change to the detector itself is visible, then
- * run across the whole `frontend/src` tree so a new occurrence of the mistake fails here instead
- * of shipping silently light-only. `compiles the fix correctly` proves the fix's actual compiled
- * behaviour (not just its source text) against one of the components #2740 touched.
+ * Inside `<style scoped>`, `@vue/compiler-sfc` compiles `:global(body.body--dark) .foo { ... }` to
+ * the bare `body.body--dark { ... }`: the descendant after the `:global(...)` wrapper is silently
+ * dropped, so the rule never reaches `.foo`. The working idiom wraps the whole compound selector:
+ * `:global(body.body--dark .foo) { ... }`.
  */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 
 /**
- * Finds every `:global(...)` occurrence in `source` whose matching close paren is followed
- * (after whitespace) by anything other than `{` or `,` -- i.e. more selector text OUTSIDE the
- * `:global(...)` wrapper, which is the exact shape the compiler silently drops. Tolerates one
- * level of nested parens inside the wrapped selector (e.g. a future `:not(...)`).
+ * Flags a `:global(...)` whose close paren is followed by anything other than `{` or `,` -- selector
+ * text outside the wrapper. Balances nested parens inside it (`:not(...)`).
  */
 function detectBadGlobalSelector(source) {
   const violations = []
@@ -48,7 +31,7 @@ function detectBadGlobalSelector(source) {
       else if (source[i] === ')') depth--
       i++
     }
-    if (depth !== 0) continue // unbalanced -- not our concern here
+    if (depth !== 0) continue
     const closeIndex = i - 1
     let j = closeIndex + 1
     while (j < source.length && /\s/.test(source[j])) j++

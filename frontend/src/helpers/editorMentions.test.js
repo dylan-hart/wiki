@@ -2,13 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { createPageMentionSuggestion } from './editorMentions.js'
 
 /**
- * `render()`'s own lifecycle (mounting `EditorMentionList` through `VueRenderer`, wiring
- * `props.mount` / `component.ref.onKeyDown`) is exercised end-to-end by
- * `EditorWysiwyg.test.js` (which drives the real `@tiptap/suggestion` plugin) and by
- * `EditorMentionList.test.js` (the popover component itself, in isolation). This file covers what
- * neither of those reaches directly: `items()`'s own branching -- the query source the task asked
- * for, and the empty-query / no-results / error states it has to keep the popover from ever going
- * blank for.
+ * Covers `items()`'s branching only; `render()`'s lifecycle is driven against the real
+ * `@tiptap/suggestion` plugin in `EditorWysiwyg.test.js`.
  */
 
 describe('createPageMentionSuggestion', () => {
@@ -67,12 +62,9 @@ describe('createPageMentionSuggestion', () => {
     const siteStore = { id: null }
     const suggestion = createPageMentionSuggestion(siteStore)
 
-    // -> No site yet: no request, same as a blank query -- there is nowhere to search.
     expect(await suggestion.items({ query: 'help', editor: {}, signal: undefined })).toEqual([])
     expect(API_CLIENT.get).not.toHaveBeenCalled()
 
-    // -> The site resolves later (as it does in the app, on boot); the same suggestion config picks
-    //    it up without being rebuilt.
     siteStore.id = 'site-9'
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ results: [] }) })
     await suggestion.items({ query: 'help', editor: {}, signal: undefined })

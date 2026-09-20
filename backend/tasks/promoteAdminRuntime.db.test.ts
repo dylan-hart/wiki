@@ -5,14 +5,8 @@ import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 import { promoteUserToAdmin } from './promoteAdminRuntime.ts'
 import type { WikiDb } from '../core/db.ts'
 
-/**
- * DB-backed: `promoteUserToAdmin()` is exercised against a real Postgres instance, not
- * `bootstrapPromoteAdminRuntime()` -- that half only wires up config/db/models the same way
- * `worker.ts`/`migration/bootstrap.ts` already do and has no logic of its own worth a DB round trip
- * for. `setupTestDb()` seeds one group (`groupId`) which stands in for the instance's Administrators
- * group here -- what matters to the code under test is that `CARDINAL.config.auth.rootAdminGroupId` names
- * a real `groups` row, not that it is named "Administrators".
- */
+// `setupTestDb()`'s seeded group stands in for the Administrators group: what the code under test
+// needs is that `auth.rootAdminGroupId` names a real `groups` row, not that it is named anything.
 describe('promoteUserToAdmin()', { skip: !hasTestDatabase() }, () => {
   let db: WikiDb
   let rootAdminGroupId: string

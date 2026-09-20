@@ -5,17 +5,6 @@ import { randomUUID } from 'node:crypto'
 import storageRoutes from './storage.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * Task 545: prove `POST /sites/:siteId/storage/targets/:targetId/actions/exportAll` actually calls
- * `CARDINAL.models.storage.executeAction()` with the resolved target and action name, and that the
- * route's existing `try { await executeAction(...) } catch (err) { reply.badRequest(err.message) }`
- * contract (`api/storage.ts`) turns a thrown module error — the shape a broken cloud config (wrong
- * bucket, revoked credentials) produces — into a 400 with a readable message rather than an unhandled
- * 500. `CARDINAL.models.storage` is stubbed here rather than exercising a real cloud SDK: that proof lives
- * in `modules/storage/s3/storage.emulated.test.ts`, which runs the real s3 module against a real
- * S3-compatible server. This file is only about the HTTP-layer contract on top of it.
- */
-
 let app: FastifyInstance
 let executeAction: ReturnType<typeof mock.fn>
 let getSiteTargetById: ReturnType<typeof mock.fn>
@@ -104,10 +93,6 @@ test('a module error (broken cloud config — wrong bucket, revoked credentials,
   assert.match(body.message, /Could not reach the "wrong-bucket" bucket/)
 })
 
-// -> OpenProject #3375: `purge`'s `{ purged, skipped }` counts (any synchronous action's return value,
-//    generically) must reach the reply's `message` instead of the old fixed "Action completed
-//    successfully." string, so an admin can tell a purge actually did something from a purge that
-//    found nothing servable to purge.
 test('a synchronous action’s return value reaches the reply message, not the fixed string', async () => {
   executeAction.mock.mockImplementationOnce(async () => ({ purged: 3, skipped: 1 }))
 
@@ -143,9 +128,6 @@ test('a target must be enabled before an action can run', async () => {
   assert.equal(executeAction.mock.calls.length, 0)
 })
 
-// -> #1616: this used to be a hardcoded `<target> has no "<action>" action.` English sentence,
-//    which surfaced verbatim in the UI instead of translating like the rest of a
-//    `t(key, fallback)` screen. Assert the coded `ERR_*` shape, not any particular wording.
 test('an action the target does not declare is refused before executeAction is ever called', async () => {
   const res = await app.inject({
     method: 'POST',
@@ -166,9 +148,8 @@ test('a nonexistent target 404s', async () => {
   assert.equal(res.statusCode, 404)
 })
 
-// -> OpenProject #2429: the git module's mass-delete safety guard reads `data.confirmMassDelete`
-//    out of the queued job payload `sync.ts#sync()` is eventually called with — this is the one place
-//    that payload is built, so this is where the request body has to actually reach it.
+// -> The git module's mass-delete safety guard reads `data.confirmMassDelete` out of the queued job
+//    payload, and this route is the one place that payload is built.
 describe('confirmMassDelete threads through the queued job for a sync-shaped action', () => {
   test('omitted body queues the job with confirmMassDelete: false', async () => {
     const res = await app.inject({

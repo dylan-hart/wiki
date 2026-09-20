@@ -20,9 +20,7 @@ describe('WBanner', () => {
     expect(withAction.find('button').text()).toBe('Retry')
   })
 
-  // -> `0` under Ledger (unchanged from before this task), a real value under Cobalt
-  //    (`body.body--cobalt`, OpenProject #2767/#2772), matching "banners ... take
-  //    `--radius-control`"
+  // -> `--radius-control` is `0` under Ledger and a real value under Cobalt.
   it('draws its corner off --radius-control, not left unrounded', () => {
     const wrapper = mount(WBanner, { slots: { default: 'Text' } })
 

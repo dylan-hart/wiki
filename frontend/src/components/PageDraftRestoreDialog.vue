@@ -56,37 +56,18 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { useMonacoDiff } from '@/composables/monacoDiff'
 
 /**
- * The recovery-draft prompt (OpenProject #2455), opened by `composables/collab.js#offerDraftRestore`
- * once a collaboration session's first sync lands on a page whose room last closed with unsaved
- * edits.
- *
- * Bespoke rather than a `confirm()` (OpenProject #2897/#2929): the generic `WConfirmDialog` can show
- * a title and a message and nothing else, and this prompt is about to show the draft itself -- a
- * compact diff of what the draft would change against what the editor holds now. That is why the
- * draft is fetched the moment the prompt OPENS rather than once Restore is clicked, and why both
- * halves of that comparison arrive here as props: `draftRequest`, the in-flight fetch of the stored
- * draft, and `currentContent`, the room's live content at the moment the prompt went up. The caller
- * keeps every side effect (applying the restore, discarding the stored draft, the toasts); this
- * component only answers the question.
- *
- * The diff itself (OpenProject #2930) is `composables/monacoDiff.js`'s `useMonacoDiff()` in inline
- * mode, with no version-list sidebar -- the only other consumer, `PageHistoryOverlay.vue`, wires up
- * both a timeline and a side-by-side/inline toggle, neither of which belongs on a two-way comparison
- * with no history to browse. It renders once `draftRequest` resolves AND the dialog is actually open
- * (there is nothing to diff before the former, and nowhere to mount into before the latter -- see the
- * `watch` in the DIFF section below) inside a compact, fixed-height container -- Monaco's own
- * `automaticLayout` plus its internal scrollbar makes that scrollable without the container itself
- * needing `overflow-y: auto` -- opened already scrolled to the first changed line via `showDiff()`'s
- * `scrollToFirstChange` option.
+ * Bespoke rather than a `confirm()`: the generic dialog shows a title and a message and nothing
+ * else, and this prompt shows the draft itself as a diff against what the editor holds now. Hence
+ * the draft being fetched as the prompt OPENS rather than on Restore, and both halves of the
+ * comparison arriving as props. Every side effect -- applying, discarding, the toasts -- stays with
+ * the caller; this component only answers the question.
  */
 const props = defineProps({
-  /** Who was last known to be editing when the draft was recorded, or null when unattributed. */
   authorName: {
     type: String,
     required: false,
     default: null
   },
-  /** The editor's content as it stood when the prompt opened -- the "before" of any comparison. */
   currentContent: {
     type: String,
     required: false,
@@ -103,22 +84,13 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// I18N
-
 const { t } = useI18n()
 
-// DATA
-
 const state = reactive({
-  /** The resolved draft, once `draftRequest` settles successfully. */
   draft: null,
   loading: true,
   loadFailed: false
@@ -139,19 +111,15 @@ props.draftRequest.then(
   }
 )
 
-// DIFF
-
 const diffEl = ref(null)
 const { showDiff, disposeEditor } = useMonacoDiff(diffEl, { isInline: () => true })
 
 onUnmounted(disposeEditor)
 
 /*
-  Both halves have to be true before `diffEl` exists to mount into: `<w-dialog>` renders its panel
-  only once `dialogVisible` flips true (`useDialogComponent()`'s own doc comment), which can land
-  either side of `draftRequest` resolving -- an already-cached response beats the dialog's own open
-  transition often enough that calling showDiff() straight from the `.then()` above would silently
-  find no container yet, with nothing left to retry it later.
+  Both halves have to hold before `diffEl` exists to mount into, and either can land first: a cached
+  `draftRequest` regularly resolves before `<w-dialog>` has rendered its panel, so showing the diff
+  from the `.then()` above would silently find no container and never be retried.
 */
 watch(
   () => dialogVisible.value && Boolean(state.draft),
@@ -170,11 +138,11 @@ watch(
 
 <style>
 /*
-  Compact rather than the full-size pane `PageHistoryOverlay.vue`/`PageSaveConflictDialog.vue` each
-  give theirs (this dialog is a prompt, not a dedicated diff view) -- a fixed height plus
-  `overflow: hidden` is enough, since Monaco's own `automaticLayout` fills exactly this box and its
-  internal scrollbar handles anything taller than it, matching `PageSaveConflictDialog.vue`'s
-  `.save-conflict-diff` treatment.
+  A fixed height plus `overflow: hidden` is enough for this prompt-sized pane: Monaco's
+  `automaticLayout` fills exactly this box and its own scrollbar handles anything taller.
+
+  FIXME: `rgba(#fff, 0.08)` is Sass syntax, invalid in plain CSS, so the border below never renders.
+  Write the color as `rgb(255 255 255 / 8%)`. `PageSaveConflictDialog.vue` carries the same bug.
 */
 .draft-diff {
   height: 240px;

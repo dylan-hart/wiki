@@ -5,8 +5,6 @@
 <script setup>
 import { computed } from 'vue'
 
-// PROPS
-
 const props = defineProps({
   pulse: {
     type: Boolean,
@@ -18,8 +16,6 @@ const props = defineProps({
   }
 })
 
-// COMPUTED
-
 const cssClasses = computed(() => {
   return `${props.color} ${props.pulse && 'pulsate'}`
 })
@@ -27,13 +23,9 @@ const cssClasses = computed(() => {
 
 <style>
 /*
-  A 5px bar, square. Cardinal draws a status as a flat block of colour against the hairline grid --
-  the rounded, gradient-lit pill this replaces read as a jewel light, which is one more piece of
-  relief in a language that has none.
-
   `background-color: currentColor` keeps the state on `color`, so a caller can still tint one from
-  outside; the three named states below are the vocabulary the design fixes (healthy / needs setup /
-  off), and they take the bright FILL tones, not the darker text ones -- nothing is drawn over them.
+  outside. The named states take the bright FILL tones, not the darker text ones -- nothing is ever
+  drawn over them.
 */
 .status-light {
   display: block;

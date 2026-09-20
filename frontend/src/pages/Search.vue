@@ -2,20 +2,11 @@
   <w-layout>
     <w-header><header-nav /></w-header>
     <w-page-container class="layout-search">
-      <!--
-        No floating Back control in the gutter beside this card. It was a shadowed circle -- the
-        opposite of Cardinal's flat hairline vocabulary -- and it was redundant: the header's own
-        search field is what brought the reader here and is still on screen above them, and the
-        browser has its own Back. Removed outright rather than restyled (OpenProject #2697).
-      -->
       <div class="layout-search-card">
         <!--
-          Below 900px the sort and filter panel is a disclosure rather than a column: 300px of it beside a
-          390px screen left the results a 210px strip, and being a column of form fields it cannot be
-          narrowed to its content the way the profile's nav can. Closed to start with, because what a reader
-          arriving here wants is the results -- refining them is the second thing, and one tap away.
-
-          The chevron turns rather than being swapped for a second icon, so the two states are one drawing.
+          Below 900px the sort and filter panel is a disclosure rather than a column: 300px of it
+          beside a 390px screen leaves the results a 210px strip, and a column of form fields cannot
+          be narrowed to its content. Closed to start with -- a reader arriving here wants results.
         -->
         <w-btn
           v-if="isFiltersCollapsed"
@@ -30,11 +21,10 @@
             name="tabler:chevron-down" />
         </w-btn>
         <!--
-          Shown in both modes: Path/Tags/Locale/Editor/Publish State are part of the semantic route's
-          contract too (OpenProject #3329, sibling backend Task #3328 in Feature #3327). Sort By stays
-          hidden in Semantic mode (`v-if="!isSemanticMode"` on its own block below) -- semantic results
-          are implicitly ordered by similarity and the route takes no `orderBy` -- so it, and only it,
-          would offer a control that silently does nothing.
+          Shown in both modes: Path/Tags/Locale/Editor/Publish State are part of the semantic
+          route's contract too. Sort By is the one control hidden in Semantic mode -- that route
+          takes no `orderBy` (results are implicitly ordered by similarity), so it would offer a
+          control that silently does nothing.
         -->
         <div class="layout-search-sd" v-show="!isFiltersCollapsed || state.filtersOpen">
           <template v-if="!isSemanticMode">
@@ -46,11 +36,7 @@
                 clickable
                 :active="item.value === state.params.orderBy"
                 @click="setOrderBy(item.value)">
-                <!--
-                  `accent`, not `primary`: this is the white-text-fill role (the mockup's active
-                  "Relevance" row is the accent red, `#c8303c`, not the link blue `--color-primary`
-                  links use), same reasoning as the `.layout-search-plate` accent-color comment below.
-                -->
+                <!-- `accent`, not `primary`: the active row is accent red, not the link blue. -->
                 <w-item-section side>
                   <w-icon
                     :name="item.icon"
@@ -150,11 +136,6 @@
         <w-page>
           <div class="section-header">
             <span>{{ t('search.results') }}</span>
-            <!--
-              Absent entirely (not merely disabled) when the site doesn't have semantic search
-              turned on -- Task #3103's combined `features.semanticSearch` flag is the single source
-              of truth for that, never re-derived here (OpenProject #3105).
-            -->
             <w-btn-toggle
               v-if="siteStore.features.semanticSearch"
               class="layout-search-modetoggle ms-3"
@@ -188,16 +169,9 @@
             >
           </div>
           <!--
-            A result row, as the design draws it: a hairline icon plate, then the page itself --
-            title, description, mono path, the matched text -- then a fixed trailing column holding
-            when it was last touched and what it is tagged with.
-
-            Plain markup rather than `w-list`/`w-item`. Those rows are metric-driven by
-            `WItemSection` (a 56px leading avatar column, 16px of padding between sections, a 40px
-            avatar), and every measurement in this row -- the 34px plate, the 14px gutter, the 150px
-            trailing column -- is the design's own. Expressing them through the shared component
-            would mean overriding it from the outside at each of those three points, which is
-            fighting a component this screen does not own rather than laying out a row.
+            Plain markup rather than `w-list`/`w-item`: `WItemSection` drives its own leading-column,
+            padding and avatar metrics, while every measurement in this row is the design's own --
+            through the shared component each of them would have to be overridden from the outside.
           -->
           <div class="layout-search-results">
             <router-link
@@ -226,9 +200,8 @@
               </div>
               <div class="layout-search-rowmeta">
                 <!--
-                  A semantic-mode row's match percentage lands here rather than on the title line
-                  (OpenProject #3293) -- it replaces the date, not sits beside it, since a semantic
-                  row carries no `updatedAt` to show in the first place (see `formattedResults`).
+                  The match percentage replaces the date rather than sitting beside it: a semantic
+                  row carries no `updatedAt` at all.
                 -->
                 <div class="layout-search-rowdate">
                   <search-result-similarity-badge
@@ -238,8 +211,7 @@
                 </div>
                 <!--
                   Only when there is something to draw: an empty wrapper would still take the
-                  column's 6px gap and leave the date sitting a row-height above the row's own
-                  baseline on every untagged page.
+                  column's gap and lift the date off the row's baseline on every untagged page.
                 -->
                 <div v-if="item.tags?.length > 0" class="layout-search-rowtags">
                   <w-chip
@@ -297,36 +269,19 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { log } from '@/helpers/log'
 import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
 
-/** How many results one page of search results holds. The API caps a single request at 100. */
+/** The API caps a single request at 100. */
 const RESULTS_LIMIT = 100
-
-// STORES
 
 const flagsStore = useFlagsStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
 const route = useRoute()
 
-// I18N
-
 const { t } = useI18n()
 
-// META
-
-/*
-  Both halves, because `/_search` is mounted on its own with no layout above it to supply either. Only
-  the template was registered, and a template with no title leaves `document.title` alone: the tab read
-  whatever was there already, which on a fresh load is the shell's own `Cardinal.js`.
-
-  The name is this page's own, where the template said `profile.title` and announced a page of search
-  results as somebody's profile. Nothing sits between it and the site name, so nothing is inserted there.
-
-  A getter for the site title, as everywhere else -- see the note in `MainLayout`.
-*/
+/* Both halves: `/_search` is mounted on its own, with no layout above it to supply either. */
 useMeta(() => {
   const siteTitle = siteStore.title
   return {
@@ -335,17 +290,11 @@ useMeta(() => {
   }
 })
 
-// DATA
-
 const state = reactive({
   loading: 0,
-  /**
-   * 'keyword' (default) or 'semantic' (OpenProject #3105). Local component state, not persisted --
-   * a fresh visit to `/_search` always starts on Keyword. Only ever set through `setSearchMode()`,
-   * never written to directly, so a mode change always re-queries alongside it.
-   */
+  /** Not persisted: a fresh visit to `/_search` always starts on Keyword. */
   mode: 'keyword',
-  /** Whether the sort/filter panel is open. Only consulted below 900px, where it is a disclosure. */
+  /** Only consulted below 900px, where the sort/filter panel is a disclosure. */
   filtersOpen: false,
   params: {
     filterPath: '',
@@ -359,34 +308,24 @@ const state = reactive({
   results: [],
   total: 0,
   /**
-   * `true` when `total` is a floor, not an exact count: this reader's page rules dropped one or more
-   * of the rows the search engine itself matched (OpenProject #2006). The results list is never
-   * wrong -- everything shown is something this reader may actually open -- only the count beside it
-   * can undercount what a search with no restrictions would have found.
+   * `true` when `total` is a floor rather than an exact count: this reader's page rules dropped
+   * rows the search engine itself matched. Only the count can undercount -- the list is never
+   * wrong, since everything shown is something this reader may actually open.
    */
   totalApproximate: false,
   offset: 0
 })
 
 /**
- * Below 900px, where the filter panel stops being a column beside the results and becomes a disclosure
- * above them.
- *
- * This layout's own breakpoint rather than one of the app's, and the same one `ProfileOverlay` uses for its
- * nav: the two screens are the same shape -- a card with a 300px sidebar -- so they run out of room at the
- * same width. The stylesheet has to agree with it; `899.98px` is the same boundary from the
- * other side.
+ * This layout's own breakpoint rather than one of the app's, and the same one `ProfileOverlay`
+ * uses: the two screens are the same shape -- a card with a 300px sidebar -- so they run out of
+ * room at the same width. The stylesheet's `899.98px` is the same boundary from the other side.
  */
 const isAtLeast900 = useMinWidth(900)
 const isFiltersCollapsed = computed(() => !isAtLeast900.value)
 
-/** Whether the Semantic mode toggle (OpenProject #3105) is currently selected. */
 const isSemanticMode = computed(() => state.mode === 'semantic')
 
-/**
- * Icons reused from elsewhere in the app (`tabler:file-search`, `tabler:wand`) rather than new
- * Iconify literals, so no `npm run icons` regeneration is needed for this toggle.
- */
 const searchModeOptions = computed(() => [
   { label: t('search.modeKeyword'), value: 'keyword', icon: 'tabler:file-search' },
   { label: t('search.modeSemantic'), value: 'semantic', icon: 'tabler:wand' }
@@ -423,14 +362,10 @@ const tags = computed(() => siteStore.tags.map((t) => t.tag))
 const defaultPageIcon = DEFAULT_PAGE_ICON
 
 /**
- * `state.results` with each row's update time formatted, computed once when the result set changes
- * rather than once per render of a list that can hold up to `RESULTS_LIMIT` rows.
- *
- * The `'---'` "no date" fallback is a keyword-mode-only concern (OpenProject #3293): a semantic row
- * carries no `updatedAt` field at all (`SemanticSearchResult`'s wire schema has none), and the
- * template draws its match-percentage badge in `updatedAtFormatted`'s place for those rows instead
- * of the date -- so leaving it unset here for a row that carries a `distance` avoids computing a
- * placeholder string nothing ever reads.
+ * Formatted once per result-set change rather than once per render of a list that can hold up to
+ * `RESULTS_LIMIT` rows. A row carrying a `distance` is a semantic result: it has no `updatedAt`
+ * field at all and draws a match-percentage badge in this field's place, so the `'---'` no-date
+ * fallback would be a placeholder nothing ever reads.
  */
 const formattedResults = computed(() =>
   state.results.map((r) => ({
@@ -442,20 +377,16 @@ const formattedResults = computed(() =>
   }))
 )
 
-// WATCHERS
-
 watch(
   () => route.query,
   async (newQueryObj) => {
     if (newQueryObj.q) {
       siteStore.search = newQueryObj.q.trim().slice(0, MAX_QUERY_LENGTH)
       syncTags()
-      // -> HeaderSearch.vue's own mode toggle (OpenProject #3138) carries its pending mode here so a
-      //    semantic search started from the header lands already in Semantic mode. Only ever turns
-      //    the mode ON or explicitly back to Keyword when the site actually has semantic search --
-      //    a stray `mode=semantic` is not honoured on a site where the feature (and therefore the
-      //    in-page toggle) is unavailable. No `mode` param (e.g. `syncTags`'s own `router.replace`
-      //    round trip) leaves whatever mode was already selected untouched.
+      // -> `HeaderSearch.vue` carries its pending mode here, so a semantic search started from the
+      //    header lands already in Semantic mode. A stray `mode=semantic` is not honoured where the
+      //    feature is unavailable, and no `mode` param at all (e.g. `syncTags`'s own
+      //    `router.replace` round trip) leaves whatever mode was already selected untouched.
       if (newQueryObj.mode === 'semantic' && siteStore.features.semanticSearch) {
         state.mode = 'semantic'
       } else if (newQueryObj.mode === 'keyword') {
@@ -472,8 +403,6 @@ watch(
   debounce(() => performSearch(), 500),
   { deep: true }
 )
-
-// METHODS
 
 function toggleFilters() {
   state.filtersOpen = !state.filtersOpen
@@ -507,7 +436,6 @@ function syncTags(newSelection) {
   }
 }
 
-/** Clears the result set back to its pre-search state, e.g. for an empty query in either mode. */
 function resetResults() {
   state.results = []
   state.total = 0
@@ -517,12 +445,6 @@ function resetResults() {
   siteStore.searchIsLoading = false
 }
 
-/**
- * The fetch/try/catch/finally tail shared by both the keyword and semantic search paths (OpenProject
- * #3105) -- everything past "we know the endpoint and the search-specific params, now go get a page
- * of results." `offset`/`limit` are added here rather than by each caller, since both modes derive
- * `offset` from `state.offset`/`append` identically and cap `limit` at the same `RESULTS_LIMIT`.
- */
 async function runSearchRequest(endpoint, searchParams, append) {
   const offset = append ? state.offset : 0
 
@@ -557,15 +479,10 @@ async function runSearchRequest(endpoint, searchParams, append) {
 }
 
 /**
- * The Semantic-mode half of `performSearch()` (OpenProject #3105, filters added by #3329/backend
- * Task #3328 in Feature #3327). Unlike the keyword path this sends the reader's query text through
- * untouched -- no `#tag` extraction: a semantic query has no filter meaning to extract from it --
- * so the tag filter reads from `state.selectedTags` directly (the sidebar's own selection) rather
- * than from tags parsed out of the query. No `orderBy`/`orderByDirection` is sent: results stay
- * implicitly ordered by similarity, and Sort By is the one sidebar control still hidden in this mode.
- *
- * `filterLocale` is sent as the comma-joined `locales` param, same shape and name as keyword's own
- * `locales` -- the route's old singular `locale` param is gone (#3328).
+ * Unlike the keyword path this sends the reader's query text through untouched -- a semantic query
+ * has no `#tag` filter meaning to extract from it -- so the tag filter reads the sidebar's own
+ * `state.selectedTags` rather than tags parsed out of the query. No `orderBy` is sent either:
+ * results stay implicitly ordered by similarity.
  */
 function performSemanticSearch(append) {
   const q = (siteStore.search ?? '').trim().replaceAll(/\s\s+/g, ' ')
@@ -595,11 +512,7 @@ function performSemanticSearch(append) {
   )
 }
 
-/**
- * Runs a search. `append` distinguishes the two callers: a fresh search (a new query, filter, sort
- * or mode) starts over at offset 0 and replaces `state.results`, while `loadMore()` asks for the next
- * page at the current offset and appends onto what is already shown.
- */
+/** `append` is `loadMore()`'s alone: every other caller starts over at offset 0. */
 async function performSearch(append = false) {
   if (isSemanticMode.value) {
     return performSemanticSearch(append)
@@ -607,7 +520,6 @@ async function performSearch(append = false) {
 
   let q = siteStore.search ?? ''
 
-  // -> Extract tags
   const queryTags = extractTags(q)
   for (const tag of queryTags) {
     q = q.replaceAll(`#${tag}`, '')
@@ -624,8 +536,8 @@ async function performSearch(append = false) {
     ...(state.params.filterPublishState ? { publishState: state.params.filterPublishState } : {})
   }
 
-  // -> Nothing to go on: the empty state says as much, and asking the server would answer with the
-  //    most recently updated pages, which is not what an empty search box means
+  // -> Asking the server with nothing to go on answers with the most recently updated pages, which
+  //    is not what an empty search box means
   if (!q && Object.keys(filters).length < 1) {
     resetResults()
     return undefined
@@ -643,7 +555,6 @@ async function performSearch(append = false) {
   )
 }
 
-/** Switches between Keyword and Semantic mode, then immediately re-queries (OpenProject #3105). */
 function setSearchMode(mode) {
   if (mode === state.mode) {
     return
@@ -656,15 +567,12 @@ function loadMore() {
   return performSearch(true)
 }
 
-// MOUNTED
-
 onMounted(async () => {
   if (!siteStore.search) {
     siteStore.searchIsLoading = false
   }
-  // -> The tag filter offers what the wiki actually uses, so the list has to be fetched; without it
-  //    the dropdown is silently empty. Listing tags needs a session, and a reader without one still
-  //    gets to search — they just filter by typing `#tag` instead of picking from the list
+  // -> Listing tags needs a session. A reader without one still gets to search — they just filter
+  //    by typing `#tag` instead of picking from the (then empty) dropdown
   if (userStore.authenticated) {
     try {
       await siteStore.fetchTags()
@@ -682,42 +590,11 @@ onUnmounted(() => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Flat, not nested: a `&-suffix` selector is a Sass string-concatenation idiom that native CSS
+   nesting silently drops -- such a rule never matches. */
 @charset "UTF-8";
-/*
-  Where this card's two desktop assumptions give out -- the same two widths
-  `components/ProfileOverlay.vue` declares, because the two screens are the same shape and run out of
-  room together. Deliberately not a shared app-wide breakpoint; these describe one kind of card.
-  Change them in one file and the other wants the same change.
-
-  `899.98px` has to agree with the 900px `useMinWidth` above it.
-*/
-/*
-  Row metrics, from the design (`docs/ui-redesign-supplementary/Cardinal Wiki - Search 3x.dc.html`).
-  Named because the below-600px stacking rule has to derive its inset from them rather than restate
-  a number: the date and tags wrap under the TITLE, which starts one plate plus one gutter in.
-*/
-/*
-  The trailing column: when the page was last touched, and what it is tagged with. Fixed rather than
-  content-sized so that every row's title ends on the same edge down the list -- a column that sized
-  itself would step in and out by a few pixels per row as the dates and tag counts varied.
-*/
-/*
-  A header strip's height. One value for all three (Sort by, Filters, Results) because Sort by and
-  Results start the two columns side by side and are read as a single ruled line across the card.
-*/
 .layout-search {
-  /*
-    The ordinary page ground. What used to be here was a dark radial band painted across the top
-    200px of the window with a hairline gradient under it -- elevation and 2.x chrome, on a screen
-    whose card is now held by a hairline like every other Cardinal surface. Both the `:before` band
-    and the `:after` gradient are gone, and with them the `var(--color-grey-3)` ground they were washing over
-    (OpenProject #2697).
-  */
+  /* Plain ground: no band or gradient behind the card, which a hairline holds instead. */
 }
 .body--light .layout-search {
   background-color: var(--color-paper);
@@ -733,23 +610,14 @@ onUnmounted(() => {
   display: flex;
   align-items: stretch;
   /*
-    No height of its own, as `.layout-profile-card` explains at length: the scrolling page container
-    grows this into the height left over beside its margins, and lets its content take it past that.
-
-    It used to say `height: 100%`, which overflowed the box by exactly its own margins on every
-    search however few results came back -- so the footer under it started 100px below the fold --
-    and, since a height is not a minimum, spilled a long result list out past the bottom edge of the
-    white card the results are supposed to sit on.
+    No height of its own: the scrolling page container grows this into the height left over beside
+    its margins, and lets content take it past that. A `height` would overflow the box by exactly
+    those margins and, not being a minimum, spill a long result list past the card's bottom edge.
   */
   /*
-    A foreground to go with the background, as `.layout-profile-card` needs for the same reason:
-    this card is a plain div rather than a WCard, and a WCard is what declares BOTH halves of a
-    surface. With only the background set, everything inside inherited the document's black --
-    headings, result titles, input and select values alike -- which is invisible on the dark one.
-    The light value is the black it was already inheriting, so only dark mode changes.
-
-    Held by a hairline rather than by a shadow: Cardinal draws a card as a plate on paper, and the
-    `$shadow-2` that used to sit here was the other half of the dark band above.
+    A foreground as well as a background, because this card is a plain div rather than a WCard and a
+    WCard is what declares BOTH halves of a surface. With only the background set, everything inside
+    inherits the document's black, which is invisible on the dark one.
   */
 }
 .body--light .layout-search-card {
@@ -764,12 +632,9 @@ onUnmounted(() => {
 }
 .layout-search-card {
   /*
-    Cobalt draws this card's edge through `--shadow-card` alone, not the `border` above -- both
-    tokens are `0`/`none` under Ledger, so that border stays the only visible edge there, and the
-    dark half needs no override of its own since `--shadow-card` already carries its own
-    Cobalt-dark value. Under Cobalt `--shadow-card` is itself a hairline ring now (OpenProject
-    #2856's matte pass), not the mockup's blurred `border-radius:8px;
-    box-shadow:0 2px 10px rgba(16,25,74,.08)` glow.
+    Cobalt draws this card's edge through `--shadow-card` alone, not the `border` above: under
+    Ledger both tokens are `0`/`none`, so that border stays the only visible edge there. No dark
+    override is needed -- `--shadow-card` already carries its own Cobalt-dark value.
   */
 }
 body.body--cobalt .layout-search-card {
@@ -791,16 +656,10 @@ body.body--cobalt .layout-search-card {
 }
 .layout-search {
   /*
-    A header strip: Sort by, Filters, Results.
-
-    PINNED to a fixed height, with `line-height: 1`. The Results strip carries the result count
-    beside its label, and that count is the one thing on this screen whose length is not known in
-    advance -- "42 results", "At least 1,204 results", nothing at all while a search is in flight.
-    Left to size itself, the strip's height would follow the tallest line box inside it, and the
-    Results bar would stop lining up with the Sort by bar that starts the column beside it. Since
-    both are supposed to read as one ruled line across the top of the card, that is visible at a
-    glance. A fixed height plus a line-height of 1 makes a bar's height independent of what is
-    written in it.
+    A header strip (Sort by, Filters, Results) is PINNED to a fixed height with `line-height: 1`.
+    The Results strip carries the result count, whose length is not known in advance; left to size
+    itself the strip would follow its tallest line box and stop lining up with the Sort by strip
+    that starts the column beside it, which the two are meant to read as one ruled line with.
   */
 }
 .layout-search .section-header {
@@ -837,11 +696,8 @@ body.body--cobalt .layout-search-card {
   border-top: 1px solid var(--color-hairline-dark);
 }
 .layout-search {
-  /*
-    The result count, in the strip beside the Results label. Mono and `line-height: 1` for the same
-    reason the strip itself is: it is a number that changes length, and nothing about it may reach
-    the bar's height.
-  */
+  /* `line-height: 1` for the same reason the strip is: this number changes length, and nothing
+     about it may drive the bar's height. */
 }
 .layout-search-count {
   font-family: var(--font-mono);
@@ -859,11 +715,9 @@ body.body--cobalt .layout-search-card {
 }
 .layout-search {
   /*
-    The Keyword/Semantic mode toggle (OpenProject #3105), sitting in the same `.section-header` strip
-    as the label and the mono/uppercase/wide-tracking `.layout-search-count` above -- `w-btn-toggle`'s
-    own segments set their own font-size but not font-family/text-transform/letter-spacing, so without
-    this reset "Keyword"/"Semantic" would inherit the strip's kicker styling instead of reading as
-    ordinary control labels.
+    `w-btn-toggle`'s segments set their own font-size but not family/text-transform/letter-spacing,
+    so without this reset the labels inherit the `.section-header` strip's kicker styling instead of
+    reading as ordinary control labels.
   */
 }
 .layout-search-modetoggle {
@@ -873,13 +727,10 @@ body.body--cobalt .layout-search-card {
 }
 .layout-search {
   /* -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s */
-  /*    `@layer components`, shared with `HeaderSearch.vue`'s preview panel rather than duplicated here. */
+  /*    `@layer components`, shared with `HeaderSearch.vue`'s preview panel. */
   /*
-    The empty-query prompt: what the results pane shows before any search has run at all, distinct
-    from `search.noResults` (a query WAS run and matched nothing) -- the `<em>` in the markup already
-    carries that distinction. This gives the sentence its own type role
-    (`ui-iteration-cobalt-typography/cobalt-typography.md` §3 "Search", "Empty-query prompt") rather
-    than leaving it at the browser's untouched inherited size.
+    The empty-query prompt is what the results pane shows before any search has run at all,
+    distinct from `search.noResults` (a query WAS run and matched nothing).
   */
 }
 .layout-search-empty-prompt {
@@ -897,7 +748,7 @@ body.body--cobalt .layout-search-card {
   min-width: 0;
 }
 .layout-search {
-  /* --- A result row ------------------------------------------------------------------------------ */
+  /* --- A result row --- */
 }
 .layout-search-row {
   display: flex;
@@ -920,14 +771,9 @@ body.body--cobalt .layout-search-card {
 }
 .layout-search {
   /*
-    The plate. The same square hairline frame `BlueprintIcon` draws for a settings row and at the
-    same 34px, but in the accent rather than the chrome tone -- what sits in it here is the page's
-    OWN icon, which is the thing the reader is looking for, not the label of a setting.
-
-    `var(--color-accent)`, not `var(--color-primary)`: the dark half of this same rule already used
-    `var(--color-accent-dark)` for the identical role, so `var(--color-primary)` here was the one Ledger literal quietly
-    standing in for the accent-text role rather than the (numerically equal, under Ledger) primary
-    one -- the Cobalt mockup's icon plate glyph is the accent red, not the link blue.
+    `var(--color-accent)`, not `var(--color-primary)`: the dark half uses `var(--color-accent-dark)`
+    for the identical role, and the Cobalt icon plate glyph is the accent red, not the link blue.
+    The two are numerically equal under Ledger, so only Cobalt shows the difference.
   */
 }
 .layout-search-plate {
@@ -949,7 +795,7 @@ body.body--cobalt .layout-search-card {
   color: var(--color-accent-dark);
 }
 .layout-search-plate {
-  /* Same shadowed-plate treatment as the card and results row above -- see that rule's comment. */
+  /* Same shadowed-plate treatment as the card above. */
 }
 body.body--cobalt .layout-search-plate {
   border: 0;
@@ -958,13 +804,10 @@ body.body--cobalt .layout-search-plate {
 }
 .layout-search {
   /*
-    A ZERO basis, not `auto`, and `min-width: 0` beside it. Both are load-bearing below 600px, where
-    the row is `flex-wrap: wrap`: wrapping is decided from each item's hypothetical main size, so a
-    body whose basis is its own content (a title, a description and a path) does not fit beside the
-    plate and drops onto its own line -- putting the title hard against the card's edge instead of
-    beside the plate, and leaving the stacked date and tags inset under nothing. From zero it stays
-    on the plate's line and shrinks, which is what the design draws and what the `flex: 1 1 0%` on
-    `WItemSection`'s main section was quietly doing before this row stopped being a `w-item`.
+    A ZERO basis, not `auto`, with `min-width: 0` beside it. Both are load-bearing below 600px where
+    the row wraps: wrapping is decided from each item's hypothetical main size, so a body sized by
+    its own content would not fit beside the plate and would drop onto its own line. From zero it
+    stays on the plate's line and shrinks.
   */
 }
 .layout-search-rowbody {
@@ -1015,6 +858,8 @@ body.body--cobalt .layout-search-plate {
 .body--dark .layout-search-rowexcerpt {
   color: var(--color-text-dark);
 }
+/* Fixed rather than content-sized, so every row's title ends on the same edge down the list: a
+   column that sized itself would step in and out as the dates and tag counts varied. */
 .layout-search-rowmeta {
   display: flex;
   flex: none;
@@ -1043,30 +888,25 @@ body.body--cobalt .layout-search-plate {
 .layout-search {
   /*
     THREE NARROWER LAYOUTS
-    ======================
 
-    Same shape and same thresholds as `components/ProfileOverlay.vue`, which is the app's other card-beside-a-
-    sidebar screen: a sheet floating in a tinted page -- 90% of the width, 50px of gutter all round -- with
-    a 300px sidebar down its left side. Both give out as the window narrows, so the card gives them up one
-    at a time:
+    Same thresholds as `components/ProfileOverlay.vue`, the app's other card-beside-a-sidebar screen,
+    because the two run out of room together:
 
-      below 1200px   the card's gutters halve, handing the results the width they are running out of. The
-                     sidebar keeps its 300px, unlike the profile's nav: that one is a list of labels and
-                     can be as narrow as they are, where this is a column of form fields
-      below 900px    the sidebar goes altogether and becomes a disclosure above the results
-      below 600px    the card stops being a sheet and becomes the screen, and a result row stacks
+      below 1200px   the card's gutters halve. The sidebar keeps its 300px, unlike the profile's
+                     nav: that one is a list of labels, this a column of form fields
+      below 900px    the sidebar becomes a disclosure above the results
+      below 600px    the card becomes the screen, and a result row stacks
 
-    Ordered narrowest-last, so each block overrides the one above it where the two speak about the same
-    property. `899.98px` is the stylesheet's half of the 900px `useMinWidth` above, which is
-    what decides whether the disclosure button is rendered at all.
+    Ordered narrowest-last, so each block overrides the one above it. `899.98px` is the stylesheet's
+    half of the 900px `useMinWidth`, which decides whether the disclosure button renders at all.
   */
-  /* --- Below 1200px: the card gives up half its gutters ------------------------------------------- */
+  /* --- Below 1200px --- */
 }
 @media (max-width: 1199.98px) {
   .layout-search {
     /*
-      Halved from `90% / 50px`. Not bracketed to a band: below 900 the gutters would otherwise jump back to
-      the wider pair as the window narrowed, which is the one thing a reader resizing a window notices.
+      Not bracketed to a band: below 900px the gutters would otherwise jump back to the wider pair
+      as the window narrowed.
     */
   }
   .layout-search-card {
@@ -1075,18 +915,15 @@ body.body--cobalt .layout-search-plate {
   }
 }
 .layout-search {
-  /* --- Below 900px: the sidebar is a disclosure above the results --------------------------------- */
+  /* --- Below 900px --- */
 }
 @media (max-width: 899.98px) {
   .layout-search-card {
     flex-direction: column;
   }
   .layout-search {
-    /*
-      The disclosure's bar. Full width, so it reads as a strip of the card rather than as a button sitting
-      on it -- `space-between` is what puts the chevron at the far end from the label, where a disclosure's
-      marker belongs.
-    */
+    /* Full width, so the disclosure reads as a strip of the card rather than a button sitting on
+       it, with its chevron at the far end from the label. */
   }
   .layout-search-filterbtn {
     justify-content: space-between;
@@ -1100,7 +937,7 @@ body.body--cobalt .layout-search-plate {
     border-bottom: 1px solid var(--color-hairline-dark);
   }
   .layout-search {
-    /* -> The whole content of the button is one flex row, so the chevron needs pushing to the end of it */
+    /* -> The button's content is one flex row, so the chevron needs pushing to its end */
   }
   .layout-search-filterbtn > span {
     flex: 1;
@@ -1114,10 +951,9 @@ body.body--cobalt .layout-search-plate {
   }
   .layout-search {
     /*
-      The panel, no longer a 300px column: the full width of the card, and the seam that divided the two
-      columns moves from its right edge to its bottom one. Both stated per theme, because that is where
-      the rules they replace are declared -- at three classes each, which a plain override here would
-      lose to.
+      The seam that divided the two columns moves from the panel's inline end to its bottom. Stated
+      per theme because that is where the rules it replaces are declared -- at three classes each,
+      which a plain override here would lose to.
     */
   }
   .layout-search-sd {
@@ -1134,7 +970,7 @@ body.body--cobalt .layout-search-plate {
   }
 }
 .layout-search {
-  /* --- Below 600px: the card is the screen, and a result row stacks -------------------------------- */
+  /* --- Below 600px --- */
 }
 @media (max-width: 599.98px) {
   .layout-search-card {
@@ -1149,32 +985,23 @@ body.body--cobalt .layout-search-plate {
   }
   .layout-search {
     /*
-      A result stacks instead of reserving a column for its date and tags. That column is a fixed
-      150px, so beside it a title had whatever was left -- and what was left of 390px, after a plate
-      and a date, was a few words. Wrapped onto its own line the row reads as a card: plate and
-      title, the path and the matched text under it, then when it was touched and what it is tagged
-      with.
+      A result stacks instead of reserving a column for its date and tags: that column is a fixed
+      150px, and what is left of a 390px screen after a plate and a date is a few words of title.
     */
   }
   .layout-search-row {
     flex-wrap: wrap;
   }
   .layout-search {
-    /*
-      And the plate goes to the top of the row rather than the middle of it -- it is centred for a
-      row two lines tall, and would be stranded halfway down one that is now six.
-    */
+    /* Centring suits a row two lines tall; on a stacked one the plate is stranded halfway down. */
   }
   .layout-search-plate {
     align-self: flex-start;
   }
   .layout-search {
     /*
-      Lined up under the title rather than under the plate. The inset is DERIVED from the row's own
-      metrics (34px + 14px) rather than restated as a number: change the plate and the
-      stacked line follows it, which is what the hand-written 56px it replaces did not do -- that
-      value was `WItemSection`'s avatar-column width, and stopped describing this row the moment the
-      row stopped being a `w-item`.
+      Lined up under the title rather than under the plate: 48px is the plate (34px) plus the row's
+      gutter (14px), so changing either means changing this too.
     */
   }
   .layout-search-rowmeta {
@@ -1194,7 +1021,4 @@ body.body--cobalt .layout-search-plate {
 body.body--dark {
   background-color: var(--color-dark-6);
 }
-
-/* -> The `.w-footer .q-bar` rule that used to sit here never matched: FooterNav renders */
-/*    `.site-footer`, never a q-bar. Its colours live in FooterNav's own scoped style. */
 </style>

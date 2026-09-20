@@ -9,10 +9,8 @@ import {
   type SourceRecord
 } from '../connector.ts'
 
-/** Connection fields, matching `config.sample.yml`'s `db:` block — see
- * `docs/migration/decision-source-scope.md`'s "Connection/authentication surface" section for why
- * this deliberately mirrors this app's own Postgres connection shape, `db.schema` aside (2.x has no
- * equivalent — it always used Postgres's default `public` schema). */
+/** Mirrors `config.sample.yml`'s `db:` block, minus `schema`: 2.x always used Postgres's default
+ * `public` schema. */
 export interface PostgresSourceConfig {
   host: string
   port: number
@@ -23,10 +21,8 @@ export interface PostgresSourceConfig {
 }
 
 /**
- * Columns `checkShape` treats as evidence a table is really 2.5.x's shape, not merely same-named —
- * picked from `docs/migration/2.5x-source-schema.md` to include at least one column added late in the
- * 2.5.x line (`groups.redirectOnLogin`, `2.5.12.js`), so an install below this connector's supported
- * floor is rejected here rather than failing confusingly deep inside a later import step.
+ * Includes a column added late in the 2.5.x line (`groups.redirectOnLogin`, 2.5.12), so an install
+ * below the supported floor is rejected at connect rather than deep inside a later import step.
  */
 const EXPECTED_COLUMNS: Record<string, string[]> = {
   pages: ['id', 'path', 'hash', 'authorId', 'creatorId', 'contentType'],
@@ -35,17 +31,9 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
 }
 
 /**
- * PostgresSourceConnector
- *
- * Opens a read-only connection to a 2.5.x install that already runs on Postgres, and confirms via
- * schema introspection only — never a row read — that `pages`/`users`/`groups` are shaped like 2.5.x.
- * See `docs/migration/decision-source-scope.md` for why this is the only live-database connector kind
- * this connector supports, and for the read-only requirement `connect()` enforces defensively.
- *
- * Every `SourceConnector` method is implemented for real against the connected client: `pages()`,
- * `pageHistory()`, `tags()`, `navigation()`, `users()`, `groups()`, `settings()` and `comments()` via
- * plain SQL, and `assets()` via a streaming Postgres cursor joined against the resolved
- * `assetFolders` path for each row.
+ * Read-only connection to a 2.5.x install running on Postgres. `connect()` confirms the 2.5.x shape
+ * by schema introspection only — never a row read. `docs/migration/decision-source-scope.md` has why
+ * Postgres is the only live-database source supported.
  */
 export class PostgresSourceConnector implements SourceConnector {
   readonly kind = 'postgres' as const
@@ -71,8 +59,7 @@ export class PostgresSourceConnector implements SourceConnector {
     })
     await client.connect()
     try {
-      // Defense in depth: this connection must never be able to write to the 2.x source, even by
-      // accident — see docs/migration/decision-source-scope.md's "Read-only requirement".
+      // Defense in depth: this connection must never be able to write to the 2.x source.
       await client.query('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY')
       this.notes = await this.checkShape(client)
       this.detectedVersion = await this.detectVersion(client)
@@ -102,12 +89,6 @@ export class PostgresSourceConnector implements SourceConnector {
     }
   }
 
-  /**
-   * Confirm `pages`/`users`/`groups` exist and carry the expected 2.5.x columns, rejecting `connect()`
-   * otherwise. Schema introspection only — no row from any of these tables is ever read here.
-   *
-   * @throws When a table is missing, or is missing an expected column.
-   */
   private async checkShape(client: Client): Promise<string[]> {
     const notes: string[] = []
     for (const [table, expectedColumns] of Object.entries(EXPECTED_COLUMNS)) {
@@ -132,12 +113,7 @@ export class PostgresSourceConnector implements SourceConnector {
     return notes
   }
 
-  /**
-   * Best-effort: reads the highest applied 2.x migration name out of `knex_migrations`, per
-   * `docs/migration/decision-source-scope.md`'s minimum-version check. Absence is not fatal —
-   * `describe()` simply reports no detected version; enforcing the 2.5.12 floor for real is left to
-   * the importer tasks that actually read rows.
-   */
+  /** Best-effort: an unreadable `knex_migrations` just leaves `describe()` without a version. */
   private async detectVersion(client: Client): Promise<string | undefined> {
     try {
       const res = await client.query<{ name: string }>(
@@ -149,16 +125,12 @@ export class PostgresSourceConnector implements SourceConnector {
     }
   }
 
-  /** Batch size mirrors `PAGE_BATCH_SIZE`'s reasoning at a smaller row size, matching the
-   * export-bundle exporter's own 50/batch for `users.json.gz`
-   * (`docs/migration/2.5x-export-bundle-format.md`). */
+  /** Matches the 2.x exporter's own batch size for `users.json.gz`. */
   private static readonly USER_BATCH_SIZE = 50
 
   users(): AsyncIterable<SourceRecord> {
-    // Embeds group membership the same way the export-bundle format's users.json.gz does
-    // (`{ groups: [{id, name}] }`) — see connector.ts's own doc comment on why users() carries this
-    // rather than exposing a separate userGroups() generator. Both connector kinds hand callers an
-    // identically-shaped users() row this way.
+    // Group membership is embedded (`groups: [{id, name}]`) as the export bundle's users.json.gz
+    // does, so both connector kinds yield identically-shaped rows.
     return this.paginatedQuery(
       `SELECT u.*, COALESCE(
          json_agg(json_build_object('id', g.id, 'name', g.name) ORDER BY g.id)
@@ -180,14 +152,9 @@ export class PostgresSourceConnector implements SourceConnector {
   }
 
   /**
-   * Runs `sql` (with a trailing `LIMIT`/`OFFSET` this appends) repeatedly, batch by batch, so a large
-   * table is never held in memory all at once — `docs/migration/2.5x-export-bundle-format.md`'s
-   * "Implications" note to mirror the exporter's own batch sizes applies here too, even though this is
-   * the live-Postgres path rather than a bundle. `sql` must not itself end in a semicolon or already
-   * contain `LIMIT`/`OFFSET`, and its `$n` placeholders must line up with `params`. `sql`'s `ORDER BY`
-   * must also be total (unique per row) — this method re-issues `sql` once per batch as separate
-   * statements with different `OFFSET`s, so a tied `ORDER BY` lets Postgres break ties differently
-   * between them, silently duplicating or dropping rows across the batch boundary.
+   * Appends `LIMIT`/`OFFSET` to `sql`, so `sql` must not end in a semicolon or carry its own. Its
+   * `ORDER BY` must be total (unique per row): each batch is a separate statement, and Postgres may
+   * break a tie differently between them, silently duplicating or dropping rows at a batch boundary.
    */
   private async *paginatedQuery(
     sql: string,
@@ -210,17 +177,13 @@ export class PostgresSourceConnector implements SourceConnector {
     }
   }
 
-  /** Batch size mirrors the exporter's own `pages`/`history` batching (`2.5x-export-bundle-format.md`:
-   * "Batch size is 10 for `pages`/`history`"), for the same reason: a workable unit of rows to hold in
-   * memory at a time without buffering a whole table. */
+  /** Matches the 2.x exporter's own batch size for `pages`/`history`. */
   private static readonly PAGE_BATCH_SIZE = 10
 
   pages(): AsyncIterable<SourceRecord> {
-    // Tags are resolved here via a join+aggregate rather than exposed as a separate generator to walk
-    // against `tags()`/`pageTags` — the `SourceConnector` interface has no `pageTags()` generator at
-    // all, so a caller has nothing else to join `pages()` rows against; this mirrors the export
-    // bundle's own `pages.json.gz` shape (`tags: [{tag, title}]` inline on each row), so
-    // `content-staging.ts`'s tag resolution works identically against either connector kind.
+    // Tags are aggregated inline (`tags: [{tag, title}]`), mirroring the export bundle's
+    // pages.json.gz rows: `SourceConnector` has no `pageTags()` generator to join against, and this
+    // keeps `content-staging.ts`'s tag resolution identical across connector kinds.
     return this.paginatedQuery(
       `SELECT p.*, COALESCE(
          json_agg(json_build_object('tag', t.tag, 'title', t.title) ORDER BY t.tag)
@@ -238,9 +201,7 @@ export class PostgresSourceConnector implements SourceConnector {
   }
 
   pageHistory(): AsyncIterable<SourceRecord> {
-    // Same tag-resolution rationale as pages() above, joined through pageHistoryTags instead of
-    // pageTags — note the naming trap 2.5x-source-schema.md flags: pageHistoryTags."pageId" targets
-    // "pageHistory".id, not pages.id, which is exactly what this join does.
+    // Naming trap: pageHistoryTags."pageId" targets "pageHistory".id, not pages.id.
     return this.paginatedQuery(
       `SELECT ph.*, COALESCE(
          json_agg(json_build_object('tag', t.tag, 'title', t.title) ORDER BY t.tag)
@@ -265,15 +226,9 @@ export class PostgresSourceConnector implements SourceConnector {
     return this.paginatedQuery(`SELECT * FROM navigation ORDER BY key`, [], 100)
   }
 
-  /** Yields every row of 2.x's three config tables this migration cares about (`settings`,
-   * `authentication`, `storage`), each tagged with `entity` so a caller routing rows to the three
-   * different mappers (`mappers/site-settings.ts`, `mappers/authentication.ts`,
-   * `mappers/storage.ts`) can dispatch without re-querying — the interface only has one settings()
-   * generator (see connector.ts's own doc comment), so this is the "exact grouping" that comment
-   * defers to this task. None of these three tables is large (each is a small, singleton-per-key
-   * config table per `2.5x-source-schema.md`), so a plain `SELECT *` with no pagination is correct
-   * here — this mirrors `tags()`/`navigation()`'s existing unpaginated pattern in this same file,
-   * not `pages()`'s batched one. */
+  /** `SourceConnector` has one settings() generator for 2.x's three config tables, so each row is
+   * tagged with `entity` for the caller to route to the matching mapper. Unpaginated: each table
+   * holds one small row per key. */
   async *settings(): AsyncIterable<SourceRecord> {
     if (!this.client) {
       throw new Error('Entity generator called before a successful connect().')
@@ -300,11 +255,8 @@ export class PostgresSourceConnector implements SourceConnector {
     return this.paginatedQuery(`SELECT * FROM comments ORDER BY id`, [], 100)
   }
 
-  /** Resolves 2.x `assetFolders`' self-referential adjacency list (id -> {name, parentId}) into a
-   * folderId -> full relative path map, the live-Postgres equivalent of what the 2.x export bundle's
-   * own `getAllPaths()` computes server-side (`docs/migration/2.5x-export-bundle-format.md`'s
-   * `assets` section). Reads the whole (typically small) `assetFolders` table into memory once — no
-   * install has enough folders for this to matter the way `pages`/`assetData` volume does. */
+  /** folderId -> full relative path, the equivalent of what the 2.x exporter's `getAllPaths()`
+   * computes. `assetFolders` is small enough to read whole. */
   private async buildAssetFolderPaths(): Promise<Map<number, string>> {
     if (!this.client) {
       throw new Error('Entity generator called before a successful connect().')
@@ -335,10 +287,8 @@ export class PostgresSourceConnector implements SourceConnector {
     }
     const folderPaths = await this.buildAssetFolderPaths()
 
-    // Single unbatched streaming cursor, matching the 2.x exporter's own choice for this entity
-    // (docs/migration/2.5x-export-bundle-format.md: "assets uses a single unbatched streaming DB
-    // cursor, no .limit() at all") — asset bytes are the one thing in this migration too large to
-    // ever paginate through a plain SELECT.
+    // A streaming cursor read one row at a time, as the 2.x exporter does: asset bytes are too large
+    // to buffer a batch of.
     const cursor = this.client.query(
       new Cursor(
         `SELECT a.id, a.filename, a.mime, a."authorId", a."createdAt", a."updatedAt", a."folderId",

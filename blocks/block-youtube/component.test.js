@@ -1,17 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 /*
- * OpenProject #1638: the invalid-URL / missing-URL messages resolve through `../shared/i18n.js`'s
- * `I18n` reactive controller rather than a hardcoded literal. `I18n` itself has its own dedicated
- * coverage (`shared/i18n.test.js` -- resolution, English fallback, param interpolation, the
- * fallback-before-load timing); mocked here the same way `block-include`'s suite mocks
- * `../shared/config.js`, so this suite proves the component *delegates* to the resolver (calls it
- * with the right key/fallback/params, renders whatever it returns) without needing a real network
- * round trip or fetch stub.
+ * Mocked so this suite proves only that the component delegates to the resolver -- right key,
+ * fallback and params, rendering whatever comes back. `I18n` itself is covered in
+ * `shared/i18n.test.js`.
  */
 const { i18nT, MockI18n } = vi.hoisted(() => {
-  // -> Mirrors the real controller's own pre-load behavior: the fallback, verbatim, until a test
-  //    overrides it to prove the rendered text really is whatever the resolver hands back.
   const i18nT = vi.fn((_key, fallback) => fallback)
   class MockI18n {
     constructor(host) {
@@ -78,8 +72,8 @@ describe('block-youtube', () => {
       ['https://www.youtube.com/embed/dQw4w9WgXcQ', 'dQw4w9WgXcQ'],
       ['https://www.youtube.com/shorts/dQw4w9WgXcQ', 'dQw4w9WgXcQ'],
       ['https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ', 'dQw4w9WgXcQ'],
-      ['www.youtube.com/watch?v=dQw4w9WgXcQ', 'dQw4w9WgXcQ'], // no scheme
-      ['dQw4w9WgXcQ', 'dQw4w9WgXcQ'] // bare id
+      ['www.youtube.com/watch?v=dQw4w9WgXcQ', 'dQw4w9WgXcQ'],
+      ['dQw4w9WgXcQ', 'dQw4w9WgXcQ']
     ])('resolves %s to video id %s', async (url, id) => {
       const el = await mountYoutube({ url })
       expect(iframeSrc(el)).toContain(`/embed/${id}`)
@@ -176,9 +170,8 @@ describe('block-youtube', () => {
   })
 
   /*
-   * Deliberately no `describeDarkMode` here: this block adds no `DarkMode` controller of its own and
-   * `shared/video-embed.js` constructs none either -- there is nothing in a YouTube frame for a
-   * `dark` attribute to restyle. See `shared/video-embed.test.js` for the full split.
+   * Deliberately no `describeDarkMode` here: neither this block nor `shared/video-embed.js`
+   * constructs a `DarkMode` controller, since an opaque provider frame has nothing to restyle.
    */
   it('never takes a dark attribute -- the shared video shell constructs no DarkMode controller', async () => {
     document.body.classList.add('body--dark')

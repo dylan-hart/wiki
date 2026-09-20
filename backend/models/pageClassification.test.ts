@@ -10,12 +10,10 @@ import {
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
- * The floor invariant and the classification reports, exercised through real `createPage`/
- * `updatePage`/`movePage` writes against a real parent/child hierarchy —
- * `models/classificationLevels.test.ts` only covers the pure `meetsFloor`/`stricterOf` math, and
- * `api/pages.classification.test.ts` stubs the model entirely, so this is what proves
- * `resolveCreateClassification`'s parent lookup and `moveOnePageInTx`'s auto-bump actually run
- * against real rows.
+ * DB-backed rather than stubbed: `models/classificationLevels.test.ts` covers the pure
+ * `meetsFloor`/`stricterOf` math and `api/pages.classification.test.ts` stubs the model entirely,
+ * so only real writes prove `resolveCreateClassification`'s parent lookup and `moveOnePageInTx`'s
+ * auto-bump run against real rows.
  */
 describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -31,7 +29,7 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ;({ pageClassification: pageClassificationModel } = await import('./pageClassification.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     // -> Puppeteer is never installed in this test environment, so a real `ensureCanRender()` would
-    //    refuse every renderless create/update below (OpenProject #1716).
+    //    refuse every create/update below.
     mock.method(CARDINAL.models.renderQueue, 'ensureCanRender', async () => {})
   })
 
@@ -51,12 +49,9 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
   }
 
   /**
-   * OpenProject #1702: a bare `UPDATE` here left external search modules indexing the pre-raise
-   * classification (they decide `read:pages` visibility per-hit off the indexed copy — see
-   * `modules/search/algolia/search.ts`), and left `glossary.ts#getRawCachedTerms`'s cached
-   * `pageClassification` stale for any term canonically linked to one of these pages. This asserts
-   * both post-write effects: one `search.updated` call per id in the batch, and exactly one
-   * `glossary.invalidateCache` for the site, not one per page.
+   * A bare `UPDATE` leaves external search modules indexing the pre-raise classification — they
+   * decide `read:pages` visibility per hit off the indexed copy — and leaves the glossary's cached
+   * `pageClassification` stale for any term canonically linked to one of these pages.
    */
   test('bulkSetClassification calls search.updated per page and invalidates the glossary cache once for the whole batch', async () => {
     const { classificationLevels } = await import('./classificationLevels.ts')
@@ -135,13 +130,6 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
     }
   })
 
-  /**
-   * OpenProject #1080: the floor invariant itself, exercised through `createPage`/`updatePage`/
-   * `movePage` against a real parent/child hierarchy -- `models/classificationLevels.test.ts` only
-   * covers the pure `meetsFloor`/`stricterOf` math, and `api/pages.classification.test.ts` stubs the
-   * model entirely, so nothing else proves `resolveCreateClassification`'s parent lookup or
-   * `moveOnePageInTx`'s auto-bump actually run against real rows.
-   */
   describe('classification floor invariant (OpenProject #1080)', () => {
     let internalId: string
     let restrictedId: string
@@ -255,11 +243,8 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     /**
-     * OpenProject #1935: `page:classification-changed` must fire on a real level change and stay
-     * silent on a patch that merely restates the current level -- the editor sends every field on
-     * every save, so `patch.classification !== undefined` alone is not the right guard. Spies on
-     * `CARDINAL.models.hooks.emit` the same way this file already spies on `CARDINAL.models.search` above
-     * (own-property shadow, restored via `delete` in `finally`).
+     * The editor sends every field on every save, so `patch.classification !== undefined` alone is
+     * not the right guard -- a no-op restate must stay silent.
      */
     test('updatePage emits page:classification-changed only when the level actually changes', async () => {
       const page = await pagesModel.createPage(
@@ -276,7 +261,6 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
       }
 
       try {
-        // -> Restates the current level: must fire nothing
         await pagesModel.updatePage(fixtures.siteId, page.id, { classification: internalId }, actor)
         assert.equal(
           emitted.filter((e) => e.event === 'page:classification-changed').length,
@@ -284,7 +268,6 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
           'a no-op classification restate must not emit page:classification-changed'
         )
 
-        // -> An actual change: must fire exactly once, carrying the old and new level
         await pagesModel.updatePage(
           fixtures.siteId,
           page.id,
@@ -329,11 +312,6 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
   })
 
-  /**
-   * OpenProject #1081: "everything currently classified as X" -- `classificationReport()`'s per-level
-   * counts and `listByClassification()`'s drill-down, both instance-wide by default and narrowable to
-   * one site.
-   */
   describe('classificationReport / listByClassification (OpenProject #1081)', () => {
     test('every configured level is included, even at zero, in level order', async () => {
       const report = await pageClassificationModel.classificationReport()

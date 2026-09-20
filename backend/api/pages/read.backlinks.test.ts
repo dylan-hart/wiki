@@ -4,15 +4,6 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import pagesRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * Route-wiring tests for `GET /sites/:siteId/pages/:pageId/backlinks` (OpenProject #1914).
- *
- * Follows the same lightweight fastify-`inject` harness as `pages-export.test.ts`: a fake
- * `CARDINAL.models.pages`/`CARDINAL.models.groups` stand in for the real Drizzle-backed models, so this
- * exercises the route's wiring -- target-page gating via `loadReadablePage`, and the per-row
- * `mayOnPage('read:pages', ...)` filter over `listBacklinks` -- without a database.
- */
-
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const PAGE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 
@@ -47,11 +38,7 @@ function actorForRequest(req: FastifyRequest) {
   return { permissions: [] as string[], pagePermissions: session?.testPagePermissions ?? [] }
 }
 
-/**
- * A page-scoped permission is granted here per-`path` (via the `readablePaths` session field),
- * not blanket like `pages-export.test.ts`'s mock -- the whole point under test is that each
- * backlink row is checked independently.
- */
+/** Granted per `path`, not blanket: each backlink row is checked independently. */
 function checkAccess(
   actor: { permissions: string[]; pagePermissions: string[] },
   permission: string,
@@ -160,7 +147,6 @@ test('drops a linking page the caller may not read:pages on', async () => {
   const res = await app.inject({
     method: 'GET',
     url: `/sites/${SITE_ID}/pages/${PAGE_ID}/backlinks`,
-    // -> Can read the target and "docs/linker", but not "secret/linker"
     headers: sessionHeader(['docs/target', 'docs/linker'])
   })
   assert.equal(res.statusCode, 200)

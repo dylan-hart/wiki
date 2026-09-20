@@ -8,20 +8,9 @@ import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test
 import { AESTHETIC_DEFAULT_COLORS } from '../helpers/aestheticDefaults.js'
 
 /**
- * OpenProject #2978 ("Cobalt typography: contents rail (`PageToc.vue`)"), the "Contents rail" row of
- * `ui-iteration-cobalt-typography/cobalt-typography.md` §3. That table's four roles -- eyebrow,
- * entry, entry-active, sub-entry -- split across two owners: the eyebrow ("Contents" / "Tags" /
- * "Revision") is `Index.vue`'s shared `.page-sidebar-heading` rule, already fixed by sibling Bug
- * #2967 (round 1) and out of scope here; the other three are this file's own `.page-toc-item--d0` /
- * `--d1` / `--d2` ramp plus the §4.4 active-row swap, which is what this suite pins.
- *
- * Source reading found every one of those three roles already resolving to the spec's exact values
- * through the existing `--page-toc-*` custom-property wiring (cross-checked against `tailwind.css`'s
- * Cobalt token block, itself pinned by `cobaltTokens.test.js`) -- so this is regression coverage for
- * an already-correct component, not a fix. The source-scan describe below reads as duplication with
- * the token-pin tests; it exists anyway because `cobaltTokens.test.js` pins the TOKENS in isolation
- * and this pins what `PageToc.vue`'s OWN rules do with them, which is the thing that can drift (a
- * rule pointed at the wrong token, or dropped) without the token pins ever noticing.
+ * The source-scan describe below reads as duplication of the token-pin tests. It exists anyway
+ * because `cobaltTokens.test.js` pins the TOKENS in isolation and this pins what `PageToc.vue`'s OWN
+ * rules do with them -- a rule pointed at the wrong token, or dropped, is invisible to the token pins.
  */
 
 const componentDir = dirname(fileURLToPath(import.meta.url))
@@ -36,9 +25,8 @@ const styleSource = styleMatch[1]
 describe('PageToc.vue --page-toc-* token wiring (source)', () => {
   const cobaltStart = styleSource.indexOf('body.body--cobalt .page-toc {')
   const cobaltDarkStart = styleSource.indexOf('body.body--cobalt.body--dark .page-toc {')
-  // -> Each of these two rules is a single, self-contained flat block now (OpenProject #3254
-  //    flattened this file's nesting), so the block's own next `\n}` is its real close -- no need to
-  //    hunt for an unrelated later marker the way the pre-flattening `&`-based search did.
+  // -> Each of these two rules is a single, self-contained flat block, so the block's own next `\n}`
+  //    is its real close
   const cobaltEnd = styleSource.indexOf('\n}', cobaltDarkStart) + 1
   expect(cobaltStart).toBeGreaterThan(-1)
   expect(cobaltDarkStart).toBeGreaterThan(cobaltStart)
@@ -78,12 +66,8 @@ describe('PageToc.vue --page-toc-* token wiring (source)', () => {
 })
 
 /**
- * `PageToc.vue`'s `<style>` block is un-scoped, global CSS -- already plain, valid CSS (OpenProject
- * #3254 dropped the Sass pipeline this used to compile through), so it is read directly, the same
- * way `Index.contentWidth.test.js#indexPageCss()` does for `Index.vue`'s own un-scoped block.
- * Assembled beside the real, Tailwind-built `tailwind.css` (`buildAppCss()`) so every
- * `var(--color-*)` / `var(--font-*)` resolves to what the app itself ships, not a hand-picked
- * subset.
+ * Assembled beside the real, Tailwind-built `tailwind.css` so that every `var(--color-*)` /
+ * `var(--font-*)` resolves to what the app itself ships, not to a hand-picked subset.
  */
 async function buildStylesheets() {
   const appCss = await buildAppCss()
@@ -91,10 +75,8 @@ async function buildStylesheets() {
 }
 
 /**
- * The list `PageToc.vue`'s template renders for one top-level entry (active and not), one d1
- * sub-entry and one d2 sub-sub-entry -- the same markup shape as its `<template>` (`item.depth` on
- * `--page-toc-depth`, `page-toc-item--active` alongside `page-toc-item--d0`), built by hand since this
- * suite exercises the compiled CSS directly rather than mounting the component.
+ * The same markup shape `PageToc.vue`'s template renders, built by hand because this suite exercises
+ * the compiled CSS directly rather than mounting the component -- keep it in step with the template.
  */
 const SAMPLE = `
   <nav class="page-toc">
@@ -122,18 +104,12 @@ describe(
     let stylesheets
 
     /**
-     * `--q-accent` is an admin-editable, runtime-resolved brand color (`App.vue#applyTheme()`, via
-     * `helpers/aestheticDefaults.js#resolveAestheticColors`) -- it carries no static value in
-     * `tailwind.css` itself beyond its Ledger fallback (`#c14a52`, declared on `:root`), so a bare
-     * compile of `tailwind.css` + this component's CSS resolves the active row's ink to the wrong
-     * aesthetic's color. Setting it inline to `AESTHETIC_DEFAULT_COLORS.cobalt.colorAccent`
-     * reproduces exactly what an unmodified Cobalt site resolves it to -- the same literal
-     * `cobaltTokens.test.js` and `aestheticDefaults.js`'s own header comment both already cite as
-     * Cobalt's `#c8303c`. It has to land on the `<html>` element specifically, matching where
-     * `App.vue` itself sets it (`document.documentElement`) and where `tailwind.css` declares
-     * `--color-accent: var(--q-accent)` (on `:root`): custom properties cascade to computed values
-     * PER ELEMENT, so a later override on `<body>` alone would arrive too late to affect how
-     * `--color-accent` itself was already resolved at `:root`.
+     * `--q-accent` is an admin-editable, runtime-resolved brand color carrying no static value in
+     * `tailwind.css` beyond its Ledger fallback, so a bare compile resolves the active row's ink to
+     * the wrong aesthetic's color; setting it inline reproduces what an unmodified Cobalt site
+     * resolves it to. It has to land on `<html>` specifically, where `App.vue` sets it and where
+     * `tailwind.css` declares `--color-accent: var(--q-accent)`: custom properties resolve to
+     * computed values PER ELEMENT, so an override on `<body>` alone would arrive too late.
      */
     async function measure({ dark: darkMode = false } = {}) {
       const { appCss, componentCss } = stylesheets
@@ -251,12 +227,10 @@ describe(
     })
 
     /**
-     * OpenProject #3026: the 5px plate radius must be a standing property of `.page-toc-link`, not
-     * something that only appears alongside the active row's background -- otherwise, the instant the
-     * active class is removed (scrolling past a heading), the radius snaps to square while the
-     * `background-color` is still fading out over its own 0.2s transition. Asserting it on a row that
-     * was NEVER active (rather than toggling the class off one that was) is what proves the radius is
-     * unconditional rather than merely persisting from some prior active state.
+     * The radius must be a standing property of `.page-toc-link`, not something that only appears
+     * alongside the active row's background -- otherwise the instant the active class is removed the
+     * radius snaps to square while `background-color` is still fading out. Asserting it on a row that
+     * was NEVER active is what proves it unconditional rather than left over from a prior state.
      */
     it('gives every row -- not only the active one -- the 5px plate radius, so it never has to snap in', async () => {
       const { entry } = await measure({ dark: false })

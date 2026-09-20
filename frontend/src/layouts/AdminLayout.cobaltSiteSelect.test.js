@@ -10,12 +10,9 @@ import { mountWithApp } from '../../test/mount.js'
 import { createTestRouter } from '../../test/router.js'
 
 /**
- * OpenProject #3002 ("Cobalt admin Site dropdown missing darker interior, lighter blue border,
- * taller control, more padding"). Real-browser, same technique as
- * `AdminLayout.cobaltTypography.test.js`: neither `jsdom` nor `happy-dom` resolves an unscoped SFC
- * `<style>` block against the compiled `--color-*` chain the way a real engine does, and `WSelect`'s
- * `standout`/`dense` sizing comes from Tailwind utility classes this rule has to actually beat with
- * `!important` -- the only way to know that happened is to ask a real browser to compute it.
+ * Real-browser because neither `jsdom` nor `happy-dom` resolves an unscoped SFC `<style>` block
+ * against the compiled `--color-*` chain, and `WSelect`'s sizing comes from Tailwind utilities this
+ * rule has to beat with `!important` -- only a real engine can say whether it did.
  */
 
 vi.stubGlobal('localStorage', {
@@ -137,10 +134,7 @@ describe(
   }
 )
 
-/**
- * Source-text check for the class wiring and the Cobalt rule's shape, mirroring
- * `AdminLayout.cobaltTypography.test.js`'s bottom describe -- runs with no Chromium available too.
- */
+/** Source-text checks, so the wiring still has coverage on a machine with no Chromium. */
 describe('.admin-site-select wiring', () => {
   const source = readFileSync(join(import.meta.dirname, 'AdminLayout.vue'), 'utf-8')
 

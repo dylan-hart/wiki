@@ -7,26 +7,13 @@ import { mount } from '@vue/test-utils'
 import WDrawer from './WDrawer.vue'
 
 /**
- * OpenProject #834 ("RTL regression pass: linklist rendering + zoom/toolbar mirroring"), item 2:
- * zoom + RTL interaction (upstream discussion #2626, "Hebrew nav bar layout breaking at non-100%
- * zoom").
- *
- * `.w-layout`'s CSS Grid places `WDrawer`'s `ldrawer`/`rdrawer` areas by LOGICAL column order, which
- * the Grid spec itself mirrors under `dir="rtl"` -- column 1 (`ldrawer`, the site sidebar's default)
- * renders at the visual RIGHT once the document goes RTL. `WDrawer` had three places that still
- * assumed `side="left"` means the physical left unconditionally, which is exactly true at the
- * wide/grid breakpoint (where the grid does the mirroring for free) but silently wrong at the
- * narrow/overlay one (`position: fixed`, entirely outside the grid, so nothing mirrors it):
- *
- *   - the fixed-position anchor (`left-0`/`right-0` -> `start-0`/`end-0`)
- *   - the border facing `main` (`border-l`/`border-r` -> `border-e`/`border-s`)
- *   - the open/close slide transition (`margin-left`/`margin-right` -> `margin-inline-start`/`-end`)
- *
- * `useMinWidth`'s breakpoint (`overlayBelow`, 1200px for the site sidebar) reads CSS pixel viewport
- * width, which is exactly what browser zoom changes -- so a reader who is fine at 100% zoom (wide
- * mode, grid-mirrored, looks correct) can cross into narrow/overlay mode at another zoom level and
- * hit the un-mirrored physical positioning below, which is the "breaks at non-100% zoom" shape the
- * upstream discussion describes rather than a plain always-broken RTL bug.
+ * The failure mode guarded here: `.w-layout`'s CSS Grid places `WDrawer`'s `ldrawer`/`rdrawer`
+ * areas by LOGICAL column order, which the Grid spec itself mirrors under `dir="rtl"`, so
+ * `side="left"` renders at the visual RIGHT in an RTL document. The grid does that mirroring for
+ * free at the wide breakpoint but not at the narrow/overlay one (`position: fixed`, outside the
+ * grid), and `useMinWidth`'s breakpoint reads CSS-pixel viewport width -- which browser zoom
+ * changes. A physical `left`/`right`/`border-l` therefore reads correct at 100% zoom and breaks at
+ * another zoom level, rather than being always-broken under RTL.
  *
  * `@vue/test-utils` stubs `<transition>` by default, so `wrapper.element` resolves to the
  * `<transition-stub>` wrapper rather than the real `<aside>` -- every assertion below reads classes
@@ -54,13 +41,10 @@ afterEach(() => {
 })
 
 describe('WDrawer overlay/narrow breakpoint (below `overlayBelow`, e.g. a zoomed-in viewport)', () => {
-  // -> Each test uses its OWN `overlayBelow` value. `useMinWidth` (`composables/screen.js`) caches
-  //    one shared `matchMedia` listener per exact breakpoint number at module scope, for the whole
-  //    app's real benefit (one listener per breakpoint, not one per caller) -- but that means reusing
-  //    a breakpoint number across tests in this file would read the FIRST test's stubbed width, not
-  //    the current test's, since the already-imported module instance never gets torn down between
-  //    `it()`s the way `screen.test.js`'s own `vi.resetModules()` + dynamic re-import does for that
-  //    file. A distinct number per test sidesteps the cache instead of fighting it.
+  // -> Each test uses its OWN `overlayBelow` value: `useMinWidth` (`composables/screen.js`) caches
+  //    one shared `matchMedia` listener per exact breakpoint number at module scope, and the module
+  //    instance is never torn down between `it()`s, so reusing a breakpoint number would read the
+  //    FIRST test's stubbed width. A distinct number per test sidesteps the cache.
   it('anchors a start-side (`side="left"`) drawer with the logical inset-inline-start utility, not the physical left one', () => {
     stubMatchMedia(320)
     const wrapper = mount(WDrawer, {

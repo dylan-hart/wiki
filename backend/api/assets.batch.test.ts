@@ -5,12 +5,7 @@ import routes from './assets.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 import { CustomError } from '../helpers/common.ts'
 
-/**
- * Builds a `multipart/form-data` body for `app.inject()`, using the platform's own `Response` to do
- * the encoding (boundary, per-part headers) rather than hand-rolling it — same helper shape as
- * `api/pages/import.test.ts#buildMultipartPayload`, minus the `formats` field this route has no
- * equivalent of.
- */
+/** `Response` does the multipart encoding (boundary, per-part headers) for `app.inject()`. */
 async function buildMultipartPayload(
   files: { fileName: string; content: string; type?: string }[]
 ): Promise<{ payload: Buffer; contentType: string }> {
@@ -28,17 +23,6 @@ async function buildMultipartPayload(
   return { payload, contentType }
 }
 
-/**
- * Route-level test for `POST /sites/:siteId/assets/batch` (OpenProject #3211/#3231).
- *
- * `models/assets.ts#upload()` itself (conflict behavior, thumbnailing, SVG scanning, ...) is already
- * covered in `models/assets.test.ts`; the single-file route's own destination resolution (`folderId`
- * vs `parentPath`, site scoping) is covered in `assets.test.ts`. What this suite checks is the
- * batch route's own wiring: that every file reaches `upload()` with the shared destination, that a
- * denied permission or a model failure fails only its own entry rather than the whole batch, and
- * that the admin-configurable per-request file-count limit (`security.uploadMaxFilesPerBatch`) is
- * enforced by the multipart parser itself, before an over-the-limit file is ever read.
- */
 describe('POST /sites/:siteId/assets/batch', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const RESOLVED_FOLDER_ID = '22222222-2222-4222-8222-222222222222'
@@ -183,8 +167,6 @@ describe('POST /sites/:siteId/assets/batch', () => {
     assert.equal(uploadCalls.length, 2)
     assert.equal(uploadCalls[0].folderId, RESOLVED_FOLDER_ID)
     assert.equal(uploadCalls[1].folderId, RESOLVED_FOLDER_ID)
-    // -> Every file shares one destination, so the folder is resolved-or-created only once for the
-    //    whole batch, not once per file.
     assert.equal(getFolderCalls.length, 1)
     assert.equal(checkAccessCalls.length, 2)
     assert.equal(checkAccessCalls[0].path, 'guides/setup/a.png')
@@ -257,20 +239,10 @@ describe('POST /sites/:siteId/assets/batch', () => {
   })
 
   /**
-   * `@fastify/multipart`'s `limits` are read from `CARDINAL.config.security` once, at
-   * plugin-registration time — exactly like `blocks.test.ts`'s own upload-size-cap test, and for the
-   * same reason `assets.ts`'s route comment gives for `addContentTypeParser`'s `bodyLimit`. A
-   * separate app instance is built here (reusing the same installed `CARDINAL` global, mutated first)
-   * so each test proves the configured limit is actually wired up, rather than only asserting the
-   * source line reads the config key.
+   * `@fastify/multipart` reads its `limits` from `CARDINAL.config.security` once, at registration,
+   * so each test mutates the installed config first and then builds its own app.
    */
   describe('registration-time limits (security.uploadMaxFileSize / uploadMaxFilesPerBatch)', () => {
-    /**
-     * Mirrors `api/pages/import.test.ts`'s own oversized-file regression (OpenProject #849): with
-     * `throwFileSizeLimit: false`, an oversized file's `toBuffer()` resolves rather than throwing,
-     * and the route reads `part.file.truncated` itself -- so one oversized file fails only its own
-     * entry.
-     */
     test('an oversized file fails only its own entry, not the whole batch', async () => {
       CARDINAL.config.security.uploadMaxFileSize = 4
       const smallApp = await buildTestApp({ routes, ajv: true, session: 'header' })
@@ -299,11 +271,6 @@ describe('POST /sites/:siteId/assets/batch', () => {
       }
     })
 
-    /**
-     * The WP's own acceptance criteria: a batch exceeding the admin-configured file-count limit is
-     * rejected at parse time, before the extra files are read into memory -- exercised here as a
-     * whole-request 413 with nothing uploaded, rather than a partial per-file result.
-     */
     test('a batch with more files than the configured per-request limit answers 413, with nothing uploaded', async () => {
       CARDINAL.config.security.uploadMaxFilesPerBatch = 1
       const smallApp = await buildTestApp({ routes, ajv: true, session: 'header' })

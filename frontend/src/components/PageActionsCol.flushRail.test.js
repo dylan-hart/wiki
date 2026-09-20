@@ -7,16 +7,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
-  OpenProject #3471 (Feature #3464): the Cobalt reading rail is a 48px column of 48px square cells
-  with flat hovers, and Page Properties -- the column's cap -- keeps its rounded corners. The editor
-  rail (56px, filled accent strip) keeps its dimensions but its hovers go flat and square too.
-  Ledger renders as before.
-
-  Two layers, as `css/flushHoverBtn.test.js` does: the SFC's own source (template classes and
-  `<style>` block), and the real compiled app CSS plus `_base.css` plus this SFC's `<style>` in real
-  Chromium, on a rail whose buttons carry the inline `min-height`/`padding` WBtn writes -- the
-  cascade fights this change rides on (`!important` radius vs the plate's own radius) are exactly
-  what jsdom and happy-dom cannot resolve.
+  Two layers: the SFC's own source, and the real compiled app CSS plus `_base.css` plus this SFC's
+  `<style>` in real Chromium, on a rail whose buttons carry the inline `min-height`/`padding` WBtn
+  writes -- the cascade fight this rides on (`!important` radius vs the plate's own radius) is
+  exactly what jsdom and happy-dom cannot resolve.
 */
 
 const componentsDir = dirname(fileURLToPath(import.meta.url))
@@ -26,7 +20,6 @@ const template = source.slice(0, source.indexOf('<script')).replace(/<!--[\s\S]*
 const styleBlock = source.match(/<style[^>]*>([\s\S]*?)<\/style>/)[1]
 const baseCss = readFileSync(join(cssDir, '_base.css'), 'utf8')
 
-/** The declarations of one selector's rule, comments stripped, as a `property: value` map. */
 function declarations(css, selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const rule = css.match(new RegExp(`(^|\\n|,\\s*)${escaped}\\s*(,[^{]*)?\\{([^}]*)\\}`))
@@ -44,7 +37,6 @@ function declarations(css, selector) {
   )
 }
 
-/** Every `<w-btn ...>` opening tag whose `class` mentions the rail's own cells. */
 function railButtons() {
   return template.match(/<w-btn\s[^>]*?class="(?:h-12|aspect-square)[^"]*"[\s\S]*?>/g) ?? []
 }
@@ -120,11 +112,8 @@ describe('the page actions rail under real Chromium', { skip: !hasChromium() }, 
   // -> WBtn's own inline styles, so the cascade fight the `!important`s exist for is real
   const INLINE = 'min-height:2.572em;padding:0 1.12em'
 
-  /*
-    The rail as `PageActionsCol.vue` renders it: a flex column with `items-stretch`, Page Properties
-    first as `.aspect-square`, the rest `.h-12`. The rail sits in a 600px-tall, 320px-wide row
-    with `align-items: stretch`, as `.page-container` does.
-  */
+  /* Mirrors `PageActionsCol.vue`'s own markup, inside a stretching row as `.page-container` gives
+     it. */
   function railHtml(editor) {
     const cap = editor ? '' : ' flush-hover-btn--cap'
     return (
@@ -139,7 +128,7 @@ describe('the page actions rail under real Chromium', { skip: !hasChromium() }, 
   }
 
   async function measure(bodyClass, editor) {
-    // -> `_base.css` and this SFC's own `<style>` are appended after the compiled Tailwind, as the app loads them
+    // -> Appended after the compiled Tailwind, matching the app's own load order
     const css = `${await buildAppCss()}\n${baseCss}\n${styleBlock}`
     const page = await browser.newPage()
     try {

@@ -1,14 +1,7 @@
 import { actorFromRequest } from '../../models/auditLog.ts'
 import type { FastifyInstance } from 'fastify'
 
-/**
- * The optional native extensions (Pandoc, Puppeteer, ...): what is available, what is actually
- * installed and working, and installing one.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST EXTENSIONS
-   */
   app.get(
     '/extensions',
     {
@@ -36,19 +29,13 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * EXTENSIONS STATUS
-   */
   app.get(
     '/extensions/status',
     {
       /*
-        No route-level `permissions`, unlike LIST EXTENSIONS above: this is the lightweight presence
-        check a feature gated on an extension asks before showing itself — e.g. the page-import menu
-        item (task 668) asking whether Pandoc is installed — and every caller who could see that menu,
-        not just `manage:system` admins, needs an answer. It carries none of the admin-only detail
-        the full listing does (description, website, install eligibility), only whether each key is
-        installed, so there is nothing here worth gating.
+        Public on purpose: a feature gated on an extension (the page-import menu needs Pandoc) asks
+        this before showing itself, for any caller. It answers only installed-or-not per key, none
+        of the admin-only detail `/extensions` carries.
       */
       config: {
         publicAccess: true
@@ -73,9 +60,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * INSTALL EXTENSION
-   */
   app.post<{ Params: { extensionKey: string } }>(
     '/extensions/:extensionKey/install',
     {
@@ -146,14 +130,11 @@ async function routes(app: FastifyInstance) {
       try {
         await CARDINAL.models.extensions.install(definition)
       } catch (err: any) {
-        // -> The message carries npm's own output, which is the only thing that explains a failure
-        //    like a missing build toolchain. An administrator is the only caller.
+        // -> The message is npm's own output, the only thing that explains a failure such as a
+        //    missing build toolchain. Safe to return: only an administrator reaches this route.
         return reply.internalServerError(err.message)
       }
 
-      // -> A fresh install is usable at once, since nothing has tried to load it yet. Repairing one this
-      //    process already choked on is a different story, and saying so beats leaving an administrator
-      //    to wonder why nothing changed.
       const restartRequired = CARDINAL.models.extensions.hasLoadFailed(definition)
 
       await CARDINAL.models.auditLog.record({

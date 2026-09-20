@@ -3,19 +3,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
- * What a design token resolves to under each aesthetic, read out of `css/tailwind.css`.
- *
- * The Cobalt work moved the app's SFC stylesheets off compile-time SCSS literals (`$hairline`,
- * `$ink`, ...) and onto the runtime custom properties that carry the same value under Ledger and a
- * different one under Cobalt -- which is the whole mechanism the aesthetic system runs on. A suite
- * that used to assert a rule painted `#dbe1ec` now sees `var(--color-hairline)`, and the claim it
- * was making splits in two: the RULE still names the hairline, and the hairline is still `#dbe1ec`
- * in Ledger. Asserting the first alone would let a token silently change value; asserting a copied
- * literal would go stale the moment the token moved. This reads the answer from the stylesheet, so
- * both halves stay true or the test fails.
- *
- * Values are resolved through one level of `var()` aliasing, which is as deep as the token layer
- * goes (`--color-header: var(--q-header)`, `--color-accent-text: var(--color-accent)`, ...).
+ * App stylesheets read colours, radii and shadows through runtime custom properties rather than
+ * literals, so a suite's claim that a rule paints a given colour splits in two: that the rule
+ * names the right token, and that the token holds the right value. Asserting only the token name
+ * would let its value change silently; asserting a copied literal would go stale. Reading the
+ * value out of the stylesheet keeps both halves honest.
  */
 const CSS_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'css', 'tailwind.css')
 const source = readFileSync(CSS_PATH, 'utf8')
@@ -38,8 +30,8 @@ function declared(name, which) {
 
 /**
  * @param {string} name A custom property name, including the leading `--`.
- * @param {'ledger'|'cobalt'|'cobalt-dark'} [aesthetic] Which block to read; falls back to Ledger's.
- * @returns {string} The resolved value, e.g. `#dbe1ec`.
+ * @param {'ledger'|'cobalt'|'cobalt-dark'} [aesthetic] Falls back to Ledger's block for a token
+ *   this one does not declare.
  */
 export function tokenValue(name, aesthetic = 'ledger') {
   let value = declared(name, aesthetic) ?? declared(name, 'ledger')
@@ -52,18 +44,9 @@ export function tokenValue(name, aesthetic = 'ledger') {
 }
 
 /**
- * Every Ledger token, as a `:root` rule a test environment can install.
- *
- * `happy-dom` and `jsdom` resolve `var()` only against properties something actually declared, and
- * neither of these suites builds `css/tailwind.css` -- so a component rule that reads a token (which
- * is now most of them: see the note above) computes to nothing at all, and a `.body--dark` override
- * written that way silently stops overriding. Installing the Ledger half of the token layer in
- * `test/setup.js` is what puts those rules back on their real values, and reading it out of the
- * stylesheet rather than restating it is what keeps them the REAL values.
- *
- * Only the Ledger half: a suite that wants to assert Cobalt's own value asks `tokenValue(name,
- * 'cobalt')` for it, rather than every suite silently rendering under whichever aesthetic happened
- * to be installed last.
+ * A `:root` rule `test/setup.js` installs, since `happy-dom` resolves `var()` only against
+ * properties something actually declared. Read out of the stylesheet rather than restated, so the
+ * installed values cannot drift from the ones the app ships.
  */
 export function ledgerTokenCss() {
   const ledgerHalf = block('ledger')

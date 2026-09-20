@@ -2,32 +2,15 @@ import type { FastifyInstance } from 'fastify'
 import type { LiveDataRequest } from '../models/liveData.ts'
 
 /**
- * Live Data API Routes (OpenProject #868)
+ * No route-level `permissions` and no per-page read check: this answers with a block's resolved
+ * data, never the page, and stays open to anonymous readers for a credential-free request.
  *
- * One route: resolve a `block-live-data` instance's data server-side (see `models/liveData.ts`),
- * for the block itself to call from a reader's browser.
- *
- * No route-level `permissions`, and no per-page read check either — a reader only ever reaches this
- * because they already loaded a page whose content the wiki decided they may read, and this route
- * answers with the same class of thing `blocksConfigFor()` in `api/sites.ts` already hands every
- * reader publicly (a block's own resolved data), not the page itself, and stays open to anonymous
- * readers for a credential-free request.
- *
- * That "no route-level permissions" is NOT the same as "unauthenticated for every request", though: a
- * `credentialId` is not itself a secret (it is a declared block prop, so it survives into the stored
- * HTML of every page embedding the block — see `models/liveData.ts`'s header comment), so nothing
- * about the id itself proves the caller ever loaded a page the wiki would let them read — an anonymous
- * caller who has merely learned one from a rendered page could otherwise drive an authenticated proxy
- * request to anywhere the credential's allowlist permits, without ever needing to read the page the
- * credential is legitimately used on. The handler below refuses a `credentialId` from a caller with no
- * authenticated session (or API key) — see OpenProject #2202 — leaving the credential-free path, which
- * was always the genuinely public one, unaffected. What this route must never do, and does not, is
- * hand back the credential that produced a result — see `models/liveData.ts`.
+ * A `credentialId` is not a secret — it is a declared block prop, so it survives into the stored
+ * HTML of every page embedding the block. An anonymous caller who learned one could otherwise drive
+ * an authenticated proxy request to anywhere the credential's allowlist permits, so the handler
+ * refuses it without a session or API key.
  */
 async function routes(app: FastifyInstance) {
-  /**
-   * RESOLVE A LIVE-DATA BLOCK'S VALUE
-   */
   app.post<{ Params: { siteId: string }; Body: LiveDataRequest }>(
     '/sites/:siteId/live-data/resolve',
     {
@@ -92,9 +75,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A `credentialId` is not a secret (see the header comment above), so an anonymous caller who
-      //    merely learned one from a page's stored HTML is refused before it is ever resolved. An
-      //    authenticated reader — session or API key — is unaffected; only anonymous callers are.
+      // -> A `credentialId` is not a secret — see the header comment.
       if (req.body.credentialId && !req.apiKey && !req.session?.authenticated) {
         return reply.unauthorized(
           'Authentication is required to resolve a credentialed live-data request.'

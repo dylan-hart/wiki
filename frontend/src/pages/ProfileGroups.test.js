@@ -8,11 +8,9 @@ import ProfileGroups from './ProfileGroups.vue'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * Task 1275: the profile Groups tab's "Other groups" section is admin-gated entirely on the backend
- * (`GET /profile/groups`'s response shape -- see that route's doc comment in `backend/api/users/profile.ts`)
- * rather than on anything this component decides for itself, so what is tested here is purely how the
- * component reacts to each response shape: a plain array (the section stays absent) versus
- * `{ groups, otherGroups }` (the section renders, subdued).
+ * The "Other groups" section is gated entirely by `GET /profile/groups`'s response shape, not by
+ * anything this component decides, so what is covered here is how it reacts to each shape: a plain
+ * array versus `{ groups, otherGroups }`.
  */
 function mountPage() {
   setActivePinia(createPinia())
@@ -83,11 +81,8 @@ describe('ProfileGroups: other groups section', () => {
     expect(wrapper.text()).toContain("You're not part of these other Acme Wiki groups:")
     expect(wrapper.text()).toContain('Reviewers')
 
-    // -> Subdued per the project's opacity-60 convention (AdminApprovals.vue's disabled-rule rows)
-    //    -- never hidden, since it is still informational content. On the CARD since #2701: a
-    //    settings row is one component rather than the pair of sections that used to carry the
-    //    class each, and both lists now draw the same 34px plate, so the dimming is the whole of
-    //    what distinguishes them.
+    // -> Subdued, never hidden: it is still informational content, and both lists draw the same
+    //    plate, so the dimming is the whole of what distinguishes them.
     const dimmed = wrapper.findAll('.opacity-60')
     expect(dimmed.length).toBeGreaterThan(0)
     expect(dimmed.some((el) => el.text().includes('Reviewers'))).toBe(true)
@@ -110,10 +105,8 @@ describe('ProfileGroups: other groups section', () => {
     expect(rows).toHaveLength(2)
     for (const row of rows) {
       expect(row.find('.blueprint-icon').exists()).toBe(true)
-      // -> Membership is read-only: the trailing edge is an empty `auto` control, which claims no
-      //    width of its own, rather than the default `grow` one that would reserve 200px for
-      //    nothing. That the row renders correctly with an empty control is the shape #2701 was
-      //    asked to confirm the shared row already supports.
+      // -> Membership is read-only, so the trailing edge is an empty `auto` control claiming no
+      //    width of its own, rather than the default `grow` one reserving 200px for nothing.
       const control = row.find('.w-settings-row__control')
       expect(control.exists()).toBe(true)
       expect(control.classes()).toContain('w-settings-row__control--auto')

@@ -4,18 +4,14 @@ import { createPinia, setActivePinia } from 'pinia'
 import { initializeAnalytics } from './analytics'
 import { useSiteStore } from '@/stores/site'
 
-// -> See analyticsProviders.test.js: happy-dom's own switch for a refused-in-test <script src> load,
-//    so it dispatches `load` instead of logging a DOMException to its page console.
+// -> happy-dom's switch for a refused-in-test <script src> load: dispatch `load` rather than log a
+//    DOMException to its page console.
 window.happyDOM.settings.handleDisabledFileLoadingAsSuccess = true
 
 afterEach(() => {
   document.head.innerHTML = ''
 })
 
-/**
- * Coverage for Task 603: client-side tracking-script injection, run once per page load off the site
- * store rather than per SPA route transition.
- */
 describe('initializeAnalytics', () => {
   it('injects nothing while the site store has not loaded yet', () => {
     const pinia = createPinia()
@@ -69,8 +65,8 @@ describe('initializeAnalytics', () => {
     )
     expect(document.head.querySelectorAll('script[data-analytics-provider="gtm"]')).toHaveLength(0)
 
-    // -> A later SPA route change re-patching the store must NOT trigger a second injection: the
-    //    watcher stopped after its one fire, since `siteStore.id` never becomes falsy again.
+    // -> The watcher stopped after its one fire, so a later SPA route change re-patching the store
+    //    must NOT inject a second time.
     siteStore.$patch({
       analytics: {
         providers: { google: { isEnabled: true, config: { propertyTrackingId: 'G-X' } } }

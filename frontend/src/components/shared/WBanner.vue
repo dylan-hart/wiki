@@ -19,22 +19,15 @@
 
 <script setup>
 /**
- * Prominent inline message with an optional leading icon and trailing actions.
- *
- * 12px in from each edge, no shadow, and its corner takes `--radius-control` -- `0` under Ledger
- * (unchanged from before) and a real value under Cobalt (`body.body--cobalt`, OpenProject
- * #2767/#2772), matching "buttons, toasts, banners and callouts take `--radius-control`". Carries
- * no colour of its own: callers set the surface with a utility class, which is how the existing
- * banners are already written, and the design's three variants are exactly that -- a hairline box
- * on `--color-tint` for information, a `--color-warning-fill` block under `--color-ink` for a
- * caution, and `--color-negative` under white for a refusal.
+ * Carries no colour of its own: a caller sets the surface with a utility class. The three variants
+ * are a hairline box on `--color-tint` for information, a `--color-warning-fill` block under
+ * `--color-ink` for a caution, and `--color-negative` under white for a refusal.
  */
 defineProps({
   dense: {
     type: Boolean,
     default: false
   },
-  /** Keeps the actions on the same row rather than wrapping them below. */
   inlineActions: {
     type: Boolean,
     default: false

@@ -98,12 +98,6 @@ describe('mergeFolderEntries', () => {
   })
 })
 
-/**
- * OpenProject #2695: what "up one level" resolves to, shared by `FileManager.vue` and
- * `TreeBrowserDialog.vue` -- the two surfaces the up-one-level plate was added to. Neither browser
- * has a `parent` field to read (the tree response does not carry one), so neither had any way to
- * answer this before.
- */
 describe('parentFolderIdOf', () => {
   const nodes = {
     'f-docs': { folderPath: '', fileName: 'docs', title: 'Docs', children: ['f-setup'] },
@@ -118,7 +112,7 @@ describe('parentFolderIdOf', () => {
   })
 
   it('answers null for a folder sitting directly under the root', () => {
-    // -> Not a failed lookup: `null` IS the root, which is what every browser here already calls it
+    // -> Not a failed lookup: `null` IS the root
     expect(parentFolderIdOf(nodes, 'f-docs')).toBeNull()
   })
 
@@ -140,14 +134,6 @@ describe('parentFolderIdOf', () => {
   })
 })
 
-/**
- * OpenProject #3063 ("Bring File Manager tree click/keyboard behavior to parity with the main
- * navbar"): the two pure lookups shift+click isolate and ctrl+click cycle are built on, extracted
- * out of `TreeNode.vue` so both it and (for the ancestor half) `TreeNav.vue#onMounted` share one
- * implementation. Deliberately children-array-based rather than `parentFolderIdOf`'s `folderPath`
- * parsing -- these need no `folderPath`/`fileName` fields, only `children`, which is also all a
- * hand-built test fixture below needs to carry.
- */
 describe('ancestorFolderIds', () => {
   const nodes = {
     root: { title: 'Root', children: ['branch'] },

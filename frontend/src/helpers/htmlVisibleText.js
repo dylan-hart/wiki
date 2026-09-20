@@ -1,23 +1,15 @@
 import { stripClipboardHeader } from './htmlToMarkdown.js'
 
 /**
- * `EditorMarkdown.vue`'s paste handler's gate for OpenProject #2834: Monaco's own "copy with syntax
- * highlighting" writes a `text/html` payload (per-token `<span style="color:...">` runs, one `<div>`
- * per source line) alongside `text/plain` on every ordinary in-editor copy/cut, indistinguishable at
- * a glance from a genuine external rich-content paste (a webpage selection, Word/OneNote) --
- * `helpers/htmlToMarkdown.js` was written for the latter and unconditionally converted both, which is
- * what corrupted a same-editor copy/paste (stray escaping, a blank line inserted between every
- * original line, since turndown treats each `<div>` as its own paragraph).
+ * The markdown editor's paste gate. Monaco's "copy with syntax highlighting" writes a `text/html`
+ * payload alongside `text/plain` on every ordinary in-editor copy, indistinguishable at a glance
+ * from a genuine rich paste -- and running one back through `htmlToMarkdown` corrupts it (stray
+ * escaping, plus a blank line per source line, since turndown treats each `<div>` as a paragraph).
  *
- * The distinction this module draws is self-consistent rather than Monaco-version-coupled: reduce
- * the `text/html` payload to its own bare visible text -- tags gone, entities decoded, whitespace
- * normalized -- and compare it against the clipboard's `text/plain` sibling. Monaco never restructures
- * the source when it copies it, only colors it, so a same-editor round trip's two clipboard entries
- * are identical once reduced this way; a genuine rich paste (a link, an image, a list, real emphasis,
- * a table) almost always diverges once reduced to visible text, since none of that survives a bare
- * text reduction the same way it survives an HTML→markdown conversion. `isSameVisibleText` is the
- * caller-facing answer; `htmlToVisibleText` is exported alongside it purely so the reduction itself
- * can be tested in isolation.
+ * The test is self-consistent rather than Monaco-version-coupled: reduce the HTML to its bare
+ * visible text and compare it with the `text/plain` sibling. Monaco only colors the source, never
+ * restructures it, so a same-editor round trip reduces to an identical pair, while a genuine rich
+ * paste (link, image, list, emphasis, table) loses what a text reduction cannot carry and diverges.
  */
 
 const BLOCK_TAGS = new Set([
@@ -60,9 +52,7 @@ const BLOCK_TAGS = new Set([
   'UL'
 ])
 
-// -> Their text content is never part of the rendered/visible page and would otherwise leak into the
-//    comparison as stray body text -- the same reason `htmlToMarkdown.js#buildTurndownService` calls
-//    `service.remove(['style', 'script'])`.
+// -> Never part of the visible page, so their text would leak into the comparison as body text.
 const SKIPPED_TAGS = new Set(['STYLE', 'SCRIPT'])
 
 function walk(node, out) {
@@ -93,10 +83,8 @@ function walk(node, out) {
 }
 
 /**
- * `html` -> its bare visible text: tags stripped, entities decoded (both come for free from
- * `DOMParser` + `Node#textContent`), with a `\n` inserted at each block-element/`<br>` boundary so
- * Monaco's one-`<div>`-per-line copy HTML doesn't collapse into a single run-on line. Not itself
- * normalized -- see `isSameVisibleText`, the one caller that needs a comparable form.
+ * A `\n` goes in at each block-element/`<br>` boundary so Monaco's one-`<div>`-per-line copy HTML
+ * does not collapse into a single run-on line. The result is not whitespace-normalized.
  */
 export function htmlToVisibleText(html) {
   if (!html || !html.trim()) {
@@ -108,11 +96,9 @@ export function htmlToVisibleText(html) {
   return out.join('')
 }
 
-// -> `\u00A0` (non-breaking space) is included deliberately: Monaco's copy-with-syntax-highlighting
-//    renders leading/repeated indentation as `&nbsp;` runs so it survives being pasted into a plain
-//    text field elsewhere, which `DOMParser`/`textContent` decodes to real U+00A0 characters -- left
-//    alone, indented code copied and pasted back into the SAME editor would never match its own
-//    `text/plain` sibling (which uses ordinary spaces) and would wrongly keep converting.
+// -> `\u00A0` is in there deliberately: Monaco renders repeated indentation as `&nbsp;` runs, which
+//    decode to real U+00A0. Left alone, indented code copied and pasted back into the SAME editor
+//    would never match its `text/plain` sibling's ordinary spaces and would wrongly convert.
 function normalizeVisibleText(text) {
   return text
     .replace(/\r\n?/g, '\n')
@@ -124,14 +110,9 @@ function normalizeVisibleText(text) {
 }
 
 /**
- * True when `html`'s reduced visible text is the same, once whitespace-normalized, as `text` (the
- * clipboard's own `text/plain`) -- see the module doc comment above for what that is standing in for.
- *
- * An `html` that reduces to NO visible text at all -- an image-only paste (OpenProject #2504) is the
- * real one; `htmlToMarkdown`'s own `<img>` handling is what actually renders it -- never counts as a
- * match, regardless of `text`: a same-editor Monaco copy always carries its source as real text, so
- * an empty reduction only ever means `html` has non-text content this function cannot see, which
- * must keep going through the full conversion rather than being silently dropped as "no-op".
+ * An `html` reducing to NO visible text (an image-only paste) never counts as a match, whatever
+ * `text` is: a same-editor Monaco copy always carries its source as real text, so an empty
+ * reduction means content this function cannot see, which must still go through the conversion.
  */
 export function isSameVisibleText(html, text) {
   const visibleText = normalizeVisibleText(htmlToVisibleText(html))

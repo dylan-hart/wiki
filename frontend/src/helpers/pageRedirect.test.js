@@ -9,9 +9,8 @@ import {
 } from './pageRedirect.js'
 
 const activeLocaleCodes = ['en', 'fr']
-// -> The shape `siteStore.localeRouting` builds (see `stores/site.js`), which is what
-//   `shouldPrefixLocale`/`localizedPagePath` actually take on the frontend -- not the backend's
-//   `LocaleRoutingConfig` (`{ primary, active, forcePrefix }`), which looks similar but isn't it.
+// -> The shape `siteStore.localeRouting` builds -- not the backend's `LocaleRoutingConfig`
+//   (`{ primary, active, forcePrefix }`), which looks similar but isn't it.
 const siteLocales = { useLocales: true, primary: 'en', forcePrefix: false }
 
 describe('parseRedirect', () => {
@@ -73,12 +72,6 @@ describe('isFollowable', () => {
   })
 })
 
-/**
- * OpenProject #1360/#2208 (2026-08-24 security audit §2, §9): the login/logout `window.location
- * .replace()` sinks in `AuthLoginPanel.vue` and `App.vue` check a single string that could be
- * either a page or a URL redirect, so it needs `isFollowable`'s kind-agnostic twin rather than
- * `isFollowable` itself.
- */
 describe('isFollowableRedirectTarget', () => {
   it('accepts a rooted path', () => {
     expect(isFollowableRedirectTarget('/dashboard')).toBe(true)
@@ -142,10 +135,7 @@ describe('resolveRedirectTarget', () => {
   })
 
   it('passes a malformed, non-slash-leading target through untouched rather than mangling it', () => {
-    // -> Regression: this used to `.slice(1)` unconditionally, turning 'foo/bar' into the
-    //    mangled 'oo/bar' -- eating the real leading 'f' -- because it assumed every target was
-    //    slash-leading. `isFollowable` already refuses anything without a leading slash, so the
-    //    only observable effect of the old bug was a mangled diagnostic caption.
+    // -> An unconditional `.slice(1)` would eat the real leading character: 'foo/bar' -> 'oo/bar'
     expect(resolveRedirectTarget('foo/bar', activeLocaleCodes, 'en', siteLocales)).toBe('foo/bar')
   })
 

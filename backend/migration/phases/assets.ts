@@ -25,9 +25,8 @@ import type {
 import type { RecordOutcome } from './route.ts'
 
 /**
- * Maps an `importAsset()`/`importComment()` outcome onto the buckets `./route.ts` routes — see that
- * module's own doc comment for why the write already happened by the time this runs. Neither importer
- * has a "skipped" outcome of its own: an asset or comment either creates or conflicts.
+ * Maps an `importAsset()`/`importComment()` outcome onto the buckets `./route.ts` routes. Neither
+ * importer has a "skipped" outcome of its own: an asset or comment either creates or conflicts.
  */
 function toRecordOutcome(
   outcome: { result: 'success' } | { result: 'failure'; failure: { message: string } }
@@ -38,49 +37,28 @@ function toRecordOutcome(
 }
 
 /**
- * Phase 4 (Feature 418: assets/comments importer). Depends on `content`: an asset's folder placement
- * and a comment's `pageId` both resolve against pages the `content` phase must have already
- * created — `ctx.pageIdMap`, a live reference populated as that phase's `pages` entity runs (see
- * `context.ts`'s own doc comment on the field).
+ * Depends on `content`: an asset's folder placement and a comment's `pageId` both resolve against
+ * pages that phase creates, through `ctx.pageIdMap`.
  *
- * This phase wires `importers/asset-import.ts` (`importAsset()`, driving
- * `models/tree.ts#getFolder({ createIfMissing: true })` then `models/assets.ts#upload()`) and
- * `importers/comment-import.ts` (`importComment()`, driving `models/comments.ts#create()`, plus
- * `resolveCommentReplies()`, driving `models/comments.ts#setReplyTo()`).
+ * `assets` and `comments` are independent of each other — a comment resolves its `pageId` through
+ * `ctx.pageIdMap`, already fully populated before this phase starts, not through anything `assets`
+ * itself produces — so entity order between the two does not matter. `comments` alone carries a
+ * second pass: its `onComplete` hook resolves every reply whose parent comment appeared later in the
+ * same stream. An asset's folder placement never depends on another asset that way.
  *
- * `assets` and `comments` are independent entities (unlike `content`'s strictly-sequential `pages` then
- * `navigation`) — comments resolve `pageId` through `ctx.pageIdMap`, which is already fully populated
- * once this phase starts (the `content` phase this one `dependsOn` has already finished), not through
- * anything `assets` itself produces, so entity order between the two does not matter here.
- *
- * `comments` alone carries a second pass of its own: `commentState` below is a live
- * `CommentImportState` `classify` populates as each comment is written, and the entity's
- * `onComplete` hook (run once the whole `comments` stream is exhausted — see `define-phase.ts`)
- * resolves every reply `classify` couldn't resolve inline, because it named a comment appearing
- * later in the same stream (OpenProject #3204). `assets` has no equivalent need — an asset's folder
- * placement never depends on another asset the way a reply depends on its parent comment.
- *
- * ## Dry run
- *
- * Same split `phases/content.ts`'s `pagesModel`/`navigationModel` use: each of `assetsModel`/
- * `treeModel`/`commentsModel` below checks `ctx.dryRun` *inside* its own method body before ever
- * touching the ambient `CARDINAL` global, minting a placeholder id instead — so a `dryRun: true` run's
- * `entities()` construction touches `CARDINAL` nowhere at all, and `importAsset()`/`importComment()`'s own
- * real classification logic (folder resolution, actor fallback, missing-page detection) still runs
- * identically in both modes. `commentsModel.setReplyTo()` follows the same split, so a dry run's
- * `onComplete` pass touches `CARDINAL` no more than its `create()` calls did.
+ * Dry run: each of `assetsModel`/`treeModel`/`commentsModel` checks `ctx.dryRun` *inside* its own
+ * method body before ever touching the ambient `CARDINAL` global, minting a placeholder id instead, so
+ * a dry run touches `CARDINAL` nowhere at all while the importers' own classification logic (folder
+ * resolution, actor fallback, missing-page detection) still runs identically in both modes.
  */
 export const assetsPhase = definePhase({
   id: 'assets',
   label: 'Assets & comments',
   dependsOn: ['content'],
   entities: (ctx) => {
-    // Neither map exists until its owning phase has actually run (see context.ts's own doc comments on
-    // both fields) — an empty map is the correct fallback for a hand-built MigrationContext that never
-    // ran `users`/`content` (e.g. a unit test exercising this phase alone): every asset authorId falls
-    // back to the operator actor, and every comment's pageId resolves to nothing (reported as
-    // 'unknown-page', not a crash) — the same "orphaned FK" treatment an unmapped id already gets
-    // elsewhere in this plan.
+    // Neither map exists until its owning phase has run, so an empty map is the right fallback for a
+    // hand-built context that never ran `users`/`content`: every asset authorId falls back to the
+    // operator actor and every comment's pageId reports as 'unknown-page' rather than crashing.
     const userIdMap = ctx.userIdMap ?? new Map<number, string>()
     const pageIdMap = ctx.pageIdMap ?? new Map<number, string>()
 
@@ -99,14 +77,10 @@ export const assetsPhase = definePhase({
     const assetDeps: AssetImportDeps = { assetsModel, treeModel }
     const assetOptions: AssetImportOptions = {
       siteId: ctx.siteId,
-      // -> Read fresh off CARDINAL.sites (not a ctx.primaryLocale value snapshotted before any phase ran)
-      //    — see context.ts's resolvePrimaryLocale() doc comment (whole-branch review Critical #1).
-      //    Resolved here, at entities()-construction time, rather than deferred into treeModel's own
-      //    dry-run-gated closure like content.ts's navigationModel does: resolvePrimaryLocale() already
-      //    internalizes the same "stay CARDINAL-free under dryRun" gate content.ts's dependencies apply by
-      //    hand, and this phase's own entities(ctx) is only ever called once the `settings`/`content`
-      //    phases it transitively depends on have already finished (MIGRATION_PHASES' sequential run
-      //    order — see resolvePrimaryLocale()'s own doc comment).
+      // -> Read fresh off CARDINAL.sites, not a value snapshotted before any phase ran. Safe to
+      //    resolve here at entities()-construction time rather than inside a dry-run-gated closure:
+      //    resolvePrimaryLocale() internalizes that gate itself, and the phases it reads behind have
+      //    already run by then.
       locale: resolvePrimaryLocale(ctx),
       userIdMap,
       fallbackActorId: ctx.operatorActorId
@@ -128,9 +102,8 @@ export const assetsPhase = definePhase({
       pageIdMap,
       userIdMap
     }
-    // -> Live reference `importComment()` populates as each comment is written and
-    //    `resolveCommentReplies()` reads once the whole `comments` stream is exhausted — see
-    //    `CommentImportState`'s own doc comment for why reply threading needs this second pass.
+    // -> Live reference: `importComment()` populates it as each comment is written, and
+    //    `resolveCommentReplies()` reads it once the whole stream is exhausted.
     const commentState = createCommentImportState()
 
     return {
@@ -163,9 +136,6 @@ export const assetsPhase = definePhase({
           }
           await routeOutcome(recorder, identifier, toRecordOutcome(outcome))
         },
-        // -> Runs once every comment in the stream has been written (`commentState.idMap` is as
-        //    complete as this run will ever make it), resolving deferred `replyTo`s a first pass
-        //    could not — see `CommentImportState`'s own doc comment.
         onComplete: () => resolveCommentReplies(commentDeps, commentState, ctx.log)
       }
     }

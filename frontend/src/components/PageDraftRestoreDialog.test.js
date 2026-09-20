@@ -1,8 +1,4 @@
-/*
-  The diff pane is real Monaco, which needs a layout engine this test has no reason to drag in --
-  same stub shape `PageHistoryOverlay.test.js` and `composables/monacoDiff.test.js` use, since this
-  dialog mounts the diff through that same composable.
-*/
+/* The diff pane is real Monaco, which needs a layout engine this suite has no reason to drag in. */
 vi.mock('monaco-editor', () => ({
   editor: {
     defineTheme: vi.fn(),
@@ -49,7 +45,6 @@ const DRAFT = {
   updatedAt: '2026-01-01T00:00:00.000Z'
 }
 
-/** A promise the test settles by hand, so the dialog's fetch state is observable mid-flight. */
 function deferred() {
   let resolve
   let reject
@@ -61,10 +56,8 @@ function deferred() {
 }
 
 /*
-  `<w-dialog>` teleports its panel to `document.body` (see `WDialog.vue`), so the buttons are found
-  with a native query against the body rather than through the wrapper -- the same way
-  `PageSaveConflictDialog.test.js` reaches its own buttons. `stubs: {}` opts out of the harness's
-  default teleport stub for exactly that reason.
+  `<w-dialog>` teleports its panel to `document.body`, so `stubs: {}` opts out of the harness's
+  default teleport stub and the buttons are reached by native query rather than the wrapper.
 */
 async function mountDialog({ authorName = 'Grace Hopper', draftRequest } = {}) {
   const { wrapper } = mountWithApp(PageDraftRestoreDialog, {
@@ -151,12 +144,6 @@ describe('PageDraftRestoreDialog', () => {
   })
 })
 
-/**
- * OpenProject #2930: the diff view itself. `PageDraftRestoreDialog.vue` renders no diff at all while
- * the fetch is in flight or failed -- there is nothing to compare either way -- and once it resolves,
- * feeds `composables/monacoDiff.js#useMonacoDiff()` inline (no version-list sidebar) with the current
- * editor content on one side and the draft's content on the other.
- */
 describe('PageDraftRestoreDialog: inline diff', () => {
   it('creates no diff editor while the draft request is still in flight', async () => {
     const request = deferred()
@@ -181,7 +168,6 @@ describe('PageDraftRestoreDialog: inline diff', () => {
 
     expect(monaco.editor.createDiffEditor).toHaveBeenCalledTimes(1)
     const [, options] = monaco.editor.createDiffEditor.mock.calls[0]
-    // -> Inline, and no timeline -- this dialog wires up nothing beyond the diff editor itself
     expect(options).toMatchObject({ renderSideBySide: false, readOnly: true })
 
     const texts = monaco.editor.createModel.mock.calls.map(([text]) => text)

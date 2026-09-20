@@ -10,10 +10,8 @@ import { createTestI18n } from '../../test/i18n.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Regression coverage for the login-time recovery-code toggle (task 428): switching the `tfa`
- * screen from the 6-digit authenticator field to a recovery-code field, and sending whichever one
- * is active through the same `PUT sites/:siteId/auth/tfa` call the backend already tells apart by
- * shape (task 427).
+ * Both the 6-digit authenticator code and a recovery code go through the same
+ * `PUT sites/:siteId/auth/tfa` call -- the backend tells the two apart by shape.
  */
 
 const LOCAL_STRATEGY = {
@@ -127,13 +125,10 @@ describe('AuthLoginPanel recovery code toggle', () => {
 })
 
 /**
- * `register()` used to be a dead `APOLLO_CLIENT.mutate(...)` call (there is no GraphQL server left --
- * it was removed) that also never sent `strategyId`, which the REST route
- * requires. This covers the two shapes `POST sites/:siteId/auth/register` answers with: `nextAction:
- * 'verify'` (email validation on -- show the check-your-email screen rather than auto-logging in) and
- * any other `nextAction` (email validation off -- falls straight through to the same
- * `handleLoginResponse()` every other login path already uses, exercised here via `changePassword`
- * since it needs no real navigation to observe).
+ * `POST sites/:siteId/auth/register` answers two shapes: `nextAction: 'verify'` (email validation
+ * on -- show the check-your-email screen rather than auto-logging in) and any other `nextAction`
+ * (email validation off -- falls through to the same `handleLoginResponse()` every other login path
+ * uses, exercised here via `changePassword` since it needs no real navigation to observe).
  */
 
 const REGISTRATION_STRATEGY = {
@@ -193,12 +188,10 @@ beforeEach(() => {
 })
 
 /**
- * OpenProject #1671: the username field's bare `autofocus` attribute never did anything -- `WInput.vue`
- * exposes no such prop, so arriving at `/login` put the caret nowhere. `onMounted` now focuses it
- * itself, ahead of the `fetchStrategies()` network round trip so it happens on first paint rather than
- * after the response lands -- and only when the reset-password token check (`detectResetToken()`)
- * leaves the screen on `login`, so a `/login/reset-password/:token` visit still gets its own field
- * focused by `switchTo('reset')` instead, not this one stealing it back.
+ * `onMounted` focuses the username field itself -- `WInput.vue` exposes no `autofocus` prop -- ahead
+ * of the `fetchStrategies()` round trip, so the caret lands on first paint rather than after the
+ * response. Only while `detectResetToken()` leaves the screen on `login`, so a
+ * `/login/reset-password/:token` visit keeps the field `switchTo('reset')` focuses instead.
  */
 describe('AuthLoginPanel focus on first paint', () => {
   it('focuses the username field on first paint at /login, before strategies have loaded', async () => {
@@ -321,11 +314,7 @@ describe('AuthLoginPanel verified landing', () => {
   })
 })
 
-/**
- * The `?all=1` escape hatch (`admin.login.providersVisbleWarning`, OpenProject #2551): fetches every
- * configured strategy -- including one an admin has configured but not yet marked Visible -- rather
- * than only the visible ones `fetchStrategies()` defaults to.
- */
+/** `?all=1` also fetches strategies an admin has configured but not yet marked Visible. */
 describe('AuthLoginPanel show-all-strategies escape hatch', () => {
   it('defaults to visibleOnly when no `all` param is present', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([REGISTRATION_STRATEGY]) })
@@ -376,11 +365,9 @@ describe('AuthLoginPanel show-all-strategies escape hatch', () => {
 })
 
 /**
- * `forgotPassword()` used to be a stub (`// TODO: Implement forgot password`). The route it now calls
- * (`POST sites/:siteId/auth/forgotPassword`) always answers the same generic 200 whatever it did behind
- * the scenes -- see the route's own doc comment in `backend/api/auth/site.ts` -- so this only
- * checks the request shape and that the UI shows the fixed success message, never that it branches on
- * the response.
+ * `POST sites/:siteId/auth/forgotPassword` always answers the same generic 200 whatever it did
+ * behind the scenes, so this checks only the request shape and the fixed success message, never a
+ * branch on the response.
  */
 describe('AuthLoginPanel forgot password', () => {
   it('posts strategyId/email and always shows the generic success message', async () => {
@@ -418,20 +405,13 @@ describe('AuthLoginPanel forgot password', () => {
   })
 
   /**
-   * The route always answers 200 for a normal request (see above), but `limitAuthAttempts`
-   * (`backend/helpers/rateLimit.ts`) can still refuse it with a 429 carrying a specific, actionable
-   * `{ message }` -- `reply.tooManyRequests('Too many attempts. Try again in N minute(s).')`, shaped
-   * by the global error handler into `{ ok, error, statusCode, message }`. Every other
-   * catch block in this file reports a failure via `localizeError(apiErrorMessage(err), t)`, which
-   * reads that `err.data.message` first (see `helpers/apiError.js`'s doc comment on why: ky's own
-   * `err.message` for a non-2xx is a content-free "Request failed with status code 429"). This one
-   * used raw `err.message` instead, so a rate-limited user saw ky's generic text rather than the
-   * backend's retry-after guidance every sibling flow (login, register, changePwd, resetPassword)
-   * already surfaces correctly.
+   * A 429 from `limitAuthAttempts` carries the actionable retry-after text in `err.data.message`,
+   * which is why the catch has to go through `apiErrorMessage(err)`: ky's own `err.message` for a
+   * non-2xx is a content-free "Request failed with status code 429".
    */
   it('shows the backend message on failure instead of a generic ky error', async () => {
-    // -> Not LOCAL_STRATEGY: its allowForgotPassword is false (that's the point of the fixture
-    //    elsewhere in this file), which would hide the very button this test needs to click.
+    // -> Not LOCAL_STRATEGY: its `allowForgotPassword: false` would hide the very button this test
+    //    needs to click.
     const forgotPasswordAllowedStrategy = {
       ...LOCAL_STRATEGY,
       activeStrategy: { ...LOCAL_STRATEGY.activeStrategy, allowForgotPassword: true }
@@ -466,11 +446,9 @@ describe('AuthLoginPanel forgot password', () => {
 })
 
 /**
- * The reset screen this task adds: reached only by landing on `/login/reset-password/:token` (where
- * `mail.ts`'s forgot-password email points), never by clicking through the panel. `resetPassword()` on
- * the backend always finishes via `afterLoginChecks()` -- `nextAction: 'provideTfa'` here proves the
- * response is handed to the same `handleLoginResponse()` every other login path uses, exercised the
- * same way the register tests above exercise it with `changePassword`.
+ * The reset screen is reached only by landing on `/login/reset-password/:token`, where the
+ * forgot-password email points, never by clicking through the panel. The `provideTfa` response
+ * proves it is handed to the same `handleLoginResponse()` every other login path uses.
  */
 describe('AuthLoginPanel reset password', () => {
   it('detects the token in the URL, shows the reset screen, and submits strategyId/token/newPassword', async () => {
@@ -520,11 +498,9 @@ describe('AuthLoginPanel reset password', () => {
 })
 
 /**
- * OpenProject #1360/#2208 (2026-08-24 security audit §2): `resp.redirect` on a successful login is a
- * group's `redirectOnLogin` (validated server-side, but checked again here as defence in depth
- * against a row written before that validation existed). `javascript:…` parses as a valid `URL` with
- * no error, so this cannot be a bare try/catch around `new URL()` — it has to look at what scheme
- * came back.
+ * `resp.redirect` on a successful login is a group's `redirectOnLogin`: validated server-side, but
+ * checked again here as defence in depth. `javascript:…` parses as a valid `URL` with no error, so
+ * the check cannot be a bare try/catch around `new URL()` — it has to look at the scheme.
  */
 describe('AuthLoginPanel redirect handling (OpenProject #2208)', () => {
   async function mountAndLogin(redirect) {

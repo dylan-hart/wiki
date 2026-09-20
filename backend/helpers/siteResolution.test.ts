@@ -171,10 +171,8 @@ describe('resolveRequestSite', () => {
   })
 
   /**
-   * OpenProject #2127: `sitesMappings` is keyed lowercase (site hostnames are constrained to
-   * lowercase on write), but a request's `Host` header case was never folded before the lookup --
-   * a mixed-case `Host` for an otherwise-valid hostname fell through to the wildcard mapping or to
-   * "not-found", the same as an unrelated, genuinely unknown hostname.
+   * `sitesMappings` is keyed lowercase, so an unfolded mixed-case `Host` would fall through to the
+   * wildcard mapping or to "not-found".
    */
   test('resolves a mixed-case Host header to the same site as its lowercase form', () => {
     const result = resolveRequestSite({
@@ -189,13 +187,9 @@ describe('resolveRequestSite', () => {
 })
 
 /**
- * Task 2085: an unauthenticated client naming another site's hostname in `X-Forwarded-Host` must not
- * be able to steer site resolution, unless it genuinely arrived through a proxy address the instance
- * has been told to trust. `resolveRequestSite` itself trusts whatever `hostname` it is handed (see its
- * doc comment) -- the refusal happens one layer up, in Fastify's own `trustProxy`-aware
- * `request.hostname` getter, exercised here exactly as `core/http/siteRouting.ts`'s site-resolution
- * hook uses it: a real Fastify instance, a real `trustProxy` address spec, and `.inject()`'s
- * `remoteAddress` standing in for the socket peer.
+ * `resolveRequestSite` trusts whatever `hostname` it is handed -- the refusal happens one layer up,
+ * in Fastify's own `trustProxy`-aware `request.hostname` getter. Hence a real Fastify instance, with
+ * `.inject()`'s `remoteAddress` standing in for the socket peer.
  */
 describe('resolveRequestSite via Fastify: X-Forwarded-Host trust boundary (task 2085)', () => {
   const TRUSTED_PROXY_ADDRESS = '10.0.0.1'
@@ -226,8 +220,6 @@ describe('resolveRequestSite via Fastify: X-Forwarded-Host trust boundary (task 
       remoteAddress: UNTRUSTED_ADDRESS,
       headers: { host: 'wiki.example.com', 'x-forwarded-host': 'off.example.com' }
     })
-    // -> Falls back to the socket's own `Host`, resolving as the enabled site it actually named --
-    //    not the disabled one an attacker tried to steer it toward via the forwarded header.
     assert.deepEqual(res.json(), { outcome: 'ok', site: sites[ENABLED_SITE_ID] })
     await app.close()
   })
@@ -257,7 +249,6 @@ describe('resolveRequestSite via Fastify: X-Forwarded-Host trust boundary (task 
   })
 })
 
-/** A stand-in for `FastifyReply` that records the one method `guardSiteEnabled` may call. */
 function fakeReply() {
   const calls: { forbidden: string[]; notFound: string[] } = { forbidden: [], notFound: [] }
   const reply: any = {
@@ -303,20 +294,6 @@ describe('guardSiteEnabled', () => {
   })
 })
 
-/**
- * Work package 2075(c): a forwarded host that resolves to a different site than `Host` must not be
- * honored unless the request arrived from a proxy trusted under `security.trustProxy`'s new
- * address/CIDR specification.
- *
- * `resolveRequestSite` itself takes an already-resolved `hostname` string -- it has no header of its
- * own to distrust. What actually decides whether `X-Forwarded-Host` gets to be that string is
- * Fastify's own `request.hostname` getter (`fastify/lib/request.js`), gated on the same `trustProxy`
- * option `backend/index.ts` passes straight through from `CARDINAL.config.security.trustProxy`. So this
- * spins up a real (unlistened) Fastify instance wired exactly the way `index.ts`'s site-resolution
- * hook is -- `trustProxy` from config, an `onRequest`-time `resolveRequestSite({ hostname: req.hostname,
- * ... })` -- and proves the mechanism end to end via `inject()`, rather than re-describing Fastify's
- * own trust logic as a second implementation here.
- */
 describe('trustProxy gates X-Forwarded-Host trust for site resolution', () => {
   async function buildApp(trustProxy: string) {
     const app = fastify({ trustProxy })
@@ -342,8 +319,6 @@ describe('trustProxy gates X-Forwarded-Host trust for site resolution', () => {
         remoteAddress: '203.0.113.9',
         headers: { host: 'wiki.example.com', 'x-forwarded-host': 'off.example.com' }
       })
-      // -> Ignored in favour of `Host`: resolves to the enabled site the socket's own Host names,
-      //    not the disabled one an untrusted client tried to name via X-Forwarded-Host.
       assert.deepEqual(res.json(), { outcome: 'ok', site: sites[ENABLED_SITE_ID] })
     } finally {
       await app.close()
@@ -397,15 +372,8 @@ describe('trustProxy gates X-Forwarded-Host trust for site resolution', () => {
 })
 
 /**
- * OpenProject #1587/#1593: `siteEnabledPreHandler` is the single Fastify `preHandler` `api/index.ts`
- * registers for the whole `/_api` tree, replacing nine hand-applied `guardSiteEnabled()` call sites
- * and — for the first time — covering the dozen-plus `:siteId` routes across `pages.ts`, `tree.ts`,
- * `assets.ts`, `comments.ts`, `navigation.ts`, `liveData.ts` and `glossary.ts` that never had a guard
- * at all. Spec D1 folded the unknown-site 404 in here too, replacing 36 hand-written per-route
- * preambles that answered it in two different spellings. Tested as the plain function it is, against
- * a synthetic `req`/`reply`/`done` rather than a booted Fastify app — see `api/index.test.ts` for the
- * companion structural test that calls this same function against every `:siteId` route the API
- * actually declares.
+ * The plain function against a synthetic `req`/`reply`/`done`; `api/index.test.ts` covers it wired
+ * into the real route table.
  */
 describe('siteEnabledPreHandler', () => {
   let wikiHandle: { restore(): void }
@@ -460,10 +428,6 @@ describe('siteEnabledPreHandler', () => {
   })
 })
 
-/**
- * OpenProject #3275: reading the per-site iframe-embed allowlist #3274 owns
- * (`site.config.security.embedAllowedOrigins`) defensively.
- */
 describe('embedAllowedOrigins', () => {
   test('reads the configured allowlist', () => {
     const site = { config: { security: { embedAllowedOrigins: ['https://tools.example.com'] } } }
@@ -491,7 +455,6 @@ describe('embedAllowedOrigins', () => {
   })
 })
 
-/** A stand-in for `FastifyReply` recording only the header get/set `applyEmbedFrameAncestors` uses. */
 function fakeCspReply(existing?: string | string[]) {
   const headers = new Map<string, string | string[]>()
   if (existing !== undefined) {
@@ -555,11 +518,9 @@ describe('applyEmbedFrameAncestors', () => {
 })
 
 /**
- * OpenProject #3275 acceptance: exercised end to end against a real Fastify app with a real
- * `@fastify/helmet` registration (mirroring `core/http/security.ts#registerSecurity`) and the same
- * `resolveRequestSite` + `applyEmbedFrameAncestors` pairing `core/http/siteRouting.ts#registerSiteResolution`
- * wires together, in the same hook order `index.ts` boots them in (security before site resolution) —
- * proving the two compose into one header rather than one clobbering the other.
+ * A real `@fastify/helmet` registration (mirroring `core/http/security.ts#registerSecurity`) ahead
+ * of the pairing `core/http/siteRouting.ts#registerSiteResolution` wires, in boot order: proves the
+ * two compose into one header rather than one clobbering the other.
  */
 describe('frame-ancestors CSP header via a real Fastify app + @fastify/helmet (OpenProject #3275)', () => {
   const EMBEDDABLE_SITE_ID = 'embeddable-site-id'
@@ -579,8 +540,6 @@ describe('frame-ancestors CSP header via a real Fastify app + @fastify/helmet (O
 
   async function buildApp() {
     const app = fastify()
-    // -> Same directives shape `core/http/security.ts` builds from a non-empty `cspDirectives`
-    //    setting, so this proves appending doesn't disturb an existing instance-wide policy.
     await app.register(fastifyHelmet, {
       contentSecurityPolicy: { directives: { 'default-src': ["'self'"] }, useDefaults: false }
     })

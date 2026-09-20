@@ -107,25 +107,15 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { useSiteStore } from '@/stores/site'
 
 /**
- * Pick a file — Wiki.js's own Markdown, or one of Pandoc's supported formats — convert it to Markdown
- * through `POST sites/:siteId/pages/import`, and hand the result back to whoever opened this dialog —
- * it only converts and previews, it never saves anything itself. `PageNewMenu.vue` is the only opener
- * today: it takes the `ok` payload straight into `pageStore.pageCreate()`, exactly like every other
- * "New … Page" entry there.
- *
- * `format: 'markdown'` (OpenProject #1092) needs no Pandoc extension at all — it is a pass-through
- * read of the file's own bytes, so this dialog (unlike the other formats it offers) works on an
- * instance with no Pandoc installed. A leading YAML front-matter block, if the file has one, is parsed
- * server-side into `title`/`description`/`tags`, which is why `convert()` below reads those back off
- * the response rather than only ever defaulting the title from the file name.
+ * Converts and previews only — the result is handed back to whoever opened the dialog, which saves
+ * it. `markdown` is a pass-through read of the file's bytes, so that one format works on an
+ * instance with no Pandoc installed; a YAML front-matter block is parsed server-side into
+ * `title`/`description`/`tags`, which `convert()` reads back off the response.
  */
 
 /**
- * Source formats this dialog offers, matching `SUPPORTED_IMPORT_FORMATS` in
- * `backend/models/import.ts`. Not imported from there: `backend/` and `frontend/` are separate,
- * independently-installed workspaces with no shared module between them, so the two lists are kept
- * in step by hand. `markdown` is listed first as the native
- * format needing no Pandoc extension — every other entry still does.
+ * Mirrors `SUPPORTED_IMPORT_FORMATS` in `backend/models/import.ts`, by hand: the two workspaces are
+ * installed independently and share no module.
  */
 const FORMATS = [
   { value: 'markdown', label: 'Markdown (.md)', needsPandoc: false },
@@ -137,7 +127,6 @@ const FORMATS = [
   { value: 'odt', label: 'OpenDocument Text (.odt)', needsPandoc: true }
 ]
 
-/** File extension -> format, for auto-detecting `state.format` off the chosen file's name. */
 const EXTENSION_FORMATS = {
   md: 'markdown',
   markdown: 'markdown',
@@ -152,44 +141,25 @@ const EXTENSION_FORMATS = {
 }
 
 /**
- * How long the client gives a single-file conversion, in milliseconds -- past `ky`'s own 10s default,
- * which is well under what a Pandoc-backed conversion can take.
- *
- * Sized against the server's own ceiling on the same work: `backend/models/import.ts`'s
- * `IMPORT_TIMEOUT` kills a stalled pandoc process after 30s, and `MAX_IMPORT_SIZE` caps the upload at
- * 25MB. This adds 30s of margin on top of that 30s pandoc ceiling for the upload itself to complete on
- * a slow connection, rather than trying to compute a byte-accurate figure for a single file the way
- * `ImportBatchPageDialog.vue`'s batch request has to.
+ * `ky`'s 10s default is well under what a Pandoc-backed conversion takes: this covers the server's
+ * own 30s ceiling on a stalled pandoc process plus margin for the upload on a slow connection.
  */
 const IMPORT_TIMEOUT = 60 * 1000
 
-// PROPS
-
 const props = defineProps({
-  /** Passed straight through to `pageStore.pageCreate()` on confirm, same as `PageNewMenu`'s own. */
   basePath: {
     type: String,
     default: null
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// STORES
-
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   step: 'select',
@@ -205,15 +175,11 @@ const state = reactive({
 
 const fileIpt = ref(null)
 
-// -> Whether Pandoc is installed decides which formats are pickable at all (OpenProject #1209);
-//    fetched once per dialog open rather than assumed stale from an earlier visit to this page.
 onMounted(() => {
   siteStore.fetchExtensionsStatus()
 })
 
-// COMPUTED
-
-/** True once we know for sure this instance has no Pandoc extension -- before the check resolves, nothing is disabled yet rather than flashing every format grayed out. */
+/** Gated on the check having resolved, so formats do not flash grayed out before it answers. */
 const pandocMissing = computed(
   () => siteStore.extensionsStatusLoaded && !siteStore.extensionsStatus.pandoc
 )
@@ -239,8 +205,6 @@ const canConvert = computed(
     !(selectedFormatNeedsPandoc.value && pandocMissing.value)
 )
 
-// METHODS
-
 function pickFile() {
   fileIpt.value?.click()
 }
@@ -252,8 +216,6 @@ function onFileSelected(ev) {
   }
   state.file = file
   state.fileName = file.name
-  // -> Title defaults to the file name minus its extension, a starting point the new-page flow's
-  //    own properties step lets the author change like any other
   state.title = file.name.replace(/\.[^.]+$/, '')
 
   const ext = file.name.split('.').pop()?.toLowerCase()
@@ -283,8 +245,7 @@ async function convert() {
     }).json()
 
     state.markdown = resp?.markdown ?? ''
-    // -> A `markdown` import's front matter (OpenProject #1092) names the actual title/description/
-    //    tags the file was authored with -- preferred here over the file-name default set on pick.
+    // -> Front matter the server parsed out beats the file-name default set on pick.
     if (resp?.title) {
       state.title = resp.title
     }
@@ -292,12 +253,8 @@ async function convert() {
     state.tags = resp?.tags ?? []
     state.step = 'preview'
   } catch (err) {
-    // -> A client-side `TimeoutError` firing while pandoc is still genuinely working server-side must
-    //    not read like a real failure: it looks identical to one otherwise, and retrying converts the
-    //    same file a second time for nothing. Same distinction `AdminExtensions.vue`'s `install()`
-    //    draws for `INSTALL_TIMEOUT`. Anything else -- unsupported format, missing Pandoc, a genuine
-    //    conversion failure -- falls through to the generic caption, where the server's own message
-    //    (via `apiErrorMessage`) says which of those it was.
+    // -> A client-side timeout while pandoc is still working server-side must not read as a real
+    //    failure: retrying converts the same file a second time for nothing.
     if (isTimeoutError(err)) {
       notify({
         type: 'negative',
@@ -327,11 +284,6 @@ function confirm() {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .import-page-dialog-preview {
   padding: 0;
   background-color: var(--color-dark-6);

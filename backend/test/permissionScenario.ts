@@ -1,17 +1,10 @@
 /**
- * The realistic ALLOW/DENY/FORCEALLOW scenario from feature 357 / task 448.
+ * The FORCEALLOW page beats the DENY covering it through `helpers/pageRules.ts`'s specificity
+ * ordering — `internal/onboarding` is simply a longer path than `internal` — with the MODE tiebreak
+ * never coming into it at all.
  *
- * A broad guests-group ALLOW on `read:pages` for the whole site, a narrower DENY on an internal
- * subtree, and a FORCEALLOW on one page within that denied subtree — the specificity ordering
- * documented in `helpers/pageRules.ts`'s own docblock (rule 1: the deeper path always wins) is what
- * makes the FORCEALLOW page win over the DENY covering it, without needing the MODE tiebreak
- * (rule 3) at all: `internal/onboarding` is simply a longer, more specific path than `internal`.
- *
- * Shared so the same scenario can be run twice and agree: once as a pure-function check against
- * `resolvePageRule`/`rulesAllow` (`helpers/pageRules.test.ts`, task 442), and once as a DB-backed
- * check through the full stack — rules round-tripped through Postgres and `reloadCache()`, decided by
- * `models/groups.ts#checkAccess` (`models/groups.test.ts`, task 448) — rather than as two scenarios
- * that could quietly drift apart.
+ * Shared so the pure-function check against `resolvePageRule`/`rulesAllow` and the DB-backed one
+ * through `models/groups.ts#checkAccess` run the same scenario rather than two that can drift apart.
  */
 import type { GroupRule } from '../models/groups.ts'
 
@@ -48,7 +41,6 @@ export const GUEST_SCENARIO_RULES: GroupRule[] = [
   }
 ]
 
-/** One case per claim the task makes about the scenario. */
 export const GUEST_SCENARIO_CASES: Array<{ path: string; expected: boolean; note: string }> = [
   {
     path: 'internal/onboarding',

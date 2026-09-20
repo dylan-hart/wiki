@@ -1,14 +1,11 @@
 import { computed } from 'vue'
 
 /**
- * The boolean-or-array model both binary controls take — `WCheckbox` and `WToggle`.
+ * Bound to an array rather than a boolean, a control contributes its `val` to a set of selected
+ * values, so a group of them can share one model.
  *
- * Bound to a boolean, a control is its own value. Bound to an array, it contributes its `val` to a
- * set of selected values, so a group of them can share one model: exactly what the classification
- * grids in the API-key dialogs do.
- *
- * @param {{ modelValue: boolean|Array, val: * }} props The component's own props.
- * @param {(event: string, value: *) => void} emit The component's own `emit`.
+ * @param {{ modelValue: boolean|Array, val: * }} props
+ * @param {(event: string, value: *) => void} emit
  * @returns {{ isOn: import('vue').ComputedRef<boolean>, toggle: () => void }}
  */
 export function useToggleModel(props, emit) {

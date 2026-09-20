@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
-/*
-  The diff pane is real Monaco, which needs a layout engine this test has no reason to drag in --
-  mocked the same way `PageHistoryOverlay.test.js` mocks it, so mounting the dialog never touches an
-  actual editor instance while still letting a test assert what it was asked to show.
-*/
+/* The diff pane is real Monaco, which needs a layout engine this test has no reason to drag in. */
 vi.mock('monaco-editor', () => ({
   editor: {
     defineTheme: vi.fn(),
@@ -48,10 +44,8 @@ beforeEach(() => {
 })
 
 /*
-  `<w-dialog>` teleports its content to `document.body` (see `WDialog.vue`), so it never lands inside
-  the wrapper's own root element -- `wrapper.find()` cannot see it, and a native DOM query against
-  `document.body` is what has to be used instead. Mirrors how the dialog composable's own consumers
-  find it: nothing here reaches into the component's internals.
+  `<w-dialog>` teleports its content to `document.body`, so it never lands inside the wrapper's own
+  root element: `wrapper.find()` cannot see it, and a native DOM query is used instead.
 */
 describe('PageSaveConflictDialog', () => {
   it('emits ok with "discard" when the discard button is clicked', async () => {
@@ -97,16 +91,12 @@ describe('PageSaveConflictDialog', () => {
     })
     await flushPromises()
 
-    // -> The diff container exists, mounted by the same `<w-card-section>` as the buttons
     expect(document.body.querySelector('.save-conflict-diff')).toBeTruthy()
 
-    // -> A diff editor was actually created, targeting that container
     expect(monaco.editor.createDiffEditor).toHaveBeenCalledTimes(1)
     const [container] = monaco.editor.createDiffEditor.mock.calls[0]
     expect(container).toBe(document.body.querySelector('.save-conflict-diff'))
 
-    // -> Both versions were handed to Monaco: the server's snapshot as the original, this author's
-    //    pending edit as the modified side
     expect(monaco.editor.createModel).toHaveBeenCalledWith(SERVER_CONTENT, 'markdown')
     expect(monaco.editor.createModel).toHaveBeenCalledWith(PENDING_CONTENT, 'markdown')
   })

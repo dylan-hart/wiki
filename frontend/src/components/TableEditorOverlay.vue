@@ -1,9 +1,6 @@
 <template>
   <w-layout class="table-editor" container>
     <w-header class="card-header">
-      <!-- -> The design's own glyph: a stroked table grid, not the colour asset this used to draw.
-              `img:/_assets/icons/color-data-grid.svg` was the last colour icon left in any overlay
-              header, and it read as a sticker beside the tracked uppercase title -->
       <w-icon name="tabler:table" left size="md" />
       <span>{{ t(`editor.tableEditor.title`) }}</span>
       <w-space />
@@ -15,8 +12,6 @@
           :aria-label="t(`common.actions.cancel`)"
           icon="tabler:x"
           @click="close" />
-        <!-- -> "Update" when the overlay was opened over a table that is already in the page: the
-                button says what pressing it does, and what it does is replace that one -->
         <w-btn
           color="positive"
           text-color="white"
@@ -29,31 +24,14 @@
     <w-page-container>
       <w-page class="p-4">
         <!--
-          The design's own toolbar band (`ui-redesign/Cardinal Wiki - Table Editor 3x.dc.html`): the
-          page tint, ruled off underneath -- the same recipe the `Markdown` heading below draws with,
-          which is what makes the two read as a pair of markers rather than as two inventions.
-
-          It used to be a translucent black (white in dark mode) on the reasoning that the overlay's
-          panel was a GRADIENT and no fixed colour could sit level with both ends of it. That panel is
-          flat now (`MainLayout.vue`'s `.main-overlay > .w-dialog-panel`), so the premise is gone and
-          the design's flat tint is simply what it says.
-
-          Bled out of the page's padding on three sides so it meets the header and both edges, which is
-          what makes it read as a toolbar under the title bar rather than as a panel floating in the
-          page; `px-4` then puts its contents back on the page's own inset.
-        -->
-        <!--
-          Flat, flush hovers (OpenProject #3469, Feature #3464): the three buttons carry the shared
-          `flush-hover-btn` (`css/_base.css`), so each one's hover is a square cell rather than a rounded
-          pill. For that cell to reach the band's own edges, the band can hold no padding of its own: the
-          `px-4`/`py-2`/`gap-2` this had are gone, the row STRETCHES its buttons to the band's full height
-          (`items-stretch`, `min-h-11` keeping it the 44px it was), and everything that is not a button
-          (the checkboxes, the hint) takes the spacing itself, centred on its own. The band's left edge is
-          the bled-out page edge, so Add row's hover starts at the panel's edge.
+          Bled out of the page's own `p-4` on three sides so the band meets the header and both
+          edges, and carries no padding of its own: each button's `flush-hover-btn` hover has to
+          reach the band's edges, so the buttons stretch to its height (`min-h-11`) and every
+          non-button child insets itself. Only the trailing edge takes `pe-4` back.
         -->
         <div class="table-editor-toolbar -mx-4 -mt-4 flex min-h-11 flex-wrap items-stretch pe-4">
-          <!-- -> `dense`, which is `WBtn`'s 28px band on a 10px inset -- the inset the design draws every
-                  control in this strip at. The height is the band's now: the button stretches to it -->
+          <!-- -> `dense` for the 10px inset the design draws every control in this strip at; the
+                  band's `items-stretch` takes over its 28px height -->
           <w-btn
             flat
             dense
@@ -70,33 +48,15 @@
             color="primary"
             :label="t(`editor.tableEditor.addColumn`)"
             @click="addColumn" />
-          <!--
-            Three groups in one strip, ruled apart: what the table holds, what its markdown looks like,
-            and what the page does with it. A rule rather than more space -- at this density the gap that
-            would read as a break is wide enough to look like a missing control.
-
-            The two options here both change the markdown under the grid as they are ticked, which is the
-            only feedback either of them has. Headerless comes first, since it changes the grid as well.
-
-            The breathing room is the RULE's own 4px each side, past the row's 8px gap, which is how the
-            design spaces it -- 12px either way, symmetrically. The `ms-2`/`mx-2` this replaces put 16px
-            on the checkbox side of each rule and 8px on the button side, so the two groups sat at
-            different distances from the same divider.
-          -->
           <w-separator vertical />
           <div class="flex items-center gap-2 self-center px-2">
             <w-checkbox v-model="state.headerless" :label="t('editor.tableEditor.headerless')" />
             <w-checkbox v-model="state.compact" :label="t('editor.tableEditor.compact')" />
           </div>
           <!--
-            The classes the content stylesheet gives a table, which go under it as a `markdown-it-attrs`
-            line — see `css/_page-contents.css`, where each of the three is defined. Last in the strip
-            and in its own colour: the only control here that opens something rather than doing something.
-
-            A menu of checkboxes rather than a `w-select`: these are not one choice from a list, they are
-            three independent switches, and a select would read as "pick a style" and then have to explain
-            why two are ticked. `WCheckbox` binds a value within an array, which is exactly this shape, and
-            `WMenu` does not close on a click inside itself, so all three can be set in one visit.
+            Checkboxes in a menu rather than a `w-select`: three independent switches, not one choice
+            from a list, and `WMenu` does not close on a click inside itself, so all three can be set
+            in one visit.
           -->
           <w-separator vertical />
           <w-btn
@@ -119,28 +79,18 @@
             </w-menu>
           </w-btn>
           <w-space />
-          <!-- -> A hint, not a label: the design sets it a step below the checkbox labels beside it
-                  (11.5px against 12.5px) and in the chrome slate rather than a wash of the ink -->
           <div class="self-center ps-2 text-[11.5px] text-slate dark:text-slate-light">
             {{ t('editor.tableEditor.pasteHint') }}
           </div>
         </div>
-        <!--
-          A plain table of plain inputs, which is what a markdown table is: a grid of one-line strings
-          plus an alignment per column. The row above the header holds each column's tools -- its
-          alignment, which is the only formatting the syntax can carry, and its delete.
-        -->
         <div class="table-editor-grid mt-4">
           <table>
             <thead>
               <tr class="table-editor-tools">
                 <th v-for="(align, colIndex) of state.align" :key="`tool-${colIndex}`">
-                  <!-- -> Centred over the column rather than pushed to its edges: at the edges the
-                          delete button reads as belonging to the boundary between two columns -->
                   <div class="flex flex-nowrap items-center justify-center gap-1">
-                    <!-- -> Chrome, so the design strokes it in the icon slate rather than in the
-                            accent: the alignment is a property of the column, not an action on it,
-                            and the only red in this row belongs to the delete beside it -->
+                    <!-- -> Slate, not the accent: the alignment is a property of the column rather
+                            than an action on it, and the only red here belongs to the delete -->
                     <w-btn
                       flat
                       class="table-editor-toolbtn text-slate-soft dark:text-slate-light"
@@ -166,8 +116,8 @@
                 <!-- -> Matches the row-tools column below, so the grid stays square -->
                 <th class="table-editor-rowtools" />
               </tr>
-              <!-- -> Gone entirely when the table is headerless, rather than emptied: `rows[0]` is a
-                      body row in that case, and it is shown as one below -->
+              <!-- -> Dropped rather than emptied when headerless: `rows[0]` is then a body row, and
+                      is drawn as one below -->
               <tr v-if="!state.headerless">
                 <th
                   v-for="(_, colIndex) of state.rows[0]"
@@ -190,8 +140,6 @@
                   v-for="(_, colIndex) of row"
                   :key="`cell-${rowIndex}-${colIndex}`"
                   class="table-editor-cellbox">
-                  <!-- -> Set the way the column is set: the alignment is the one thing about a table
-                          the syntax can carry, so the grid may as well show it rather than describe it -->
                   <input
                     v-model="state.rows[rowIndex + rowOffset][colIndex]"
                     class="table-editor-cell"
@@ -218,30 +166,12 @@
             </tbody>
           </table>
         </div>
-        <!--
-          The markdown itself, because that is what gets inserted and it is worth seeing before it lands
-          in the page. Headed the way the block picker heads its own markdown.
-
-          The band reaches the panel's edges through `--w-section-bleed`, declared once on `.table-editor`
-          next to the `p-4` it cancels, rather than as a `-mx-4` here that restates that padding's value
-          from the far side of the file.
-
-          `mt-4`, which is the 16px the design leaves between the grid and the band. It was `mt-6`.
-        -->
         <div class="w-section-header mt-4">{{ t('editor.tableEditor.markdown') }}</div>
         <!--
-          Drawn as the page will draw it: `page-contents` is the content stylesheet, so the preview is
-          a code block, not a panel of its own invention — one that follows the site's own code surface,
-          in both themes, without this file restating any of it.
-
-          No margin of its own: the band's own `margin-block-end` is the gap. The `mt-4` that used to be
-          here was defending against a faint shadow the heading trailed 13px below itself, which it
-          stopped drawing when Cardinal made it a bordered strip — with the `mt-4` still in place the gap
-          came to 28px where the design draws 16. The band's own trailing gap is that rhythm's share of
-          it (OpenProject #2631 settled it at 14px), and this screen states none of its own.
-
-          The `pre` is the only child, which is what gives up the block margins content puts around a
-          code block.
+          `page-contents` is the content stylesheet, so the preview draws as the page will draw it in
+          both themes without this file restating any of it. No margin of its own — the band above
+          owns the gap — and the `pre` is the only child, which gives up the block margins content
+          puts around a code block.
         -->
         <div class="page-contents">
           <pre>{{ markdown }}</pre>
@@ -259,38 +189,21 @@ import { ALIGNMENTS, buildTable, parseTable } from '@/helpers/markdownTable'
 
 import { useSiteStore } from '@/stores/site'
 
-// PROPS
-
 /**
- * Initial state from whoever opened this overlay (the markdown editor's "Edit Table" lens
- * `$patch({ overlay: 'TableEditor', overlayOpts: {...} })`), forwarded here by
- * `MainOverlayDialog.vue` (OpenProject #2530). `editing` below reads this prop, not
- * `siteStore.overlayOpts` directly.
+ * Opened over an existing table: `{ source, startLine, endLine }`, from the markdown editor's
+ * "Edit Table" lens. Empty when the overlay was opened to insert a new one.
  */
 const props = defineProps({
   overlayOpts: { type: Object, default: () => ({}) }
 })
 
 /**
- * Builds a markdown table and hands it to the editor.
- *
- * Handmade rather than a data grid. A markdown table is a small thing — one-line strings in a grid,
- * plus a per-column alignment, which is the only formatting the syntax carries — and the library this
- * replaces (`tabulator-tables`) is a sortable, filterable, virtually-rendered spreadsheet whose model
- * has no place to put that alignment. Every editing gesture here is a `splice`.
- *
- * Opened over a table that is already in the page — from the "Edit Table" lens in the markdown editor,
- * which passes its source and the lines it occupies — the same grid edits that table instead, and the
- * result goes back over those lines rather than in at the cursor.
- *
- * The editor receives the result over the event bus, the same way the File Manager hands back an asset.
+ * Handmade rather than a data grid: a markdown table is one-line strings in a grid plus a per-column
+ * alignment, and a sortable, virtually-rendered grid component has nowhere to put that alignment.
+ * Every editing gesture here is a `splice`.
  */
 
-// STORES
-
 const siteStore = useSiteStore()
-
-// I18N
 
 const { t } = useI18n()
 
@@ -301,12 +214,10 @@ const ALIGN_ICONS = {
 }
 
 /*
-  The classes the Styling menu offers, and what each one does to a table. Every one of them is defined in
-  `css/_page-contents.css` -- this list is the UI for those rules, so a class added there needs a line
-  here to be reachable, and a line here naming a class that is not there does nothing at all.
-
-  A class an author wrote by hand that is not in this list is left alone rather than stripped: it stays in
-  `state.classes` and goes back out with the table, it simply has no box of its own to tick.
+  The UI for the table classes `css/_page-contents.css` defines: a class added there needs a line
+  here to be reachable, and a line here naming a rule that does not exist does nothing at all. A
+  class an author wrote by hand and that is not listed survives in `state.classes` untouched; it
+  simply has no box of its own.
 */
 const STYLE_CLASSES = [
   { value: 'table-vertical-middle', label: 'editor.tableEditor.styleVerticalMiddle' },
@@ -315,23 +226,18 @@ const STYLE_CLASSES = [
 ]
 
 /* -> Spelled out rather than built from the value: a key assembled at runtime is invisible to the
-      translation tooling, the same way a concatenated icon name is invisible to the icon scanner. */
+      translation tooling. */
 const ALIGN_LABELS = {
   left: 'editor.tableEditor.alignLeft',
   center: 'editor.tableEditor.alignCenter',
   right: 'editor.tableEditor.alignRight'
 }
 
-// DATA
-
 /*
-  `rows[0]` is the header, unless `headerless` is set -- in which case it is simply the first row, and
-  every row is a body row. Keeping the header in the same array as the body is what makes a column
-  operation one splice per row instead of two code paths that have to agree, and it is also what makes
-  the Headerless tick reversible: nothing is thrown away, the first row just stops being a heading.
-
-  A starter table when there is nothing to edit; the table that was there when there is. `replace` holds
-  the lines it came from, and is what turns this from an insert into an update -- see `insert`.
+  `rows[0]` is the header unless `headerless` is set, in which case every row is a body row. Keeping
+  the header in the same array as the body makes a column operation one splice per row instead of
+  two code paths that have to agree, and makes the Headerless tick reversible: nothing is thrown
+  away, the first row just stops being a heading.
 */
 const editing = props.overlayOpts?.source
   ? {
@@ -359,18 +265,13 @@ const state = reactive(
   }
 )
 
-// COMPUTED
-
-/** Where the body starts in `rows`: after the header, or at the top when there is none. */
 const rowOffset = computed(() => (state.headerless ? 0 : 1))
 
 const bodyRows = computed(() => state.rows.slice(rowOffset.value))
 
-/* -> Written by `helpers/markdownTable`, which is also what read the table being edited: the two
-      directions have to agree, or reopening a table would reformat it */
+/* -> Same module that parsed the table being edited: the two directions have to agree, or reopening
+      a table would reformat it */
 const markdown = computed(() => buildTable(state, { compact: state.compact }))
-
-// METHODS
 
 function cycleAlign(colIndex) {
   const next = (ALIGNMENTS.indexOf(state.align[colIndex]) + 1) % ALIGNMENTS.length
@@ -399,7 +300,6 @@ function removeColumn(colIndex) {
   }
 }
 
-/** Grow the table until (rowIndex, colIndex) exists. */
 function ensureSize(rowCount, colCount) {
   while (state.align.length < colCount) {
     addColumn()
@@ -410,11 +310,8 @@ function ensureSize(rowCount, colCount) {
 }
 
 /**
- * A paste of more than one cell fills the grid from where it was pasted, growing the table to fit.
- *
- * Tab-separated lines are what a spreadsheet puts on the clipboard, so a table copied out of one lands
- * here as a table rather than as a wall of text in a single cell. A paste with no tabs and no newlines
- * is an ordinary paste and is left to the field.
+ * Tab-separated lines are what a spreadsheet puts on the clipboard, so a table copied out of one
+ * fills the grid from where it was pasted rather than landing as text in a single cell.
  */
 function onCellPaste(rowIndex, colIndex, event) {
   const text = event.clipboardData?.getData('text/plain') ?? ''
@@ -436,11 +333,6 @@ function onCellPaste(rowIndex, colIndex, event) {
   })
 }
 
-/*
-  The result, and where it goes: over the lines the table came from, or in at the cursor when it came
-  from nowhere. The editor is the one holding the document, so it does the placing -- this only says
-  which of the two it is.
-*/
 function insert() {
   EVENT_BUS.emit('insertTable', { markdown: markdown.value, replace: state.replace })
   close()
@@ -451,36 +343,23 @@ function close() {
 }
 
 // -> Cleared here rather than in `close`, so it goes whichever way the overlay was left: a table left
-//    behind in the options would be edited again the next time the toolbar button opens this
+//    behind in the options would be edited again the next time the toolbar button opens this overlay
 onBeforeUnmount(() => {
   siteStore.overlayOpts = {}
 })
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .table-editor {
-  /*
-    The page pads itself 16px (`<w-page class="p-4">`); a section band is full-bleed, so it needs that
-    inset given back. Named here, beside the padding it cancels, so the two cannot drift apart.
-  */
+  /* The page pads itself 16px (`<w-page class="p-4">`) and a section band is full-bleed, so it needs
+     that inset given back; declared beside the padding it cancels so the two cannot drift apart. */
   --w-section-bleed: 16px;
   /*
-    Nothing here sits on a `w-card`, and that is where the app's dark text colour comes from -- so the
-    overlay has to state its own or everything that merely inherits `color` stays black on the dark
-    panel: the cell inputs (`color: inherit`, deliberately, so they follow the surface), the `Markdown`
-    heading and the Compact checkbox's label. Same reason `BlockPickerOverlay` states it.
-
-    The ground goes with it. The design draws this overlay's panel in `var(--color-paper)` with its cells in
-    `var(--color-surface)` (`ui-redesign/Cardinal Wiki - Table Editor 3x.dc.html`), and the app paints the panel
-    `var(--color-surface)` instead (`MainLayout.vue`'s `.main-overlay > .w-dialog-panel`) -- so white cells would
-    have nothing to read against. Stated here because it is this screen's own surface; it BELONGS on
-    that shared rule, where the File Manager design asks for the same `var(--color-paper)`, and this line should be
-    deleted rather than kept in step when that question is answered.
+    Nothing here sits on a `w-card`, which is where the app's dark text colour comes from, so the
+    overlay states its own -- otherwise everything that merely inherits `color` (the cell inputs, the
+    `Markdown` heading, the checkbox labels) stays black on the dark panel. The ground goes with it:
+    the shared panel rule paints `var(--color-surface)`, which the cells also take, so they would
+    have nothing to read against.
   */
 }
 .body--light .table-editor {
@@ -492,16 +371,10 @@ onBeforeUnmount(() => {
 }
 .table-editor {
   /*
-    Cancel / Update (OpenProject #2871): the general Cobalt button-group gap rule -- adjacent buttons
-    take an 8-10px gap and each keeps its own radius, never a rounded button butted against a square
-    one (Task #2859, `ui-iteration/README.md` Part 2) -- applied literally here at 8px, matching the
-    Cobalt mockup (`ui-iteration/cobalt/Cardinal Wiki - Table Editor 3x - Cobalt.dc.html`), since
-    #2859's own shared class/rule had not landed on scarlett as of this change; reconcile to whatever
-    mechanism it ships with at integration. `WBtnGroup`'s default seam (a hairline `border-inline-end`
-    on every button but the last, the Ledger "joined buttons" look) is switched off here so it doesn't
-    show through the gap -- `WBtn` already gives every button its own default control radius
-    unconditionally (`--radius-control`, 6px under Cobalt), so nothing else about the buttons
-    themselves needs to change.
+    Cobalt's button-group rule (`ui-iteration/README.md` Part 2): adjacent buttons take a gap and
+    each keeps its own radius, rather than `WBtnGroup`'s default Ledger seam -- so the seam is
+    switched off below, or it would show through the gap. A local copy of a rule that belongs in
+    `WBtnGroup`; reconcile if a shared mechanism ships.
   */
 }
 .body--cobalt .table-editor .card-header .w-btn-group {
@@ -511,10 +384,8 @@ onBeforeUnmount(() => {
   border-inline-end: none;
 }
 .table-editor {
-  /*
-    The toolbar band under the title bar: the page tint ruled off underneath, which is the same recipe
-    `.w-section-header` draws the `Markdown` heading below with.
-  */
+  /* The page tint ruled off underneath -- the same recipe `.w-section-header` draws the `Markdown`
+     heading below with, so the two read as a pair. */
 }
 .body--light .table-editor-toolbar {
   background-color: var(--color-tint);
@@ -526,10 +397,9 @@ onBeforeUnmount(() => {
 }
 .table-editor-toolbar {
   /*
-    The design's divider is a 22px tick in the fainter separator tone with 4px of air each side --
-    not a rule the full height of the row. `WSeparator` stretches to its flex line by default and
-    paints the generic hairline, so both are pinned here rather than by widening its props: this is
-    the only place in the app that wants a short vertical tick inside a control strip.
+    A short tick, not a rule the full height of the row: `WSeparator` stretches to its flex line and
+    paints the generic hairline, both pinned here rather than by widening its props, since this is
+    the only place in the app that wants a vertical tick inside a control strip.
   */
 }
 .table-editor-toolbar .w-separator {
@@ -549,15 +419,9 @@ onBeforeUnmount(() => {
 }
 .table-editor {
   /*
-    A cell is a white plate on the panel's paper, edged in the language's one border colour. Both the
-    ground and the edge are STATED rather than inherited: the grid is the thing being edited, so it
-    reads as a sheet laid on the page rather than as lines drawn over it.
-
-    Carried as a class on the cells that hold an input, rather than as a `th, td` rule inside the grid.
-    The two chrome columns -- the tools row above the head and the row-tools column down the side --
-    are `th`/`td` too, and a rule reaching every cell in the table had to be undone for both of them,
-    which is where `.table-editor-rowtools`'s `!important`s came from. Naming the data cells instead
-    leaves the chrome cells unstyled, which is what they want to be.
+    A class on the cells that hold an input, not a `th, td` rule inside the grid: the two chrome
+    columns -- the tools row above the head and the row-tools column down the side -- are `th`/`td`
+    too, and a rule reaching every cell would have to be undone for both of them.
   */
 }
 .table-editor-cellbox {
@@ -571,14 +435,9 @@ onBeforeUnmount(() => {
 }
 .table-editor-cellbox {
   /*
-    Banding, as the design draws it. `#f8f9fc` has no token of its own -- it is the same half-step
-    below white that `WInput`/`WSelect` paint a read-only field in, and is written as a literal there
-    too. Dark takes the recessed rung of the ramp against the panel rung above.
-  */
-  /*
-    OpenProject #3252: native CSS nesting has no `@at-root` equivalent, so this pair is
-    hand-converted to plain, unnested rules at the bottom of this style block instead -- see
-    "Hand-converted @at-root escapes" below.
+    Row banding sits at the bottom of this block instead: the band is the cell's ANCESTOR, so the
+    selector cannot hang off this class. `#f8f9fc` there has no token of its own -- it is the
+    half-step below white `WInput`/`WSelect` paint a read-only field in.
   */
 }
 .table-editor {
@@ -593,12 +452,8 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 .table-editor {
-  /*
-    Each column and row tool is a 24x22 plate with a 14px glyph in it -- a hit target sized to the tools
-    row rather than to a button band, which is what the design draws and what keeps the row 22px tall
-    next to a 28px toolbar. `WBtn` writes its `min-height` and `padding` INLINE, off its own font size,
-    so the plate has to out-specify them.
-  */
+  /* -> A hit target sized to the tools row rather than to a button band. `WBtn` writes its
+          `min-height` and `padding` INLINE, off its font size, so these have to out-specify them */
 }
 .table-editor-toolbtn {
   width: 24px;
@@ -607,9 +462,9 @@ onBeforeUnmount(() => {
   min-height: 22px !important;
   padding: 0 !important;
   font-size: 14px;
-  /* -> A plate holding one glyph and no text: `WBtn`'s 1.715em leading would make it 24px tall */
+  /* -> A plate holding one glyph and no text: `WBtn`'s own leading would make it taller than 22px */
   line-height: 1;
-  /* -> The X reads a size larger than the align rules at the same box, so the design draws it 13px */
+  /* -> The X reads a size larger than the align glyphs at the same box, so it is set smaller */
 }
 .table-editor-toolbtn--del {
   font-size: 13px;
@@ -623,10 +478,9 @@ onBeforeUnmount(() => {
   font-size: 14px;
   outline: none;
   /*
-    The focused cell takes the tint and turns its edge slate. The ring is an `outline` on the INPUT
-    rather than a border on the cell: `border-collapse: collapse` picks one winner per shared edge, so
-    recolouring a single cell's border is not reliable. The cell is unpadded, so the input's border box
-    is the cell's content box -- an outline at offset 0 lands exactly over the collapsed border.
+    The focus ring is an `outline` on the INPUT rather than a border on the cell: `border-collapse:
+    collapse` picks one winner per shared edge, so recolouring a single cell's border is not
+    reliable. The cell is unpadded, so an outline at offset 0 lands over the collapsed border.
   */
 }
 .table-editor-cell:focus {
@@ -638,29 +492,21 @@ onBeforeUnmount(() => {
   outline-color: var(--color-slate-light);
 }
 .table-editor-cell {
-  /* -> The header row is what a reader sees in bold, so it reads that way here too */
+  /* -> Bold, the way the rendered page draws a header row */
 }
 .table-editor-cell--head {
   font-weight: 600;
 }
 .table-editor {
   /*
-    Cobalt matte: the single-plate grid (OpenProject #2858, `ui-iteration/README.md` Part 1.1).
-    Every other aesthetic keeps the grid the generic rules above already draw -- individually
-    bordered plain cells on a collapsed table, no radius anywhere (the `--radius-*` scale is zeroed
-    outside Cobalt, and this screen is asserted to stay that way). Cobalt's own board
-    (`ui-iteration/cobalt/Cardinal Wiki - Table Editor 3x - Cobalt.dc.html`) draws the grid as one
-    8px plate instead: `border-collapse: separate` with a 2px gap between cells, the plate itself
-    tinted and bordered, so what used to be each cell's own hairline is now the plate ground showing
-    through the gap. Individual cells stay flat and unbordered -- never rounded, never shadowed --
-    with exactly one exception, the focused cell's ring.
+    Cobalt draws the grid as a single plate rather than as individually bordered cells on a collapsed
+    table: `border-collapse: separate` with a 2px gap, the plate itself tinted and bordered, so what
+    is each cell's own hairline elsewhere is the plate ground showing through the gap.
 
-    Scoped `body.body--cobalt` (a type selector plus the aesthetic class) rather than the `&`-nested
-    `.body--cobalt &` the rest of this file uses, specifically so this block outranks the
-    generic `&-cell:focus` dark rule above on specificity alone: under Cobalt DARK both that rule's
-    `.body--dark .table-editor-cell:focus` and a same-shape `.body--cobalt .table-editor-cell:focus`
-    would tie, leaving the winner to source order rather than intent. The extra `body` type selector
-    breaks that tie unconditionally, matching `tailwind.css`'s own `body.body--cobalt` convention.
+    Scoped `body.body--cobalt` -- a type selector plus the aesthetic class, matching `tailwind.css`'s
+    own convention -- so these rules outrank the generic `.body--dark .table-editor-cell:focus` rule
+    above: a same-shape `.body--cobalt` selector would tie with it under Cobalt dark, leaving the
+    winner to source order rather than intent.
   */
 }
 body.body--cobalt .table-editor-grid table {
@@ -672,42 +518,32 @@ body.body--cobalt .table-editor-grid table {
   border: 1px solid var(--color-hairline);
 }
 body.body--cobalt .table-editor {
-  /*
-    The collapsed table's per-cell hairline is gone -- the plate's own border-spacing gap, filled
-    with the plate's tint, is what separates cells now. Left unrounded and unshadowed, per spec.
-  */
+  /* -> The plate's own border-spacing gap, filled with its tint, is what separates cells here, so
+          the per-cell hairline goes */
 }
 body.body--cobalt .table-editor-cellbox {
   border: 0;
 }
 body.body--cobalt .table-editor {
   /*
-    The header row reads a half-step lighter than the plate, toward the page ground -- the
-    relationship the board draws (`#eef2ff` sits between the plate's `#e6edff` and the page's
-    `#f2f5ff`). The dark counterpart lives in the separate `body.body--cobalt.body--dark &` block
-    below, not nested here: `&` at this point already resolves to the full
-    `body.body--cobalt .table-editor th.table-editor-cellbox` chain, so prefixing it with another
-    `body.body--cobalt` ancestor would ask for two `<body>` elements and never match -- a real
-    regression this file's own real-Chromium suite caught (OpenProject #2858).
+    A half-step lighter than the plate, toward the page ground: `#eef2ff` sits between the plate's
+    `#e6edff` and the page's `#f2f5ff`. Its dark counterpart is the last rule in this block.
   */
 }
 body.body--cobalt .table-editor th.table-editor-cellbox {
   background-color: #eef2ff;
 }
 body.body--cobalt .table-editor {
-  /* -> Both chrome strips -- the alignment/delete tools row and the row-tools column -- sit on
-          the page ground rather than staying transparent, matching the board's `#f2f5ff` */
+  /* -> Both chrome strips sit on the page ground rather than staying transparent, so they read as
+          surround rather than as part of the plate */
 }
 body.body--cobalt .table-editor-tools th,
 body.body--cobalt .table-editor-rowtools {
   background-color: var(--color-paper);
 }
 body.body--cobalt .table-editor {
-  /*
-    The active cell takes a 2px inset ring instead of the generic tint-and-outline treatment --
-    `border-collapse: separate` means there is no shared, collapsed edge to protect any more, so
-    the ring can sit directly on the input without the generic rule's workaround.
-  */
+  /* -> `border-collapse: separate` leaves no shared, collapsed edge to work around, so the focus
+          ring can sit directly on the input instead of as an outline over that edge */
 }
 body.body--cobalt .table-editor-cell:focus {
   background-color: var(--color-surface);
@@ -716,30 +552,15 @@ body.body--cobalt .table-editor-cell:focus {
 }
 .table-editor {
   /*
-    Cobalt dark's one departure from the light block above: the header-cell tint. There is no
-    Cobalt-dark board for this screen to measure against, so this reaches for the ramp's own
-    analogous "one rung more raised than the plate" answer, `--color-dark-3`, rather than inventing
-    an unmeasured literal. A sibling block, not nested inside the light one above, so `&` here
-    resolves to the plain `.table-editor` chain instead of one that already contains
-    `body.body--cobalt` -- see the comment on `th.table-editor-cellbox` above for why nesting it
-    there doesn't work.
+    Cobalt dark's one departure from the light rules above: there is no Cobalt-dark design for this
+    screen to measure a header tint against, so it takes the ramp's analogous "one rung more raised
+    than the plate" rung rather than an invented literal.
   */
 }
 body.body--cobalt.body--dark .table-editor th.table-editor-cellbox {
   background-color: var(--color-dark-3);
 }
 
-/*
-  Hand-converted @at-root escapes (OpenProject #3252). `&-cellbox`'s zebra-striping rule above used
-  to read `@at-root tbody > tr:nth-child(even) > & { ... }` -- a genuine structural escape (the row
-  band is the cell's ANCESTOR, not a class toggled on the cell itself), not a same-selector theme
-  toggle, so it has no native-nesting equivalent: `&` there compiles to `.table-editor-cellbox`
-  (from `.table-editor { &-cellbox { ... } }` above), and `@at-root` discarded that ambient nesting
-  entirely to put `tbody > tr:nth-child(even) >` in FRONT of it instead. A plain nested rule in its
-  original spot would compile to `.table-editor .table-editor-cellbox tbody > tr:nth-child(even) >
-  .table-editor-cellbox`, which is both wrong (duplicates `.table-editor-cellbox`) and un-matchable
-  (`tbody` is never a descendant of a `<td>`/`<th>`) -- so these stay flat, top-level rules instead.
-*/
 tbody > tr:nth-child(even) > .table-editor-cellbox {
   background-color: #f8f9fc;
 }

@@ -8,11 +8,7 @@ import { _resetSiteCache } from '../shared/site.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID as SITE_ID } from '../test/mount.js'
 
-/**
- * Relative luminance / WCAG contrast ratio for a `#rrggbb` hex color, per the same formula the spec
- * (OpenProject #2501) cites. Kept local to this one test rather than promoted to `blocks/shared/` or
- * `blocks/test/` -- this is the only call site so far; a second one should pull it out then.
- */
+/** Per the WCAG formula, which is where the constants below come from. */
 function relativeLuminance(hex) {
   const channel = (value) => {
     const c = value / 255
@@ -42,11 +38,8 @@ function stubPage(overrides = {}) {
 }
 
 /**
- * Stubs `fetch` for both hops `connectedCallback` now makes instead of `API_CLIENT`/`WIKI_STATE`:
- * the site lookup (`../shared/site.js`'s `getSiteId`/`getSiteLocales`/`getCurrentPage`) and the tree
- * listing itself. `pathname` stands in for `WIKI_STATE.page.locale` -- the current page's locale is
- * now read off the browser's own address bar, so a test that wants a non-primary reader sets the URL
- * a reader on that locale would actually be at.
+ * Both hops: the site lookup and the tree listing. The current page's locale is read off the
+ * address bar, so a test wanting a non-primary reader sets `pathname` to that reader's URL.
  */
 function stubFetch({
   locales = { primary: 'en', active: ['en'], forcePrefix: false },
@@ -60,18 +53,12 @@ function stubFetch({
   })
 }
 
-/** The one non-site-lookup call this suite's assertions care about. */
 function treeCall(fetchMock) {
   const [url] = fetchMock.mock.calls.find(([u]) => u !== '/_api/sites/current')
   return new URL(url, 'http://localhost')
 }
 
-/**
- * Appends a `<block-index>` and waits for the fetch chain `connectedCallback` always kicks off.
- *
- * `settle: 1`: two fetch hops deep (site -> tree), and one macrotask turn drains every microtask
- * queued by either.
- */
+/** `settle: 1`: two fetch hops deep (site -> tree), and one macrotask turn drains both. */
 const mountIndex = (props = {}) => mountBlock('block-index', { props, settle: 1 })
 
 describe('block-index', () => {
@@ -141,24 +128,14 @@ describe('block-index', () => {
   it('does not fetch icons when showIcons is off', async () => {
     const fetchMock = stubFetch()
     await mountIndex({ showIcons: false })
-    // -> Only the site lookup and the tree request; fetchIcon would hit /_icons via fetch,
-    //    unmocked here, so a call fetching an icon would surface as a real network error rather
-    //    than passing silently
+    // -> The site lookup and the tree request; an icon fetch would be a third
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   /*
-    OpenProject #2462: a "book" page -- one with a page nested below its own path -- draws a
-    different default icon than a leaf "file" page, driven by the `hasChildren` signal
-    `GET tree/pages` now carries. Asserted off which icon reference was fetched rather than off
-    rendered SVG content, since `stubFetch`'s `onRequest` answers every hop with the same page-list
-    JSON body -- `fetchIcon`'s `resp.text()` on that body rejects and resolves to `''`, which
-    `fetchIcon` already treats as "no icon" (see its own doc comment), leaving the request itself as
-    the one observable signal.
-
-    `settle: 2`: connectedCallback is a third hop deeper than the two `mountIndex` (settle: 1)
-    covers elsewhere in this file -- site lookup, then the tree fetch, then `_loadIcons()`'s icon
-    fetches once `showIcons` is on.
+    Asserted off which icon was requested rather than off rendered SVG: `stubFetch` answers every
+    hop with the same page-list JSON, which `fetchIcon` treats as "no icon", leaving the request
+    itself as the one observable signal. `settle: 2` for the third hop, `_loadIcons()`'s fetches.
   */
   it('requests the book icon for a page with children and the file icon for a leaf (OpenProject #2462)', async () => {
     const fetchMock = stubFetch({
@@ -202,8 +179,7 @@ describe('block-index', () => {
   })
 
   it('leaves a ctrl-click alone so the browser can open a new tab', async () => {
-    // -> Without the stub there is no site to resolve, so the block renders its "could not
-    //    determine the current site" state and there is no row to click at all.
+    // -> Without the stub there is no site to resolve, and so no row to click at all
     stubFetch()
     const el = await mountIndex()
     const anchor = el.shadowRoot.querySelector('li a')
@@ -246,13 +222,9 @@ describe('block-index', () => {
   })
 
   /**
-   * OpenProject #2501: the description text under a title (`.text span`) used to be a flat `#666`
-   * with no dark-mode override, computing to roughly 3:1 against the dark card background -- below
-   * the WCAG AA 4.5:1 floor for body text. OpenProject #2875 (block theming) replaced the row's own
-   * `:host([dark])` gradient with the shared `--block-*`/`--index-*` custom-property layer
-   * (`frontend/src/css/tailwind.css`), which is where the dark-mode color now lives -- read that
-   * file rather than this component's own source, and against the row's real dark-mode background
-   * (`--block-bg` under `body.body--dark`), not the old two-stop gradient's darkest end.
+   * The description text's dark-mode color lives in the shared `--block-*`/`--index-*`
+   * custom-property layer (`frontend/src/css/tailwind.css`), not in this component's source, so the
+   * WCAG AA 4.5:1 floor for body text is checked there, against the row's real dark background.
    */
   describe('dark-mode text contrast (OpenProject #2501, #2875)', () => {
     const componentSource = readFileSync(path.join(import.meta.dirname, 'component.js'), 'utf8')
@@ -266,16 +238,16 @@ describe('block-index', () => {
     })
 
     it('gives --index-description-fg a Ledger-dark value meeting 4.5:1 against --block-bg', () => {
-      // -> `body.body--dark { … }` appears more than once in tailwind.css (one block per concern);
-      //    merge all of them rather than assume this property lives in a particular one.
+      // -> `body.body--dark { … }` appears more than once in tailwind.css; merge every one rather
+      //    than assume which block holds this property.
       const darkBlocks = [...tokenSource.matchAll(/body\.body--dark\s*{([^}]*)}/g)]
       expect(darkBlocks.length).toBeGreaterThan(0)
       const merged = darkBlocks.map((m) => m[1]).join('\n')
       const descriptionFg = merged.match(/--index-description-fg:\s*(#[0-9a-fA-F]{6});/)
       expect(descriptionFg).not.toBeNull()
 
-      // -> --block-bg under body.body--dark: var(--color-dark-3), #1b1f2a -- the row's real
-      //    dark-mode background now that the old two-stop gradient is gone.
+      // -> #1b1f2a is --block-bg under body.body--dark (var(--color-dark-3)), the row's real
+      //    dark-mode background
       expect(contrastRatio(descriptionFg[1], '#1b1f2a')).toBeGreaterThanOrEqual(4.5)
     })
 
@@ -284,11 +256,6 @@ describe('block-index', () => {
     })
   })
 
-  /**
-   * OpenProject #2461: `block-index` used to render a flat list regardless of a page's `depth`. Each
-   * row's `--depth` custom property is what now draws it nested/indented, and a listing carrying any
-   * depth > 0 forces a single column so the indent reads against the right width.
-   */
   describe('nested/indented rendering (OpenProject #2461)', () => {
     it('draws every row flush (depth 0) when every page has no depth', async () => {
       stubFetch({ pages: [stubPage({ path: 'docs/a', title: 'A', depth: 0 })] })
@@ -346,11 +313,8 @@ describe('block-index', () => {
     })
   })
 
-  // -> OpenProject #2463 (docs/discoverability pass): the block picker and Admin > Blocks both
-  //    render this text verbatim as the only way an author learns what the block is for, so a
-  //    reader looking for a "book/chapter" or nested table-of-contents feature needs to recognize
-  //    it from here -- this guards the wording that fixes that against a silent regression back to
-  //    the old, use-case-free "Displays a list of pages contained in a folder."
+  // -> The block picker and Admin > Blocks render this text verbatim, and it is the only place an
+  //    author hunting for a nested table of contents would recognize the block from.
   describe('discoverability (OpenProject #2463)', () => {
     it("describes the nested/book-chapter use case in the block's own metadata", () => {
       expect(BlockIndexElement.definition.description).toMatch(/book\/chapter/i)

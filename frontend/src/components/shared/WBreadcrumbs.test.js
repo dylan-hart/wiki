@@ -4,12 +4,9 @@ import { mount } from '@vue/test-utils'
 import WBreadcrumbs from './WBreadcrumbs.vue'
 
 /**
- * Regression coverage for feature 413 ("RTL support end-to-end"), task 721: the gap between a
- * crumb's icon and its label used `mr-2`, a PHYSICAL Tailwind utility that stays on the visual right
- * whatever the reader's text direction is. Under `dir="rtl"` a flex row already reorders the icon and
- * the label -- but a margin still glued to `mr-` would then land on the wrong side of the icon,
- * pinching the two together instead of the icon and the crumb it follows. `me-2` (margin-inline-end)
- * is the fix: it always lands on the icon's TRAILING side, in either direction.
+ * Under `dir="rtl"` a flex row already reorders the icon and its label, so a margin glued to the
+ * physical `mr-` side lands between the icon and the crumb it follows rather than between the icon
+ * and its own label. `me-2` (margin-inline-end) always lands on the icon's trailing side.
  */
 describe('WBreadcrumbs', () => {
   it('spaces an icon from its label with a logical (inline-end) margin, not a physical one', () => {

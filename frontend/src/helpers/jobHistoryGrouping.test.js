@@ -111,8 +111,7 @@ describe('flattenJobHistoryRows()', () => {
 
     const rows = flattenJobHistoryRows([tick1, tick2], new Set())
 
-    // -> The summary row always wins the `group:<task>` id -- a real entry that happened to already
-    //    have exactly that id only ever shows up (unambiguously) once the group is expanded.
+    // -> The summary row wins the id; the colliding real entry only shows up once expanded.
     expect(rows).toHaveLength(1)
     expect(rows[0].id).toBe('group:storageSyncTick')
   })

@@ -3,68 +3,19 @@ import type { StagedNavigation } from '../content-staging.ts'
 import type { NavigationItem } from '../../models/navigation.ts'
 
 /**
- * Navigation import as the site-wide menu
+ * 2.x navigation is flat, so nothing here produces `NavigationItem.children`.
  *
- * Turns the single `StagedNavigation` row the staging pass produced (2.x's `navigation.key` /
- * `config` JSON, carried through verbatim — see that module's own doc comment) into 3.0's site-wide
- * menu.
+ * A 2.x `'page'` target is `/${locale}/${path}`; a 3.0 nav target carries no locale segment, so the
+ * prefix is stripped and the path re-normalized through `normalizeMigratedPath` — the function
+ * `page-import.ts` places the page with, so the two agree.
  *
- * Like every module in this feature, this one has no db access of its own — `NavigationWriteModel` is
- * injected, and its two methods are `CARDINAL.models.navigation`'s own `ensureSiteNav(siteId, locale)` and
- * `setNavItems(siteId, navId, items)` rather than a reinvented write path. Writing through those two,
- * rather than driving `updateNavigation()`, is deliberate: that method requires an actual tree entry
- * (a `pageId`) to resolve `mode`/`ancestorId` against, and a fresh import has no reason to require one
- * to exist first. `phases/content.ts` supplies the real implementations (dry-run-gated).
- *
- * ## Link-target conversion
- *
- * 2.x's nav item shape (`server/graph/schemas/navigation.graphql` in the vendored 2.x source) is
- * `{id, kind, label, icon, targetType, target, visibilityMode, visibilityGroups}`, flat — 2.x
- * navigation has no nested children at all, so nothing here ever produces `NavigationItem.children`.
- * `targetType` is 2.x's actual link-syntax discriminator (confirmed against
- * `client/components/admin/admin-navigation.vue`), not the string `target` alone:
- *
- *   - `'home'` → 3.0 `target: '/'` (the same convention 3.0's own `NavEditOverlay` uses for a freshly
- *     added link, confirmed by reading it — no separate "home" concept survives on the 3.0 side).
- *   - `'external'` / `'externalblank'` → `target` carried through as-is; `externalblank` sets
- *     `openInNewWindow: true`, matching what `NavSidebar.vue`'s `destination()` reads that flag for.
- *   - `'page'` → 2.x stores this as `/${locale}/${path}` (`admin-navigation.vue`'s
- *     `selectPageHandle`); 3.0's own link picker (`LinkPickerDialog.vue`) instead writes a bare
- *     `/${path}` with no locale segment at all (confirmed by reading it — `NavSidebar.vue`'s
- *     `destination()`/`routableHref` never re-adds one), so the locale prefix is stripped and the
- *     remaining path is re-normalized through `normalizeMigratedPath` (the same function
- *     `page-import.ts` uses to place the page in the tree, so the two agree on the result).
- *   - `'search'` → dropped. 3.0's `NavigationItem` has no saved-search-link concept at all (2.x's own
- *     admin UI had already stopped offering it as of the vendored version — `navTypes` in
- *     `admin-navigation.vue` comments it out — so this only matters for data written by an older 2.x).
- *   - anything else unrecognized → dropped, with a warning naming what was seen.
- *
- * A `'page'`-type link whose target page did not survive the content import — never staged in the
- * first place, staged but failed to place in the tree, or failed
- * `createPage()` outright — is **dropped**, not left pointing at nothing, and reported by title/target
- * in `NavigationImportResult.dropped` rather than silently disappearing.
- *
- * ## What this module deliberately does not do
- *
- * `visibilityGroups` on a 2.x item restricted to specific groups names 2.x integer group ids. There is
- * no group-id map threaded down to this module (the `users` phase builds one, but it is not part of
- * `NavigationImportDeps`), so a restricted item is imported visible to everyone with a warning naming
- * the gap, on the same reasoning `describePrivacyWarning` in `./page-import.ts` uses for
- * `isPrivate`/`privateNS`: importing it more
- * open than the source, with a clear note, is preferable to either dropping the whole item or silently
- * keeping a restriction nothing can resolve.
- *
- * Per this task's explicit instruction, nothing here synthesizes a 3.0 `tree.navigationMode` override
- * for any page. That is inherently satisfied by construction, not just by omission: this module never
- * touches the `tree` table at all, only `navigation.items` — every imported page keeps whatever
- * `navigationMode` `createPage()` gave it, which is 3.0's own default, `'inherit'`.
+ * `visibilityGroups` names 2.x integer group ids, and no group-id map reaches this module (the
+ * `users` phase builds one, but it is not in `NavigationImportDeps`). A restricted item is therefore
+ * imported visible to everyone, with a warning — preferable to dropping it or keeping a restriction
+ * nothing can resolve.
  */
 
-/** The subset of `CARDINAL.models.navigation` this module actually calls, with the same signatures the
- * real model has — see the module doc comment for why these two calls in particular, and not a
- * hand-written insert. */
 export interface NavigationWriteModel {
-  /** Resolves (creating if absent) the site-wide menu row for one locale, returning its id. */
   ensureSiteNav(siteId: string, locale: string): Promise<string>
   setNavItems(siteId: string, navId: string, items: NavigationItem[]): Promise<void>
 }
@@ -73,9 +24,8 @@ export interface NavigationImportDeps {
   navigationModel: NavigationWriteModel
 }
 
-/** The minimal shape this module needs from a staged page to resolve a 2.x `'page'`-type nav target —
- * deliberately a subset of `StagedPage` (see `content-staging.ts`) rather than an import of that
- * module's full type, so this one stays a plain consumer of any `{oldId, path, locale}`-shaped row. */
+/** A structural subset of `StagedPage` rather than an import of it, so any `{oldId, path, locale}`
+ * row satisfies this module. */
 export interface NavigationPageRef {
   oldId: number
   path: string
@@ -83,26 +33,20 @@ export interface NavigationPageRef {
 }
 
 export interface NavigationImportOptions {
-  /** The 3.0 site whose root menu this writes. */
   siteId: string
-  /** Which one of 2.x's per-locale trees becomes 3.0's single, locale-less site-wide menu — see the
-   * module doc comment. The caller is expected to pass the target site's own primary
-   * locale (`CARDINAL.sites[siteId].config.locales.primary`); this module has no `CARDINAL` access to default
-   * it itself. */
+  /** Which of 2.x's per-locale trees becomes 3.0's single, locale-less site-wide menu. The caller
+   * passes the target site's primary locale; this module has no `CARDINAL` access to default it
+   * itself. */
   locale: string
 }
 
 export interface DroppedNavigationItem {
-  /** The 2.x item's own label, or `'(untitled)'` when it had none — reported by title/target per this
-   * task's description. */
   title: string
-  /** The 2.x item's raw `target` string, verbatim, for the operator report. */
   target: string
   reason: string
 }
 
 export interface NavigationImportResult {
-  /** The mapped 3.0 items actually written as the site's root menu. */
   items: NavigationItem[]
   dropped: DroppedNavigationItem[]
   warnings: string[]
@@ -118,24 +62,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-// -> Mirrors `frontend/src/components/shared/WIcon.vue`'s `ICONIFY_REF` exactly: that component is
-//    what ultimately renders `item.icon`, and returns `kind: 'none'` (blank) for anything not
-//    matching this shape or an `img:` prefix. Kept in sync by inspection rather than a shared import
-//    — frontend and backend are separate workspaces with no shared module between them.
+// -> Mirrors `WIcon.vue`'s `ICONIFY_REF`, which renders `item.icon` and draws nothing for anything
+//    else. Kept in sync by inspection: frontend and backend share no module.
 const ICONIFY_REF = /^[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:[-.][a-z0-9]+)*$/
 
 /**
- * Translates a 2.x icon value into the Iconify `prefix:name` reference 3.0 renders, or `null` when
- * it cannot be carried across.
- *
- * 2.x's navigation editor stored a Material Design Icons *webfont class* (`mdi-home`;
- * `mdi-chevron-right` was the default for a new item), never an Iconify reference — so the common
- * case is a mechanical `mdi-<name>` → `mdi:<name>` prefix swap, which resolves through `/_icons`
- * exactly as an author-picked `mdi:` icon does elsewhere in 3.0. An already-Iconify-shaped value (an
- * item created by a build of 3.0's own nav editor, however unlikely on data staged from 2.x) passes
- * through untouched. Anything else — 2.x's picker allowed any Vuetify/MDI webfont class, and a name
- * the Iconify `mdi` set doesn't carry still resolves to nothing — is dropped; the caller is
- * responsible for warning, since only it knows the item's title for the message.
+ * 2.x's navigation editor stored a Material Design Icons *webfont class* (`mdi-home`), never an
+ * Iconify reference, so the common case is a mechanical `mdi-<name>` → `mdi:<name>` swap. Any other
+ * webfont class its picker allowed resolves to nothing in 3.0 and yields `null`; the caller warns,
+ * since only it knows the item's title.
  */
 function translateIcon(raw: string): string | null {
   if (ICONIFY_REF.test(raw)) {
@@ -154,15 +89,10 @@ function pageLookupKey(locale: string, path: string): string {
 }
 
 /**
- * Picks which locale's tree out of 2.x's `navigation.config` becomes 3.0's single site-wide menu.
- * Handles both shapes `config` can hold, per 2.x's own `Navigation.getTree()` (vendored source):
+ * Both shapes 2.x's `navigation.config` can hold:
  *
- *   - the "pre-2.3" format: a flat array of items, each already carrying a `kind` — no per-locale
- *     wrapper, implicitly a single `'en'` tree.
- *   - the modern format `updateTree()`'s mutation writes: `[{locale, items}, ...]`.
- *
- * Returns an empty array (with a warning) when `config` holds the modern format but none of its
- * entries match `locale`.
+ *   - pre-2.3: a flat array of items, each already carrying a `kind`, with no per-locale wrapper.
+ *   - since 2.3: `[{locale, items}, ...]`.
  */
 export function extractLocaleItems(config: unknown, locale: string, warnings: string[]): unknown[] {
   if (!Array.isArray(config) || config.length === 0) {
@@ -184,12 +114,10 @@ export function extractLocaleItems(config: unknown, locale: string, warnings: st
   return Array.isArray(match.items) ? match.items : []
 }
 
-/** A 2.x `'page'`-type nav target, `/${locale}/${path}` (`admin-navigation.vue`'s
- * `selectPageHandle`), split back into its parts — or `null` if `target` does not match that shape,
- * or if the leading segment isn't one of `knownLocales`. That set comes from the import's own staged
- * pages (see `importNavigation`), not the target site's `active` list: validating against the site
- * being imported *into* would wrongly drop targets for locales that are themselves mid-import, while
- * the staged-page keys are exactly the 2.x locales this import actually saw. */
+/** Splits a 2.x `'page'`-type nav target, `/${locale}/${path}`, back into its parts.
+ * `knownLocales` is the locale set of the import's own staged pages, not the target site's `active`
+ * list: validating against the site being imported *into* would wrongly drop targets for locales
+ * that are themselves mid-import. */
 function parsePageTarget(
   target: string,
   knownLocales: Set<string>
@@ -209,11 +137,6 @@ interface MapItemContext {
   dropped: DroppedNavigationItem[]
 }
 
-/**
- * Maps one 2.x nav item (already unwrapped from its locale tree by `extractLocaleItems`) onto a 3.0
- * `NavigationItem`, or `null` when it cannot be carried across — every drop is also pushed onto
- * `ctx.dropped`, per this task's "report by title/target" instruction.
- */
 export function mapNavigationItem(raw: unknown, ctx: MapItemContext): NavigationItem | null {
   if (!isRecord(raw)) {
     ctx.warnings.push(`navigation: skipped an item that was not an object: ${JSON.stringify(raw)}`)
@@ -318,9 +241,9 @@ export function mapNavigationItem(raw: unknown, ctx: MapItemContext): Navigation
       }
       const normalized = normalizeMigratedPath(ref.path)
       if ('reason' in normalized) {
-        // -> Not reachable in practice: a page whose path fails to normalize never reaches
-        //    createPage(), so it could never have earned a pageIdMap entry above. Guarded
-        //    rather than assumed, since this module has no other way to recover the 3.0 path.
+        // -> Unreachable in practice: a page whose path fails to normalize never reaches
+        //    createPage(), so it has no pageIdMap entry. Guarded because there is no other way to
+        //    recover the 3.0 path.
         ctx.dropped.push({
           title,
           target: rawTarget,
@@ -350,11 +273,8 @@ export function mapNavigationItem(raw: unknown, ctx: MapItemContext): Navigation
   }
 }
 
-/**
- * Imports 2.x's staged navigation as `options.siteId`'s site-wide menu, per this task's description.
- * Always writes — `ensureSiteNav` then `setNavItems`, even with an empty `items` array when there
- * was nothing to import — so a run always leaves the site with a real (if empty) root menu row.
- */
+/** Writes unconditionally, even with nothing to import, so a run always leaves the site with a real
+ * (if empty) root menu row. */
 export async function importNavigation(
   staged: StagedNavigation[],
   pages: NavigationPageRef[],
@@ -378,8 +298,6 @@ export async function importNavigation(
   const rawItems = row ? extractLocaleItems(row.items, options.locale, warnings) : []
 
   const pageByKey = new Map(pages.map((page) => [pageLookupKey(page.locale, page.path), page]))
-  // -> The 2.x locales this import actually saw, not the target site's `active` list — see
-  //    `parsePageTarget`'s doc comment for why.
   const knownLocales = new Set([...pageByKey.keys()].map((key) => key.split('::')[0]!))
   const ctx: MapItemContext = { pages: pageByKey, knownLocales, pageIdMap, warnings, dropped }
 

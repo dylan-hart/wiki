@@ -7,10 +7,9 @@ import mainSource from '../main.js?raw'
 import { initializeErrors } from './errors.js'
 
 /*
-  Like `helpers/log.test.js`, this suite reads the console rather than writing to it, and for the
-  same reason: what this file promises is a specific LINE, prefix and all. Spying the console proves
-  the whole chain -- handler installed, scope `app`, `[cardinal:app]` prefix, error object passed
-  through unstringified -- where a mock of the helper would only prove the handler called something.
+  Spies the console rather than mocking `helpers/log`: what this file promises is a specific LINE,
+  prefix and all, so only the console proves the whole chain -- handler installed, scope `app`,
+  `[cardinal:app]` prefix, error object passed through unstringified.
 */
 let errorSpy
 let warnSpy
@@ -29,19 +28,13 @@ afterEach(() => {
 })
 
 /**
- * Mounts a component whose whole job is to throw, with the handlers installed into the real Vue app
- * the way `main.js` does -- as a one-line plugin -- so the error travels Vue's own `handleError`
- * path into `app.config.errorHandler` rather than being hand-invoked.
+ * Installs the handlers into a real Vue app as a plugin, the way `main.js` does, so the error
+ * travels Vue's own `handleError` path into `app.config.errorHandler` rather than being
+ * hand-invoked.
  *
  * The mount is expected to throw: `@vue/test-utils` collects whatever reached the app's error
  * handler during mount and rethrows the first one afterwards (its workaround for vuejs/core#7020),
- * having already called ours. That rethrow is the harness's, not this file's -- in the real app
- * nothing rethrows, which is the entire point of the handler.
- *
- * The teardown handle is kept so each case registers its window listeners fresh rather than
- * stacking them across the file.
- *
- * @param {object} Component A component that throws
+ * having already called ours. That rethrow is the harness's; nothing rethrows in the real app.
  */
 function mountThrowing(Component) {
   const boot = {
@@ -93,8 +86,6 @@ describe('initializeErrors: Vue errorHandler', () => {
   })
 
   it('falls back to "anonymous" for a component with no name of its own', () => {
-    // -> An inline object component: no declared `name`, and no `__name` either, since nothing
-    //    compiled it from a file
     const Nameless = {
       setup() {
         throw new Error('boom')
@@ -109,8 +100,6 @@ describe('initializeErrors: Vue errorHandler', () => {
   })
 
   it('reads the compiler-stamped __name a <script setup> component carries instead of a declared name', () => {
-    // -> What `frontend/src` actually ships: `defineComponent` output whose only identity is the
-    //    `__name` the SFC compiler derives from the filename
     const Compiled = {
       __name: 'PageToc',
       setup() {
@@ -133,8 +122,7 @@ describe('initializeErrors: Vue warnHandler', () => {
 
     app.config.warnHandler('Failed to resolve component: w-nope', null, '')
 
-    // -> One argument, not a trailing `undefined`: the helper drops an absent error rather than
-    //    printing it
+    // -> One argument, not a trailing `undefined`: the helper drops an absent error
     expect(warnSpy).toHaveBeenCalledWith('[cardinal:app] Failed to resolve component: w-nope')
   })
 
@@ -145,8 +133,7 @@ describe('initializeErrors: Vue warnHandler', () => {
     dispose = initializeErrors(app)
 
     expect(app.config.warnHandler).toBeUndefined()
-    // -> The error handler is NOT dev-only: an uncaught error is exactly what production needs the
-    //    line for
+    // -> The error handler is NOT dev-only: production is where the line is most needed
     expect(typeof app.config.errorHandler).toBe('function')
   })
 })
@@ -156,9 +143,8 @@ describe('initializeErrors: window listeners', () => {
     dispose = initializeErrors({ config: {} })
     const reason = new Error('nope')
 
-    // -> Built by hand rather than through `PromiseRejectionEvent`, which happy-dom does not
-    //    implement: the handler reads `ev.reason` and nothing else, so a plain event carrying one is
-    //    the same event as far as this code is concerned
+    // -> happy-dom implements no `PromiseRejectionEvent`; the handler reads `ev.reason` and nothing
+    //    else, so a plain event carrying one is the same event to this code
     const ev = new Event('unhandledrejection')
     ev.reason = reason
     window.dispatchEvent(ev)
@@ -188,8 +174,8 @@ describe('initializeErrors: window listeners', () => {
     ev.reason = new Error('nope')
     window.dispatchEvent(ev)
 
-    // -> `preventDefault()` on either of these is what hides the native, source-mapped entry; the
-    //    scoped line is meant to sit BESIDE it
+    // -> `preventDefault()` here would hide the native, source-mapped entry; the scoped line is
+    //    meant to sit BESIDE it
     expect(ev.defaultPrevented).toBe(false)
   })
 
@@ -208,9 +194,8 @@ describe('initializeErrors: window listeners', () => {
 describe('initializeErrors: wiring', () => {
   it('is booted by main.js after the event bus and before the app mounts', () => {
     expect(mainSource).toContain("import { initializeErrors } from './boot/errors'")
-    // -> Order is the contract: the handler has to be installed before anything it is meant to
-    //    catch runs, and `main.js` is the only place that can hold that guarantee. Read as source
-    //    rather than imported: `main.js` boots the whole app, mount included, on import
+    // -> Order is the contract: the handler must be installed before anything it is meant to catch
+    //    runs. Read as source rather than imported -- `main.js` boots the whole app on import
     expect(mainSource.indexOf('initializeErrors(app)')).toBeGreaterThan(
       mainSource.indexOf('initializeEventBus()')
     )
@@ -228,8 +213,6 @@ describe('initializeErrors: what it deliberately does not do', () => {
     ev.reason = new Error('nope')
     window.dispatchEvent(ev)
 
-    // -> Console only, by decision: a report endpoint needs retention, rate limiting and a consent
-    //    position, none of which exist. If that changes, `boot/errors.js` is the one place it hooks
     expect(API_CLIENT.post).not.toHaveBeenCalled()
     expect(API_CLIENT.get).not.toHaveBeenCalled()
   })

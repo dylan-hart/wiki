@@ -20,15 +20,9 @@ const FAKE_GUEST_GROUP_ID = 'integration-guest-group-uuid'
 const OPERATOR_ACTOR_ID = 'integration-operator-uuid'
 
 /**
- * A minimal `SourceConnector`: a real `settings()` generator yielding tagged rows
- * (`settings`/`authentication`/`storage`), matching `PostgresSourceConnector.settings()`'s real
- * tagged-record shape (Task 9) — everything else this phase never reads stays a
- * `NotYetImplementedError` stub.
- *
- * Three `settings`-tagged rows (`title`/`mail`/`security`) deliberately outnumber the one
- * `site-config` sentinel they collapse into — see `report.ts`'s own doc comment on why `found` (5:
- * three settings rows + one authentication row + one storage row) legitimately differs from
- * `wouldCreate` (3: one sentinel + one authentication row + one storage row) for this phase.
+ * Only `settings()` is real, in `PostgresSourceConnector`'s tagged-record shape. The three
+ * `settings`-tagged rows deliberately outnumber the one `site-config` sentinel they collapse into,
+ * which is what makes `found` legitimately differ from `wouldCreate` for this phase.
  */
 function fakeSourceConnector(): SourceConnector {
   return stubSourceConnector({
@@ -82,28 +76,21 @@ describe(
 
     before(async () => {
       fixtures = await setupTestDb()
-      // -> `setupTestDb()`'s own minimal CARDINAL (`test/db.ts#installTestWiki()`) does not set
-      //    `CARDINAL.configSvc` — no other DB-backed suite needs the real `saveToDb()`/`loadFromDb()`
-      //    round trip the way this phase's `mail` merge does. `models/sessions.test.ts` establishes
-      //    the precedent for adding it back in per-suite rather than widening the shared fixture.
+      // -> `setupTestDb()`'s minimal CARDINAL has no `configSvc`; this phase's `mail` merge needs the
+      //    real `saveToDb()`/`loadFromDb()` round trip, so add it per-suite rather than widening the
+      //    shared fixture.
       CARDINAL.configSvc = configSvc
-      // -> Mirrors `bootstrap.ts#bootstrapMigrationRuntime()`'s own two disk-loading calls (Task 15):
-      //    `CARDINAL.models.authentication`/`CARDINAL.models.storage`'s resolvers need these populated before
-      //    `getModule()`/`getDefinition()` can recognize any real module. `setupTestDb()`'s own
-      //    minimal CARDINAL does not call either, since no other DB-backed suite in this repo needs both
-      //    at once the way this phase does.
+      // -> The resolvers recognize no module until these disk loads have run, mirroring
+      //    `bootstrap.ts#bootstrapMigrationRuntime()`.
       await CARDINAL.models.authentication.refreshStrategiesFromDisk()
       await CARDINAL.models.storage.refreshFromDisk()
-      // -> `setupTestDb()` inserts the fixture site directly (not through `Sites.createSite()`), so
-      //    it never ran `Storage.syncSite()` — seed the one-row-per-module baseline a real site would
-      //    already have, which is what proves the storage mapper's output is applied as an UPDATE
-      //    against an existing row, never an INSERT.
+      // -> `setupTestDb()` inserts the fixture site directly, so `Storage.syncSite()` never ran —
+      //    seed the one-row-per-module baseline a real site would have, which is what makes the
+      //    UPDATE-not-INSERT assertion below meaningful.
       await CARDINAL.models.storage.syncSite(fixtures.siteId)
-      // -> Preexisting instance settings this run's `mail`/`security` patches must NOT clobber (Task
-      //    15's review-round Critical #2 fix): `defaultBaseURL` has no 2.x source field at all
-      //    (`mappers/site-settings.ts`'s `MAIL_FIELDS` doesn't list it), and `corsMode` isn't touched
-      //    by this run's `security` source row either. A wholesale-replace write would silently
-      //    delete both.
+      // -> Preexisting settings this run must NOT clobber: `defaultBaseURL` has no 2.x source field
+      //    at all, and `corsMode` is untouched by this run's `security` row. A wholesale-replace
+      //    write would silently delete both.
       CARDINAL.config.mail = {
         defaultBaseURL: 'https://preexisting.example.com',
         senderName: 'Old Name'
@@ -140,16 +127,12 @@ describe(
       const result = await settingsPhase.run(ctx)
 
       assert.equal(result.status, 'ok')
-      // -> Five raw tagged rows read off the source (three settings + one authentication + one
-      //    storage) — `readEntity()`'s own count, independent of how many recorder events they
-      //    produced.
+      // -> The raw rows read off the source, independent of the recorder events they produced.
       assert.deepEqual(result.counts, { settings: 5 })
       assert.ok(result.report)
       assert.equal(result.report!.found, 5)
-      // -> Three settings-tagged rows collapse into ONE `site-config` sentinel + the one
-      //    authentication row + the one storage row = 3, proving `found` (5) legitimately differs
-      //    from `wouldCreate` for this phase — see `report.ts`'s own doc comment (Task 15 review-round
-      //    Important #4 fix).
+      // -> The three settings rows collapse into one `site-config` sentinel, plus the authentication
+      //    and storage rows: 3, against 5 found.
       assert.equal(result.report!.wouldCreate, 3)
       assert.notEqual(
         result.report!.found,
@@ -169,9 +152,8 @@ describe(
       const siteConfig = site!.config as Record<string, any>
       assert.equal(siteConfig.title, 'Migrated Wiki')
 
-      // -> Critical #2 fix: the mail patch merges onto the existing row rather than replacing it —
-      //    `defaultBaseURL` (no 2.x source field at all) survives, and the new fields land alongside
-      //    it, both in the in-memory `CARDINAL.config.mail` AND the persisted `settings` DB row.
+      // -> The patch merges rather than replaces: `defaultBaseURL` survives and the new fields land
+      //    alongside it, in the in-memory config AND the persisted `settings` row.
       assert.equal(CARDINAL.config.mail.defaultBaseURL, 'https://preexisting.example.com')
       assert.equal(CARDINAL.config.mail.senderName, 'Migrated Mailer')
       assert.equal(CARDINAL.config.mail.senderEmail, 'mailer@example.com')
@@ -184,9 +166,7 @@ describe(
       )
       assert.equal((persistedConfig as Record<string, any>).mail.senderName, 'Migrated Mailer')
 
-      // -> Same merge proof for security: `corsMode` (untouched by this run's source row) survives,
-      //    and the mapped fields (`enforceCsp`/`hstsDuration`, from `securityCSP`/
-      //    `securityHSTSDuration`) land alongside it.
+      // -> Same merge proof for security: `corsMode` survives, the mapped fields land alongside it.
       assert.equal(CARDINAL.config.security.corsMode, 'custom')
       assert.equal(CARDINAL.config.security.enforceCsp, true)
       assert.equal(CARDINAL.config.security.hstsDuration, 15768000)
@@ -200,10 +180,8 @@ describe(
       const created = authRows.find((row) => row.displayName === 'Local (Migrated)')
       assert.ok(created, 'an authentication row for the local module was created')
       assert.equal(created!.isEnabled, true)
-      // -> Critical #1 fix's other half: `createStrategy()`'s own `activateStrategies()` call
-      //    completed without throwing (proven merely by `settingsPhase.run()` above having returned
-      //    `status: 'ok'` rather than `'error'`), and actually populated `CARDINAL.auth.strategies` for
-      //    the strategy it just created.
+      // -> `createStrategy()`'s own `activateStrategies()` call did more than not throw: it actually
+      //    populated `CARDINAL.auth.strategies` for the strategy it just created.
       assert.ok(
         CARDINAL.auth.strategies[created!.id],
         'activateStrategies() loaded the new strategy'

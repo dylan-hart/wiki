@@ -32,9 +32,8 @@ describe('jobExecutionContext', () => {
   test('a still-running continuation keeps its own captured context after a later, unrelated run starts', async () => {
     const seenByStale: ReturnType<typeof getJobExecutionContext>[] = []
 
-    // -> Models the real scenario: a "stale" task is launched first and keeps running in the
-    //    background (its continuation hasn't resumed yet), then a second, unrelated context is
-    //    entered and exits before the stale one ever gets to read the store back.
+    // -> The 20ms/5ms gap is the point: the second context is entered and exits before the stale
+    //    continuation resumes to read the store back.
     const stale = runWithJobExecutionContext({ jobId: 'job-4', attempt: 1 }, async () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
       seenByStale.push(getJobExecutionContext())

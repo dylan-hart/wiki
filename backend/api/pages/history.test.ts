@@ -8,19 +8,8 @@ import { CustomError } from '../../helpers/common.ts'
 import type { GroupRule } from '../../models/groups.ts'
 
 /**
- * Route-wiring tests for `GET /sites/:siteId/pages/deleted` and
- * `POST /sites/:siteId/pages/deleted/:versionId/recover`.
- *
- * `CARDINAL.models.pageHistory` and `CARDINAL.models.groups` are stubbed rather than backed by a real
- * database — the model layer (listRecoverable, getDeletedVersion, recoverDeletedPage) already has
- * its own coverage from the task that added it. What this file checks is the route's own logic: that
- * the list is filtered per row by `read:history` rather than answered as a whole-list 403, that
- * recovery is checked against the TARGET path (override when given, otherwise the deleted version's
- * own path), and that a `CustomError` thrown by the model (a duplicate path, an invalid locale)
- * reaches the client as clean JSON at its own status code rather than a generic 500.
- *
- * There is no real session plugin here: a request's `session` is set directly from the
- * `x-test-session` header (JSON-encoded), which is all `actorFrom`/`mayOnPage` ever read.
+ * Every suite here stubs `CARDINAL.models`: `models/pageHistory.test.ts` covers the model against a
+ * real database, so this file checks only the routes' own logic.
  */
 describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', () => {
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
@@ -118,7 +107,6 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     assert.equal(body.items.length, 1)
     assert.equal(body.items[0].path, 'visible')
     assert.equal(body.nextCursor, null)
-    // -> No authorEmail anywhere in the response (OpenProject #2168)
     assert.equal(body.items[0].author.email, undefined)
     assert.ok(!JSON.stringify(body).includes('email'))
   })
@@ -195,9 +183,6 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('GET /sites/:siteId/pages/deleted narrows by a TAG-scoped DENY rule', async () => {
-    // -> Real rule-matching engine, mirroring the `allowPublic`/`denyConfidential` pair in the
-    //    `GET .../pages/alias/:alias` TAG suite above: both TAG, so only the ALLOW-vs-DENY mode
-    //    tiebreak decides — reachable only because `tags` is now threaded into `mayOnPage` here.
     const rules: GroupRule[] = [
       {
         id: 'allow-public',
@@ -248,8 +233,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
           locale: 'en',
           title: 'Closed',
           action: 'deleted',
-          // -> Tagged BOTH: matches the broad ALLOW too, so this actually exercises the DENY tiebreak
-          //    rather than just "no rule matched at all".
+          // -> Tagged BOTH, so the ALLOW-vs-DENY tiebreak decides rather than "no rule matched"
           tags: ['public', 'secret']
         }
       ],
@@ -268,9 +252,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('GET /sites/:siteId/pages/deleted forwards nextCursor unchanged even when the permission filter shortens items', async () => {
-    // -> The model's own page boundary says there is more (`nextCursor` set) even though every row on
-    //    THIS page gets filtered out by the actor's permissions -- the route must not let a
-    //    permission-shortened (here, emptied) page read as "end of list".
+    // -> A page the permission filter empties must not read as "end of list"
     listRecoverableResult = {
       items: [
         {
@@ -360,9 +342,8 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     }
     const seenTargets: any[] = []
     checkAccessImpl = (_actor, permission, page) => {
-      // -> The source-side read:pages/read:source check (OpenProject #2168) runs first, against
-      //    the version's OWN path -- granted here so this test can reach the write:pages check it
-      //    actually exercises, against the TARGET path.
+      // -> The source-side read check runs first: granted so the request reaches the write:pages
+      //    check this test exercises
       if (permission === 'read:pages' || permission === 'read:source') {
         return true
       }
@@ -370,8 +351,6 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
         seenTargets.push(page)
         return false
       }
-      // -> The source-side read:pages/read:source check runs first (OpenProject #2168) -- allowed
-      //    here so the write:pages check below is what this test is actually exercising
       return permission === 'read:pages' || permission === 'read:source'
     }
 
@@ -398,9 +377,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
       tags: ['confidential'],
       classification: 'restricted-level-id'
     }
-    // -> Holds write:pages everywhere but no read:pages/read:source anywhere -- e.g. a caller who
-    //    only ever held `read:history` at this path, per the vulnerability this route-level check
-    //    closes (OpenProject #2168).
+    // -> Otherwise recovering into a writable path would disclose source the caller cannot read
     checkAccessImpl = (_actor, permission) => permission === 'write:pages'
 
     const res = await app.inject({
@@ -429,11 +406,9 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     checkAccessImpl = (_actor, permission, page) => {
       if (permission === 'read:pages' || permission === 'read:source') {
         seenSourceChecks.push({ permission, page })
-        // -> Denied at the source, regardless of the destination
         return false
       }
-      // -> Freely allowed to write the (different) destination -- proves the refusal below is really
-      //    about the source, not a blanket deny
+      // -> The destination is writable, so the 403 can only come from the source check
       return permission === 'write:pages'
     }
 
@@ -445,7 +420,6 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     })
 
     assert.equal(res.statusCode, 403)
-    // -> Checked against the version's OWN path/tags/classification, not the override target
     assert.ok(
       seenSourceChecks.some(
         (c) =>
@@ -456,9 +430,6 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     )
   })
 
-  // -> OpenProject #3391/#3411: holding read:pages on the source but none of
-  //    read:source/write:pages/manage:pages there still refuses -- `mayReadSource()` is an OR of
-  //    exactly those three, not a blanket pass once read:pages is granted.
   test('POST recover refuses when the source is readable but none of read:source/write:pages/manage:pages is held there', async () => {
     getDeletedVersionResult = {
       path: 'original',
@@ -506,10 +477,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     assert.equal(res.json().ok, true)
   })
 
-  // -> OpenProject #3391/#3411: `write:pages` alone (no `read:source`) is enough to read the SOURCE
-  //    path's version -- `mayReadSource()` folds it in. `read:pages` is still required separately
-  //    (unaffected by this change), so the stub grants both plus `write:pages`, withholding
-  //    `read:source` specifically.
+  // -> `read:pages` is required separately from `mayReadSource()`, so the stub grants it too
   test('POST recover succeeds reading the source with write:pages alone, with no read:source', async () => {
     getDeletedVersionResult = {
       path: 'original',
@@ -631,13 +599,8 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('POST recover rejects an empty-string locale at the schema, before it can reach the handler (OpenProject #1024)', async () => {
-    // -> Without `minLength: 1` here, `locale: ''` would pass validation, get permission-checked
-    //   against `target.locale = ''` (locale-scoped rules fail closed on that, same as null -- see
-    //   `helpers/pageRules.test.ts`), and then flow into `recoverDeletedPage` -> `createPage`, whose
-    //   own `input.locale || defaultLocale(siteId)` treats '' as unset and silently recreates the
-    //   page in the site's PRIMARY locale instead -- a different locale than the one just checked.
-    //   Rejecting '' outright at the boundary is what keeps the checked locale and the written one
-    //   the same value always.
+    // -> `locale: ''` would be permission-checked as '' but written by `createPage` in the site's
+    //    default locale ('' reads as unset there), so the checked locale and the written one differ
     getDeletedVersionResult = { path: 'original', locale: 'en', title: 'T', content: 'c', meta: {} }
     checkAccessImpl = () => true
     recoverDeletedPageImpl = async () => {
@@ -655,12 +618,6 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 })
 
-/**
- * OpenProject #1859: `GET /sites/:siteId/pages/:pageId/history` is now a thin pass-through onto
- * `pageHistory.list`'s own keyset pagination -- `models/pageHistory.test.ts` covers the pagination and
- * no-`authorEmail` behavior itself against a real database, so this file only proves the route wires
- * the querystring through and shapes the model's error the way every other route here does.
- */
 describe('GET /sites/:siteId/pages/:pageId/history — querystring wiring', () => {
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
   const PAGE_ID = '22222222-2222-2222-2222-222222222222'
@@ -734,7 +691,6 @@ describe('GET /sites/:siteId/pages/:pageId/history — querystring wiring', () =
     const body = res.json()
     assert.equal(body.nextCursor, 'opaque-cursor-token')
     assert.equal(body.items.length, 1)
-    // -> No `email` anywhere on the author, matching `PageHistoryListEntry`'s narrower schema
     assert.equal('email' in body.items[0].author, false)
   })
 
@@ -805,12 +761,6 @@ describe('GET /sites/:siteId/pages/:pageId/history — querystring wiring', () =
   })
 })
 
-/**
- * OpenProject #1864: `GET /sites/:siteId/pages/deleted`'s per-row `read:history` filter used to call
- * `mayOnPage(req, ...)` once per row, which rebuilds the actor internally on every call. It now
- * hoists `CARDINAL.models.groups.actorForRequest(req)` once per request and calls `checkAccess(actor,
- * ...)` per row directly -- the same shape `tree.ts`'s `visibleTreeItems()` and the graph route use.
- */
 describe('GET /sites/:siteId/pages/deleted — actor hoisted out of the per-row filter (OpenProject #1864)', () => {
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
 

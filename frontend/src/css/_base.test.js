@@ -6,23 +6,13 @@ import { describe, expect, it } from 'vitest'
 import { listSourceFiles } from '../../test/sourceFiles.js'
 
 /**
- * OpenProject #1909 ("Delete dead Quasar CSS and the seven `q-*` utility classes still written in
- * templates"). Quasar is gone from this codebase (`tailwind.css`'s Preflight comment says so
- * outright), but `.q-*` selectors and `q-*` utility class tokens kept surviving in `_base.css` and
- * a handful of templates as dead weight -- rules matching nothing, and classes that silently applied
- * no styling wherever they were still written.
- *
- * These are source-level regression tests, not runtime ones: there is no component tree or compiled
- * stylesheet that would surface a REintroduced `q-*` selector or class as a visible failure -- it
- * would simply be dead again, quietly. Scanning the source directly is what actually pins this down,
- * the same rationale `_page-contents.test.js` gives for asserting against source rather than
- * computed styles.
+ * Quasar is gone from this codebase, but a `.q-*` selector or `q-*` class token creeping back in
+ * would simply be dead weight -- a rule matching nothing, a class applying no styling -- with no
+ * component tree or compiled stylesheet to surface it as a visible failure. Hence a source scan.
  *
  * `--q-*` custom properties are deliberately exempt: that prefix is historical but load-bearing for
- * runtime per-site theming, and neither pattern below can match
- * it -- `\.q-` requires a literal dot immediately before `q-`, which `--q-header` does not have, and
- * the class-token scan only looks inside `class`/`:class` attribute values in `.vue` templates,
- * which never contain a custom-property reference at all.
+ * runtime per-site theming. Neither pattern below can match one -- `\.q-` requires a literal dot
+ * immediately before `q-`, and the class-token scan only reads `class`/`:class` attribute values.
  */
 
 const CSS_DIR = dirname(fileURLToPath(import.meta.url))
@@ -69,12 +59,9 @@ describe('no dead Quasar q-* utility classes remain in templates', () => {
 })
 
 /**
- * OpenProject #2783 ("Literal-color grep sweep"). `--q-header`/`--q-sidebar` are declared exactly
- * once, in `css/tailwind.css`'s `:root` -- this file used to redeclare both, hex literal and all,
- * immediately above the very rules that resolve them through `var()`. A re-themed/re-skinned value
- * would have kept working (this file's `:root` wins the cascade, being the same specificity and
- * loading after `tailwind.css`), but ONLY as long as nobody ever touched the copy here again -- a
- * silent second source of truth is exactly what the token layer exists to prevent.
+ * `--q-header`/`--q-sidebar` are declared exactly once, in `css/tailwind.css`'s `:root`. A second
+ * declaration in `_base.css` would keep working -- same specificity, loaded later -- which is
+ * exactly what makes it dangerous: a silent second source of truth for a re-themed value.
  */
 describe('_base.css chrome background resolves through the token only', () => {
   const source = readFileSync(resolve(CSS_DIR, '_base.css'), 'utf-8')
@@ -95,14 +82,11 @@ describe('_base.css chrome background resolves through the token only', () => {
 })
 
 /**
- * OpenProject #2815. `.card-header` -- the dialog title band shared by `WConfirmDialog.vue` and
- * 60+ other dialogs -- used to draw its background/border from the compile-time
- * `theme.$dark-2`/`$hairline-dark` Sass constants, which meant it could never pick up
- * the aesthetic's own runtime override and stayed Ledger-colored under every other
- * aesthetic. It now reads `--color-dialog-header-bg`, whose three values (Ledger, Cobalt light,
- * Cobalt dark) are declared beside every other aesthetic value. Same source-scan rationale as the `--q-header`/`--q-sidebar` describe above: nothing
- * compiles Sass in this test environment, so the regression this guards against (a literal or a
- * Sass constant creeping back into the rule) is only visible by reading the rule body directly.
+ * The dialog title band has to read `--color-dialog-header-bg`, whose three values (Ledger, Cobalt
+ * light, Cobalt dark) are declared beside every other aesthetic value: a compile-time Sass constant
+ * could never pick up an aesthetic's runtime override and would stay Ledger-coloured everywhere.
+ * Nothing compiles Sass in this test environment, so a literal or a constant creeping back into the
+ * rule is only visible by reading the rule body directly.
  */
 describe('.card-header title band resolves through runtime tokens only', () => {
   const source = readFileSync(resolve(CSS_DIR, '_base.css'), 'utf-8')
@@ -116,10 +100,9 @@ describe('.card-header title band resolves through runtime tokens only', () => {
   it('paints background-color and border-bottom with var(--color-*), not a theme.$ Sass constant', () => {
     const body = cardHeaderRule[1]
     /*
-      `--color-dialog-header-bg`, not the `--color-dark-2` rung this first reached for: that rung
-      carries a Cobalt value in the DARK block alone, so reading it left a Cobalt LIGHT page still
-      drawing Ledger's near-black band where `Profile 3x - Cobalt` draws the aesthetic's own raised
-      indigo. The token names the role and carries all three values (`css/tailwind.css`).
+      `--color-dialog-header-bg`, not the `--color-dark-2` rung: that rung carries a Cobalt value in
+      the DARK block alone, so reading it leaves a Cobalt LIGHT page drawing Ledger's near-black band
+      where the aesthetic's own raised indigo belongs.
     */
     expect(body).toMatch(/background-color:\s*var\(--color-dialog-header-bg\)/)
     expect(body).toMatch(/border-bottom:\s*1px solid var\(--color-hairline-dark\)/)
@@ -128,20 +111,14 @@ describe('.card-header title band resolves through runtime tokens only', () => {
 })
 
 /**
- * OpenProject #3020 ("Ledger admin-sidebar scrollbar uses light-mode colours on its always-dark
- * ground"). `AdminLayout.vue`'s own header comment is explicit that `.admin-sidebar` is drawn on
- * ink in every aesthetic, in both themes -- so Ledger's dark-ground scrollbar block (the one
- * covering `.body--ledger.body--dark` and `.body--ledger .code-block`) has to cover
- * `.body--ledger .admin-sidebar` too, unconditioned on `.body--dark`, the same way Cobalt's own
- * dark-ground block already does. Source-scan for the same reason as every other describe in this
- * file: nothing compiles Sass here and jsdom has no `::-webkit-scrollbar` pseudo-element to read a
- * computed style off of.
+ * `.admin-sidebar` is drawn on ink in every aesthetic, in both themes, so Ledger's dark-ground
+ * scrollbar block has to cover it unconditioned on `.body--dark`. Source-scan because jsdom has no
+ * `::-webkit-scrollbar` pseudo-element to read a computed style off of.
  */
 describe('_base.css Ledger dark-ground scrollbar block covers .admin-sidebar', () => {
   const fullSource = readFileSync(resolve(CSS_DIR, '_base.css'), 'utf-8')
 
-  // Scoped to the Ledger dark-ground block alone (its own comment through to the Cobalt section
-  // header that follows it) so this doesn't also match Cobalt's separate, already-correct block.
+  // Scoped to the Ledger dark-ground block alone, so this doesn't also match Cobalt's separate one.
   const blockStart = fullSource.indexOf('/* Dark mode, and any Ledger surface on ink')
   const blockEnd = fullSource.indexOf('/* SCROLLBAR — COBALT', blockStart)
   const source = fullSource.slice(blockStart, blockEnd)
@@ -154,21 +131,17 @@ describe('_base.css Ledger dark-ground scrollbar block covers .admin-sidebar', (
   it('lists .admin-sidebar alongside .body--ledger.body--dark and .body--ledger .code-block in every rule', () => {
     const groupPattern =
       /^[ \t]*\.body--ledger\.body--dark,\s*\n[ \t]*\.body--ledger \.code-block,\s*\n[ \t]*\.body--ledger \.admin-sidebar \{/gm
-    // -> The bare-selector form, used once for the @supports scrollbar-color rule. No descendant
-    // combinator needed here: scrollbar-color is an inherited property, so setting it on
-    // .admin-sidebar itself already cascades down to the nested <w-scroll-area> that actually
-    // scrolls.
+    // -> No descendant combinator needed for the @supports rule: scrollbar-color is an inherited
+    // property, so setting it on .admin-sidebar itself cascades down to the nested <w-scroll-area>
+    // that actually scrolls.
     expect([...source.matchAll(groupPattern)].length).toBe(1)
 
-    // Unlike scrollbar-color, a ::-webkit-scrollbar-* pseudo-element is NOT inherited -- it has to
-    // be declared on the element that actually has the scrollbar. .admin-sidebar itself has no
-    // `overflow` set (AdminLayout.vue) and never scrolls; the real scroll region is the nested
-    // <w-scroll-area class="admin-nav"> descendant, so every one of these rules needs the
-    // descendant-combinator space (`.admin-sidebar ::-webkit-scrollbar-*`), exactly like Cobalt's
-    // own `.admin-sidebar ::-webkit-scrollbar-thumb` block below. A selector missing that space
-    // (`.admin-sidebar::-webkit-scrollbar-*`) compiles and lists the class name, but matches
-    // nothing on the real page -- OpenProject #3036 was exactly this: the string was present, the
-    // selector was dead.
+    // A ::-webkit-scrollbar-* pseudo-element is NOT inherited -- it has to be declared on the
+    // element that actually has the scrollbar. .admin-sidebar has no `overflow` of its own and
+    // never scrolls; the real scroll region is the nested <w-scroll-area class="admin-nav">
+    // descendant, so every one of these rules needs the descendant-combinator space. A selector
+    // missing it (`.admin-sidebar::-webkit-scrollbar-*`) compiles and lists the class name, but
+    // matches nothing on the real page.
     const suffixedGroup = (suffix) =>
       new RegExp(
         `\\.body--ledger\\.body--dark ::-webkit-scrollbar-${suffix},\\s*\\n` +
@@ -198,20 +171,15 @@ describe('_base.css Ledger dark-ground scrollbar block covers .admin-sidebar', (
 })
 
 /**
- * OpenProject #3006 ("Implement Cobalt overlay-pill scrollbar spec, light + dark"). Source-scan,
- * matching the rationale every other describe in this file already gives: nothing compiles Sass in
- * this test environment, and a scrollbar's own visual behavior isn't observable through jsdom either
- * (no real layout engine, no `::-webkit-scrollbar` pseudo-element support) -- so this pins the rule
- * text down directly, the same way `_page-contents.test.js` does for its own file.
+ * Source-scan: a scrollbar's own visual behavior isn't observable through jsdom at all -- no layout
+ * engine, no `::-webkit-scrollbar` pseudo-element support -- so this pins the rule text down.
  */
 describe('_base.css Cobalt overlay-pill scrollbar block', () => {
   const fullSource = readFileSync(resolve(CSS_DIR, '_base.css'), 'utf-8')
 
   /*
-    Scoped to this task's own block (its header comment through to the FONTS section that follows
-    it), not the whole file: the pre-existing generic scrollbar rule above it (the one OpenProject
-    #3005, a sibling task, replaces with its own Ledger-specific block) is a known, separately-owned
-    issue -- asserting the engine gotcha file-wide would fail against code this task does not touch.
+    Scoped to the Cobalt block (its header comment through to the FONTS section that follows it), so
+    the separately-owned Ledger block above can neither satisfy nor break these assertions.
   */
   const blockStart = fullSource.indexOf('/* SCROLLBAR — COBALT')
   const blockEnd = fullSource.indexOf('/* FONTS', blockStart)
@@ -236,8 +204,6 @@ describe('_base.css Cobalt overlay-pill scrollbar block', () => {
   })
 
   it('never states scrollbar-width/scrollbar-color unwrapped alongside a ::-webkit-scrollbar* rule on the same selector', () => {
-    // -> Every line touching the standards properties, anywhere in this block, must sit inside an
-    //    @supports block.
     const lines = source.split('\n')
     let depth = 0
     const supportsDepths = []
@@ -288,18 +254,13 @@ describe('_base.css Cobalt overlay-pill scrollbar block', () => {
   })
 
   it('applies the white dark-ground tint to dark mode, the sidebar and rendered code blocks alike, unconditioned on .body--dark', () => {
-    // -> The dark-ground selector group: whole page in dark mode, plus the two real sidebar classes
-    //    and the real code-block selector -- none of the latter three gated behind `.body--dark`.
-    //    Allows for the @supports-nested occurrence's extra indentation vs. the three top-level
-    //    thumb/hover/active occurrences.
+    // -> `[ \t]*` allows for the @supports-nested occurrence's extra indentation.
     const groupPattern =
       /^[ \t]*\.body--cobalt\.body--dark,\s*\n[ \t]*\.body--cobalt \.sidebar-nav,\s*\n[ \t]*\.body--cobalt \.admin-sidebar,\s*\n[ \t]*\.body--cobalt \.page-contents pre \{/gm
     const groupMatches = [...source.matchAll(groupPattern)]
-    // -> The bare-selector form, used once for the @supports scrollbar-color rule.
+    // -> The bare-selector form appears once, for the @supports rule.
     expect(groupMatches.length).toBe(1)
 
-    // -> The thumb/hover/active forms each repeat the same four-selector group with
-    //    `::-webkit-scrollbar-thumb[:hover|:active]` appended to every one of the four.
     const suffixedGroup = (suffix) =>
       new RegExp(
         `\\.body--cobalt\\.body--dark ::-webkit-scrollbar-thumb${suffix},\\s*\\n` +
@@ -328,23 +289,6 @@ describe('_base.css Cobalt overlay-pill scrollbar block', () => {
   })
 })
 
-/**
- * OpenProject #3006. `WScrollArea.vue` used to hardcode its own grey scrollbar, at a specificity
- * (Vue's scoped-style `[data-v-xxx]` attribute) that outranked the new global `.body--ledger`/
- * `.body--cobalt` rules above -- so every `<w-scroll-area>` region silently kept the old grey bar.
- * Source-scan rather than a mount/computed-style assertion for the same reason as the rest of this
- * file: jsdom has no `::-webkit-scrollbar` pseudo-element to read a computed style off of at all.
- */
-/**
- * OpenProject #3250 ("Sass removal 5/9: convert _base.css"). This file used to `@use 'sass:color'`
- * / `'palette'` / `'theme'` (all three dead -- no bare `$variable` or `color.*` call ever read them)
- * and four `@at-root <selector> &` escapes (`.card-actions`, `.translucent-menu`), which at their
- * actual nesting depth of 1 are mechanically redundant against plain `&` nesting -- see
- * `docs/frontend-sass-removal-plan.md`'s bucket-1 classification. Source-scan, same rationale as
- * every other describe in this file: nothing compiles Sass in this test environment, so a
- * reintroduced `@use`/`@at-root` is only visible by reading the file directly, not by a runtime
- * failure.
- */
 describe('_base.css carries no Sass-specific syntax', () => {
   const source = readFileSync(resolve(CSS_DIR, '_base.css'), 'utf-8')
 
@@ -362,6 +306,8 @@ describe('_base.css carries no Sass-specific syntax', () => {
   })
 })
 
+// A scoped `<style>` block here would outrank the global `.body--ledger`/`.body--cobalt` scrollbar
+// rules on Vue's `[data-v-xxx]` specificity, silently restoring the component's own grey bar.
 describe('WScrollArea.vue carries no scrollbar rule of its own', () => {
   const source = readFileSync(resolve(CSS_DIR, '../components/shared/WScrollArea.vue'), 'utf-8')
 

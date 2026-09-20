@@ -12,7 +12,8 @@
     :class="classes"
     :style="styles"
     @click="onClick">
-    <!-- Held at full size but invisible while loading, so the button does not resize mid-request -->
+    <!-- Overlays the content, which is held at full size but invisible, so the button does not
+         resize mid-request -->
     <span v-if="loading" class="absolute inset-0 flex items-center justify-center">
       <w-spinner size="1.2em" />
     </span>
@@ -31,51 +32,39 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { contrastRatio } from '@/helpers/accessibility'
 import WSpinner from './WSpinner.vue'
 
-/**
- * Button.
- *
- * Variants mirror the four the app uses: raised (default), `flat`, `unelevated` and `push`.
- * Content comes from the `label` prop, the default slot, or both.
- */
 const props = defineProps({
   label: {
     type: [String, Number],
     default: null
   },
-  /** Icon reference, drawn before the label. See `WIcon`. */
   icon: {
     type: String,
     default: null
   },
   /**
-   * Theme or palette color name (`primary`, `negative`, `grey-7`, ...), resolved against the
-   * Tailwind color variables. Drives the background for solid variants, the text for flat ones.
+   * A color NAME (`primary`, `negative`, `grey-7`, ...), not a color value: it resolves against the
+   * `--color-*` variables. Drives the background for solid variants, the text for flat ones.
    */
   color: {
     type: String,
     default: null
   },
-  /** Overrides the foreground color independently of `color`. */
   textColor: {
     type: String,
     default: null
   },
-  /** No background or shadow until hovered. */
   flat: {
     type: Boolean,
     default: false
   },
-  /** Border and text in `color`, with no fill. */
   outline: {
     type: Boolean,
     default: false
   },
-  /** Circular icon-only button. */
   round: {
     type: Boolean,
     default: false
   },
-  /** Pill-shaped button. */
   rounded: {
     type: Boolean,
     default: false
@@ -88,20 +77,15 @@ const props = defineProps({
     type: String,
     default: null
   },
-  /** Reduced padding. */
   dense: {
     type: Boolean,
     default: false
   },
-  /**
-   * Padding override, as Quasar wrote it: one or two size names or CSS lengths, vertical first
-   * (`xs md`, `sm`, `none`).
-   */
+  /** One or two size names or CSS lengths, vertical first (`xs md`, `sm`, `none`). */
   padding: {
     type: String,
     default: null
   },
-  /** Swaps the content for a spinner and blocks clicks. */
   loading: {
     type: Boolean,
     default: false
@@ -114,12 +98,10 @@ const props = defineProps({
     type: String,
     default: 'button'
   },
-  /** Renders as a `router-link`. */
   to: {
     type: [String, Object],
     default: null
   },
-  /** Renders as an `<a>`. */
   href: {
     type: String,
     default: null
@@ -128,16 +110,10 @@ const props = defineProps({
     type: String,
     default: null
   },
-  /** Native tooltip. */
   title: {
     type: String,
     default: null
   },
-  /**
-   * Native `tabindex`, e.g. `-1` to remove an otherwise-focusable button from the tab order (a
-   * decorative preview control that isn't a real link, say) without also having to give it a fake
-   * accessible name.
-   */
   tabindex: {
     type: [String, Number],
     default: null
@@ -158,8 +134,6 @@ const SIZES = {
   lg: '24px',
   xl: '48px'
 }
-
-// COMPUTED
 
 const isDisabled = computed(() => props.disabled || props.loading)
 
@@ -183,64 +157,50 @@ const linkAttrs = computed(() => {
     return {
       href: props.href,
       target: props.target,
-      // -> Never let a new tab keep a handle on this window
+      // -> Never let a new tab keep a handle on this window.
       rel: props.target === '_blank' ? 'noopener noreferrer' : undefined
     }
   }
   return {}
 })
 
-// -> Both flat and outline are unfilled; only the border distinguishes them
+// -> Both flat and outline are unfilled; only the border distinguishes them.
 const isSolid = computed(() => !props.flat && !props.outline)
 
 /*
-  Cardinal geometry: a 32px band, with a 12.5px/500 label.
+  `2.572em` (the resting min-height) is carried over from the metrics this replaces rather than
+  recomputed: it lands on the design's 32px band at the default 12.5px and on a 36px band at 14px, so
+  a caller that overrides `size` keeps a proportionate button either way.
 
-    font-size 12.5px · line-height 1.715em · padding 0 1.12em (14px) · dense padding 0 0.8em
-    min-height 2.572em (32.15px), 2.24em dense (28px) · round 3em / 2.4em dense, unpadded
-    border-radius `--radius-control` -- except `round` (a circle) and `rounded` (a pill), which are
-    shapes a caller asks for outright, not the aesthetic's corner style. `--radius-control` is `0`
-    under Ledger (square, unchanged from before) and a real value under Cobalt
-    (`body.body--cobalt`, OpenProject #2767/#2772) -- one class, no aesthetic branch.
+  The corner is `--radius-control` except for `round` (a circle) and `rounded` (a pill), which are
+  shapes a caller asks for outright rather than the aesthetic's corner style. `--radius-control` is
+  `0` under Ledger and a real value under Cobalt -- one class, no aesthetic branch.
 
-  `2.572em` is carried over from the metrics this replaces rather than recomputed: at Cardinal's
-  12.5px it lands on the design's 32px band, and at 14px it lands on the 36px band the app used to
-  draw, so a caller that overrides `size` keeps a proportionate button either way. Every metric is
-  em-relative for the same reason -- one `size` value scales padding, height and icon together.
-
-  No shadow and no gloss for the general case. Cardinal separates a control from its ground with a
-  hairline, never with elevation -- so `unelevated`, `push` and `glossy` are gone along with
-  `noCaps`, each having named a variant that is now the only one there is. A solid button IS
-  unelevated; a label IS cased as written. The one exception is `--shadow-primary` (OpenProject
-  #2813, deciding the app-level gap #2772's sign-off deferred): `color="accent"` is the decided
-  value for "this is the page's own primary action" -- `tailwind.css` already says as much
-  ("`--color-accent` is the one a button or chip resolves to"), and every hand-wired
-  `--shadow-primary` consumer that predates this component-level wiring (the auth screens, before
-  this task) already keyed the glow off the accent family, never `primary`. `none` under Ledger, so
-  this is a no-op there; the mockups' own glow under Cobalt. See `styles` below for where it's
-  applied.
+  No shadow and no gloss: a control is separated from its ground with a hairline, never with
+  elevation, which is why there is no `unelevated`, `push`, `glossy` or `noCaps` prop -- a solid
+  button IS unelevated, and a label IS cased as written. The one exception is `--shadow-primary`
+  under `color="accent"`, the decided value for "this is the page's own primary action"; it is
+  `none` under Ledger, so a no-op there.
 */
 const classes = computed(() => [
   /*
     A stable hook for the variant, so a surrounding context can restyle its own unfilled buttons
-    without having to re-derive which of the three variants they are from the utility soup. Cobalt's
-    page masthead is the first caller: its secondary actions become translucent plates on the
-    gradient banner while the primary Edit button beside them keeps its accent fill.
+    without having to re-derive which of the three variants they are from the utility soup.
   */
   isSolid.value ? 'w-btn--solid' : props.outline ? 'w-btn--outline' : 'w-btn--flat',
   props.size ? 'leading-[1.715em]' : 'text-[12.5px] leading-[1.715em]',
   props.round ? 'rounded-full' : props.rounded ? 'rounded-[28px]' : 'rounded-control',
-  // -> The hairline, not `border-current`: an outlined button's edge is chrome, its label is not
+  // -> The hairline, not `border-current`: an outlined button's edge is chrome, its label is not.
   props.outline ? 'border border-hairline dark:border-border-dark' : '',
   isDisabled.value ? 'pointer-events-none opacity-60' : 'cursor-pointer',
-  // -> Flat buttons have no background of their own, so hover tints with the current text color
+  // -> Flat buttons have no background of their own, so hover tints with the current text color.
   isSolid.value ? 'hover:brightness-110' : 'hover:bg-current/10'
 ])
 
 /*
-  Bumped by `applyTheme` (`App.vue`), fired on a theme edit, a dark/light appearance switch and a
-  CVD-mode change -- each rewrites the `--color-*` custom properties `foregroundColor` below resolves
-  against, with no prop of this button changing, so nothing would otherwise tell it to re-resolve.
+  Bumped by `applyTheme`, which rewrites the `--color-*` custom properties `foregroundColor` below
+  resolves against without any prop of this button changing -- nothing would otherwise tell it to
+  re-resolve.
 */
 const themeGeneration = ref(0)
 function onThemeApplied() {
@@ -250,8 +210,8 @@ onMounted(() => EVENT_BUS.on('applyTheme', onThemeApplied))
 onUnmounted(() => EVENT_BUS.off('applyTheme', onThemeApplied))
 
 /*
-  One hidden, reused probe element rather than reading the button's own node: avoids waiting on this
-  component's own render/mount timing, and avoids a create+append+remove per resolution.
+  One hidden, reused probe rather than the button's own node: avoids waiting on this component's own
+  render/mount timing, and avoids a create+append+remove per resolution.
 */
 let probeEl = null
 function resolveCssColorHex(colorName) {
@@ -270,11 +230,10 @@ function resolveCssColorHex(colorName) {
 }
 
 /*
-  Normalizes a `getComputedStyle` background-color read to a hex string `contrastRatio` can consume.
   Real browsers resolve `var()` down to `rgb()`/`rgba()`; some test environments hand back the
-  already-hex value unchanged, which is passed through as-is. Returns `null` for a fully-transparent
-  read (`rgba(0, 0, 0, 0)`, `background-color`'s initial value) -- what an unresolved/undefined CSS
-  variable falls back to -- since that means nothing was actually resolved.
+  already-hex value unchanged, which is passed through as-is. A fully-transparent read is
+  `background-color`'s initial value -- what an unresolved CSS variable falls back to -- so it
+  returns `null`: nothing was actually resolved.
 */
 function parseCssColor(value) {
   if (!value) {
@@ -302,22 +261,20 @@ function parseCssColor(value) {
 }
 
 /*
-  Picks the better-contrasting of white/black against a solid button's actual resolved background,
-  instead of always defaulting to white -- several palette colors (the seeded accent `#FF9800`,
-  `warning`, `slate`/`positive`'s teal, ...) fall well under WCAG AA (as low as 2.1:1) with white
-  text. `props.color` is only ever a CSS custom-property NAME here (`primary`, `grey-7`, ...), not a
-  color value: the property it resolves to is themeable per-site and swapped per CVD mode
-  (`helpers/cssVars.js`), so the only place its actual value is knowable is the resolved DOM style --
-  there is no static name -> hex table this could consult instead.
+  Picks the better-contrasting of white/black against a solid button's resolved background instead of
+  always defaulting to white -- several palette colors fall well under WCAG AA (as low as 2.1:1) with
+  white text. `props.color` is only ever a custom-property NAME, and the property it resolves to is
+  themeable per-site and swapped per CVD mode, so the only place its actual value is knowable is the
+  resolved DOM style: there is no static name -> hex table to consult instead.
 
-  Returns `null` (falls back to white, the prior fixed behavior) when `props.color` doesn't resolve
-  to anything -- an explicit `textColor` bypasses this computed entirely, per its own contract.
+  Returns `null`, so the caller falls back to white, when `props.color` resolves to nothing; an
+  explicit `textColor` bypasses this computed entirely.
 */
 const foregroundColor = computed(() => {
   if (!isSolid.value || !props.color || props.textColor) {
     return null
   }
-  // -> Re-resolves whenever the app's theme may have changed, even with no prop change of its own
+  // -> Re-resolves whenever the app's theme may have changed, with no prop change of its own.
   void themeGeneration.value
   const bg = resolveCssColorHex(props.color)
   if (!bg) {
@@ -329,12 +286,11 @@ const foregroundColor = computed(() => {
 const styles = computed(() => {
   const out = {}
 
-  // -> Set first: the em-based metrics below resolve against it
+  // -> Set first: the em-based metrics below resolve against it.
   if (props.size) {
     out.fontSize = FONT_SIZES[props.size] ? `${FONT_SIZES[props.size]}px` : props.size
   }
 
-  // -> A round button is sized by its min box and never padded; anything else follows the scale
   if (props.round) {
     out.minWidth = props.dense ? '2.4em' : '3em'
     out.minHeight = props.dense ? '2.4em' : '3em'
@@ -344,7 +300,6 @@ const styles = computed(() => {
     out.padding = props.dense ? '0 0.8em' : '0 1.12em'
   }
 
-  // -> An explicit `padding` prop overrides the variant default, as it did before
   if (props.padding) {
     const [v, h = v] = props.padding.split(/\s+/)
     out.padding = `${SIZES[v] ?? v} ${SIZES[h] ?? h}`
@@ -355,8 +310,6 @@ const styles = computed(() => {
     out.color = props.textColor
       ? `var(--color-${props.textColor})`
       : (foregroundColor.value ?? 'var(--color-white)')
-    // -> OpenProject #2813: `accent` is the decided "page's own primary action" color -- see the
-    //    geometry comment above. `none` under Ledger, the mockups' glow under Cobalt.
     if (props.color === 'accent') {
       out.boxShadow = 'var(--shadow-primary)'
     }
@@ -366,8 +319,6 @@ const styles = computed(() => {
 
   return out
 })
-
-// METHODS
 
 function onClick(ev) {
   if (isDisabled.value) {
@@ -381,29 +332,21 @@ function onClick(ev) {
 
 <style scoped>
 /*
-  Capitalisation, stated rather than inherited.
-
-  Cardinal sets a button label in sentence case -- "Save changes", not "SAVE CHANGES"; uppercase is
-  reserved for the Roboto Mono chrome overlines (a section header, a status mark), which are not
-  buttons. It has to be written here rather than simply left off, because a <button> and an <a>
-  disagree about the default: the app's own reset declares `button, input, select { text-transform:
-  none }` UNLAYERED, which is inherited by the <button> form of this component but not by the <a>
-  form it takes with `to`/`href` -- so with nothing said here, a navigating button and an acting
-  button could still be capitalised differently by whatever an ancestor happened to set.
-
-  A scoped rule, which is unlayered too, so it beats that element selector without `!important`.
+  Stated rather than left off, because a <button> and an <a> disagree about the default: the app's
+  own reset declares `button, input, select { text-transform: none }` UNLAYERED, which the <button>
+  form of this component inherits but the <a> form it takes with `to`/`href` does not -- so with
+  nothing said here, a navigating button and an acting button could be capitalised differently by
+  whatever an ancestor happened to set. A scoped rule is unlayered too, so it beats that element
+  selector without `!important`.
 */
 .w-btn {
   text-transform: none;
 }
 
 /*
-  Every icon in a button, however it got there -- the `icon` prop or the default slot. Sized here
-  rather than on the prop icon alone so the two routes agree: AccountMenu draws its avatar fallback
-  as slot content, and at the inherited 1em it rendered visibly smaller than the neighbouring
-  header buttons that use the prop.
-
-  1.715em is the button's line height, which is what the button this replaces used. A caller can
+  Every icon in a button, however it got there -- the `icon` prop or the default slot -- so the two
+  routes agree: an avatar fallback drawn as slot content at the inherited 1em renders visibly
+  smaller than a neighbouring prop-drawn icon. 1.715em is the button's line height; a caller can
   still override per icon, since `size` renders as an inline font-size.
 */
 .w-btn :deep(.w-icon) {

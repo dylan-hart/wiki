@@ -2,11 +2,6 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { readyFields, workerInstanceId } from './bootSummary.ts'
 
-/**
- * The two derivations `index.ts` and `worker.ts` feed to `CARDINAL.logger`. Pure by construction — no
- * `CARDINAL` global, no database — which is the whole reason they were lifted out of two entry points
- * that boot at import time and can never be imported by a test.
- */
 describe('readyFields', () => {
   test('counts the sites and reports the first addressable hostname', () => {
     const fields = readyFields({

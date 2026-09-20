@@ -1,9 +1,6 @@
 /**
- * `core/scheduler.ts`'s execution half: claiming a job, running it in process or on the real worker
- * pool, and what each failure path logs. Pure — no database; the one real `FixedThreadPool` here is
- * this process's own.
- *
- * Split out of `core/scheduler.test.ts` (TEST-F14); see that file's header for the whole map.
+ * `core/scheduler.ts`'s execution half: claiming a job, running it in process or on a real worker
+ * pool, and what each failure path logs. Pure — no database.
  */
 
 import assert from 'node:assert/strict'
@@ -22,19 +19,13 @@ before(async () => {
 })
 
 /**
- * OpenProject #2077: the claim subquery in `processJob()` used to `ORDER BY id`, and `id` is a
- * `crypto.randomUUID()` over a `defaultRandom()` column -- no correlation at all with `waitUntil` or
- * `createdAt`. That let an overdue retry (`reapStaleJobs()` sets `waitUntil: new Date()` precisely so
- * a requeued job is claimed next) sit behind an unrelated job whose uuid happened to sort lower, and
- * disagreed with the admin "Upcoming" ordering (`models/jobs.ts#getUpcoming()`:
- * `waitUntil ASC NULLS FIRST, createdAt ASC`).
+ * `id` is a random uuid, uncorrelated with `waitUntil` or `createdAt`: ordering the claim by it
+ * would let an overdue retry sit behind an unrelated job, and disagree with the admin "Upcoming"
+ * order (`models/jobs.ts#getUpcoming()`).
  *
- * This drives the real `processJob()` against a fake `CARDINAL.db.transaction`/`trx.delete` and inspects
- * the literal SQL text of the claim subquery's `inArray(...)` condition -- the thing actually sent to
- * postgres -- rather than re-implementing the ordering logic to compare against. `extractSqlText`
- * walks a drizzle `SQL` object's `queryChunks` (each a `{ value: string[] }` literal chunk, a nested
- * `SQL` chunk, or a bound param contributing no literal text) and concatenates the literal chunks, so
- * what it produces is exactly the query string drizzle would send.
+ * Inspects the literal SQL of the claim subquery -- what is actually sent to postgres -- rather
+ * than re-implementing the ordering: `extractSqlText` concatenates the literal chunks of a drizzle
+ * `SQL` object's `queryChunks`, skipping bound params.
  */
 describe('processJob claim ordering (fake CARDINAL)', () => {
   let capturedCondition: any
@@ -88,15 +79,9 @@ describe('processJob claim ordering (fake CARDINAL)', () => {
 })
 
 /**
- * OpenProject #1931: `runJob()`'s terminal, retries-exhausted failure must log at `error` so an
- * operator shipping only `error` to alerting actually sees it -- `cardinaljs_jobs_queued` counts
- * *pending* jobs, so a storm of failing-and-retrying jobs looks identical to a healthy queue from
- * that metric alone. A still-retryable failure must keep logging at `warn`, and says so in its own
- * message (`, retrying`) rather than in a second line.
- *
- * Drives the real `runJob()` against a fake `CARDINAL.db`/`notifier`-reachable state, not a live
- * Postgres connection -- there is no SQL orchestration worth a real database here, just a branch on
- * `job.retries` vs. `job.maxRetries` deciding which logger method gets called.
+ * A retries-exhausted failure must log at `error` so an operator alerting on `error` sees it:
+ * `cardinaljs_jobs_queued` counts *pending* jobs, so a storm of failing-and-retrying jobs looks
+ * identical to a healthy queue from that metric alone.
  */
 describe('runJob log level on failure (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
@@ -135,9 +120,8 @@ describe('runJob log level on failure (fake CARDINAL)', () => {
           values: async () => ({})
         })
       }
-      // -> No `CARDINAL.scheduler.pubsubClient`: `notifier.send()` reads it fresh on each call, catches the
-      //    resulting `TypeError` internally, and logs a `warn` of its own -- fire-and-forget, so it
-      //    never surfaces synchronously here. See `helpers/pubsub.ts#createNotifier`.
+      // -> No `pubsubClient` on the stubbed `CARDINAL.scheduler`: `notifier.send()` optional-chains
+      //    it (`helpers/pubsub.ts#createNotifier`), so the notification is silently discarded.
     })
   })
 
@@ -203,14 +187,8 @@ describe('runJob log level on failure (fake CARDINAL)', () => {
 })
 
 /**
- * OpenProject #1937: `runJob()`'s catch branch used to log a job's failure as two bare strings, with
- * no way to trace which job (or attempt) a given log line was about. Since the Phase 2 sweep
- * (#2665) it is ONE record — scope `jobs`, a sentence, and `{ job, attempts, ms, error }` as fields
- * (`attempt: 'n/m'` on the still-retryable line; see #2672), with the `Error` itself under `error` so
- * the renderer puts the message inline and the stack under
- * it. `error` and `warn` share one mock here (task #1993's log-level split routes an
- * exhausted-retries failure to `error`, not `warn`) since this test's own concern is the field
- * payload, not which level a given retry count picks.
+ * `error` and `warn` share one mock: the concern here is the record's field payload, not which
+ * level a given retry count picks.
  */
 describe('runJob failure logging (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
@@ -221,14 +199,12 @@ describe('runJob failure logging (fake CARDINAL)', () => {
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       config: { scheduler: { retryBackoff: 0 } },
-      // -> `notifier.send()` (module scope in scheduler.ts) reads `CARDINAL.scheduler.pubsubClient` on
-      //    every send; `null` is a valid, silently-discarded target (`helpers/pubsub.ts`), so this
-      //    exercises the catch branch with no real LISTEN/NOTIFY client needed.
+      // -> `null` is a valid, silently-discarded notify target (`helpers/pubsub.ts`), so no real
+      //    LISTEN/NOTIFY client is needed.
       scheduler: { pubsubClient: null },
       logger: { info: () => {}, warn: failureMock, error: failureMock },
-      // -> Only the `jobHistory` write in the catch branch's own recording step; letting this
-      //    succeed keeps the assertion focused on the two failure-logging calls instead of also
-      //    picking up the branch's own "could not record the failure" fallback warn.
+      // -> The catch branch's `jobHistory` write has to succeed, or its own "failed to record job
+      //    failure" warn would land on the shared mock too.
       db: {
         update: (_table: any) => ({
           set: (_values: any) => ({
@@ -250,9 +226,7 @@ describe('runJob failure logging (fake CARDINAL)', () => {
 
   test('the one failure log call carries { job, attempts, error } as fields, not concatenated in', async () => {
     failureMock.mock.resetCalls()
-    // -> retries === maxRetries: no reschedule branch, so this stays free of the Temporal/db.insert
-    //    path that `attempt` here doesn't need. This also means retries are exhausted, so the call
-    //    logs at `error` (task #1993) — `failureMock` above is registered for both levels.
+    // -> retries === maxRetries: no reschedule branch, so the `db` fake needs no `insert`.
     const job = {
       id: 'job-1',
       task: 'boom',
@@ -272,30 +246,20 @@ describe('runJob failure logging (fake CARDINAL)', () => {
 
     const fields = failureCall!.arguments[2] as Record<string, unknown>
     assert.equal(fields.job, 'job-1')
-    // -> The terminal line reports the total, not "3 of 3": there is no next attempt for `n/m` to
-    //    be counting towards, and `attempts=3` is what an operator reads as "it used all three".
+    // -> The terminal line carries the total (`attempts`), not `attempt: 'n/m'`: there is no next
+    //    attempt for it to be counting towards.
     assert.equal(fields.attempts, 3)
     assert.equal(fields.attempt, undefined)
     assert.equal(typeof fields.ms, 'number')
-    // -> The `Error` itself, not `err.message`: the renderer is what turns it into `error="…"` plus
-    //    a stack, and only an `Error` gives it one.
     assert.ok(fields.error instanceof Error)
     assert.equal((fields.error as Error).message, 'task exploded')
   })
 })
 
 /**
- * Task 704 (a): `executeOnWorker`'s abort-signal ceiling, verified against a REAL piscina worker
- * thread rather than a mock of one — see `test/fixtures/schedulerCrashWorker.ts` for why a worker
- * thread's own `process.exit()` is the faithful in-process equivalent of `kill -9`-ing it.
- *
- * The sibling case — a worker that exits mid-task — used to be quarantined in
- * `core/scheduler.execution.flaky.test.ts` (OpenProject #2992): under poolifier the crash was caught
- * ONLY by the backup timer (`taskTimeout + TASK_TIMEOUT_GRACE`), a real wall-clock margin the whole
- * CI run's scheduling could blow through. Piscina's own pool rejects an in-flight task the moment it
- * sees its worker exit (see `executeOnWorker`'s doc comment), so the crash case is now a fast,
- * deterministic rejection with no wall-clock race to quarantine — folded in here as this describe's
- * second test rather than kept apart.
+ * Against a real piscina worker thread rather than a mock of one — see
+ * `test/fixtures/schedulerCrashWorker.ts` for why a worker thread's own `process.exit()` is the
+ * faithful in-process equivalent of `kill -9`-ing it.
  */
 describe('executeOnWorker (real worker pool)', () => {
   let wikiHandle: { restore(): void }
@@ -304,8 +268,8 @@ describe('executeOnWorker (real worker pool)', () => {
   before(() => {
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
-      // -> 1s: short enough to keep the suite fast, long enough that the two ceilings (taskTimeout
-      //    alone vs. taskTimeout + the fixed 5s TASK_TIMEOUT_GRACE) land clearly apart in wall time.
+      // -> 1s: short enough to keep the suite fast, long enough that `taskTimeout` alone and the
+      //    backup timer (`taskTimeout + TASK_TIMEOUT_GRACE`) land clearly apart in wall time.
       config: { scheduler: { taskTimeout: 1 } }
     })
   })
@@ -316,14 +280,9 @@ describe('executeOnWorker (real worker pool)', () => {
 
   afterEach(async () => {
     await pool?.destroy()
-    // -> OpenProject #2927: this file is the one that never finished in the CI run that hung for
-    //    27 minutes and was killed at the job's 30-minute ceiling. A worker thread `destroy()` did
-    //    not actually reap is a live handle that keeps the test process alive after its last test.
-    //    Piscina's own `destroy()` already awaits every worker's real `exit` event before resolving
-    //    (unlike poolifier's, which only reported one after the fact via `exitHandler`), so
-    //    `pool.threads` reflecting empty here is a stronger guarantee than before, kept as a
-    //    regression check rather than blind trust. `--test-force-exit` (package.json) stops such a
-    //    leak hanging CI; this is what turns it into a named failure instead of a silent one.
+    // -> A worker thread `destroy()` did not reap is a live handle that keeps the test process
+    //    alive after its last test. `--test-force-exit` (package.json) stops such a leak hanging
+    //    CI; this is what turns it into a named failure instead of a silent one.
     assert.equal(
       pool?.threads.length ?? 0,
       0,
@@ -333,10 +292,8 @@ describe('executeOnWorker (real worker pool)', () => {
   })
 
   /**
-   * A fresh, single-worker pool per test — not shared across the two — so each task is dispatched to
-   * a worker that has not just been aborted/replaced by the other test. `minThreads: 1, maxThreads:
-   * 1`, matching `scheduler.ts#init()`: piscina, unlike poolifier's `DynamicThreadPool`, tolerates a
-   * minimum equal to its maximum outright.
+   * A fresh single-worker pool per test, so each task is dispatched to a worker the other test has
+   * not just aborted or crashed.
    */
   function freshPool(): Piscina {
     pool = new Piscina({
@@ -353,8 +310,8 @@ describe('executeOnWorker (real worker pool)', () => {
     const start = Date.now()
     await assert.rejects(scheduler.executeOnWorker({ task: 'x', payload: { mode: 'hang' } }))
     const elapsed = Date.now() - start
-    // -> taskTimeout is 1s; the backup timer would not fire until 1s + 5s grace = 6s. Rejecting well
-    //    before that means the abort signal — not the backup timer — is what ended it.
+    // -> Rejecting well before the backup timer (`taskTimeout + TASK_TIMEOUT_GRACE`) could fire
+    //    means the abort signal is what ended it.
     assert.ok(elapsed < 4000, `expected the abort ceiling (~1s) to fire, took ${elapsed}ms`)
   })
 
@@ -363,9 +320,6 @@ describe('executeOnWorker (real worker pool)', () => {
     const start = Date.now()
     await assert.rejects(scheduler.executeOnWorker({ task: 'x', payload: { mode: 'crash' } }))
     const elapsed = Date.now() - start
-    // -> taskTimeout is 1s; the backup timer would not fire until 1s + 5s grace = 6s. Rejecting well
-    //    before that means piscina's own worker-exit detection — not the backup timer — is what ended
-    //    it, unlike poolifier (see this describe's header comment).
     assert.ok(
       elapsed < 4000,
       `expected piscina's exit detection to fire quickly, took ${elapsed}ms`
@@ -373,20 +327,12 @@ describe('executeOnWorker (real worker pool)', () => {
   })
 })
 
-/**
- * 2026-08-24 audit finding §2: `executeInProcess` gives an in-process task the same `taskTimeout`
- * ceiling `executeOnWorker` already has for a worker-thread one. A pure-unit test, unlike
- * `executeOnWorker`'s real-worker-pool suite above: there is no thread to crash here, only the
- * scheduler's own bookkeeping to keep finite, so a task whose promise simply never resolves is
- * enough to exercise it.
- */
 describe('executeInProcess (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
 
   before(() => {
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
-      // -> Short enough to keep the suite fast.
       config: { scheduler: { taskTimeout: 0.05 } }
     })
   })
@@ -397,8 +343,7 @@ describe('executeInProcess (fake CARDINAL)', () => {
 
   test('a task whose promise never settles is abandoned at the taskTimeout ceiling', async () => {
     scheduler.tasks = {
-      // -> Never resolves or rejects, modeling `withAdvisoryLock` blocking forever on an
-      //    unavailable lock -- the documented real-world case (audit finding §2).
+      // -> Models `withAdvisoryLock` blocking forever on an unavailable lock.
       neverSettles: () => new Promise(() => {})
     }
     const start = Date.now()
@@ -419,12 +364,6 @@ describe('executeInProcess (fake CARDINAL)', () => {
     )
   })
 
-  /**
-   * OpenProject #2351: `executeInProcess` must make the claim's attempt number available to the
-   * task via `helpers/jobExecutionContext.ts`, and a stale task's continuation -- still running
-   * after the timeout has already abandoned it -- must keep seeing the attempt it actually started
-   * under, not whatever a later reclaim of the same job id has since bumped it to.
-   */
   test('the task runs with a job execution context carrying the claim id and attempt', async () => {
     let seen: ReturnType<typeof getJobExecutionContext>
     scheduler.tasks = {
@@ -451,8 +390,8 @@ describe('executeInProcess (fake CARDINAL)', () => {
       /did not complete within/
     )
 
-    // -> Simulates the real scenario: the same job id gets reclaimed and completes its own, later
-    //    attempt while the stale continuation above is still running in the background.
+    // -> The same job id is reclaimed and completes a later attempt while the stale continuation
+    //    above is still running in the background.
     scheduler.tasks.quickTask = async () => {}
     await scheduler.executeInProcess({ task: 'quickTask', payload: {}, id: 'job-4', retries: 1 })
 
@@ -463,18 +402,6 @@ describe('executeInProcess (fake CARDINAL)', () => {
   })
 })
 
-/**
- * OpenProject #2672: the scheduler owns a job's outcome line, not the task.
- *
- * A `tasks/simple/` task hands back `{ summary, ...fields }` when its run amounted to something, and
- * `runJob()` turns that into the ONE `info` record for the run — carrying the job id, the attempt and
- * the duration the task itself cannot know. A task that did nothing returns nothing and the run stays
- * at `debug`, which is what keeps a timer-driven sweep that found nothing out of an operator's log.
- *
- * Asserted through a `mock.fn()`-style recorder per level against the real `runJob()`, on scope +
- * level + the fields object rather than on a rendered string: the rendering is `core/logger.ts`'s
- * business.
- */
 describe('runJob outcome logging (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
   let logCalls: { level: string; args: any[] }[]
@@ -546,8 +473,7 @@ describe('runJob outcome logging (fake CARDINAL)', () => {
     assert.equal(outcome.args[0], 'jobs')
     const fields = outcome.args[2] as Record<string, unknown>
     assert.equal(fields.job, 'job-1')
-    // -> `n/m`, not a bare `n`: `maxRetries` counts retries, so four attempts is what a job with
-    //    `maxRetries: 3` actually gets, and the line has to say so without the reader knowing that.
+    // -> `maxRetries` counts retries, so a job with `maxRetries: 3` gets four attempts.
     assert.equal(fields.attempt, '1/4')
     assert.equal(fields.purged, 12, "the summary's own fields ride the same record")
     assert.equal(typeof fields.ms, 'number', 'ms is a number, for the renderer to humanise')
@@ -575,8 +501,8 @@ describe('runJob outcome logging (fake CARDINAL)', () => {
   })
 
   test('a non-object return — what a worker-thread job resolves — is not a summary', async () => {
-    // -> `worker.ts`'s `ThreadWorker` resolves `true`, never the task's own value, so every worker
-    //    job lands here rather than in the summary branch.
+    // -> `worker.ts` resolves `true`, never the task's own value, so every worker job lands here
+    //    rather than in the summary branch.
     scheduler.tasks.sweep = async () => true
 
     await scheduler.runJob(makeJob())
@@ -617,8 +543,7 @@ describe('runJob outcome logging (fake CARDINAL)', () => {
     const fields = retrying.args[2] as Record<string, unknown>
     assert.equal(fields.attempt, '2/4')
     assert.ok(fields.error instanceof Error)
-    // -> Not merely "an ISO-looking string": the whole point of the field is that it is the row's
-    //    real `waitUntil`, so it must equal what the requeue insert actually wrote.
+    // -> `next` must be the requeued row's real `waitUntil`, not merely an ISO-looking string.
     const requeued = inserted.find((values) => values.waitUntil instanceof Date)
     assert.ok(requeued, 'a retryable failure requeues the job')
     assert.equal(

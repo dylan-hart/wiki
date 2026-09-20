@@ -1,75 +1,43 @@
 /**
- * Everything `Graph.vue` paints onto its canvas, as plain functions over a 2D context.
- *
- * They were closures over the page's own refs, which is the only reason they read `nodes.value` /
- * `clusters.value` / `zoomTransform.value` rather than taking them. Taking them makes each layer
- * independently checkable and keeps the page to the one call it actually makes -- `paintGraph()`,
- * which is the save/clear/transform/draw/restore sequence in the order the layers stack.
- *
- * `radiusFor` is passed in rather than recomputed here: how large a node draws depends on the
- * page's current "Size by" mode, which is the page's question, not the canvas's.
+ * The canvas layers `Graph.vue` paints, as plain functions over a 2D context with no DOM access of
+ * their own: each takes what it draws rather than closing over the page's refs, which keeps every
+ * layer independently checkable. Anything that depends on page state -- `radiusFor` (the current
+ * "Size by" mode), a theme color resolved off a custom property -- is handed in.
  */
 
 import { nodeId } from './graphFilters.js'
 
-/** Edge stroke color, light/dark (OpenProject #2412) -- the light value is the original hardcoded
- *  `rgba(128, 128, 128, 0.35)`. The dark value lightens the gray (128 -> 200) rather than just
- *  raising alpha: on the app's near-black dark surface, 128-gray at 0.35 alpha blends down to
- *  roughly the same near-black it sits on, which is exactly the illegibility this fixes. */
+/** The dark value lightens the gray (128 -> 200) rather than raising alpha: on the app's near-black
+ *  dark surface, 128-gray at 0.35 alpha blends down into the surface it sits on. */
 const EDGE_COLOR = {
   light: 'rgba(128, 128, 128, 0.35)',
   dark: 'rgba(200, 200, 200, 0.35)'
 }
 
-/** Highlight ring drawn around a keyword-matched node (OpenProject #2480), on top of its own
- *  group-colored fill -- a fixed color kept independent of `Graph.vue`'s `CATEGORICAL_PALETTE` on
- *  purpose, since a match is a search-result state, not a group, and needs to read the same
- *  regardless of which palette slot the node's own group landed on. */
+/** Deliberately outside `Graph.vue`'s `CATEGORICAL_PALETTE`: a keyword match is a search-result
+ *  state, not a group, and has to read the same whichever palette slot its group landed on. */
 const HIGHLIGHT_RING_COLOR = '#ffd600'
 const HIGHLIGHT_RING_WIDTH = 2
 const HIGHLIGHT_RING_GAP = 2
 
-/** Ring drawn permanently around the synthetic folder-hierarchy root node (`node.root`, OpenProject
- *  #2563) -- unlike the highlight ring above, this one does not depend on an active keyword search:
- *  the root is a fixed structural landmark in the graph (folder-hierarchy edge mode fans everything
- *  out from it), so it needs to read distinctly at all times, not only while it happens to match a
- *  search. A different hue from `HIGHLIGHT_RING_COLOR` keeps the two rings from reading as the same
- *  signal on the rare node where both apply at once. Like `HIGHLIGHT_RING_COLOR` and
- *  `SYNTHETIC_NODE_COLOR`, a single value reads clearly enough on both the light and dark canvas
- *  surface that it needs no light/dark pair of its own. */
+/** The synthetic folder-hierarchy root is a permanent structural landmark -- the edge mode fans
+ *  everything out from it -- not a search-result state, so its ring draws at all times. A different
+ *  hue from `HIGHLIGHT_RING_COLOR` keeps the two from reading as one signal on a node where both
+ *  apply. One value, not a light/dark pair: it reads on either canvas surface. */
 const ROOT_RING_COLOR = '#ff4081'
 const ROOT_RING_WIDTH = 2
 const ROOT_RING_GAP = 3
 
-/** Opacity for a real node/label that does NOT match the active keyword search, while one is active
- *  -- dimmed, not hidden. OpenProject #2480 is explicitly the non-filtering half of Feature #2414:
- *  every node stays drawn (and clickable), just visually de-emphasized relative to a match. */
+/** A keyword search dims rather than filters: a non-matching node stays drawn and clickable. */
 const DIMMED_ALPHA = 0.25
 
-/** A white overlay at this alpha, filled on top of the moused-over node's own color, is what "a
- *  lighter tint of the node's own color" means here -- lightening whatever the underlying fill is
- *  (a real node's group color, a synthetic node's flat gray) equally, rather than computing a
- *  per-color lightened hex. `paintGraph()` runs on every animation frame with no transition of its
- *  own, so this reads as instant on/off exactly by not doing anything special for it. */
+/** A white overlay filled on top of the hovered node's own color, rather than a per-color lightened
+ *  hex: it lightens a group color and a synthetic node's flat gray equally. */
 const HOVER_TINT_COLOR = 'rgba(255, 255, 255, 0.3)'
 
-/** Ring drawn around the graph node corresponding to whatever sidebar row the reader has SELECTED
- *  (OpenProject #3364, corrected scope) -- a pure mirror of sidebar state
- *  (`composables/navSidebarDestination.js#isSelected`, `stores/graph.js#selectedPath`), not
- *  anything a canvas click can create: a canvas click always just navigates
- *  (`pages/Graph.vue#onCanvasClick`), full stop.
- *
- *  `selectedRingColor` (`drawNodes` below) is NOT a literal color declared here: `Graph.vue`
- *  resolves it fresh off `--color-accent-fill`/`--color-accent-dark`, the same tokens the sidebar's
- *  own "current row" style (`.router-link-exact-active`, `NavSidebar.vue`) already uses for its
- *  icon -- this file stays a plain function over a `ctx` with no DOM access of its own (see the
- *  file's own top-of-file doc comment), so it takes the resolved string as a plain argument.
- *
- *  `SELECTED_RING_GAP`/`_WIDTH` place this ring OUTSIDE the anchor/highlight ring's own outer edge
- *  (`HIGHLIGHT_RING_GAP` + `HIGHLIGHT_RING_WIDTH` / 2 = 3px out from the node's own radius) -- in
- *  practice the anchor and the selection can never coincide on the SAME node (anchor-trumps-selected,
- *  `isSelected()`'s own doc comment), but keeping them visually layered rather than overlapping costs
- *  nothing and matches how the highlight ring already stacks outside the root ring above. */
+/** A mirror of the sidebar's selected row (`stores/graph.js#selectedPath`), never something a
+ *  canvas click creates -- a canvas click only navigates. The gap clears the highlight ring's own
+ *  outer edge, so on a node carrying both the two rings stack rather than overlap. */
 const SELECTED_RING_GAP = 6
 const SELECTED_RING_WIDTH = 3
 
@@ -89,29 +57,15 @@ export function drawEdges(ctx, edges, dark) {
   }
 }
 
-/** Shared, mode-independent fill for level-2/3 cluster circles (OpenProject #3340). Level-1 clusters
- *  keep today's categorical color-coding (`colorForGroup()`, `Graph.vue`) -- nesting depth beyond
- *  that doesn't carry its own semantic grouping identity, so every level-2/3 circle shares one fill
- *  instead of a second categorical palette. Follows the existing `SYNTHETIC_NODE_COLOR` (`#9e9e9e`,
- *  `Graph.vue`) precedent: a mid-gray reads clearly enough on both the light and dark canvas surface
- *  that it needs no light/dark pair of its own. Not imported from `Graph.vue` -- that constant isn't
- *  exported, and the two are allowed to drift independently since they mark unrelated things (a
- *  synthetic node vs. a nesting-depth circle) that only happen to want the same neutral today. */
+/** Level-1 clusters keep their categorical color-coding; deeper nesting carries no grouping
+ *  identity of its own, so every level-2/3 circle shares one mid-gray instead of a second palette.
+ *  Not shared with `Graph.vue`'s identical `SYNTHETIC_NODE_COLOR`: they mark unrelated things. */
 const NESTED_CLUSTER_FILL_COLOR = '#9e9e9e'
 
-/** Draws each group's tint as a circle (OpenProject #2836: always a circle, never a convex-hull
- *  polygon, for a uniform look across every grouping). `computeClusters()` is the only producer of
- *  `clusters`, and it now populates `circle` unconditionally.
+/** Circles despite the name, never convex-hull polygons: a uniform look across every grouping mode.
  *
- *  Draws outermost-to-innermost -- level-1 circles first, then level-2, then level-3 (OpenProject
- *  #3340) -- so a nested circle's tint visibly stacks on top of its parent's instead of being
- *  painted underneath it. Sorted explicitly by each entry's own `level` field on a copy of
- *  `clusters`, rather than trusting the producer's (`computeClusters()`, OpenProject #3339) `Map`/
- *  array iteration order, which carries no ordering guarantee and isn't this function's contract to
- *  rely on. An entry with no `level` (today's tag/classification grouping modes, which stay
- *  single-level) sorts and paints as level 1. Level-2/3 entries always fill with
- *  `NESTED_CLUSTER_FILL_COLOR` regardless of `cluster.color`/whatever palette slot their key landed
- *  on -- level-1 is the only level colored per-group. */
+ *  Painted outermost-to-innermost so a nested circle's tint stacks on top of its parent's, sorted
+ *  explicitly rather than trusting `computeClusters()`'s iteration order, which guarantees none. */
 export function drawClusterHulls(ctx, clusters) {
   const ordered = [...clusters].sort((a, b) => (a.level ?? 1) - (b.level ?? 1))
   for (const cluster of ordered) {
@@ -128,36 +82,14 @@ export function drawClusterHulls(ctx, clusters) {
   }
 }
 
-/** `highlightedIds` (OpenProject #2480) is an optional `Set` of composite node ids -- omitted, `null`
- *  or empty, every node draws exactly as before. Non-empty: a matching node gets a highlight ring on
- *  top of its normal fill.
+/** `dimmingIds` defaults to `highlightedIds`, and `Graph.vue` is the one caller that passes the two
+ *  apart: its `highlightedIds` is keyword matches UNION the route-focused anchor node, so the
+ *  anchor draws its ring, while `dimmingIds` is keyword matches alone -- an anchor must never by
+ *  itself dim every other node, only an active keyword filter may.
  *
- *  `dimmingIds` (OpenProject #3312's revert) is a SEPARATE optional `Set` gating which nodes dim
- *  (see `DIMMED_ALPHA`) -- defaulting to `highlightedIds` so a caller that only ever had one set (every
- *  test in this file included) keeps behaving exactly as before. `Graph.vue` is the one caller that
- *  passes the two apart: `highlightedIds` there is keyword matches UNION the route-focused "anchor"
- *  node (so the anchor still draws its ring), but `dimmingIds` is keyword matches ALONE -- the anchor
- *  being set must never by itself dim every other node, only an active keyword filter may. The
- *  "non-filtering" requirement (a keyword search highlights, never hides) still holds either way: a
- *  dimmed node stays drawn and clickable, just de-emphasized.
- *
- *  `node.root` (OpenProject #2563) gets its own ring, drawn independently of `highlightedIds` --
- *  the folder-hierarchy root is a permanent landmark, not a search-result state, so it strokes every
- *  time this function draws it (dimmed the same as any other non-matching node while a keyword
- *  search is active, same as the rest of `node`'s own draw). A root node that also happens to match
- *  the active keyword search draws both rings, one just outside the other.
- *
- *  `hoveredNode` (the object `Graph.vue#findNodeAt()` returns, or `null`) gets the white-overlay
- *  tint above -- compared by reference, not by id, since it is the very same node object this
- *  function is already iterating.
- *
- *  `selectedId` (OpenProject #3364, see `SELECTED_RING_GAP`'s own doc comment above) is an optional
- *  composite `${locale}:${path}` id -- compared by id, unlike `hoveredNode`, since `Graph.vue`
- *  resolves it from `stores/graph.js#selectedPath` (a bare path) rather than holding the node object
- *  itself. `selectedRingColor` is the resolved color string to stroke it with; omitted, `null` or a
- *  falsy `selectedId`/`selectedRingColor` draws no ring at all, same no-op-by-default convention
- *  `highlightedIds` follows. A selected node still draws its OWN ring even while dimmed by an
- *  unrelated keyword search, same as the root ring above. */
+ *  `hoveredNode` is compared by reference, being the same object this loop iterates; `selectedId`
+ *  by id, since the caller resolves it from a bare path rather than holding the node.
+ *  `selectedRingColor` is resolved by that caller, this module having no DOM to read tokens. */
 export function drawNodes(
   ctx,
   nodes,
@@ -212,75 +144,50 @@ export function drawNodes(
 
 const LABEL_BASE_FONT_PX = 10
 
-/** Caps how large a label ever draws on screen, regardless of zoom -- without this, the base font is
- *  drawn inside the canvas's `ctx.scale(k, k)` transform, so effective on-screen size is
- *  `LABEL_BASE_FONT_PX * k` uncapped, reaching 80px at the max zoom (`k = 8`, see `attachZoom()`'s
- *  `scaleExtent`). Raised from `24` to `32` (OpenProject #2562): a node's own drawn radius can now
- *  reach `110` (vs. the old `22`, OpenProject #2561), and at the old `24`px cap a label read small
- *  relative to the circle it labels once zoomed in close enough to matter -- `32` keeps it legibly
- *  proportionate at the new max node size. Since OpenProject #2593 the cap also decides how much of
- *  a title survives truncation at high zoom, not only how big the label looks: a smaller drawn font
- *  fits more characters inside the same circle, so this constant now trades characters against
- *  apparent size rather than only setting the latter. Exported (like `LABEL_GAP` below) so a test
- *  can assert against the live constant rather than a duplicated literal. */
+/** Caps how large a label ever draws on screen: the base font is drawn inside the canvas's
+ *  `ctx.scale(k, k)` transform, so uncapped its effective size would be `LABEL_BASE_FONT_PX * k`,
+ *  reaching 80px at the maximum zoom. The cap also trades characters against apparent size -- a
+ *  smaller drawn font fits more of a title inside the same circle before truncation. */
 export const LABEL_MAX_EFFECTIVE_FONT_PX = 32
 
-/** Breathing room between a node's edge and the start of its label, on top of the node's own drawn
- *  radius (`radiusFor()`). Since OpenProject #2593 this applies to SYNTHETIC nodes only: a real
- *  node's title now draws inside its own circle, so it has no gap beside it to leave. A synthetic
- *  folder/root hub draws at a fixed radius of `3` (`Graph.vue`'s `radiusFor()`) and could never hold
- *  text inside it, so it keeps the original beside-the-node placement rather than losing its label
- *  -- see `drawLabels()`. Deliberately no longer restates `MIN_NODE_RADIUS`'s value: that constant
- *  is a `Graph.vue`-local that has been retuned more than once, and a hand-copied value of it in a
- *  comment over here is exactly the thing that goes stale. Raised from `3` to `6` in OpenProject
- *  #2562, when the radius it once sat beside grew `5x`. */
+/** Breathing room between a node's edge and its label -- SYNTHETIC nodes only, since a real node's
+ *  title draws inside its own circle. A synthetic folder/root hub draws at a fixed radius too small
+ *  to hold text, so it keeps the beside-the-node placement rather than losing its label. */
 export const LABEL_GAP = 6
 
-/** Label fill color, light/dark (OpenProject #2412) -- the light value is the original hardcoded
- *  `#333`. The dark value is a near-white rather than a plain invert, matching this app's dark-mode
- *  primary-ink convention (`composables/dark.js`'s surfaces, and the dataviz skill's own
- *  light/dark "Primary ink" pair) rather than a bespoke gray picked just for this canvas. */
+/** The dark value is the app's dark-mode primary ink, not an inverted `#333` or a gray picked for
+ *  this canvas alone. */
 const LABEL_COLOR = {
   light: '#333',
   dark: '#e8e8e8'
 }
 
-/** Halo stroked behind the label fill (OpenProject #2593). A label now sits ON the node's own fill,
- *  and that fill is not one known color: a real node is colored by its group out of the categorical
- *  palette (anything from a pale yellow to a mid-tone blue), a synthetic one is flat gray, and both
- *  palettes swap wholesale in dark mode. Switching the ink per node by luminance would mean a
- *  contrast computation per node per frame AND would make one graph's label layer read as two
- *  different signals; a halo instead keeps ONE ink color and puts a thin band of the surface color
- *  between the glyphs and whatever is underneath, which is what makes the same ink legible over
- *  every fill. The pair is `LABEL_COLOR`'s two surfaces inverted, so the halo always sits at the far
- *  end of the contrast range from the ink it backs. */
+/** A label sits ON the node's own fill, which is not one known color: a categorical group color, a
+ *  synthetic node's flat gray, both swapping in dark mode. Switching the ink per node by luminance
+ *  would cost a contrast computation per node per frame and make one label layer read as two
+ *  signals; a halo keeps ONE ink and puts a band of the surface color behind the glyphs. Inverted
+ *  from `LABEL_COLOR`, so the halo always sits opposite the ink it backs. */
 const LABEL_HALO_COLOR = {
   light: '#ffffff',
   dark: '#101010'
 }
 
-/** Halo thickness as a fraction of the drawn font size -- `lineWidth` is the FULL stroke width and a
+/** Halo thickness as a fraction of the drawn font size: `lineWidth` is the FULL stroke width and a
  *  stroked glyph is centered on its own outline, so only half of this lands outside the glyph.
- *  Scaling it with the font rather than fixing it in px keeps the halo proportionate as the label
- *  shrinks under `LABEL_MAX_EFFECTIVE_FONT_PX` at high zoom. Halved from `0.28` per Dylan's
- *  hands-on review (OpenProject #2900) -- the thicker halo was crowding the glyph strokes. */
+ *  Scaled with the font rather than fixed in px, so the halo stays proportionate as the label
+ *  shrinks under `LABEL_MAX_EFFECTIVE_FONT_PX` at high zoom. */
 const LABEL_HALO_WIDTH_RATIO = 0.14
 
-/** How much of a node's inscribed text width a label may actually occupy. The chord
- *  `insideNodeTextWidth()` computes is the exact widest a font-height box could be inside the
- *  circle, which would put the first and last glyph flush against the edge -- this inset keeps a
- *  little of the node's own fill visible around the text instead. */
+/** An inset on the exact inscribed chord, which would otherwise put the first and last glyph flush
+ *  against the circle's edge. */
 const LABEL_INSCRIBED_WIDTH_RATIO = 0.9
 
 const LABEL_ELLIPSIS = '…'
 
-/** The widest a line of `fontPx`-tall text can be and still sit inside a circle of `radius`,
- *  centered on it: the chord at +/- half the text's own height, `2 * sqrt(r^2 - (fontPx / 2)^2)`,
- *  inset by `LABEL_INSCRIBED_WIDTH_RATIO`. Exact circle geometry rather than a fraction-of-diameter
- *  approximation because it costs one `sqrt` and is what makes the "too small to label at all" case
- *  fall out for free: a node whose radius does not even exceed half the font height has no room for
- *  a text box of that height at any width, and this answers `0` for it rather than needing a
- *  separate floor constant to say so. */
+/** The chord at +/- half the text's own height, inset by `LABEL_INSCRIBED_WIDTH_RATIO`. Exact
+ *  circle geometry rather than a fraction-of-diameter approximation: it costs one `sqrt` and makes
+ *  the "too small to label at all" case fall out for free -- a radius that does not exceed half the
+ *  font height answers `0`, with no separate floor constant to keep in step. */
 function insideNodeTextWidth(radius, fontPx) {
   const halfHeight = fontPx / 2
   const halfChordSquared = radius * radius - halfHeight * halfHeight
@@ -290,15 +197,11 @@ function insideNodeTextWidth(radius, fontPx) {
   return 2 * Math.sqrt(halfChordSquared) * LABEL_INSCRIBED_WIDTH_RATIO
 }
 
-/** Memo for `fitLabel()` (OpenProject #2593). `ctx.measureText` is the one genuinely expensive call
- *  in this layer, `drawLabels()` runs per node on every zoom/pan frame, and truncation measures
- *  several times per node -- so a dense graph would otherwise re-derive, dozens of times a second, a
- *  result that only changes when the title, the node's radius, or the drawn font size does. Keyed on
- *  exactly those three (the width floored to a whole px, so a continuously-varying zoom still hits),
- *  and cleared wholesale rather than evicted entry-by-entry once past `LABEL_CACHE_MAX`: this is a
- *  frame-rate cache, not a correctness one, so a cold rebuild costs one frame of measuring and
- *  nothing else. `resetLabelCache()` is exported for a caller that wants to drop it outright on a
- *  wholesale new graph, the same lifecycle `Graph.vue`'s `syntheticNodeCache` has. */
+/** `ctx.measureText` is the one genuinely expensive call in this layer, `drawLabels()` runs per
+ *  node on every zoom/pan frame, and truncation measures several times per node -- so `fitLabel()`
+ *  memoizes on the only three inputs that change the answer. Cleared wholesale rather than evicted
+ *  entry by entry: this is a frame-rate cache, not a correctness one, so a cold rebuild costs one
+ *  frame of measuring and nothing else. */
 const LABEL_CACHE_MAX = 4096
 const labelCache = new Map()
 
@@ -306,16 +209,12 @@ export function resetLabelCache() {
   labelCache.clear()
 }
 
-/** The largest prefix of `text` that fits `maxWidth` at the context's current font, with an ellipsis
- *  appended when anything was cut -- or `null` when the node cannot hold even one character plus
- *  that ellipsis, which is this layer's "draw no label at all" answer.
+/** `null` means the node cannot hold even one character plus the ellipsis -- this layer's "draw no
+ *  label at all" answer.
  *
- *  Deriving that cutoff from truncation rather than from a minimum-radius constant is deliberate:
- *  the radius floor lives in `Graph.vue` as a non-exported `<script setup>` local
- *  (`MIN_NODE_RADIUS`) and only the `radiusFor` FUNCTION crosses into this module, so a floor here
- *  would be a hand-copied duplicate that silently stops agreeing the moment that constant is
- *  retuned -- which it has been, more than once. "Does a character fit?" needs no such copy and
- *  stays correct by construction. */
+ *  That cutoff comes from truncation rather than from a minimum-radius constant on purpose: the
+ *  radius floor is a non-exported `Graph.vue` local, so a copy here would silently stop agreeing
+ *  the moment it is retuned. "Does a character fit?" stays correct by construction. */
 function fitLabel(ctx, text, maxWidth, fontPx) {
   if (!text || maxWidth <= 0) {
     return null
@@ -357,47 +256,25 @@ function measureFit(ctx, text, maxWidth) {
   return `${text.slice(0, best)}${LABEL_ELLIPSIS}`
 }
 
-/** How much a real node's own drawn-radius growth (relative to `minRadius`, the floor every real
- *  node is lerped from -- `Graph.vue`'s `MIN_NODE_RADIUS`) carries over into its label's font size,
- *  at HALF the node's own relative growth rate (OpenProject #2993): a node at `minRadius` draws its
- *  label at the plain `LABEL_BASE_FONT_PX`, and a node at `5.5x` that floor (the real-graph
- *  `MAX_NODE_RADIUS`/`MIN_NODE_RADIUS` ratio as of this writing) draws its label at `3.25x` --
- *  `1 + 0.5 * (5.5 - 1)`. `Math.max(1, …)` floors `nodeGrowth` at `1` rather than letting it run
- *  negative-relative-scale below `minRadius`: no real node ever draws smaller than `minRadius`
- *  (`lerpRadius()` clamps to `[MIN_NODE_RADIUS, MAX_NODE_RADIUS]`), so this only matters for a caller
- *  that hands in an out-of-range radius directly (a test harness), and it is what makes THIS
- *  function's own floor answer exactly today's flat `LABEL_BASE_FONT_PX`, matching `drawLabels()`'s
- *  pre-#2993 behavior at `minRadius` and below rather than shrinking past it. */
+/** A node's drawn-radius growth over `minRadius` carries into its label's font at HALF that rate: a
+ *  node at `minRadius` draws the plain `LABEL_BASE_FONT_PX`, one at `5.5x` the floor draws `3.25x`.
+ *  `Math.max(1, …)` floors the growth, so a radius below `minRadius` -- which the caller's own
+ *  clamp never produces, but a test harness can hand in -- answers the base font, not a smaller. */
 function labelBaseFontFor(radius, minRadius) {
   const nodeGrowth = Math.max(1, radius / minRadius)
   const labelScale = 1 + 0.5 * (nodeGrowth - 1)
   return LABEL_BASE_FONT_PX * labelScale
 }
 
-/** Draws each node's title -- since OpenProject #2593 INSIDE the node's own circle, centered and
- *  truncated to fit, rather than unclipped to the right of its edge. The full, untruncated title is
- *  still reachable through `Graph.vue`'s existing DOM hover tooltip, unchanged; this layer
- *  deliberately introduces no second tooltip mechanism of its own.
+/** A real node's title draws inside its own circle, centered and truncated to fit; the full title
+ *  stays reachable through `Graph.vue`'s DOM hover tooltip, so this layer adds none of its own.
  *
- *  A SYNTHETIC node keeps the original beside-the-node placement (`radius + LABEL_GAP`): it draws at
- *  a fixed radius of `3`, so it has no inside to draw in, and silently dropping the folder-hub
- *  basenames and the `(root)` marker from the static view would lose real structure -- the
- *  folder-hierarchy edge mode fans the whole graph out from exactly those nodes, and #2563 just gave
- *  the root its own ring to make it MORE identifiable, not less. Since a synthetic node's fixed `3`
- *  radius sits well outside the real-node `minRadius`/`MAX_NODE_RADIUS` range entirely and is not
- *  part of "Size by" at all, it is excluded from the radius-based font scaling below (OpenProject
- *  #2993) and keeps drawing at the plain, zoom-capped `LABEL_BASE_FONT_PX`.
+ *  A SYNTHETIC node draws at a fixed radius with no inside to write in, so it keeps the
+ *  beside-the-node placement. It is not part of "Size by" either, so it is excluded from the
+ *  radius-based font scaling and draws at the plain, zoom-capped `LABEL_BASE_FONT_PX`.
  *
- *  A REAL node's own base font grows with its drawn radius -- see `labelBaseFontFor()` -- before the
- *  existing zoom cap (`LABEL_MAX_EFFECTIVE_FONT_PX / scale`) is applied on top, so `minRadius` (the
- *  same floor `radiusFor` lerps real nodes from -- `Graph.vue`'s `MIN_NODE_RADIUS`) is a required
- *  parameter here for exactly the reason `fitLabel()`'s own doc comment gives: that floor is a
- *  `Graph.vue`-local, retuned more than once, and only the value the caller actually hands in stays
- *  correct by construction rather than by a hand-copied duplicate silently drifting out of step.
- *
- *  `highlightedIds`/`dimmingIds` (OpenProject #2480, #3312's revert), same optional-`Set` contract as
- *  `drawNodes` above: a non-matching label dims along with its node rather than staying full-strength
- *  while its dot fades, which would read as two disagreeing signals for the same node. */
+ *  A label dims with its node rather than staying full strength while its dot fades, which would
+ *  read as two disagreeing signals for the same node. */
 export function drawLabels(
   ctx,
   nodes,
@@ -448,14 +325,9 @@ export function drawLabels(
   ctx.globalAlpha = 1
 }
 
-/** Paints the current layout to the canvas -- the `ctx` save/clear/transform/draw/restore sequence
- *  only, no layout recomputation. Safe to call on every zoom/pan frame since it draws the `nodes`,
- *  `edges` and `clusters` it is handed as they last stood rather than rebuilding any of them.
- *
- *  `selectedId`/`selectedRingColor` (OpenProject #3364) are optional and forward straight through to
- *  `drawNodes` alone -- see `SELECTED_RING_GAP`'s own doc comment above for why the color is resolved
- *  by the caller (`Graph.vue`) rather than owned here. No label treatment: the selected state draws
- *  as a ring only. */
+/** The `ctx` save/clear/transform/draw/restore sequence only, with no layout recomputation: it
+ *  draws the `nodes`, `edges` and `clusters` it is handed as they last stood, so it is safe to call
+ *  on every zoom/pan frame. */
 export function paintGraph({
   ctx,
   canvas,

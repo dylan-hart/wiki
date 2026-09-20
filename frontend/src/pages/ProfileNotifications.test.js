@@ -6,13 +6,8 @@ import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 import { pendingProfileSaves } from '@/composables/profileSaving'
 
-/**
- * Feature #2425: the self-service Notifications settings page — one `w-toggle` per event type the
- * backend can fire (`backend/models/hooks.ts#HOOK_EVENTS`), loaded from and saved to
- * `users/profile/notifications`. Only the wiring is asserted here — real subscribe/deliver behavior
- * belongs to the sibling WPs (#2481/#2483/#2484); this page only has to load what the server sent,
- * let a reader flip a toggle, and PUT the whole map back.
- */
+// -> The fixture below mirrors `backend/models/hooks.ts#HOOK_EVENTS`: one toggle per event type the
+//    backend can fire. Delivery behaviour is the backend's, not this page's.
 
 const MESSAGES = {
   profile: {
@@ -82,12 +77,8 @@ describe('ProfileNotifications', () => {
     pendingProfileSaves.value = 0
   })
 
-  /**
-   * OpenProject #3282: save() counts itself on the shared `pendingProfileSaves` module singleton
-   * (what gates the Profile dialog's close button/dismiss guard), not only on this page's own local
-   * `state.loading`. A manually-resolved promise stands in for the PUT so the in-flight count is
-   * observable before it settles.
-   */
+  // -> The shared counter, not this page's local `state.loading`, is what gates the Profile
+  //    dialog's close button. The hand-resolved promise makes the in-flight count observable.
   it('counts save() on the shared pendingProfileSaves singleton while the PUT is in flight', async () => {
     stubApi({ 'users/profile/notifications': { ...ALL_FALSE } })
     let resolvePut
@@ -143,13 +134,6 @@ describe('ProfileNotifications', () => {
     )
   })
 
-  /**
-   * OpenProject #2701. The question the work package asked about this page was whether a per-event
-   * subscription list is really a settings form or only looks like one; the answer taken was that it
-   * is -- five groups, five cards, one settings row per event, each row a plate, a label and a
-   * switch, which is the shape Admin General's Features card already has. This pins that answer down
-   * so a later change has to disagree with it deliberately.
-   */
   it('draws one settings card per event group, one plated settings row per event', async () => {
     stubApi({ 'users/profile/notifications': { ...ALL_FALSE } })
 
@@ -197,7 +181,6 @@ describe('ProfileNotifications', () => {
     const wrapper = mountPage()
     await flushPromises()
 
-    // -> Every value stays at its seeded default rather than throwing or partially applying
     for (const key of Object.keys(ALL_FALSE)) {
       expect(wrapper.vm.state.config[key]).toBe(false)
     }

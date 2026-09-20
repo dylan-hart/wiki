@@ -4,14 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import pagesRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * Route-wiring test for `POST /sites/:siteId/pages/:pageId/collab/wysiwyg-seed-claim` (OpenProject
- * #2516). `CARDINAL.collab.claimWysiwygSeed` is stubbed -- its own coordination logic is covered by
- * `core/collab.wysiwygSeed.test.ts`. What this file checks is the route's own logic: that it needs
- * `write:pages` on the page (never a route-level permission, since this is a page-scoped one granted
- * by a rule), that a missing page answers 404, that a locked page is not a barrier (matching the
- * collaboration websocket's own access check), and that the claim's verdict passes straight through.
- */
 describe('POST /sites/:siteId/pages/:pageId/collab/wysiwyg-seed-claim', () => {
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
   const PAGE_ID = '22222222-2222-2222-2222-222222222222'
@@ -73,8 +65,6 @@ describe('POST /sites/:siteId/pages/:pageId/collab/wysiwyg-seed-claim', () => {
       classification: null,
       isLocked: false
     }
-    // -> Both `read:pages` (required by `loadReadablePage` itself) and `write:pages` (this route's
-    //    own check) are granted by default; individual tests narrow this down.
     checkAccessImpl = () => true
     claimCalls = []
     claimResult = true

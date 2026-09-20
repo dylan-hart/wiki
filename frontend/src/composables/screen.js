@@ -1,14 +1,8 @@
 import { ref } from 'vue'
 
 /**
- * Reactive viewport breakpoint state.
- *
- * Replaces `$q.screen`, scoped to the one thing the app asks it: whether the viewport is at or
- * above a named breakpoint. The `gt.*` shorthand it also carried resolved to exactly the same four
- * refs one breakpoint along (`gt.sm` === `gte.md`), so it was two names for one answer and is gone.
- *
- * Breakpoints match `css/tailwind.css`, which in turn matches the ones the templates were written
- * against -- note `sm` starts at 600px here, not Tailwind's stock 640px.
+ * Mirrored in `css/tailwind.css` -- keep the two in sync. Note `sm` starts at 600px here, not
+ * Tailwind's stock 640px.
  */
 const BREAKPOINTS = {
   sm: 600,
@@ -17,10 +11,7 @@ const BREAKPOINTS = {
   xl: 1920
 }
 
-/**
- * One shared listener per breakpoint for the whole app, rather than one per calling component:
- * every consumer wants the same answer, and matchMedia listeners are not free.
- */
+/** One shared listener per breakpoint for the whole app: every consumer wants the same answer. */
 const queries = new Map()
 
 function queryFor(minWidth) {
@@ -37,7 +28,6 @@ function queryFor(minWidth) {
 
 export function useScreen() {
   return {
-    /** True at or above the named breakpoint. */
     gte: {
       get sm() {
         return queryFor(BREAKPOINTS.sm).value
@@ -55,12 +45,7 @@ export function useScreen() {
   }
 }
 
-/**
- * True at or above `minWidth` px. Used by `WDrawer` for its `showIfAbove` behaviour.
- * @param {number} minWidth
- */
 export function useMinWidth(minWidth) {
-  // -> The ref is shared app-wide and intentionally outlives any single component, so there is
-  //    nothing to tear down here; at most one matchMedia listener exists per breakpoint.
+  // -> The ref is shared app-wide and outlives any one component, so there is nothing to tear down
   return queryFor(minWidth)
 }

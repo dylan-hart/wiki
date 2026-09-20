@@ -3,14 +3,9 @@ const isoDurationReg =
 
 export default {
   /**
-   * Parse configuration value for environment vars
-   *
-   * Replaces `$(ENV_VAR_NAME)` with value of `ENV_VAR_NAME` environment variable.
-   *
-   * Also supports defaults by if provided as `$(ENV_VAR_NAME:default)`
-   *
-   * @param cfg Configuration value
-   * @returns Parse configuration value
+   * Replaces `$(ENV_VAR)` with that environment variable's value, and `$(ENV_VAR:default)` with the
+   * default when it is unset or empty. The default capture is lazy so that two references on one
+   * line each stop at their own closing paren.
    */
   parseConfigValue(cfg: string): string {
     return cfg.replaceAll(/\$\(([A-Z0-9_]+)(?::(.+?))?\)/g, (fm: string, m: string, d: string) => {

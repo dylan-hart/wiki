@@ -5,8 +5,7 @@ import {
   temporalPolyfillChunkPlugin
 } from './temporalPolyfillChunk.js'
 
-// -> A minimal stand-in for a Rollup/Rolldown OutputChunk -- only the fields the lookup function
-//    actually reads.
+// -> Only the OutputChunk fields the lookup actually reads
 function chunk(fileName, moduleIds) {
   return { type: 'chunk', fileName, moduleIds }
 }
@@ -137,9 +136,8 @@ describe('temporalPolyfillChunkPlugin', () => {
   test('propagates the loud failure when the bundle has no polyfill chunk', () => {
     const plugin = temporalPolyfillChunkPlugin()
     plugin.configResolved({ base: '/' })
-    // -> Capturing the bundle never throws by itself -- a build with no `index.html` in its output
-    //    (and therefore no placeholder to substitute) legitimately has nothing to resolve. The throw
-    //    only fires once `transformIndexHtml` actually needs the chunk URL.
+    // -> Capturing the bundle never throws by itself: a build with no `index.html` legitimately has
+    //    nothing to resolve, so the throw waits until `transformIndexHtml` needs the chunk URL
     plugin.generateBundle({}, {})
 
     const html = `<head>${TEMPORAL_POLYFILL_PLACEHOLDER}</head>`
@@ -151,8 +149,8 @@ describe('temporalPolyfillChunkPlugin', () => {
   test('does not resolve the chunk at all when the output has no placeholder to fill in', () => {
     const plugin = temporalPolyfillChunkPlugin()
     plugin.configResolved({ base: '/' })
-    // -> An empty bundle would make `findTemporalPolyfillChunkFileName` throw if it ran -- proving
-    //    `transformIndexHtml` never calls it for HTML with no placeholder.
+    // -> An empty bundle would make the lookup throw if it ran, so a clean pass proves
+    //    `transformIndexHtml` never calls it for HTML with no placeholder
     plugin.generateBundle({}, {})
 
     const html = '<head><title>Some other page</title></head>'

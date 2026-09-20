@@ -12,8 +12,7 @@
         :style="{ '--page-toc-depth': item.depth }">
         <!--
           A real `href` so the section can be middle-clicked or copied, with the click handled here
-          instead: scrolling it into view keeps the reader where the wiki put them, rather than
-          handing the URL a fragment the router would then try to resolve.
+          instead: scrolling into view keeps the router from being handed a fragment to resolve.
         -->
         <a class="page-toc-link" :href="item.key" @click="onClick($event, item)">{{
           item.label
@@ -31,12 +30,9 @@ import { scrollToAnchor } from '@/helpers/anchors'
 import { flattenToc } from '@/helpers/toc'
 
 /**
- * The page contents: a list of links to the headings in the render, marking the one being read.
- *
- * Depth is expressed by indentation off a single rail plus a type ramp — heavier and darker at the
- * top level, lighter and smaller further in. There is no disclosure control: which levels the
- * contents cover is the page's own setting (`tocDepth`, as `minDepth`/`maxDepth` here), not something
- * to fiddle with per visit, and a column of carets both wasted the width and read as a file tree.
+ * No disclosure control: which levels the contents cover is the page's own `tocDepth` setting
+ * (`minDepth`/`maxDepth` here), not something to fiddle with per visit, and a column of carets both
+ * wasted the width and read as a file tree.
  */
 const props = defineProps({
   /** The contents tree: `{ key, label, children }`, where `key` is the heading's `#anchor`. */
@@ -44,21 +40,15 @@ const props = defineProps({
     type: Array,
     required: true
   },
-  /**
-   * The shallowest level to show, counting from 1 — so `2` skips the first level, and its
-   * subheadings become the top tier of the list. The page properties panel presents the pair as
-   * `H{min} → H{max}`.
-   */
+  /** Counting from 1, so `2` skips the first level and promotes its subheadings to the top tier. */
   minDepth: {
     type: Number,
     default: 1
   },
-  /** The deepest level to show, counting from 1. Anything below it is left out entirely. */
   maxDepth: {
     type: Number,
     default: 2
   },
-  /** Key of the heading being read. Owned by the caller; this component keeps it up to date. */
   selected: {
     type: String,
     default: null
@@ -67,46 +57,35 @@ const props = defineProps({
 
 const emit = defineEmits(['update:selected'])
 
-// I18N
-
 const { t } = useI18n()
 
 /*
-  Where the page counts as being "at" a heading: the first heading whose top has passed this line,
-  measured down from the top of whatever box the article scrolls in. Deliberately below that edge, so
-  a heading becomes current as it settles into reading position rather than the instant its first
-  pixel appears.
+  Where the page counts as being "at" a heading, measured down from the top of whatever box the
+  article scrolls in. Deliberately below that edge, so a heading becomes current as it settles into
+  reading position rather than the instant its first pixel appears.
 */
 const SPY_LINE = 120
 
 /*
-  How long the spy stands down after a click. A smooth scroll passes over every heading in between,
-  and letting the marker run down the list behind it looks like a fault; the click already said which
-  heading is meant. Long enough for a scroll of any length to settle.
+  How long the spy stands down after a click: a smooth scroll passes over every heading in between,
+  and letting the marker run down the list behind it looks like a fault.
 */
 const CLICK_SETTLE_MS = 1200
 
 let spyFrame = null
 let spySuspendedUntil = 0
 
-// COMPUTED
-
 /**
- * The tree flattened to one list, each row carrying its own depth.
- *
- * One list rather than a component per level: the rail and the active marker are then a single
+ * One flat list rather than a component per level: the rail and the active marker are then a single
  * positioning context, so a row at any depth marks the same 1px line.
  */
 const visibleItems = computed(() =>
   flattenToc(props.nodes, { minDepth: props.minDepth, maxDepth: props.maxDepth })
 )
 
-// METHODS
-
-/** The heading element a row points at, or null while the render is still catching up. */
 function headingFor(key) {
-  // -> `key` is the anchor `#slug`; the bare id is what `getElementById` wants, and it sidesteps
-  //    having to escape a slug that is not a valid CSS selector
+  // -> `getElementById` rather than a selector: a heading slug need not be a valid CSS selector, and
+  //    would otherwise have to be escaped
   return document.getElementById(key.replace(/^#/, ''))
 }
 
@@ -124,11 +103,9 @@ function onClick(ev, item) {
 }
 
 /**
- * Where the box the article scrolls in starts, in viewport coordinates.
- *
  * The shell is the viewport and the article scrolls in a column inside it, so a heading at the top of
- * its own scrollport is still ~200px down the window, under the header and the page title. Measuring
- * the reading line from the window instead put the spy a heading behind wherever the reader was.
+ * its own scrollport is still well down the window. Measuring the reading line from the window
+ * instead leaves the spy a heading behind wherever the reader is.
  */
 function scrollportTop(heading) {
   for (let el = heading.parentElement; el; el = el.parentElement) {
@@ -140,8 +117,6 @@ function scrollportTop(heading) {
 }
 
 /**
- * Mark whichever heading the reader has reached.
- *
  * Positions are read fresh each time rather than cached: the render is replaced wholesale while
  * editing, and images settling in shift every heading below them.
  */
@@ -181,18 +156,13 @@ function queueSpy() {
   })
 }
 
-// WATCHERS
-
 // -> A new render means new heading positions, and possibly a different set of them
 watch(() => props.nodes, queueSpy)
 
-// MOUNTED
-
 onMounted(() => {
   /*
-    `capture` because scroll events do not bubble: the page scrolls the document today, but the
-    content sits in a scroll container that takes over at shorter viewports, and capturing on the
-    window catches whichever one moved.
+    `capture` because scroll events do not bubble: the article may scroll the document or a container
+    inside it, and capturing on the window catches whichever one moved.
   */
   window.addEventListener('scroll', queueSpy, { capture: true, passive: true })
   window.addEventListener('resize', queueSpy, { passive: true })
@@ -209,17 +179,10 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
-  The contents list.
-
-  Everything hangs off one vertical rail at the left: depth is indentation from it, and the heading
-  being read marks it. Colours come from CSS custom properties rather than the SCSS palette so that
-  `--color-primary` follows a re-themed site, which a compiled `var(--color-primary)` could not.
+  Everything hangs off one vertical rail: depth is indentation from it, and the heading being read
+  marks it. Colours go through custom properties rather than fixed values so that a re-themed site's
+  `--color-primary` follows at runtime.
 */
 .page-toc {
   --page-toc-indent: 14px;
@@ -231,10 +194,9 @@ onBeforeUnmount(() => {
   --page-toc-ink-hover: var(--color-grey-10);
   --page-toc-hover-surface: rgba(0, 0, 0, 0.04);
   /*
-    The active entry, as three properties rather than one colour: Ledger marks it with a 2px accent
+    The active entry as several properties rather than one colour: Ledger marks it with a 2px accent
     bar drawn ON the rail and leaves the row untinted, while Cobalt drops the rail and the bar
-    altogether and marks the row itself -- an accent-wash plate with accent text and a 5px corner
-    (`Page View 3x - Cobalt`). `--page-toc-active-mark` is the bar's width, so `0` is what removes it.
+    altogether and tints the row itself. `--page-toc-active-mark` is the bar's width, so `0` removes it.
   */
   --page-toc-active-ink: var(--color-primary);
   --page-toc-active-surface: transparent;
@@ -279,9 +241,8 @@ body.body--cobalt.body--dark .page-toc {
   padding: 0;
   list-style: none;
   /*
-    The rail. Inset top and bottom so it stops level with the first and last label, and on the
-    INLINE-START edge -- the side the depth ramp indents away from -- so it sits under the reader's
-    right hand in RTL rather than staying pinned to the physical left.
+    The rail: inset top and bottom so it stops level with the first and last label, and on the
+    INLINE-START edge -- the side the depth ramp indents away from -- so it follows RTL.
   */
 }
 .page-toc-list::before {
@@ -300,9 +261,8 @@ body.body--cobalt.body--dark .page-toc {
 }
 .page-toc {
   /*
-    The active marker, drawn ON the rail rather than beside it: `inset-inline-start: 0` is the item's
-    own border box, which starts at the rail whatever the indentation, so every depth marks the same
-    line -- on whichever edge the rail itself is on.
+    The active marker is drawn ON the rail: `inset-inline-start: 0` is the item's own border box,
+    which starts at the rail whatever the indentation, so every depth marks the same line.
   */
 }
 .page-toc-item--active::before {
@@ -323,14 +283,11 @@ body.body--cobalt.body--dark .page-toc {
   font-size: inherit;
   font-weight: inherit;
   text-decoration: none;
-  /* Long headings wrap rather than being cut off; the sidebar is 300px wide, 200px under 1400px */
   overflow-wrap: break-word;
   /*
     Always present, not just while active: only `color`/`background-color` transition below, so a
-    radius that appeared/disappeared with the active class would snap to square corners the instant
-    the class is removed, while the background is still fading out over the same 0.2s. A rounded
-    corner on a `transparent` background (Ledger's default, and any inactive row in Cobalt) draws
-    nothing, so this costs nothing when inactive.
+    radius that came and went with the active class would snap to square the instant the class is
+    removed, while the background is still fading out. On a transparent background it draws nothing.
   */
   border-radius: var(--page-toc-active-radius);
   transition:
@@ -343,8 +300,8 @@ body.body--cobalt.body--dark .page-toc {
 }
 .page-toc {
   /*
-    The depth ramp. Each level steps down in weight, size and contrast, so nesting is legible from
-    the type alone -- indentation on its own left every level looking like the same kind of thing.
+    The depth ramp: each level steps down in weight, size and contrast, so nesting is legible from
+    the type alone -- indentation on its own leaves every level looking like the same kind of thing.
   */
 }
 .page-toc-item--d0 {
@@ -381,9 +338,9 @@ body.body--cobalt.body--dark .page-toc {
 }
 .page-toc-item--active {
   /*
-    The row's own plate, which is `transparent`/`0` in Ledger and so draws nothing there. On the
-    link rather than the item, so the tint stops at the label's box instead of running back under
-    the indentation of a nested entry.
+    The row's own plate, `transparent`/`0` under Ledger and so drawing nothing there. On the link
+    rather than the item, so the tint stops at the label instead of running back under a nested
+    entry's indentation.
   */
 }
 .page-toc-item--active > .page-toc-link {

@@ -2,14 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { useDark } from './dark.js'
 
-/**
- * Regression coverage for OpenProject #797: toggling dark mode used to leave the
- * `body--dark`/`body--light` flip to whatever CSS transitions each control happened to declare, so
- * some controls (several in the Administration Area) visibly faded instead of switching instantly.
- * `dark.js`'s `apply()` now brackets the class flip with `.theme-transition-suppress` on `<html>`
- * (`tailwind.css` forces `transition: none !important` under it) for one frame, removing it again on
- * the next `requestAnimationFrame`.
- */
 afterEach(() => {
   document.body.classList.remove('body--dark', 'body--light')
   document.documentElement.classList.remove('theme-transition-suppress')

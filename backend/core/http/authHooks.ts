@@ -10,31 +10,11 @@ import {
 import { sessionCookieName, shouldBlockCrossOriginApiRequest } from '../../helpers/security.ts'
 
 /**
- * Who the caller is, and what they are allowed to spend: the API-key bearer hook, the same-origin
- * gate, the two rate limiters, the route-permission check and the API-key site pin — in the order
- * `index.ts` registered them, which is behaviour (see `registerAuthHooks` below).
- */
-
-/**
- * The route-permission gate: the single place a route's `config.permissions` declaration is
- * enforced.
+ * The single place a route's `config.permissions` declaration is enforced.
  *
- * Callback-style (`(req, reply, done)`), matching `helpers/siteResolution.ts#siteEnabledPreHandler` and
- * `helpers/apiKeySite.ts#apiKeySitePinHook` — register it with
- * `app.addHook('preHandler', permissionPreHandler)`.
- *
- * Global-vs-page-rule audit (task 551, Feature 377): every `session.permissions` /
- * `apiKey.permissions` read under `backend/` was re-grepped and confirmed to check a genuinely-global
- * permission name (this hook's own `routePermissions`, `models/users.ts`'s login flattening,
- * `models/approvals.ts`, `models/groups.ts`'s `checkSiteAdminAccess()`, `controllers/terminal.ts`,
- * `helpers/rateLimit.ts`, `models/groups.ts`'s `actorForRequest()`, `api/users/admin.ts`'s `whoAmI()`), not
- * one of the sixteen page-rule `PAGE_PERMISSIONS` strings — those may only be decided by
- * `groups.checkAccess()` / `mayOnPage()` against a page's rules. One further instance turned up in
- * that pass and was fixed there: `api/pages/read.ts`'s search route was scanning the GLOBAL list for
- * `write:pages`/`manage:pages`, which a group's `permissions` column never legitimately carries — see
- * `models/groups.ts`'s `mayHoldPermissionSomewhere()`. A future permission check added near any of
- * the above should keep asking the same question this comment does, not assume `session.permissions`
- * covers page-scoped names.
+ * Only GLOBAL permission names can be decided here: `session.permissions` and `apiKey.permissions`
+ * never carry a page-rule or site-scoped name, which is decided against a page's or site's rules by
+ * `groups.checkAccess()` / `mayOnPage()` / `groups.checkSiteAccess()` instead.
  */
 export function permissionPreHandler(
   req: FastifyRequest,
@@ -50,31 +30,21 @@ export function permissionPreHandler(
       : req.session?.authenticated
         ? (req.session.permissions ?? [])
         : null
-    // -> Unauthenticated: no verified key and no authenticated session at all. Distinct from an
-    //    authenticated identity that simply holds NO global permissions (OpenProject #2555's own
-    //    fallout, caught by `e2e/tests/permissions.spec.js`): a Users-group-only account is real and
-    //    genuinely holds an empty global `permissions` list once page access lives entirely in rule
-    //    `roles` rather than being (wrongly) duplicated onto this column -- visiting a
-    //    globally-gated route with that identity must answer 403 Forbidden, not 401 Unauthorized.
-    //    A 401 here trips the frontend's session-expiry interceptor (`boot/api.js`), which patches
-    //    the store back to guest and bounces the reader to `/login` instead of the `/_error/
-    //    unauthorized` screen an authenticated-but-not-permitted visit is supposed to reach.
+    // -> 401 only for no verified identity at all. An authenticated identity holding NO global
+    //    permissions (a Users-group-only account) is a 403 below: a 401 trips the frontend's
+    //    session-expiry interceptor (`boot/api.js`), which bounces the reader to `/login`.
     if (!permissions) {
       reply.unauthorized()
       return
     }
-    // Is Root Admin?
     if (!permissions.includes('manage:system')) {
-      // Check for at least 1 permission
       const isAllowed = routePermissions.some((perms) => {
-        // Check for all permissions
         if (Array.isArray(perms)) {
           return perms.every((perm) => permissions.some((p) => p === perm))
         } else {
           return permissions.some((p) => p === perms)
         }
       })
-      // Forbidden
       if (!isAllowed) {
         reply.forbidden()
         return
@@ -85,22 +55,16 @@ export function permissionPreHandler(
 }
 
 /**
- * Registers every authentication/authorization hook, in the one order they may be registered in.
+ * Registration order is behaviour: the API-key hook runs first, because the same-origin gate and
+ * the `/_api/` rate limiter read `req.apiKey`.
  */
 export function registerAuthHooks(app: FastifyInstance): void {
-  // ----------------------------------------
-  // API Key Authentication
-  // ----------------------------------------
-
   app.decorateRequest('apiKey', null)
 
   app.addHook('onRequest', async (req, reply) => {
-    // -> Bearer tokens authenticate `/_api/` calls, plus the handful of public, hostname-routed
-    //    controllers that accept an API key without a session (`/_files`, `/_site`, `/_thumb` --
-    //    see `helpers/apiKeySite.ts#isBearerAuthenticatedPath` for exactly which and why, OpenProject
-    //    #2339). Everything else is cookie-authenticated. Note that the session is deliberately left
-    //    untouched: writing to it would have @fastify/session persist a session row for every
-    //    scraped request.
+    // -> Everything outside `isBearerAuthenticatedPath` is cookie-authenticated. The session is
+    //    deliberately left untouched: writing to it would have @fastify/session persist a session
+    //    row for every scraped request.
     if (!isBearerAuthenticatedPath(req.url)) {
       return
     }
@@ -115,71 +79,40 @@ export function registerAuthHooks(app: FastifyInstance): void {
     try {
       req.apiKey = await CARDINAL.models.apiKeys.verify(token)
     } catch (err: any) {
-      // -> `warn`, not `debug` (audit V8): a refused credential is security-relevant, and an
-      //    operator watching for a compromised key must see it without turning on debug logging.
-      //    Say why, too: the caller holds the credential and can act on "revoked" or "expired".
+      // -> `warn`, not `debug`: an operator watching for a compromised key must see a refused
+      //    credential without debug logging. The reason goes back to the caller, who holds the
+      //    credential and can act on "revoked" or "expired".
       CARDINAL.logger.warn('auth', 'api key refused', { error: err })
       return reply.unauthorized(err.message)
     }
     // -> Global, not per-route: a compromised key has to be caught on whichever endpoint it hits,
-    //    not only the ones that remembered to attach a limiter. See helpers/rateLimit.ts for why
-    //    this one specifically has no manage:system exemption.
+    //    not only the ones that remembered to attach a limiter.
     return limitApiKey(req, reply)
   })
 
-  // ----------------------------------------
-  // Same-Origin Check (task 2118 / WP 2105 §3)
-  // ----------------------------------------
-
   /*
-    `SameSite=Lax` (see `core/http/session.ts`) does not cover a same-site-but-different-origin
-    attacker -- a page on sibling.wiki.example is "same-site" to wiki.example for cookie purposes, but
-    not the wiki's own origin, and Lax still attaches the cookie to a top-level form navigation either
-    way. Nothing else in the request pipeline inspects request provenance (see WP 2105's own grep for
-    `csrf`/`sec-fetch`/`x-requested-with` across the repo), so a state-changing `/_api/` request riding
-    on the session cookie alone -- no verified bearer token -- has to positively confirm it originated
-    here. The actual decision is `shouldBlockCrossOriginApiRequest()` in `helpers/security.ts` -- kept
-    as a plain function of the request rather than written inline here so it can be exercised directly
-    in a test with no Fastify instance, database, or route registration needed at all; this hook is
-    just the wiring.
-
-    After the API-key hook above, so `req.apiKey` is populated for the bearer exemption; before the
-    rate limiter, though the ordering between the two doesn't matter functionally.
+    `SameSite=Lax` does not cover a same-site-but-different-origin attacker: a page on
+    sibling.wiki.example is "same-site" to wiki.example for cookie purposes, and Lax still attaches
+    the cookie to a top-level form navigation. A state-changing `/_api/` request riding on the
+    session cookie alone therefore has to positively confirm it originated here.
   */
   app.addHook('onRequest', (req, reply, done) => {
     if (shouldBlockCrossOriginApiRequest(req, sessionCookieName())) {
-      // -> Fails closed: a missing/foreign `Origin` (and no `Sec-Fetch-Site: same-origin`) is not
-      //    what a real browser sends on a state-changing cross-document request, so there is
-      //    nothing here to positively trust.
       return reply.forbidden('Cross-origin request blocked')
     }
     done()
   })
 
-  // ----------------------------------------
-  // General API Rate Limit
-  // ----------------------------------------
-
   app.addHook('onRequest', async (req, reply) => {
-    // -> After the API-key hook above, so `req.apiKey` is populated for the key it builds its
-    //    counter from. See `helpers/rateLimit.ts#limitApiRequests` for the key/exemption/double-count
-    //    reasoning.
     if (!req.url.startsWith('/_api/')) {
       return
     }
     return limitApiRequests(req, reply)
   })
 
-  // ----------------------------------------
-  // Public Surface Rate Limit
-  // ----------------------------------------
-
   app.addHook('onRequest', async (req, reply) => {
-    // -> The handful of root-mounted public controllers (`/sitemap.xml`, `/robots.txt`, `/_icons`,
-    //    `/_files`, `/_thumb`, `/_site`) carried no throttle of any kind before this hook (OpenProject
-    //    #2274) -- neither this one nor the `/_api/` limiter above ever saw them, since both are
-    //    scoped to `/_api/`. Accounted into its own `public:` bucket, entirely separate from
-    //    `/_api/`'s -- see `helpers/rateLimit.ts#limitPublicRequests`.
+    // -> The root-mounted public controllers are outside `/_api/`, so the limiter above never
+    //    sees them. They count into their own `public:` bucket, separate from `/_api/`'s.
     const path = req.url.split('?')[0] ?? req.url
     if (!isPublicRateLimitedPath(path)) {
       return
@@ -187,20 +120,10 @@ export function registerAuthHooks(app: FastifyInstance): void {
     return limitPublicRequests(req, reply)
   })
 
-  // ----------------------------------------
-  // Permissions
-  // ----------------------------------------
-
   app.addHook('preHandler', permissionPreHandler)
 
-  // ----------------------------------------
-  // API key site pin
-  // ----------------------------------------
-
-  // -> OpenProject #2189/#2194: a key/token pinned to one site (`apiKeys.siteId`) must not reach
-  //    another site's resources through the REST API. One global hook covering every
-  //    `/sites/:siteId/...` route rather than a call added to each of the 117+ of them individually —
-  //    see `helpers/apiKeySite.ts`'s own doc comment for the full reasoning and what this deliberately
-  //    does not cover (a hostname- or body-resolved site, which calls `enforceApiKeySite()` directly).
+  // -> A key pinned to one site (`apiKeys.siteId`) must not reach another site's resources. One
+  //    global hook covers every `/sites/:siteId/...` route; a route whose site is resolved from the
+  //    hostname or the body calls `enforceApiKeySite()` itself.
   app.addHook('preHandler', apiKeySitePinHook)
 }

@@ -3,11 +3,6 @@ import { after, beforeEach, describe, mock, test } from 'node:test'
 import { FLAGS, flags } from './flags.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
-/**
- * Pure unit tests: every method here reads `CARDINAL.config.flags` and writes through `CARDINAL.logger`, so
- * a minimal stand-in global is enough — no database, and `updateFlags`'s one persistence hop is a
- * stubbed `CARDINAL.configSvc`.
- */
 describe('flags model', () => {
   let wikiHandle: { restore(): void }
   let debugCalls: { scope: string; message: string }[]
@@ -56,11 +51,6 @@ describe('flags model', () => {
     })
   })
 
-  /**
-   * OpenProject #2663: the two debug flags are no longer switches of their own — each is a runtime
-   * override of one log scope's threshold, which `core/logger.ts` resolves ahead of `logScopes:` and
-   * `logLevel` on every single line.
-   */
   describe('logScopeOverrides()', () => {
     test('both flags off: no scope has an override at all', () => {
       // -> An empty map, not `{ sql: 'info' }`: absence is what lets `logScopes:` and then
@@ -104,11 +94,6 @@ describe('flags model', () => {
     })
   })
 
-  /**
-   * `authDebug()` used to gate itself on the flag and emit at `info` so the line would clear the
-   * default floor. Both halves of that are gone: the flag raises the scope, and the level is the
-   * honest one for a per-attempt line.
-   */
   describe('authDebug()', () => {
     test('emits a debug auth line with the flag off, and lets the threshold drop it', () => {
       flags.authDebug('local login attempt for user 42')
@@ -169,9 +154,8 @@ describe('flags model', () => {
   })
 
   /**
-   * The descriptions are what an administrator reads next to the switch, and both switches now do
-   * something different from what they used to. A description still promising "queries are logged"
-   * with no mention of the scope it raises would describe a switch that no longer exists.
+   * The descriptions are what an administrator reads next to the switch, so one that promises
+   * "queries are logged" without naming the scope it raises describes a switch that does not exist.
    */
   describe('FLAGS descriptions', () => {
     test('each flag in the union has a description', () => {
@@ -187,8 +171,8 @@ describe('flags model', () => {
     })
 
     test('sqlLog still warns that a bound parameter can carry a credential', () => {
-      // -> OpenProject #2205's warning must survive the reword: the values are redacted, but an
-      //    administrator turning this on should know what class of data the line is near.
+      // -> The values are redacted, but an administrator turning this on should still know what
+      //    class of data the line sits near.
       assert.match(FLAGS.sqlLog, /never its value/)
       assert.match(FLAGS.sqlLog, /credential/i)
     })

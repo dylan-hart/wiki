@@ -31,10 +31,9 @@ const SERVER_ITEMS = [
 ]
 
 /**
- * `useDialogComponent()` mounts the panel hidden and flips `dialogVisible` true on the tick after
- * mount (see `composables/dialog.js`) -- `<w-dialog>` also teleports its panel via
- * `<teleport to="body">`, which `stubs: { teleport: true }` keeps in place so `wrapper.find()` can
- * still reach it, matching `BlockUploadDialog.test.js`'s own mounting pattern.
+ * `useDialogComponent()` mounts the panel hidden and flips `dialogVisible` true a tick later, and
+ * `<w-dialog>` teleports it to `<body>` -- `stubs: { teleport: true }` keeps the panel in place so
+ * `wrapper.find()` can still reach it.
  */
 function mountDialog({
   siteId = 'site-2',
@@ -54,10 +53,9 @@ function mountDialog({
     if (url === 'groups') {
       return { json: vi.fn().mockResolvedValue([]) }
     }
-    // -> Both `nav-item-editor`'s own `full: true` fetch and the sidebar-invalidation
-    //    `fetchNavigation()` calls below hit the same `GET .../navigation/:navId` route, which
-    //    always returns the wrapped `{ mode, items }` shape -- `full` only changes which
-    //    visibility-group layer the server resolves, not the response envelope.
+    // -> `nav-item-editor`'s `full: true` fetch and the sidebar-invalidation `fetchNavigation()`
+    //    calls share this route and envelope: `full` only changes which visibility-group layer the
+    //    server resolves.
     return { json: vi.fn().mockResolvedValue({ mode: 'static', items: SERVER_ITEMS }) }
   })
 
@@ -102,13 +100,6 @@ describe('AdminNavEditDialog', () => {
     })
   })
 
-  /**
-   * OpenProject #1012: this dialog has no page context of its own -- unlike `NavEditOverlay.vue` --
-   * so it force-refetches whatever menu the tab's OWN current page shows (`pageStore.navigationId`),
-   * not `props.navId`, and only when the site being administered (`props.siteId`, resolved from
-   * `adminStore.currentSiteId`) is actually the one loaded in this tab (`siteStore.id`). See
-   * `invalidateSidebarNav()`'s own doc comment for why.
-   */
   describe('same-tab sidebar invalidation (OpenProject #1012)', () => {
     it('force-refetches the sidebar nav on save when administering the site actually active in this tab', async () => {
       const { wrapper, siteStore } = mountDialog({

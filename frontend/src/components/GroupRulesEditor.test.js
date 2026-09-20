@@ -34,11 +34,6 @@ function pathRule(overrides = {}) {
   }
 }
 
-/**
- * OpenProject #3408: `GroupRulesEditor.vue` swaps the path input for a tag picker when a rule's
- * `match` is `TAG`/`TAGALL`, fed by `GET /sites/:siteId/tags`, and reads/writes `rule.tags` (a
- * first-class array) rather than parsing a comma list out of `rule.path`.
- */
 describe('GroupRulesEditor.vue rule tags (OpenProject #3408)', () => {
   it('fetches tag suggestions for the current admin site on mount', async () => {
     const { calls } = stubApi({
@@ -128,15 +123,8 @@ describe('GroupRulesEditor.vue rule tags (OpenProject #3408)', () => {
   })
 })
 
-/**
- * OpenProject #3412: the rule editor's `read:source` option caption is
- * `admin.groups.permissions.read:source.hint`, rendered verbatim (`<w-item-label caption>{{
- * opt.hint }}</w-item-label>`, no read:source-specific branching). This locks in that the `rules`
- * computed -- what `ruleOptions` and therefore the caption are built from -- resolves the hint
- * through `t()` rather than a hardcoded string, so the caption always reflects whatever
- * `admin.groups.permissions.read:source.hint` currently says, including the implied-by-write:pages/
- * manage:pages wording CLAUDE.md's Permissions section documents.
- */
+// The caption is rendered verbatim from the dictionary, so an administrator granting the rule sees
+// whatever `read:source.hint` says -- including that `write:pages`/`manage:pages` imply it.
 describe('GroupRulesEditor.vue read:source caption (OpenProject #3412)', () => {
   it('resolves the read:source option caption from admin.groups.permissions.read:source.hint', async () => {
     stubApi({ 'sites/site-1/tags': [] })

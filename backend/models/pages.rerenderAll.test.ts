@@ -13,9 +13,6 @@ import { pageRenderQueue as pageRenderQueueTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
- * `pages.queueRerenderAllPages()` (OpenProject #3181) -- the model half of the Glossary admin
- * screen's "rerender all pages" bulk action: a loop over the same `renderQueue.queuePage()` every
- * ordinary save and the single-page Rerender action already use, not a new rendering mechanism.
  * DB-backed because what is under test IS the SQL selection (every markdown page of the site, and
  * only markdown pages) plus the resulting `pageRenderQueue` rows, not something a mock of the query
  * builder would meaningfully verify.
@@ -34,9 +31,8 @@ describe(
       await seedLocale(fixtures.db, { code: 'en' })
       ;({ pages: pagesModel } = await import('./pages.ts'))
       actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
-      // -> Puppeteer is never installed in this test environment. Stubbed to succeed by default; the
-      //    refusal itself gets its own narrower override below (mirrors `pages.test.ts`'s own
-      //    OpenProject #1716 describe block).
+      // -> Puppeteer is never installed in this test environment; stubbed to succeed by default,
+      //    with the refusal case overriding it below.
       ensureCanRenderMock = mock.method(
         CARDINAL.models.renderQueue,
         'ensureCanRender',
@@ -49,18 +45,15 @@ describe(
       await teardownTestDb()
     })
 
-    // -> Every test below creates its own pages, but `pageRenderQueue` rows a previous test left
-    //    behind (there is nothing in these tests that ever drains the queue) would otherwise leak
-    //    into the next test's `queuedPageIds()` read -- cleared so each test starts from an empty
-    //    queue.
+    // -> Nothing here ever drains the queue, so rows a previous test left behind would otherwise
+    //    leak into the next test's `queuedPageIds()` read.
     beforeEach(async () => {
       await fixtures.db.delete(pageRenderQueueTable)
     })
 
     /**
-     * `render: ''` on every create below is deliberate: it skips `createPage()`'s own up-front
-     * `ensureCanRender()`/queue-on-create path (OpenProject #1716), so the only `pageRenderQueue`
-     * rows each test sees are the ones `queueRerenderAllPages()` itself produces.
+     * `render: ''` skips `createPage()`'s own up-front `ensureCanRender()`/queue-on-create path, so
+     * the only `pageRenderQueue` rows a test sees are the ones `queueRerenderAllPages()` produces.
      */
     function pageInput(overrides: Partial<PageInput> = {}): PageInput {
       return {
@@ -81,11 +74,9 @@ describe(
       return rows.map((r) => r.pageId)
     }
 
-    // -> Assertions below check that the pages THIS test created are queued (and, for the
-    //    non-markdown case, that the redirect page is not), rather than asserting the queue's exact
-    //    contents -- `pages` rows earlier tests in this file created are never deleted (only
-    //    `pageRenderQueue` is cleared per test), so a markdown page from an earlier test is a real,
-    //    correctly-queued row here too, not test pollution to assert away.
+    // -> Assertions check that the pages THIS test created are queued, not the queue's exact
+    //    contents: only `pageRenderQueue` is cleared per test, so an earlier test's markdown page is
+    //    a real, correctly-queued row here too, not pollution to assert away.
     test('queues every markdown page on the site, including the count in its return value', async () => {
       const a = await pagesModel.createPage(
         fixtures.siteId,

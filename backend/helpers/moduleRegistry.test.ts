@@ -3,7 +3,6 @@ import { describe, test } from 'node:test'
 import { mergeModuleConfig, validateModuleConfig } from './moduleRegistry.ts'
 import type { ModuleProp } from './moduleProps.ts'
 
-/** A prop shaped the way `parseModuleProps` (helpers/moduleProps.ts) normalizes a `definition.yml` entry. */
 function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
   return {
     default: false,
@@ -25,9 +24,8 @@ function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
 }
 
 /**
- * The prop set every case below validates against: a sensitive string, an enum, a plain boolean, a
- * number and a read-only string — one of each branch `validateModuleConfig`'s switch has, plus the
- * two `mergeModuleConfig` treats specially (`sensitive`, `readOnly`).
+ * One of each branch `validateModuleConfig`'s switch has, plus the two `mergeModuleConfig` treats
+ * specially (`sensitive`, `readOnly`).
  */
 const props: Record<string, ModuleProp> = {
   apiKey: fakeProp({ default: '', type: 'string', title: 'API Key', sensitive: true }),
@@ -42,7 +40,6 @@ const props: Record<string, ModuleProp> = {
   region: fakeProp({ default: 'us-east-1', type: 'string', title: 'Region', readOnly: true })
 }
 
-/** A second set, for the `required` / `pattern` pass only search's engine picker turns on. */
 const strictProps: Record<string, ModuleProp> = {
   apiKey: fakeProp({ default: '', type: 'string', title: 'API Key', required: true }),
   hosts: fakeProp({

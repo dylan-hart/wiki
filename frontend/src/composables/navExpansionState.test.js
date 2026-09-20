@@ -5,13 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { useNavExpansionState, useProvideNavExpansionState } from './navExpansionState'
 
 /**
- * A minimal provider/consumer pair, mirroring the real `NavSidebar.vue` (provides once at the
- * root) / `NavSidebarItem.vue` (injects, possibly several levels deep) shape -- without pulling in
- * either component or this app's full mount harness (i18n/router/pinia), none of which this
- * composable depends on. Each `Consumer` records its own `{ isOpen, setOpen }` pair into `sink` as
- * it's created, so a test can address any id from any instance directly -- which is what proves the
- * state is shared rather than per-instance -- without relying on how `@vue/test-utils` happens to
- * expose a `setup()` component's `expose()`d members.
+ * Each consumer pushes its own `{ isOpen, setOpen }` into `sink`, so a test can drive any instance
+ * directly rather than through however `@vue/test-utils` exposes a `setup()` component's members.
  */
 function makeConsumer(sink) {
   return defineComponent({
@@ -27,8 +22,8 @@ function mountTree({ nestingDepth = 1 } = {}) {
   const sink = []
   const Consumer = makeConsumer(sink)
 
-  // -> `nestingDepth` consumers nested one inside another, so a test can prove the shared state is
-  //    the same Map at any depth below the provider, not only immediately under it.
+  // -> Consumers nested one inside another, so the state can be proved shared at any depth below
+  //    the provider, not only immediately under it
   function nested(depth) {
     return depth <= 1 ? h(Consumer) : h('div', [h(Consumer), nested(depth - 1)])
   }
@@ -66,10 +61,8 @@ describe('navExpansionState', () => {
 
     a.setOpen('folder-1', false)
 
-    // -> Even though the caller now claims a different default, the recorded value wins: this is
-    //    what keeps a folder the reader closed from popping back open just because its
-    //    `expandByDefault || containsCurrent(item)` expression happens to re-evaluate to `true` on
-    //    a later render.
+    // -> Keeps a folder the reader closed from popping open again when the caller's default
+    //    expression re-evaluates to `true` on a later render
     expect(a.isOpen('folder-1', true)).toBe(false)
   })
 
@@ -87,12 +80,8 @@ describe('navExpansionState', () => {
     expect(consumers.length).toBeGreaterThan(1)
     const [first, ...rest] = consumers
 
-    // -> Written through the first instance...
     first.setOpen('shared-id', true)
 
-    // -> ...and read back as the same value through every other instance in the tree, proving they
-    //    all share the one Map `useProvideNavExpansionState()` created rather than each injecting a
-    //    fallback of its own.
     for (const consumer of rest) {
       expect(consumer.isOpen('shared-id', false)).toBe(true)
     }

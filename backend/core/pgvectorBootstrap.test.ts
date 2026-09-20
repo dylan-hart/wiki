@@ -11,11 +11,9 @@ import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 import type { WikiDb } from './db.ts'
 
 /**
- * Task 3095: `bootstrapPgvector()` is the optional, never-throws capability probe `syncSchemas()`
- * runs after migrations. DB-backed (real Postgres, real roles/privileges) rather than mocked, since
- * the thing under test in the negative case is a genuine permission denial from the server -- a
- * mocked `db.execute` would only assert that the code calls `catch`, not that it survives whatever
- * shape a real `CREATE EXTENSION`/`CREATE TABLE` failure actually takes. Gated on `hasTestDatabase()`.
+ * Real Postgres roles and privileges rather than a mocked `db.execute`: the negative case is a
+ * genuine permission denial from the server, and a mock would only prove that the code calls
+ * `catch`, not that it survives the shape a real `CREATE EXTENSION`/`CREATE TABLE` failure takes.
  */
 describe('bootstrapPgvector() -- optional pgvector capability (task 3095)', () => {
   const skip = hasTestDatabase() ? false : 'requires DATABASE_URL'
@@ -55,14 +53,9 @@ describe('bootstrapPgvector() -- optional pgvector capability (task 3095)', () =
       try {
         await adminPool.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${rolePassword}'`)
         roleCreated = true
-        // -> Grants the role CONNECT-equivalent visibility into this suite's schema (USAGE) but
-        //    explicitly withholds CREATE at both the schema level (gates `CREATE TABLE`) and the
-        //    database level (gates `CREATE EXTENSION`, which `bootstrapPgvector()` runs first), so
-        //    every statement it issues fails with a permission error regardless of whether pgvector
-        //    happens to be installed on this server, and regardless of this server's own default
-        //    database-level grants -- the acceptance criterion is "role lacks privilege", not
-        //    "extension absent", and this exercises exactly that one cause for every statement, not
-        //    just the last one.
+        // -> USAGE only. CREATE is withheld on the schema (gates `CREATE TABLE`) and on the
+        //    database (gates `CREATE EXTENSION`, which runs first), so every statement fails on
+        //    privilege whether or not pgvector is installed on this server.
         await adminPool.query(`GRANT USAGE ON SCHEMA "${schema}" TO "${roleName}"`)
         await adminPool.query(`REVOKE CREATE ON SCHEMA "${schema}" FROM "${roleName}"`)
         await adminPool.query(`REVOKE CREATE ON DATABASE "${parsed.database}" FROM "${roleName}"`)
@@ -87,18 +80,9 @@ describe('bootstrapPgvector() -- optional pgvector capability (task 3095)', () =
       } finally {
         await restrictedPool?.end()
         if (roleCreated) {
-          // -> DROP ROLE fails (pg 2BP01) if the role still holds ANY privilege grant anywhere in
-          //    the cluster, or owns any object -- not only object ownership, a bare un-revoked GRANT
-          //    USAGE ON SCHEMA is enough on its own to block it (verified directly: a role granted
-          //    only USAGE, with CREATE revoked and never having created anything, still fails DROP
-          //    ROLE with "privileges for schema" in the detail). `DROP OWNED BY` revokes every
-          //    privilege grant this role holds and drops anything it owns (including the vector
-          //    extension, in the unlikely case some other server configuration still let CREATE
-          //    EXTENSION through despite the DATABASE-level revoke above), so it's run
-          //    unconditionally before DROP ROLE rather than assuming "this role never succeeded in
-          //    creating anything" is enough by itself. Guarded on `roleCreated` since `DROP OWNED
-          //    BY` has no `IF EXISTS` form and would itself throw were CREATE ROLE the statement
-          //    that failed.
+          // -> DROP ROLE fails (pg 2BP01) while the role holds any privilege grant, and a bare
+          //    GRANT USAGE ON SCHEMA is enough. `DROP OWNED BY` revokes them all and drops anything
+          //    the role owns. Guarded on `roleCreated` because it has no `IF EXISTS` form.
           await adminPool.query(`DROP OWNED BY "${roleName}"`)
         }
         await adminPool.query(`DROP ROLE IF EXISTS "${roleName}"`)
@@ -132,8 +116,7 @@ describe('bootstrapPgvector() -- optional pgvector capability (task 3095)', () =
     )
     assert.equal(indexCheck.rows.length, 1)
 
-    // -> Idempotent re-run: a second call (a clustered boot's second instance, or this suite's
-    //    own concurrent-safety expectation) must not throw on the already-existing objects.
+    // -> A second call (a clustered boot's second instance) must not throw on the existing objects.
     const secondResult = await bootstrapPgvector(db)
     assert.equal(secondResult, true)
   })

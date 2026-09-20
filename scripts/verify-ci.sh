@@ -1,26 +1,12 @@
 #!/usr/bin/env bash
 #
-# verify-ci -- run CI's quality gate, here, inside the pinned parity image.
-# OpenProject #2686, under Feature #2601 / Epic #2600.
+# The bar: a fix is verified when it is green inside the pinned parity image, not when it is green
+# on the host. Hence the hard refusal below rather than a warning -- a run that silently skips a
+# fifth of the suite and prints "green" is the false verification this command exists to eliminate.
 #
-# THE BAR THIS COMMAND EXISTS TO MAKE TRUE
-#
-#   A fix for a failing test is verified when it is green in the parity container, not when it is
-#   green on the host.
-#
-# Epic #2600's measured cause was fixes marked resolved after passing on a Node 25.9 host and then
-# failing on CI's Node 26. `.devcontainer/` (#2684) is the image that closes that gap; this script
-# is what you actually run inside it. It mirrors .github/workflows/quality.yml step for step -- if
-# the two ever drift, the bar is a lie, so backend/test/verifyCi.test.ts parses that workflow and
-# fails when a gate command exists there and not here.
-#
-# It is deliberately NOT a convenience wrapper that "runs the tests": it runs every gate command
-# quality.yml runs, in the same order, and it refuses to run at all outside the pinned image unless
-# you explicitly opt out of the whole point of it (VERIFY_CI_ALLOW_HOST=1).
-#
-# Usage:      ./scripts/verify-ci.sh [options]
-#             npm --prefix backend run verify:ci -- [options]
-# Help:       ./scripts/verify-ci.sh --help   (the scope decisions are written out there)
+# It mirrors .github/workflows/quality.yml step for step; if the two drift the bar is a lie, so
+# backend/test/verifyCi.test.ts parses that workflow and fails when a gate command exists there and
+# not here.
 
 set -euo pipefail
 
@@ -136,9 +122,6 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# --------------------------------------------------------------------------------------------
-# Output helpers. No colour when stdout is not a terminal, so a captured log stays readable.
-# --------------------------------------------------------------------------------------------
 if [ -t 1 ]; then
   C_BOLD=$'\033[1m'
   C_RED=$'\033[31m'
@@ -181,12 +164,9 @@ print_summary() {
   fi
 }
 
-# run_step <label> <workspace-dir-or-.> <command...>
-#
-# The `run_step` lines further down are the machine-readable half of this script:
-# backend/test/verifyCi.test.ts reads every invocation out of this file and cross-checks the set
-# against quality.yml's own steps. Keep them one per line and literal -- a command assembled from a
-# variable is invisible to that scan, exactly as blocks/'s `static definition` literals are to theirs.
+# backend/test/verifyCi.test.ts reads every `run_step` invocation out of this file and cross-checks
+# the set against quality.yml's own steps. Keep them one per line and literal -- a command assembled
+# from a variable is invisible to that scan while still running.
 run_step() {
   local label="$1" dir="$2"
   shift 2
@@ -203,23 +183,15 @@ run_step() {
     die "${label} failed. CI would stop here too."
   fi
 
-  # A "green" backend run that never executed a fifth of its own suite is the caveat this Epic is
-  # about (docs/testing-audit/backend.md), so what did not run is surfaced beside the verdict rather
-  # than left in the scrollback.
-  #
   # Counting the reporter's `# SKIP` markers rather than reading its `skipped N` summary line is
-  # deliberate: that counter only counts skipped *tests*. This codebase's convention is
-  # `describe(..., { skip: !hasTestDatabase() })` -- a whole-suite skip, which node reports as one
-  # `# SKIP` line and as `skipped 0`. The summary line would therefore have said "0" for exactly the
-  # case worth warning about.
+  # deliberate: that counter only counts skipped *tests*, and this codebase skips whole suites with
+  # `describe(..., { skip: !hasTestDatabase() })`, which node reports as one `# SKIP` line and as
+  # `skipped 0` -- "0" for exactly the case worth warning about.
   if [ "$label" = 'Backend Tests' ]; then
     BACKEND_SKIPPED="$(grep -c '# SKIP' "$log" || true)"
   fi
 }
 
-# --------------------------------------------------------------------------------------------
-# Preconditions.
-# --------------------------------------------------------------------------------------------
 pinned_node="$(sed -n 's/^ARG NODE_VERSION=\([^ ]*\)$/\1/p' "${REPO_ROOT}/.devcontainer/Dockerfile" | head -n 1)"
 [ -n "$pinned_node" ] || die 'could not read ARG NODE_VERSION from .devcontainer/Dockerfile.'
 
@@ -258,9 +230,6 @@ fi
 banner "verify-ci: mirroring .github/workflows/quality.yml on Node ${running_node}"
 note "repo: ${REPO_ROOT}"
 
-# --------------------------------------------------------------------------------------------
-# Installs. Off by default; see --help.
-# --------------------------------------------------------------------------------------------
 if [ "$RUN_INSTALL" = '1' ]; then
   run_step 'Install Backend Dependencies' backend npm ci
   run_step 'Install Frontend Dependencies' frontend npm ci
@@ -270,9 +239,8 @@ if [ "$RUN_INSTALL" = '1' ]; then
   fi
 fi
 
-# --------------------------------------------------------------------------------------------
-# The gate itself, in quality.yml's order.
-# --------------------------------------------------------------------------------------------
+# The gate, in quality.yml's own order: both sides stop at the first failure, so a reordered gate
+# would report a different failure than CI does.
 run_step 'Backend Typecheck' backend npm run typecheck
 run_step 'Backend Lint' backend npx oxlint --deny-warnings
 run_step 'Backend Tests' backend npm run test
@@ -290,25 +258,18 @@ run_step 'Blocks Lint' blocks npx oxlint --deny-warnings
 run_step 'Blocks Tests' blocks npm run test
 run_step 'Format Check' . npx --prefix backend oxfmt --check backend frontend blocks
 
-# --------------------------------------------------------------------------------------------
-# The Playwright leg (build.yml's `build` job, not quality.yml). Opt-in; see --help.
-# --------------------------------------------------------------------------------------------
+# The Playwright leg lives in build.yml's `build` job, not in quality.yml, so running it by default
+# would make this command diverge from the gate it claims to mirror.
 if [ "$RUN_E2E" = '1' ]; then
   run_step 'Build Assets' frontend npm run build
   run_step 'Build Blocks' blocks npm run build
   run_step 'Run E2E Smoke Suite' e2e npm test
 fi
 
-# --------------------------------------------------------------------------------------------
-# quality.yml's other job: Production Install Smoke Boot. Opt-in; see --help.
-#
-# One deliberate divergence, and it is in this script's favour: quality.yml copies config.sample.yml
-# over config.yml because a fresh runner has neither, and it gets an unreachable database for free by
-# having no postgres service in that job. Neither holds here -- a dev checkout's config.yml is real
-# and the parity container's database IS up -- so the boot runs against a throwaway config pointed at
-# a dead port, with DATABASE_URL unset (core/db.ts prefers it outright whenever it is set). Same
-# assertion, nothing of yours overwritten.
-# --------------------------------------------------------------------------------------------
+# quality.yml's other job. One deliberate divergence: that job gets a config-less runner and an
+# unreachable database for free, while a dev checkout has a real config.yml and the parity
+# container's database is up -- hence the throwaway config on a dead port with DATABASE_URL unset
+# (core/db.ts prefers it outright whenever it is set). Same assertion, nothing of yours overwritten.
 if [ "$RUN_SMOKE_BOOT" = '1' ]; then
   banner 'Production Install Smoke Boot  (backend $ npm ci --omit=dev; node backend)'
   warn 'This replaces backend/node_modules with the production tree; the dev tree is restored after.'
@@ -348,9 +309,8 @@ if [ "$RUN_SMOKE_BOOT" = '1' ]; then
   fi
 fi
 
-# --------------------------------------------------------------------------------------------
-# The quarantine lane -- REPORT-ONLY. Never touches the exit code. See --help.
-# --------------------------------------------------------------------------------------------
+# The quarantine lane is report-only here as it is in quality.yml -- report-only on both sides is
+# what makes the two agree on the pass/fail verdict, so this must never touch the exit code.
 if [ "$RUN_FLAKY" = '1' ]; then
   for workspace in backend frontend blocks e2e; do
     banner "Quarantine lane (report-only): ${workspace} \$ npm run test:flaky"

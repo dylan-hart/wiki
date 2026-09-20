@@ -1,21 +1,15 @@
 import crypto from 'node:crypto'
 
 /**
- * Minimal RS256 JWT signing and verification.
- *
- * Cardinal.js generates an RSA keypair during installation and keeps it in `config.auth.certs`, so
- * tokens are signed with that key rather than with a shared secret. Only the RS256 algorithm is
- * accepted on the way in — a token asking for `none`, or for an HMAC algorithm that would turn the
- * public key into a signing secret, is rejected outright.
+ * Only RS256 is accepted on the way in — a token asking for `none`, or for an HMAC algorithm that
+ * would turn the public key into a signing secret, is rejected outright.
  */
 
 export interface JwtClaims {
   [claim: string]: any
-  /** Audience. Compared against the expected one during verification. */
   aud?: string
-  /** Expiry, in seconds since the epoch. Required by `verifyJwt`. */
+  /** Required by `verifyJwt`. */
   exp?: number
-  /** Issued at, in seconds since the epoch. */
   iat?: number
 }
 
@@ -27,15 +21,12 @@ function decodeSegment(segment: string): any {
   return JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'))
 }
 
-/** Seconds since the epoch, the unit JWT uses for `iat` / `exp`. */
 export function epochSeconds(instant: Temporal.Instant = Temporal.Now.instant()): number {
   return Math.floor(instant.epochMilliseconds / 1000)
 }
 
 /**
- * Sign a set of claims.
- *
- * @param privateKey A key object, or a PEM string for an unencrypted key. The installation key is
+ * @param privateKey A PEM string only works for an unencrypted key. The installation key is
  *                   passphrase-protected, so callers pass a `KeyObject` built with the passphrase.
  */
 export function signJwt(claims: JwtClaims, privateKey: crypto.KeyObject | string): string {
@@ -44,12 +35,7 @@ export function signJwt(claims: JwtClaims, privateKey: crypto.KeyObject | string
   return `${payload}.${signature.toString('base64url')}`
 }
 
-/**
- * Verify a token and return its claims.
- *
- * Throws with a specific message on every failure — a malformed token, a bad signature, an expired
- * token or the wrong audience — so callers can log the reason without inspecting the token again.
- */
+/** Throws with a specific message on every failure, so callers can log the reason. */
 export function verifyJwt(
   token: string,
   publicKey: crypto.KeyObject | string,
@@ -85,15 +71,14 @@ export function verifyJwt(
       Buffer.from(encodedSignature, 'base64url')
     )
   } catch {
-    // -> A signature that is not even well-formed lands here rather than returning false
+    // -> `crypto.verify` throws on a malformed signature rather than returning false
     isValid = false
   }
   if (!isValid) {
     throw new Error('Token signature is invalid.')
   }
 
-  // -> A token with no expiry would be valid forever; treat its absence as a failure rather than as
-  //    permission to skip the check
+  // -> A token with no expiry would be valid forever, so its absence is a failure
   if (typeof claims.exp !== 'number') {
     throw new Error('Token has no expiration.')
   }

@@ -6,19 +6,17 @@ import WSelect from './WSelect.vue'
 import { createTestI18n } from '../../../test/i18n.js'
 
 /*
-  WSelect's popup is a <w-menu>, which teleports its content to document.body -- outside the
-  mounted wrapper's own root -- so option rows are read off `document`, not `wrapper.find()`, once
-  opened. WSelect drives `w-menu` through `v-model="isOpen"` (a CONTROLLED menu), so opening it is
-  just a matter of triggering WSelect's own `onControlClick`/`open()` -- WMenu never attaches its own
-  trigger-click listener in that mode (see the comment in WMenu.vue's onMounted).
+  WSelect's popup is a <w-menu>, which teleports its content to document.body, so option rows are read
+  off `document` rather than off the wrapper. The menu is controlled (`v-model="isOpen"`), so opening
+  it means triggering WSelect's own click handler -- WMenu attaches no trigger listener in that mode.
 */
 
 function options() {
   return document.querySelectorAll('[role="option"]')
 }
 
-/** The actual interactive element -- a <button> (plain) or <div> (useInput) -- not WSelect's own
- * outer wrapper <div class="w-select">, which carries none of the combobox attributes itself. */
+/** The element carrying the combobox role -- the <button>, or the <input> under `useInput` -- never
+ * WSelect's own outer wrapper, which carries none of the combobox attributes itself. */
 function control(wrapper) {
   return wrapper.find('[role="combobox"]')
 }
@@ -29,7 +27,7 @@ afterEach(() => {
 
 describe('WSelect', () => {
   it('draws its control off --radius-card, not left unrounded', () => {
-    // -> `0` under Ledger (unchanged), a real value under Cobalt (OpenProject #2767/#2772)
+    // -> `--radius-card` is 0 under Ledger and a real radius under Cobalt
     const wrapper = mount(WSelect, {
       props: { modelValue: null, options: ['a', 'b'], ariaLabel: 'Pick one' }
     })
@@ -294,7 +292,6 @@ describe('WSelect', () => {
       wrapper.vm.validate()
       await wrapper.vm.$nextTick()
 
-      // -> Same node, not a second one -- see the matching WInput test for why that matters
       expect(wrapper.findAll('.min-h-5')).toHaveLength(1)
       const messageElAfter = wrapper.find('.min-h-5')
       expect(messageElAfter.attributes('aria-live')).toBe('polite')
@@ -403,9 +400,6 @@ describe('WSelect', () => {
       expect(wrapper.element.getAttribute('name')).toBeNull()
     })
 
-    // -> OpenProject #2715: the useInput branch used to bind $attrs raw onto the <input>, so a
-    //    caller's class landed there AND on the wrapper (via root-class), pushing the text off
-    //    centre. It must land on the wrapper only, same as the plain variant.
     it('applies a caller class to the wrapper only, not the filter input, for the useInput variant', () => {
       const wrapper = mount(WSelect, {
         props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', useInput: true },
@@ -432,8 +426,7 @@ describe('WSelect', () => {
         attrs: { name: 'group' }
       })
 
-      // -> The useInput control element is the <div> carrying `w-input-control`, distinct from the
-      //    <input> inside it that `control()` resolves via role="combobox"
+      // -> The control element here is the <div> carrying `w-input-control`, not the <input> in it
       expect(wrapper.find('.w-input-control').attributes('name')).toBeUndefined()
     })
   })

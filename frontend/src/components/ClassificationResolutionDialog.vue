@@ -1,9 +1,8 @@
 <!--
-  OpenProject #1080: raising a page's own classification does not silently cascade to its
-  descendants. `PageHeader.vue`'s `saveChangesCommit` opens this whenever a save's response carries
-  `classificationConflicts` -- the descendants left below the page's new floor -- so an admin resolves
-  them explicitly rather than the gap going unnoticed. Each row is bumped individually (its own
-  write:pages check) or all at once, both against `POST …/pages/classification-conflicts/resolve`.
+  Raising a page's own classification does not silently cascade to its descendants.
+  `PageHeader.vue`'s `saveChangesCommit` opens this whenever a save's response carries
+  `classificationConflicts` -- the descendants left below the page's new floor -- so they are
+  resolved explicitly rather than the gap going unnoticed. Each bump is its own `write:pages` check.
 -->
 <template>
   <w-dialog
@@ -75,44 +74,30 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { useSiteStore } from '@/stores/site'
 
-// PROPS
-
 const props = defineProps({
   conflicts: {
     type: Array,
     required: true
   },
-  /** The level the raising save just set the parent page to -- what "bump" targets by default. */
+  /** The level the raising save set the parent page to -- what "bump" targets. */
   floorClassification: {
     type: String,
     required: true
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent()
 
-// STORES
-
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   items: props.conflicts.map((c) => ({ ...c, isLoading: false, resolved: false })),
   isBumpingAll: false
 })
-
-// METHODS
 
 async function resolvePages(ids) {
   await API_CLIENT.post(`sites/${siteStore.id}/pages/classification-conflicts/resolve`, {

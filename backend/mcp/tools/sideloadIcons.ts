@@ -3,16 +3,9 @@ import { McpToolError, type McpAuthContext, type McpAuthContextGetter } from '..
 import { toResult } from './shared.ts'
 
 /**
- * Rescan `<dataPath>/icons/` for vendored Iconify collection JSON files and load them into the DB —
- * the MCP-facing wrapper around `POST /_api/icons/sideload` (`api/icons.ts`), for an agent that
- * needs to trigger an offline icon-set reload without going through the REST surface directly.
- * Delegates to the exact same model call the REST route makes,
- * `CARDINAL.models.icons.sideloadFromDataPath()` — no arguments, unlike `sideload_locales`'s
- * `{ force: true }`: icon sideload has no freshness gate to force past in the first place (see that
- * method's own doc comment in `models/icons.ts`), so every file found there is always re-loaded.
- *
- * Same hard gate as `sideload_locales`: the REST route declares `permissions: ['manage:system']`
- * with no lesser-privilege path at all, so a caller lacking it is refused outright.
+ * Wraps the same `CARDINAL.models.icons.sideloadFromDataPath()` that `POST /_api/icons/sideload`
+ * (`api/icons.ts`) calls. No arguments, unlike `sideload_locales`'s `{ force: true }`: icon sideload
+ * has no freshness gate to force past, so every file found is always re-loaded.
  */
 export async function handleSideloadIcons(ctx: McpAuthContext): Promise<CallToolResult> {
   if (!ctx.permissions.includes('manage:system')) {

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { linesOutsideFences } from './markdownFences'
 
-/** Collects `[line, index]` for every line the walk actually visits. */
 function visited(source, visit) {
   const seen = []
   linesOutsideFences(source.split('\n'), (line, index) => {

@@ -3,13 +3,10 @@ import { load as parseYamlRaw, CORE_SCHEMA, timestampTag } from 'js-yaml'
 import { DarkMode } from '../shared/theme.js'
 
 /*
-  OpenProject #956: `load()`'s own default is `CORE_SCHEMA` (js-yaml 5's YAML-1.2-only schema),
-  which -- unlike the `DEFAULT_SCHEMA` older js-yaml majors shipped -- has no `!!timestamp` type, so
-  a bare date ("Founded: 2020-01-01") resolves to the plain string "2020-01-01", never a `Date`.
-  `valueOf()` below has a `Date`-formatting branch that depended on this, so it needs the tag added
-  back explicitly. `withTags(timestampTag)` alone, not a switch to the fuller `YAML11_SCHEMA`, so a
-  bare date is still recognized without also pulling in YAML 1.1's `yes`/`no`/`on`/`off` booleans or
-  octal integers changing how every other value in an infobox parses.
+  `CORE_SCHEMA` (js-yaml's YAML-1.2 default) has no `!!timestamp`, so a bare date resolves to a
+  string and `valueOf()`'s `Date` branch never fires. The tag alone rather than `YAML11_SCHEMA`, so
+  a date is recognized without YAML 1.1's `yes`/`no`/`on`/`off` booleans and octal integers also
+  changing how every other value in an infobox parses.
 */
 const INFOBOX_SCHEMA = CORE_SCHEMA.withTags(timestampTag)
 
@@ -17,19 +14,7 @@ function parseYaml(source) {
   return parseYamlRaw(source, { schema: INFOBOX_SCHEMA })
 }
 
-/**
- * Yes and no, drawn rather than spelled out.
- *
- * A column of "true"/"false" is read word by word; a tick and a cross are read at a glance, which is
- * what an infobox is for. Inline, because they are the same two pictures on every infobox there is,
- * and labelled, since the shape alone means nothing to a screen reader.
- */
-/*
-  Tabler `check` / `x`, pasted verbatim from frontend/src/assets/icons.generated.js (OpenProject
-  #2875 -- blocks.md's ground rules: "Material path SVGs (tick, cross, ...) -> Tabler"). Stroke
-  rather than fill, same as every other Tabler glyph in the app; `data-icon` names the source the way
-  every icon in the design references does.
-*/
+/* Inline rather than fetched through `shared/icons.js`: the same two glyphs on every infobox. */
 const YES_SVG = html`
   <svg
     viewBox="0 0 24 24"
@@ -56,14 +41,7 @@ const NO_SVG = html`
   </svg>
 `
 
-/**
- * Shown centered in the image well when the block has no `image`.
- *
- * Tabler `photo`, pasted verbatim from frontend/src/assets/icons.generated.js (OpenProject #2944 --
- * blocks.md's ground rule: never hand-draw a glyph). `aria-hidden`, same as block-spoiler's cover
- * icon: it stands in for a missing picture the well would otherwise hold, not for information of its
- * own a screen reader needs read out.
- */
+/* `aria-hidden`: it stands in for a missing picture, not for information of its own. */
 const PHOTO_SVG = html`
   <svg
     viewBox="0 0 24 24"
@@ -82,17 +60,13 @@ const PHOTO_SVG = html`
 `
 
 /**
- * What an author writes to mean "this value goes somewhere": a page, an email address, a number.
- *
- * The scheme has to be spelled out. A value that merely looks like a hostname is left alone, since
- * plenty of ordinary facts read that way — a file name, a version, a decimal — and there is no test
- * that tells `notes.txt` from `montreal.ca` without guessing.
+ * The scheme has to be spelled out: a bare hostname is left alone, since plenty of ordinary facts
+ * read that way — a file name, a version, a decimal — and nothing tells `notes.txt` from
+ * `montreal.ca` without guessing.
  */
 const SCHEME = /^(?:https?:\/\/|mailto:|tel:)/i
 
 /**
- * The link a value stands for, if it is one.
- *
  * The whole value has to be the address; a sentence with a URL in it is prose, and picking the link
  * out of it is markdown's job, not this block's.
  *
@@ -109,10 +83,8 @@ function linkOf(text) {
     return null
   }
   /*
-    Shown without its scheme. An infobox is a column of short facts read at a glance, and `https://`
-    is the same four inches of boilerplate on every row of it — the address is the part that says
-    where the row goes. The label comes off the text as typed rather than out of the parsed URL, which
-    would put back a trailing slash the author did not write.
+    The scheme is boilerplate on a column of short facts, so it is dropped. Off the text as typed
+    rather than the parsed URL, which would put back a trailing slash the author did not write.
   */
   const label = text.replace(SCHEME, '')
   if (!label) {
@@ -122,10 +94,8 @@ function linkOf(text) {
     href: url.href,
     label,
     /*
-      The mark means "this leaves the wiki", so it is for a web address on another host — the question
-      the page's renderer asks of a link, and for the same reason it asks it of the host and not of
-      the text. See `isExternalHref` in `renderers/markdown.js`, which also leaves an email address
-      and a telephone number unmarked: neither goes to a page at all, and both say what they are.
+      Judged on the host, matching `isExternalHref` in `renderers/markdown.js`. An email address or
+      telephone number stays unmarked: neither goes to a page at all, and both say what they are.
     */
     isExternal:
       (url.protocol === 'http:' || url.protocol === 'https:') &&
@@ -133,15 +103,8 @@ function linkOf(text) {
   }
 }
 
-/**
- * One value, as it is shown.
- *
- * A list reads as one line, since an infobox row is a line: "French, English" rather than a bullet
- * list squeezed into half a column.
- */
 function valueOf(value) {
-  // -> A valueless key ("City:") parses to `null`; shown as nothing rather than the literal word
-  //    "null" a bare `String()` would produce.
+  // -> A valueless key ("City:") parses to `null`, which `String()` would draw as the word "null"
   if (value === null || value === undefined) {
     return ''
   }
@@ -149,11 +112,8 @@ function valueOf(value) {
     return value ? YES_SVG : NO_SVG
   }
   if (value instanceof Date) {
-    // -> A bare YAML date ("Founded: 2020-01-01", opted back into `!!timestamp` resolution above) is
-    //    a calendar date with no time of day, and js-yaml represents it as UTC midnight -- so it has
-    //    to be read back out in UTC too. Left to the default (local) zone, `toLocaleDateString` shifts
-    //    it backward a day in any negative-offset timezone: UTC midnight Jan 1st is 7pm/8pm Dec 31st
-    //    across the whole of the Americas, which would print the wrong date on most readers' clocks.
+    // -> js-yaml represents a bare date as UTC midnight, so it has to be read back out in UTC: in
+    //    the local zone `toLocaleDateString` prints the day before across the whole of the Americas.
     return value.toLocaleDateString(undefined, {
       year: 'numeric',
       month: 'long',
@@ -170,30 +130,19 @@ function valueOf(value) {
   if (!link) {
     return text
   }
-  // -> No whitespace inside the anchor — hence the tags broken after their closing bracket, which is
-  //    how the formatter keeps it out: a space beside the words is taken in by the underline on hover
-  //    and pushes the external mark off the end of them
+  // -> No whitespace inside the anchor — hence the tags broken after their closing bracket: a space
+  //    beside the words is underlined on hover and pushes the external mark off the end of them
   return html`<a class="${link.isExternal ? 'is-external-link' : ''}" href="${link.href}"
     >${link.label}</a
   >`
 }
 
-/**
- * The rows a value turns into.
- *
- * A nested mapping becomes a group of its own with a heading, which is how an infobox shows a cluster
- * of related facts. Anything else is a single row.
- */
 function rowsOf(value) {
-  // -> `typeof value === 'object'` alone also matches a `Date` (a bare YAML date, e.g.
-  //    "Founded: 2020-01-01") and `null` (a valueless key) — neither is a nested mapping, and
-  //    `Object.entries()` on either is `[]`, which left `render()` reading `rows[0].label` off an
-  //    empty array. `constructor === Object` is what js-yaml's default schema actually produces for
-  //    a mapping; everything else falls through to the single-row branch below.
+  // -> Not `typeof value === 'object'`, which also matches a `Date` and `null`: `Object.entries()`
+  //    on either is `[]`, leaving `render()` reading `rows[0].label` off an empty array
   if (value?.constructor === Object) {
     const entries = Object.entries(value)
-    // -> An empty mapping ("Key: {}") is shown as a single row with an empty value, not a
-    //    zero-member group `render()` would have nothing to head with.
+    // -> An empty mapping ("Key: {}") becomes one empty row, not a group `render()` cannot head
     if (entries.length === 0) {
       return [{ value: null }]
     }
@@ -202,14 +151,10 @@ function rowsOf(value) {
   return [{ value }]
 }
 
-/**
- * Block Infobox
- */
 export class BlockInfoboxElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time into `compiled/blocks.manifest.json`, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'infobox',
@@ -499,30 +444,17 @@ Website: https://montreal.ca
 
   static get properties() {
     return {
-      /**
-       * Heading at the top of the box
-       * @type {string}
-       */
       name: { type: String },
 
-      /**
-       * Path or URL of a picture
-       * @type {string}
-       */
       image: { type: String },
 
       /**
-       * Caption under the picture
-       *
        * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `imagecaption` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `image-caption` — writes `image-caption` into
-       *    the page.
-       * @type {string}
+       *    dash inserted) would listen for `imagecaption` while the block picker writes the literal
+       *    `static definition.props[].name`, `image-caption`, into the page.
        */
       imageCaption: { type: String, attribute: 'image-caption' },
 
-      // Internal Properties
       _entries: { state: true },
       _error: { state: true }
     }
@@ -535,31 +467,15 @@ Website: https://montreal.ca
     this.imageCaption = ''
     this._entries = []
     this._error = ''
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
   }
 
   /**
-   * Read the facts out of the block's body.
-   *
-   * The body has been through markdown by the time it gets here, so what is left of `city: Montreal`
-   * is its text — which is all YAML needs. Markdown does leave its mark: a value written with
-   * emphasis or a link keeps the words and loses the markup, and anything markdown reads as
-   * structure of its own (a line opening with `-`, `#` or `>`) arrives rearranged. A fenced code
-   * block is the way out of that, since its contents reach here exactly as they were typed.
-   */
-  /**
-   * Hand the first line of the column back its place at the top.
-   *
-   * The content stylesheet drops the top margin of the first element in a page, because the space
-   * above it belongs to the container. A floated infobox at the very top takes that reset with it and
-   * leaves the heading behind it holding a full margin — so the heading, which is what a reader sees
-   * as the start of the page, sits an inch below the box beside it. Passed on to whatever follows,
-   * since that is the element the rule was written for.
-   *
-   * Two pixels rather than none: the box's own top margin and border sit in that space, and the two
-   * together put the rule under a page title on the rule under the box's name — the line the eye
-   * follows across from one to the other.
+   * The content stylesheet drops the top margin of the first element in a page. A floated infobox
+   * at the very top takes that reset with it, leaving the heading behind it holding a full margin,
+   * so the reset is passed on to whatever follows — the element the rule was written for. 2px
+   * rather than 0 because the box's own top margin and border sit in that space, and the two
+   * together line the rule under a page title up with the rule under the box's name.
    */
   _alignWithTop() {
     if (this.previousElementSibling) {
@@ -571,6 +487,8 @@ Website: https://montreal.ca
   connectedCallback() {
     super.connectedCallback()
     this._alignWithTop()
+    // -> The body has been through markdown, which strips a value's markup and rearranges anything
+    //    it reads as structure of its own; a fenced body reaches here exactly as it was typed
     const source = (this.querySelector('pre') ?? this).textContent ?? ''
     if (!source.trim()) {
       return
@@ -579,8 +497,6 @@ Website: https://montreal.ca
     try {
       parsed = parseYaml(source)
     } catch (err) {
-      // -> Naming the fence, because it is the answer nine times out of ten: markdown reads an
-      //    indented line as structure of its own and hands this the text without the indentation
       this._error = `This infobox could not be read: ${err.reason ?? err.message}. Anything indented — a list, or a nested group — has to go inside a fenced code block.`
       return
     }
@@ -617,8 +533,6 @@ Website: https://montreal.ca
                     return html`
                       ${isGroup ? html`<div class="group">${label}</div>` : null}
                       ${rows.map((row, index) => {
-                        // -> The pair that closes a group carries the rule that separates it from
-                        //    whatever is listed after it
                         const groupEnd = isGroup && index === rows.length - 1 ? 'is-group-end' : ''
                         return html`
                           <dt class="${groupEnd}">${isGroup ? row.label : label}</dt>

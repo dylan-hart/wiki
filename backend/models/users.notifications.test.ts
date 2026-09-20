@@ -3,14 +3,6 @@ import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { users as usersTable } from '../db/schema.ts'
 
-/**
- * Task 2481: the storage half of the per-user, per-event-type email notification toggle
- * (`getEmailNotificationEvents`/`setEmailNotificationEvents`, `prefs.notifications.events`) and the
- * subscriber query `models/hooks.ts#Hooks.emit()`'s email fan-out actually calls
- * (`listEmailSubscribers`). DB-backed: `listEmailSubscribers` is real SQL orchestration (a jsonb
- * containment query) worth verifying against Postgres itself, not a mock of the query builder, and
- * the get/set pair round-trips through the same `prefs` column.
- */
 let fixtures: TestFixtures
 
 before(async () => {

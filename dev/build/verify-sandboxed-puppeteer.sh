@@ -2,29 +2,20 @@
 # Builds the production image from `dev/build/Dockerfile`, boots it next to a throwaway postgres
 # with `security.allowPuppeteerNoSandbox` left at its `base.yml` default (false — sandbox enabled,
 # no opt-in fallback), and drives its real REST API through a genuine PDF export to confirm Chromium's
-# own process sandbox actually starts inside the container. This is OpenProject #3214 ("Verify
-# sandboxed Puppeteer works inside the built production Docker image") — see that work package, and
-# `docs/decisions/` for what it found on a stock `docker run` (no extra `--security-opt`/`--cap-add`):
-# CONFIRMED BROKEN. Chromium's sandbox cannot initialize under Docker's own default seccomp profile,
-# and this image carries no setuid sandbox helper as a fallback (Debian bookworm's `chromium` package
-# no longer ships one). `docs/audits/release-checklist.md`'s own checklist item on this names the
-# concrete operator remedies. This script still has real, permanent value even though the default
-# case fails: it is what makes that failure impossible to silently regress back to "unverified" the
-# way the predecessor Task #2247 did, and re-running it after any Dockerfile/Puppeteer change is
-# exactly how a future fix (OpenProject #3256, or an image change that adds a real setuid sandbox
-# path) gets proven rather than assumed.
+# own process sandbox actually starts inside the container. It builds locally rather than pulling a
+# published tag, since the point is testing an image before it is ever published.
 #
-# Modeled on the existing `dev/build/arm-host-smoke-test.sh` — same throwaway-container, `trap`
-# cleanup, PASS/FAIL shape — but this one builds locally rather than pulling a published tag, since
-# the whole point is testing an image before it is ever published.
+# On a stock `docker run` (no extra `--security-opt`/`--cap-add`) this FAILS: Chromium's sandbox
+# cannot initialize under Docker's own default seccomp profile, and the image carries no setuid
+# sandbox helper as a fallback. See docs/decisions/sandboxed-puppeteer-requires-runtime-flags.md,
+# and `docs/audits/release-checklist.md` for the concrete operator remedies.
 #
 # Usage:
 #   ./dev/build/verify-sandboxed-puppeteer.sh [--allow-no-sandbox]
 #
-#   --allow-no-sandbox   Boot with `security.allowPuppeteerNoSandbox: true` instead (the documented
-#                        fallback) — useful for confirming that escape hatch still works on its own
-#                        terms. Never the default: the whole point of this script is exercising the
-#                        SANDBOXED posture, which is what a fresh install actually ships with.
+#   --allow-no-sandbox   Boot with `security.allowPuppeteerNoSandbox: true` instead, to confirm that
+#                        documented fallback still works on its own terms. Never the default: the
+#                        sandboxed posture is what a fresh install actually ships with.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

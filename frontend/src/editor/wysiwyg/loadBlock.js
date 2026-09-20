@@ -1,13 +1,9 @@
 /**
- * `WikiBlock`'s `loadBlock` option (`wikiBlockNode.js`), wired up with the real stores.
- *
- * Resolves a `block-*` tag the same way the read view's own scan does
- * (`helpers/blockScan.js#collectBlocksToLoad`): off the site's own public `blocksIndex` when the tag
- * matches a block this site has, which is what lets `commonStore.loadBlocks()` tell a custom block's
- * per-site import URL from a built-in's flat one. A tag matching nothing there (an unknown element,
- * a block not yet reflected in `blocksIndex`, or the reader-side list not having loaded) is passed
- * as the bare string, which `loadBlocks()` treats as a built-in guess -- the same generous-preview
- * fallback `EditorMarkdown.vue`'s own `loadSiteBlocks()` documents for its author-side copy of this.
+ * Resolving a `block-*` tag off the site's own `blocksIndex` is what lets
+ * `commonStore.loadBlocks()` tell a custom block's per-site import URL from a built-in's flat one.
+ * A tag matching nothing there -- an unknown element, or the index not loaded yet -- is passed as
+ * the bare string, which `loadBlocks()` treats as a built-in guess: a deliberately generous preview
+ * rather than a silent blank.
  *
  * @param {import('@/stores/common').useCommonStore extends () => infer S ? S : never} commonStore
  * @param {import('@/stores/site').useSiteStore extends () => infer S ? S : never} siteStore

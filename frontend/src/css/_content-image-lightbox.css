@@ -1,17 +1,10 @@
 /*
-  The click-to-zoom lightbox for ordinary content images (OpenProject #3066), built and appended
-  straight to `<body>` by `helpers/contentImageZoom.js` -- entirely outside any Vue component's
-  scoped styles, and outside `.page-contents`'s own nesting (`_page-contents.css` styles only what
-  is INSIDE that element; this dialog is a sibling of it, not a descendant). So it gets its own
-  partial, pulled into `app.css` unconditionally, the same way `_overlay-dialog.css` is (see that
-  file's own header comment for why "unconditional" matters here: a route-based Vite chunk split
-  must not gate whether this loads at all).
+  Built and appended straight to `<body>` by `helpers/contentImageZoom.js`, so it sits outside every
+  Vue component's scoped styles and outside `.page-contents`'s own nesting -- hence its own partial,
+  pulled into `app.css` unconditionally so no route-based chunk split can gate whether it loads.
 
-  Visually the same shell/backdrop language as `blocks/shared/lightbox.js`'s `lightboxStyles` --
-  full-viewport `<dialog>`, `rgb(0 0 0 / 0.82)` backdrop with a blur, a clickable "stage" the
-  enlarged content is centred on -- because it is conceptually the same primitive; see
-  `contentImageZoom.js`'s own header comment for why this is a second, independent implementation
-  rather than an import of that one.
+  The shell/backdrop language deliberately mirrors `blocks/shared/lightbox.js`'s `lightboxStyles`
+  rather than importing it; `contentImageZoom.js`'s header says why the two stay independent.
 */
 
 .content-image-lightbox {
@@ -57,7 +50,6 @@
     touch-action: none;
   }
 
-  /* -> Only once zoomed past 100% is there anywhere to drag the image to */
   &.is-zoomed img {
     cursor: grab;
   }

@@ -6,18 +6,6 @@ import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { createSiteAdminAccessStub } from '../test/mocks.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * Regression test for `GET /_api/sites/:siteIdorHostname`'s `strict` querystring flag: the handler
- * read `(req as any).querystring?.strict`, a property Fastify never populates (the parsed query
- * string is `req.query`), so `strict` was always `undefined` and a caller asking for an exact
- * hostname match silently fell back to the wildcard site instead of getting a 404. Fixed by reading
- * `req.query.strict` through the route's existing `Querystring` generic.
- *
- * `CARDINAL.models.sites.getSiteByHostname` is stubbed to reproduce the real model's strict-vs-wildcard
- * semantics (see `models/sites.ts`) rather than pulling in the db/schema/drizzle graph, keeping this
- * a self-contained unit test of the route's querystring wiring.
- */
-
 const WILDCARD_SITE_ID = 'wildcard-site-id'
 const sitesMappings: Record<string, string> = { '*': WILDCARD_SITE_ID }
 const sites: Record<string, any> = {
@@ -40,12 +28,6 @@ async function getSiteByHostname({
   return siteId ? sites[siteId] : null
 }
 
-/**
- * What `getSiteBlocks` returns for the next request, set per-test. Only the fields
- * `siteBlocksInfoFor` (api/sites.ts) actually reads are relevant here — `block`, `isEnabled`,
- * `configFields`, `config`, `id`, `isCustom` — the rest of the real `SiteBlock` shape is irrelevant
- * to this route.
- */
 let siteBlocksResult: any[] = []
 async function getSiteBlocks(_siteId: string) {
   return siteBlocksResult
@@ -53,21 +35,8 @@ async function getSiteBlocks(_siteId: string) {
 
 let app: FastifyInstance
 
-/** Toggled per-test to drive `CARDINAL.models.renderQueue.isAvailable()`'s stubbed answer. */
 let renderingAvailable = true
 
-/**
- * Regression coverage for `manage:theme`: `GroupEditOverlay.vue` and `AdminLayout.vue` present it as
- * a working permission, but `PUT /sites/:siteId` used to gate on `manage:sites` only, so a group
- * holding just `manage:theme` got a 403 the moment it tried to save (or, if the route-level check had
- * been loosened without a body check, could have used it to change anything about the site).
- * `AdminTheme.vue` always sends `{ theme: {...} }` as the entire body, so "only touches `theme`" is
- * exactly what a real save from that page looks like.
- *
- * The route now OR's `manage:theme` into the route-level permission list (mirrored here by the same
- * `preHandler` shape `index.ts` installs, reading permissions off a stubbed `req.session`) and the
- * handler itself refuses a `manage:theme`-only caller whose body reaches beyond the `theme` key.
- */
 const PUT_SITE_ID = '12af7860-3d28-4f2d-8a93-e9e5ec4a127b'
 sites[PUT_SITE_ID] = {
   id: PUT_SITE_ID,
@@ -106,10 +75,8 @@ function actorForRequest(req: any) {
 }
 
 /**
- * Stand-in for `checkSiteAccess()` (task #682): grants whatever `site:*` permission the
- * `x-test-site-permissions` header lists, but only for the site id it names — a request for a
- * different site id gets nothing, which is what exercises that the routes actually thread `siteId`
- * through rather than checking the permission in the abstract.
+ * Grants whatever `permission@siteId` pairs the `x-test-site-permissions` header lists, so a route
+ * that checks the permission without threading its `siteId` through gets nothing.
  */
 function checkSiteAccess(actor: { permissions: string[] }, permission: string, siteId: string) {
   if (actor.permissions.includes('manage:system')) {
@@ -123,15 +90,6 @@ let currentSitePermissionHeader: string | undefined
 
 const checkSiteAdminAccess = createSiteAdminAccessStub(actorForRequest, checkSiteAccess)
 
-/**
- * Regression test for `POST /_api/sites`'s hand-rolled hostname check: the handler validated
- * `req.body.hostname` against `/^(\*)|([a-z0-9\-.:]+)$/`, but the alternation is ungrouped and the
- * first branch (`\*` — zero or more literal backslashes) matches the empty string, so the whole
- * expression is always true regardless of what follows it — `''` and `'<script>'` both pass. The
- * check never actually validated anything; it was redundant with (and looser than) the body schema's
- * own `pattern: '^(\*|[a-z0-9.-]+)$'`, which Fastify's ajv already enforces before the handler runs.
- * Fixed by deleting the dead hand-rolled check and relying solely on the schema.
- */
 const createSiteCalls: Array<{ hostname: string; config: Record<string, any> }> = []
 let hostnamesTakenByUnique: Set<string>
 
@@ -139,12 +97,6 @@ async function isHostnameUnique(hostname: string) {
   return !hostnamesTakenByUnique.has(hostname)
 }
 
-/**
- * Bug #2650: `POST /` and `PUT /:siteId` used to wrap their model call in a private
- * `try/catch` that logged a bare `CARDINAL.logger.warn(err)` and answered `reply.internalServerError()`
- * itself, so a crashed request never reached `apiErrorHandler` and never got the request context
- * that correlates it. Both catches are gone; these two flags plant the failure that proves it.
- */
 let createSiteFailure: Error | null = null
 let updateSiteFailure: Error | null = null
 
@@ -161,12 +113,6 @@ async function countEnabledSites() {
   return enabledSiteCount
 }
 
-/**
- * Task #1680: `DELETE /:siteId` for an unknown siteId must answer 404, not the pre-existing 400.
- * `countSites` is separate from `countEnabledSites` above (the last-remaining-site guard counts all
- * sites, not just enabled ones) and `deleteSite` returning falsy is what the handler reads as "no
- * such site" -- mirroring `models/sites.ts#deleteSite`'s own not-found return shape.
- */
 let siteCount = 2
 async function countSites() {
   return siteCount
@@ -175,13 +121,6 @@ async function deleteSite(id: string) {
   return Boolean(sites[id])
 }
 
-/**
- * Task #2527: `buildSitePayload()` resolves the site's default menu id via
- * `CARDINAL.models.navigation.ensureSiteNav(siteId, locale)` and surfaces it as `navigationId`, so a
- * non-content route (the knowledge graph, tags browse) can learn a real nav id without a content-page
- * fetch. Captures the calls so a test can assert the exact `(siteId, locale)` pair passed, alongside
- * `getSiteByHostname`/`getSiteById` above.
- */
 const ensureSiteNavCalls: Array<{ siteId: string; locale: string }> = []
 async function ensureSiteNav(siteId: string, locale: string) {
   ensureSiteNavCalls.push({ siteId, locale })
@@ -190,8 +129,7 @@ async function ensureSiteNav(siteId: string, locale: string) {
 
 before(async () => {
   const wiki = {
-    // -> Bug #2650: the two 500 assertions below check the LEVEL, not merely that something was
-    //    logged, so both `error` and `warn` are real mocks rather than `createSilentLogger`'s noops.
+    // -> Real mocks rather than `createSilentLogger`'s noops: the 500 tests assert the log LEVEL.
     logger: { error: mock.fn(), warn: mock.fn() },
     config: {
       security: { disallowOpenRedirect: true },
@@ -240,11 +178,8 @@ before(async () => {
     routes: sitesRoutes,
     wiki,
     ajv: true,
-    // -> `session: 'header'` promotes `x-test-permissions` into a real session, so the REAL
-    //    route-permission hook exercises the route-level OR-list, not just the handler's own body
-    //    check. The function form also captures `x-test-site-permissions` once per request:
-    //    `checkSiteAccess()` takes no `req`, so the stub reads the per-test site grants off a
-    //    module-level variable.
+    // -> The function form captures `x-test-site-permissions` once per request: `checkSiteAccess()`
+    //    takes no `req`, so the stub reads the per-test site grants off a module-level variable.
     session: (req: any) => {
       currentSitePermissionHeader = req.headers['x-test-site-permissions']
       const header = req.headers['x-test-permissions']
@@ -361,12 +296,6 @@ test('a hostname with a colon (port suffix) is rejected by the schema and never 
   assert.equal(createSiteCalls.length, 0)
 })
 
-/**
- * Regression coverage for duplicate-hostname / duplicate-catch-all rejection: `POST /_api/sites`
- * checks `isHostnameUnique` before ever calling `createSite`, and picks between two distinct error
- * messages depending on whether the rejected hostname was `*` or an ordinary one.
- */
-
 test('a duplicate ordinary hostname is rejected with the duplicate-hostname message, never reaching createSite', async () => {
   hostnamesTakenByUnique.add('taken.example.org')
   const res = await app.inject({
@@ -394,11 +323,9 @@ test('a duplicate catch-all hostname is rejected with the duplicate-catch-all me
 })
 
 /**
- * Bug #2650. An unexpected `createSite` failure must reach `apiErrorHandler` — the real one
- * `buildTestApp` installs — rather than being caught in the handler. Two things distinguish the two
- * outcomes: the generic body `apiErrorHandler` builds for a `statusCode`-less throw carries
- * `error: 'Internal Server Error'` (with a space), where the swallowed `reply.internalServerError()`
- * answered `'InternalServerError'`; and the log line is `error`, not `warn`.
+ * What tells `apiErrorHandler` apart from a handler-local catch: its generic body for a
+ * `statusCode`-less throw carries `error: 'Internal Server Error'` (with a space), where
+ * `reply.internalServerError()` answers `'InternalServerError'`; and it logs at `error`.
  */
 
 test('an unexpected createSite failure reaches the shared error handler and is logged at error', async () => {
@@ -422,18 +349,11 @@ test('an unexpected createSite failure reaches the shared error handler and is l
   assert.equal(errorCalls.length, 1)
   assert.equal(errorCalls[0].arguments[0], 'http')
   assert.match(errorCalls[0].arguments[2].error.message, /relation "sites" does not exist/)
-  // -> The request context `apiErrorHandler` attaches is exactly what the swallowed catch lost, and
-  //    since #2667 it is spread into the same fields object as the error itself.
+  // -> `apiErrorHandler` spreads the request context into the same fields object as the error.
   assert.equal(errorCalls[0].arguments[2].method, 'POST')
   assert.equal(typeof errorCalls[0].arguments[2].reqId, 'string')
   assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
 })
-
-/**
- * Regression coverage for the last leg of task 699/702's disabled-site contract: unlike the read
- * routes gated elsewhere in this feature, `PUT /:siteId` (behind `manage:sites`) must keep succeeding
- * against an already-disabled site — otherwise nobody could ever flip `isEnabled` back on.
- */
 
 test('updating a disabled site still succeeds, so it can be re-enabled', async () => {
   updateSiteCalls = []
@@ -456,10 +376,6 @@ test('updating a disabled site still succeeds, so it can be re-enabled', async (
   assert.equal(updateSiteCalls[0].id, DISABLED_SITE_ID)
   assert.equal(updateSiteCalls[0].patch.isEnabled, true)
 })
-
-/**
- * Bug #2650, the `PUT /:siteId` half: same deleted `try/catch`, same expectation.
- */
 
 test('an unexpected updateSite failure reaches the shared error handler and is logged at error', async () => {
   updateSiteFailure = new Error('deadlock detected')
@@ -541,13 +457,6 @@ test('manage:sites may still save a patch touching fields beyond theme', async (
   assert.equal(updateSiteCalls[0].patch.config.title, 'Renamed')
 })
 
-/**
- * OpenProject #1893: the route used to maintain a legacy `ratings` boolean alias under `features`,
- * derived on every write from a page-ratings config key that OpenProject #1903 has since removed
- * entirely, despite nothing ever reading the alias. That write has been deleted along with the
- * alias's seeds and JSON Schema entry; a `features` patch should reach `updateSite` carrying only
- * the key that was actually sent, never a synthesized `ratings` key alongside it.
- */
 test('a features patch does not synthesize a legacy ratings alias key', async () => {
   const res = await app.inject({
     method: 'PUT',
@@ -560,11 +469,6 @@ test('a features patch does not synthesize a legacy ratings alias key', async ()
   assert.deepEqual(updateSiteCalls[0].patch.config.features, { comments: true })
 })
 
-/**
- * OpenProject #989: a site settings edit is one of the events the audit log is meant to capture.
- * The tests above stub `auditLog.record` only to keep the route from throwing — this checks it is
- * actually called, with the fields the patch actually touched.
- */
 test('a successful update records a site.settingsUpdated audit log entry', async () => {
   ;(globalThis as any).CARDINAL.models.auditLog.record.mock.resetCalls()
   const res = await app.inject({
@@ -583,12 +487,6 @@ test('a successful update records a site.settingsUpdated audit log entry', async
   assert.equal(call.targetLabel, 'Renamed Again')
   assert.deepEqual(call.detail, { changedFields: ['title'] })
 })
-
-/**
- * Task #683: `PUT /:siteId` now also accepts the per-surface `site:*` permissions from task #682,
- * checked key by key against `SITE_FIELD_PERMISSIONS` since five surfaces (general/theme/login/
- * locale/editors) share this one route (the delegated-per-site-administration decision's §3).
- */
 
 test('site:general on this site may save general-surface fields', async () => {
   const res = await app.inject({
@@ -621,10 +519,9 @@ test('site:general on this site may save allowedUrlSchemes (task #2457)', async 
 })
 
 /**
- * The schema only enforces well-formed, lowercase RFC-3986-shaped scheme names here — it is
- * deliberately NOT a `javascript`/`vbscript`/`data` denylist (task #2458 owns categorically
- * blocking those regardless of what is configured, enforced at the point they could actually take
- * effect rather than as an easily-bypassed save-time check).
+ * The schema enforces only a well-formed, lowercase RFC 3986 scheme name — deliberately NOT a
+ * `javascript`/`vbscript`/`data` denylist: those are blocked where they could take effect
+ * (`mergeAllowedSchemes()`), whatever is configured, rather than by a bypassable save-time check.
  */
 test('an uppercase allowedUrlSchemes entry is rejected by the schema and never reaches updateSite', async () => {
   const res = await app.inject({
@@ -654,11 +551,6 @@ test('an allowedUrlSchemes entry with an invalid character is rejected by the sc
   assert.equal(updateSiteCalls.length, 0)
 })
 
-/**
- * Feature #3267 / Task #3274: `security.embedAllowedOrigins` is gated by `site:general`, the same as
- * `allowedUrlSchemes` above -- both are additive per-site config surfaces on the same general
- * delegation, not a new permission.
- */
 test('site:general on this site may save security.embedAllowedOrigins (task #3274)', async () => {
   const res = await app.inject({
     method: 'PUT',
@@ -677,8 +569,8 @@ test('site:general on this site may save security.embedAllowedOrigins (task #327
 })
 
 /**
- * The schema enforces a bare origin (`scheme://host[:port]`, lowercase, no path/query/fragment) since
- * Task #3275 reads this array directly as literal CSP `frame-ancestors` source-list tokens.
+ * The schema enforces a bare origin (`scheme://host[:port]`, lowercase, no path/query/fragment):
+ * the array is emitted verbatim as CSP `frame-ancestors` source-list tokens.
  */
 test('a security.embedAllowedOrigins entry with a path is rejected by the schema and never reaches updateSite', async () => {
   const res = await app.inject({
@@ -754,13 +646,9 @@ test('site:login on this site may save auth and authStrategies', async () => {
 })
 
 /**
- * OpenProject #1360/#2208 (2026-08-24 security audit §2): `auth.loginRedirect`/`welcomeRedirect`/
- * `logoutRedirect` had the identical shape and risk as a group's `redirectOnLogin` (see
- * `api/groups.test.ts`) — writable by `manage:sites` or the delegated `site:login` permission, and
- * unvalidated until now. A `site:login` holder is a delegated, non-administrator permission that
- * could otherwise plant `javascript:...` there and have it execute for the next reader
- * `AuthLoginPanel.vue`'s `window.location.replace()` sends through it -- covered from both
- * permission paths below.
+ * `site:login` is a delegated, non-administrator permission: an unvalidated redirect would let its
+ * holder plant a `javascript:` URL the login flow then sends every reader through. Covered from
+ * both permission paths below.
  */
 test('rejects a javascript: auth.loginRedirect with 400, and never reaches updateSite', async () => {
   const res = await app.inject({
@@ -913,18 +801,13 @@ test('site:general does not cover isEnabled, which stays manage:sites-only', asy
   assert.equal(updateSiteCalls.length, 0)
 })
 
-/**
- * `DELETE /:siteId` is deliberately excluded from the `site:*` vocabulary (§3) — it stays a
- * route-level, global-only `manage:sites` gate, so `site:general` alone must not reach it.
- */
 test('site:general does not grant DELETE /:siteId, which stays manage:sites-only', async () => {
   const res = await app.inject({
     method: 'DELETE',
     url: `/${PUT_SITE_ID}`,
     headers: {
-      // -> A held but unrelated global permission, so the route-level hook's "some permission held"
-      //    401 branch is not what refuses this -- the "not one of the route's permissions" 403
-      //    branch is, which is the thing this test is actually about.
+      // -> A held but unrelated global permission, so the refusal comes from the route-level hook's
+      //    "not one of the route's permissions" 403 branch rather than its 401 branch.
       'x-test-permissions': 'manage:navigation',
       'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
     }
@@ -932,12 +815,6 @@ test('site:general does not grant DELETE /:siteId, which stays manage:sites-only
   assert.equal(res.statusCode, 403)
 })
 
-/**
- * Task #1680: an unknown siteId used to fall through to `reply.badRequest()` (400) here -- the only
- * site-scoped route in the API answering that way instead of the 404 every sibling route
- * (`approvals.ts`, `blocks.ts`, `comments.ts`, `blockCredentials.ts`, `search.ts`, `storage.ts`,
- * `glossary.ts`, and `GET /:siteIdorHostname` itself) uses for the same condition.
- */
 test('DELETE /:siteId answers 404, not 400, for an unknown siteId', async () => {
   const res = await app.inject({
     method: 'DELETE',
@@ -949,19 +826,12 @@ test('DELETE /:siteId answers 404, not 400, for an unknown siteId', async () => 
   assert.equal(res.statusCode, 404)
 })
 
-/**
- * Task #683: the site-image routes (`PUT`/`DELETE /:siteId/images/:kind`) split by `kind` —
- * `logo`/`favicon` need `site:general`, `loginBg` needs `site:login` (§3's mapping to the
- * `Admin*.vue` page each image is edited from).
- */
-
 beforeEach(() => {
   setAssetCalls = []
   clearAssetCalls = []
 })
 
-// -> A minimal valid PNG, so the route's byte-sniffing validation (after the permission check)
-//    passes too, not just the permission gate.
+// -> A valid PNG, so the route's byte-sniffing validation (after the permission check) passes too.
 const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   'base64'
@@ -1040,13 +910,6 @@ test('site:general on this site may NOT clear a loginBg', async () => {
   assert.equal(clearAssetCalls.length, 0)
 })
 
-/**
- * Task #684: `GET /:siteId/userPermissions` is what `frontend/src/composables/siteAdminAccess.js`
- * asks to decide whether to show the sidebar link / render the page / redirect to
- * `/_error/unauthorized`, for each of the nine site-scoped `Admin*.vue` pages. Mirrors
- * `pages/userPermissions` in `api/pages/read.ts`, but for `site:*` instead of page permissions.
- */
-
 const OTHER_SITE_ID = '9f2c9a3e-3b8e-4a4c-9a3b-3c9a3e3b8e4a'
 
 test('userPermissions returns exactly the site: permissions granted for THIS site', async () => {
@@ -1088,10 +951,8 @@ test('userPermissions returns every site: permission for manage:system', async (
 })
 
 /**
- * `manage:sites` deliberately is NOT folded into this list -- `sitePermissionsFor`'s own comment
- * explains why (it would tell the caller they hold `site:navigation`, which `manage:sites` alone
- * does not grant against the real `checkSiteAdminAccess` check in `api/navigation.ts`). The frontend
- * combines this list with `manage:sites` / `manage:theme` / `manage:navigation` itself, per surface.
+ * Folding `manage:sites` in would claim `site:*` grants it does not confer (`site:navigation`,
+ * say). The frontend combines this list with the global permissions itself, per surface.
  */
 test('userPermissions does NOT fold in manage:sites', async () => {
   const res = await app.inject({
@@ -1114,11 +975,6 @@ test('userPermissions returns an empty array for an anonymous caller', async () 
   assert.deepEqual(res.json(), [])
 })
 
-/**
- * Task 500: `pdfExportAvailable` surfaces `CARDINAL.models.renderQueue.isAvailable()` (whether the
- * Puppeteer extension is installed) on the same payload `siteStore.loadSite` already fetches, so the
- * frontend can gate the PDF export option without a second round trip.
- */
 test('pdfExportAvailable reflects the rendering model when the extension is installed', async () => {
   renderingAvailable = true
   const res = await app.inject({
@@ -1140,14 +996,9 @@ test('pdfExportAvailable reflects the rendering model when the extension is not 
 })
 
 /**
- * OpenProject #3137: `features.semanticSearch` is the AND of `CARDINAL.capabilities.semanticSearch` (the
- * instance-wide, boot-time pgvector flag) and the site's own `search.config.semanticEnabled` admin
- * toggle — the exact path `api/search.ts`'s PATCH handler saves to and `models/search.ts#getConfig()`
- * reads back (`{ config: { search: { config: { semanticEnabled } } } }`). The flag used to read one
- * level shallower (`config.search?.semanticEnabled`), which never matched the saved shape and so
- * always reported `false` regardless of either half. `CARDINAL.capabilities` is mutated directly on the
- * installed global per test, mirroring `api/search.test.ts`'s own convention, since `buildTestApp`
- * only installs the `CARDINAL` stub once for the whole file.
+ * The setting lives at `config.search.config.semanticEnabled`, the path `api/search.ts`'s PATCH
+ * saves to. `CARDINAL.capabilities` is mutated on the installed global per test, since
+ * `buildTestApp` installs the `CARDINAL` stub once for the whole file.
  */
 test('features.semanticSearch is true only when the capability and the correctly-nested setting are both on', async () => {
   ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: true }
@@ -1176,11 +1027,6 @@ test('features.semanticSearch stays false when the capability is off, even with 
   delete sites[WILDCARD_SITE_ID].config.search
 })
 
-/**
- * OpenProject #1922: `docsBase` surfaces `CARDINAL.config.docsBase` (a `base.yml` default, not per-site
- * config) on the same site-info payload `pdfExportAvailable` above already does, so
- * `siteStore.docsBase` never needs a hardcoded frontend fallback.
- */
 test('docsBase reflects CARDINAL.config.docsBase', async () => {
   const res = await app.inject({
     method: 'GET',
@@ -1190,12 +1036,6 @@ test('docsBase reflects CARDINAL.config.docsBase', async () => {
   assert.equal(res.json().docsBase, 'https://test.docs.example/docs')
 })
 
-/**
- * Task #2527: `navigationId` on the site payload resolves through
- * `CARDINAL.models.navigation.ensureSiteNav(siteId, defaultLocale(siteId))` -- asserts both the value
- * reaches the response and that it was resolved for THIS site's id and its default locale, not some
- * other pair.
- */
 test('navigationId resolves via ensureSiteNav for this site and its default locale', async () => {
   ensureSiteNavCalls.length = 0
   const res = await app.inject({
@@ -1206,14 +1046,6 @@ test('navigationId resolves via ensureSiteNav for this site and its default loca
   assert.equal(res.json().navigationId, `nav-${WILDCARD_SITE_ID}-en`)
   assert.deepEqual(ensureSiteNavCalls, [{ siteId: WILDCARD_SITE_ID, locale: 'en' }])
 })
-
-/**
- * Regression coverage for task 691: the DELETE route already refuses to remove the last remaining
- * site (`countSites() <= 1`); PUT had no equivalent, so an admin could disable the only enabled site
- * with `isEnabled: false` and leave the wiki with no hostname able to resolve. Mirrors the DELETE
- * guard's shape — a 409 conflict, `updateSite` never called — but keyed on `countEnabledSites()`
- * rather than `countSites()`, since a disabled site still exists, it just stops being served.
- */
 
 test('disabling the only enabled site is refused with a 409 and never reaches updateSite', async () => {
   updateSiteCalls.length = 0
@@ -1278,11 +1110,6 @@ test('disabling an already-disabled site does not re-check the enabled count (no
   assert.equal(updateSiteCalls.length, 1)
 })
 
-/**
- * `blocksConfig` on the public site-info response, so a reader's browser (block-map, via
- * `blocks/shared/config.js`) can resolve a site's block config without the manage:sites-gated
- * `GET /sites/:siteId/blocks` route. See `blocksConfigFor` in api/sites.ts.
- */
 test('blocksConfig includes an enabled block that declares config fields, keyed by tag', async () => {
   siteBlocksResult = [
     {
@@ -1320,12 +1147,6 @@ test('blocksConfig omits an enabled block that declares no config fields', async
   assert.deepEqual(res.json().blocksConfig, {})
 })
 
-/**
- * `blocksIndex` on the same public site-info response, so the page view (`Index.vue`'s block-loading
- * scan, via `siteStore.blocksIndex`) can resolve an undefined `block-*` element to its `id`/`isCustom`
- * without the manage:sites-gated `GET /sites/:siteId/blocks` route either — see `siteBlocksInfoFor`
- * in api/sites.ts and OpenProject #954.
- */
 test('blocksIndex includes an enabled block, custom or built-in, keyed by tag', async () => {
   siteBlocksResult = [
     {

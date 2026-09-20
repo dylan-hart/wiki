@@ -5,17 +5,6 @@ import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import searchRoutes from './search.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * Route-level tests for the engine-picker endpoints added on top of `api/search.ts` (task #570):
- * `GET/PUT .../search/engines[/:key]` and `POST .../search/refresh`. Boots a bare Fastify instance
- * with only this plugin and its schema registered -- no `config.permissions` preHandler, since that
- * hook lives in `index.ts` and is out of scope here; this covers the route handlers' own logic
- * (site/engine lookup, validation, response shape), the same boundary `api/sites.test.ts` draws.
- *
- * `CARDINAL.models.search` is stubbed rather than pulling in the real disk-scanning model, keeping this a
- * self-contained test of the routes' wiring to whatever the model returns/throws.
- */
-
 const SITE_ID = '11111111-1111-1111-1111-111111111111'
 const sites: Record<string, any> = {
   [SITE_ID]: { id: SITE_ID, config: {} }
@@ -35,14 +24,9 @@ function makeDbEngine() {
   }
 }
 
-// -> What `GET .../search/engines` and `POST .../refresh` are expected to end up with once
-//    `withDbSearchExtras` (task #574) attaches these onto the `db` entry
 const dictOverrides = { en: 'english' }
 const availableDictionaries = ['english', 'simple']
 
-// -> What `getEngineConfig` reports as already stored for the site's `db` engine, task #556: the PUT
-//    route must pass this through to `validateEngineConfig` as its `existing` argument so a required
-//    prop already saved does not need to be resent just to keep validating.
 const storedEngineConfig = { termHighlighting: false }
 
 let app: FastifyInstance
@@ -65,8 +49,8 @@ before(async () => {
     sites,
     models: {
       search: {
-        // -> A fresh object per call: `withDbSearchExtras` mutates the `db` entry it's handed, and a
-        //    shared object here would let one test's mutation leak into the next test's assertions
+        // -> A fresh object per call: `withDbSearchExtras` mutates the `db` entry it's handed, and
+        //    a shared object would leak that into the next test's assertions
         getSiteEngines: async (siteId: string) => (sites[siteId] ? [makeDbEngine()] : []),
         getDefinition: (key: string) => (key === 'db' ? makeDbEngine() : null),
         getEngineConfig: (_siteId: string, _key: string) => storedEngineConfig,
@@ -93,8 +77,8 @@ before(async () => {
     }
   }
 
-  // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
-  //    plugin-only app has to register it to answer that case the way the real app does.
+  // -> The unknown-site 404 lives in this hook, not in the route handlers, so a plugin-only app has
+  //    to register it to answer that case the way the real app does.
   const guardedRoutes: FastifyPluginAsync = async (instance) => {
     instance.addHook('preHandler', siteEnabledPreHandler)
     await instance.register(searchRoutes)
@@ -192,10 +176,6 @@ test('POST .../search/refresh re-reads definitions from disk and returns the ref
   assert.equal(refreshCalls, 1)
 })
 
-// -> #1616: these two messages used to be free-text English sentences, which surfaced verbatim in
-//    the UI instead of translating like the rest of a `t(key, fallback)` screen. Assert the coded
-//    `ERR_*` shape (`frontend/src/helpers/localization.js#localizeError` is what resolves it client
-//    side) rather than any particular English wording.
 test('PATCH .../search rejects a malformed locale code with a coded error', async () => {
   const res = await app.inject({
     method: 'PATCH',
@@ -217,10 +197,8 @@ test('PATCH .../search rejects a dictionary the database does not have with a co
 })
 
 /**
- * `semanticEnabled` (task #3104) — the per-site half of the two-flag availability triangle. Whether
- * `CARDINAL.capabilities.semanticSearch` (the instance-wide half) is true is controlled per test below by
- * mutating the installed global directly, since `buildTestApp` only installs the `CARDINAL` stub once for
- * the whole file.
+ * `CARDINAL.capabilities.semanticSearch` is set per test below by mutating the installed global,
+ * since `buildTestApp` installs the `CARDINAL` stub once for the whole file.
  */
 test('PATCH .../search rejects semanticEnabled: true when the capability is unavailable', async () => {
   ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: false }

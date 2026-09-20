@@ -65,7 +65,6 @@ describe('listApiRouteFiles', () => {
 
   test('finds every route file, and none of the ones that are not routes', () => {
     assert.ok(files.length >= 20, `expected at least 20 route files, found ${files.length}`)
-    // -> `api/pages/` is a directory resource: one entry, its `index.ts` (A17's split).
     assert.ok(files.includes('pages/index.ts'))
     assert.ok(!files.some((f) => f === 'pages/read.ts'))
     assert.ok(!files.includes('index.ts'))
@@ -83,8 +82,8 @@ describe('listApiRouteFiles', () => {
   })
 
   test('a directory with an index.ts is ONE route resource, its siblings are that plugin internals', async () => {
-    // -> The branch A17's `api/pages/` split depends on, asserted against a tree built here rather
-    //    than against `api/`'s current shape, whose own `api/pages/` is one instance of it.
+    // -> Asserted against a tree built here rather than against `api/`'s current shape, so the
+    //    branch stays covered however `api/` is organised.
     const root = await mkdtemp(path.join(tmpdir(), 'wiki-route-scan-'))
     try {
       await mkdir(path.join(root, 'foo'))

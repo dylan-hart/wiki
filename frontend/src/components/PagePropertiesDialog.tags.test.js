@@ -53,14 +53,11 @@ const MESSAGES = {
 }
 
 /**
- * OpenProject #3393: the Tags section (and its jump-rail entry) is gated on
- * `userStore.pagePermissions.includes('write:tags')` -- a PAGE-scoped permission, not
- * `userStore.can()` -- the same distinction `PagePropertiesDialog.scripts.test.js` already covers
- * for `write:scripts`/`write:styles`. Unlike the Scripts section, Tags has a read-only middle state:
- * a reader without `write:tags` still sees the section (and can browse to a tag) as long as the page
- * already carries at least one, and only loses the section entirely when there is also nothing to
- * show -- offering an editable field without the permission would look like it worked and then be
- * refused with 403 on save.
+ * The Tags section is gated on `userStore.pagePermissions`, not `userStore.can()`: `write:tags` is
+ * PAGE-scoped, so an editable field offered on the global list would look like it worked and then
+ * be refused with 403 on save. Unlike the Scripts section, Tags has a read-only middle state -- a
+ * reader without `write:tags` still sees the section as long as the page already carries a tag, and
+ * loses it entirely only when there is nothing to show either.
  */
 describe('PagePropertiesDialog — Tags section permission gate', () => {
   it('hides the Tags section and its jump-rail entry for a reader with neither write:tags nor any existing tags', async () => {
@@ -84,8 +81,7 @@ describe('PagePropertiesDialog — Tags section permission gate', () => {
     const section = wrapper.find('#refCardTags')
     expect(section.exists()).toBe(true)
     expect(section.text()).toContain('news')
-    // -> No entry field and no removable chip without write:tags: `<page-tags :edit="false">` never
-    //    renders the `w-select` input, and its chips are not `removable`.
+    // -> `<page-tags :edit="false">` renders no `w-select` input and no removable chips
     expect(section.find('input[aria-label="Tags"]').exists()).toBe(false)
   })
 

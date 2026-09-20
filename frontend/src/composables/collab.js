@@ -15,49 +15,38 @@ import { useUserStore } from '@/stores/user'
 /**
  * Live collaborative editing, browser side.
  *
- * One session at a time — there is one editor open at a time — so this is a module singleton rather
- * than a per-component composable. The Yjs document, the websocket and the Monaco binding are held
- * here, deliberately outside of Vue's reactivity: a CRDT is a graph of mutable nodes and wrapping one
- * in a proxy is both pointless and slow. What components need is mirrored into `stores/collab.js`.
+ * A module singleton rather than a per-component composable — there is one editor open at a time.
+ * The Yjs document, the websocket and the Monaco binding are held here, deliberately outside of
+ * Vue's reactivity: a CRDT is a graph of mutable nodes and wrapping one in a proxy is both pointless
+ * and slow. What components need is mirrored into `stores/collab.js`.
  *
- * What is shared is the markdown source and the three fields in the page header. Everything else about
- * a page — its tags, its path, the properties panel — is not, and the last save wins on those, exactly
- * as it did before any of this existed.
- *
- * Saving is unchanged and still explicit. All this session does about it is listen: the server writes
- * the fact of a save into the document, and the editors that did not make it stop calling themselves
- * unsaved.
+ * Only the markdown source and the three fields in the page header are shared; on everything else
+ * about a page the last save wins. Saving stays explicit — all this session does about it is listen,
+ * so the editors that did not make the save stop calling themselves unsaved.
  */
 
 /** How long to wait for the first sync before giving up and letting the author type offline. */
 const SYNC_TIMEOUT = 5000
 
 /**
- * Ceiling on `y-websocket`'s own reconnect backoff (`WebsocketProvider`'s `maxBackoffTime`).
- *
- * `WebsocketProvider` never gives up retrying on its own -- a dropped socket schedules another
- * attempt forever, doubling the delay each miss (100ms, 200ms, 400ms, ...) until it hits this
- * ceiling, then holding there. Left unset, the library's own default is the same 2500ms pinned here;
- * pinning it explicitly is so a `y-websocket` upgrade changing that default can't silently change how
- * quickly a real outage (a wifi drop, a restarted backend instance) recovers once connectivity
- * returns, out from under this file. 2500ms keeps that worst case well under `SYNC_TIMEOUT`'s 5000ms
- * budget for the *first* connection, and is frequent enough that a reconnect is never the reason a
- * multi-second outage feels longer than it was.
+ * Ceiling on `y-websocket`'s own reconnect backoff (`WebsocketProvider`'s `maxBackoffTime`), which
+ * otherwise retries forever, doubling the delay each miss until it holds at the ceiling. This is the
+ * library's own default, pinned so an upgrade changing that default cannot silently change how
+ * quickly a real outage recovers. It keeps the worst case well under `SYNC_TIMEOUT`'s budget for the
+ * *first* connection.
  */
 const RECONNECT_MAX_BACKOFF = 2500
 
 /**
- * How long after someone's last change they still count as typing.
- *
  * Long enough to ride out the pause between two words, short enough that the indicator means "right
  * now" rather than "recently". Only the two transitions are broadcast, not each keystroke.
  */
 const TYPING_IDLE = 2000
 
 /**
- * Cursor colours. Picked by hashing the user id, so one person is the same colour on everyone's screen
- * and stays that colour across sessions. Chosen to stay legible as a cursor label and as the
- * background of an avatar with white initials on it — hence no yellows or pastels.
+ * Picked by hashing the user id, so one person is the same colour on everyone's screen and stays
+ * that colour across sessions. Chosen to stay legible as a cursor label and as the background of an
+ * avatar with white initials on it — hence no yellows or pastels.
  */
 const USER_COLORS = [
   '#D32F2F',
@@ -79,25 +68,19 @@ let provider = null
 let binding = null
 let styleEl = null
 let syncTimer = null
-/** Whether this author is mid-edit, and the timer that decides when they have stopped. */
 let typing = false
 let typingTimer = null
-/** Unsubscribe callbacks for the page store watchers, which have no component to be bound to. */
+/** The page store watchers have no component to be bound to, so they are stopped by hand. */
 let stopWatchers = []
 /**
  * Set while a remote change is being written into the page store, so the watcher that mirrors that
  * store back into the document does not send it round again.
  */
 let applyingRemote = false
-/**
- * Whether this session has already offered to restore a recovery draft (OpenProject #2455) — at most
- * once per session, even across a reconnect's trip back through `sync`. Reset in `startCollabSession`.
- */
+/** A recovery draft is offered at most once per session, even across a reconnect's re-`sync`. */
 let draftOffered = false
 
 /**
- * A stable colour for a user.
- *
  * Exported because an avatar with no picture behind it is drawn in the same colour as its owner's
  * cursor — the whole point being that the face in the header and the caret in the text read as the
  * same person.
@@ -111,15 +94,10 @@ export function collabUserColor(userId) {
 }
 
 /**
- * What a `collabStore.status` change means for the editor it gates -- whether to (re)bind it to the
- * shared document, and whether it may still be typed in.
- *
- * Pulled out as its own pure function specifically so the read-only guard can be tested on its own,
- * without mounting the (Monaco-backed) `EditorMarkdown.vue`: `hasSynced` is the guard
- * `stores/collab.js`'s own doc comment describes -- "the editor must not lock itself again" over a
- * reconnect's trip back through `connecting` -- made explicit here rather than left as an accident of
- * the caller never being told to re-lock. Only the very first sync is worth waiting for; every status
- * after that, including a mid-session `disconnected`, releases the editor and keeps it released.
+ * Pure, and its own function, so the read-only guard can be tested without mounting the
+ * Monaco-backed `EditorMarkdown.vue`. Only the very first sync is worth locking the editor for:
+ * `hasSynced` keeps a reconnect's trip back through `connecting` — or any later status — from
+ * locking it again.
  */
 export function collabStatusEffects(status, hasSynced) {
   return {
@@ -130,8 +108,6 @@ export function collabStatusEffects(status, hasSynced) {
 }
 
 /**
- * Open a session on a page.
- *
  * Returns without waiting for the socket: the editor stays usable throughout, and the store's status
  * is what says whether anything is live yet.
  */
@@ -176,10 +152,9 @@ export function startCollabSession({ siteId, pageId }) {
   provider.awareness.on('change', refreshParticipants)
 
   /*
-    What makes an avatar pulse on everyone else's screen. `transaction.local` is the whole test: an
-    edit this browser made is local, and one that arrived over the socket is not — so this fires for
-    the author's own typing and never for the changes they are merely receiving. Header fields count
-    too, being edits like any other.
+    `transaction.local` is the whole test: an edit this browser made is local, one that arrived over
+    the socket is not — so the typing indicator fires for the author's own edits (header fields
+    included) and never for the changes they are merely receiving.
   */
   doc.on('update', (update, origin, updated, transaction) => {
     if (transaction?.local) {
@@ -189,9 +164,8 @@ export function startCollabSession({ siteId, pageId }) {
 
   provider.on('status', ({ status }) => {
     /*
-      `connected` here means the socket is up, which is not the same as the session being live — that
-      is what `sync` below reports, and it is the only thing allowed to say `connected`. A refusal is
-      final and outranks both.
+      `connected` here means the socket is up, not that the session is live — `sync` below reports
+      that, and is the only thing allowed to say `connected`. A refusal outranks both.
     */
     if (collabStore.status === 'denied' || status === 'connected') {
       return
@@ -206,8 +180,8 @@ export function startCollabSession({ siteId, pageId }) {
     clearTimeout(syncTimer)
     collabStore.$patch({ status: 'connected', hasSynced: true })
     /*
-      The room may have been holding header fields somebody else changed and has not saved. Those are
-      the current state of this edit, so they win over what this browser loaded from the API.
+      The room may hold header fields somebody else changed and has not saved: those are the current
+      state of this edit, so they win over what this browser loaded from the API.
     */
     adoptProps()
     refreshParticipants()
@@ -216,9 +190,9 @@ export function startCollabSession({ siteId, pageId }) {
 
   provider.on('connection-close', (event) => {
     /*
-      Codes in the 4000 range are the server's own (see `controllers/collab.ts`) and all mean the same
-      thing: this session is not allowed, and reconnecting will be refused just as fast. Anything else
-      is an ordinary drop, which the provider is right to retry.
+      Codes in the 4000 range are the server's own (`controllers/collab.ts`) and all mean the same
+      thing: this session is not allowed, and reconnecting would be refused just as fast. Anything
+      else is an ordinary drop, which the provider is right to retry.
     */
     if (event?.code >= 4000) {
       collabStore.status = 'denied'
@@ -228,9 +202,9 @@ export function startCollabSession({ siteId, pageId }) {
   })
 
   /*
-    Nothing is coming. A websocket that cannot be established — a proxy that does not forward upgrades
-    is the usual reason — must not leave the author staring at an editor they are not allowed to type
-    in, so the session gives up and the editor carries on as a plain one.
+    A websocket that cannot be established — a proxy that does not forward upgrades is the usual
+    reason — must not leave the author staring at an editor they are not allowed to type in, so the
+    session gives up and the editor carries on as a plain one.
   */
   syncTimer = setTimeout(() => {
     if (collabStore.status === 'connecting') {
@@ -238,14 +212,13 @@ export function startCollabSession({ siteId, pageId }) {
     }
   }, SYNC_TIMEOUT)
 
-  // -> A header field somebody else edited, arriving mid-session
   yprops.observe((event, transaction) => {
     if (!transaction.local) {
       adoptProps()
     }
   })
 
-  // -> The server's word that the page has been saved. See `pageSaved` in `core/collab.ts`.
+  // -> The server's word that the page has been saved -- `pageSaved` in `core/collab.ts`.
   ymeta.observe(() => {
     const info = ymeta.get('lastSave')
     if (info) {
@@ -254,9 +227,9 @@ export function startCollabSession({ siteId, pageId }) {
   })
 
   /*
-    The other direction: what this author types into the title, description or icon goes into the
-    document. Watched on the store rather than bound to the inputs because those are three separate
-    contenteditable elements in the page header, and the store is the one place all three meet.
+    The other direction. Watched on the store rather than bound to the inputs because the title,
+    description and icon are three separate contenteditable elements in the page header, and the
+    store is the one place all three meet.
   */
   stopWatchers.push(
     watch(
@@ -280,19 +253,14 @@ export function startCollabSession({ siteId, pageId }) {
 }
 
 /**
- * Hand an editor over to the session.
+ * Call once the document has synced, and not before: a binding built earlier would start by making
+ * the editor say whatever an empty document says.
  *
- * Called once the document has synced, and not before: a binding built before that would start by
- * making the editor say whatever an empty document says.
- *
- * Takes a factory rather than the editor itself, because Monaco and TipTap bind to a Yjs document in
- * incompatible ways: `composables/monacoYjsBinding.js`'s `MonacoYjsBinding` is a constructor this file
- * could call given the model, while TipTap's `@tiptap/extension-collaboration` binds itself as an
- * extension configured with the document, and owns its own lifecycle from there rather than handing
- * back an object. What every binding needs is the same regardless -- the shared `ytext` and the live
- * `awareness` -- so `createBinding(ytext, awareness)` receives exactly those two and returns whatever
- * should be torn down when the session ends (anything with a `destroy()` method), or a falsy value if
- * there is nothing left for this session to own.
+ * Takes a factory rather than the editor itself because Monaco and TipTap bind to a Yjs document in
+ * incompatible ways -- one through a constructor, the other as a self-installing extension owning
+ * its own lifecycle. Both need the same two things, so `createBinding(ytext, awareness)` gets those
+ * and returns whatever should be torn down when the session ends (anything with a `destroy()`), or
+ * a falsy value if there is nothing left for this session to own.
  */
 export function bindCollabEditor(createBinding) {
   if (!doc || binding) {
@@ -302,13 +270,9 @@ export function bindCollabEditor(createBinding) {
 }
 
 /**
- * Apply a restored recovery draft (OpenProject #2455) into the live shared document.
- *
- * Writing it here rather than into `pageStore` directly is what makes it reach both editors and the
- * room in one move: Monaco and TipTap are each bound to this same `ytext`/`yprops` (`bindCollabEditor`
- * above), so the change shows up in whichever editor is mounted, syncs to the room like any other
- * edit, and is picked up by every other participant exactly as if it had just been typed. No-op once
- * the session has already ended -- there is nothing left to apply it to.
+ * Written into the live shared document rather than into `pageStore`, so one move reaches both
+ * editors and the room: each editor is bound to this same `ytext`/`yprops`, so the change shows up
+ * in whichever one is mounted and syncs to every other participant as if it had just been typed.
  */
 export function applyRestoredDraft({ content, title, description, icon }) {
   if (!doc) {
@@ -326,14 +290,13 @@ export function applyRestoredDraft({ content, title, description, icon }) {
     writeProp(yprops, 'icon', icon)
   })
   /*
-    The body reaches the editor on its own -- Monaco/TipTap are bound straight to `ytext` -- but the
-    header fields only flow FROM `pageStore` into the doc (the watcher below); this write goes the
-    other way, so pull it into the store explicitly, the same way a REMOTE header edit does.
+    The body reaches the editor on its own -- both editors bind straight to `ytext` -- but the header
+    fields only flow FROM `pageStore` into the doc, so this write has to be pulled into the store
+    explicitly, the same way a REMOTE header edit is.
   */
   adoptProps()
 }
 
-/** Close the session and put everything back the way an ordinary editor leaves it. */
 export function stopCollabSession() {
   clearTimeout(syncTimer)
   syncTimer = null
@@ -349,8 +312,8 @@ export function stopCollabSession() {
     binding = null
   }
   if (provider) {
-    // -> Retracts this editor's awareness state before the socket goes, so the others see the avatar
-    //    leave immediately rather than when the server notices the connection is gone
+    // -> Retract this editor's awareness state before the socket goes, so the others see the avatar
+    //    leave immediately rather than when the server notices the connection is gone.
     provider.awareness.setLocalState(null)
     provider.destroy()
     provider = null
@@ -368,13 +331,7 @@ export function stopCollabSession() {
   useCollabStore().reset()
 }
 
-// ----------------------------------------
-// Internals
-// ----------------------------------------
-
 /**
- * Say that this author is typing, and arrange to say when they have stopped.
- *
  * Carried as an awareness field of its own rather than folded into `user`, so that a burst of typing
  * does not republish the name, colour and avatar with every change. Two messages per burst: one when
  * it starts, one when it ends.
@@ -401,15 +358,14 @@ function writeProp(yprops, key, value) {
   }
 }
 
-/** Copy the shared header fields into the page store, without echoing them back out. */
 function adoptProps() {
   const pageStore = usePageStore()
   const yprops = doc.getMap('props')
   const patch = {}
   for (const key of ['title', 'description', 'icon']) {
     const value = yprops.get(key)
-    // -> An icon is never legitimately empty, and blanking one because a room was seeded from a page
-    //    that had none would be a visible regression on every other screen
+    // -> An icon is never legitimately empty: blanking one because the room was seeded from a page
+    //    that had none would show up on every other screen.
     if (typeof value !== 'string' || (key === 'icon' && !value)) {
       continue
     }
@@ -422,24 +378,18 @@ function adoptProps() {
   }
   applyingRemote = true
   pageStore.$patch(patch)
-  // -> Released after the watchers have run, which they do synchronously only for `flush: 'sync'`
-  //    watchers; this one is deferred, so the flag has to outlive the tick
+  // -> The mirroring watcher is deferred, not `flush: 'sync'`, so the flag has to outlive the tick.
   queueMicrotask(() => {
     applyingRemote = false
   })
 }
 
-/**
- * Somebody saved the page. Everyone else is now looking at what is stored, so their editor stops
- * claiming otherwise.
- */
 function applySave(info) {
   const collabStore = useCollabStore()
   const editorStore = useEditorStore()
   const pageStore = usePageStore()
 
-  // -> Somebody's save IS this editor's save as far as pending changes go; `markClean` equalizes the
-  //    two timestamps, which is what `hasPendingChanges` reads
+  // -> Somebody else's save IS this editor's save as far as pending changes go.
   editorStore.markClean()
   pageStore.$patch({
     updatedAt: info.versionDate,
@@ -450,13 +400,9 @@ function applySave(info) {
 }
 
 /**
- * Offer to restore a recovery draft (OpenProject #2455), once per session and only once this room's
- * first sync has actually landed -- `pageStore.draft` came in on the page's own GET, so it is already
- * known by the time the collab session starts, but only worth asking about once there is a live
- * document to restore it into.
- *
- * Never awaited by its caller: this is a fire-and-forget prompt hung off `provider.on('sync', ...)`,
- * not something the rest of session start-up needs to wait on.
+ * Hung off the room's first `sync` rather than run at session start: `pageStore.draft` is known
+ * earlier, but is only worth asking about once there is a live document to restore it into. Never
+ * awaited -- nothing in start-up waits on the reader's answer.
  */
 async function offerDraftRestore({ siteId, pageId }) {
   if (draftOffered) {
@@ -472,15 +418,13 @@ async function offerDraftRestore({ siteId, pageId }) {
   }
 
   /*
-    Fetched the moment the prompt opens, not once Restore is clicked (OpenProject #2929): the dialog
-    shows the draft against what the editor holds now, so it needs both halves in hand while it is up
-    rather than after the reader has already decided. The same request answers the restore itself --
-    no second round trip -- and the dialog reports the fetch's own outcome as a caption.
+    Fetched the moment the prompt opens, not once Restore is clicked: the dialog shows the draft
+    against what the editor holds now, so it needs both halves in hand while it is up. The same
+    request answers the restore itself, with no second round trip.
 
-    The `catch(noop)` is not error handling: the dialog observes this promise's rejection for its
-    caption and `onOk` below re-observes it on Restore, but a reader who discards instead leaves the
-    rejection with no other subscriber, and an unhandled-rejection report for a request whose failure
-    was already reported in the dialog would be noise.
+    The `catch(noop)` is not error handling -- the dialog and `onOk` both observe this promise -- but
+    a reader who discards instead leaves the rejection with no other subscriber, and an
+    unhandled-rejection report for a failure the dialog already showed would be noise.
   */
   const draftUrl = `sites/${siteId}/pages/${pageId}/draft`
   const draftRequest = API_CLIENT.get(draftUrl).json()
@@ -491,17 +435,16 @@ async function offerDraftRestore({ siteId, pageId }) {
     component: defineAsyncComponent(() => import('@/components/PageDraftRestoreDialog.vue')),
     componentProps: {
       authorName: draftInfo.authorName,
-      // -> The room's live content once synced, which is what a bound editor shows -- not the copy
-      //    `pageStore.content` loaded from the API before the session started. `doc` is always
-      //    live here: this only ever runs from the session's own `sync` handler.
+      // -> The room's live content, which is what a bound editor shows -- not the copy
+      //    `pageStore.content` loaded from the API before the session started.
       currentContent: doc.getText('content').toString(),
       draftRequest
     }
   })
     .onOk(async () => {
       try {
-        // -> A fetch that failed while the prompt was up is retried here rather than treated as
-        //    final: the draft is still on the server, and Restore was the reader's answer.
+        // -> A fetch that failed while the prompt was up is retried rather than treated as final:
+        //    the draft is still on the server, and Restore was the reader's answer.
         const restored = await draftRequest.catch(() => API_CLIENT.get(draftUrl).json())
         applyRestoredDraft(restored)
         notify({ type: 'positive', message: t('editor.collab.draftRecovery.restored') })
@@ -521,16 +464,15 @@ async function offerDraftRestore({ siteId, pageId }) {
 }
 
 /**
- * Asks the room's server-side coordinator whether this client may seed its WYSIWYG (TipTap) field --
- * see `EditorWysiwyg.vue#swapToCollabEditor`, `core/collab.ts#claimWysiwygSeed` and OpenProject #2516
- * for why this exists: unlike the markdown field, the shared `Y.XmlFragment` TipTap binds to has no
- * server-side seed of its own, so two people opening a brand new room's WYSIWYG editor at the same
- * instant could otherwise both seed it from their own locally-loaded copy of the page and duplicate
- * its content. This never sends the actual ProseMirror JSON -- only a boolean crosses the wire either
- * way, over an ordinary REST call rather than a new addition to the y-websocket protocol itself.
+ * Asks the room's server-side coordinator (`core/collab.ts#claimWysiwygSeed`) whether this client
+ * may seed its WYSIWYG field. Unlike the markdown field, the shared `Y.XmlFragment` TipTap binds to
+ * has no server-side seed of its own, so two people opening a brand new room's WYSIWYG editor at the
+ * same instant could otherwise both seed it from their own copy and duplicate its content. Only a
+ * boolean crosses the wire, over an ordinary REST call rather than an addition to the y-websocket
+ * protocol.
  *
- * Fails open (`true`) on any error -- a network hiccup or an older/misconfigured backend without this
- * route is no worse than this editor's own pre-#2516 behaviour, which seeded unconditionally.
+ * Fails open on any error: seeding unconditionally is what an older or misconfigured backend without
+ * this route gets anyway.
  */
 export async function claimWysiwygSeed({ siteId, pageId }) {
   try {
@@ -578,12 +520,10 @@ function ensureStyleElement() {
 }
 
 /**
- * The stylesheet behind the remote cursors.
- *
  * `composables/monacoYjsBinding.js` draws each remote selection as a decoration whose class carries
  * the client id and nothing else — `yRemoteSelection-42` — leaving what it looks like entirely to
- * CSS. So one rule per participant is generated here, which is also the only way the name can appear
- * beside the caret: it is drawn as generated content, there being no element to put it in.
+ * CSS, hence one rule per participant. It is also the only way the name can appear beside the caret:
+ * it is drawn as generated content, there being no element to put it in.
  */
 function renderCursorStyles(participants) {
   ensureStyleElement()

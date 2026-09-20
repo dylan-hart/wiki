@@ -9,11 +9,6 @@ import {
 } from '../../db/schema.ts'
 import { task } from './purge-content-sync-state.ts'
 
-/**
- * Exercises the real sweep end to end against Postgres -- the point of this task is a genuine
- * `DELETE ... WHERE NOT EXISTS (...)`, which a mock of the model would not actually verify. Gated
- * on `DATABASE_URL` per this repo's DB-backed testing convention.
- */
 describe('purge-content-sync-state task', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let targetId: string
@@ -43,9 +38,8 @@ describe('purge-content-sync-state task', { skip: !hasTestDatabase() }, () => {
     pageId = page.id
     orphanId = randomUUID()
 
-    // -> One row pointing at a page that still exists, one pointing at a page that never existed
-    //    (standing in for one whose page has since been deleted) -- the task must remove only the
-    //    latter.
+    // -> The second row's `contentId` never named a real page, standing in for one whose page has
+    //    since been deleted.
     await fixtures.db.insert(contentSyncStateTable).values([
       { contentType: 'page', contentId: pageId, targetId, lastError: null },
       { contentType: 'page', contentId: orphanId, targetId, lastError: null }
@@ -57,8 +51,6 @@ describe('purge-content-sync-state task', { skip: !hasTestDatabase() }, () => {
   })
 
   test('removes only the row whose page no longer exists, and reports the count it swept', async () => {
-    // -> OpenProject #2672: the count is RETURNED, not logged. `core/scheduler.ts#runJob` is what
-    //    turns it into this run's one `info` line, with the job id and duration attached.
     const outcome = await task()
     assert.deepEqual(outcome, { summary: 'purged orphaned contentSyncState rows', purged: 1 })
 

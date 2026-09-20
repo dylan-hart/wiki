@@ -73,23 +73,13 @@ import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// STORES
-
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   isLoading: false,
@@ -99,11 +89,11 @@ const state = reactive({
   latestDate: ''
 })
 
+// FIXME: hardcoded, so the dialog always reports the instance as up to date and `state.canUpgrade`
+//        never flips -- compare `state.current` against `state.latest` once the check returns.
 const isLatest = computed(() => {
   return true
 })
-
-// METHODS
 
 async function check() {
   state.isLoading = true
@@ -125,8 +115,6 @@ async function check() {
   }
   state.isLoading = false
 }
-
-// MOUNTED
 
 onMounted(() => {
   check()

@@ -4,19 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAdminStore } from '@/stores/admin'
 
 /**
- * The route plumbing behind an admin list page whose rows open a full-screen edit overlay
- * (`/_admin/users/:id` -> `UserEditOverlay`, `/_admin/groups/:id` -> `GroupEditOverlay`).
- *
- * The overlay itself is mounted by `AdminLayout.vue` off `adminStore.overlay`, so a list page owns
- * only the two directions between that store field and its own route: an `:id` in the URL opens the
- * overlay (on mount and whenever the param changes), and the overlay closing sends the browser back
- * to the bare list and refreshes it. Both pages wrote the same four pieces out by hand.
+ * `AdminLayout.vue` mounts the overlay itself off `adminStore.overlay`, so a list page owns only
+ * the two directions between that store field and its own route.
  *
  * @param {object} opts
  * @param {string} opts.overlay The overlay component's registered name, as `AdminLayout.vue` keys it.
- * @param {string} opts.listPath Where to return once the overlay closes, e.g. `/_admin/users`.
- * @param {() => void} [opts.onClosed] Called after that return -- the page's own `load()`, so the
- *   list reflects whatever the overlay changed.
+ * @param {string} opts.listPath
+ * @param {() => void} [opts.onClosed] Called after the return to `listPath`.
  */
 export function useAdminOverlayRoute({ overlay, listPath, onClosed }) {
   const adminStore = useAdminStore()

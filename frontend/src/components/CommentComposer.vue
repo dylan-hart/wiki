@@ -1,9 +1,8 @@
 <template>
   <w-form ref="composerForm" class="comment-composer flex flex-col gap-2" @submit="submit">
     <!--
-      Guest identity capture, above the textarea -- matching 2.5.x's inline fields (never a modal;
-      `SuggestionGuestDialog.vue`'s dialog is a different flow entirely) for the one case a comment
-      poster's identity isn't already known: no session to read `authorName`/`authorEmail` off.
+      Guest identity, captured inline rather than in a dialog, for the one case where there is no
+      session to read `authorName`/`authorEmail` off.
     -->
     <div
       v-if="!userStore.authenticated"
@@ -75,22 +74,16 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 /**
- * The composer for posting a comment: a new top-level one, or a reply when `replyTo` names an
- * existing comment on this page.
- *
  * `PageComments.vue` mounts one of these permanently (as the page's top composer) and one more per
- * comment whose reply box the reader has toggled open -- the only difference between the two is
- * `replyTo` and the smaller textarea a reply gets, so this is the one component both share rather
- * than two near-identical forms.
+ * comment whose reply box the reader has toggled open -- `replyTo` and the textarea height are the
+ * only differences, so both share this component rather than being two near-identical forms.
  *
- * Reads `pageStore`/`siteStore`/`userStore` directly, matching `PageComments.vue`'s own convention,
- * so it needs no page-identity props -- only what distinguishes a reply from a top-level post.
  * Visibility (holding `write:comments` at this path) is entirely the caller's job: `PageComments.vue`
  * only ever mounts this component once that check has already passed.
  */
 
 const props = defineProps({
-  /** The comment being replied to, on this page, or null for a top-level comment. */
+  /** The comment being replied to, or null for a top-level comment. */
   replyTo: {
     type: String,
     default: null
@@ -114,11 +107,9 @@ const composerForm = ref(null)
 const contentIpt = ref(null)
 
 /*
-  Only a reply composer steals focus on mount -- the permanent top-level one (`replyTo: null`) is
-  already on the page when it loads, and there is no "just opened this" moment to justify jumping the
-  caret into it. A reply composer, by contrast, is freshly mounted the instant `PageComments.vue`
-  toggles its reply box open (`v-if="openReplyIds.has(...)"`), so `onMounted` here really does line up
-  with "just appeared for the reader to type into."
+  Only a reply composer steals focus: it is mounted fresh the instant `PageComments.vue` toggles its
+  reply box open, so `onMounted` lines up with "just appeared for the reader to type into". The
+  permanent top-level composer is already on the page at load, with no such moment.
 */
 onMounted(() => {
   if (props.replyTo) {
@@ -130,15 +121,13 @@ onMounted(() => {
 
 const nameRules = guestNameRules(t)
 const emailRules = guestEmailRules(t)
-/** 2.5.x's own threshold (`length: { minimum: 2 }`) -- short of that reads as "empty or too short". */
 const contentRules = [
   (val) => (val ?? '').trim().length >= 2 || t(`common.comments.contentMissingError`)
 ]
 
 /**
- * Validates, posts, and on success clears the composer and hands the new comment back to
- * `PageComments.vue` via `posted` -- which is what splices it into the visible list and bumps
- * `pageStore.commentsCount`, since this component owns none of that page-wide state itself.
+ * The `posted` event is what splices the new comment into `PageComments.vue`'s visible list and
+ * bumps `pageStore.commentsCount` -- this component owns none of that page-wide state itself.
  */
 async function submit() {
   if (!(await composerForm.value.validate())) {
@@ -157,8 +146,8 @@ async function submit() {
     const posted = await API_CLIENT.post(`sites/${siteStore.id}/pages/${pageStore.id}/comments`, {
       json: payload
     }).json()
-    // -> The API client does not throw for a 400, so a refusal comes back as a parsed error
-    //    envelope rather than a rejection: without this check it reads as a successful post.
+    // -> A refusal that arrives as a parsed `{ ok: false, message }` envelope rather than as a
+    //    rejection would otherwise read as a successful post.
     if (posted?.ok === false) {
       throw new Error(posted.message || t(`common.error.generic.title`))
     }

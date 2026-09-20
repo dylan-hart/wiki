@@ -5,18 +5,6 @@ import { randomUUID } from 'node:crypto'
 import schedulerRoutes from './scheduler.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * Task 1983: `backend/api/` had 30 of its 34 route sources with a co-located test; `scheduler.ts`
- * was the largest of the four gaps (314 lines, six routes), two of which mutate state
- * destructively (`DELETE /upcoming/:jobId`, `POST /jobs/:jobId/retry`) and were, until now, covered
- * only indirectly via `e2e/tests/scheduler.spec.js` driving the admin UI. This suite builds a real
- * Fastify instance and drives every route through `app.inject()`, following `api/system.test.ts`
- * and `api/hooks.test.ts` as structural templates: `CARDINAL.models.jobs` is stubbed with `mock.fn()`
- * per method (no database), and `setErrorHandler` mirrors `index.ts`'s real one so a thrown
- * `reply.notFound()`/`conflict()`/`internalServerError()` comes back shaped as the `ApiError` the
- * schemas declare, exactly as it would in the running app.
- */
-
 const SCHEDULE_ENTRY = {
   id: randomUUID(),
   task: 'cleanJobHistory',
@@ -72,10 +60,9 @@ before(async () => {
   })
   retryJob = mock.fn(async () => 'new-retry-job-id')
 
-  // -> Captures each route's `config.permissions` as it is registered, since Fastify does not
-  //    expose a public, stable API to read it back afterwards — same technique as
-  //    `api/analytics.test.ts`. Wrapped around the route plugin, since an `onRoute` hook only fires
-  //    for routes registered into the same encapsulation or below it.
+  // -> Fastify has no public API to read a route's `config` back, so it is captured at
+  //    registration. Wrapped around the route plugin: an `onRoute` hook only fires for routes
+  //    registered into the same encapsulation or below it.
   const capturingRoutes: FastifyPluginAsync = async (instance) => {
     instance.addHook('onRoute', (routeOptions: any) => {
       routeConfigs[`${routeOptions.method}:${routeOptions.url}`] = routeOptions.config
@@ -193,12 +180,6 @@ describe('DELETE /upcoming/:jobId', () => {
     assert.equal(cancelUpcoming.mock.callCount(), 1)
   })
 
-  /**
-   * The "already picked up by another instance" race: an instance can grab a pending job between
-   * the admin UI listing it and the operator clicking cancel, at which point `cancelUpcoming()`
-   * deletes zero rows. `e2e/helpers/db.js` plants this by hand for the UI-level spec; here it is
-   * just `cancelUpcoming` resolving false, no database involved.
-   */
   test('404s when the job is no longer pending (already picked up)', async () => {
     const res = await app.inject({ method: 'DELETE', url: `/upcoming/${ALREADY_PICKED_UP_ID}` })
     assert.equal(res.statusCode, 404)

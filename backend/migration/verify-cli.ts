@@ -8,13 +8,9 @@ export type { ParsedSource } from './source-args.ts'
 export interface ParsedVerifyArgs {
   source: ParsedSource
   siteId: string
-  /** Random sample size for the content spot-check when `samplePaths` is not given. Defaults to 20
-   * per Feature 421 task 748's description. */
+  /** Ignored when `samplePaths` is given. */
   sampleSize: number
-  /** Explicit paths to spot-check instead of a random sample — `--sample-paths`. */
   samplePaths?: string[]
-  /** Path to a dry-run report JSON (written by `migrate.ts --report-file`, task 744) to diff live
-   * phase totals against. */
   againstReport?: string
 }
 
@@ -60,14 +56,9 @@ function buildProgram(): Command {
 }
 
 /**
- * Parses `verify-migration.ts`'s argv into a fully-resolved `ParsedVerifyArgs` — the verification
- * counterpart to `cli.ts`'s `parseMigrationArgs`, sharing the same source-selection flags/validation
- * (`../migration/source-args.ts`) since a verification run reads through the exact same kind of
- * `SourceConnector` the import did.
+ * `argv` is bare — no `node`/script prefix, same convention as `cli.ts`'s `parseMigrationArgs`.
  *
- * Takes bare argv (no `node`/script path prefix), same convention as `parseMigrationArgs`.
- *
- * @throws A plain `Error` (never commander's own `CommanderError`) describing what was wrong.
+ * @throws A plain `Error`, never commander's own `CommanderError`.
  */
 export function parseVerifyArgs(argv: string[]): ParsedVerifyArgs {
   const opts = parseArgv<RawOptions>(buildProgram(), argv)

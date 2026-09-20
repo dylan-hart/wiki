@@ -52,8 +52,7 @@ describe('CopyNavItemsDialog', () => {
     await vi.waitUntil(() => wrapper.findComponent({ name: 'WSelect' }).exists())
 
     const localeSelect = wrapper.findComponent({ name: 'WSelect' })
-    // -> `nav-1` is `navId` itself -- copying it onto itself would be a no-op merge, so `fr` (`nav-2`)
-    //    is the only real choice left
+    // -> `nav-1` is `navId` itself, so `fr` (`nav-2`) is the only real choice left
     expect(localeSelect.props('modelValue')).toBe('fr')
 
     await submit(wrapper)

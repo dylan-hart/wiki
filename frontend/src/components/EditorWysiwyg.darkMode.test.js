@@ -11,29 +11,16 @@ import EditorWysiwyg from './EditorWysiwyg.vue'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * OpenProject #2498: `EditorWysiwyg.vue`'s `<style>` block had zero `.body--dark` treatment, so its
- * toolbar, table header/borders, inline code, blockquote/hr rules and empty-editor placeholder all
- * stayed hardcoded to their light-mode colors regardless of theme.
+ * Mounted attached to `document.body`, which the `.body--dark <selector>` ancestor combinator needs
+ * to match, and read through the compiled `getComputedStyle` rather than the `<style>` source text.
  *
- * These mount the real component (its `<style>` block is unscoped, so it applies
- * globally the same way it does in the app) attached to `document.body` -- required for the
- * `.body--dark <selector>` ancestor combinator to actually match -- and read the real, compiled
- * `getComputedStyle` result rather than asserting the source text contains the right-looking
- * string.
- *
- * A fresh component instance per theme, rather than one instance with the theme toggled mid-test:
- * happy-dom's `getComputedStyle` was observed under this suite's real, full-size app stylesheet to
- * return a STALE (pre-toggle) value on a *second* read of the *same* element after only the `body`
- * ancestor's class changed -- confirmed as an environment quirk, not a bug in the fix, by reproducing
- * it with a two-rule hand-written stylesheet (where it did NOT reproduce) versus the app's real CSS
- * (where it did). A freshly mounted element, queried exactly once per theme, sidesteps this rather
- * than fighting it.
+ * A fresh instance per theme, not one instance toggled mid-test: under the app's real stylesheet,
+ * happy-dom's `getComputedStyle` returns a stale value on a second read of the same element when
+ * only the `body` ancestor's class changed.
  */
 function mountForTheme(theme, content) {
-  // -> Through `useDark()`, not a raw `classList` write: `EditorWysiwyg.vue`'s own
-  //    `inactiveIconColor` computed reads the module-level `dark.isActive` ref, which only this
-  //    composable's `set()`/`toggle()` update -- a direct `document.body.classList` write changes
-  //    what CSS sees but leaves that ref (and so the icon color) stale.
+  // -> Through `useDark()`, not a raw `classList` write: `inactiveIconColor` reads the module-level
+  //    `dark.isActive` ref, which only this composable updates
   useDark().set(theme === 'dark')
 
   setActivePinia(createPinia())
@@ -58,13 +45,10 @@ describe('EditorWysiwyg.vue dark mode (OpenProject #2498)', () => {
     await nextTick()
     const lightToolbar = lightWrapper.find('.wysiwyg-toolbar').element
     const lightBackground = getComputedStyle(lightToolbar).backgroundImage
-    // -> `WBtn.vue`'s flat variant writes `color: var(--color-<name>)` as an inline style for any
-    //    button carrying a `color` prop -- this is `inactiveIconColor`'s real, rendered effect, not
-    //    an internal read out for the test's own convenience.
-    // -> `[aria-label="editor.wysiwyg.bold"]`, not `"Bold"`: `wysiwygMenuBar.js` now translates
-    //    every title through `t()` against `editor.wysiwyg.*` (OpenProject #3206), and
-    //    `createTestI18n()` seeds no messages, so an untranslated key resolves to the key string
-    //    itself.
+    // -> `WBtn`'s flat variant writes `color: var(--color-<name>)` inline, so this IS
+    //    `inactiveIconColor`'s rendered effect, not an internal read
+    // -> The key, not `"Bold"`: `createTestI18n()` seeds no messages, so a title resolves to its own
+    //    key string
     const lightBoldColor = lightWrapper.find('[aria-label="editor.wysiwyg.bold"]').element.style
       .color
     lightWrapper.unmount()
@@ -85,9 +69,8 @@ describe('EditorWysiwyg.vue dark mode (OpenProject #2498)', () => {
   })
 
   it('gives inline code and the blockquote/hr rules a dark variant distinct from light mode', async () => {
-    // -> Markdown, not a hand-built TipTap JSON document: `EditorWysiwyg.vue` now always loads
-    //    `pageStore.content` with `contentType: 'markdown'` (task 3395), so this is what a real page
-    //    holding the same three constructs (inline code, a blockquote, a rule) would have saved.
+    // -> Markdown, not hand-built TipTap JSON: the component always loads `pageStore.content` with
+    //    `contentType: 'markdown'`
     const doc = 'Some `inline code`\n\n> Quoted\n\n---'
 
     const lightWrapper = mountForTheme('light', doc)
@@ -96,11 +79,9 @@ describe('EditorWysiwyg.vue dark mode (OpenProject #2498)', () => {
     const lightCode = getComputedStyle(lightWrapper.find('.ProseMirror code').element)
     const lightCodeColor = lightCode.color
     const lightCodeBg = lightCode.backgroundColor
-    // -> `borderInlineStartColor`, not `borderLeftColor`: OpenProject #1601 converted the
-    //    blockquote rule's border to the logical `border-inline-start` form, and happy-dom's CSS
-    //    engine tracks logical longhands as their own computed properties rather than resolving
-    //    them to the physical property a real browser would (verified directly: `border-inline-
-    //    start-color` alone reads back on `getComputedStyle`, `border-left-color` never does).
+    // -> `borderInlineStartColor`, not `borderLeftColor`: the rule uses the logical form, and
+    //    happy-dom tracks logical longhands as their own computed properties rather than resolving
+    //    them to the physical property a real browser would
     const lightQuoteBorder = getComputedStyle(
       lightWrapper.find('.ProseMirror blockquote').element
     ).borderInlineStartColor

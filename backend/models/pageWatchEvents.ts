@@ -3,12 +3,10 @@ import { pageWatchEvents as pageWatchEventsTable, pages as pagesTable } from '..
 import type { WatchNotifyMode } from './pageWatching.ts'
 
 /**
- * The kinds of change a watcher can be notified about. Never `created` — see `notifyWatchers`.
- *
- * `suggestApproved`/`suggestDeclined` are a different kind of recipient than the other three: they
- * are addressed directly at a submission's author (see `models/approvals.ts#notifySubmissionAuthor`),
- * bypassing `pageWatching.listWatchers()`/its preference filtering entirely, rather than resolved from
- * who watches the page. Kept short — `action` is a `varchar(16)` column (`db/schema.ts`).
+ * `suggestApproved`/`suggestDeclined` address a submission's author directly
+ * (`models/approvals.ts#notifySubmissionAuthor`), bypassing `pageWatching.listWatchers()` and its
+ * preference filtering, rather than being resolved from who watches the page. Names are kept short:
+ * `action` is a `varchar(16)` column.
  */
 export type PageWatchNotifiableAction =
   | 'updated'
@@ -17,38 +15,31 @@ export type PageWatchNotifiableAction =
   | 'suggestApproved'
   | 'suggestDeclined'
 
-/** One notification owed to one watcher, as `notifyPageWatchers` writes it. */
 export interface PendingWatchEvent {
   siteId: string
   pageId: string
-  /** The page's title/path/locale as of this change — see `db/schema.ts#pageWatchEvents`'s own comment. */
+  /** Captured as of this change: the page may be renamed, moved or deleted before delivery. */
   pageTitle: string
   pagePath: string
   pageLocale: string
   userId: string
   action: PageWatchNotifiableAction
-  /** Who made the change, or null if the account is gone by the time this is written. */
   actorId: string | null
-  /** Which fields the change touched — up to `['path', 'locale', 'title']` for a move (see
-   *  `movePage`), empty for a delete. */
+  /** Page field names the change touched; empty for a delete. */
   changedFields: string[]
-  /** This watcher's resolved delivery mode, captured for the same reason `pageTitle`/`pagePath` are. */
+  /** Captured like `pageTitle`/`pagePath`: the preference may change before delivery. */
   notifyMode: WatchNotifyMode
 }
 
-/** A just-recorded row, enough for the caller to deliver it right away without a second lookup. */
 export interface RecordedWatchEvent {
   id: string
   userId: string
 }
 
-/** One user's still-undelivered digest-mode notification, as the digest job reads it. */
 export interface PendingDigestEvent {
   id: string
   userId: string
-  /** Null once the page this event was about has since been deleted — see `db/schema.ts`'s own
-   *  comment on this table's `pageId` column. `pageTitle`/`pagePath`/`pageLocale` below are what
-   *  survives that, and are what a caller displays/links from regardless. */
+  /** Null once the page has been deleted; `pageTitle`/`pagePath`/`pageLocale` are what survive. */
   pageId: string | null
   pageTitle: string
   pagePath: string
@@ -59,10 +50,8 @@ export interface PendingDigestEvent {
   actorId: string | null
 }
 
-/** One unread notification, as the in-app inbox (task 535) lists it. */
 export interface InboxNotification {
   id: string
-  /** Null once the page this event was about has since been deleted — see `PendingDigestEvent.pageId`. */
   pageId: string | null
   pageTitle: string
   pagePath: string
@@ -73,51 +62,30 @@ export interface InboxNotification {
   createdAt: Date
 }
 
-/** How many unread rows the in-app inbox lists before it stops — plenty for a badge/list, not a feed. */
 const INBOX_LIST_LIMIT = 50
 
 /**
- * How many pending digest rows one `listPendingForDigest` call returns at most — plenty for a normal
- * night's worth of changes, but a hard ceiling on what one `sendWatchDigests` run loads into memory
- * at once. Without it, a prolonged SMTP outage lets the pending backlog grow unbounded, and every
- * subsequent nightly run would try to load all of it in one query. Rows already delivered drop out of
- * the next call's `WHERE`, so a capped run still drains the backlog over successive nights rather than
- * getting stuck reprocessing the same rows.
+ * A hard ceiling on what one `sendWatchDigests` run loads into memory: a prolonged SMTP outage lets
+ * the pending backlog grow unbounded. Delivered rows drop out of the next call's `WHERE`, so a
+ * capped run still drains the backlog over successive nights rather than reprocessing the same rows.
  */
 export const DIGEST_PENDING_LIMIT = 1000
 
 /**
- * Page watch events model
+ * The delivery queue behind page watching: one row per watcher per change, `deliveredAt` null until
+ * something sends it. Written by the `notifyPageWatchers` job, except for a `deleted` event, where
+ * `models/pages.ts#notifyWatchers` calls `recordMany()` synchronously before the page row goes —
+ * `pageId`'s foreign key makes that ordering load-bearing.
  *
- * The delivery queue behind page watching: one row per watcher per change, left with `deliveredAt`
- * null until something sends it. Written by the `notifyPageWatchers` job for `updated`/`moved`/
- * `suggestApproved`/`suggestDeclined` events — for a `deleted` event, `recordMany()` is instead called
- * synchronously from `models/pages.ts#notifyWatchers`, before the page row goes, which is what makes
- * `pageId`'s foreign key (OpenProject #3203) safe; the job just receives the already-recorded rows for
- * that case (see its own doc comment). An immediate send (`tasks/simple/notify-page-watchers.ts`)
- * marks its own row delivered right after a successful send; anything left pending with `notifyMode:
- * 'digest'` is what `tasks/simple/send-watch-digests.ts` eventually works through. (A pending
- * `immediate` row also exists — a failed send is left pending rather than thrown, see that task's own
- * doc comment — but it is not this model's job to tell the two apart at read time beyond what
- * `listPendingForDigest` already filters on.)
- *
- * It is also, since task 535, the in-app notification inbox: `listForUser`/`markRead`/`unreadCount`
- * read and write the separate `readAt` column (see `db/schema.ts#pageWatchEvents`'s own comment on why
- * it is not `deliveredAt`), independent of whatever mail delivery has or hasn't done with a row.
+ * The same rows are the in-app inbox, through a `readAt` column independent of `deliveredAt`.
  */
 class PageWatchEvents {
   /**
-   * Record a pending notification for each watcher of a change, returning enough of each inserted row
-   * (`id`, `userId`) for an immediate-mode send to mark its own row delivered afterwards.
-   *
-   * A single bulk insert, not one call per watcher: this is the part of notifying watchers that scales
-   * with how many there are, which is why `notifyPageWatchers` runs it in a queued job rather than
-   * inline in the save/move request that triggered it — except a `deleted` event, whose call into this
-   * method is made synchronously by `models/pages.ts#notifyWatchers` instead (OpenProject #3203), since
-   * the page row this method's FK depends on is about to be deleted. The `RETURNING` is read back keyed
-   * by `userId` rather than assumed to preserve the input array's order — Postgres does not guarantee
-   * that for a multi-row `INSERT ... VALUES`, and `userId` is unique within one call's batch (each
-   * watcher appears at most once per page), so it is what the caller matches on.
+   * A single bulk insert, not one call per watcher: this is the part of notifying watchers that
+   * scales with how many there are, which is why it runs in a queued job rather than inline in the
+   * request that triggered it. Postgres does not guarantee `RETURNING` order for a multi-row
+   * `INSERT ... VALUES`, so the caller matches rows by `userId` — unique within one batch, since a
+   * watcher appears at most once per page.
    */
   async recordMany(events: PendingWatchEvent[]): Promise<RecordedWatchEvent[]> {
     if (events.length < 1) {
@@ -129,10 +97,7 @@ class PageWatchEvents {
       .returning({ id: pageWatchEventsTable.id, userId: pageWatchEventsTable.userId })
   }
 
-  /**
-   * Mark one pending notification delivered, so the digest job never re-sends what an immediate send
-   * already covered.
-   */
+  /** So the digest job never re-sends what an immediate send already covered. */
   async markDelivered(id: string): Promise<void> {
     await CARDINAL.db
       .update(pageWatchEventsTable)
@@ -141,19 +106,12 @@ class PageWatchEvents {
   }
 
   /**
-   * Every still-undelivered `digest`-mode notification, across every user, oldest first within each
-   * (user, site) pair — what `tasks/simple/send-watch-digests.ts` groups per (user, site) and turns
-   * into one email each.
+   * Ordered by (user, site, oldest first) so `tasks/simple/send-watch-digests.ts` can group straight
+   * into one email per pair.
    *
-   * `notifyMode` filters here rather than the caller filtering after the fact: an `immediate`-mode
-   * row can also be pending (a failed send left it that way — see `notify-page-watchers.ts`), and
-   * that row belongs to a future in-app inbox, not to this job, which must never re-send it as part
-   * of a digest just because it happens to still be undelivered.
-   *
-   * Bounded to `DIGEST_PENDING_LIMIT` rows so a prolonged SMTP outage (every send failing, nothing
-   * ever marked delivered) can't make one nightly `sendWatchDigests` run load an unbounded backlog
-   * into memory. Because delivered rows drop out of this `WHERE` on the next call, a capped run still
-   * works the backlog down over successive nights rather than reprocessing the same rows forever.
+   * `notifyMode` filters here rather than in the caller: an `immediate`-mode row can also be pending
+   * (a failed send left it that way), and this job must never re-send it as part of a digest just
+   * because it happens to still be undelivered.
    */
   async listPendingForDigest(): Promise<PendingDigestEvent[]> {
     return CARDINAL.db
@@ -182,11 +140,8 @@ class PageWatchEvents {
   }
 
   /**
-   * Delete every `pageWatchEvents` row older than the retention window, regardless of `deliveredAt`/
-   * `readAt` — an undelivered row (a permanently-failed send, or a digest recipient who never checks
-   * their in-app inbox) must not be able to accumulate forever just because nothing ever marked it
-   * done. Mirrors `pageviews.ts#purgeExpired`'s one-statement shape; called by
-   * `tasks/simple/purge-page-watch-events.ts` on its own daily cron entry.
+   * Deletes regardless of `deliveredAt`/`readAt`: a permanently-failed send, or a digest recipient
+   * who never opens their inbox, must not accumulate rows forever because nothing marked them done.
    */
   async purgeExpired(): Promise<number> {
     const result = await CARDINAL.db
@@ -195,11 +150,6 @@ class PageWatchEvents {
     return result.rowCount ?? 0
   }
 
-  /**
-   * Mark every one of these pending notifications delivered in one statement, once a digest email
-   * covering all of them has actually sent — the bulk counterpart to `markDelivered`, for the same
-   * reason `recordMany` is bulk rather than one `INSERT` per watcher.
-   */
   async markManyDelivered(ids: string[]): Promise<void> {
     if (ids.length < 1) {
       return
@@ -211,22 +161,11 @@ class PageWatchEvents {
   }
 
   /**
-   * This user's unread notifications on this site, newest first — what the in-app inbox lists.
+   * Capped at `INBOX_LIST_LIMIT` rather than paginated: an unbounded unread backlog is not a case
+   * this handles gracefully, and the badge it feeds (`unreadCount`) is a separate, uncapped query.
    *
-   * Scoped to `siteId` for the same reason `pageWatching_user_site_idx` is: the inbox belongs to a
-   * site. Capped at `INBOX_LIST_LIMIT` rather than paginated — a genuinely unbounded backlog of unread
-   * notifications is not a case this first cut needs to handle gracefully, and the badge this feeds
-   * (`unreadCount`) is a separate, un-capped query anyway.
-   *
-   * OpenProject #2173: re-checks `read:pages` at READ time, not just when the event was recorded — a
-   * user can lose access to a page between a change happening (when `notifyWatchers`'s own
-   * `read:pages` check already ran) and opening their inbox days later. Checked against the LIVE page
-   * where one still exists (`pagesTable`, joined by `pageId`) — a page's rules can change in either
-   * direction after the event was recorded, and the live row is the more correct answer either way —
-   * falling back to the event's own stored `pagePath`/`pageLocale` snapshot with no tags/classification
-   * for a `deleted` event, whose page row is gone. A row that fails the check is dropped from the
-   * list, not surfaced as anything — the same "missing, not 403" shape `listForUser` uses elsewhere in
-   * this feature (`pageWatching.ts`).
+   * `read:pages` is re-checked at read time (`filterReadable`), not just when the event was
+   * recorded; a row that fails is dropped from the list rather than surfaced as a refusal.
    */
   async listForUser(userId: string, siteId: string): Promise<InboxNotification[]> {
     const rows = await CARDINAL.db
@@ -256,23 +195,12 @@ class PageWatchEvents {
   }
 
   /**
-   * Filters a batch of one user's events down to the ones they may still read `read:pages` on, RIGHT
-   * NOW — the re-check `listForUser` above (read time) and `tasks/simple/send-watch-digests.ts` (send
-   * time) share, OpenProject #2173.
-   *
-   * Checked against the LIVE page where one still exists (`pagesTable`, batched by `pageId` rather
-   * than once per event) — a page's rules can change in either direction after an event was recorded,
-   * and the live row is the more correct answer either way — falling back to each event's own stored
-   * `pagePath`/`pageLocale` snapshot, with no tags/classification to narrow against, for an event
-   * about a page that has since been deleted (most commonly the `deleted` event itself). Since
-   * OpenProject #3203, a deleted page's `pageId` is null on affected rows (`db/schema.ts`'s `set null`
-   * FK) rather than merely absent from `pagesTable` — `livePages.get(null)` misses the same way a
-   * stale, still-populated id used to, so the fallback applies unchanged either way.
-   *
-   * Exported (not private) so `tasks/simple/send-watch-digests.ts` can apply the identical check
-   * before actually sending a batched digest — the daily-scheduled send-time counterpart to this
-   * read-time gate, and the one place a `PendingDigestEvent` can sit unread for the longest between
-   * being recorded and being acted on.
+   * The `read:pages` re-check `listForUser` (read time) and `tasks/simple/send-watch-digests.ts`
+   * (send time) share — hence public, not private: a user can lose access to a page between the
+   * change happening and the notification being acted on. Checked against the LIVE page where one
+   * still exists, since its rules may have changed either way since the event was recorded, and
+   * falling back to the event's own `pagePath`/`pageLocale` snapshot — with no tags or
+   * classification to narrow against — for a page that has since been deleted.
    */
   async filterReadable<
     T extends { pageId: string | null; pagePath: string; pageLocale: string; siteId: string }
@@ -307,13 +235,11 @@ class PageWatchEvents {
   }
 
   /**
-   * Mark one notification read, scoped to the caller so nobody can mark another user's row read by
-   * guessing its id. Returns whether the row exists and belongs to this user — the route's 404 vs 200.
+   * Scoped to the caller so nobody marks another user's row read by guessing its id. Answers whether
+   * the row exists and belongs to this user — the route's 404 vs 200.
    *
-   * Idempotent like `watch`/`unwatch` elsewhere in this feature: marking an already-read row read again
-   * still answers `true`, because the outcome asked for (this notification is read) already holds. The
-   * `UPDATE ... WHERE readAt IS NULL` only touches the row on its first read, but the existence check
-   * that follows a no-op update is what makes a SECOND call also answer `true` instead of `false`.
+   * The `UPDATE ... WHERE readAt IS NULL` touches the row only on its first read, so the existence
+   * query behind it is what makes a second call answer `true` rather than `false`.
    */
   async markRead(id: string, userId: string): Promise<boolean> {
     const updated = await CARDINAL.db
@@ -339,9 +265,11 @@ class PageWatchEvents {
   }
 
   /**
-   * How many unread notifications this user has on this site — the header badge's own query. A
-   * separate `SELECT count(*)` rather than `listForUser(...).length`, so the badge stays accurate past
-   * `INBOX_LIST_LIMIT` instead of capping out at the list's own page size.
+   * A separate `SELECT count(*)` rather than `listForUser(...).length`, so the badge stays accurate
+   * past `INBOX_LIST_LIMIT` instead of capping out at the list's own page size.
+   *
+   * FIXME: no `filterReadable` pass here, so this counts rows `listForUser` drops — a user who has
+   * lost `read:pages` on a page sees a badge its own list cannot account for.
    */
   async unreadCount(userId: string, siteId: string): Promise<number> {
     return CARDINAL.db.$count(

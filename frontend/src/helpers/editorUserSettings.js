@@ -1,12 +1,7 @@
 /**
- * The Monaco font size to open the Markdown editor at.
- *
- * The user's saved preference when there is one, `EditorMarkdownUserSettingsOverlay`'s own default
- * otherwise -- so a user who has never opened that overlay gets the exact same size a freshly-saved
- * one there would produce, rather than a second hardcoded number to keep in sync with it.
- *
- * @param {{ fontSize?: number } | null | undefined} userSettings This user's saved Markdown editor settings
- * @param {number} [fallback] Used when no size was ever saved
+ * @param {{ fontSize?: number } | null | undefined} userSettings
+ * @param {number} [fallback] Mirrors `EditorMarkdownUserSettingsOverlay`'s own default, so a user
+ *   who never opened that overlay gets the size a freshly-saved one there would produce.
  * @returns {number}
  */
 export function resolveEditorFontSize(userSettings, fallback = 16) {
@@ -14,15 +9,11 @@ export function resolveEditorFontSize(userSettings, fallback = 16) {
 }
 
 /**
- * Whether the preview pane should be open on first mount.
+ * A saved preference wins at any window width, in both directions; only a user who has never saved
+ * one falls back to the width check, since below `md` source and preview would each get half a
+ * small window.
  *
- * The user's saved preference wins outright, at any window width -- a saved `false` stays closed on
- * a wide monitor, and a saved `true` stays open on a narrow one. Only a user who has never saved a
- * preference falls back to the width check: `isWideEnough` is the app's `md` breakpoint (1024px, see
- * `useMinWidth` in `composables/screen.js`), below which the source and the preview would each get
- * half a small window, so the pane defaults shut and is opened deliberately from the toolbar.
- *
- * @param {{ previewShown?: boolean } | null | undefined} userSettings This user's saved Markdown editor settings
+ * @param {{ previewShown?: boolean } | null | undefined} userSettings
  * @param {boolean} isWideEnough Whether the viewport is at or above the `md` breakpoint
  * @returns {boolean}
  */
@@ -34,17 +25,12 @@ export function resolveInitialPreviewShown(userSettings, isWideEnough) {
 }
 
 /**
- * The preview pane's width to open at, in CSS pixels.
+ * `null` is the caller's cue to fall back to the stylesheet's responsive `50vw` rather than a
+ * hardcoded pixel width. Anything not a finite positive number (`0`, negative, `NaN`, a string
+ * from hand-edited settings) counts as never saved, not as a collapsed pane.
  *
- * `null` means "no saved preference" -- the caller's cue to fall back to the SCSS default (a
- * responsive `50vw`) rather than a hardcoded pixel number, so a user who has never dragged the
- * resize divider keeps getting the same width-of-viewport behaviour this editor always had. Only a
- * finite, positive number saved by a real drag is honoured; anything else (missing, `0`, negative,
- * `NaN`, a stray string from hand-edited settings) is treated the same as "never saved" rather than
- * producing a collapsed or invalid pane width.
- *
- * @param {{ previewWidth?: number } | null | undefined} userSettings This user's saved Markdown editor settings
- * @returns {number | null}
+ * @param {{ previewWidth?: number } | null | undefined} userSettings
+ * @returns {number | null} Width in CSS pixels.
  */
 export function resolveInitialPreviewWidth(userSettings) {
   const width = userSettings?.previewWidth

@@ -10,10 +10,9 @@
       </w-card-section>
       <w-form ref="ruleForm" class="py-2" @submit="save">
         <!--
-          No `self-start` on these icons. A field's control carries a symmetric `my-2` -- room for the
-          floated label, matched underneath precisely so the box stays centred on the control -- so
-          letting both sections centre in the row is what lines the icon up with the field. Pinning
-          the icon to the top instead put it 6px above the control it belongs to.
+          No `self-start` on these icons: a field's control carries a symmetric `my-2` -- room for
+          the floated label, matched underneath so the box stays centred on the control -- so letting
+          both sections centre in the row is what lines the icon up with the field.
         -->
         <w-item>
           <blueprint-icon icon="tabler:cursor-text" />
@@ -49,10 +48,6 @@
         <w-item>
           <blueprint-icon :icon="isTagMatch ? `flag-filled` : `link`" />
           <w-item-section>
-            <!--
-              One field for both kinds of pattern: a tag mode takes a list of tags rather than a path,
-              so only its label, hint and rule change.
-            -->
             <w-input
               v-model="state.path"
               dense
@@ -151,40 +146,29 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// PROPS
-
 const props = defineProps({
   siteId: {
     type: String,
     required: true
   },
-  /** The rule being edited, or null to create one. */
   rule: {
     type: Object,
     default: null
   },
-  /** The groups to choose from, loaded once by the page rather than per dialog. */
+  /** Loaded once by the page rather than per dialog. */
   groups: {
     type: Array,
     default: () => []
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptName.value
 })
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   name: props.rule?.name ?? '',
@@ -196,12 +180,8 @@ const state = reactive({
   isLoading: false
 })
 
-// REFS
-
 const ruleForm = ref(null)
 const iptName = ref(null)
-
-// COMPUTED
 
 const isEdit = computed(() => Boolean(props.rule))
 
@@ -216,11 +196,8 @@ const matchOptions = computed(() => [
   { label: t('admin.approval.matchTagAll'), value: 'TAGALL' }
 ])
 
-// VALIDATION RULES
-
 const nameValidation = [(val) => (val ?? '').trim().length > 0 || t('admin.approval.nameRequired')]
 
-/** What the field is asking for, which is a different thing in each mode -- empty included. */
 const pathHint = computed(() => {
   if (isTagMatch.value) {
     return t('admin.approval.tagsHint')
@@ -255,8 +232,6 @@ const groupsValidation = (message) => [(val) => (val ?? []).length > 0 || messag
 const minApprovalsValidation = [
   (val) => (Number.isInteger(val) && val >= 1) || t('admin.approval.minApprovalsInvalid')
 ]
-
-// METHODS
 
 async function save() {
   state.isLoading = true

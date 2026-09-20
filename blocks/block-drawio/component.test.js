@@ -11,11 +11,8 @@ import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
- * A diagram with two layers, a group, a swimlane, an `<object>`-wrapped cell, a floating edge and a
- * hidden layer — the shape upstream's bug report (requarks/wiki#6881) was about: a complex,
- * multi-layer diagram losing elements on render. Every visible cell below (11 of them: 9 vertices, 2
- * edges) must show up wrapped in its own `data-cell-id` group; the hidden layer's rectangle (id 30)
- * must not.
+ * The shape upstream's bug report (requarks/wiki#6881) is about: a complex, multi-layer diagram
+ * losing elements on render. The hidden layer's rectangle (id 30) must not reach the output.
  */
 const MULTI_LAYER_SOURCE = `<mxGraphModel>
   <root>
@@ -71,11 +68,7 @@ const MULTI_LAYER_SOURCE = `<mxGraphModel>
   </root>
 </mxGraphModel>`
 
-/**
- * draw.io's own compression, reproduced for the `<mxfile>` fixture below: see `mxgraph.js`'s
- * `decompress`. Built on the same native `compress()` (`shared/compress.js`) the block itself now
- * decodes with (`decompressRaw`), rather than pako.
- */
+/** draw.io's own compression, reproduced so the `<mxfile>` fixtures are the real encoding. */
 async function compress(xml) {
   const bytes = await deflate(new TextEncoder().encode(encodeURIComponent(xml)), 'deflate-raw')
   let binary = ''
@@ -161,9 +154,7 @@ describe('block-drawio', () => {
   })
 
   it('shows an error, naming the fence, for a source markdown has already mangled', async () => {
-    // -> `settle: (el) => el._ready`: `_draw()` is async (a compressed body decodes through
-    //    `DecompressionStream`), so `_error` lands only once the block's own `_ready` promise
-    //    settles -- see `mxgraph.js`/`component.js`.
+    // -> `_draw()` is async, so `_error` lands only once the block's own `_ready` promise settles
     const el = await mountBlock('block-drawio', {
       text: 'not xml at all <<<',
       settle: (el) => el._ready
@@ -311,15 +302,9 @@ describe('mxgraph.js', () => {
   })
 
   /*
-    OpenProject #2143 / #1360 (2026-08-24 security audit): `cylinder` and `swimlane` each draw a
-    second, fill-less stroke and used to interpolate `strokeWidth` into that path/line's
-    `stroke-width="…"` attribute unescaped, unlike the identical value in `paintAttrs()` three lines
-    above it. A style value containing a `"` broke out of the attribute and planted a live event
-    handler on the generated element, which `unsafeSVG()` (`component.js`) then parses as real markup
-    in the block's shadow root — same-origin script execution for any author with `write:pages`, no
-    `write:scripts` required. The fix routes both shapes through the shared, `Number()`-coercing
-    `strokeAttrs()` helper `paintAttrs()` itself now uses, so an attribute-breaking value can never
-    reach the output at all rather than merely being escaped.
+    A style value containing a `"` must not break out of `stroke-width="…"` and plant an event
+    handler: `unsafeSVG()` parses the result as real markup in the block's shadow root, so that
+    would be same-origin script execution for any author with `write:pages` alone.
   */
   it('neutralizes an attribute-breaking strokeWidth on cylinder and swimlane, the two shapes that draw a second stroke', async () => {
     const malicious = `1" onmouseover="alert(1)`
@@ -335,8 +320,8 @@ describe('mxgraph.js', () => {
     </root></mxGraphModel>`)
     expect(svg).not.toContain('onmouseover')
     expect(svg).not.toContain('alert(1)')
-    // -> Not merely absent: the coerced value actually rendered in its place, so this is the fallback
-    //    doing its job rather than the shape silently drawing no stroke at all.
+    // -> The coerced value rendered in its place, so this is the fallback working rather than the
+    //    shape silently drawing no stroke at all
     expect(svg).toContain('stroke-width="1"')
   })
 
@@ -365,12 +350,8 @@ describe('mxgraph.js', () => {
     expect(svg).toContain('AT&amp;T &quot;Special&quot;')
   })
 
-  // -> A quote-breaking `strokeWidth` on a cylinder or swimlane cell used to escape into the
-  //    generated SVG's markup unescaped, unlike every other stroke attribute `paintAttrs()` already
-  //    covers. The style attribute below is XML-entity-encoded exactly as an author would write it in
-  //    the block's `<mxCell style="…">`; the DOM parser decodes it into a raw `"` + `<image onerror>`
-  //    string before `parseStyle()` ever sees it, which is the same shape the audit finding
-  //    reproduced under jsdom.
+  // -> Entity-encoded as an author would write it in `<mxCell style="…">`, so the DOM parser hands
+  //    `parseStyle()` a raw `"` + `<image onerror>` string -- the shape a real page's markup takes
   it('does not let a quote-breaking strokeWidth inject markup through the cylinder shape', async () => {
     const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
@@ -409,10 +390,6 @@ describe('mxgraph.js', () => {
     expect(svg.match(/stroke-width="3"/g)).toHaveLength(4)
   })
 
-  // -> `Number(props.strokeWidth) || 1` treats a strokeWidth of `0` (a legitimate draw.io value
-  //    meaning "no visible stroke") as falsy and silently overrides it to `1`, drawing a stroke the
-  //    author explicitly asked to suppress. `strokeAttrs()` is shared by `paintAttrs()` (plain shapes)
-  //    and the cylinder/swimlane second stroke, so both paths are covered here (OpenProject #2343).
   it('preserves an explicit strokeWidth of 0 instead of coercing it to 1', async () => {
     const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
@@ -427,8 +404,7 @@ describe('mxgraph.js', () => {
         <mxGeometry x="80" y="0" width="120" height="80" as="geometry" />
       </mxCell>
     </root></mxGraphModel>`)
-    // 1 from the rounded rectangle's single paintAttrs() stroke, plus 2 each from cylinder and
-    // swimlane's main stroke + their second, fill-less stroke.
+    // 1 for the rectangle, plus 2 each for cylinder and swimlane, which draw a second stroke.
     expect(svg.match(/stroke-width="0"/g)).toHaveLength(5)
     expect(svg).not.toContain('stroke-width="1"')
   })

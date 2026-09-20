@@ -5,20 +5,8 @@ import systemRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
- * The three boolean-flag toggles (`/api`, `/metrics`, `/pageviews`) — API-F7.
- *
- * Only their GETs had any coverage before this file; the three PUT handlers were line-for-line
- * identical modulo a config key, an audit event and three message strings, and none of them was
- * tested. That is what made factoring them into one `registerFlagToggle()` a risk rather than a
- * tidy-up, so this file was written and run GREEN against the three hand-written handlers first,
- * then re-run unchanged against the factored one. Every string asserted here is a string a user or
- * an auditor actually sees, which is exactly what a "these three are the same route" refactor is
- * able to quietly get wrong.
- *
- * `CARDINAL.configSvc.saveToDb` and `CARDINAL.models.auditLog.record` are stubs: what belongs to the route
- * is that the config object is mutated, that the right key is persisted, that the right audit event
- * is recorded with the new value — and that a failed save rolls the in-memory config back rather
- * than leaving the process disagreeing with the database.
+ * Every string asserted here is one a user or an auditor actually sees: exactly what building all
+ * three routes from one `registerFlagToggle()` can quietly get wrong.
  */
 const TOGGLES = [
   {
@@ -154,7 +142,6 @@ describe('PUT /api | /metrics | /pageviews — the boolean flag toggles', () => 
       })
       assert.equal(res.statusCode, 500)
       assert.equal(res.json().message, toggle.saveFailureMessage)
-      // -> Rolled back to the exact object it was, so nothing partially applied survives the failure.
       assert.deepEqual(config[configKey], { isEnabled: false, otherKey: 'kept' })
       assert.equal(record.mock.callCount(), 0)
     })
@@ -168,14 +155,6 @@ describe('PUT /api | /metrics | /pageviews — the boolean flag toggles', () => 
   })
 })
 
-/**
- * OpenProject #2335: `GET /pageviews` used to answer just `{ isEnabled }`, leaving
- * `AdminPageviews.vue` no way to show an admin real evidence that tracking is actually recording
- * anything. It now also returns `summary`, sourced straight from `CARDINAL.models.pageviews.summary()`
- * (that method's own DB-backed tests in `models/pageviews.test.ts` cover the aggregation itself --
- * this route-level test stubs it, same as `GET /info`'s stubbed `CARDINAL.models.jobs` in `api/system/info.test.ts`, so it's
- * only verifying the route wires the model's return value through unchanged).
- */
 describe('GET /pageviews', () => {
   let app: FastifyInstance
   const FAKE_SUMMARY = {

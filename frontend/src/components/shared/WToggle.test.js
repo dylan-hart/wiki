@@ -15,8 +15,8 @@ describe('WToggle', () => {
   })
 
   it('draws the track and knob off --radius-pill, not a hardcoded square', () => {
-    // -> `0` under Ledger (unchanged), a real pill/circular radius under Cobalt (OpenProject
-    //    #2767/#2772), matching "toggles take `--radius-pill`"
+    // -> The token resolves to 0 under one aesthetic and a real radius under another, so the class
+    //    is what can be asserted here, not a computed radius.
     const wrapper = mount(WToggle, { props: { modelValue: true, ariaLabel: 'Feature' } })
 
     expect(wrapper.find('.w-toggle__track').classes()).toContain('rounded-pill')
@@ -63,10 +63,9 @@ describe('WToggle', () => {
   })
 
   /*
-    Cardinal puts the knob at one END of the track with flexbox rather than translating it across --
-    which is what makes the two ends stay put whatever the track's width or the knob's size is,
-    where the four hand-picked translate distances this replaces had to be re-derived for every
-    combination of the two.
+    The knob sits at one END of the track via flexbox rather than being translated across, which is
+    what makes the two ends hold whatever the track's width and the knob's size are -- hence all
+    four combinations here.
   */
   it.each([
     { dense: false, modelValue: false, expected: 'justify-start' },

@@ -43,9 +43,6 @@
     </div>
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12 lg:col-span-7">
-        <!-- ----------------------- -->
-        <!-- Configuration -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.mail.configuration')">
           <w-settings-row
             icon="tabler:address-book"
@@ -77,9 +74,6 @@
               :aria-label="t(`admin.mail.defaultBaseURL`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- SMTP -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.mail.smtp')">
           <w-settings-row
             icon="tabler:world-www"
@@ -139,9 +133,6 @@
               :aria-label="t(`admin.mail.smtpName`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- DKIM -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.mail.dkim')">
           <template #hint>{{ t('admin.mail.dkimHint') }}</template>
           <w-settings-row
@@ -185,9 +176,6 @@
         </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-5">
-        <!-- ----------------------- -->
-        <!-- SMTP TEST -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.mail.test')">
           <w-settings-row
             icon="tabler:mail"
@@ -195,10 +183,6 @@
             :hint="t(`admin.mail.testRecipientHint`)">
             <w-input v-model="state.testEmail" dense :aria-label="t(`admin.mail.testRecipient`)" />
           </w-settings-row>
-          <!--
-            The send button acts on the field above rather than being a setting of its own, so it
-            takes a row of its own with no label and sits at the trailing edge under the field.
-          -->
           <w-settings-row control-width="auto" icon="tabler:send">
             <w-btn
               color="primary"
@@ -225,27 +209,16 @@ import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// STORES
-
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.mail.title')
 }))
 
-// DATA
-
-/**
- * Fallbacks for config keys the API may not return yet, so that every control renders with a
- * defined value. Must mirror the mail defaults seeded by the backend.
- */
+/** Must mirror the mail defaults the backend seeds. */
 function defaultConfig() {
   return {
     senderName: '',
@@ -267,9 +240,7 @@ function defaultConfig() {
 
 const { state, load } = useAdminSettings({
   i18nPrefix: 'admin.mail',
-  // -> Instance-wide settings, not one site's: no site picker, no reload on switching site
   siteScoped: false,
-  // -> This form has never raised the full-screen overlay to read its own values
   overlay: false,
   defaults: defaultConfig,
   extraState: {
@@ -285,14 +256,11 @@ const { state, load } = useAdminSettings({
   },
   onLoaded: () => {
     adminStore.info.isMailConfigured = state.config?.host?.length > 2
-    // -> isMailBaseURLConfigured also depends on whether any SITE has a real hostname
-    //    (OpenProject #3386), which this form has no local view of -- reconcile from the real
-    //    endpoint rather than approximating from state.config.defaultBaseURL alone.
+    // -> `isMailBaseURLConfigured` also depends on whether any site has a real hostname, which this
+    //    form has no view of, so it is reconciled from the endpoint rather than approximated here
     adminStore.fetchInfo()
   }
 })
-
-// METHODS
 
 async function save() {
   if (state.loading > 0) {
@@ -323,8 +291,6 @@ async function save() {
       type: 'positive',
       message: t('admin.mail.saveSuccess')
     })
-    // -> Reconciles isMailConfigured and isMailBaseURLConfigured (OpenProject #3386) from the real
-    //    endpoint rather than approximating either locally.
     await adminStore.fetchInfo()
   } catch (err) {
     notify({

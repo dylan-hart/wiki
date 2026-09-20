@@ -5,19 +5,10 @@ import { connectListener, createListenerPool, createNotifier } from './pubsub.ts
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
- * Regression coverage for `connectListener` (task 703): none of the three dedicated LISTEN/NOTIFY
- * `PoolClient`s this app holds via `pool.connect()` (the event bus, the scheduler, collaborative
- * editing) used to register an `.on('error', ...)` handler. node-postgres does not supervise a
- * checked-out client the way it does pool-routed queries, so an unhandled `'error'` on one throws on
- * the client's own `EventEmitter` and crashes the process — a connection reset or a Postgres restart
- * becoming a full instance death. `connectListener` is the shared fix: it attaches the error handler,
- * drops the stale client, and reconnects + re-LISTENs on a short backoff.
- *
  * A fake `Pool`/`PoolClient` pair stands in for postgres throughout — this is pure client-lifecycle
  * logic with no SQL orchestration worth a real database for.
  */
 
-/** Minimal `PoolClient` fake: an EventEmitter plus the handful of methods `connectListener` calls. */
 class FakeClient extends EventEmitter {
   released = false
   releasedWithErr: any
@@ -26,13 +17,14 @@ class FakeClient extends EventEmitter {
     this.queries.push(text)
     return { rows: [] }
   }
+  // FIXME: pg-pool's `release()` throws on a second call; this fake tolerates one, which hides
+  // `connectListener`'s double release in its `'error'` handler.
   release(err?: any): void {
     this.released = true
     this.releasedWithErr = err
   }
 }
 
-/** Minimal `Pool` fake: `connect()` either resolves with a queued client or rejects with a queued error. */
 class FakePool {
   private queue: Array<{ client?: FakeClient; error?: Error }> = []
   connectCalls = 0
@@ -145,10 +137,8 @@ describe('connectListener', () => {
         )
       })
     )
-    // -> Regression for the leaked-pool-slot finding: the failed client must be released
-    //    (destroy-on-release, since its connection is presumed dead) rather than simply dropped, or
-    //    it stays checked out of the pool forever and counts against `_isFull()` on every future
-    //    reconnect.
+    // -> Released with destroy (its connection is presumed dead), not just dropped: otherwise it
+    //    stays checked out forever and counts against the pool's `max` on every reconnect.
     assert.equal(firstClient.released, true)
     assert.equal(firstClient.releasedWithErr, true)
 
@@ -230,7 +220,6 @@ describe('connectListener', () => {
     assert.equal(client.releasedWithErr, true)
     assert.equal(stored, null)
 
-    // -> An error arriving after close() must not trigger a reconnect
     const connectCallsBeforeLateError = pool.connectCalls
     client.emit('error', new Error('late error after shutdown'))
     await new Promise((resolve) => setTimeout(resolve, 10))
@@ -238,13 +227,12 @@ describe('connectListener', () => {
   })
 
   test('checks out from whichever pool it is handed, and never from a separate pool also in scope (task 1887)', async () => {
-    // -> Stands in for `CARDINAL.dbManager.listenerPool`, the dedicated pool `createListenerPool` builds.
     const listenerPool = new FakePool()
     const client = new FakeClient()
     listenerPool.queueClient(client)
 
-    // -> Stands in for `CARDINAL.dbManager.pool`, the main query pool -- `connectOnce` must never touch
-    //    this one, which is the whole point of task 1887 moving the listeners off it.
+    // -> Stands in for the main query pool: in scope but never handed over, so it must see no
+    //    checkout.
     const queryPool = new FakePool()
 
     let stored: FakeClient | null = null
@@ -269,11 +257,9 @@ describe('connectListener', () => {
 })
 
 /**
- * `createListenerPool` (task 1887): the dedicated pool the three permanently-held LISTEN/NOTIFY
- * clients share, sized so they never eat into the main query pool's configured `max`. Constructing a
- * `pg.Pool` never opens a socket by itself -- only `.connect()` does, which none of these tests call
- * -- so this is safe to exercise as a real `Pool` rather than a fake, and `.options` is where
- * node-postgres stores back exactly what the constructor was handed.
+ * Constructing a `pg.Pool` opens no socket -- only `.connect()` does, which none of these tests
+ * call -- so a real `Pool` is safe here, and `.options` is where node-postgres stores back what the
+ * constructor was handed.
  */
 describe('createListenerPool', () => {
   test('sizes the pool for exactly the three permanent listeners, with no idle minimum', () => {
@@ -296,14 +282,8 @@ describe('createListenerPool', () => {
 })
 
 describe('createNotifier', () => {
-  /**
-   * Regression coverage for task 2015: `core/db.ts`'s module-scope notifier reads
-   * `CARDINAL.dbManager.pubsubClient` in its client getter, a member the worker thread's minimal `CARDINAL`
-   * never sets (`worker.ts`'s literal is asserted to the full `CardinalGlobal`, so `tsc` cannot catch the
-   * gap). The fix makes the getter itself defensive; this exercises `createNotifier`'s own contract
-   * that a getter returning `null` is a silent no-op, which is what makes that defensiveness safe to
-   * rely on regardless of which caller's getter it is.
-   */
+  // -> A caller's getter may legitimately return `null`: a worker thread's minimal `CARDINAL` has no
+  //    pubsub client.
   test('send() against a getter returning null resolves as a no-op and logs nothing', async () => {
     const notifier = createNotifier(() => null, 'test channel')
 

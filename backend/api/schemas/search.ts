@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * SEARCH ENGINE - A search engine module as offered to a site's engine picker
-   */
   app.addSchema({
     $id: 'SearchEngine',
     type: 'object',
@@ -65,12 +62,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * SEMANTIC SEARCH RESULT - One page returned by `GET .../pages/search/semantic` (Epic #3050, Task
-   * #3102). Same shape as a plain `pages/search` result -- the two are meant to render through the
-   * same result row on the frontend -- plus `hop`, which the multi-hop retrieval pipeline
-   * (`models/semanticSearch.ts`, Feature #3092) attaches to say how it found this page.
-   */
   app.addSchema({
     $id: 'SemanticSearchResult',
     type: 'object',
@@ -104,11 +95,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * SEMANTIC SEARCH PAGES RESULT - The response envelope for `GET .../pages/search/semantic`, mirroring
-   * `SearchPagesResult`'s own field-by-field meaning (`api/pages/read.ts`'s `pages/search` route)
-   * against the multi-hop pipeline's merged, deduped, permission-filtered result set.
-   */
   app.addSchema({
     $id: 'SemanticSearchPagesResult',
     type: 'object',

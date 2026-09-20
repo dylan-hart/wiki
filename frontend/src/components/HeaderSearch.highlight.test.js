@@ -2,10 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mountForPreview } from './headerSearchHarness.js'
 
 /**
- * OpenProject #3067: a header search preview result must carry the active query forward as
- * `?highlight=<query>` -- the same convention the knowledge graph's own click-through already uses
- * (`Graph.vue#fallbackHref`, OpenProject #2540) -- so `Index.vue`'s existing `applyKeywordHighlight`
- * pass has something to find on the destination page.
+ * `?highlight=<query>` is what `Index.vue`'s `applyKeywordHighlight` pass reads on the destination
+ * page -- the same convention the knowledge graph's click-through uses.
  */
 describe('HeaderSearch result navigation highlight param', () => {
   beforeEach(() => {

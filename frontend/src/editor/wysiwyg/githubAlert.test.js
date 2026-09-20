@@ -10,8 +10,6 @@ function buildEditor(content) {
   return new Editor({
     content,
     contentType: 'markdown',
-    // -> `GithubAlert` extends `Blockquote` under the same node name, so `StarterKit`'s own
-    //    `blockquote` has to be turned off here, the same way `EditorWysiwyg.vue` does it.
     extensions: [StarterKit.configure({ blockquote: false }), Markdown, GithubAlert]
   })
 }

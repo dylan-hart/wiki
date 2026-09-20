@@ -4,10 +4,7 @@ import { defineComponent, h, ref } from 'vue'
 
 import { useAnchoredFloat } from './anchoredFloat'
 
-/**
- * Mounts the composable inside a trigger that matches `closest`, the way `WMenu`/`WTooltip` sit
- * inside the button they open from.
- */
+/** Nests the placeholder inside a wrapping span, the way `WMenu`/`WTooltip` sit inside a button. */
 function mountWithTrigger({ closest = 'button, a, .w-btn, .w-item', ...options } = {}) {
   const floatEl = ref(null)
   let api = null
@@ -25,7 +22,7 @@ function mountWithTrigger({ closest = 'button, a, .w-btn, .w-item', ...options }
   return { wrapper, api, floatEl }
 }
 
-/** A float element big enough to be measurable, with the sizes `anchoredPosition` reads. */
+/** The test DOM lays nothing out, so the sizes `anchoredPosition` reads are defined by hand. */
 function makeFloat({ width = 100, height = 50 } = {}) {
   const el = document.createElement('div')
   Object.defineProperty(el, 'offsetWidth', { value: width })

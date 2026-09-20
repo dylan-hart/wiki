@@ -6,9 +6,8 @@
         <span>{{ t(`admin.sites.new`) }}</span>
       </w-card-section>
       <!--
-        Neither icon is `self-start`: both fields pass `hide-bottom-space`, which suppresses the hint
-        line, so each row is the field alone and a centred icon is what lines up with it. See the note in
-        `ApiKeyCreateDialog`.
+        Neither icon is `self-start`: both fields pass `hide-bottom-space`, so each row is the field
+        alone and a centred icon lines up with it. Restore the hint line and they need it again.
       -->
       <w-form ref="createSiteForm" class="py-2">
         <w-item>
@@ -69,25 +68,15 @@ import { reactive, ref } from 'vue'
 
 import { useAdminStore } from '../stores/admin'
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptSiteName.value
 })
 
-// STORES
-
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   siteName: '',
@@ -95,12 +84,8 @@ const state = reactive({
   isLoading: false
 })
 
-// REFS
-
 const createSiteForm = ref(null)
 const iptSiteName = ref(null)
-
-// VALIDATION RULES
 
 const siteNameValidation = [
   (val) => val.length > 0 || t('admin.sites.nameMissing'),
@@ -110,8 +95,6 @@ const siteHostnameValidation = [
   (val) => val.length > 0 || t('admin.sites.hostnameMissing'),
   (val) => isValidHostname(val) || t('admin.sites.hostnameInvalidChars')
 ]
-
-// METHODS
 
 async function create() {
   state.isLoading = true
@@ -133,8 +116,6 @@ async function create() {
     await adminStore.fetchSites()
     onDialogOK()
   } catch (err) {
-    // -> ky throws for every non-2xx status, including a plain 400 (a hostname already taken);
-    //    `apiErrorMessage()` reads the server's actual reason off the body either way.
     notify({
       type: 'negative',
       message: apiErrorMessage(err)

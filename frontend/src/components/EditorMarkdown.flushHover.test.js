@@ -4,31 +4,12 @@ import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
-/**
- * OpenProject #3466 ("Markdown editor: flat hovers on toolbar, sidebar and preview toolbar",
- * Feature #3464). The three button strips of `EditorMarkdown.vue` -- the insert rail, the markup
- * bar and the preview bar -- put the shared `flush-hover-btn` primitive (`css/_base.css`) on every
- * button: square corners in Ledger and Cobalt alike, and a hover that touches the container's long
- * edges with no gap.
- *
- * Two layers, as `css/flushHoverBtn.test.js`: the template's classes read as source text, then the
- * SFC's own `<style>` block and the compiled app CSS in real Chromium, on buttons carrying the
- * inline `min-height`/`padding` `WBtn` writes -- the cascade fight a layout-less DOM cannot resolve.
- */
-
 const COMPONENTS_DIR = dirname(fileURLToPath(import.meta.url))
 const CSS_DIR = resolve(COMPONENTS_DIR, '..', 'css')
 const sfc = readFileSync(resolve(COMPONENTS_DIR, 'EditorMarkdown.vue'), 'utf-8')
 const template = sfc.slice(0, sfc.indexOf('<script'))
 const styleBlock = sfc.match(/<style[^>]*>([\s\S]*?)<\/style>/)[1]
 
-/**
- * Every `<w-btn ...>` opening tag between two markers of the template.
- *
- * @param {string} from marker text where the region starts
- * @param {string} to marker text where it ends
- * @returns {string[]} the tags, attributes included
- */
 function buttonsBetween(from, to) {
   const start = template.indexOf(from)
   const end = template.indexOf(to, start)
@@ -148,15 +129,14 @@ describe('EditorMarkdown flush hovers under real Chromium', { skip: !hasChromium
               const b = await rect(page, id)
               const at = `${bodyClass} ${bar} ${id}`
               expect(b.radius, at).toBe('0px')
-              // -> The band is 40px with a 1px bottom hairline: the cell owns the 39px above it
+              // -> The band ends in a 1px hairline, which the cell stops at
               expect(b.top, at).toBe(band.top)
               expect(b.bottom, at).toBe(band.bottom - 1)
               expect(b.w, at).toBeGreaterThanOrEqual(b.h)
             }
-            // -> A plain icon button is a true square; the menu one (glyph + chevron) is at least that
             const plain = await rect(page, '#plain')
             expect(plain.w).toBe(plain.h)
-            // -> Adjacent cells touch: no gap between hovers either
+            // -> Adjacent cells touch: no gap between hovers
             expect((await rect(page, '#menu')).left).toBe(plain.right)
           } finally {
             await page.close()

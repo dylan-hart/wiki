@@ -8,29 +8,21 @@
     administrator upload an icon of their own. That is the right declaration and is untouched.
   - Every browser ALSO requests the bare `/favicon.ico` root path unprompted, whatever the markup
     says, and `'favicon.ico'` is in `RESERVED_ROOT_FILES` (`backend/core/http/siteRouting.ts`) so
-    that request is served this file rather than falling through to the app shell — the backend
-    copy, not this one: `core/http/server.ts#registerStaticAssets` resolves it against
-    `WIKI.SERVERPATH`, the same committed-source pattern `controllers/site.ts`'s
-    `SITE_ASSET_FALLBACKS` already uses for the other branding fallbacks, and for the same reason
-    (OpenProject #2611) — `public/favicon.ico` stays for the Vite dev server alone.
+    that request is served a file rather than falling through to the app shell. It is served the
+    BACKEND copy — `core/http/server.ts#registerStaticAssets` resolves it against
+    `CARDINAL.SERVERPATH` — while `public/favicon.ico` is for the Vite dev server alone. The two
+    stay byte-identical.
 
-  So this file ships regardless, and it has to be the Cardinal mark rather than the icon inherited
-  from upstream. Its source of truth is `public/_assets/logo-cardinal.svg` — the same mark the admin
-  chrome draws — so re-run this whenever that changes.
-
-  As of the official Cardinal.js brand kit landing (task: apply the new logo assets), the committed
-  `favicon.ico` is the kit's own hand-supplied icon rather than this script's output — a purpose-made
-  small-size render of an illustrated, multi-tone mark reads better than what canvas downscaling of
-  the full SVG would produce at 16px. This script stays for the case that changes: a future SVG
-  revision with no matching hand-supplied icon set should be regenerated through here, with `SIZES`
-  kept in step with whatever the currently-committed file actually carries.
+  The committed icon is the brand kit's own hand-supplied one rather than this script's output: a
+  purpose-made small-size render of an illustrated, multi-tone mark reads better than canvas
+  downscaling of the full SVG at 16px. So running this overwrites a hand-tuned file — it is for an
+  SVG revision (`public/_assets/logo-cardinal.svg`) that arrives with no icon set of its own, and
+  `SIZES` has to match what the committed file actually carries.
 
   Rendering goes through Playwright's Chromium: the SVG is drawn into a `<canvas>` at each target
   size and read back as raw RGBA, which needs no PNG decoder on this side. Chromium is a developer-
   machine precondition for THIS script only — the output is committed, so neither `npm run test`
-  nor CI ever launches a browser for it. `scripts/generate-favicon.test.js` asserts the committed
-  bytes really are the Cardinal mark, and `backend/core/http/server.test.ts` asserts the two
-  committed copies stay byte-identical.
+  nor CI ever launches a browser for it.
 
   Usage: node scripts/generate-favicon.mjs
 */
@@ -45,23 +37,18 @@ const OUT = path.join(ROOT, 'public/favicon.ico')
 const BACKEND_OUT = path.join(ROOT, '../backend/assets/branding/favicon.ico')
 
 /**
- * 64 and 32 are what the currently-committed, hand-supplied icon carries. 16 is kept because it is
- * the size a browser tab actually asks for, and a purpose-drawn 16 reads better than a downscaled
- * 32. The wider PWA / apple-touch set (192, 512, and their own `<link>` declarations) is
- * deliberately NOT here — it does not exist today and is its own piece of work, not a widening of
- * this one.
+ * 64 and 32 are what the committed, hand-supplied icon carries. 16 is kept because it is the size a
+ * browser tab actually asks for, and a purpose-drawn 16 reads better than a downscaled 32. The
+ * wider PWA / apple-touch set is deliberately NOT here — it needs `<link>` declarations of its own.
  */
 const SIZES = [16, 32, 64]
 
 /**
- * Rasterizes the mark at every size in `SIZES`, in one browser.
+ * The SVG's own `width`/`height` are rewritten to the target size rather than left at their
+ * intrinsic value and scaled by `drawImage`: scaling the destination rect rasterizes once at the
+ * intrinsic size and then resamples. Rewriting makes Chromium rasterize the vector at the size
+ * being asked for.
  *
- * The SVG's own `width`/`height` are rewritten to the target size rather than left at 32 and scaled
- * by `drawImage`: scaling the destination rect would rasterize once at the intrinsic 32 and then
- * resample, so 48 would come out of a 32 render. Rewriting makes Chromium rasterize the vector at
- * the size being asked for.
- *
- * @param {string} svg The mark's source text.
  * @returns {Promise<Map<number, Uint8ClampedArray>>} Top-down RGBA, one entry per size.
  */
 async function rasterize(svg) {
@@ -97,15 +84,12 @@ async function rasterize(svg) {
 }
 
 /**
- * One ICO image, as a 32bpp BGRA DIB.
+ * One ICO image, as a 32bpp BGRA DIB. PNG-in-ICO would be shorter and every current browser reads
+ * it, but a DIB is what every decoder ever written reads, and at these sizes the difference is a
+ * couple of kilobytes. The AND mask is redundant beside an alpha channel for anything modern; it is
+ * still filled from alpha rather than zeroed, so a decoder that honours the mask and ignores alpha
+ * gets a correct hard-edged silhouette instead of an opaque square.
  *
- * PNG-in-ICO would be shorter and every current browser reads it, but a DIB is what the file this
- * replaces used and what every decoder ever written reads, and at these sizes the size difference
- * is a couple of kilobytes. The AND mask is redundant beside an alpha channel for anything modern;
- * it is still filled from alpha rather than zeroed, so a decoder that honours the mask and ignores
- * alpha gets a correct hard-edged silhouette instead of an opaque square.
- *
- * @param {number} size Edge length in pixels.
  * @param {Uint8ClampedArray} rgba Top-down RGBA pixels, `size * size * 4` bytes.
  * @returns {Buffer} BITMAPINFOHEADER + XOR pixels + AND mask.
  */
@@ -147,7 +131,6 @@ function encodeDib(size, rgba) {
  * Wraps the encoded images in an ICONDIR + one ICONDIRENTRY each.
  *
  * @param {Array<{ size: number, dib: Buffer }>} images
- * @returns {Buffer}
  */
 function encodeIco(images) {
   const dir = Buffer.alloc(6 + images.length * 16)

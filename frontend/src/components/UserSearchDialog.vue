@@ -49,7 +49,6 @@
                   width="32"
                   height="32" />
               </w-avatar>
-              <!-- -> A manual upload always wins; the provider-synced picture is only a fallback (Task #3264) -->
               <w-avatar v-else-if="usr.avatarProviderUrl" size="md">
                 <img
                   :src="usr.avatarProviderUrl"
@@ -125,28 +124,21 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// PROPS
-
 const props = defineProps({
-  /** Dialog title. Defaults to a generic "Select Users". */
   title: {
     type: String,
     required: false,
     default: ''
   },
-  /**
-   * Offer only the users that may be assigned to this group. Filtering happens server-side, as
-   * group membership can span more pages than are displayed.
-   */
+  /** Filtered server-side: group membership can span more pages than are displayed. */
   assignableToGroupId: {
     type: String,
     required: false,
     default: ''
   },
   /**
-   * Picking a user replaces the current selection instead of adding to it, and the confirm button
-   * is enabled as soon as one is picked. `onOk` still hands back an array either way (of at most one
-   * user), so a caller does not need a different shape depending on this prop.
+   * Picking a user replaces the current selection instead of adding to it. `onOk` still hands back
+   * an array either way, so a caller needs no different shape depending on this prop.
    */
   singleSelect: {
     type: Boolean,
@@ -154,9 +146,8 @@ const props = defineProps({
     default: false
   },
   /**
-   * User ids to hide from the results — e.g. the user a caller is about to delete, who cannot
-   * sensibly be its own reassignment target. Filtered client-side: excluding a handful of ids is not
-   * worth a dedicated query param on `GET /users`.
+   * Filtered client-side: excluding a handful of ids is not worth a dedicated query param on
+   * `GET /users`.
    */
   excludeUserIds: {
     type: Array,
@@ -165,25 +156,15 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
 
-// REFS
-
 const iptSearch = ref(null)
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptSearch.value
 })
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   users: [],
@@ -195,11 +176,7 @@ const state = reactive({
   pageSize: 10
 })
 
-// COMPUTED
-
 const totalPages = computed(() => Math.ceil(state.total / state.pageSize))
-
-// WATCHERS
 
 watch(
   () => state.search,
@@ -210,8 +187,6 @@ watch(
 )
 
 watch(() => state.currentPage, load)
-
-// METHODS
 
 async function load() {
   state.loading++
@@ -240,11 +215,7 @@ function isSelected(id) {
   return state.selected.some((usr) => usr.id === id)
 }
 
-/**
- * Selection survives filtering and paging, so users from several pages can be picked at once —
- * except in `singleSelect` mode, where picking a new user always replaces whichever one was picked
- * before, on an earlier page or not.
- */
+/** Selection survives filtering and paging, so users from several pages can be picked at once. */
 function toggle(usr) {
   if (props.singleSelect) {
     state.selected = isSelected(usr.id) ? [] : [usr]
@@ -259,17 +230,10 @@ function confirm() {
   onDialogOK(state.selected)
 }
 
-// MOUNTED
-
 onMounted(load)
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .user-search-dialog-list {
   position: relative;
   height: 360px;

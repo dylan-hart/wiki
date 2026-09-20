@@ -21,9 +21,8 @@
     ]"
     @click="tabs?.select(name)">
     <!--
-      Sized explicitly: WIcon with no `size` inherits the font size, so a tab icon came out at the
-      label's 14px. A tab icon is 24px, label beside it or above it, which is the metric the rest of
-      the app's icon rows are drawn to.
+      Sized explicitly: an unsized WIcon inherits the font size, which would draw a tab icon at the
+      label's 14px rather than the 24px the app's other icon rows use.
     -->
     <w-icon v-if="icon" :name="icon" size="sm" />
     <span v-if="label">{{ label }}</span>
@@ -35,7 +34,6 @@
 import { computed, inject } from 'vue'
 import WIcon from './WIcon.vue'
 
-/** One tab within a `WTabs`. Identified by `name`, which is what the strip's model holds. */
 const props = defineProps({
   name: {
     type: [String, Number],
@@ -61,9 +59,8 @@ const isActive = computed(() => tabs?.current.value === props.name)
 
 <style scoped>
 /*
-  `uppercase` is set in CSS for the same reason as in WBtn: Quasar's normalize declares
-  `button { text-transform: none }` unlayered, which beats any layered utility -- so the class
-  alone would silently do nothing on a <button>.
+  A scoped rule is unlayered, so it outranks the `uppercase`/`normal-case` utilities the template
+  writes -- which is why the opt-out has to be restated here rather than left to the utility.
 */
 .w-tab {
   text-transform: uppercase;

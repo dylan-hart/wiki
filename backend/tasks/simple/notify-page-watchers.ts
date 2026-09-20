@@ -1,13 +1,11 @@
 import type { PageWatchNotifiableAction, RecordedWatchEvent } from '../../models/pageWatchEvents.ts'
 import type { WatchNotifyMode } from '../../models/pageWatching.ts'
 
-/** One watcher this event is queued for, with the delivery mode their preference resolved to. */
 export interface QueuedWatcher {
   userId: string
   notifyMode: WatchNotifyMode
 }
 
-/** What `models/pages.ts#notifyWatchers` queues after resolving a page change's watcher list. */
 export interface NotifyPageWatchersPayload {
   siteId: string
   pageId: string
@@ -15,57 +13,36 @@ export interface NotifyPageWatchersPayload {
   pagePath: string
   pageLocale: string
   action: PageWatchNotifiableAction
-  /** Up to `['path', 'locale', 'title']` for a move (see `models/pages.ts#movePage`), empty for a
-   *  delete. */
+  /** Up to `['path', 'locale', 'title']` for a move, empty for a delete. */
   changedFields: string[]
   actorId: string
   watchers: QueuedWatcher[]
   /**
-   * For a `deleted` event only (OpenProject #3203): the rows `models/pages.ts#notifyWatchers` already
-   * recorded synchronously, before the page row it referenced was deleted — a `pageWatchEvents.pageId`
-   * FK insert has to happen while that row still exists, which this job, running later, can no longer
-   * guarantee. When present, `task()` uses these instead of calling `recordMany()` itself.
+   * For a `deleted` event: the rows `notifyWatchers` recorded synchronously, while the page row still
+   * existed — `pageWatchEvents.pageId` is a foreign key, and this job runs too late to promise its
+   * referent is still there. When present, `recordMany()` is skipped entirely rather than re-run.
    */
   recordedEvents?: RecordedWatchEvent[]
 }
 
 /**
- * Record a pending notification for each watcher of a page change, then attempt an immediate send for
- * whichever watchers asked for one.
+ * The watcher list, already paired with each watcher's resolved `notifyMode`, is resolved by
+ * `notifyWatchers` before this is queued: a page cascade-deletes its watch rows, so re-resolving the
+ * watchers — or `page`/`changedFields` — here would find nothing left for a `deleted` event. What is
+ * left for this job is the part that scales with how many people watch the page: one
+ * `pageWatchEvents` row per watcher and, for the `immediate` ones, the mail itself.
  *
- * The watcher list itself — already paired with each watcher's resolved `notifyMode` — was resolved
- * before this was queued (see `notifyWatchers`); a page cascade-deletes its watch rows, so re-resolving
- * either the watcher list or `page`/`changedFields` here would find nothing left for a `deleted` event.
- * What is left for this job is the part that scales with how many people watch the page: one
- * `pageWatchEvents` row per watcher, and — for the `immediate` ones — the mail itself.
+ * A `digest`-mode watcher's row is left with `deliveredAt` null for the digest job to send later; an
+ * `immediate` one is marked delivered on a successful send, so the digest never re-sends it.
  *
- * `payload.recordedEvents` (OpenProject #3203), when present, means `notifyWatchers` already recorded
- * these rows itself, synchronously, before the page's row was deleted — always true for a `deleted`
- * event, since `pageWatchEvents.pageId` is now a foreign key and this job, running later off a
- * scheduler queue, can no longer promise the referenced page row still exists at INSERT time the way
- * a request-time write can. `recordMany()` is skipped entirely in that case, not called a second time.
+ * A failed send is logged and left pending rather than thrown: the row survives either way, so the
+ * notification is not lost, and throwing would retry the whole payload — including `recordMany`,
+ * inserting a duplicate pending row for every watcher rather than just the one that failed.
  *
- * A `digest`-mode watcher's row is left exactly as recorded, `deliveredAt` still null: the digest job
- * (a later task) is what eventually sends it. An `immediate`-mode watcher's row is marked delivered
- * right after a successful send, so the digest job never re-sends what already went out.
- *
- * A failed send is logged loudly and left pending rather than thrown: the row survives either way (see
- * `recordMany` above), which is what keeps a watcher's notification from being silently lost, and it is
- * also what a future in-app inbox (a separate task) will read regardless of whether mail ever succeeds
- * — so a misconfigured or momentarily-down SMTP server must not turn into a failed job here. A failed
- * job would retry the whole payload, including the `recordMany` call already covered by the `try` below
- * — re-running that on a mail-only failure would insert duplicate pending rows for every watcher, not
- * just the one whose send failed. (A `deleted` event's `recordedEvents` path skips `recordMany`
- * altogether, so a retry there re-runs only the send loop, not any insert.)
- *
- * OpenProject #2173: `read:pages` is re-checked once more here, right before the immediate-send loop
- * — a scheduler backlog can put real time between `notifyWatchers`'s own synchronous check (at page-
- * change time) and this job actually running. Checked with `CARDINAL.models.pageWatchEvents.filterReadable`
- * (shared with the in-app inbox's read-time re-check and the digest job's own send-time one) against
- * the live page where one still exists, falling back to this payload's own `pagePath`/`pageLocale` for
- * a `deleted` action, whose page row is already gone by the time this runs. Only gates the immediate
- * send: a `digest`-mode watcher's row is left exactly as recorded either way, since the digest job
- * re-checks it again itself at its own, later send time.
+ * `read:pages` is re-checked right before the immediate send, because a scheduler backlog can put
+ * real time between `notifyWatchers`'s own check at page-change time and this job running. It falls
+ * back to the payload's `pagePath`/`pageLocale` for a `deleted` action, whose page row is already
+ * gone. Only the immediate send is gated; the digest job re-checks at its own, later send time.
  */
 export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
   if (!payload || payload.watchers.length < 1) {
@@ -124,9 +101,8 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
     if (!eventId) {
       continue
     }
-    // -> OpenProject #2173: re-checked once more, right before the send -- see this file's own doc
-    //    comment above. A single-item batch: `filterReadable` is keyed to one user's events, and each
-    //    watcher here is a different user.
+    // -> A single-item batch: `filterReadable` is keyed to one user's events, and each watcher here
+    //    is a different user.
     const readable = await CARDINAL.models.pageWatchEvents.filterReadable(watcher.userId, [
       { pageId, pagePath, pageLocale, siteId }
     ])
@@ -136,7 +112,7 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
     try {
       const recipient = await CARDINAL.models.users.getById(watcher.userId)
       if (!recipient?.email) {
-        // -> `debug`: recurs on every run for the same account (see `notify-event-subscribers.ts`).
+        // -> `debug`: recurs on every run for the same account.
         CARDINAL.logger.debug('hooks', 'immediate watch notification skipped, no email address', {
           page: pageId,
           user: watcher.userId
@@ -155,8 +131,8 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
       })
       await CARDINAL.models.pageWatchEvents.markDelivered(eventId)
     } catch (err: any) {
-      // -> Logged loudly, not thrown: the pending row above already guarantees this is not lost, and
-      //    throwing here would retry `recordMany` too (see this file's own doc comment).
+      // -> Not thrown: the pending row already guarantees this is not lost, and a retry would re-run
+      //    `recordMany` too.
       CARDINAL.logger.error('hooks', 'failed to send immediate watch notification', {
         page: pageId,
         user: watcher.userId,

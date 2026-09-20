@@ -73,23 +73,13 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { DEFAULT_MAX_BLOCK_UPLOAD_SIZE, validateBlockFile } from '@/helpers/blockUpload'
 import { formatFileSize } from '@/helpers/fileSize'
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// STORES
-
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   file: null,
@@ -100,11 +90,7 @@ const state = reactive({
 
 const humanMaxFileSize = computed(() => formatFileSize(state.maxFileSize))
 
-// REFS
-
 const fileIpt = ref(null)
-
-// METHODS
 
 function messageForReason(reason) {
   switch (reason) {
@@ -149,8 +135,6 @@ async function upload() {
     })
     onDialogOK(resp.block)
   } catch (err) {
-    // -> ky throws above 400 (no static definition, tag collision, oversized file, ...), with the
-    //    reason in the body -- surfaced the same way `deleteBlock()` surfaces its own errors
     notify({
       type: 'negative',
       message: apiErrorMessage(err)
@@ -159,14 +143,11 @@ async function upload() {
   state.isLoading = false
 }
 
-// MOUNTED
-
 onMounted(async () => {
   /*
-    Best-effort only: reading the real configured limit requires `manage:system`, which a site admin
-    who can manage this site's blocks does not necessarily hold. Falling back silently to the default
-    still gives a useful pre-check, and the upload itself is refused server-side regardless -- this is
-    a UX nicety to catch an oversized file before spending the request, not the enforcement.
+    Best-effort: reading the real configured limit needs `manage:system`, which a site admin who can
+    manage this site's blocks does not necessarily hold. The default still gives a useful pre-check,
+    and the server refuses an oversized upload regardless -- this is the nicety, not the enforcement.
   */
   try {
     const resp = await API_CLIENT.get('system/security').json()

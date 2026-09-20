@@ -1,14 +1,7 @@
 /**
- * Structural checks on the two publish workflows (task #777, splitting `build.yml`'s single
- * push-to-`scarlett` stream into a continuous alpha channel and a gated release channel — see
- * `docs/versioning.md`).
- *
- * These are not "does the workflow actually run on GitHub Actions" tests — that would need a real
- * runner. What they assert is the structural contract the task requires: `build.yml`'s trigger and
- * behavior are untouched (no behavior change to the continuous dev stream), and `release.yml`
- * exists, triggers only on a `vX.Y.Z` tag push, and hard-gates its Docker publish + GitHub Release
- * behind the same typecheck/lint/format/icon-drift checks — in an order that actually gates them,
- * not just steps present anywhere in the file.
+ * The contract between the two publish workflows is written up in `docs/versioning.md`. What is
+ * checked here is step ORDER as much as presence, since a gate listed after the publish gates
+ * nothing.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -23,7 +16,7 @@ const QUALITY_YML = path.join(REPO_ROOT, '.github/workflows/quality.yml')
 const E2E_YML = path.join(REPO_ROOT, '.github/workflows/e2e.yml')
 const ALL_WORKFLOW_FILES = [BUILD_YML, RELEASE_YML, QUALITY_YML, E2E_YML]
 
-/** Flattens every step across every job in a parsed workflow document, in file order. */
+/** In file order: the step-index comparisons below read that order as the execution order. */
 function allSteps(doc: any): any[] {
   const steps: any[] = []
   for (const job of Object.values<any>(doc.jobs ?? {})) {
@@ -34,7 +27,6 @@ function allSteps(doc: any): any[] {
   return steps
 }
 
-/** Index of the first step whose `run` or `uses`+`with` text matches `pattern`, or -1. */
 function findStepIndex(steps: any[], pattern: RegExp): number {
   return steps.findIndex((step) => {
     const haystack = [step.run, step.uses, JSON.stringify(step.with ?? {})]
@@ -97,10 +89,6 @@ describe('publish workflow split (build.yml + release.yml)', () => {
       )
     })
 
-    // OpenProject #2435/#2486: the amd64-only decision above was revisited once arm64 image
-    // availability was actually requested (Issue #2388, a Raspberry Pi user report) — both
-    // workflows now target linux/arm64 too, cross-built via QEMU emulation since GitHub-hosted
-    // runners are amd64-only.
     test('both workflows include linux/arm64 alongside linux/amd64', () => {
       for (const [label, doc] of [
         ['build.yml', buildDoc],
@@ -191,7 +179,6 @@ describe('publish workflow split (build.yml + release.yml)', () => {
       assert.ok(dockerStepIndex !== -1, 'expected a docker/build-push-action step')
       const dockerStep = steps[dockerStepIndex]
       assert.equal(dockerStep.with.push, true)
-      // Must not hardcode the alpha channel's tags, and must be driven by the derived version.
       assert.doesNotMatch(JSON.stringify(dockerStep.with.tags), /3\.0\.0-alpha/)
     })
 
@@ -306,9 +293,6 @@ describe('publish workflow split (build.yml + release.yml)', () => {
         'expected an explicit fetch of the scarlett branch before the ancestor check'
       )
 
-      // Must run immediately after checkout — before Node setup, every quality gate, the
-      // build.yml-run guard, and the Docker publish step — so nothing downstream ever executes
-      // against an out-of-branch tag.
       const checkoutIndex = findStepIndex(steps, /actions\/checkout/)
       const guardIndex = findStepIndex(steps, /gh run list.*--workflow=build\.yml/s)
       const dockerStepIndex = findStepIndex(steps, /docker\/build-push-action/)
@@ -390,13 +374,11 @@ describe('publish workflow split (build.yml + release.yml)', () => {
   })
 })
 
-// task #2273: a git tag is mutable, so a floating `@v4`/`@v7`-style `uses:` reference lets whoever
-// owns or compromises an action repository repoint it and have every one of these four workflows
-// execute the new commit on the next run, with nothing here to review. Every external action must
-// be pinned to the full 40-character commit SHA it currently resolves to; the version stays visible
-// as a trailing `# vX.Y.Z` comment so a re-pin is still a one-line, reviewable diff. The one `uses:`
-// that is exempt is build.yml's `./.github/workflows/quality.yml` — a local, same-repo composite
-// reference, not an external action, so there is no separately-owned tag for anyone to repoint.
+// A git tag is mutable, so a floating `@v7`-style `uses:` reference lets whoever owns or compromises
+// an action repository repoint it and have every one of these workflows execute new code on the next
+// run, with nothing here to review. The trailing `# vX.Y.Z` keeps a re-pin a one-line, reviewable
+// diff. A local, same-repo composite reference is exempt — there is no separately-owned tag for
+// anyone to repoint.
 describe('external actions are SHA-pinned across all four workflows', () => {
   const SHA_PINNED = /^[^@]+@[0-9a-f]{40}(\s+#\s*v\S+)?$/
   const LOCAL_REF = /^\.\//

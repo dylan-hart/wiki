@@ -4,12 +4,6 @@ import bcrypt from 'bcryptjs'
 import LocalAuthentication from './authentication.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 
-/**
- * `authenticate()` is the password-login path every e2e spec depends on. It touches only
- * `CARDINAL.models.users.getByEmail` — no database, so this is a pure
- * unit test with `getByEmail` stubbed to return a canned row per test.
- */
-
 function makeAuthStrategyData(overrides: Partial<any> = {}) {
   return {
     password: bcrypt.hashSync('correct-horse', 1),
@@ -107,11 +101,6 @@ describe('LocalAuthentication.authenticate', () => {
     )
   })
 
-  // -> `isActive`/`isVerified` are no longer checked here (OpenProject #2094): they moved to
-  //    `models/users.ts#afterLoginChecks()`, the funnel every login path -- including this one --
-  //    ends in, so a coverage for those two now belongs to that method's own test suite
-  //    (`models/users.test.ts`) rather than this module's. `restrictLogin` has no other enforcement
-  //    point and stays checked here.
   test('throws ERR_LOGIN_RESTRICTED when the strategy data marks the login restricted', async () => {
     stubGetByEmail(makeUser({ auth: { local: makeAuthStrategyData({ restrictLogin: true }) } }))
     const local = new LocalAuthentication('local', {})
@@ -122,12 +111,9 @@ describe('LocalAuthentication.authenticate', () => {
   })
 
   /*
-    The display-name split (OpenProject #2641) reaches every provider module that hands over one
-    display string. This one hands over none: `authenticate()` returns the existing user row, and the
-    module builds no `ProviderProfile` and provisions no account — a local account is created by the
-    model layer and the registration route, both of which take a first and last name outright rather
-    than guessing at one. So there is deliberately nothing to split here, and this asserts the shape
-    that makes that true rather than leaving it as an unwritten assumption.
+    A local account is created by the model layer and the registration route, both of which take a
+    first and last name outright, so this module hands over no display string and builds no
+    `ProviderProfile` anything could be split from.
   */
   test('builds no provider profile — there is no display string here to split (OpenProject #2641)', () => {
     const local = new LocalAuthentication('local', {}) as unknown as Record<string, unknown>

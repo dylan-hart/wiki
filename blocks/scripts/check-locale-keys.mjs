@@ -1,29 +1,22 @@
 /*
-  Checks that every `description:`/`label:`/`hint:` string in a block directory's `component.js`
-  `static definition` has a matching `blocks.<tag>.*` key in `backend/locales/en.json`, and that
-  `en.json` carries no leftover `blocks.<tag>.*` key for a string that no longer exists on disk.
+  Checks that every `description:`/`label:`/`hint:` string in a block's `static definition` has a
+  matching `blocks.<tag>.*` key in `backend/locales/en.json`, and that `en.json` carries no leftover
+  key for a string that no longer exists on disk.
 
-  Key convention (settled by OpenProject #1628): every piece is derivable at render time from data
-  the frontend already has off a resolved block definition and a prop entry, with no separate id to
-  keep in sync by hand.
+  Key convention -- every piece is derivable at render time from a resolved block definition and a
+  prop entry, so there is no separate id to keep in sync by hand:
 
     blocks.<tag>.description                -> definition.description
     blocks.<tag>.props.<propName>.label      -> a props[] entry's .label
     blocks.<tag>.props.<propName>.hint       -> a props[] entry's .hint
 
-  A block/prop that does not declare one of these fields mints no key for it -- BlockPropsForm.vue
-  already falls back to `field.name` for a label and skips the hint entirely, so there is nothing to
-  translate. The raw string stays in `component.js` as the render-time fallback for when the
-  `en.json` dictionary is not loaded -- this script does not remove it, only requires a matching key
-  to exist alongside it.
+  A block/prop declaring none of these mints no key: `BlockPropsForm.vue` falls back to `field.name`
+  and skips an absent hint, so there is nothing to translate. The raw string stays in `component.js`
+  as the render-time fallback for an unloaded dictionary.
 
-  Definitions are read the same way the real build does -- AST-parsed out of the raw source text via
-  `rolldown/parseAst`, the same parser Rolldown's own plugin API exposes as `this.parse()` -- rather
-  than by importing the modules (which register a custom element on load and so cannot run outside a
-  browser) or by running a full `rolldown -c` build just to read `compiled/blocks.manifest.json` (this
-  script has no reason to also resolve, bundle and minify every block's real dependencies). See
-  `rolldown.config.mjs`'s `blocksManifest()` plugin, whose `literalToValue()` this script imports and
-  reuses so the two extraction paths cannot drift apart.
+  Definitions are AST-parsed out of the source rather than imported (a component registers a custom
+  element on load, so it cannot run outside a browser) or read out of a full build's manifest. The
+  extraction reuses `rolldown.config.mjs`'s `literalToValue()` so the two paths cannot drift apart.
 
   Usage: node scripts/check-locale-keys.mjs
 */
@@ -38,7 +31,6 @@ import { literalToValue } from '../rolldown.config.mjs'
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const EN_JSON_PATH = path.join(ROOT, '../backend/locales/en.json')
 
-/** Every block directory's `component.js` `static definition`, keyed by its `block` tag. */
 function collectDefinitions() {
   const definitions = new Map()
   for (const file of globSync('block-*/component.js', { cwd: ROOT }).sort()) {
@@ -62,7 +54,6 @@ function collectDefinitions() {
   return definitions
 }
 
-/** `{ key, expected }` for every string `en.json` must carry, derived from the definitions. */
 function expectedKeys(definitions) {
   const expected = []
   for (const definition of definitions.values()) {
@@ -86,16 +77,10 @@ function expectedKeys(definitions) {
 }
 
 /**
- * Every `en.json` key under the `blocks.` namespace shaped like a static-definition key --
- * `blocks.<tag>.description` or `blocks.<tag>.props.<propName>.(label|hint)` -- to its string value.
- *
- * `en.json` is a flat dictionary -- every key is a literal string carrying its own dots (e.g.
- * `"admin.analytics.enabled"`), not a nested object tree, matching how `frontend/src/boot/i18n.js`'s
- * vue-i18n instance is fed it. `blocks.<tag>.*` keys follow that same flat convention, but not every
- * key under that prefix is this script's business: `blocks.<tag>.errors.*` (Feature #1624) is a
- * separate, runtime-translated namespace read via `this._i18n.t()` inside a block's own render/event
- * logic, not derived from the `static definition` this script cross-checks -- shaped, and scoped,
- * differently on purpose, so it's excluded here rather than flagged as an orphan.
+ * `en.json` is a flat dictionary: every key is one string carrying its own dots, not a nested tree.
+ * Not every `blocks.` key is this script's business, though -- `blocks.<tag>.errors.*` is resolved
+ * at runtime through `this._i18n.t()` and is not derived from a `static definition`, so it is
+ * excluded here rather than reported as an orphan.
  */
 const STATIC_DEFINITION_KEY = /^blocks\.[^.]+\.(?:description|props\.[^.]+\.(?:label|hint))$/
 

@@ -7,10 +7,8 @@ function render(src, options = { label: false, labelAfter: false }) {
 }
 
 describe('markdown-it-task-lists (vendored, OpenProject #3168)', () => {
-  // Pinned against the real markdown-it-task-lists@2.1.1 package's output, captured before the
-  // swap, with the exact options renderers/markdown.js passes (`{ label: false, labelAfter: false
-  // }`) -- this suite exists to catch ANY markup drift from the vendoring, not just a functional
-  // regression in whether checkboxes render at all.
+  // Expectations are pinned against the real markdown-it-task-lists@2.1.1 package's output, to
+  // catch ANY markup drift in the vendored copy rather than only a total failure to render.
   it('renders an unchecked item', () => {
     expect(render('- [ ] todo item')).toBe(
       '<ul class="contains-task-list">\n<li class="task-list-item"><input class="task-list-item-checkbox" disabled="" type="checkbox"> todo item</li>\n</ul>\n'
@@ -42,9 +40,6 @@ describe('markdown-it-task-lists (vendored, OpenProject #3168)', () => {
   })
 
   it('keeps two instances options isolated instead of sharing module-level state', () => {
-    // Before the #3168 closure fix, `disableCheckboxes` etc. were module-level `var`s: configuring
-    // a second MarkdownIt instance with different options flipped every instance's output,
-    // including one already built and rendered from.
     const disabledMd = new MarkdownIt().use(taskLists, {
       label: false,
       labelAfter: false,
@@ -62,8 +57,8 @@ describe('markdown-it-task-lists (vendored, OpenProject #3168)', () => {
     expect(enabledMd.render('- [ ] x')).not.toContain('disabled=""')
     expect(enabledMd.render('- [ ] x')).toContain('task-list-item enabled')
 
-    // Re-render on the first instance after the second was configured differently: it must still
-    // be disabled -- this is the assertion that fails without the closure fix.
+    // Deliberate repeat of the first instance's assertions, now that the second has been configured
+    // differently: this is what fails if the options live at module level instead of in the closure.
     expect(disabledMd.render('- [ ] x')).toContain('disabled=""')
     expect(disabledMd.render('- [ ] x')).not.toContain('task-list-item enabled')
   })

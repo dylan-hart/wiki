@@ -13,20 +13,17 @@ beforeEach(() => {
  *
  * **Expires 2026-12-06.** By then this test is either fixed or deleted.
  *
- * **Why it is here.** Regression coverage for feature 413, task 727: a real Chromium build
- * implements `Intl.Locale.prototype.getTextInfo()` as a METHOD with no `.textInfo` getter, unlike
- * this sandbox's Node. This test simulates that shape by subclassing the real `Intl.Locale`,
- * reassigning the global synchronously, and restoring it in a `finally` -- there is no `await`
- * anywhere in the body. Observed failing once in CI (`byCode.ar.isRTL` read `false` instead of
- * `true`), not reproducible locally and not reproduced on the immediately following CI run against
- * the identical commit. The exact mechanism is unconfirmed -- see OpenProject #2738 for what was
- * ruled out (this run's own code changes; an obvious concurrency bug inside the test itself, since
- * the mutation is synchronous and Vitest's default `isolate: true` should give each test file its
- * own realm).
+ * **Why it is here.** It covers a real Chromium's `Intl.Locale.prototype.getTextInfo()` -- a METHOD
+ * with no `.textInfo` getter, unlike this sandbox's Node -- simulated by subclassing the real
+ * `Intl.Locale`, reassigning the global synchronously and restoring it in a `finally`, with no
+ * `await` anywhere in the body. It failed once in CI (`byCode.ar.isRTL` read `false`), was not
+ * reproducible locally, and passed on the next run against the identical commit; the mechanism is
+ * unconfirmed, and not an obvious concurrency bug in the test itself, since the mutation is
+ * synchronous and Vitest's default `isolate: true` gives each test file its own realm.
  *
- * **The fix that retires it.** Reproduce it deliberately (repeat this test file many times under
- * CI's own Node/OS, or bisect Vitest's `isolate`/`pool` settings) to pin down the real mechanism,
- * then fix it directly rather than re-guessing from a single occurrence.
+ * **The fix that retires it.** Reproduce it deliberately -- repeat this file many times under CI's
+ * own Node/OS, or bisect Vitest's `isolate`/`pool` settings -- then fix the real mechanism rather
+ * than re-guessing from a single occurrence.
  */
 describe('site store: applySiteInfo() locale direction — Chrome-shaped Intl.Locale', () => {
   function baseSiteInfo(overrides = {}) {

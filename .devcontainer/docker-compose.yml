@@ -1,10 +1,6 @@
-# The CI-parity development environment (OpenProject #2684, under Feature #2601).
-#
-# What `docker compose up` starts here is exactly what a CI job has: one Node container, one
-# postgres:18, and one MinIO (quality.yml's own `docker run` MinIO step, standing in for the
-# archived s3rver -- OpenProject #3153). Developer-only services -- currently just pgAdmin -- sit
-# behind the `tools` profile and are opted into explicitly, so the environment you work in by
-# default is the environment that gates, rather than a superset of it.
+# The CI-parity development environment: `docker compose up` starts exactly what a CI job has.
+# Developer-only services sit behind the `tools` profile, so the default environment is the one
+# that gates rather than a superset of it.
 #
 #   docker compose up                     # app + db + minio  -- what CI has
 #   docker compose --profile tools up     # + pgAdmin          -- local convenience
@@ -14,57 +10,36 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      # NOTHING is overridden here on purpose. The Dockerfile's own `ARG NODE_VERSION` is the single
-      # declaration of the pinned Node patch, and this file used to defeat it: it passed
-      # `VARIANT: 26` over a Dockerfile that carefully digest-pinned 26.7.0, so every rebuild
-      # silently resolved whatever `node:26` was newest that day and the pin was dead on arrival.
-      # To change the Node version, edit the Dockerfile (and .github/workflows/*.yml with it).
+      # No `args:` on purpose: a build arg here would override the Dockerfile's `ARG NODE_VERSION`,
+      # the single declaration of the Node pin.
 
     volumes:
       - ..:/workspace
       - wiki-vscode-ext:/root/.vscode-server/extensions
 
-    # Matches the `db` service's own credentials below (reachable at localhost:5432, since this
-    # container runs on `network_mode: service:db`) and config.sample.yml's db defaults exactly, so
-    # `npm run dev` / `npm run start` keep connecting exactly as they always have -- as long as
-    # config.yml's own `db:` block is left at its default values (see README.md's "Usage" steps).
-    # It is also character-for-character the DATABASE_URL every workflow sets, which is what makes
-    # a DB-backed run in here and a DB-backed run in CI the same run.
-    # What this actually changes is backend/test/db.ts's `hasTestDatabase()` gate: with it set,
-    # `npm run test` in backend/ runs the DB-backed suites instead of silently skipping them.
-    # If you edit config.yml's `db:` block to point somewhere else, unset this in your own shell
-    # first -- core/db.ts prefers DATABASE_URL outright over WIKI.config.db.* whenever it's set.
-    # S3_TEST_ENDPOINT is the same convention as DATABASE_URL: self-contained root credentials,
-    # reachable at localhost:9000 for the same network_mode reason DATABASE_URL is at :5432. See
-    # backend/modules/storage/s3/storage.emulated.test.ts's header comment and the `minio` service
-    # below, which matches quality.yml's own `docker run` MinIO at the same image tag.
+    # DATABASE_URL is character-for-character what every workflow sets, and matches the `db` service
+    # below (at localhost because of `network_mode: service:db`). With it set, backend/test/db.ts's
+    # `hasTestDatabase()` gate runs the DB-backed suites instead of silently skipping them.
+    # core/db.ts prefers it outright over config.yml's `db:` block: unset it in your shell before
+    # pointing config.yml somewhere else. S3_TEST_ENDPOINT is the same convention, for `minio`.
     environment:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-      # `models/users.ts#init()` seeds a random, unrecoverable one-time password when `ADMIN_PASS`
-      # is unset (OpenProject #3141) -- fine for a real install, but useless for a dev container
-      # whose whole point is a known, repeatable login every time `npm run start` seeds a fresh db.
-      # Set explicitly so README.md's documented `admin@example.com` / `12345678` dev-container
-      # login keeps working without an operator having to go read a container's startup log.
+      # Without ADMIN_PASS, `models/users.ts#init()` seeds a random one-time password; a dev
+      # container wants the known, repeatable login README.md documents.
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASS: '12345678'
       S3_TEST_ENDPOINT: http://minioadmin:minioadmin@localhost:9000
 
-    # Overrides default command so things don't shut down after the process ends.
+    # Keeps the container running; the backend is started by hand inside it.
     command: sleep infinity
 
-    # Runs app on the same network as the database container, allows "forwardPorts" in devcontainer.json function.
+    # Shares the db container's network, so db and minio are at localhost. Forward app ports with
+    # devcontainer.json's `forwardPorts`: a `ports:` entry here does not forward from a Codespace.
     network_mode: service:db
 
-    # Uncomment the next line to use a non-root user for all processes.
-    # user: node
-
-    # Use "forwardPorts" in **devcontainer.json** to forward an app port locally.
-    # (Adding the "ports" property to this file will not forward from a Codespace.)
-
   db:
-    # Same tag the service containers in quality.yml, build.yml and e2e.yml use, and the one
-    # backend/test/db.ts documents. Deliberately the bare major rather than a digest: parity here
-    # means resolving the same way CI does, and CI resolves `postgres:18`.
+    # The tag CI's postgres service containers use. Deliberately the bare major rather than a
+    # digest: parity here means resolving the same way CI does.
     image: postgres:18
     restart: unless-stopped
     volumes:
@@ -77,12 +52,8 @@ services:
       POSTGRES_DB: postgres
 
   minio:
-    # Same tag `.github/workflows/quality.yml`'s "Start MinIO" step pulls, and the same reason
-    # postgres above is a bare major rather than a digest: parity here means resolving the same
-    # image CI does. MinIO's Docker Hub repo no longer exists (moved to quay.io) and has no
-    # floating LTS-major tag, so a concrete RELEASE tag is the pin, per this project's Currency
-    # standard -- see backend/modules/storage/s3/storage.emulated.test.ts's header comment for what
-    # this backs.
+    # Keep in sync with the tag quality.yml's "Start MinIO" step pulls. MinIO publishes to quay.io
+    # only and has no floating LTS-major tag, so a concrete RELEASE tag is the pin.
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: unless-stopped
     command: server /data
@@ -94,8 +65,6 @@ services:
     network_mode: service:db
 
   pgadmin:
-    # Developer convenience, not part of the gate: CI has no pgAdmin, so neither does the default
-    # environment here. Start it with `docker compose --profile tools up` when you actually want it.
     profiles:
       - tools
     image: dpage/pgadmin4:9.13.0
@@ -107,8 +76,8 @@ services:
       - PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=False
       - PGADMIN_CONFIG_LOGIN_BANNER="Login with dev@js.wiki / 123123"
     network_mode: service:db
-    # volumes:
-    # - ./pgadmin-servers.json:/pgadmin4/servers.json
+    # TODO: mount ./pgadmin-servers.json at /pgadmin4/servers.json; it is never loaded, so pgAdmin
+    # starts with no server registered.
 
 volumes:
   postgres-data:

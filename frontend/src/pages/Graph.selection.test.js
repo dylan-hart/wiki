@@ -6,11 +6,9 @@ import { useGraphStore } from '@/stores/graph'
 import { mountGraph } from './graphFixtures.js'
 
 /*
- * OpenProject #3364 (corrected scope): a graph canvas click has no state of its own -- a single
- * click on a real page node always navigates, full stop, exactly as it did before OpenProject
- * #3363's now-reverted two-click select/navigate toggle ever existed. Selection is a SIDEBAR
- * concept (`composables/navSidebarDestination.js`), simulated here by writing directly to
- * `useGraphStore().selectedPath` the same way a sidebar click would.
+ * A canvas click carries no state of its own: a click on a real page node always navigates.
+ * Selection is a sidebar concept (`composables/navSidebarDestination.js`), simulated here by
+ * writing to `useGraphStore().selectedPath` the way a sidebar click would.
  */
 describe('Graph.vue canvas clicks (OpenProject #3364, corrected scope)', () => {
   it('a single click on a real node navigates immediately, with no selection state created', async () => {
@@ -49,8 +47,6 @@ describe('Graph.vue canvas clicks (OpenProject #3364, corrected scope)', () => {
     await flushPromises()
     expect(wrapper.vm.$router.currentRoute.value.fullPath).toBe('/a')
 
-    // -> Simulate returning to the graph and clicking the very same node again: still a plain,
-    //    immediate navigation, not a "second click" of anything.
     await wrapper.vm.$router.push('/_graph')
     nodeA.x = 500
     nodeA.y = 500
@@ -62,12 +58,6 @@ describe('Graph.vue canvas clicks (OpenProject #3364, corrected scope)', () => {
   })
 })
 
-/*
- * `selectedNodeId` resolves `useGraphStore().selectedPath` (set by a sidebar click, simulated here
- * directly) plus the current locale into the composite id `graphDraw.js#drawNodes` rings -- the same
- * resolution shape `applyRouteFocus()` already does for the anchor, just off the store instead of
- * `route.query.path`.
- */
 describe('Graph.vue selectedNodeId (OpenProject #3364, corrected scope)', () => {
   it('resolves to null with nothing selected', async () => {
     const wrapper = await mountGraph()
@@ -95,11 +85,9 @@ describe('Graph.vue selectedNodeId (OpenProject #3364, corrected scope)', () => 
   })
 
   /*
-   * Anchor trumps selected (OpenProject #3364/#3365's shared product rule, `isSelected()`'s own doc
-   * comment): a clicked EMPTY folder anchors the graph on itself, which also happens to set
-   * `selectedPath` to that identical path. The sidebar deliberately shows nothing as "selected" in
-   * that case, and the graph ring must agree -- ringing a node here that the sidebar isn't marking
-   * selected would be two surfaces disagreeing about the same state.
+   * Anchor trumps selected: a clicked empty folder anchors the graph on itself and sets
+   * `selectedPath` to that same path. The sidebar marks nothing selected there, and the ring has to
+   * agree or the two surfaces disagree about one state.
    */
   it('resolves to null when the selected path is also the current graph anchor', async () => {
     const wrapper = await mountGraph({ initialPath: '/_graph?path=a' })

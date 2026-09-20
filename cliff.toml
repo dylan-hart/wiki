@@ -1,17 +1,7 @@
-# git-cliff configuration — generates CHANGELOG.md from Conventional Commit history.
-#
-# Run locally: see the "Generating a changelog" section in docs/versioning.md. In short,
-# `git-cliff --unreleased` (from the repo root, with the git-cliff binary on PATH) previews the
-# section for commits since the last `vX.Y.Z` release tag; `git-cliff -o CHANGELOG.md` writes the
-# full file. See https://git-cliff.org/docs/configuration for the schema this file follows.
-#
-# Categorization mirrors upstream 2.5.x's GitHub Release convention: commits are grouped into
-# Features / Bug Fixes / Refactors / Chores, in that order, each entry referencing its short commit
-# hash. This task delivers the generator and its config only — wiring it into a release workflow
-# (auto-generating GitHub Release notes on a tag push) is a separate task under the same Feature.
+# git-cliff configuration; schema: https://git-cliff.org/docs/configuration
 
 [changelog]
-# Tera template rendered once per release (or once for the whole run in `--unreleased` mode).
+# Tera template, rendered once per release.
 header = """
 # Changelog\n
 All notable changes to this project are documented in this file.\n
@@ -31,50 +21,37 @@ body = """
 {% endfor %}
 """
 trim = true
-# Emit a heading even for a range with zero matching commits, so `--unreleased` right after a
-# release still prints something explicit rather than silently nothing.
+# So `--unreleased` right after a release prints an explicit empty section rather than nothing.
 render_always = true
 footer = ""
 postprocessors = [{ pattern = '<REPO>', replace = "https://github.com/requarks/wiki" }]
 
 [git]
-# Commits must parse as `type[(scope)][!]: description` to be considered at all — this is what
-# drops the pre-Conventional-Commits history (plain "Update README.md", "Merge branch ..." messages
-# from the pre-fork upstream log) without needing to special-case it.
+# Only `type[(scope)][!]: description` commits are considered, which drops the pre-Conventional-
+# Commits history ("Update README.md", "Merge branch ...") without special-casing it.
 conventional_commits = true
 filter_unconventional = true
 require_conventional = false
 split_commits = false
 commit_preprocessors = [
-  # Turn a trailing `(#123)` PR-number suffix into a markdown link to the PR. The capture group
-  # deliberately excludes the `#` (`\(#([0-9]+)\)` rather than `\((#[0-9]+)\)`) so the same group
-  # can serve both halves: `#123` as the link TEXT, bare `123` in the link TARGET. Capturing the
-  # `#` too produced `/pull/#123`, a 404 — every squash-merged PR's link in the generated
-  # changelog was broken, this fork's own `Cycle: ... (#46)` merge commits included.
+  # The capture group excludes the `#` so one group serves both halves: `#${1}` as the link text,
+  # bare `${1}` as the target. Capturing the `#` too yields `/pull/#123`, a 404.
   { pattern = '\(#([0-9]+)\)$', replace = "([#${1}](<REPO>/pull/${1}))" }
 ]
 protect_breaking_commits = false
 
-# Four groups, matching the New Features / Bug Fixes / Refactors / Chores sections upstream's
-# 2.5.x GitHub Releases use. `<!-- N -->` prefixes are stripped by the template (`striptags`) and
-# exist only to force group render order, since `group_by` otherwise sorts alphabetically.
-# `feat`/`fix`/`refactor` are matched case-insensitively (`(?i)`) because this fork's own history
-# is not perfectly consistent about casing (e.g. some commits use `Fix:` rather than `fix:`).
-# Chores is a catch-all (`.*`), not an enumerated whitelist: docs/ci/chore/test/style/build, this
-# repo's `misc`/`mics` (a recurring typo in the older upstream history) / `dev` types, this fork's
-# own ad-hoc annotations (`audit:`, `polish:`, ...), and its `Cycle: ...` squash-merge commits all
-# fold into it. A whitelist here previously dropped any type outside it with a "grouping error"
-# instead of categorizing it — a real failure mode against this fork's evolving commit vocabulary,
-# see backend/test/changelog.test.ts and OpenProject #2567.
+# `<!-- N -->` prefixes are stripped by the template (`striptags`) and exist only to force group
+# render order, since `group_by` otherwise sorts alphabetically. `(?i)` because this fork's history
+# is not consistent about casing (`Fix:` as well as `fix:`). Chores is a catch-all (`.*`) rather
+# than an enumerated whitelist, which would drop any type outside it with a "grouping error".
 commit_parsers = [
   { message = "(?i)^feat", group = "<!-- 0 -->Features" },
   { message = "(?i)^fix", group = "<!-- 1 -->Bug Fixes" },
   { message = "(?i)^refactor", group = "<!-- 2 -->Refactors" },
   { message = ".*", group = "<!-- 3 -->Chores" }
 ]
-# No longer load-bearing for grouping (the catch-all above means every conventional-shaped commit
-# always matches something), but left on: it still governs `filter_unconventional`'s partner
-# behavior of dropping anything that doesn't even parse as `type[(scope)]: description` at all.
+# Not load-bearing for grouping — the catch-all above always matches — but it partners with
+# `filter_unconventional` to drop commits that do not parse as a conventional commit at all.
 filter_commits = true
 link_parsers = []
 use_branch_tags = false

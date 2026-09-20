@@ -9,24 +9,14 @@ import {
 } from '../../test/realGridLayout.js'
 
 /*
-  Runs under Vitest, not `node --test` -- this file's own task brief assumed the opposite (on the
-  stale premise that `frontend/` had no test tooling configured, which a project-wide Vitest harness
-  had already landed by the time the task ran), and the reasoning is worth not relitigating: a second,
-  parallel test runner for exactly this file would mean two ways to discover/run frontend tests and a
-  suite that can't share `test/setup.js`'s stubs or the Tailwind/SCSS/`@`-alias Vite pipeline.
-
-  `MarkdownRenderer` has no DOM dependency (confirmed by `headless.js`, which runs this same class
-  server-side under Puppeteer), so these tests instantiate and render directly with no mounting, no
-  `happy-dom`, and none of `test/setup.js`'s `API_CLIENT` / `EVENT_BUS` stubs.
+  `MarkdownRenderer` has no DOM dependency, so these tests instantiate and render directly: no
+  mounting, no `happy-dom`, and none of `test/setup.js`'s `API_CLIENT` / `EVENT_BUS` stubs.
 */
 
 /**
- * The block-vs-fence handoff: `block-diagram`, `block-kroki`, `block-plantuml` and `block-drawio` all
- * read their source out of a `<pre>` left behind by markdown's own fence handling — never rendered or
- * escaped away, since each block draws it client-side (Mermaid, draw.io) or hands it to an image
- * server (Kroki, PlantUML). This is the one seam that is genuinely worth a unit test: it is exactly
- * what a headless re-render depends on producing byte-for-byte, and a regression here would silently
- * blank every diagram on the site without ever touching the block components themselves.
+ * `block-diagram`, `block-kroki`, `block-plantuml` and `block-drawio` read their source out of the
+ * `<pre>` markdown's own fence handling leaves behind — never rendered or escaped away, since each
+ * block draws it client-side (Mermaid, draw.io) or hands it to an image server (Kroki, PlantUML).
  */
 describe('MarkdownRenderer fenced diagram handoff', () => {
   it.each(['mermaid', 'kroki', 'plantuml', 'drawio'])(
@@ -53,18 +43,14 @@ describe('MarkdownRenderer fenced diagram handoff', () => {
   )
 
   /*
-   * `lang === 'diagram'` used to be special-cased in `highlight()`: it base64-decoded the fence body
-   * and interpolated the result into `<pre class="diagram">` completely unescaped. Nothing in the app
-   * ever produces a ```diagram fence — the block picker's templates and every producer of a diagram
-   * fence write ```mermaid / ```kroki / ```plantuml, handled above — so the branch was dead code, and
-   * dead code that skips escaping is worth actively guarding against reappearing. A ```diagram fence,
-   * if one is ever typed by hand, must fall through to the same escaped, generic-code treatment as any
-   * other unrecognised language.
+   * Nothing in the app produces a ```diagram fence — every producer writes ```mermaid / ```kroki /
+   * ```plantuml, handled above — so a hand-typed one must fall through to the same escaped,
+   * generic-code treatment as any other unrecognised language rather than to a base64-decoding
+   * special case that skips escaping.
    */
   it('treats a ```diagram fence as ordinary, escaped code rather than unescaped raw HTML', () => {
     const md = new MarkdownRenderer({})
-    // -> Valid base64 for "<script>alert(1)</script>": what the old branch would have decoded and
-    //    interpolated unescaped had it survived
+    // -> Base64 for "<script>alert(1)</script>"
     const html = md.render('```diagram\nPHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\n```')
 
     expect(html).not.toContain('<script>alert(1)</script>')
@@ -74,15 +60,6 @@ describe('MarkdownRenderer fenced diagram handoff', () => {
 })
 
 describe('MarkdownRenderer - multimd-table', () => {
-  /*
-    Regression coverage for OpenProject #3110: the `multimdTable` option used to be misspelled
-    `mdmultiTable` in the branch that installed the table plugin, so the plugin was never installed
-    and none of these three features ever actually worked. `./modules/markdown-it-table.js` is a
-    from-scratch replacement for the third-party plugin that name used to install (see its own doc
-    comment for the full syntax and design) -- these tests are the regression coverage for the typo
-    AND the first real coverage these three features have ever had.
-  */
-
   it('merges a ^^ rowspan cell into the row above when multimdTable is enabled', () => {
     const renderer = new MarkdownRenderer({ multimdTable: true })
     const html = renderer.render(
@@ -95,13 +72,10 @@ describe('MarkdownRenderer - multimd-table', () => {
       ].join('\n')
     )
 
-    // -> `colspan`/`rowspan` are not valid attributes on the `<div role="columnheader"/"cell">` the
-    //    table grid markup renders (see the "table grid markup" describe block below) -- the
-    //    renderer renames them to their ARIA grid-cell equivalents before rendering.
+    // -> `colspan`/`rowspan` are not valid on the `<div role="columnheader"/"cell">` the grid markup
+    //    renders, so the renderer renames them to their ARIA equivalents.
     expect(html).toContain('<div aria-colspan="3" role="columnheader">A</div>')
     expect(html).toContain('<div aria-rowspan="2" role="cell">B</div>')
-    // -> The merged cell's own row has only the two cells it actually contributes, not a `^^`
-    //    placeholder for the one it inherited
     expect(html).not.toContain('^^')
   })
 
@@ -113,8 +87,6 @@ describe('MarkdownRenderer - multimd-table', () => {
       )
     )
 
-    // -> One merged row, not two: the continuation line joined into the SAME cell as the line above
-    //    it rather than starting a new row
     const rowCount = (html.match(/role="row"/g) ?? []).length
     expect(rowCount).toBe(2) // header row + the single merged body row
     expect(html).toContain('<p>line one\nline two</p>')
@@ -133,12 +105,9 @@ describe('MarkdownRenderer - multimd-table', () => {
       ].join('\n')
     )
 
-    // -> markdown-it's built-in table rule still renders a plain grid table -- multimd syntax on top
-    //    of it is simply not understood, not a parse failure
     expect(html).toContain('role="table"')
     expect(html).not.toContain('rowspan')
     expect(html).not.toContain('colspan')
-    // -> `^^` is left as the literal cell text rather than being read as a rowspan marker
     expect(html).toContain('<div role="cell">^^</div>')
   })
 
@@ -149,8 +118,6 @@ describe('MarkdownRenderer - multimd-table', () => {
     )
 
     expect(html).toContain('role="table"')
-    // -> No `thead`/`columnheader` at all -- the table's very first row IS the separator, so every
-    //    row that follows it is body content
     expect(html).not.toContain('role="columnheader"')
     const rowCount = (html.match(/role="row"/g) ?? []).length
     expect(rowCount).toBe(2)
@@ -162,13 +129,11 @@ describe('MarkdownRenderer - multimd-table', () => {
 })
 
 /**
- * OpenProject #2997/#3014: a rendered table is CSS Grid, not a real `<table>` -- `table_open`/
- * `table_close` and the row/cell rules retag every table-related token to `<div>`, adding the
- * matching ARIA role (`table`/`row`/`columnheader`/`cell`) instead of letting markdown-it emit
- * `<table>`/`<thead>`/`<tbody>`/`<tr>`/`<th>`/`<td>` at all. `border-collapse` combined with an
- * ancestor `overflow: hidden` + `border-radius` clip is a known cross-browser rendering gap that
- * three rounds of container-level fixes (#2916/#2935/#2958) could not close from the outside, so the
- * table element itself had to stop being a `<table>`.
+ * A rendered table is CSS Grid, not a real `<table>`: `table_open`/`table_close` and the row/cell
+ * rules retag every table-related token to a `<div>` carrying the matching ARIA role.
+ * `border-collapse` combined with an ancestor `overflow: hidden` + `border-radius` clip is a
+ * cross-browser rendering gap that container-level fixes cannot close from the outside, so the
+ * table element itself cannot be a `<table>`.
  */
 describe('MarkdownRenderer - table grid markup', () => {
   it('renders a plain table as nested div[role] elements: table > row > columnheader/cell', () => {
@@ -190,8 +155,6 @@ describe('MarkdownRenderer - table grid markup', () => {
     expect(html).toContain('<div role="cell">1</div>')
     expect(html).toContain('<div role="cell">2</div>')
 
-    // -> Two rows (header + one body row), each a direct child of the grid -- there is no rowgroup
-    //    wrapper left over from the dropped thead/tbody
     const rowCount = (html.match(/role="row"/g) ?? []).length
     expect(rowCount).toBe(2)
   })
@@ -218,9 +181,8 @@ describe('MarkdownRenderer - table grid markup', () => {
   })
 
   /*
-    `markdown-it-attrs` reads `{.table-leading-col}` off the line under the table and joins the
-    class onto the TABLE token, at parse time -- before it is retagged to `<div>` at render time --
-    so it still lands on the same token, now rendered as `role="table"` rather than `<table>`.
+    `markdown-it-attrs` joins the class onto the table token at parse time, before it is retagged to
+    a `<div>` at render time, so it lands on the same token either way.
   */
   it('keeps an author\'s markdown-it-attrs class on the grid\'s outer div, alongside role="table"', () => {
     const renderer = new MarkdownRenderer({})
@@ -234,14 +196,9 @@ describe('MarkdownRenderer - table grid markup', () => {
   })
 
   /*
-    OpenProject #3023. Left as a real `<caption>` tag, it is silently DROPPED by every browser's own
-    HTML parser -- the WHATWG "in body" insertion mode treats an orphan `caption` start tag (one not
-    inside an ACTUAL `<table>` element's own insertion mode) as a parse error and ignores it outright
-    (verified directly against a real Chromium). Since `table_open` above already retags every table
-    token to `<div>`, there is no `<table>` anywhere on the page for a caption to be "inside" any
-    more, so it has to be retagged the same way the rest of the table already is -- a
-    `<div class="table-caption">` is never subject to that rule and survives parsing with every
-    attribute intact.
+    A real `<caption>` tag is silently DROPPED by the browser's own HTML parser: WHATWG's "in body"
+    insertion mode ignores an orphan `caption` start tag, and since every table token is retagged to
+    a `<div>` there is no `<table>` left for a caption to be inside.
   */
   it('renders a caption authored above the table as a div, not a <caption> the browser would silently drop', () => {
     const renderer = new MarkdownRenderer({ multimdTable: true })
@@ -251,8 +208,6 @@ describe('MarkdownRenderer - table grid markup', () => {
 
     expect(html).not.toContain('<caption')
     expect(html).toContain('<div class="table-caption">Top Caption</div>')
-    // -> First child inside the table div, ahead of every row -- the caption's own tokens are emitted
-    //    in their natural authored position (above the rows, since it was authored above the table)
     expect(html.indexOf('table-caption')).toBeLessThan(html.indexOf('role="row"'))
   })
 
@@ -266,25 +221,17 @@ describe('MarkdownRenderer - table grid markup', () => {
     expect(html).toContain(
       '<div style="caption-side: bottom" class="table-caption">Bottom Caption</div>'
     )
-    // -> Emitted after the last row this time -- its own natural authored position, since it was
-    //    authored below the table. `_page-contents.css`'s `order: 1` rule (keyed off this same
-    //    inline style) is what still puts it at the visual end of the grid regardless.
+    // -> Emitted in its authored position; `_page-contents.css`'s `order: 1` rule keys off this
+    //    inline style to put it at the visual end of the grid.
     expect(html.indexOf('table-caption')).toBeGreaterThan(html.lastIndexOf('role="row"'))
   })
 })
 
 /**
- * OpenProject #2916/#2935/#2958: THREE nested scroll/clip/frame divs `_page-contents.css` now draws
- * around every rendered table -- `.table-wrap`, the outer non-scrolling frame
- * (border/radius/shadow/corner-marks); `.table-clip`, a plain `overflow: hidden` + radius box with
- * nothing else on it; and `.table-scroll`, the inner box that actually scrolls -- rather than one or
- * two combined divs, so a corner mark can overhang the frame without a box that also has
- * `overflow-x: auto` clipping it away (#2935), AND so the radius clip lives on a box that isn't
- * itself producing a native scrollbar, which is not reliably clipped by `border-radius` on the same
- * element that renders it (#2958). `table_open`/`table_close` wrap whatever the table itself renders
- * as -- a real `<table>` before #3014, the CSS Grid `<div role="table">` after it -- so this coverage
- * is unaffected by the grid-markup change above and still covers both the plain built-in table parser
- * and multimd's richer one, which produce the same core tokens.
+ * Three nested divs rather than one: `.table-wrap` is the non-scrolling frame, so a corner mark can
+ * overhang it without an `overflow-x: auto` box clipping it away; `.table-clip` carries the radius
+ * clip, because `border-radius` does not reliably clip an element that is itself rendering a native
+ * scrollbar; `.table-scroll` is the box that actually scrolls.
  */
 describe('MarkdownRenderer - table scroll wrapper', () => {
   it('wraps a plain table in div.table-wrap > div.table-clip > div.table-scroll', () => {
@@ -313,12 +260,9 @@ describe('MarkdownRenderer - table scroll wrapper', () => {
 })
 
 /*
-  OpenProject #3016: post-implementation verification of #3014's div/role grid markup, against two
-  things neither jsdom nor happy-dom can answer -- accessibility-tree computation and clipboard
-  behavior -- so this reaches for the same real-Chromium harness `_page-contents.test.js` already
-  uses (`test/realGridLayout.js`) rather than reasoning about either from spec alone. Both describes
-  render through the real `MarkdownRenderer`, not a hand-written fixture, so this is coverage of
-  what a page actually ships, not of an idealized shape.
+  Accessibility-tree computation and clipboard behavior are two things neither jsdom nor happy-dom
+  can answer, so this drives a real Chromium via `test/realGridLayout.js` rather than reasoning from
+  spec alone.
 */
 describe(
   'MarkdownRenderer - table grid accessibility & clipboard (OpenProject #3016)',
@@ -340,11 +284,6 @@ describe(
       )
     )
 
-    /*
-      A real `<table>` counterpart to the rendered grid, for a like-for-like accessibility-tree and
-      clipboard comparison -- the question this WP answers is "does the new markup behave the same
-      as the `<table>` it replaced", not "what does the new markup look like in isolation".
-    */
     const REAL_TABLE_HTML =
       '<table><thead><tr><th>Key</th><th>Value</th></tr></thead>' +
       '<tbody><tr><td>alpha</td><td>1</td></tr><tr><td>beta</td><td>2</td></tr></tbody></table>'
@@ -358,12 +297,9 @@ describe(
         await page.setContent(`<!doctype html><html><body>${REAL_TABLE_HTML}</body></html>`)
         const tableSnapshot = await page.locator('table').ariaSnapshot()
 
-        // -> The real `<table>`'s tree additionally nests each row under a `rowgroup` (from
-        //    `thead`/`tbody`), which the ARIA `table` role has no equivalent concept for and #3014
-        //    deliberately renders as nothing (see its own "TABLE GRID MARKUP" comment) -- everything
-        //    else (the `table`/`row`/`columnheader`/`cell` roles and their accessible names) is
-        //    asserted identically for both, line order included, which is what "announces it the
-        //    same way a real <table> does" concretely means.
+        // -> A real `<table>` additionally nests each row under a `rowgroup` (from `thead`/`tbody`),
+        //    which the ARIA `table` role has no equivalent for and the grid deliberately renders as
+        //    nothing; everything else must match line for line.
         const roleLines = (snapshot) =>
           snapshot
             .split('\n')
@@ -385,33 +321,20 @@ describe(
           '- cell "2"'
         ])
 
-        // -> Row/column-header and cell associations read correctly with no `aria-colindex`/
-        //    `aria-rowindex` on the markup at all (#3014 sets neither) -- the accessible names above
-        //    prove the browser is associating each cell with its own row's text, which is the
-        //    behavior those two attributes exist to restore only when DOM order can't be trusted (a
-        //    virtualized or reordered grid). Neither is true here: `grid-template-columns: subgrid`
-        //    places every cell left-to-right in DOM order, so no index hint is needed.
+        // -> No `aria-colindex`/`aria-rowindex` anywhere, deliberately: those exist to restore
+        //    associations when DOM order can't be trusted (a virtualized or reordered grid), and
+        //    `grid-template-columns: subgrid` places every cell in DOM order here.
       } finally {
         await page.close()
       }
     })
 
     /*
-      OpenProject #2997/#3016 acceptance: "confirm a role="table" div structure still pastes as a
-      grid into Excel/Sheets the way a real <table> does, or document the regression if it doesn't."
-      Neither Excel nor Google Sheets is reachable from this suite, but what actually lands on the
-      clipboard is: Excel's and Google Sheets' HTML-paste importers both key off literal `<table>`/
-      `<tr>`/`<td>` markup (the CF_HTML clipboard convention), not ARIA roles, so whether the copied
-      fragment still contains a real `<table>` is the decisive, testable question. `navigator.
-      clipboard.read()` needs a real http(s) origin with clipboard permissions granted -- `about:
-      blank`/`data:` URLs have no stable origin to grant against -- so this fakes one via `page.
-      route()` rather than `page.setContent()`.
-
-      #3016 originally left this documenting the regression (no `<table>` on the clipboard); #3238
-      fixed it by intercepting the `copy` event and synthesizing a real `<table>` HTML string, so this
-      now confirms the fix instead -- against the real `enhanceRenderedContent` wiring, via
-      `buildRenderedContentScript()`, not a hand-rewritten mirror of it that could silently drift from
-      what `renderedContent.js` actually does.
+      Excel's and Google Sheets' HTML-paste importers key off literal `<table>`/`<tr>`/`<td>` markup
+      (the CF_HTML clipboard convention), not ARIA roles, so whether the copied fragment contains a
+      real `<table>` is the decisive, testable question. `navigator.clipboard.read()` needs a real
+      http(s) origin to grant clipboard permissions against -- `about:blank`/`data:` URLs have none
+      -- so this fakes one via `page.route()` rather than `page.setContent()`.
     */
     it('confirms the copy/paste-to-spreadsheet fix: the copied HTML fragment contains a real <table>, the same as the markup it replaced would (OpenProject #3238)', async () => {
       const page = await browser.newPage()
@@ -461,22 +384,19 @@ describe(
         })
         const realTableClipboard = await copiedHtmlAndTextFor('table', REAL_TABLE_HTML)
 
-        // -> The real `<table>` copies with its own tag intact -- proving the technique above
-        //    actually captures what the browser puts on the clipboard, not an artifact of the probe
+        // -> Control: proves the probe captures what the browser really puts on the clipboard
         expect(realTableClipboard.html).toContain('<table')
         expect(realTableClipboard.html).toContain('<td')
 
-        // -> The grid now copies as a synthesized real `<table>` too -- the `copy` interception took
-        //    over before the browser's own default copy (which would have produced the flat run of
-        //    role-bearing `<div>`s #3016 originally documented) ever ran
+        // -> The `copy` interception synthesizes a real `<table>` ahead of the browser's own default
+        //    copy, which would put the flat run of role-bearing `<div>`s on the clipboard instead
         expect(gridClipboard.html).toContain('<table')
         expect(gridClipboard.html).toContain('<th')
         expect(gridClipboard.html).toContain('<td')
         expect(gridClipboard.html).not.toContain('role="row"')
         expect(gridClipboard.html).not.toContain('role="cell"')
 
-        // -> A tab/newline-delimited plain-text fallback lands alongside the HTML, for a paste target
-        //    that only reads the plain-text clipboard slot
+        // -> Tab/newline-delimited fallback, for a paste target that reads only the plain-text slot
         expect(gridClipboard.text).toBe('Key\tValue\nalpha\t1\nbeta\t2')
       } finally {
         await page.close()
@@ -488,29 +408,25 @@ describe(
 describe('MarkdownRenderer - previously-broken edge cases', () => {
   it('does not throw when a fence names an unrecognized/malformed language', () => {
     /*
-      See the comment above `highlight()` in markdown.js: markdown-it takes the first word of a
-      fence's info string as the language, so a fence whose code starts on the opening line (as this
-      one does) asks hljs for a language literally named `<!DOCTYPE`. `hljs.highlight()` THROWS on an
-      unknown language -- `ignoreIllegals` only forgives illegal syntax within a language it knows --
-      and that throw used to take the entire render down with it.
+      markdown-it takes the first word of a fence's info string as the language, so a fence whose
+      code starts on the opening line asks hljs for a language literally named `<!DOCTYPE`.
+      `hljs.highlight()` THROWS on an unknown language -- `ignoreIllegals` only forgives illegal
+      syntax within a language it knows -- and an unguarded throw takes the whole render down.
     */
     const renderer = new MarkdownRenderer({})
 
     expect(() => {
       const html = renderer.render('```<!DOCTYPE rfc [\nsome text\n```\n')
       expect(html).toContain('some text')
-      // -> The escape hatch only ever ran on the unhighlighted path; still confirms angle brackets
-      //    from the fence info string don't leak unescaped into the class attribute
       expect(html).toContain('language-&lt;!DOCTYPE')
     }).not.toThrow()
   })
 
   it('renders a footnote reference instead of letting the mdc inline span rule swallow it', () => {
     /*
-      MDC's inline span (`[text]{.class}`) and a footnote reference (`[^1]`) both start with `[`, and
-      the span rule is registered first. Left unguarded it claims `[^1]` too, rendering a literal
-      `<span>^1</span>` -- and the footnote definition, referenced by nothing anymore, is dropped
-      entirely.
+      The inline span rule (`[text]{.class}`) and a footnote reference (`[^1]`) both start with `[`,
+      and the span rule is registered first: unguarded it claims `[^1]` too, and the footnote
+      definition, then referenced by nothing, is dropped entirely.
     */
     const renderer = new MarkdownRenderer({})
     const html = renderer.render('Some text[^1]\n\n[^1]: The note.\n')
@@ -522,22 +438,14 @@ describe('MarkdownRenderer - previously-broken edge cases', () => {
 
   it('renders a bracket span nested inside an outer link label without throwing (OpenProject #3070)', () => {
     /*
-      markdown-it core's `link` rule, on hitting an outer `[`, calls
-      `helpers.parseLinkLabel(state, pos, true)` to find the matching `]` -- which scans forward
-      running every inline rule once in SILENT mode via `state.md.inline.skipToken(state)`, and
-      throws `"inline rule didn't increment state.pos"` if a rule reports a match without moving
-      `state.pos`. `markdown-it-mdc`'s own `mdc_inline_span` rule does exactly that in its silent
-      branch (a genuine bug in the upstream package, 0.2.12) -- so a bracket span sitting inside an
-      outer link label's text (a plausible shape in a long descriptive link label) used to crash the
-      render outright, not just fail to parse.
+      markdown-it core's `link` rule calls `helpers.parseLinkLabel` to find the matching `]`, which
+      scans forward running every inline rule once in SILENT mode via `skipToken` and throws
+      "inline rule didn't increment state.pos" if a rule reports a match without moving `state.pos`
+      -- which is why `wikiSpan` assigns `state.pos` before its own silent-mode return.
 
-      This is the WP's own real-world repro, reduced only by removing surrounding paragraph text
-      that isn't load-bearing to the crash. Fixing the crash does NOT make the outer `[...]` become a
-      link -- `parseLinkLabel`'s own `disableNested` check (unrelated to this bug, and unchanged by
-      this fix) already refuses to treat an outer label as a link candidate at all once a nested `[`
-      resolves to its own complete token rather than a literal character, the same rule that refuses
-      a genuinely nested `[a [b](inner) c](outer)` link -- so the correct, non-crashing render is the
-      brackets and URL staying literal text, with the nested span still substituted inside them.
+      Not throwing does not make the outer `[...]` a link: `parseLinkLabel`'s `disableNested` check
+      refuses an outer label once a nested `[` resolves to a complete token of its own, so the
+      correct render is the brackets and URL staying literal text with the span substituted inside.
     */
     const renderer = new MarkdownRenderer({})
 
@@ -556,30 +464,14 @@ describe('MarkdownRenderer - previously-broken edge cases', () => {
 
   it('renders an unterminated bracket span nested inside an outer footnote-shaped label without throwing (OpenProject #3078)', () => {
     /*
-      Same crash class as WP #3070 above, but the specific edge case that patch's bounds check
-      diverged from upstream on: a nested `[` with no closing `]` anywhere before end-of-input.
+      Same crash class as the case above, for a nested `[` with no closing `]` anywhere before
+      end-of-input.
 
-      Upstream's `mdc_inline_span` scan (traced against the real `markdown-it-mdc` source) only
-      bails early via `index === start`; it has no length-bound check of its own, relying on the
-      `while (index < state.src.length)` loop condition to exit naturally -- at which point
-      `nextChar` (`state.src[index + 1]`) is safely `undefined` (not `(`/`[`), so in silent mode it
-      falls through to `if (silent) return true`, matching without ever assigning `state.pos`. This
-      fork's `matchSpanEnd()` re-derives that scan to learn where `state.pos` should land, but had
-      added an extra `|| index >= src.length` clause upstream doesn't have -- so for this exact
-      end-of-input case it returned `-1` instead of `index + 1`, and the call site's
-      `if (end !== -1) { state.pos = end }` never fired, reopening the "inline rule didn't
-      increment state.pos" crash for an unterminated `[` running to end-of-input.
-
-      This specific shape is needed to reach that silent-mode scan at all: an outer `[` that is
-      itself immediately followed by `^` sidesteps `mdc_inline_span` entirely (the footnote-ref
-      guard just above this rule's registration declines without even scanning), handing straight
-      to core's `link` rule -- which calls `parseLinkLabel`, and THAT scans forward through the
-      "label" via `skipToken` (always silent) until it hits the nested `[`, right into the bug.
-      (A genuinely mdc-recognised outer span/link can't reach this: for its own top-level, non-silent
-      scan to decline in the first place it has to find a real balanced `]`, and by the same
-      depth-tracked algorithm a nested unterminated `[` would too -- so an ordinary nested case
-      always resolves to a normal match, never this end-of-input path. The footnote-guard shortcut
-      is what skips that requirement.)
+      The fixture's shape is load-bearing: an outer `[` immediately followed by `^` makes `wikiSpan`
+      decline without scanning at all (its footnote-reference guard), handing straight to core's
+      `link` rule, whose `parseLinkLabel` scans the label via `skipToken` -- always silent -- right
+      into the nested `[`. An outer bracket `wikiSpan` itself recognises cannot reach that path: its
+      own scan only declines after finding a balanced `]`.
     */
     const renderer = new MarkdownRenderer({})
 
@@ -597,10 +489,9 @@ describe('MarkdownRenderer - previously-broken edge cases', () => {
 
   it('applies a markdown-it-attrs brace on its own line without the mdc inline-props collision crashing the render', () => {
     /*
-      MDC's inline props (`{.class}`) and markdown-it-attrs both claim `{`. A brace that opens a line
-      (or stands off behind a space) is markdown-it-attrs addressing the preceding block, but MDC used
-      to take it anyway when it abutted the block above -- which both silently dropped the class and,
-      in other shapes, crashed the renderer outright.
+      Inline props (`{.class}`) and markdown-it-attrs both claim `{`. A brace that opens a line, or
+      stands off behind a space, is markdown-it-attrs addressing the preceding block -- an inline
+      rule taking it anyway silently drops the class.
     */
     const renderer = new MarkdownRenderer({})
 
@@ -611,15 +502,6 @@ describe('MarkdownRenderer - previously-broken edge cases', () => {
   })
 })
 
-/**
- * `frontend/src/renderers/modules/markdown-it-blocks.js` -- the purpose-built plugin that replaced
- * `markdown-it-mdc` (OpenProject #3071). Coverage specific to this plugin's own two remaining shapes
- * that predated it had no unit test for: trailing props landing on a just-closed link/image rather
- * than opening a new span, and the block container's code-fence-awareness while scanning for its own
- * close (everything else -- the footnote/markdown-it-attrs collisions, the block smoke test, the
- * OpenProject #2372/#3070 regressions above -- already exercises the plugin through the same tests
- * that exercised `markdown-it-mdc` before it).
- */
 describe('MarkdownRenderer -- block container plugin (OpenProject #3071)', () => {
   it('adds trailing props to a completed link rather than opening a new span', () => {
     const renderer = new MarkdownRenderer({})
@@ -641,9 +523,8 @@ describe('MarkdownRenderer -- block container plugin (OpenProject #3071)', () =>
   })
 
   it('leaves a brace after plain prose alone, for markdown-it-attrs to find instead', () => {
-    // -> Not preceded by a just-closed link/image (nor abutting, since a space sits before it) --
-    //    this is markdown-it-attrs' own "attributes for the whole paragraph" shape, unrelated to a
-    //    block/link/image's own trailing props.
+    // -> No just-closed link/image before it, and a space in front of it: markdown-it-attrs' own
+    //    whole-paragraph shape, not a link/image's trailing props.
     const renderer = new MarkdownRenderer({})
     const html = renderer.render('Some plain text\n{.is-warning}\n')
 
@@ -651,12 +532,6 @@ describe('MarkdownRenderer -- block container plugin (OpenProject #3071)', () =>
   })
 
   it('does not let a literal "::" inside a fenced code body close the block early', () => {
-    /*
-      `block-infobox`'s own smoke-test body (see the csp.spec.js-derived describe above) fences a YAML
-      sample, but nothing there happens to contain a bare "::" line. This is the case that would break
-      without the block rule's own code-fence tracking: a `::` written as ordinary text inside a ```
-      fence must never be read as the block's own closing marker.
-    */
     const renderer = new MarkdownRenderer({})
     const html = renderer.render(
       '::block-infobox{name="Example"}\n```text\nnotation: a::b\n::\nmore text\n```\n::\n'
@@ -676,11 +551,10 @@ describe('MarkdownRenderer -- block container plugin (OpenProject #3071)', () =>
   })
 
   /**
-   * The WYSIWYG editor's text-colour/highlight-colour/font-family marks (OpenProject #3398)
-   * serialize as this same `[text]{style="…"}` bracket span -- `wikiSpan`'s own `applyProps`
-   * (unlike `markdown-it-attrs`) has no attribute allowlist, so `style` reaches the rendered
-   * `<span>` regardless of the `mdAttrs` whitelist above; the backend HTML sanitizer
-   * (`helpers/htmlSanitizePolicy.ts`) is what actually restricts the CSS declarations an author
+   * The WYSIWYG editor's text-colour/highlight/font-family marks serialize as this same
+   * `[text]{style="…"}` span. `wikiSpan`'s `applyProps` has no attribute allowlist (unlike
+   * `markdown-it-attrs`), so `style` reaches the rendered `<span>` regardless of the `mdAttrs`
+   * whitelist; `backend/helpers/htmlSanitizePolicy.ts` restricts which declarations an author
    * without `write:styles` keeps.
    */
   it('keeps a style attribute on an inline bracket span', () => {
@@ -692,11 +566,9 @@ describe('MarkdownRenderer -- block container plugin (OpenProject #3071)', () =>
 })
 
 /**
- * `MarkdownRenderer` used to pass `typography: config.typographer` into the `MarkdownIt`
- * constructor -- markdown-it's option is spelled `typographer`, and markdown-it silently ignores
- * unknown keys, so the admin "Typographer" toggle and the `quotes` style setting had no effect at
- * all (OpenProject #3150). The `quotes` option only applies when `typographer` is on, so both
- * settings were dead together.
+ * markdown-it's option is spelled `typographer` and it silently ignores unknown keys, so a misspelt
+ * one fails invisibly. `quotes` only applies while `typographer` is on: the two settings live or die
+ * together.
  */
 describe('MarkdownRenderer - typographer setting (OpenProject #3150)', () => {
   it('replaces straight quotes with curly quotes when typographer is enabled (default english quotes)', () => {
@@ -747,15 +619,11 @@ describe('MarkdownRenderer - typographer setting (OpenProject #3150)', () => {
 })
 
 /**
- * The `markdown-it-attrs` whitelist (OpenProject #1180, extended by #3398): `id`, `class`,
- * `target` and `style` are the only attributes ever let through onto the rendered element --
- * everything else an author writes in a `{...}` block is silently dropped, since arbitrary
- * attributes from page content (`onclick`, ...) are an XSS-adjacent surface `markdown-it-attrs`
- * itself does not fence off by default. `style` joined the whitelist for the WYSIWYG editor's
- * text-align serialization (a heading/paragraph's own trailing `{style="…"}, OpenProject #3398) --
- * its presence here only decides whether the `style` ATTRIBUTE survives at all; which CSS
- * *declarations* inside it survive for an author without `write:styles` is a separate boundary,
- * `backend/helpers/htmlSanitizePolicy.ts`'s `ALLOWED_STYLES`.
+ * `id`, `class`, `target` and `style` are the only attributes let through onto the rendered element:
+ * arbitrary attributes from page content (`onclick`, ...) are an XSS-adjacent surface
+ * `markdown-it-attrs` does not fence off by default. The whitelist only decides whether the `style`
+ * ATTRIBUTE survives at all; which CSS *declarations* inside it survive for an author without
+ * `write:styles` is a separate boundary, `backend/helpers/htmlSanitizePolicy.ts`'s `ALLOWED_STYLES`.
  */
 describe('MarkdownRenderer -- markdown-it-attrs allowedAttributes whitelist (OpenProject #1180)', () => {
   it('applies {.class #id} on a heading', () => {
@@ -797,19 +665,15 @@ describe('MarkdownRenderer -- markdown-it-attrs allowedAttributes whitelist (Ope
 })
 
 /*
-  happy-dom's `document` never reports a `compatMode` (real browsers do, once they have parsed a
-  doctype), and KaTeX warns to the console whenever it cannot confirm one -- a real browser page (and
-  the headless-Chromium re-render `models/rendering.ts` drives) always has a proper doctype, so this is
-  purely a gap in the test DOM, not a real quirks-mode page. Silenced the same way a real document
-  settles it, rather than leaving a spurious warning in every run of this suite.
+  happy-dom's `document` never reports a `compatMode` (a real browser does, once it has parsed a
+  doctype) and KaTeX warns to the console whenever it cannot confirm one -- a gap in the test DOM,
+  not a real quirks-mode page.
 */
 Object.defineProperty(document, 'compatMode', { value: 'CSS1Compat', configurable: true })
 
 /**
- * Covers the `$…$` / `$$…$$` TeX authoring syntax 2.5.x content actually uses (Feature 366 / Task
- * 624) -- confirmed as the syntax to reproduce against upstream `markdown-it-katex`, which
- * `block-katex`'s own fenced-code form does not accept (`::block-katex` needs a fence; these
- * delimiters are the mid-sentence shorthand authors actually typed).
+ * The `$…$` / `$$…$$` mid-sentence TeX shorthand 2.5.x content authors: `::block-katex` needs a
+ * fence and does not accept these delimiters.
  */
 function render(src) {
   return new MarkdownRenderer().render(src)
@@ -819,9 +683,8 @@ describe('MarkdownRenderer -- inline and display TeX', () => {
   it('resolves inline $…$ TeX to a literal KaTeX span', () => {
     const html = render('The area is $\\pi r^2$ exactly.')
     expect(html).toContain('class="katex"')
-    // -> The delimiters themselves are gone -- this is resolved HTML/MathML, not a live element still
-    //    carrying the raw `$…$` syntax (the MathML accessibility annotation legitimately repeats the
-    //    source, which is why this checks for the delimiter rather than the TeX itself)
+    // -> The MathML accessibility annotation legitimately repeats the TeX source, so this checks the
+    //    delimiters are gone rather than the TeX itself
     expect(html).not.toContain('$\\pi r^2$')
   })
 
@@ -867,19 +730,15 @@ describe('MarkdownRenderer -- inline and display TeX', () => {
 })
 
 /*
- * OpenProject #829, item 2: targeted regression coverage for two KaTeX edge cases from upstream
- * reports -- multi-character subscripts (upstream #1581) and `\vdots` (upstream discussion #3530).
- * Both are ordinary, well-supported KaTeX/TeX syntax; nothing in `TEX_INLINE`/`TEX_DISPLAY` or
- * `texMathHtml` singles either out for special handling, so these exist to lock in that plain KaTeX
- * usage keeps working through this renderer's own delimiter/currency-guard regexes, not because
- * either construct needed a code change here.
+ * Both are ordinary, well-supported KaTeX syntax that nothing in `TEX_INLINE`/`TEX_DISPLAY` or
+ * `texMathHtml` singles out: these lock in that plain KaTeX usage survives this renderer's own
+ * delimiter/currency-guard regexes.
  */
 describe('MarkdownRenderer -- KaTeX edge cases (OpenProject #829 item 2)', () => {
   it('typesets a multi-character subscript written with braces', () => {
     const html = render('The element is $x_{ij}$ in the matrix.')
     expect(html).toContain('class="katex"')
     expect(html).not.toContain('tex-math-error')
-    // -> Both characters of the subscript reached KaTeX as one group, not split around the brace
     expect(html).toMatch(/<annotation encoding="application\/x-tex">x_\{ij\}<\/annotation>/)
   })
 
@@ -902,25 +761,18 @@ describe('MarkdownRenderer -- KaTeX edge cases (OpenProject #829 item 2)', () =>
 })
 
 /*
- * OpenProject #829, item 3: upstream PR #2645, "inline math interpreted as attributes" -- braces
- * that are TeX syntax *inside* a `$…$`/`$$…$$` formula (a multi-character subscript, a literal
- * `\{…\}` set) must never be read by `markdown-it-attrs` as a trailing `{.class #id}` block.
- *
- * This renderer's `tex_math` inline rule is registered `before('text', …)`, so it claims the WHOLE
- * `$…$` span -- braces included -- as a single token's content before `text` ever splits the source
- * around them. `markdown-it-attrs` runs afterwards, as a core rule over the already-built token
- * stream, so by the time it looks for a `{…}` to attach, the formula's braces are already inside a
- * `tex_math` token's `content` string rather than sitting in the stream as their own text. These
- * tests are the regression guard for that ordering, confirmed against upstream's own bug shape.
+ * Braces that are TeX syntax *inside* a `$…$`/`$$…$$` formula must never be read by
+ * `markdown-it-attrs` as a trailing `{.class #id}` block. The `tex_math` inline rule is registered
+ * `before('text', …)`, so it claims the whole `$…$` span -- braces included -- into one token's
+ * content before `markdown-it-attrs` (a core rule over the already-built token stream) looks for a
+ * `{…}` to attach. These guard that ordering.
  */
 describe('MarkdownRenderer -- inline math braces are not consumed as markdown-it-attrs (OpenProject #829 item 3)', () => {
   it('does not let a multi-character subscript brace become an id/class attribute', () => {
     const html = render('The subscript is $x_{ij}$ here.')
     expect(html).toContain('class="katex"')
-    // -> No attribute was scraped out of the formula's own braces onto anything
     expect(html).not.toContain('id="ij"')
     expect(html).not.toContain('class="ij"')
-    // -> And the prose after the formula survived untouched
     expect(html).toContain('here.')
   })
 
@@ -933,28 +785,19 @@ describe('MarkdownRenderer -- inline math braces are not consumed as markdown-it
   it('does not let braces inside a display formula bleed into the next block', () => {
     const html = render('$$\\{a, b, c\\}$$\n\nAnother paragraph.')
     expect(html).toContain('katex-display')
-    // -> Its own, ordinary paragraph -- not swallowed into the formula's span, and carrying no
-    //    attribute scraped out of the formula's own braces
     expect(html).toMatch(/<p[^>]*>Another paragraph\.<\/p>/)
     expect(html).not.toMatch(/<p[^>]*class="[^"]*\bc\b/)
   })
 
   it('still applies a real markdown-it-attrs class written after (not inside) a formula', () => {
-    // -> The braces here are NOT part of the formula -- they trail the paragraph on their own line,
-    //    the ordinary markdown-it-attrs block-attribute position -- so this must keep working exactly
-    //    as it does for any other block, confirming the formula's own rule isn't swallowing attrs it
-    //    was never meant to touch
+    // -> These braces trail the block on their own line, markdown-it-attrs' ordinary
+    //    block-attribute position, so the formula's own rule must not be swallowing them
     const html = render('> The formula is $x^2$.\n{.is-warning}\n')
     expect(html).toContain('class="katex"')
     expect(html).toContain('<blockquote class="is-warning')
   })
 })
 
-/**
- * OpenProject #870: site-wide glossary terms, matched case-insensitively and on whole words only
- * against a cached term list, rendered as a hover tooltip (native `title`) that links through to the
- * term's canonical page when one is set.
- */
 describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
   it('wraps a matched term as an <abbr> carrying its definition as the title', () => {
     const md = new MarkdownRenderer({
@@ -1005,9 +848,8 @@ describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
   })
 
   it('does not nest an anchor inside an existing markdown link, even when the term has a canonical page', () => {
-    // -> Nested <a> tags are invalid HTML; browsers recover by closing the outer link early, which
-    //    would silently break the author's own link. The term still gets its tooltip via <abbr>
-    //    (OpenProject #870).
+    // -> Nested <a> tags are invalid HTML; a browser recovers by closing the outer link early,
+    //    silently breaking the author's own link. The term keeps its tooltip via <abbr>.
     const md = new MarkdownRenderer({
       glossaryTerms: [
         { term: 'API', definition: 'Application Programming Interface', link: '/en/dev/api' }
@@ -1018,8 +860,6 @@ describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
     expect(html).toContain(
       '<a href="/manual">Read the <abbr title="Application Programming Interface" class="glossary-term">API</abbr> docs</a>'
     )
-    // -> The term's own href would have nested a second <a> inside the one above; confirms it was
-    //    suppressed rather than merely not asserted on
     expect(html).not.toContain('href="/en/dev/api"')
   })
 
@@ -1120,13 +960,10 @@ describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
 })
 
 /**
- * OpenProject #1901: both root hljs call sites (this renderer and `EditorCodeBlockMenu.vue`) moved
- * from importing the `highlight.js` package root -- which registers every grammar the package ships,
- * ~190 of them -- to `highlight.js/lib/common`, a ~36-language subset. Trimming cannot break
- * rendering: the `highlight()` option above already guards with `hljs.getLanguage(lang)` before
- * calling `hljs.highlight()`, falling back to escaped plain text for anything hljs does not know --
- * previously only reachable via a typo'd or genuinely unknown language, now also reachable via a
- * language that is real but was never bundled into `lib/common`.
+ * Both hljs call sites import `highlight.js/lib/common`, a ~36-language subset, rather than the
+ * package root, which registers all ~190 grammars it ships. Trimming cannot break rendering:
+ * `highlight()` guards with `hljs.getLanguage(lang)` and falls back to escaped plain text -- now
+ * also for a language that is real but is not bundled into `lib/common`.
  */
 describe('MarkdownRenderer -- highlight.js/lib/common language set (OpenProject #1901)', () => {
   it('highlights a fenced block in a language retained by lib/common', () => {
@@ -1134,30 +971,26 @@ describe('MarkdownRenderer -- highlight.js/lib/common language set (OpenProject 
     const html = md.render('```python\nimport os\n```')
 
     expect(html).toContain('language-python')
-    // -> hljs's own span markup, proof the block was actually run through the highlighter and not
-    //    just escaped
+    // -> hljs's own span markup: proof the block ran through the highlighter, not just the escaper
     expect(html).toContain('class="hljs-keyword"')
     expect(html).toContain('>import<')
   })
 
   it('falls through to escaped, unhighlighted text for a language present in the full package but not in lib/common', () => {
     const md = new MarkdownRenderer({})
-    // -> Haskell ships with the full `highlight.js` package but is not one of lib/common's ~36
-    //    languages -- exactly the class of fence this trim newly affects
+    // -> Haskell ships with the full `highlight.js` package but is not in lib/common
     const html = md.render('```haskell\nmain = putStrLn "<hi>"\n```')
 
     expect(html).toContain('language-haskell')
     expect(html).not.toContain('class="hljs-')
-    // -> Still escaped like any other unhighlighted fence, not raw-interpolated
     expect(html).toContain('&lt;hi&gt;')
   })
 })
 
 /**
- * `lineCount > 1 && 'line-numbers'` interpolated the boolean `false` itself into the class attribute
- * for any single-line fence, since `&&` short-circuits to its left operand rather than an empty
- * string. Since this render is both the live preview AND what gets saved to the page, that literal
- * class `false` used to be written into every page's stored HTML permanently (OpenProject #946).
+ * This render is both the live preview and what is stored on the page, so a stray class -- a `&&`
+ * short-circuiting to the boolean `false` rather than to an empty string, say -- is written into
+ * every page's HTML permanently.
  */
 describe('MarkdownRenderer -- codeblock class attribute (OpenProject #946)', () => {
   it('never interpolates the literal string "false" for a single-line code block', () => {
@@ -1180,11 +1013,9 @@ describe('MarkdownRenderer -- codeblock class attribute (OpenProject #946)', () 
 /**
  * `isExternalHref` judges a link's origin against `siteOrigin` when the render context supplies one,
  * rather than only `globalThis.location` -- what lets the headless re-render
- * (`backend/models/rendering.ts`, running in a browser navigated to its own loopback address, not the
- * site's hostname) classify a link the same way the editor's own save did (OpenProject #1751). This
- * test file has no DOM/`location` at all (see the header comment), so every case here exercises the
- * `siteOrigin` path specifically -- it is the only origin `isExternalHref` ever has to work with under
- * Vitest's `node` environment.
+ * (`backend/models/rendering.ts`, running in a browser navigated to its own loopback address, not
+ * the site's hostname) classify a link the same way the editor's own save did. This file has no
+ * DOM/`location` at all, so `siteOrigin` is the only origin in play in every case here.
  */
 describe('MarkdownRenderer -- is-external-link with a site origin (OpenProject #1751)', () => {
   it('does not mark an absolute link to this same wiki as external', () => {
@@ -1215,23 +1046,12 @@ describe('MarkdownRenderer -- is-external-link with a site origin (OpenProject #
 })
 
 /**
- * OpenProject #2372: a Playwright trace against `e2e/tests/csp.spec.js` showed `::block-spoiler{label=
- * "Reveal" hint="Click to show content"}` -- and every block after it in the document -- rendering as
- * literal, unparsed markdown text instead of real `<block-spoiler>` elements. The working hypothesis
- * recorded on the WP was that `markdown-it-mdc` mis-parses a `::block-name{...}` once an attribute
- * value contains a space.
- *
- * That hypothesis does not hold against this renderer: every case below is drawn either directly from
- * `csp.spec.js`'s own `BODY` (`block-spoiler`'s and `block-countdown`'s exact attribute strings) or
- * from a deliberate attempt to break the same code path a different way (the spaced value alone, the
- * spaced value first instead of second, two blocks back-to-back with no blank line between them, a
- * value with several space-separated words, a single-quoted value), constructed with the site's real
- * default editor config (`backend/models/sites.ts`'s `markdown.config`), not an empty `{}` -- and every
- * one parses into a real element with the space preserved in the attribute. This is not a fix for a
- * bug in this file; it is a permanent regression guard, since I could not reproduce one here to fix
- * (see the WP's own comment thread for the full investigation, including where the defect is more
- * likely to actually be: the real-browser Monaco input pipeline the CSP e2e spec drives, which this
- * unit-level render test cannot exercise).
+ * A `::block-name{...}` whose attribute value contains a space was reported rendering as literal,
+ * unparsed text through the real-browser Monaco input pipeline `e2e/tests/csp.spec.js` drives,
+ * which a unit-level render cannot exercise -- it does not reproduce here. The cases below are
+ * drawn from `csp.spec.js`'s own `BODY` and from deliberate attempts to break the same path, and
+ * render with the site's real default editor config (`backend/models/sites.ts`'s `markdown.config`)
+ * rather than an empty `{}`.
  */
 describe('MarkdownRenderer -- MDC block attribute values containing a space (OpenProject #2372)', () => {
   const realEditorConfig = {
@@ -1376,13 +1196,8 @@ https://example.com/photo-2.jpg
 })
 
 /*
- * OpenProject #2911: the editor preview used to run no sanitization pass at all, so an
- * `<iframe>`/`<script>`/`<style>` showed up regardless of the author's own `write:scripts`/
- * `write:styles` permissions -- diverging from what the save is actually about to have sanitized
- * out of it server-side (`backend/helpers/htmlSanitizePolicy.ts`). `gatedContentPlaceholder`'s
- * markup/wording has no shared import back to the backend's own copy of this function, so this pins
- * the exact string on the frontend side the same way `htmlSanitizePolicy.test.ts` pins it on the
- * backend's.
+ * `gatedContentPlaceholder`'s markup and wording are duplicated in the backend's
+ * `helpers/htmlSanitizePolicy.ts` with no shared import, so each side pins the exact string.
  */
 describe('gatedContentPlaceholder', () => {
   it('names the missing permission inside a "caution"-classed admonition', () => {

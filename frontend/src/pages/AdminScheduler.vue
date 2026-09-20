@@ -68,12 +68,7 @@
               <w-td :props="props">
                 <!--
                   -> A calendar, not the plain `clock` the Upcoming tab uses: these rows are recurring
-                     cron entries rather than single runs waiting on a time, and the two tabs should
-                     not be telling them apart by nothing.
-
-                     From `la` rather than `mdi` for weight: every other icon on this page is Line
-                     Awesome, which is an outline set, and MDI's solid glyph sat noticeably heavier
-                     beside them.
+                     cron entries rather than single runs waiting on a time.
                 -->
                 <w-icon class="me-2" name="tabler:calendar" color="indigo" size="sm" />
               </w-td>
@@ -164,11 +159,6 @@
             </template>
             <template v-slot:body-cell-task="props">
               <w-td :props="props">
-                <!--
-                  A collapsed group's summary row (OpenProject #2830), same treatment as the
-                  Active/Completed/Failed tab below -- clicking it expands the group in place to list
-                  every individual upcoming instance beneath it.
-                -->
                 <button
                   v-if="props.row.groupCount > 1"
                   type="button"
@@ -251,10 +241,8 @@
             <template v-slot:body-cell-cancel="props">
               <w-td :props="props">
                 <!--
-                  `groupCount === 1` withholds this on a collapsed group's synthetic summary row
-                  (OpenProject #2830), same as the retry action below -- its `id` is `group:<task>`,
-                  not a real job id, so there is nothing here to cancel. Expand the group to cancel
-                  one specific upcoming instance instead.
+                  A collapsed group's summary row has `group:<task>` for an `id`, not a real job's,
+                  so there is nothing to cancel until the group is expanded.
                 -->
                 <w-btn
                   v-if="props.row.groupCount === 1"
@@ -326,11 +314,6 @@
             </template>
             <template v-slot:body-cell-task="props">
               <w-td :props="props">
-                <!--
-                  A collapsed group's summary row (OpenProject #2337) -- clicking it expands the group
-                  in place to list every individual run beneath it. `w-unstyled` strips the default
-                  button chrome, matching WChip's own remove button.
-                -->
                 <button
                   v-if="props.row.groupCount > 1"
                   type="button"
@@ -438,15 +421,12 @@
             </template>
             <template v-slot:body-cell-actions="props">
               <w-td :props="props">
-                <!-- Only withheld while the scheduler still owes the job an automatic attempt -->
-                <!-- (`attempt` counts from 1, `maxRetries` is how many *extra* attempts it gets) -->
+                <!-- Disabled while the scheduler still owes the job an automatic attempt: -->
+                <!-- `attempt` counts from 1, `maxRetries` is how many *extra* attempts it gets. -->
                 <!-- `reapStaleJobs` (backend/core/scheduler.ts) requeues an interrupted job under -->
-                <!-- the exact same rule it fails one under, so both states are withheld the same -->
-                <!-- way -- `failed` alone would leave the button live on a job the scheduler is -->
-                <!-- about to retry on its own. -->
-                <!-- `groupCount === 1` also withholds it on a collapsed group's synthetic summary -->
-                <!-- row (OpenProject #2337), which has no real job id behind it to retry -- expand -->
-                <!-- the group to retry one specific run instead. -->
+                <!-- the same rule it fails one under, so `failed` alone would leave the button -->
+                <!-- live on a job the scheduler is about to retry itself. `groupCount === 1` -->
+                <!-- withholds it on a group's summary row, which has no real job id to retry. -->
                 <w-btn
                   class="acrylic-btn px-2"
                   v-if="props.row.state !== `active` && props.row.groupCount === 1"
@@ -491,21 +471,13 @@ import { humanizeDateWithSeconds, humanizeDuration, relativeDate } from '@/helpe
 import { flattenJobHistoryRows } from '@/helpers/jobHistoryGrouping'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.scheduler.title')
 }))
-
-// DATA
 
 const state = reactive({
   displayMode: 'upcoming',
@@ -514,19 +486,13 @@ const state = reactive({
   jobs: [],
   jobsTotal: 0,
   loading: 0,
-  /**
-   * Task names currently expanded in the Upcoming/Active/Completed/Failed tabs' collapsed-by-task
-   * view (OpenProject #2337, extended to Upcoming by #2830) -- keyed by task name rather than by tab,
-   * so re-expanding after a refresh, or seeing the same task expanded on both the Completed and
-   * Failed tabs, both fall out for free.
-   */
+  /** Keyed by task name, not by tab: an expanded task survives a refresh and a tab switch. */
   expandedGroups: new Set()
 })
 
-/** How many history entries a tab shows. The API caps this at 500. */
+/** The API caps this at 500. */
 const HISTORY_LIMIT = 100
 
-/** The history states behind each display mode. */
 const MODE_STATES = {
   active: ['active'],
   completed: ['completed'],
@@ -695,24 +661,9 @@ const jobsHeaders = [
   }
 ]
 
-// COMPUTED
-
-/**
- * The Active/Completed/Failed tab's rows, with any task that ran more than once collapsed into one
- * summary row -- see `helpers/jobHistoryGrouping.js` for why (OpenProject #2337:
- * `storageSyncTick`'s every-minute cron tick was drowning out every other task in this list).
- */
 const historyRows = computed(() => flattenJobHistoryRows(state.jobs, state.expandedGroups))
 
-/**
- * The Upcoming tab's rows, grouped the same way (OpenProject #2830) -- a recurring task with several
- * upcoming instances collapses the same way a repeated history entry does. Shares
- * `state.expandedGroups` with `historyRows` (keyed by task name, not by tab), so a task expanded here
- * stays expanded if it also shows up on another tab.
- */
 const upcomingRows = computed(() => flattenJobHistoryRows(state.upcomingJobs, state.expandedGroups))
-
-// WATCHERS
 
 watch(
   () => state.displayMode,
@@ -720,8 +671,6 @@ watch(
     load()
   }
 )
-
-// METHODS
 
 function toggleGroup(task) {
   if (state.expandedGroups.has(task)) {
@@ -816,8 +765,6 @@ async function retryJob(jobId) {
   }
   state.loading--
 }
-
-// MOUNTED
 
 onMounted(() => {
   load()

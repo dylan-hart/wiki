@@ -14,10 +14,8 @@ import {
 } from '../db/schema.ts'
 
 /**
- * `exportSite` is almost entirely SQL orchestration (four tables' worth of site-scoped selects, plus
- * the site-wide groups) piped straight into a tar/gzip archive on disk, so a mock of the query builder
- * would mostly just be re-describing the code under test — same reasoning as `models/pages.test.ts`.
- * This suite runs it against a migrated, per-run-fresh database and reads the resulting tarball back.
+ * `exportSite` is almost entirely SQL orchestration piped straight into a tar/gzip archive on disk,
+ * so a mock of the query builder would mostly just re-describe the code under test.
  */
 describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -41,7 +39,6 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await teardownTestDb()
   })
 
-  /** Reads every entry of a gzipped tar file back into a `{ name: Buffer }` map. */
   async function readTarball(filePath: string): Promise<Record<string, Buffer>> {
     const entries: Record<string, Buffer> = {}
     await listTarball({
@@ -72,8 +69,8 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       },
       { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     )
-    // -> createPage already recorded one `created` pageHistory row; this adds an `updated` one, so
-    //    the export below has more than one revision to carry for the same page.
+    // -> `createPage` already recorded a `created` row; this adds an `updated` one, so the export
+    //    has more than one revision to carry for the same page.
     await pagesModel.updatePage(
       fixtures.siteId,
       page.id,
@@ -162,9 +159,9 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       .returning({ id: pageHistoryTable.id })
 
-    // -> `createPage` above already triggers `navigation.ts#ensureSiteNav`, which seeds a blank
-    //    default menu for this site's primary locale -- upserted rather than inserted so this doesn't
-    //    collide with that row's own (siteId, locale) uniqueness constraint.
+    // -> `createPage` already triggers `navigation.ts#ensureSiteNav`, which seeds a blank default
+    //    menu for this site's primary locale -- upserted rather than inserted so this doesn't
+    //    collide with that row's (siteId, locale) uniqueness constraint.
     const [navRow] = await fixtures.db
       .insert(navigationTable)
       .values({
@@ -205,11 +202,9 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
 
-    // -> The seeded, non-system fixture group still makes it through...
     assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))
-    // -> ...but the isSystem row does not: `importSite` upserts groups by id, and restoring an
-    //    isSystem row onto a different instance overwrites that instance's own Administrators/
-    //    Users/Guests (see the comment on `exportSite`'s group select).
+    // -> `importSite` upserts groups by id, so restoring an isSystem row onto a different instance
+    //    would overwrite that instance's own Administrators/Users/Guests.
     assert.ok(!exportedGroups.some((g: any) => g.id === systemGroup!.id))
   })
 
@@ -231,7 +226,6 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const result = await exportModel.exportSite(fixtures.siteId)
     await exportModel.deleteExport(result.filePath)
     await assert.rejects(fs.access(result.filePath))
-    // -> Idempotent: a second delete of an already-gone file must not throw
     await exportModel.deleteExport(result.filePath)
   })
 })

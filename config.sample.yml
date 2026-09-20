@@ -7,35 +7,24 @@
 # ---------------------------------------------------------------------
 # Environment variable substitution
 # ---------------------------------------------------------------------
-# Any string value in this file may reference an environment variable with
-# $(ENV_VAR_NAME) or, with a fallback if that variable is unset,
-# $(ENV_VAR_NAME:default). This is applied to the raw text of this file
-# before it is parsed as YAML, so it works anywhere a string is expected
-# (not just at the top level).
-#
-# Worked example — read the DB password from an env var, falling back to
-# a value if it isn't set:
-#   pass: $(WIKI_DB_PASS:postgres)
+# Any string value may reference an environment variable as $(ENV_VAR_NAME),
+# or $(ENV_VAR_NAME:default) with a fallback when it is unset — e.g.
+# `pass: $(WIKI_DB_PASS:postgres)`. Substitution runs on this file's raw text
+# before it is parsed as YAML, so it works anywhere a string is expected.
 
 # ---------------------------------------------------------------------
 # How configuration is assembled (three sources, in order)
 # ---------------------------------------------------------------------
 # 1. backend/base.yml    - system-wide file defaults. Not user-editable.
 # 2. config.yml (this file, or $CONFIG_FILE) - your overrides of the above.
-# 3. The `settings` database table - written by the admin area, and loaded
-#    LAST at boot, so it wins over both files above for every key it owns.
+# 3. The `settings` database table - written by the admin area, loaded LAST
+#    at boot and deep-merged over both files above, key by key.
 #
-# The DB owns entire top-level key groups outright (initially seeded from
-# the "DB defaults" section of base.yml, then only ever updated through the
-# admin area from that point on): `api`, `auditLog`, `auth`, `flags`,
-# `icons`, `mail`, `metrics`, `pageviews`, `search`, `security`, `update`,
-# `userDefaults`. Setting one of these keys in this file has no lasting
-# effect once the instance has booted once — e.g. `security.trustProxy` is
-# set on the admin Security page, never here.
-#
-# Everything else below (`port`, `db`, `bindIP`, `logLevel`, `pool`,
-# `files`, `scheduler`, `offline`, `dataPath`, ...) is file-owned: this file
-# overrides base.yml's default, and there is no DB row to override it back.
+# So anything the admin area owns — `api`, `auditLog`, `auth`, `flags`,
+# `mail`, `metrics`, `pageviews`, `replication`, `security`, `userDefaults` —
+# cannot be set from this file: once the instance has booted once the stored
+# row wins. `security.trustProxy`, for one, is set on the admin Security page
+# and never here. Every key documented below is file-owned.
 
 # ---------------------------------------------------------------------
 # Port the server should listen to
@@ -62,8 +51,6 @@ db:
   # Optional
   # -> Uncomment lines you need below and set `auto` to false
   # -> Full list of accepted options: https://nodejs.org/api/tls.html#tls_tls_createsecurecontext_options
-  # -> Same scope note as `ssl` above: these configure the encrypted connection to Postgres, not
-  #    the wiki's own HTTP(S) listener.
   sslOptions:
     auto: true
     # rejectUnauthorized: false
@@ -76,24 +63,19 @@ db:
 # ---------------------------------------------------------------------
 # Postgres connection pool
 # ---------------------------------------------------------------------
-# `min`/`max` are the pool's minimum/maximum number of open connections;
-# `connectionTimeoutMillis` is how long a request for a connection waits
-# before failing, once the pool is fully saturated -- left unset, it waits
-# indefinitely instead of failing fast. `statementTimeoutMillis` bounds how
-# long a single query may run before Postgres cancels it, so a runaway query
-# cannot hold a checked-out connection open indefinitely either.
+# `connectionTimeoutMillis` is how long a request for a connection waits once
+# the pool is saturated before failing -- left unset, it waits indefinitely
+# instead of failing fast. `statementTimeoutMillis` bounds how long a single
+# query may run before Postgres cancels it, so a runaway query cannot hold a
+# checked-out connection open indefinitely either.
 #
-# base.yml already sets min: 1, max: 20 (WP #2276 sized this at double
-# node-postgres's own unmetered default of 10, to give a single instance
-# headroom under a burst against any unmetered whole-table surface --
-# sitemap/knowledge-graph generation, icon-set lookup -- without queuing
-# logins behind it). Uncomment below only to override that default, e.g. a
-# busy multi-worker deployment sharing a tighter Postgres connection limit.
+# base.yml already sets min: 1, max: 20. Uncomment below only to override
+# that, e.g. a busy multi-worker deployment sharing a tighter Postgres
+# connection limit.
 #
-# 3 connections are permanently held open for LISTEN, outside this pool's
-# regular checkout/release cycle: the cross-instance event bus, the job
-# scheduler, and collaborative editing. `max` needs headroom above that
-# fixed cost, not just above your expected query concurrency.
+# 3 further connections are permanently held open for LISTEN in a separate
+# pool (the cross-instance event bus, the job scheduler, and collaborative
+# editing), so a Postgres connection limit has to cover `max` plus those.
 #
 # pool:
 #   min: 1
@@ -116,9 +98,8 @@ bindIP: 0.0.0.0
 # ---------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------
-# Every line is `<timestamp> <level> <scope>  <message>  <key=value ...>`;
-# `scope` names the subsystem (db, http, jobs, storage, ...) and is what makes
-# a grep useful. See docs/operations.md#logs for the full scope table.
+# Every line names the subsystem it came from as its `scope` (db, http, jobs,
+# storage, ...) -- see docs/operations.md#logs for the full scope table.
 #
 # The threshold. Possible values: error, warn, info (default), debug
 #   error  something is broken and a person has to act
@@ -126,9 +107,8 @@ bindIP: 0.0.0.0
 #   info   a state change worth having in the record
 #   debug  per-item, per-request, per-tick -- the access log, every job tick,
 #          and the sqlLog / authDebug firehoses
-# The 2.x levels `verbose` and `silly` do not exist here. Case-sensitive, and
-# enforced: anything else refuses to start rather than quietly logging
-# everything.
+# Case-sensitive, and enforced: anything else refuses to start rather than
+# quietly logging everything.
 
 logLevel: info
 
@@ -136,64 +116,49 @@ logLevel: info
 #   text  human-readable, coloured on a TTY -- for tailing one process
 #   json  one object per line, with the instance id on every record -- for a
 #         log shipper or an aggregator
-# (`default` was this value's old name; there is no alias for it.)
 # Enforced the same way as logLevel above.
 
 logFormat: text
 
-# There is no log FILE, by design: lines go to stdout and nowhere else, plus an
-# in-memory ring buffer of the last 500 replayed to the admin log view.
-# Capturing them durably is the operator's job.
+# There is no log FILE, by design: lines go to stdout and nowhere else (plus an
+# in-memory ring buffer of the last 500, for the admin log view), so capturing
+# them durably is the operator's job.
 
-# Optional per-scope thresholds. Every line names exactly one subsystem, from
-# the closed vocabulary in backend/core/logScopes.ts (documented as a table in
-# docs/operations.md#logs), and an entry here sets the level for that scope
-# alone -- `logLevel` above stays the default for every scope that says nothing.
-# An entry can quieten a scope as well as raise it.
+# Optional per-scope thresholds, setting the level for one scope alone --
+# raising or quietening it -- while `logLevel` above stays the default for every
+# scope that says nothing. Scope names come from the closed vocabulary in
+# backend/core/logScopes.ts; an unknown scope or level refuses to start.
 #
-# The worked example: the HTTP access log is a `debug http` line, so at the
-# default `logLevel: info` there is no access log at all. This is how you turn
-# one on without also turning on every other per-request line in the server:
+# The HTTP access log is a `debug http` line, so at the default `logLevel: info`
+# there is no access log at all. This turns one on without also turning on every
+# other per-request line in the server:
 #
 # logScopes:
 #   http: debug
 #   sql: error
 #
-# Validated at boot the same way as logLevel and logFormat: an unknown scope
-# name or an unknown level is a one-line refusal and exit(1), not a typo that
-# quietly traces nothing.
-#
-# The two admin system flags are the live counterpart, for a scope you want to
-# raise without a restart: `sqlLog` raises `sql` to debug and `authDebug` raises
-# `auth` to debug, from the next line onwards. A flag wins over an entry here.
+# The `sqlLog` and `authDebug` admin flags are the live counterpart, raising
+# `sql`/`auth` to debug without a restart. A flag wins over an entry here.
 
 # ---------------------------------------------------------------------
 # Slow query threshold
 # ---------------------------------------------------------------------
 # Milliseconds. 0 (the default) is off. Set a positive value and every query
-# the main Postgres pool runs that takes at least that long emits one line:
+# the main Postgres pool runs that takes at least that long emits one
+# `warn sql slow query` line. Bound parameter VALUES are never logged -- only a
+# type/length descriptor per parameter -- and the query text is truncated to its
+# first 200 characters.
 #
-#   warn  sql       slow query  rows=1 query="select ..." params=(2 params: string(36), object) in 1.4s
+# The line is a `warn` on the `sql` scope, so `logScopes: { sql: error }`
+# quietens it along with the firehose. It is a FILE setting, not one of the
+# admin flags above, so changing it takes a restart.
 #
-# Bound parameter VALUES are never logged, here or anywhere -- only a
-# type/length descriptor per parameter, exactly as the `sql` firehose does.
-# The query text is truncated to its first 200 characters.
+# `pool.statementTimeoutMillis` (above, default 60000) is the hard ceiling at
+# which Postgres CANCELS a query outright; `slowQueryMs` is the softer warning
+# before it, so set it well under that -- 1000 or so on a healthy instance.
 #
-# This is not a second logging level: the line is a `warn` on the `sql` scope,
-# so `logScopes: { sql: error }` quietens it along with the firehose. It is
-# also a FILE setting, not one of the admin flags above -- changing it takes a
-# restart, the same as `pool` below it.
-#
-# Related, and worth setting together: `pool.statementTimeoutMillis` (above,
-# default 60000) is the hard ceiling at which Postgres CANCELS a query outright.
-# `slowQueryMs` is the softer "tell me before it gets there" signal, so a useful
-# starting point is well under that ceiling -- 1000 or so on a healthy instance.
-#
-# Timing sits below Drizzle, on the pool itself, so it covers raw
-# `db.execute()` calls and the boot-time migration runner as well as ordinary
-# ORM traffic: expect a burst of slow lines on the first boot after an upgrade
-# that applies a large migration. The three permanently-held LISTEN/NOTIFY
-# connections use a separate pool and are not timed.
+# Timing sits on the pool itself, so the boot-time migration runner is timed
+# too: expect a burst of lines on the first boot after a large migration.
 
 slowQueryMs: 0
 
@@ -204,15 +169,12 @@ slowQueryMs: 0
 # outbound call an admin has not explicitly configured with its own remote
 # endpoint (Iconify icon lookups, the daily version/locale update checks,
 # server-side PlantUML rendering) — see docs/offline-deployment.md for the
-# full audited list and the supported air-gapped deployment path.
-#
-# In the official container image this is also settable via the WIKI_OFFLINE
-# environment variable, so a containerized/air-gapped deployment provisioned
-# through env vars does not need to hand-edit this file.
+# full audited list and the supported air-gapped deployment path. Also
+# settable as the WIKI_OFFLINE env var in the official container image.
 #
 # To add or update a locale pack without rebuilding or redeploying, drop a
-# JSON file into <dataPath>/locales/ (see docs/offline-deployment.md) and
-# either restart or POST /_api/locales/sideload as an admin.
+# JSON file into <dataPath>/locales/ and either restart or POST
+# /_api/locales/sideload as an admin.
 
 offline: false
 

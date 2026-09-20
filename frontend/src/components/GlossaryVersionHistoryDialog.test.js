@@ -17,11 +17,9 @@ vi.mock('browser-fs-access', () => ({
   fileSave: (...args) => fileSave(...args)
 }))
 
-// -> Declared at module scope (`vi.mock` factories can't close over per-test locals), so it needs its
-//    own call-history clear -- see `AdminGlossary.test.js`'s identical note on `fileSave`/`fileOpen`.
-// -> Also (re)installs an active Pinia: the version list renders through `relativeDate()`
-//    (`helpers/datetime.js`), which now reads `commonStore.locale` on every call and throws without
-//    one.
+// -> `fileSave` is module-scoped because a `vi.mock` factory cannot close over a per-test local, so
+//    its call history needs clearing by hand. Pinia is (re)installed because the version list
+//    renders through `relativeDate()`, which reads `commonStore.locale` and throws without one.
 beforeEach(() => {
   fileSave.mockClear()
   setActivePinia(createPinia())
@@ -50,8 +48,6 @@ const VERSIONS = [
 ]
 
 function mountDialog(currentTerms = CURRENT_TERMS) {
-  // -> `relativeDate()` (rendered for each version's timestamp) reads `commonStore.locale`
-  //    (`helpers/datetime.js`, OpenProject #1600), so mounting needs an active Pinia now too.
   setActivePinia(createPinia())
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(VERSIONS) })
@@ -64,10 +60,6 @@ function mountDialog(currentTerms = CURRENT_TERMS) {
   return currentWrapper
 }
 
-/**
- * Whole-glossary version history (OpenProject #1113): list saved snapshots, expand one to diff it
- * against the current live glossary, and restore one.
- */
 describe('GlossaryVersionHistoryDialog: load', () => {
   it('fetches this site’s version list on mount', async () => {
     mountDialog()
@@ -79,7 +71,7 @@ describe('GlossaryVersionHistoryDialog: load', () => {
   it('renders every version’s actor and term count', async () => {
     mountDialog()
     await flushPromises()
-    // -> Content is teleported to `document.body` -- see `GlossaryTermDialog.test.js`'s identical note
+    // -> The dialog's content is teleported to `document.body`, so the assertion reads real DOM
     await flushPromises()
 
     expect(document.body.textContent).toContain('Alice')

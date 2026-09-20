@@ -8,15 +8,6 @@ import { useUserStore } from '@/stores/user'
 import { stubPageResponse } from '@/stores/pageStoreFixtures'
 import { stubRouter } from '../../../test/fixtures.js'
 
-/**
- * OpenProject #3417: the create/edit editor route never went through `loadPageForRoute`'s
- * `fetchPagePermissions` call (it's the plain page-view watch branch's own), so `userStore
- * .pagePermissions` stayed at its cleared `[]` for the entire lifetime of an editor session opened
- * via `/_create/:editor` or `/_edit/:pagePath` -- `write:scripts` (and every other page-rule
- * permission) read as denied before the page had ever been saved once, blocking e.g. setting a
- * load/unload script pre-save.
- */
-
 function fakeRouter() {
   return { push: vi.fn(), replace: vi.fn() }
 }

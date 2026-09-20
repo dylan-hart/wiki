@@ -1,11 +1,8 @@
 # Verification-only overlay, mounted in by `verify-sandboxed-puppeteer.sh --allow-no-sandbox` --
-# never baked into the image, and never used by a real deployment. Identical to
-# `config.verify.yml`'s `cookieSecure: false` (see that file's own comment for why a plain-HTTP
-# verification client needs it), plus `security.allowPuppeteerNoSandbox: true` -- the documented
-# fallback (OpenProject #2244/#2250/#2247) for a deployment environment that cannot give Chromium its
-# own sandbox, which is exactly this run's own point to confirm still genuinely works on its own
-# terms, independent of whichever posture the DEFAULT verification run (`config.verify.yml`, no
-# `--allow-no-sandbox`) found.
+# never baked into the image, and never used by a real deployment. `config.verify.yml` plus
+# `security.allowPuppeteerNoSandbox: true`, the documented fallback for an environment that cannot
+# give Chromium its own sandbox: this run confirms that fallback still works on its own terms,
+# whatever the default run found.
 port: 3000
 bindIP: 0.0.0.0
 db:

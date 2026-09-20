@@ -8,21 +8,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createTestI18n } from '../../test/i18n.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
-/**
- * OpenProject #3468 (Feature #3464): the Code and AsciiDoc editors' side rail carries one button
- * (insert assets). It used to be a padded `flat` WBtn floating 12px below the coloured band and
- * centred in a 56px rail, so its hover was a small rounded tile with a gap on every side. It now
- * carries the shared `.flush-hover-btn` primitive (`css/_base.css`, #3465) and fills the rail's
- * full width, directly under the band, so the hover is a square cell of the rail.
- *
- * The two editors are identical here by design, hence one `describe.each`. Three layers:
- *   - mounted markup: the button carries the primitive's classes, keeps `flat`, and is not `round`;
- *   - the component's own `<style>` text: the rail no longer pads the button in from the band, and
- *     sizes the button to the rail (with the `!important` WBtn's inline `min-height` requires);
- *   - real Chromium, real compiled app CSS + the component's own style block: the button is exactly
- *     the rail's width, square, flush under the band, with the hover fill on top of it.
- */
-
 vi.mock('monaco-editor', () => ({
   editor: {
     defineTheme: vi.fn(),
@@ -71,9 +56,8 @@ describe.each(EDITORS)('$name side rail flush hover (#3468)', ({ name, cls, load
     expect(classes).toContain('flush-hover-btn--square')
     expect(classes).not.toContain('flush-hover-btn--cap')
     expect(classes).not.toContain('rounded-full')
-    // -> `flat` = no background until hovered; WBtn marks the variant with `w-btn--flat`
+    // -> WBtn marks the `flat` variant with `w-btn--flat`
     expect(classes.join(' ')).toMatch(/w-btn--flat/)
-    // -> Roving/aria behaviour untouched
     expect(btn.attributes('aria-label')).toBeTruthy()
   })
 
@@ -146,7 +130,7 @@ describe('Code/AsciiDoc rail under real Chromium', { skip: !hasChromium() }, () 
           expect(got.right, bodyClass).toBe(got.railRight)
           expect(got.w, bodyClass).toBe(56)
           expect(got.h, bodyClass).toBe(56)
-          // -> 32px band above it, nothing between
+          // -> The rail's coloured band, with nothing between it and the cell
           expect(got.top - got.railTop, bodyClass).toBe(32)
           expect(got.radius, bodyClass).toBe('0px')
 

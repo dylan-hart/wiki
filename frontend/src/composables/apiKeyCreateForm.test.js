@@ -6,9 +6,7 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { useApiKeyCreateForm } from './apiKeyCreateForm.js'
 
 /*
-  `dialog()` is the boundary this composable hands the one-time secret across -- the real one mounts
-  `ApiKeyCopyDialog` into the app's dialog host, which a unit test has nowhere to put. Only that one
-  export is replaced: `ApiKeyCopyDialog.vue` is imported by the composable and reaches for
+  Only `dialog()` is replaced: `ApiKeyCopyDialog.vue`, imported by the composable, reaches for
   `dialogComponentEmits`/`useDialogComponent` from the same module at import time, so a wholesale
   mock takes the suite down before a single test runs.
 */
@@ -25,12 +23,11 @@ const LEVELS = [
   { id: 'level-restricted', name: 'Restricted' }
 ]
 
-/** Echoes the key, so an assertion can name the vocabulary a string came from. */
 const t = (key) => key
 
 /**
- * Runs the composable inside a component instance -- it registers an `onMounted` hook, which is
- * where the site list and the classification levels are fetched from.
+ * The composable fetches the site list and the classification levels from an `onMounted` hook, so
+ * it needs a real component instance.
  *
  * @param {object} [options] Merged over the admin form's own options.
  * @param {object} [form] Stands in for the enclosing `WForm`; `validate` is what `create()` calls.
@@ -49,7 +46,6 @@ async function mountForm(options = {}, form = { validate: vi.fn().mockResolvedVa
 
 const onOk = vi.fn()
 
-/** The dismiss handler `create()` registers, so a test can close the copy dialog itself. */
 function dismissCopyDialog() {
   const handler = dialogs.dialog.mock.results.at(-1).value.onDismiss.mock.calls[0][0]
   handler()
@@ -61,7 +57,6 @@ beforeEach(() => {
   onOk.mockReset()
   dialogs.dialog.mockReset()
   dialogs.dialog.mockImplementation(() => ({ onDismiss: vi.fn() }))
-  // -> `GET classification-levels` (the admin store's own fetch) and `GET sites`, in mount order
   API_CLIENT.get.mockImplementation((url) => ({
     json: () =>
       Promise.resolve(url === 'classification-levels' ? LEVELS : [{ id: 'site-1', title: 'Docs' }])
@@ -104,8 +99,8 @@ describe('useApiKeyCreateForm — allowedClassifications', () => {
   })
 
   /*
-    OpenProject #1205: all-checked has to mean "unrestricted", not "these two ids" -- otherwise a
-    level added later would silently be excluded from every key issued before it existed.
+    All-checked has to mean "unrestricted", not "these two ids" -- otherwise a level added later
+    would silently be excluded from every key issued before it existed.
   */
   it('sends null while every level is still checked', async () => {
     const { api } = await mountForm()
@@ -176,11 +171,8 @@ describe('useApiKeyCreateForm — extraState / extraJson', () => {
 })
 
 describe('useApiKeyCreateForm — loadSites failure', () => {
-  /*
-    `GET /sites` needs `read:sites`/`access:admin`, which an ordinary self-service user does not hold
-    -- so failing there is the expected common case for the profile form's actual audience, not an
-    error worth alarming them with.
-  */
+  // -> `GET /sites` needs `read:sites`/`access:admin`, which a self-service user does not hold, so
+  //    failing there is the expected case for that form's audience rather than an error.
   it('says nothing and leaves an empty site list when told to fail soft', async () => {
     API_CLIENT.get.mockImplementation((url) => ({
       json: () => (url === 'sites' ? Promise.reject(new Error('403')) : Promise.resolve(LEVELS))

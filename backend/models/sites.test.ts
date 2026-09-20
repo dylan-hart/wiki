@@ -28,14 +28,9 @@ import { pages as pagesModel } from './pages.ts'
 import type { PageActor } from './pages.ts'
 
 /**
- * Task 1682: `DEFAULT_THEME_COLORS` -- what `createSite()` and `init()` both seed -- must agree with
- * the CSS defaults at `frontend/src/css/tailwind.css`'s `:root` block and `AdminTheme.vue`'s
- * `resetColors()`/`defaultConfig()`. They are the Cardinal accent (`#c14a52`) and its positive
- * (`#3f7a66`) as of the re-skin, and the chrome is Cardinal's white header band over its cooler
- * tint, both of which `HeaderNav.vue`/`NavSidebar.vue` draw in ink. Pure/no-DB: `DEFAULT_THEME_COLORS` is a plain exported constant,
- * so this runs on every `npm run test`, not just when `DATABASE_URL` is set. The frontend half of
- * this pin -- that the CSS/AdminTheme values themselves clear WCAG AA -- lives in
- * `frontend/src/helpers/accessibility.test.js`.
+ * `DEFAULT_THEME_COLORS` -- what `createSite()` and `init()` both seed -- must agree with the CSS
+ * defaults at `frontend/src/css/tailwind.css`'s `:root` block and `AdminTheme.vue`'s
+ * `resetColors()`/`defaultConfig()`.
  */
 describe('sites.DEFAULT_THEME_COLORS', () => {
   test('matches the CSS defaults (frontend/src/css/tailwind.css) exactly', () => {
@@ -50,13 +45,9 @@ describe('sites.DEFAULT_THEME_COLORS', () => {
 })
 
 /**
- * Regression coverage for Task 588: `createSite()`'s default config used to carry a dead
- * `logoUrl: ''` field that `init()`'s default site config never had (confirmed by diffing the two
- * blocks — this codebase never writes fallbacks for cases that cannot occur). Logo is
- * fully handled by the `assets.logo` binary upload flow served at `/_site/:siteId/logo`; `logoUrl`
- * was never read anywhere in `frontend/`, nor accepted by the `PUT /_api/sites/:siteId` body. This
- * suite asserts the stored config a fresh site gets from `createSite()` no longer contains it, and
- * that the fields still genuinely needed continue to round-trip through the insert unchanged.
+ * `logoUrl` is dead surface: a logo is the `assets.logo` binary upload served at
+ * `/_site/:siteId/logo`, nothing in `frontend/` reads `logoUrl`, and the `PUT /_api/sites/:siteId`
+ * body does not accept it. Locked out of the seeded config so it cannot reappear.
  */
 describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -65,9 +56,9 @@ describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   before(async () => {
     fixtures = await setupTestDb()
     ;({ sites: sitesModel } = await import('./sites.ts'))
-    // -> `createSite()` reads `CARDINAL.data.systemIds.localAuthId` to seed the default auth strategy —
-    //    real values come from `base.yml` via `core/config.ts`, neither of which the minimal test
-    //    `CARDINAL` global in `test/db.ts` populates.
+    // -> `createSite()` reads `CARDINAL.data.systemIds.localAuthId` to seed the default auth
+    //    strategy; the real value reaches it from `base.yml` through `core/config.ts`, neither of
+    //    which the minimal `CARDINAL` global in `test/db.ts` sets up.
     CARDINAL.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
   })
 
@@ -118,10 +109,8 @@ describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
- * Coverage for Task 592: both `createSite()` and `init()` seed the same
- * `analytics: { providers: {} }` default — no provider is enabled out of the box, since discovery
- * (`GET /_api/analytics/modules`) is what tells the admin area which providers exist to turn on, the
- * same way a fresh site starts with `assets: { logo: false, ... }` rather than any image uploaded.
+ * No analytics provider is enabled out of the box: discovery (`GET /_api/analytics/modules`) is what
+ * tells the admin area which providers exist to turn on.
  */
 describe(
   'sites default config carries analytics.providers (DB-backed)',
@@ -181,11 +170,8 @@ describe(
 )
 
 /**
- * Feature #3267 / Task #3274: both `createSite()` and `init()` seed
- * `security: { embedAllowedOrigins: [] }` -- no origin may embed this site's pages via iframe until
- * an admin explicitly adds one (Task #3275 reads this array to compute a per-request
- * `frame-ancestors` CSP directive). Same "seed the closed-by-default shape" pattern as
- * `allowedUrlSchemes` above.
+ * Closed by default: no origin may embed this site's pages via iframe until an admin adds one. The
+ * array is the source list a per-request `frame-ancestors` CSP directive is built from.
  */
 describe(
   'sites default config carries security.embedAllowedOrigins (DB-backed)',
@@ -246,11 +232,6 @@ describe(
   }
 )
 
-/**
- * Feature #2753 / Task #2765: both `createSite()` and `init()` seed `theme.aesthetic: 'ledger'`
- * alongside `theme.dark: false`, the same "seed a default new sites can change" shape as
- * `analytics.providers` above.
- */
 describe(
   'sites default config carries theme.aesthetic (DB-backed)',
   { skip: !hasTestDatabase() },
@@ -298,15 +279,9 @@ describe(
 )
 
 /**
- * `setAsset`/`getAsset` coordinate an insert-or-update plus `updateSite`'s own
- * read-merge-update-and-reload-cache, so — per this repo's DB-backed testing guidance — this runs the real
- * methods against a migrated database rather than re-describing that SQL with a query-builder mock.
- *
- * What's being verified is the no-Sharp fallback path: `helpers/images.ts#normalizeImage` returns
- * null when the Sharp extension isn't usable, and `Sites.setAsset` falls back to storing the raw
- * uploaded bytes (`?? data`) in that case. `CARDINAL.models.extensions.isInstalled` is stubbed to force
- * that branch on every call, so the suite is deterministic regardless of whether Sharp happens to be
- * present on the machine actually running it.
+ * `CARDINAL.models.extensions.isInstalled` is stubbed false throughout, so
+ * `helpers/images.ts#normalizeImage` always bails and `setAsset` always takes its raw-bytes
+ * fallback — deterministic whether or not Sharp is present on the machine running this.
  */
 describe(
   'sites setAsset/getAsset — no-Sharp fallback (DB-backed)',
@@ -327,9 +302,8 @@ describe(
     })
 
     /**
-     * An 8-byte PNG signature padded to `size` bytes. Sharp is forced unusable for this whole suite,
-     * so `normalizeImage` bails before ever asking it to actually decode these bytes — only the
-     * signature needs to be real.
+     * Only the signature needs to be real: Sharp is forced unusable for this suite, so
+     * `normalizeImage` bails before ever asking it to decode these bytes.
      */
     function pngBuffer(size: number): Buffer {
       const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -341,13 +315,10 @@ describe(
     )
 
     /**
-     * A polyglot: a valid PNG signature followed by literal `<svg>...<script>` text later in the
-     * buffer. `getAsset` resolves the mime with `detectImageMime(data) ?? (detectSvg(data) ? ... :
-     * ...)` — the PNG signature is checked first, so this must come back as `image/png`, never
-     * `svgMimeType`. That precedence is what keeps `SVG_CSP` from being skippable by disguising an
-     * SVG payload behind a raster magic number: served as `image/png` with `X-Content-Type-Options:
-     * nosniff` (`controllers/site.ts`), a browser opening the URL directly trusts the declared type
-     * rather than sniffing the trailing markup, so it never gets treated — or executed — as SVG.
+     * `getAsset` checks the raster magic number before sniffing for SVG, so a polyglot resolves as
+     * `image/png`. That precedence is what stops an SVG payload hidden behind a raster signature
+     * from escaping `SVG_CSP`: served as `image/png` under `nosniff` (`controllers/site.ts`), a
+     * browser trusts the declared type rather than the trailing markup.
      */
     const pngSvgPolyglot = Buffer.concat([
       pngBuffer(64),
@@ -370,9 +341,9 @@ describe(
 
     for (const kind of siteAssetKinds as readonly SiteAssetKind[]) {
       test(`${kind}: a raw PNG upload up to the 10 MB upload limit is stored and served back byte-for-byte`, async () => {
-        // -> One byte under the API route's 10 MB `imageUploadLimit` (`api/sites.ts`) — `setAsset`
-        //    itself enforces no size limit of its own, the ceiling is entirely the content-type
-        //    parser's `bodyLimit` upstream of it.
+        // -> One byte under the route's `imageUploadLimit` (`api/sites.ts`): `setAsset` enforces no
+        //    size limit of its own, the ceiling is entirely the content-type parser's `bodyLimit`
+        //    upstream of it.
         const upload = pngBuffer(10 * 1024 * 1024 - 1)
 
         await sitesModel.setAsset(fixtures.siteId, kind, upload)
@@ -428,15 +399,13 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
 /**
- * Regression test for the dead `kroki`/`plantuml`/`latexEngine` config surface on the per-site
- * markdown editor default: diagram rendering moved to `block-kroki`/`block-plantuml`, which take
- * their server/language settings as block props on the page rather than from site-wide config, and
- * math rendering is `block-katex`/`block-mathjax`'s own per-site `isEnabled` toggles -- so none of
- * the three ever had a reader. Locks the keys gone so they cannot silently reappear.
+ * None of `kroki`/`plantuml`/`latexEngine` has a reader: diagram rendering is
+ * `block-kroki`/`block-plantuml`, configured as block props on the page rather than site-wide, and
+ * math is `block-katex`/`block-mathjax`'s own per-site `isEnabled` toggles. Locked out so they
+ * cannot silently reappear.
  *
- * Since OpenProject #1991, the editors default (asciidoc/code/markdown/wysiwyg) is a single
- * `DEFAULT_SITE_EDITORS` object shared by `createSite()` and `init()` rather than duplicated
- * verbatim in both, so this asserts there is exactly one such literal in the source.
+ * `createSite()` and `init()` share one `DEFAULT_SITE_EDITORS` object rather than duplicating the
+ * literal, hence the assertion that exactly one such literal exists in the source.
  */
 
 const rootPath = path.resolve(import.meta.dirname, '../..')
@@ -444,9 +413,8 @@ const rootPath = path.resolve(import.meta.dirname, '../..')
 test('models/sites.ts default markdown editor config still omits kroki, plantuml and latexEngine', async () => {
   const raw = await readFile(path.join(rootPath, 'backend/models/sites.ts'), 'utf8')
 
-  // -> The single shared default-config literal writes `markdown: { isActive: true, config: {
-  // ...primitives... } }` with no nested object inside `config`, so the text up to the first `}`
-  // after `config: {` is exactly that block.
+  // -> `markdown.config` nests no object of its own, so the text up to the first `}` after
+  // `config: {` is exactly that block.
   const markdownConfigBlocks = [
     ...raw.matchAll(/markdown:\s*{\s*isActive:\s*true,\s*config:\s*{([^}]*)}/g)
   ]
@@ -474,11 +442,9 @@ test('models/sites.ts default markdown editor config still omits kroki, plantuml
 })
 
 /**
- * `models/sites.ts`'s `createSite()` and `init()` per-site default config, task #563: search
- * configuration moved from the instance-wide `CARDINAL.config.search` to a `search: { engine, config }`
- * block seeded alongside the other per-site defaults (`authStrategies`, `uploads`, `defaults`, ...)
- * this suite otherwise leaves untested — the seeded shape is what `models/search.ts`'s `getConfig()`
- * and `engineFor()` read back, so a wrong default here is a silent fallback everywhere else.
+ * Search config is per-site, not instance-wide: the seeded `search` block is exactly what
+ * `models/search.ts#getConfig` reads back, so a wrong default here degrades to a silent fallback
+ * everywhere else.
  */
 describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let sitesModel: typeof import('./sites.ts').sites
@@ -557,15 +523,10 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 })
 
 /**
- * Regression test for task 702: `getSiteByHostname`'s precedence -- an exact hostname match beats the
- * `*` catch-all, and `strict: true` excludes the catch-all fallback entirely -- is what the
- * `api/sites.test.ts` "strict=true does not fall back" tests exercise end-to-end through a stubbed
- * copy of this same logic. This describe exercises the real model method directly instead, against a
- * fake `CARDINAL.sites` / `CARDINAL.sitesMappings` (exactly what `reloadCache` populates), with no database:
- * `getSiteByHostname` with `forceReload: false` (the default) touches nothing but those two in-memory
- * maps. Scoped to its own describe with a local before/after (rather than top-level hooks) so its fake
- * CARDINAL stub cannot race the DB-backed describes above, which set up their own real CARDINAL via
- * `setupTestDb()`.
+ * No database needed: `getSiteByHostname` with the default `forceReload: false` reads nothing but
+ * the two in-memory maps `reloadCache` populates. The fake `CARDINAL` goes in this describe's own
+ * before/after rather than top-level hooks, so it cannot race the real one the DB-backed describes
+ * install via `setupTestDb()`.
  */
 describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
   const EXACT_SITE_ID = 'exact-site-id'
@@ -611,11 +572,6 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
     assert.equal(site?.id, EXACT_SITE_ID)
   })
 
-  /**
-   * OpenProject #2127: `sitesMappings` is keyed lowercase, but the hostname a lookup was given
-   * used to be indexed as-is -- so `Host: Wiki.Example.Com` matched nothing here, even though a
-   * DNS name is case-insensitive and the site really is stored as `wiki.example.com`.
-   */
   test('a mixed-case hostname resolves to the same site as its lowercase form', async () => {
     const site = await sites.getSiteByHostname({ hostname: 'Wiki.Example.Com' })
     assert.equal(site?.id, EXACT_SITE_ID)
@@ -628,11 +584,10 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
 })
 
 /**
- * OpenProject #2127, write-side belt and braces: the site create/update schemas already constrain
- * a stored `hostname` to lowercase, so this cannot happen through the normal API -- but
- * `reloadCache()` lowercases the key regardless of what is actually in the row, so even a
- * mixed-case hostname that somehow reached the table (a direct DB edit, a future write path that
- * forgets the schema constraint) still resolves through `getSiteByHostname`.
+ * The site create/update schemas already constrain a stored `hostname` to lowercase, so this cannot
+ * arise through the API. `reloadCache()` folds the key regardless of what is in the row, so a
+ * mixed-case hostname that reached the table another way (a direct DB edit, a write path that
+ * forgets the constraint) still resolves.
  */
 describe(
   'sites.reloadCache hostname case-folding (DB-backed)',
@@ -666,33 +621,17 @@ describe(
 )
 
 /**
- * Regression coverage for OpenProject #1733 ("Make site deletion transactional and pre-checked, and
- * clean every non-content RESTRICT FK") and its predecessor, task 686.
+ * `makeSite()` goes through the real `createSite()` rather than inserting the `sites` row directly:
+ * `createSite()` calls `commentProviders.syncSite()`, which seeds one row per discovered comment
+ * module, and that FK is the very first one `deleteSite()` hits on a site with nothing else on it. A
+ * raw `db.insert(sitesTable)` fixture never runs that seeding, so a suite built on one passes with
+ * `deleteSite()` broken. `commentProviders.refreshFromDisk()` / `storage.refreshFromDisk()` in
+ * `before()` load the real module definitions off disk, which `setupTestDb()`'s minimal `CARDINAL`
+ * global otherwise leaves empty.
  *
- * `makeSite()` goes through the real `createSite()` rather than inserting the `sites` row directly —
- * that used to be this suite's own shape (before #1737), and it hid the bug: `createSite()` calls
- * `commentProviders.syncSite()`, which seeds one row per discovered comment module, and that FK is
- * the very first one a real `deleteSite()` call hits, unconditionally, on a site with nothing else on
- * it. A raw `db.insert(sitesTable)` fixture never runs that seeding, so a suite built on one can pass
- * with `deleteSite()` still broken. `commentProviders.refreshFromDisk()` / `storage.refreshFromDisk()`
- * in `before()` load the real module definitions off disk — the same ones a real boot would — since
- * `setupTestDb()`'s minimal `CARDINAL` global otherwise leaves both empty.
- *
- * Since #990 (locale-scoped site menus), `ensureSiteNav`'s row is addressed by its own
- * `defaultRandom()` `id` and by the `siteId` column the FK constraint actually checks — `id` is
- * never `= siteId`. Every assertion below is against `siteId`, not `id`, for exactly that reason
- * (OpenProject #1046): querying `eq(navigationTable.id, siteId)` would return zero rows whether or
- * not `deleteSite` ever ran, since a random nav-row id practically never collides with a site id —
- * that query would pass even if `deleteSite` had never been fixed at all.
- *
- * OpenProject #1741: `deleteSite` used to issue six unconditional deletes (blocks, block credentials,
- * storage, site assets, glossary terms, navigation) with nothing wrapping them, before ever finding
- * out whether the site's final delete would even succeed — so a refusal (a page, asset, pageview or
- * tag still referencing the site) left every one of those six torn down anyway, autocommitted one
- * statement at a time, while the site itself survived. The "still holds a page" case below is the
- * regression test for the fix: it seeds one row in every one of those six non-content tables, asserts
- * the refusal is now a precheck (a `siteHasContent` error, not a raw `23503`) rather than a
- * partially-destructive FK failure, and then asserts all six rows are still there afterwards.
+ * Every assertion below is against `siteId`, never `id`: `ensureSiteNav`'s row carries its own
+ * `defaultRandom()` id, so `eq(navigationTable.id, siteId)` would return zero rows — and pass —
+ * whether or not `deleteSite` ever ran.
  */
 describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -701,10 +640,9 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   before(async () => {
     fixtures = await setupTestDb()
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
-    // -> `createSite()` reads `CARDINAL.data.systemIds.localAuthId` to seed the default auth strategy —
-    //    real values come from `base.yml` via `core/config.ts`, neither of which the minimal test
-    //    `CARDINAL` global in `test/db.ts` populates. Only the cases below that call `createSite()` need
-    //    this; `makeSite()`'s direct insert doesn't.
+    // -> `createSite()` reads `CARDINAL.data.systemIds.localAuthId` to seed the default auth
+    //    strategy; the real value reaches it from `base.yml` through `core/config.ts`, neither of
+    //    which the minimal `CARDINAL` global in `test/db.ts` sets up.
     CARDINAL.data.systemIds = { localAuthId: randomUUID() }
     await CARDINAL.models.commentProviders.refreshFromDisk()
     await CARDINAL.models.storage.refreshFromDisk()
@@ -720,9 +658,6 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     return site.id
   }
 
-  /** Row counts for every non-content table `deleteSite()`'s transaction is responsible for, keyed
-   *  by `siteId` — used both to prove a refused delete destroyed nothing and that a successful one
-   *  left nothing behind. */
   async function nonContentRowCounts(siteId: string) {
     const [
       blocksRows,
@@ -782,22 +717,20 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('a freshly created site with no pages deletes cleanly, cleaning up every non-content row', async () => {
     const siteId = await makeSite()
 
-    // -> Sanity: createSite() really did seed rows that need cleaning up — otherwise every assertion
-    //    below would pass vacuously, exactly the #1737 failure mode this suite exists to avoid.
+    // -> Sanity: `createSite()` really did seed rows that need cleaning up — otherwise every
+    //    assertion below passes vacuously.
     const seeded = await nonContentRowCounts(siteId)
     assert.ok(seeded.commentProviders > 0, 'sanity: createSite() should seed commentProviders rows')
     assert.ok(seeded.storage > 0, 'sanity: createSite() should seed storage rows')
     assert.ok(seeded.navigation > 0, 'sanity: createSite() should seed a root navigation row')
 
-    // -> Rows nothing seeds automatically, standing in for the non-content tables that have no
-    //    delete call site at all (see `deleteSite()`'s own doc comment) — planted directly, matching
-    //    this suite's existing convention for setup that has no dedicated model method.
+    // -> Nothing seeds these automatically and no model method writes them, so they are planted
+    //    directly.
     await fixtures.db.insert(glossaryVersionsTable).values({ siteId, snapshot: {}, termCount: 0 })
     await fixtures.db.insert(approvalRulesTable).values({ siteId })
-    // -> `pageWatchEvents.pageId` is a real FK to `pages.id` (OpenProject #3271) — a synthetic
-    //    `randomUUID()` here would violate it, so a real page is created and deleted again, leaving
-    //    the site with no live pages (as the test's own name promises) but a valid id to plant this
-    //    row against.
+    // -> `pageWatchEvents.pageId` is a real FK to `pages.id`, so a synthetic `randomUUID()` would
+    //    violate it: a real page is created and deleted again, leaving the site with no live pages
+    //    but a valid id to plant this row against.
     const watchEventPage = await pagesModel.createPage(
       siteId,
       { path: 'test', title: 'Test', editor: 'markdown', content: '# Test' },
@@ -816,8 +749,8 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await fixtures.db
       .insert(apiKeysTable)
       .values({ name: 'site key', keyShort: 'abcd1234', siteId })
-    // -> A tag left over from a page that's since been removed: `tags` carries no `pageId` FK, so
-    //    nothing about deleting a page ever cleans this up on its own (OpenProject #1749).
+    // -> A tag left over from a page since removed: `tags` carries no `pageId` FK, so deleting a
+    //    page never cleans this up on its own.
     await fixtures.db.insert(tagsTable).values({ siteId, tag: 'orphaned' })
 
     const deleted = await sites.deleteSite(siteId)
@@ -858,11 +791,9 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * `pageviews.pageId` already cascades from `pages.id` (`db/schema.ts`), so a pageview row is
-   * always gone by the time its own page is — the `pageviews.siteId` cascade #1749 added is defense
-   * in depth for the schema's own shape, not something a leftover row can be observed through here.
-   * What this proves end to end is the realistic sequence: a page gets viewed, then deleted, then the
-   * now-empty site deletes cleanly with nothing left pinning it.
+   * `pageviews.pageId` cascades from `pages.id`, so a pageview row is always gone by the time its
+   * own page is: the `pageviews.siteId` cascade is defense in depth for the schema's shape and
+   * cannot be observed through a leftover row here.
    */
   test('a page view recorded against a page does not survive that page, or block deleting the site', async () => {
     const siteId = await makeSite()
@@ -905,9 +836,9 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       name: 'Test Credential',
       secret: 'shh'
     })
-    // -> No manual insert here: `makeSite()` -> `createSite()` -> `storage.syncSite()` already seeded
-    //    one row per discovered storage module (`refreshFromDisk()` in `before()` above), so a fixed
-    //    row count below asserts `> 0`, not a specific number that depends on how many modules exist.
+    // -> No manual insert: `createSite()` -> `storage.syncSite()` already seeded one row per
+    //    discovered storage module, which is why the assertion below is `> 0` rather than a count
+    //    that would depend on how many modules exist.
     await fixtures.db
       .insert(siteAssetsTable)
       .values({ siteId, kind: 'logo', data: Buffer.from('fake-logo'), hash: 'fake-hash' })
@@ -966,18 +897,10 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #1744: `deleteSite()` used to clean only six site-owned tables, on the theory that
-   * everything else left standing was content the route deliberately blocks on. That theory failed
-   * for six non-content tables whose rows outlive the content they describe (`commentProviders`,
-   * seeded per site by `createSite()`'s `commentProviders.syncSite()`, being the most immediate —
-   * it blocked even a brand-new, otherwise-empty site) or that content routes were never meant to
-   * guard at all (`glossaryVersions`, `pageWatchEvents`, `approvalRules`).
-   * `tags` is deliberately NOT among them: OpenProject #1741's precheck already treats it as content
-   * (alongside pages, assets and pageviews) and refuses the delete up front while a tag still
-   * references the site, so a leftover tag row is covered by the "refused up front" test above, not
-   * this one. Going through `sites.createSite()` rather than the `makeSite()` helper above is
-   * deliberate: only `createSite()` seeds the `commentProviders` rows that made the delete fail
-   * unconditionally.
+   * The extended cleanup covers non-content tables whose rows outlive the content they describe
+   * (`commentProviders`, `pageHistory`) or that no content route ever guarded (`glossaryVersions`,
+   * `pageWatchEvents`, `approvalRules`). `tags` is deliberately not among them: the precheck treats
+   * it as content, so a leftover tag row belongs to the "refused up front" test above.
    */
   test('a site created via createSite(), with a page created and deleted, deletes cleanly with every extended-cleanup table left empty', async () => {
     const hostname = `full-cleanup-${randomBytes(6).toString('hex')}.localhost`
@@ -994,9 +917,8 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       },
       actor
     )
-    // -> `pageWatchEvents.pageId` is a real FK to `pages.id` (OpenProject #3271), so this synthetic
-    //    row is planted against `page.id` (not a `randomUUID()`) while the page still exists, then
-    //    the page is deleted below — matching this test's own premise that the event outlives its page.
+    // -> `pageWatchEvents.pageId` is a real FK to `pages.id`, so the row is planted while the page
+    //    still exists and only outlives it once the delete below runs.
     await fixtures.db.insert(pageWatchEventsTable).values({
       action: 'updated',
       pageId: page.id,
@@ -1008,9 +930,8 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
     await pagesModel.deletePage(siteId, page.id, actor)
 
-    // -> `commentProviders` (seeded above by `createSite()`) and `pageHistory` (written above by
-    //    `deletePage()`) are populated through the real app flow; the other three have no such call
-    //    site under test, so they're seeded directly to prove the cleanup covers them too.
+    // -> `commentProviders` and `pageHistory` are already populated through the real app flow
+    //    above; these have no such call site, so they are seeded directly.
     await fixtures.db.insert(glossaryVersionsTable).values({ siteId, snapshot: {}, termCount: 0 })
     await fixtures.db.insert(approvalRulesTable).values({ siteId })
 
@@ -1049,12 +970,6 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 })
 
-/**
- * OpenProject #966: same fix, and the same reasoning, as `models/groups.ts`'s
- * `groups.broadcastReload` suite — `createSite`/`updateSite`/`deleteSite` used to call
- * `reloadCache()` directly, refreshing only this instance's own cache. See that suite's doc comment
- * for the full writeup; this one just re-proves the wiring for the sites model.
- */
 describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
 
@@ -1082,11 +997,8 @@ describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () =
   })
 
   test('deleteSite broadcasts reloadSites after refreshing this instance', async () => {
-    // -> Inserted directly rather than through `createSite()` (which also seeds a root navigation
-    //    row, comment providers, storage, ...) — `deleteSite()` cleans all of that up fine now
-    //    (OpenProject #1733), this is just kept minimal so the test isolates exactly what it's meant
-    //    to check: the broadcast, not the cleanup that `sites.deleteSite (DB-backed)` above already
-    //    covers.
+    // -> Inserted directly rather than through `createSite()`, so this isolates the broadcast
+    //    rather than re-covering the cleanup the `deleteSite` suite above already does.
     const hostname = `broadcast-delete-${randomBytes(6).toString('hex')}.localhost`
     const [created] = await fixtures.db
       .insert(sitesTable)
@@ -1119,12 +1031,10 @@ describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () =
 })
 
 /**
- * OpenProject #2140: `reloadCache()` used to key `CARDINAL.sitesMappings` exactly as `hostname` was
- * stored, and every lookup indexed it with `req.hostname` exactly as received — so a client or proxy
- * that preserved `Host` case (`Wiki.Example.Com`) missed a site stored as `wiki.example.com` and fell
- * through to the catch-all, or to not-found with none configured. Both sides now go through
- * `normalizeHostname()` (`helpers/siteResolution.ts`). No `CARDINAL.db`/database needed for any of this: each
- * test installs its own minimal `CARDINAL` stub, restored afterward.
+ * Both sides fold case through `normalizeHostname()` (`helpers/siteResolution.ts`) — the cache keys
+ * `reloadCache()` writes and the hostname every lookup is handed — so a client or proxy that
+ * preserves `Host` case still resolves. No database: each test installs its own minimal `CARDINAL`
+ * stub, restored afterward.
  */
 describe('sites hostname normalization (pure unit)', () => {
   let previousWiki: any
@@ -1224,9 +1134,8 @@ describe('sites hostname normalization (pure unit)', () => {
 })
 
 /**
- * OpenProject #1849: `setAsset` writes the sha1 of the exact (normalized-or-raw) bytes it stores, and
- * `getAssetHash` reads it back without touching `data`. This round-trips the real write path against
- * a migrated database rather than re-describing its SQL.
+ * The stored hash is the sha1 of the exact bytes `setAsset` ends up writing — normalized or raw,
+ * whichever it stored — and `getAssetHash` reads it back without touching `data`.
  */
 describe('sites.setAsset / getAssetHash (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -1294,11 +1203,9 @@ describe('sites.setAsset / getAssetHash (DB-backed)', { skip: !hasTestDatabase()
 })
 
 /**
- * OpenProject #1849: `getAssetHash` exists specifically so a conditional site-asset request never
- * pulls the blob out of the database. A real Postgres round trip only proves the returned value is
- * correct, not that the column list sent to it actually shrank — so this spies on `CARDINAL.db.select`
- * instead, following the precedent set by `models/pages.test.ts`'s `getPage selection (pure unit,
- * OpenProject #1834)` describe block.
+ * `getAssetHash` exists so a conditional site-asset request never pulls the blob out of the
+ * database. A real Postgres round trip only proves the returned value is correct, not that the
+ * column list sent to it actually shrank, so this spies on `CARDINAL.db.select` instead.
  */
 describe('getAssetHash selection (pure unit, OpenProject #1849)', () => {
   let previousWiki: typeof globalThis.CARDINAL

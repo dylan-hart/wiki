@@ -1,18 +1,9 @@
 /**
- * The two hang ceilings on `package.json`'s test scripts (OpenProject #2927).
- *
- * CI run 34434314694 (PR #61) printed its last backend test result, then nothing for 27 minutes
- * until the job's 30-minute `timeout-minutes` killed it -- no failing test named, no stack, nothing
- * to bisect from. Two things about `node --test` make that the default outcome of any wedge: it has
- * no per-test timeout unless `--test-timeout` says so, and it waits for each test-file child process
- * to exit, so a file whose tests all passed but which left a handle alive (a worker thread a pool
- * teardown did not reap, say) holds the whole run open with nothing left to report. Both were
- * reproduced against fixtures on the pinned Node before the flags were added; the second is
- * re-proven live below, since it is the one Node's own docs are quietest about.
- *
- * Co-located with `package.json` the way `base.test.ts` sits beside `base.yml`: the scripts are
- * the subject, and there is nothing in `test/` they belong next to instead. This is the "Bounded
- * test time" half of the settled testing policy (see also "Bounded test concurrency").
+ * The two hang ceilings on `package.json`'s test scripts. Without them a wedged run dies silently
+ * at the job's `timeout-minutes` with no test named: `node --test` has no per-test timeout unless
+ * `--test-timeout` says so, and it waits for each test-file child process to exit, so a file whose
+ * tests all passed but which left a handle alive (a worker thread a pool teardown did not reap,
+ * say) holds the whole run open with nothing left to report.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -38,20 +29,18 @@ const QUALITY = load(
 const RUNNER_SCRIPTS = ['test', 'test:flaky'] as const
 
 /**
- * The slowest single suite on record, `userCredentials recovery codes (DB-backed)` at 112s in CI
- * run 34426049890 -- real bcrypt at `BCRYPT_ROUNDS`, under `--test-concurrency=4` on a 4-vCPU
- * runner. `--test-timeout` binds each suite over ALL its subtests (verified: it does not bind a
- * file's root), so the ceiling has to clear this with room for a slow runner, or the hang detector
- * becomes a new source of red trunk.
+ * `userCredentials recovery codes (DB-backed)` as measured in CI: real bcrypt at `BCRYPT_ROUNDS`,
+ * under `--test-concurrency=4` on a 4-vCPU runner. `--test-timeout` binds each suite over ALL its
+ * subtests (it does not bind a file's root), so the ceiling has to clear this with room for a slow
+ * runner, or the hang detector becomes a new source of red trunk.
  */
 const SLOWEST_SUITE_ON_RECORD_MS = 112_000
 const SLOWEST_SUITE_MARGIN = 2
 
 /**
- * What the gate job's backend tests step costs when nothing hangs: 11m22s for the whole job in
- * run 34426049890, rounded up. A ceiling only helps if a hang reported at the ceiling still leaves
- * the rest of the job inside `timeout-minutes` -- otherwise the job is killed exactly as before,
- * just with a named test somewhere in a log nobody gets to read.
+ * What the whole gate job costs when nothing hangs, rounded up. A hang reported at the ceiling has
+ * to leave the rest of the job inside `timeout-minutes`, or the job is killed as before, with the
+ * named test in a log nobody gets to read.
  */
 const JOB_BASELINE_MS = 12 * 60_000
 
@@ -60,7 +49,6 @@ function testTimeoutMs(script: string): number | undefined {
   return match ? Number(match[1]) : undefined
 }
 
-/** The `quality.yml` job that runs `npm run test` from `backend/`, by its own steps. */
 function gateJob() {
   const entry = Object.entries(QUALITY.jobs).find(([, job]) =>
     job.steps.some(
@@ -107,10 +95,8 @@ describe('package.json test scripts carry the two hang ceilings (OpenProject #29
   })
 
   /**
-   * The live half: `--test-force-exit` really does end a child whose tests passed but whose event
-   * loop a worker thread is keeping alive. Without the flag this same spawn never returns (it is
-   * how the flag was chosen); `spawnSync`'s own `timeout` is the safety net, and a kill by it is
-   * reported as the failure it would be.
+   * Without the flag this same spawn never returns. `spawnSync`'s own `timeout` is the safety net,
+   * and a kill by it is reported as the failure it would be.
    */
   test('--test-force-exit ends a test file that leaves a worker thread alive', () => {
     const fixture = path.join(BACKEND_ROOT, 'test/fixtures/leakedWorkerHandle.ts')

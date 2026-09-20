@@ -7,20 +7,10 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 import { resolvePageRule, type RulePageRef } from '../../helpers/pageRules.ts'
 import type { GroupRule } from '../../models/groups.ts'
 
-/**
- * Task 601: `GET /sites/:siteId/pages/:pageIdOrHash` — the page-read route — must carry a real
- * `commentsCount` alongside `allowComments`, so the frontend's dead `commentsCount` store field
- * (`frontend/src/stores/page.js`) has something to hold once a page is fetched.
- *
- * Only that route is exercised here. The other handlers touching the `Page#` response schema
- * (create/update/unlock) are unaffected by this task and are left alone, matching the task's own
- * scope note.
- */
 describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
   const PAGE_ID = '22222222-2222-2222-2222-222222222222'
 
-  /** Minimal stand-in for what `CARDINAL.models.pages.getPage` hands back — nothing the route inspects. */
   function makeFakePage(overrides: Record<string, unknown> = {}) {
     return {
       id: PAGE_ID,
@@ -48,7 +38,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
           getPage: async () => makeFakePage()
         },
         groups: {
-          // -> Grants every check, so the route reaches the response body under test
           actorForRequest: () => ({ permissions: [] }),
           checkAccess: () => true,
           groupIdsForRequest: () => []
@@ -70,9 +59,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
             return countForPageResult
           }
         },
-        // -> `checkAccess` above grants everything, `read:history` included, so the page read reaches
-        //    the revision summary (OpenProject #2651). Its value is not what this suite is about;
-        //    `read.revision.test.ts` owns that.
+        // -> `checkAccess` grants `read:history` too, so the read reaches the revision summary.
         pageHistory: {
           revisionSummary: async () => ({ ordinal: 1 })
         }
@@ -83,8 +70,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
   let app: FastifyInstance
 
   before(async () => {
-    // -> No `wiki` here: `stubWiki()` installs a fresh one per test, and this app has to run
-    //    against whichever is current.
+    // -> No `wiki` here: `stubWiki()` installs a fresh one per test.
     app = await buildTestApp({ routes: pagesRoutes })
   })
 
@@ -124,19 +110,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
   })
 })
 
-/**
- * Task 602 regression coverage for `pages.ts`, the file this task's TDD change actually lands in:
- *
- * 1. `relations` and `toc` used to be `{ type: 'object', additionalProperties: true }` — accurate to
- *    nothing in particular. Both have exactly one producer (`PageRelationDialog.vue` for relations,
- *    `rendering.ts`'s `anchorHeadings`/`nestHeadings` for toc) with a fixed shape, so they are now
- *    `PageRelation#` / `PageTocNode#`. The first block below proves the tightened schema is not just
- *    documentation: fast-json-stringify silently drops a field the schema doesn't declare, so a
- *    response carrying one is proof the schema is actually narrower than before.
- * 2. `GET /sites/:siteId/pages/:pageIdOrHash` can reply 403 and 404 (`mayOnPage` / `getPage` returning
- *    null) but declared neither. The second block proves both are now declared AND that what the
- *    handler actually sends on those paths validates against the declared `ApiError` schema.
- */
 describe('pages API — response schema completeness (task 602)', () => {
   const samplePage = {
     id: '11111111-1111-1111-1111-111111111111',
@@ -162,8 +135,6 @@ describe('pages API — response schema completeness (task 602)', () => {
         label: 'Next',
         icon: 'la:arrow-left',
         target: '/bar',
-        // -> Not part of `PageRelation`'s declared properties: proves the schema is enforced, not
-        //    merely descriptive, since it must NOT survive serialization.
         bogusField: 'should be stripped'
       }
     ],
@@ -220,9 +191,7 @@ describe('pages API — response schema completeness (task 602)', () => {
         comments: {
           countForPage: async () => 0
         },
-        // -> `checkAccess` above grants everything, `read:history` included, so the page read reaches
-        //    the revision summary (OpenProject #2651). Its value is not what this suite is about;
-        //    `read.revision.test.ts` owns that.
+        // -> `checkAccess` grants `read:history` too, so the read reaches the revision summary.
         pageHistory: {
           revisionSummary: async () => ({ ordinal: 1 })
         }
@@ -239,7 +208,6 @@ describe('pages API — response schema completeness (task 602)', () => {
 
   after(() => closeTestApp(app))
 
-  /** Follows a `$ref` (however `@fastify/swagger` named the component) to the schema it points at. */
   function resolveRef(doc: any, schema: any): any {
     if (!schema?.$ref) return schema
     const name = schema.$ref.replace('#/components/schemas/', '')
@@ -292,13 +260,7 @@ describe('pages API — response schema completeness (task 602)', () => {
     assert.deepEqual(body.toc[0], { key: 'h-intro', label: 'Intro', level: 1, children: [] })
   })
 
-  /**
-   * OpenProject #2232: `pages.password` now stores a one-way `bcrypt` verifier, and the point of
-   * that is defeated if the API still hands the value back to whoever may edit the page. The `Page`
-   * response schema has no `password` property any more — only `hasPassword` — so even a model that
-   * (bug, or a future regression re-adding the field) put a raw `password` on the object would be
-   * stripped by response serialization before it ever reached a client. This proves the whole path.
-   */
+  // -> The `Page` response schema declares no `password`, so serialization strips it.
   test('GET single page never returns a password field, even if the model handed one back', async () => {
     mayOnPageResult = true
     getPageResult = { ...samplePage, password: 'should-never-be-sent', hasPassword: true }
@@ -338,22 +300,6 @@ describe('pages API — response schema completeness (task 602)', () => {
   })
 })
 
-/**
- * Regression test for `GET /_api/sites/:siteId/pages/:pageIdOrHash`'s `withContent=true` path:
- * `PAGE_PERMISSIONS` in `pages.ts` declares `read:source`, but only `read:pages` was ever checked
- * before returning the raw `content` field — so a reader granted `read:pages` but not `read:source`
- * (a group that may see a page but not its markdown, e.g. one meant only to browse the rendered
- * result) could pull the source anyway by asking for `withContent=true`. Fixed by checking
- * `read:source` too, but only when content was actually requested — the plain page view (`render`
- * only) needs no more than `read:pages`, exactly as before.
- *
- * `CARDINAL.models.groups.actorForRequest` / `checkAccess` are stubbed to a minimal permission set
- * carried on the test session (`testPagePermissions`) rather than pulling in the real page-rules
- * resolver — this is a route-wiring test, not a `helpers/pageRules.ts` test (see
- * `helpers/pageRules.test.ts` for that). `CARDINAL.models.pages.getPage` is stubbed to hand back
- * `content` exactly when asked, mirroring the real model's `withContent` contract, so the test
- * would fail the same way the bug did if the route stopped checking `read:source`.
- */
 describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:source', () => {
   const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   const AUTHOR_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
@@ -418,9 +364,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
 
   before(async () => {
     const wiki = {
-      // -> `recordPageview()`'s isEnabled gate (OpenProject #2251) reads this; on, matching this
-      //    fixture's pre-existing unconditional pageview stub, since pageviews are not what this
-      //    describe block is testing.
       config: { pageviews: { isEnabled: true } },
       models: {
         pages: { getPage },
@@ -435,8 +378,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
         },
         pageWatching: { isWatching: async () => false },
         comments: { countForPage: async () => 0 },
-        // -> The route's best-effort pageview logging (OpenProject #1238) -- a no-op stub, since
-        //    this suite is about the read:source gate, not pageviews.
         pageviews: { record: async () => {} }
       },
       sites: {}
@@ -465,11 +406,8 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
   }
 
   /*
-    An anonymous caller: `authenticated: false` (so `actorFrom()` — which only reads
-    `session.authenticated` — returns null, exactly as a request with no session at all would) while
-    still carrying `testPagePermissions`, since `actorForRequest`/`checkAccess` above (this suite's
-    stand-in for the guests group's own rules) do not key off `authenticated` at all — mirroring how
-    `mayOnPage()` checks a real anonymous caller's rules against the guests group in production.
+    Anonymous: `authenticated: false` makes `actorFrom()` return null, while `testPagePermissions`
+    stands in for the guests group's rules, which `mayOnPage()` checks for an anonymous caller.
   */
   function anonymousSessionHeader(pagePermissions: string[]) {
     return {
@@ -514,8 +452,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
     assert.equal(res.json().content, RAW_CONTENT)
   })
 
-  // -> OpenProject #3391/#3411: `write:pages` alone (no `read:source`) is enough to open the editor
-  //    -- `mayReadSource()` folds it in, since an editor who cannot read the source cannot edit it.
+  // -> `mayReadSource()` folds `write:pages` in: an editor must be able to read what it edits.
   test('read:pages plus write:pages, with no read:source, is allowed withContent=true', async () => {
     const res = await app.inject({
       method: 'GET',
@@ -535,12 +472,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
     assert.equal(res.statusCode, 403)
   })
 
-  /*
-    OpenProject #3383: `wantsContent` used to also require `Boolean(actor)`, so an anonymous caller's
-    `withContent=true` silently became `withContent=false` before the `read:source` check ever ran —
-    a 200 with the source withheld, rather than the 403 a signed-in caller lacking the same grant
-    gets. These two mirror the signed-in `read:pages`(+`read:source`) cases above, anonymously.
-  */
   test('anonymous with read:pages and read:source (guests) is allowed withContent=true', async () => {
     const res = await app.inject({
       method: 'GET',
@@ -563,21 +494,9 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
 })
 
 /**
- * Regression test for OpenProject #2251: `recordPageview()` in `pages.ts` used to write
- * `req.session.pageViewed = true` for every anonymous browser read unconditionally -- deliberately,
- * to defeat `saveUninitialized: false` so a returning anonymous reader is not miscounted as new --
- * *before* calling `CARDINAL.models.pageviews.record()`, whose own `isEnabled` guard lives in
- * `models/pageviews.ts`. That meant disabling pageview tracking still minted a session (and the
- * `Set-Cookie` + permanent `sessions` row that comes with it) for every anonymous page read; only the
- * `pageviews` insert itself stopped.
- *
- * This suite has no real `@fastify/session` plugin registered (see the other describes' own doc
- * comments for why), so it cannot observe an actual `Set-Cookie` header. What it CAN observe -- and
- * what is the exact mechanism that decides whether `@fastify/session` would emit one -- is whether
- * the route touches the session object at all: a session `@fastify/session` never sees written to
- * stays uninitialized and is never persisted or cookied. The `onRequest` hook below always attaches
- * an empty `session` object up front, mirroring what the real plugin lazily provides to every
- * request (including an anonymous one) before any handler runs.
+ * No real `@fastify/session` is registered, so no `Set-Cookie` can be observed. What decides
+ * whether the plugin would mint a session is whether the route writes to the session object at all
+ * (an untouched one stays uninitialized under `saveUninitialized: false`), so that is asserted.
  */
 describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write respects isEnabled (OpenProject #2251)', () => {
   const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -621,8 +540,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write resp
     }
   }
 
-  // -> Every anonymous reader is granted `read:pages` -- what is under test here is the pageview
-  //    session write, not page-rule resolution (covered by `helpers/pageRules.test.ts`).
   function actorForRequest() {
     return { permissions: [] as string[], pagePermissions: ['read:pages'] }
   }
@@ -662,8 +579,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write resp
     }
 
     const wrappedRoutes: FastifyPluginAsync = async (instance) => {
-      // -> Captured post-handler so the test can assert on the exact object the route wrote to,
-      //    without needing a real `@fastify/session` plugin to serialize/cookie it.
       instance.addHook('onResponse', async (req: any) => {
         capturedSession = req.session
       })
@@ -706,25 +621,9 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write resp
   })
 })
 
-/**
- * Regression test for `GET .../pages/alias/:alias` (feature 357, task 446).
- *
- * `Pages.getPathFromAlias()` used to select only `{ id, path }`, so this route's
- * `mayOnPage(req, 'read:pages', { path: target.path })` never saw a locale or any tags — a
- * locale- or tag-scoped page rule could never be evaluated for a page reached through its alias,
- * only a path-based one, silently. Fixed by selecting `locale`/`tags` too (`models/pages.ts`) and
- * threading both through into the `mayOnPage` call (`api/pages/read.ts`).
- *
- * `CARDINAL.models.groups.checkAccess` is wired to the real `resolvePageRule` from `helpers/pageRules.ts`
- * rather than a canned true/false, so a passing test here proves the actual rule-matching mechanism
- * sees the tags this route now passes through — not just that some stub was called with the right
- * shape. `CARDINAL.models.pages.getPathFromAlias` is stubbed to stand in for the (separately, DB-backed,
- * tested in `models/pages.test.ts`) fixed model method.
- */
 describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page rule (task 446)', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
-  // -> Tagged both 'public' (generally readable) and 'confidential' (specifically restricted), so the
-  //    two rules below only disagree because of the tags this route now passes through.
+  // -> Tagged for both rules below, so they disagree only through the tags the route passes on.
   const ALIAS_TARGET = {
     id: 'page-1',
     path: 'engineering/roadmap',
@@ -735,7 +634,6 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
   let app: FastifyInstance
   let rules: GroupRule[]
 
-  /** Grants read access to anything tagged 'public' — the baseline, page-context-independent ALLOW. */
   const allowPublic: GroupRule = {
     id: 'allow-public',
     name: 'Allow public',
@@ -769,7 +667,7 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
         },
         groups: {
           actorForRequest: () => ({ groupIds: ['fixture-group'], permissions: [] }),
-          // -> The real rule-matching engine, not a stub answer — see file header.
+          // -> The real rule engine, so a pass proves the route's locale/tags reach rule matching.
           checkAccess: (_actor: unknown, permission: string, page: RulePageRef) => {
             const rule = resolvePageRule(rules, permission, page)
             return rule ? rule.mode !== 'DENY' : false
@@ -792,8 +690,6 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
   })
 
   test('an alias-resolved read is allowed when only a TAG rule grants it', async () => {
-    // -> Baseline: with no DENY in play, the tags the route now passes through are what let this
-    //    TAG-scoped ALLOW rule fire at all (it cannot match without them).
     rules = [allowPublic]
 
     const res = await app.inject({
@@ -802,16 +698,11 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
     })
 
     assert.equal(res.statusCode, 200)
-    // -> The response schema publishes `id`/`path`/`locale` — `tags` is for the permission check
-    //    only and is not part of the wire response.
+    // -> `tags` feeds the permission check only; the response schema omits it.
     assert.deepEqual(res.json(), { id: 'page-1', path: 'engineering/roadmap', locale: 'en' })
   })
 
   test('a TAG-scoped DENY rule is honored on an alias-resolved read', async () => {
-    // -> Both rules match this page (tagged 'public' AND 'confidential'); equal specificity and match
-    //    type means the DENY wins the tiebreak. Reachable only because the route now threads
-    //    `target.tags` into `mayOnPage` — before the fix, neither TAG rule could ever match at all,
-    //    since `page.tags` was always empty.
     rules = [allowPublic, denyConfidential]
 
     const res = await app.inject({
@@ -819,17 +710,11 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
       url: `/sites/${SITE_ID}/pages/alias/roadmap-alias`
     })
 
-    // -> Resolving an alias the caller may not read answers 404, identically to an alias that does
-    //    not exist at all — see the route's own comment.
+    // -> 404, not 403: an unreadable alias is indistinguishable from a missing one.
     assert.equal(res.statusCode, 404)
   })
 })
 
-/**
- * Route-level test for `GET /sites/:siteId/pages/:pageId/translations` (OpenProject #1026): the
- * query the move/rename dialog uses to decide whether to offer `includeTranslations` at all, and
- * how many. Gated on `manage:pages` on the page -- the same permission actually moving it needs.
- */
 describe('GET /sites/:siteId/pages/:pageId/translations', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
@@ -896,20 +781,12 @@ describe('GET /sites/:siteId/pages/:pageId/translations', () => {
 })
 
 /**
- * Regression test for bug #949 / task 995: `POST .../pages/userPermissions` used to default the
- * ref's locale to the site primary unconditionally (task 4's interim), so a caller asking about a
- * path in a non-primary locale got the PRIMARY locale's rule answer instead of the real one — rules
- * now fail closed on locale (`RulePageRef` requires it), so the wrong locale silently returns the
- * wrong permissions rather than erroring. The body now takes an explicit `locale`, which the frontend
- * threads through from the (path, locale) pair `Index.vue`'s route watcher already computed.
- *
- * `CARDINAL.models.groups.checkAccess` is wired to the real `resolvePageRule`, so a passing test proves
- * the locale in the request body is what reaches the rule engine — not just that some stub saw it.
+ * `checkAccess` is wired to the real `resolvePageRule`, so a pass proves the body's locale is what
+ * reaches the rule engine.
  */
 describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 995)', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
 
-  /** Grants write:pages only in `fr` — the rule the locale param exists to let a caller reach. */
   const writeFrench: GroupRule = {
     id: 'write-fr',
     name: 'Write French',
@@ -934,8 +811,7 @@ describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 9
             return rule ? rule.mode !== 'DENY' : false
           }
         },
-        // -> OpenProject #3409: `userPermissions` now resolves the page server-side first, to read its
-        //    stored tags -- no page exists at `x` in this fixture, so this stands in as "not found".
+        // -> The route looks the page up for its stored tags; none exists at `x`.
         pages: {
           getPage: async () => null
         }
@@ -986,16 +862,9 @@ describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 9
   })
 })
 
-/**
- * OpenProject #3409: `POST .../pages/userPermissions` used to never pass `tags` at all, so a
- * TAG/TAGALL rule could never grant a permission through this route. It now resolves the page
- * server-side (by path/locale) and reads its STORED tags -- never a client-posted `tags` field,
- * which the route's body schema does not even accept.
- */
 describe('POST /sites/:siteId/pages/userPermissions — tags (OpenProject #3409)', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
 
-  /** Grants read:pages to any page carrying the `secret` tag. */
   const readSecretTag: GroupRule = {
     id: 'read-secret-tag',
     name: 'Read Secret Tag',
@@ -1009,7 +878,6 @@ describe('POST /sites/:siteId/pages/userPermissions — tags (OpenProject #3409)
   }
 
   let app: FastifyInstance
-  /** What `pages.getPage` answers -- each test sets its own stored page (or none). */
   let storedPage: { tags: string[]; classification: string | null } | null
 
   before(async () => {
@@ -1066,8 +934,6 @@ describe('POST /sites/:siteId/pages/userPermissions — tags (OpenProject #3409)
     const res = await app.inject({
       method: 'POST',
       url: `/sites/${SITE_ID}/pages/userPermissions`,
-      // -> `tags` is not part of the request schema at all; posting it anyway must not smuggle a
-      //    grant the real stored page (no tags) would never earn.
       payload: { path: 'x', locale: 'en', tags: ['secret'] }
     })
     assert.equal(res.statusCode, 200)

@@ -5,8 +5,7 @@
         <w-icon name="tabler:x" size="sm" class="me-2" />
         <span>{{ t(`inbox.reviewDecline`) }}</span>
       </w-card-section>
-      <!-- -> `pb-0`: the field below adds its own margin for the floating label, matching
-           `PageReasonForChangeDialog.vue`'s spacing -->
+      <!-- -> `pb-0`: the field below adds its own margin for the floating label -->
       <w-card-section class="pb-0">
         <div class="text-body2">{{ t(`inbox.reviewDeclineConfirm`) }}</div>
       </w-card-section>
@@ -45,40 +44,23 @@ import { reactive, ref } from 'vue'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 
-/**
- * The decline confirmation, with an optional reason -- shown back to the suggestion's author once
- * this reviewer's decline lands (`models/approvals.ts#rejectSubmission`'s `resolvedReason`). Modeled
- * on `PageReasonForChangeDialog.vue`: same layout, same optional-textarea shape, but for decline
- * rather than a save.
- */
-
-// EMITS
+/** The optional reason is shown back to the suggestion's author once the decline lands. */
 
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptReason.value
 })
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   reason: ''
 })
 
-// REFS
-
 const iptReason = ref(null)
 
-// METHODS
-
-/** Trimmed and emptied to null rather than an empty string -- what the reject route's body expects. */
+/** `null` rather than an empty string -- what the reject route's body expects. */
 function commit() {
   onDialogOK({ reason: state.reason.trim() || null })
 }

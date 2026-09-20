@@ -3,11 +3,9 @@ import { nextTick, onMounted, ref } from 'vue'
 import { anchoredPosition } from '@/composables/anchoredPosition'
 
 /**
- * The glue both teleported floating elements need — `WMenu` and `WTooltip`.
- *
- * Each leaves a hidden placeholder `<span>` at its own position in the tree and teleports its real
- * panel to `<body>`; this owns the two things that follow from that shape: finding the control the
- * placeholder stands beside, and placing the panel against it through `anchoredPosition()`.
+ * A teleported floating element leaves a hidden placeholder `<span>` at its own position in the
+ * tree and teleports its real panel to `<body>`; this owns the two things that follow from that
+ * shape: finding the control the placeholder stands beside, and placing the panel against it.
  *
  * @param {object} options
  * @param {import('vue').Ref<Element|null>} options.placeholderEl The hidden marker's ref.
@@ -17,9 +15,9 @@ import { anchoredPosition } from '@/composables/anchoredPosition'
  * @param {() => string} options.self The matching point on the panel.
  * @param {() => [number, number]} [options.offset] Extra `[x, y]` displacement.
  * @param {(floatEl: Element, triggerEl: Element) => DOMRect|void} [options.beforeMeasure] Run just
- *   before measuring, for a caller that has to size the panel first (`WMenu`'s `fit`/`maxHeight`).
- *   May return a rect to place against instead of the trigger's own — which is how a context menu
- *   opens at the pointer rather than at the element.
+ *   before measuring, for a caller that has to size the panel first. May return a rect to place
+ *   against instead of the trigger's own — which is how a context menu opens at the pointer rather
+ *   than at the element.
  * @returns {{ triggerEl: import('vue').Ref<Element|null>, floatStyle: import('vue').Ref<object>,
  *   reposition: () => Promise<void> }}
  */
@@ -34,18 +32,17 @@ export function useAnchoredFloat({
 }) {
   const triggerEl = ref(null)
   /*
-    `left`/`top` here are raw viewport pixels from `anchoredPosition()`'s own bounding-rect math,
-    not a CSS gutter -- reviewed under OpenProject #1590's physical-positioning triage and left
-    physical: making the `anchor`/`self` corner keywords ("top left", "bottom right", …)
-    direction-aware is a redesign of that whole API, not a mechanical swap.
+    `left`/`top` are raw viewport pixels from `anchoredPosition()`'s bounding-rect math, not a CSS
+    gutter, so they stay physical rather than logical: making the `anchor`/`self` corner keywords
+    ("top left", "bottom right", …) direction-aware is a redesign of that whole API.
   */
   const floatStyle = ref({ left: '0px', top: '0px' })
 
   onMounted(() => {
     /*
-      Climb to the real control rather than stopping at the immediate parent. WBtn wraps its slot in
-      an inner <span> (so the label can be hidden while loading), so the naive parent would be that
-      span -- and clicking the button's padding, which is outside it, would do nothing.
+      Climb to the real control rather than stopping at the immediate parent: WBtn wraps its slot in
+      an inner <span>, so the naive parent would be that span -- and clicking the button's padding,
+      which is outside it, would do nothing.
     */
     const host = placeholderEl.value?.parentElement ?? null
     triggerEl.value = host?.closest(closest) ?? host

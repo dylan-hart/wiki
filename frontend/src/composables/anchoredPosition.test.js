@@ -2,11 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { anchoredPosition } from './anchoredPosition'
 
-/**
- * `WMenu.vue:179` delegates its own positioning to this function, so it is the purer unit to pin
- * directly — a `WMenu` positioning test would mostly just re-assert this instead.
- */
-
 function stubViewport(width, height) {
   vi.stubGlobal('innerWidth', width)
   vi.stubGlobal('innerHeight', height)

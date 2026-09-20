@@ -4,9 +4,6 @@ import './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-/**
- * Appends a `<block-media-player>` with `src` set, and waits for Lit's first render.
- */
 const mountPlayer = (src) =>
   mountBlock('block-media-player', { props: src === undefined ? {} : { src } })
 
@@ -72,8 +69,8 @@ describe('block-media-player', () => {
   it('sets an error message when the source fails to load', async () => {
     const el = await mountPlayer('/files/missing.mp4')
     // -> A failed <source> candidate fires `error` at the source element itself, per the HTML
-    // resource-selection algorithm — it does not bubble to the media element. Reproduce that here
-    // rather than dispatching on `.media-display`, which passed even before the handler was moved.
+    // resource-selection algorithm — it does not bubble to the media element, so dispatching on
+    // `.media-display` would not exercise the real path.
     const source = el.shadowRoot.querySelector('source')
 
     source.dispatchEvent(new Event('error'))

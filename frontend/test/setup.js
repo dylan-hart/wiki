@@ -11,17 +11,14 @@ import { createApiClientStub } from './mocks.js'
 import { ledgerTokenCss } from './tokens.js'
 
 /*
-  The Ledger half of the design-token layer, installed once for the whole run.
+  Component stylesheets read their colours, radii and shadows through custom properties, and
+  neither `happy-dom` nor the real Chromium these suites drive builds `css/tailwind.css` -- without
+  the properties declared somewhere, every `var()` computes to nothing and a `.body--dark` override
+  written with one silently stops overriding, so a suite comparing light against dark reads the
+  same value twice and passes or fails for the wrong reason.
 
-  Component stylesheets read their colours, radii and shadows through custom properties rather than
-  literals -- that indirection IS the aesthetic system (`ui-redesign-cobalt/HANDOFF.md`) -- and
-  neither `happy-dom` nor the real Chromium these suites drive builds `css/tailwind.css`. Without
-  the properties declared somewhere, every one of those `var()`s computes to nothing, and a
-  `.body--dark` override written with one silently stops overriding: a suite comparing light against
-  dark then reads the same value twice and passes or fails for the wrong reason.
-
-  Ledger's values, because Ledger is the default aesthetic; a suite asserting Cobalt's own value
-  reads it with `tokenValue(name, 'cobalt')` rather than swapping what is installed here.
+  Ledger is the default aesthetic; a suite asserting Cobalt's own value reads it with
+  `tokenValue(name, 'cobalt')` rather than swapping what is installed here.
 */
 const tokenStyle = document.createElement('style')
 tokenStyle.id = 'design-tokens'
@@ -29,87 +26,57 @@ tokenStyle.textContent = ledgerTokenCss()
 document.head.appendChild(tokenStyle)
 
 /**
- * `Temporal` is native from Node 26 (this repo's engine requirement) but this sandbox runs Node
- * 25.9, which lacks it -- loaded the same way `src/boot/temporal.js` lazily polyfills it for
- * pre-Temporal Safari, except eagerly here since a test can reach `stores/user.js`'s date formatting
- * before anything else would trigger the boot check. A no-op on a real Node 26 runtime.
+ * Eager, unlike `src/boot/temporal.js`'s lazy polyfill, since a test can reach `stores/user.js`'s
+ * date formatting before the boot check would fire.
  *
  * The `/global` entry point, not the plain `temporal-polyfill` export: it also patches
- * `Intl.DateTimeFormat` to accept Temporal types (`Intl.DateTimeFormat.prototype.format(zoned.
- * toPlainDateTime())`, what `stores/user.js`'s hoisted formatters call) -- exactly what
- * `src/boot/temporal.js` loads in the real app, so a test sees the same runtime shape production
- * does rather than a Temporal that formats but can't be formatted.
+ * `Intl.DateTimeFormat` to accept Temporal types, which `stores/user.js`'s hoisted formatters
+ * call, so a test is not left with a Temporal that formats but cannot be formatted.
  */
 if (typeof Temporal === 'undefined') {
   await import('temporal-polyfill/global')
 }
 
 /*
-  The `w-*` library is registered globally in the real app by `boot/components.js`, via the same
-  `sharedComponents` map -- so every mounted component here sees `<w-icon>` / `<w-btn>` / ... resolve
-  exactly as it does at runtime, with no per-test import list to keep in sync as components are added.
+  The same `sharedComponents` map `boot/components.js` registers in the real app, so a mounted
+  component resolves `<w-icon>` / `<w-btn>` / ... exactly as it does at runtime, with no per-test
+  import list to keep in sync as components are added.
 */
 config.global.components = { ...config.global.components, ...sharedComponents }
 
 /*
-  `boot/components.js` registers three more globals alongside that library, and they were reached for
-  under test the same inconsistent way: 12 suites registered the real `BlueprintIcon` through
-  `global.components`, 7 replaced it with `stubs: { BlueprintIcon: true }`, and `AdminLayout.test.js`
-  registered `StatusLight` by hand -- so the same component rendered two different ways depending on
-  which file you were reading, and `AdminGeneral.test.js:50` carried a comment explaining that its
-  per-file registration existed only to reproduce the app's global one. Registering all three here,
-  from the same imports `boot/components.js` uses, makes a mounted component see exactly what the app
-  renders with nothing to opt into; the assertions that had been written against the
-  `<blueprint-icon-stub />` placeholder read the real avatar markup instead.
+  The three more globals `boot/components.js` registers alongside that library, so no suite needs
+  to register or stub them itself.
 */
 config.global.components.BlueprintIcon = BlueprintIcon
 config.global.components.LoadingGeneric = LoadingGeneric
 config.global.components.StatusLight = StatusLight
 
 /*
-  `API_CLIENT` and `EVENT_BUS` exist nowhere outside `boot/*` (see `src/boot/api.js`,
-  `src/boot/eventbus.js`) -- a component or store importing neither still reads them as bare globals,
-  so a test that reaches one without this would throw `ReferenceError`, not a useful failure.
+  `API_CLIENT` and `EVENT_BUS` are read as bare globals outside `boot/*`, so a component or store
+  reaching one without this throws `ReferenceError` rather than a useful failure.
 
-  Rebuilt before EVERY test rather than once per file: `API_CLIENT`'s methods are `vi.fn()`s a test
-  configures with `mockReturnValueOnce` / `mockImplementationOnce`, and `EVENT_BUS` is a real `mitt()`
-  emitter a test can subscribe to -- both would otherwise leak call history and listeners into the
-  next test in the same file.
+  Rebuilt before EVERY test rather than once per file: mock call history and `mitt` listeners would
+  otherwise leak into the next test in the same file.
 */
 beforeEach(() => {
   globalThis.API_CLIENT = createApiClientStub()
   globalThis.EVENT_BUS = mitt()
-  // Plain assignment (`globalThis.localStorage = ...`) throws under Vitest 5 --
-  // `TypeError: Cannot set property localStorage of #<GlobalWindow> which has only a getter`.
-  // happy-dom's `Window.prototype.localStorage` has always been a getter-only accessor, matching a
-  // real browser's `window.localStorage` (also unassignable there); Vitest 4 ran test code against a
-  // plain object with happy-dom's properties copied on as writable data properties, so the accessor
-  // was never in the assignment's path. Vitest 5 runs test code against happy-dom's own Window
-  // object directly, so the real accessor is now what `globalThis` resolves to. `defineProperty`
-  // redefines the property outright rather than invoking its (absent) setter, which works
-  // regardless of which of the two global shapes is in play.
+  // happy-dom's `Window.prototype.localStorage` is a getter-only accessor, as a real browser's is,
+  // so a plain assignment throws; `defineProperty` redefines the property outright instead.
   Object.defineProperty(globalThis, 'localStorage', {
     value: createLocalStorageStub(),
     writable: true,
     configurable: true
   })
-  // Ignores `contextId` and always returns the 2D stub below, including for a `'webgl'` request --
-  // harmless today since `Graph.vue` is the only component under test that touches a canvas at all.
+  // Ignores `contextId`: a `'webgl'` request gets the 2D stub too.
   HTMLCanvasElement.prototype.getContext = createCanvasContext2dStub
 })
 
 /**
- * happy-dom's `HTMLCanvasElement.prototype.getContext` returns `null` by default -- no 2D canvas
- * backend is implemented. `Graph.vue`'s (`src/pages/Graph.vue`) `sizeCanvas()`/`redraw()`/
- * `drawEdges()`/`drawClusterHulls()`/`drawNodes()`/`drawLabels()` call a fixed set of 2D context
- * methods and settable properties; this stub is a minimal object covering exactly that set (no-op
- * apart from `measureText`, which has to answer something plausible for the in-node label
- * truncation to have anything to truncate against -- see its own note below), so
- * mounting `Graph.vue` under test exercises its simulation/draw code paths instead of failing at
- * `ctx.scale()` on a `null` context and silently falling into the component's own `try/catch`.
- * Rebuilt before every test, same rationale as `API_CLIENT`/`EVENT_BUS` above -- `vi.fn()` call
- * history shouldn't leak between tests in the same file. `getContext` itself is a plain function
- * (not a `vi.fn()`) since no test here needs to assert on how it was called, only on what it returns.
+ * happy-dom implements no 2D canvas backend, so `getContext` answers `null` and `Graph.vue` fails
+ * at `ctx.scale()` and falls silently into its own `try/catch` instead of exercising its
+ * simulation and draw paths. This covers exactly the methods and settable properties it calls.
  */
 function createCanvasContext2dStub() {
   const ctx = {
@@ -127,12 +94,10 @@ function createCanvasContext2dStub() {
     arc: vi.fn(),
     fillText: vi.fn(),
     strokeText: vi.fn(),
-    // -> `drawLabels()` truncates a node's title to fit inside its own circle (OpenProject #2593),
-    //    so it needs a `measureText` that at least responds to the font size it just set -- a stub
-    //    returning a constant would make every title "fit" or "not fit" regardless of the node.
-    //    happy-dom has no text metrics of its own, so this approximates a proportional face at the
-    //    usual ~0.6em average advance; a suite asserting on exactly which characters survive
-    //    overrides it rather than relying on this figure.
+    // -> `drawLabels()` truncates a node's title to fit its circle, so `measureText` has to
+    //    respond to the font size just set -- a constant would make every title fit, or none.
+    //    happy-dom has no text metrics, so this approximates a proportional face at ~0.6em average
+    //    advance; a suite asserting which characters survive overrides it.
     measureText: vi.fn((text) => ({
       width: String(text).length * (Number.parseFloat(ctx.font) || 10) * 0.6
     })),
@@ -149,16 +114,11 @@ function createCanvasContext2dStub() {
 }
 
 /**
- * Node defines `localStorage` as a global on its own (Node >= 22, no flag needed under this
- * sandbox's Node 25.9), but without `--localstorage-file` its methods are missing entirely --
- * `typeof localStorage === 'object'` yet `localStorage.getItem` is `undefined`, so
- * `stores/common.js`'s `state()` (read at store-creation time, e.g. by mounting `App.vue`) throws
- * `TypeError: localStorage.getItem is not a function` before a single assertion runs. Vitest's
- * happy-dom environment does not paper over this either: its own global-population step skips any
- * key already present on the Node global, and Node's own already is. Installed unconditionally in
- * `beforeEach` above -- overwriting Node's broken global every time, the same category of runtime
- * stand-in as `API_CLIENT`/`EVENT_BUS`, just one nothing imports either. Rebuilt before every test so
- * a write in one test can't leak into the next.
+ * Node defines a `localStorage` global of its own, but without `--localstorage-file` its methods
+ * are missing entirely -- `typeof localStorage === 'object'` yet `getItem` is `undefined`, so
+ * `stores/common.js`'s `state()` throws at store-creation time, before a single assertion runs.
+ * happy-dom does not paper over it: its global-population step skips any key already on the Node
+ * global, and this one already is.
  */
 function createLocalStorageStub() {
   const store = new Map()

@@ -1,21 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import { requireReadablePage } from '../../helpers/pageAccess.ts'
 
-/**
- * Coordination for a page's live collaboration room -- distinct from the room's own websocket
- * (`controllers/collab.ts`), which is what actually carries the shared document. The one route here
- * answers a question the room's Yjs document cannot safely answer on its own: OpenProject #2516.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * CLAIM THE WYSIWYG COLLAB SEED
-   */
   app.post<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/pages/:pageId/collab/wysiwyg-seed-claim',
     /*
-      No route-level `permissions`: that hook reads the group-wide list, and `write:pages` here is a
-      page permission granted by a rule. Checked against this page below instead -- the same
-      permission joining the collaboration websocket itself needs (`controllers/collab.ts`).
+      No route-level `permissions`: `write:pages` is a page permission granted by a rule. Checked
+      against this page below -- the same permission joining the collaboration websocket needs
+      (`controllers/collab.ts`).
     */
     {
       schema: {

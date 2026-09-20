@@ -1,21 +1,10 @@
 <template>
   <w-page class="inbox-review flex flex-col">
-    <!-- ----------------------------------------------------- -->
-    <!-- QUEUE -->
-    <!-- ----------------------------------------------------- -->
     <template v-if="!state.selected">
-      <!--
-        Flush against the top of the panel, with nothing above it to rule off from -- the shape
-        `PagePropertiesDialog` opens its panel with, and the same one `InboxWatching` uses next door.
-        The `pt-4` this replaces was the page's top padding wearing the band as a costume: it left this
-        one band's text 5px below the centre every other band's sits on, and no other band in the app
-        pays for its container's spacing out of its own padding.
-      -->
       <div class="w-section-header">{{ t('inbox.pendingReview') }}</div>
       <!--
-        No top padding of its own: the band already trails the rhythm's 14px below itself, and a `pt-4`
-        here would stack a second gap on top of it -- 30px under the heading where every other section
-        in the app has 14.
+        No top padding: the band already trails the rhythm's 14px below itself, so a `pt-4` here
+        would stack a second gap on top of it.
       -->
       <div class="px-4 pb-4">
         <div class="text-body2">{{ t('inbox.pendingReviewInfo') }}</div>
@@ -32,7 +21,6 @@
             clickable
             @click="openSubmission(submission)">
             <w-item-section avatar>
-              <!-- -> The framed list's aesthetic-sized plate; see `InboxWatching.vue`. -->
               <w-avatar identity="plate" color="slate" text-color="white">
                 <w-icon name="tabler:file-text" />
               </w-avatar>
@@ -56,14 +44,9 @@
                 <w-badge v-if="submission.author.isGuest" color="grey-7" rounded>
                   {{ t('inbox.reviewGuest') }}
                 </w-badge>
-                <!-- The page moved on after this was written; see `isStale` on the API side. -->
                 <w-badge v-if="submission.isStale" color="warning" rounded>
                   {{ t('inbox.reviewStale') }}
                 </w-badge>
-                <!--
-                  Only shown once a rule actually asks for more than one sign-off -- the ordinary
-                  single-approver case reads exactly as it always has, with no count anywhere.
-                -->
                 <w-badge v-if="submission.approvals?.approvalsRequired > 1" color="slate" rounded>
                   {{
                     t('inbox.reviewApprovalProgress', {
@@ -80,17 +63,11 @@
       </div>
     </template>
 
-    <!-- ----------------------------------------------------- -->
-    <!-- ONE SUBMISSION -->
-    <!-- ----------------------------------------------------- -->
     <template v-else>
       <!--
-        The design's toolbar: `14px 16px`, an 8px gap, and every control on it an icon-only 32px
-        square. The four buttons used to be a round flat back arrow followed by three LABELLED
-        buttons, which is a different row — three labels at three different widths push the title
-        and the count chip around as the wording changes, and the labelled Approve/Decline pair read
-        as a form's footer rather than as a reviewer's toolbar. The labels move to `aria-label` plus
-        a tooltip, which is exactly what the design's own `title=` attributes are.
+        Every control on the toolbar is an icon-only square, its label on `aria-label` plus a
+        tooltip: labels at three different widths shove the title and the count chip around as the
+        wording changes, and a labelled Approve/Decline pair reads as a form's footer.
       -->
       <div class="flex flex-none flex-wrap items-center gap-2 px-4 py-3.5">
         <w-btn
@@ -103,7 +80,7 @@
           <w-icon name="tabler:arrow-left" size="15px" />
           <w-tooltip>{{ t(`inbox.reviewBack`) }}</w-tooltip>
         </w-btn>
-        <!-- -> `min-w-[180px]`, as the design has it: below that the byline wraps to three lines. -->
+        <!-- -> Below `180px` the byline wraps to three lines. -->
         <div class="min-w-[180px] flex-1">
           <div class="inbox-review-title">{{ state.selected.page.title }}</div>
           <div class="inbox-review-byline">
@@ -119,8 +96,7 @@
           </div>
         </div>
         <!--
-          The approval count is an OUTLINED mono chip in the design, not a filled badge: it is a
-          reading of where this submission stands, and a filled slate pill beside four hairline
+          An outlined mono chip rather than a badge: a filled slate pill beside four hairline
           squares reads as a fifth control.
         -->
         <span v-if="state.selected.approvals?.approvalsRequired > 1" class="inbox-review-count">
@@ -153,9 +129,8 @@
           <w-tooltip>{{ t(`inbox.reviewDecline`) }}</w-tooltip>
         </w-btn>
         <!--
-          The one filled control on the row, and the only one the design fills: approving is what
-          this screen is for. `positive-fill` under a white GLYPH -- not `positive` under a white
-          label -- is the same fill/text split the accent takes; there is no text on it to measure.
+          The one filled control on the row: approving is what this screen is for. `positive-fill`,
+          not `positive`, is the half of the fill/text split that carries a white glyph.
         -->
         <w-btn
           class="inbox-square-btn"
@@ -169,14 +144,11 @@
         </w-btn>
       </div>
       <!--
-        A warning rather than a block: the reviewer can see both sides in the diff below and edit the
-        result before accepting, which is exactly what a stale suggestion needs.
-      -->
-      <!--
-        Literal colour classes: WBanner has no `color` prop, so one would be silently dropped.
-        `warning-fill` under `ink`, which is the pair the language actually names -- `bg-warning
-        text-black` happened to resolve to the same amber but put pure black on it, and black is not
-        a foreground Cardinal uses anywhere.
+        A warning rather than a block: the reviewer can see both sides in the diff below and edit
+        the result before accepting.
+
+        Literal colour classes -- WBanner has no `color` prop, so one would be silently dropped --
+        and `ink` rather than black, which is not a foreground Cardinal uses anywhere.
       -->
       <w-banner v-if="state.selected.isStale" class="mx-4 mb-2 flex-none bg-warning-fill text-ink">
         {{ t('inbox.reviewStaleHint') }}
@@ -185,11 +157,9 @@
         {{ t('inbox.reviewDiffHint') }}
       </div>
       <!--
-        The two sides, named above the diff they label. Monaco draws no header of its own over its
-        panes, so a reader had nothing on screen saying which half was the page and which the
-        suggestion, or that only one of them could be typed into -- which is the single most
-        load-bearing fact about this screen. Two equal cells over an editor whose
-        `renderSideBySide` is fixed on, so they line up with the halves they name.
+        Monaco draws no header over its panes, so nothing else on screen says which half is the
+        page and which the suggestion, or that only one of them can be typed into. Two equal cells
+        over an editor whose `renderSideBySide` is fixed on, so they line up with what they name.
       -->
       <div class="inbox-review-diff-heads flex-none">
         <div class="inbox-review-diff-head">
@@ -203,7 +173,6 @@
           }}</span>
         </div>
       </div>
-      <!-- The diff itself: current page on the left, the suggestion on the right and editable. -->
       <div ref="diffEl" class="inbox-review-diff" />
     </template>
 
@@ -235,83 +204,51 @@ import { humanizeDate } from '@/helpers/datetime'
 
 import InboxDeclineDialog from '@/components/InboxDeclineDialog.vue'
 
-// PROPS
-
 /**
- * Initial state from whoever opened the Inbox overlay onto this tab -- `InboxOverlay.vue` forwards
- * these off `overlayOpts` (`siteStore.openOverlay('Inbox', { tab: 'review', submissionId, from })`,
- * as `PageHeader.vue`'s `reviewSubmission()` does). `fromPage` replaces the old `route.query.from ===
- * 'page'` check now that this screen has no route of its own (OpenProject #2531).
+ * This screen has no route of its own: `InboxOverlay.vue` forwards both off the overlay's
+ * `overlayOpts`, so `fromPage` stands in for what a `route.query.from` would otherwise carry.
  */
 const props = defineProps({
   initialSubmissionId: { type: String, default: null },
   fromPage: { type: Boolean, default: false }
 })
 
-// COMPOSABLES
-
 const dark = useDark()
 
-// ROUTER
-
-// -> Only for leaving the overlay to view the underlying page (see `leaveReview` below) -- every
-//    other transition here is local state (`selectedId`), not a route.
+// -> Only for leaving the overlay to view the underlying page; every other transition here is local
+//    state (`selectedId`), not a route.
 const router = useRouter()
-
-// STORES
 
 const editorStore = useEditorStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
 
-/*
-  Monaco cannot read the design-token layer (`defineTheme()` takes plain hex, not `var()`), so the
-  aesthetic is applied by registering both themes and switching between them -- see
-  `helpers/monacoTheme.js`.
-*/
 const aesthetic = useAesthetic()
-
-// META
 
 useMeta(() => ({
   title: t('inbox.pendingReview')
 }))
 
-// DATA
-
-/**
- * Which submission is open, replacing the old `route.params.submissionId` now that this screen is
- * `InboxOverlay` content rather than a routed `/_inbox/review/:submissionId?` page (OpenProject
- * #2531). Null is the queue; a real id is one submission's diff.
- */
+/** Null is the queue; an id is that submission's diff. */
 const selectedId = ref(props.initialSubmissionId)
 
 const state = reactive({
   loading: 0,
   submissions: [],
-  /** The submission being reviewed, with both sides of the diff. Null while the queue is showing. */
   selected: null
 })
-
-// REFS
 
 const diffEl = ref(null)
 
 /*
-  The Monaco instances, deliberately outside `state`: they are large objects with their own internals,
-  and making them reactive buys nothing and costs a lot.
+  Outside `state` deliberately: Monaco's own objects are large and self-managing, so making them
+  reactive buys nothing and costs a lot.
 */
 let diffEditor = null
 let originalModel = null
 let modifiedModel = null
 
-// WATCHERS
-
-// -> `selectedId` says which submission is open, so everything follows from it -- including
-//    arriving on one directly, which is what opening the overlay with `initialSubmissionId` does
 watch(selectedId, loadSubmission)
 
 // -> The container only exists once a submission is open, so the editor is built after that render
@@ -327,15 +264,12 @@ watch(
   }
 )
 
-// METHODS
-
 async function load() {
   state.loading++
   try {
-    // -> The markdown renderer is configured per site (line breaks, typographer, and so on), and that
-    //    configuration comes with the editor configs rather than on its own. `ensureConfigs()`, not a
-    //    bare `configIsLoaded` check: it also refreshes the glossary term list even when the rest of
-    //    the config is already loaded (OpenProject #2789)
+    // -> The markdown renderer is configured per site, and that configuration arrives with the
+    //    editor configs. `ensureConfigs()` rather than a bare `configIsLoaded` check: it also
+    //    refreshes the glossary terms, which the rest of the config being loaded says nothing about
     await editorStore.ensureConfigs()
     state.submissions =
       (await API_CLIENT.get(`sites/${siteStore.id}/approvals/submissions`).json()) ?? []
@@ -350,11 +284,8 @@ async function load() {
 }
 
 /**
- * The submission `selectedId` names, or none.
- *
  * Driven by `selectedId` rather than by the click that got here, so that opening the overlay
- * straight onto one (`initialSubmissionId`) behaves exactly like picking it off the queue -- and so
- * the back button walks out of one.
+ * straight onto a submission behaves exactly like picking it off the queue.
  */
 async function loadSubmission(id) {
   if (!id) {
@@ -372,7 +303,7 @@ async function loadSubmission(id) {
       message: t('inbox.reviewLoadFailed'),
       caption: apiErrorMessage(err)
     })
-    // -> Reviewed by somebody else already, or never this reviewer's to see. Back to the queue.
+    // -> Resolved by somebody else already, or never this reviewer's to see
     state.selected = null
     selectedId.value = null
   }
@@ -383,22 +314,15 @@ function openSubmission(submission) {
   selectedId.value = submission.id
 }
 
-/** A short, stable fragment of a submission's id -- the one thing guaranteed to differ between two. */
 function shortId(id) {
   return String(id).replace(/-/g, '').slice(-6)
 }
 
 /**
- * How a submission's author reads in the queue.
- *
- * A guest is only ever named by what they typed into the submission form, which can be blank, or
- * land on the exact same words as another guest's -- there is no account to tell them apart by
- * otherwise. Left alone, two such rows for the same page render byte-identical: same title, same
- * path, same "Suggested by Unknown on <date>" down to the minute -- nothing but a click proves they
- * are two different suggestions and not one rendered twice. Folding in a fragment of the submission's
- * own id, which is guaranteed to differ, but only for the rows that actually collide keeps a page
- * with a single guest submission -- or one where guests already read as distinct -- exactly as it did
- * before.
+ * A guest is named only by what they typed into the submission form, which can be blank or land on
+ * another guest's exact words -- there is no account to tell two apart by. Two such rows for the
+ * same page otherwise render byte-identical, down to the minute, so the colliding ones (and only
+ * those) fold in a fragment of the submission id, which is guaranteed to differ.
  */
 function authorLabel(submission) {
   const name = submission.author.name || submission.author.email || t('inbox.reviewUnknownAuthor')
@@ -416,14 +340,9 @@ function authorLabel(submission) {
 }
 
 /**
- * Where leaving a review goes -- called once a submission is resolved (approved/declined) or the
- * reviewer presses Back.
- *
- * Back to the local queue view, unless the reviewer never came through it: `fromPage` is set when
- * the overlay was opened by the review button on a page view (`PageHeader.vue`'s
- * `reviewSubmission()`), and returning them to an inbox they did not open would strand them a
- * section away from what they were reading -- so this leaves the overlay entirely and follows them
- * back to the page instead.
+ * Back to the local queue, unless the reviewer never came through it: with `fromPage` the overlay
+ * was opened by a page's own review button, and returning them to an inbox they did not open would
+ * strand them a section away from what they were reading.
  */
 function leaveReview() {
   if (props.fromPage && state.selected?.page?.path !== undefined) {
@@ -440,12 +359,9 @@ function closeSubmission() {
 }
 
 /**
- * The diff, as the reviewer works on it.
- *
- * Left is the page as it stands, read-only. Right is the suggestion, and is not: the reviewer can
- * adjust it before accepting, which is what makes a stale or nearly-right suggestion usable. What
- * ends up on the page is whatever the right-hand model says at that moment, which is why approving
- * reads the model rather than the value that was loaded.
+ * Left is the page as it stands, read-only; right is the suggestion, editable, so a stale or
+ * nearly-right suggestion is still usable. What lands on the page is whatever the right-hand model
+ * says at that moment, which is why approving reads the model rather than the loaded value.
  */
 function mountEditor() {
   if (!diffEl.value || !state.selected) {
@@ -454,27 +370,14 @@ function mountEditor() {
   disposeEditor()
 
   /*
-    The markdown editor's theme, defined again here because that component may never have mounted.
+    Defined again here because the markdown editor may never have mounted. The base tones must match
+    the other Monaco surfaces': the theme ID is shared, so whichever call site defines it last wins
+    for the whole process. The diff tints below them are this screen's own -- the status fills, not
+    Monaco's default green/red, which belong to a different palette.
 
-    The five base tones are `EditorMarkdown.vue`/`EditorCode.vue`/`composables/monacoDiff.js`'s
-    values, not the `#070a0d`/`#0d1117`/`#546e7a` this file used to carry: those were a step darker
-    than anything in Cardinal's ramp and predate the re-skin, so the one code surface a reviewer sees
-    read as a different application's window sitting inside this one. Sharing the tones also matters
-    because the theme ID is shared -- whichever call site defines it last wins for the whole process,
-    so the copies must not disagree.
-
-    The four beneath them are this screen's own, from `ui-redesign/Cardinal Wiki - Inbox Review
-    3x.dc.html`: a gutter one rung below the text ground, the accent as the caret (the design draws
-    the cursor in the suggestion pane in `#e4676b`), and the two change tints. Those tints are the
-    status FILLS at the design's own alpha rather than Monaco's default green/red, which are a
-    different palette's. They are additive over the base, so if another call site redefines the
-    theme while this overlay is open the surface falls back to `vs-dark`'s defaults for these four
-    rather than to a mismatched ground.
-
-    Every value below is literal hex rather than a `var(--color-*)` reference on purpose: Monaco's
-    `defineTheme()` reads `colors` as plain hex/rgba strings and never resolves a CSS custom
-    property, so there is no token to move this onto -- it is re-typed against `css/tailwind.css`'s
-    values instead, and pinned by this file's own theme test.
+    Literal hex rather than `var(--color-*)`: `defineTheme()` reads `colors` as plain hex/rgba and
+    never resolves a custom property, so these are re-typed against `css/tailwind.css` and pinned by
+    this file's theme test.
   */
   defineMonacoThemes(monaco, {
     base: 'vs-dark',
@@ -498,13 +401,12 @@ function mountEditor() {
 
   diffEditor = monaco.editor.createDiffEditor(diffEl.value, {
     automaticLayout: true,
-    // -> The design's own diff metrics -- 12.5px Roboto Mono on a 1.9 line -- which is what fits two
-    //    readable columns into half an overlay each. 14px in the browser default face was neither.
+    // -> Small enough that two readable columns fit into half an overlay each
     fontSize: 12.5,
     lineHeight: 24,
     fontFamily: "'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace",
-    // -> Side by side: this screen exists to compare the two, and an inline diff of prose reads as a
-    //    jumble of half-lines. Fixed on, which is what lets the two pane headings above line up.
+    // -> Fixed on: an inline diff of prose reads as a jumble of half-lines, and the pane headings
+    //    above only line up with the halves they name side by side
     renderSideBySide: true,
     originalEditable: false,
     readOnly: false,
@@ -524,31 +426,25 @@ function disposeEditor() {
   modifiedModel = null
 }
 
-/** What the reviewer settled on: the right-hand side of the diff as it stands now. */
 function reviewedContent() {
   return modifiedModel ? modifiedModel.getValue() : (state.selected?.content ?? '')
 }
 
 /**
- * The HTML for what is being approved, produced here for the same reason the editor produces it on
- * every save: the markdown pipeline is a frontend one. Without it the server would have to drive a
- * headless browser, which is an extension most instances do not install.
+ * Rendered here for the same reason the editor renders on every save: the markdown pipeline is a
+ * frontend one, and the server would otherwise need a headless browser most instances lack.
  *
- * @throws When the source will not render, which is worth stopping for -- approving would otherwise
- *         publish a page whose HTML does not match its source.
+ * @throws When the source will not render -- approving would publish HTML that does not match it.
  */
 function renderReviewed(content) {
   const md = new MarkdownRenderer(editorStore.editors.markdown ?? {})
-  // -> The page the suggestion is against, so a relative image in it resolves against that page's
-  //    folder -- this HTML is what the page will be published with
+  // -> The page the suggestion is against, so a relative image resolves against that page's folder
   return md.render(content, { pagePath: state.selected?.page?.path ?? '' })
 }
 
 /**
- * `loadSubmission`'s own recovery, reused here: another reviewer resolved this submission first --
- * approved or declined it -- between when this reviewer opened it and when they acted on it.
- * Retrying the same action would just 404 again, so the dead selection is dropped and the queue
- * behind it refreshed, rather than leaving a row here that can never succeed a second time.
+ * Another reviewer resolved this submission between it being opened and acted on. Retrying would
+ * 404 again, so the dead selection is dropped and the queue behind it refreshed.
  */
 async function recoverFromGoneSubmission() {
   state.selected = null
@@ -570,10 +466,9 @@ function approveSubmission() {
         `sites/${siteStore.id}/approvals/submissions/${state.selected.id}/approve`,
         { json: { content, render: renderReviewed(content) } }
       ).json()
-      // -> `finalized` is false the moment a rule asks for more than one sign-off and this reviewer
-      //    is not the last one in: the page was not written, so leaving with the ordinary "applied"
-      //    toast would be a straightforward lie. `finalized` defaults true for a server predating this
-      //    field, which is also right: no such server ever answered anything else.
+      // -> False while a multi-approver rule still wants more sign-offs: the page was not written,
+      //    so the ordinary "applied" toast would lie. Compared against `false` so a response
+      //    without the field reads as finalized
       if (resp.finalized === false) {
         notify({
           type: 'positive',
@@ -588,18 +483,15 @@ function approveSubmission() {
           message: t('inbox.reviewApproveSuccess')
         })
       }
-      // -> Refreshed before leaving, so the queue behind is right whether or not that is where this
-      //    goes; on the way to a page the reload is what the page's own review button will read
+      // -> Refreshed before leaving, so the queue behind is right wherever this goes next
       await load()
       leaveReview()
     } catch (err) {
       if (err.response?.status === 409) {
         /*
-          Distinguishable from an ordinary failure: the page moved since this reviewer's own GET
-          computed the diff, and the server refused to write over whatever changed in between. Reload
-          both sides against the page as it stands now instead of showing a toast the reviewer has no
-          way to act on -- `loadSubmission` re-fetches the same id, so `state.selected` comes back with
-          fresh `pageContent` and `isStale: true`, which is what re-prompts them to reconcile.
+          409 means the page moved since the GET that computed this diff. Reloading both sides
+          brings back fresh `pageContent` and `isStale: true`, which is what prompts the reviewer to
+          reconcile -- a toast alone leaves them nothing to act on.
         */
         notify({
           type: 'warning',
@@ -608,10 +500,9 @@ function approveSubmission() {
         })
         await loadSubmission(state.selected.id)
         /*
-          The id watcher above only remounts the diff editor when `state.selected.id` CHANGES -- and it
-          has not, since this is the same submission reloaded. Rebuilt explicitly so the editor's two
-          models actually reflect what was just re-fetched, rather than going on showing the page
-          content from before the conflicting write.
+          The id watcher only remounts when `state.selected.id` CHANGES, and it has not -- this is
+          the same submission reloaded -- so the models are rebuilt explicitly, or the editor goes
+          on showing the page content from before the conflicting write.
         */
         mountEditor()
       } else {
@@ -621,7 +512,6 @@ function approveSubmission() {
           caption: apiErrorMessage(err)
         })
         if (err.response?.status === 404) {
-          // -> Somebody else already resolved it; see `recoverFromGoneSubmission` above.
           await recoverFromGoneSubmission()
         }
       }
@@ -636,8 +526,8 @@ function rejectSubmission() {
     try {
       const resp = await API_CLIENT.post(
         `sites/${siteStore.id}/approvals/submissions/${state.selected.id}/reject`,
-        // -> The reject route's `reason` body field is optional and typed as a plain string, not
-        //    nullable, so a blank reason is left out of the body entirely rather than sent as `null`.
+        // -> The route's `reason` is optional but typed as a plain string, not nullable, so a blank
+        //    one is left out of the body entirely rather than sent as `null`
         reason ? { json: { reason } } : undefined
       ).json()
       notify({
@@ -653,7 +543,6 @@ function rejectSubmission() {
         caption: apiErrorMessage(err)
       })
       if (err.response?.status === 404) {
-        // -> Somebody else already resolved it; see `recoverFromGoneSubmission` above.
         await recoverFromGoneSubmission()
       }
     }
@@ -661,11 +550,8 @@ function rejectSubmission() {
   })
 }
 
-// MOUNTED
-
 onMounted(() => {
   load()
-  // -> Whatever the overlay was opened onto, which is nothing at all for the queue itself
   loadSubmission(selectedId.value)
 })
 
@@ -673,18 +559,13 @@ onBeforeUnmount(disposeEditor)
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
-  `Cardinal Wiki - Inbox Review 3x.dc.html`, which this screen had never been compared against.
+  Selectors are flat: a `&-suffix` is Sass string concatenation, not valid native CSS nesting, and
+  the browser silently drops such a rule rather than failing on it.
 
-  The type here is written out rather than taken from the Material ramp `text-subtitle1`/
-  `text-caption` supply: the design sets the title at 15px/600 and the byline in Roboto Mono at
-  11.5px, and neither rung of that ramp is either of those. The mono byline is the point -- who
-  suggested this and when is metadata, and metadata is mono everywhere in the language.
+  The type is written out rather than taken from the Material ramp: 15px/600 title and an 11.5px
+  mono byline are neither of them a rung of it. Mono is the point -- who suggested this and when is
+  metadata, and metadata is mono everywhere in the language.
 */
 .inbox-review-title {
   color: var(--color-ink);
@@ -700,7 +581,6 @@ onBeforeUnmount(disposeEditor)
   font-family: var(--font-mono);
   font-size: 11.5px;
   line-height: 1.5;
-  /* -> The author's name lifts to the chrome tone; everything around it stays caption-weight */
 }
 .inbox-review-byline strong {
   color: var(--color-slate);
@@ -722,16 +602,9 @@ onBeforeUnmount(disposeEditor)
 }
 .inbox-review {
   /*
-    The approvals reading. `#5f78a8` is the design's own edge for this chip and is a hair off
-    `var(--color-slate-soft)`; the design file wins on a colour, so it goes in as written rather than being
-    rounded to the nearest token -- and it stays a literal here rather than becoming a new token,
-    since one chip on one screen is not a palette entry.
-
-    OpenProject #2778: `Cardinal Wiki - Inbox Review 3x - Cobalt.dc.html` reads this chip's text as
-    `#1e2a5e`, not `var(--color-slate)` (`#38465f`) -- but that Cobalt pair has no dedicated dark mockup, and
-    `#1e2a5e` is a light-ground tone with no documented Cobalt-dark counterpart to pair it with, so
-    guessing one here (rather than confirming against a real mockup) is exactly what the acceptance
-    criteria ask not to do. `var(--color-slate)`/`var(--color-slate-light)` stay as the fallback; logged, not fixed.
+    `#5f78a8` is the chip's designed edge, a hair off `var(--color-slate-soft)`, and stays a
+    literal: one chip on one screen is not a palette entry. Cobalt wants `#1e2a5e` for the text,
+    but that is a light-ground tone with no Cobalt-dark counterpart, so slate stays for both.
   */
 }
 .inbox-review-count {
@@ -752,10 +625,8 @@ onBeforeUnmount(disposeEditor)
 }
 .inbox-review {
   /*
-    The strip naming Monaco's two panes. On the diff's own ground rather than the page's, because it
-    belongs to the dark surface below it and not to the light toolbar above -- the design draws it as
-    the top row of the code well, ruled off from the code by the same hairline the panes are split
-    by.
+    The strip naming Monaco's panes sits on the diff's own ground, not the page's: it reads as the
+    top row of the code well rather than as the bottom of the light toolbar above it.
   */
 }
 .inbox-review-diff-heads {
@@ -781,16 +652,14 @@ onBeforeUnmount(disposeEditor)
   min-width: 0;
   padding: 6px 12px;
   text-transform: uppercase;
-  /* -> The panes are split by a rule, so only the first of the two draws one on its trailing edge */
 }
 .inbox-review-diff-head:first-child {
   border-inline-end: 1px solid rgba(255, 255, 255, 0.12);
 }
 .inbox-review {
   /*
-    "read only" / "editable". Tighter tracking than the pane's own name and a tone down from it: it
-    qualifies the heading beside it rather than competing with it. The editable half takes the accent,
-    which is the language's mark for the live edge -- here, the one pane a reviewer can type into.
+    A tone down from the pane name it qualifies, and the accent on the editable half only -- the
+    language's mark for the live edge, here the one pane a reviewer can type into.
   */
 }
 .inbox-review-diff-state {
@@ -803,10 +672,9 @@ onBeforeUnmount(disposeEditor)
 }
 .inbox-review {
   /*
-    The diff takes whatever is left under the header rather than a fixed height: this page sits in a
-    card that already fills the viewport, so a height in pixels would either overflow it or leave a
-    gap under it. The floor is the design's 260px, not 400 -- at half a short viewport, 400px was
-    taller than the space the overlay has to give it.
+    Whatever is left under the header rather than a fixed height: this page sits in a card that
+    already fills the viewport, so a pixel height would overflow it or leave a gap under it. The
+    floor has to stay under half a short viewport, which is what the overlay can give it.
   */
 }
 .inbox-review-diff {

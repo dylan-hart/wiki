@@ -1,9 +1,6 @@
 /**
- * Trim `jobHistory` to the scheduler's retention window.
- *
- * Silent: `cleanHistory()` reports no count, so there is nothing to say that the scheduler's own
- * `debug jobs cleanJobHistory finished` line does not already say, and a failure reaches the log as
- * the scheduler's single failure record rather than as a second one from here.
+ * Silent: `cleanHistory()` reports no count, and the scheduler already logs this job's finish and
+ * writes the single record for a failure.
  */
 export async function task(): Promise<void> {
   await CARDINAL.models.jobs.cleanHistory()

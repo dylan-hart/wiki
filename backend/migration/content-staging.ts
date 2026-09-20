@@ -2,64 +2,40 @@ import type { SourceConnector, SourceRecord } from './connector.ts'
 import { resolveActorId, type UserIdMap } from './id-map.ts'
 import { convertDrawioFences } from './mappers/drawioFence.ts'
 import { convertMermaidFences } from './mappers/mermaidFence.ts'
-// -> Type-only, so this is erased entirely at load time (verbatimModuleSyntax) -- safe even though
-//    importers/navigation-import.ts imports StagedNavigation back from this module, since neither
-//    import
-//    survives to become a real runtime circular dependency.
+// -> Type-only, so it is erased at load time: the mutual import with importers/navigation-import.ts
+//    never becomes a runtime circular dependency.
 import type { NavigationPageRef } from './importers/navigation-import.ts'
 import { coerceSourceBoolean } from './source-coercion.ts'
 
 /**
- * Content staging & id-mapping scaffold (Feature 416 / Task 733; streamed per WP #1790 / Task #1798)
+ * The read side of the 2.5.x content import: walks a connected `SourceConnector`'s `pages()`,
+ * `pageHistory()` and `navigation()` generators and yields one `StagedPage` at a time, tags already
+ * resolved to plain strings and `authorId`/`creatorId` already resolved to 3.0 UUIDs (falling back
+ * to the operator running the import wherever the source id is missing or unmapped). Staging only —
+ * no writes, no db access.
  *
- * The read side this feature owns: walks a connected `SourceConnector`'s `pages()`, `pageHistory()`
- * and `navigation()` generators and produces one `StagedPage` at a time, joined to its locale-variant
- * siblings and its full history chain, with tags already resolved to plain strings and
- * `authorId`/`creatorId` already resolved to 3.0 UUIDs (falling back to the operator running the
- * import wherever the source id is missing or unmapped).
+ * Tag resolution relies on both connector kinds denormalizing a `[{tag, title}]` `tags` field onto
+ * their rows (`docs/migration/2.5x-export-bundle-format.md`), because `SourceConnector` has no
+ * separate `pageTags()`/`pageHistoryTags()` generator to join against here.
  *
- * Deliberately does **not** write anything — no `createPage()`, no db access at all. This is staging
- * only; turning a `StagedPage` into a real 3.0 page (Task 738), backfilling its history (Task 740),
- * normalizing its path into a `tree` folderPath (Task 736) and importing the site-wide menu (Task 741)
- * are each a separate task's job, consuming this module's output.
+ * ## Streaming shape
  *
- * Tag resolution relies on `pages()`/`pageHistory()` rows already carrying a denormalized `tags`
- * field — `[{tag, title}]`, matching `docs/migration/2.5x-export-bundle-format.md`'s documented
- * `pages.json.gz`/`pages-history.json.gz` row shape — because the `SourceConnector` interface has no
- * separate `pageTags()`/`pageHistoryTags()` generator to join against here. `PostgresSourceConnector`
- * reproduces the same shape via a SQL join so both connector kinds hand this module identical input.
+ * Orphan classification needs every page's `oldId` before it can be answered for even one page, and
+ * needs nothing else about a page — so `buildContentStagingIndex()` walks `connector.pages()` once
+ * up front to build exactly that set, and `extractContentStaging()` walks it a second time,
+ * building each full `StagedPage` and yielding it immediately. Nothing beyond the index and the
+ * current page is ever resident together.
  *
- * ## Streaming shape (WP #1790)
- *
- * Orphan classification (`orphanedHistory`) needs to know about every page in the source before it
- * can be answered for even one page: it decides orphanhood precisely by failing to find a
- * `pageHistory` row's `pageId` among *every* current page. It does not, though, need anything about a
- * page beyond its `oldId` — so `buildContentStagingIndex()` walks `connector.pages()` once up front to
- * build exactly that (an `oldId` set), and `extractContentStaging()` then walks `connector.pages()` a
- * *second* time, this time building the full `StagedPage` (with `content`/`render`/`toc`) one page at
- * a time and yielding it immediately — nothing beyond the lightweight index and the current page's
- * own data is ever resident together.
- *
- * `pageHistory()` is merged in via a merge-join against the same walk, relying on `PostgresSourceConnector`
- * yielding it `ORDER BY "pageId"` (documented on `pageHistory()` in `connector.ts`) — the same order
- * `pages()` yields by `id`. A row whose `pageId` sorts out of step with that (only possible on a
- * connector that does not uphold the documented ordering) is warned about and dropped rather than
- * mis-attached to the wrong page.
- *
- * WP #1798 independently targeted this same "don't buffer the whole corpus" goal from an older base,
- * before the `buildContentStagingIndex()`/`ContentStagingIndex` split above had landed — its
- * alternative shape (a single `extractContentStaging()` returning a `ContentStagingResult` wrapper,
- * with the pre-pass folded inside) was superseded by the two-call `buildContentStagingIndex()` +
- * `extractContentStaging(connector, options, index, context)` design here rather than merged in.
+ * `pageHistory()` is merged in via a merge-join against that second walk, relying on the
+ * `ORDER BY "pageId"` ordering `connector.ts` documents — the same order `pages()` yields by `id`.
+ * A row sorting out of step with it is warned about and dropped rather than mis-attached to the
+ * wrong page.
  */
 
-/** A 2.x tag string, resolved (from `pageTags`/`pageHistoryTags` via `tags.tag`) rather than left as
- * a bare `tagId` — see the module doc comment above for where the resolution actually happens. */
 export type StagedTag = string
 
 export interface StagedPageHistoryEntry {
-  /** The 2.x `pageHistory.id` this row came from — what a page-history id map (built the same way as
-   * `importers/page-import.ts`'s `pageIdMap`) keys off. */
+  /** The 2.x `pageHistory.id` this row came from. */
   oldId: number
   action: string
   path: string
@@ -73,8 +49,8 @@ export interface StagedPageHistoryEntry {
   publishStartDate: string | null
   publishEndDate: string | null
   editorKey: string | null
-  /** Copied verbatim from the source row — see `2.5x-source-schema.md`'s note that recomputing the
-   * `2.2.17.js` backfill self-join is unnecessary for a straight migration. */
+  /** Copied verbatim: recomputing 2.x's `2.2.17.js` backfill self-join is unnecessary for a
+   * straight migration (`2.5x-source-schema.md`). */
   versionDate: string
   createdAt: string
   extra: Record<string, unknown>
@@ -83,19 +59,15 @@ export interface StagedPageHistoryEntry {
   authorId: string
 }
 
-/** A `pageHistory` row whose `pageId` names no page among the source's current `pages` rows — a
- * deleted 2.x page, whose history is meant to outlive it (`2.5x-source-schema.md`: `pageHistory.pageId`
- * is "a plain column with no FK constraint ... rows are meant to outlive the page they belonged to").
- * Kept separately from `StagedPage.history` because there is no `StagedPage` to attach it to. */
+/** A `pageHistory` row whose `pageId` names no current page: 2.x puts no FK on that column, so
+ * history is meant to outlive a deleted page. Kept apart from `StagedPage.history` because there is
+ * no `StagedPage` to attach it to. */
 export interface OrphanedPageHistoryEntry extends StagedPageHistoryEntry {
-  /** The 2.x `pageHistory.pageId` value that named no current page. */
   sourcePageOldId: number
 }
 
 export interface StagedPage {
-  /** The 2.x `pages.id` this row came from — what `importers/page-import.ts`'s
-   * `PageImporter.pageIdMap` is
-   * keyed on once `importOne()` calls `createPage()` for it. */
+  /** The 2.x `pages.id` this row came from. */
   oldId: number
   path: string
   locale: string
@@ -118,61 +90,40 @@ export interface StagedPage {
   /** Resolved 3.0 UUIDs — the operator fallback wherever the 2.x row's id was null or unmapped. */
   authorId: string
   creatorId: string
-  /** This page's full revision chain, ordered by `versionDate` ascending (oldest first). */
+  /** Ordered by `versionDate` ascending (oldest first). */
   history: StagedPageHistoryEntry[]
 }
 
-/** 2.x's single `navigation` row (or rows — the source table is string-keyed, and while `'site'` is
- * the only key ever written in practice, per Feature 412's own description, nothing here assumes
- * there is exactly one), carried through with its JSON tree untouched. */
+/** A 2.x `navigation` row, JSON tree untouched. The source table is string-keyed and `'site'` is the
+ * only key written in practice, but nothing here assumes there is exactly one. */
 export interface StagedNavigation {
   key: string
-  /** The parsed `navigation.config` JSON tree, verbatim — `docs/migration/2.5x-to-3.0-mapping.md`
-   * explicitly leaves the internal shape of this tree unverified at the column-mapping level; turning
-   * it into 3.0 `navigation.items` is Task 741's job. */
+  /** The parsed `navigation.config` tree, verbatim — its internal shape is deliberately left
+   * unverified here. */
   items: unknown
 }
 
-/**
- * The lightweight pre-pass this feature's streaming walk needs before it can emit even its first
- * `StagedPage` — see "Streaming shape" in the module doc comment. Built once by
- * `buildContentStagingIndex()` and handed to `extractContentStaging()` for orphan classification.
- */
 export interface ContentStagingIndex {
-  /** Every page's `oldId` — what orphan classification tests membership against in O(1), without
-   * needing the full `StagedPage` map the pre-streaming implementation kept resident to answer the
-   * same question. An `oldId` costs a few bytes; keeping every page's worth of them resident for the
-   * whole run is not the same problem as keeping every page's `content`/`render`/`toc` resident, which
-   * is what this feature exists to stop doing. */
+  /** Every page's `oldId`, all orphan classification needs to test membership against — and all it
+   * may hold resident, since keeping every page's `content`/`render`/`toc` is what the streaming
+   * walk exists to avoid. */
   pageOldIds: Set<number>
 }
 
 /**
- * The mutable, run-scoped side channel `extractContentStaging()` writes into as it streams — since an
- * async generator's return value is discarded by `for await`, warnings and orphaned history (both
- * unknowable in full until the whole `pageHistory()` stream has been drained, which only happens once
- * every page has been yielded) are collected here instead, for the caller to read once iteration
- * finishes. Build one with `createContentStagingContext()` per run.
+ * The run-scoped side channel `extractContentStaging()` writes into as it streams: `for await`
+ * discards an async generator's return value, so everything unknowable until the whole walk has
+ * finished is collected here for the caller to read afterwards. One per run.
  */
 export interface ContentStagingContext {
-  /** Human-readable notes on data that could not be carried across faithfully — currently: an
-   * orphaned `authorId`/`creatorId` FK (present in the source, unmapped by `userIdMap`) that fell back
-   * to the operator actor, and a `pageHistory` row that named no current page. Surfaced for whichever
-   * CLI reports import results to an operator rather than acted on here. */
+  /** Notes on data that could not be carried across faithfully, for the CLI to report to an
+   * operator rather than acted on here. */
   warnings: string[]
-  /** `pageHistory` rows whose `pageId` matched no row in `pages` — see `OrphanedPageHistoryEntry`.
-   * Only complete once the `extractContentStaging()` generator that was given this context has been
-   * fully drained — sorted by `versionDate` ascending at that point, same as before streaming. */
+  /** Complete, and sorted by `versionDate` ascending, only once the `extractContentStaging()`
+   * generator given this context has been fully drained. */
   orphanedHistory: OrphanedPageHistoryEntry[]
-  /** Every staged page's lightweight `{oldId, path, locale}` identity (Task 13, WP #1790), appended to
-   * as `extractContentStaging()` yields each `StagedPage` — what
-   * `importers/navigation-import.ts`'s
-   * `importNavigation()` needs to resolve a 2.x `'page'`-type nav target back onto a staged page.
-   * Complete once every page this run's `pages` entity yielded has actually been processed by its
-   * caller (`phases/content.ts`'s streaming `pages` entity fully drains before its `navigation` entity
-   * starts — see that file's own doc comment), the same "complete once the whole walk has finished"
-   * contract `orphanedHistory` already has, just driven by the consumer finishing the generator rather
-   * than the generator itself finishing internally. */
+  /** Each staged page's `{oldId, path, locale}` identity, for resolving a 2.x `'page'`-type nav
+   * target back onto a staged page. Complete only once the caller has drained the generator. */
   stagedPageRefs: NavigationPageRef[]
 }
 
@@ -181,14 +132,10 @@ export function createContentStagingContext(): ContentStagingContext {
 }
 
 export interface ContentStagingOptions {
-  /** #414's old-`users.id` → new-UUID map. See `UserIdMap` in `./id-map.ts` for the contract this
-   * feature actually depends on. */
   userIdMap: UserIdMap
-  /** The 3.0 UUID of the actor `resolveActorId` falls back to — this task's chosen strategy for 2.x's
-   * nullable/orphaned `authorId`/`creatorId` against 3.0's NOT NULL columns is "the operator running
-   * the import"; resolving *who* that is (or creating a system account for it) is left to whichever
-   * CLI resolves this, which is why it is a plain required UUID here rather
-   * than something this module resolves itself. */
+  /** What `resolveActorId` falls back to for 2.x's nullable/orphaned `authorId`/`creatorId` against
+   * 3.0's NOT NULL columns. Required rather than resolved here: deciding who the operator is (or
+   * minting a system account for them) belongs to the calling CLI. */
   fallbackActorId: string
 }
 
@@ -206,18 +153,10 @@ function asString(value: unknown, fallback = ''): string {
   return value === null || value === undefined ? fallback : String(value)
 }
 
-/** Reads a timestamp column off a source row (`createdAt`/`updatedAt`/`publishStartDate`/
- * `publishEndDate`/`versionDate`) and normalizes it to an ISO string before it reaches
- * `asString`/`asNullableString`. A live `PostgresSourceConnector` hands back a real `Date` (node-postgres's
- * own decoding of a `timestamp`/`timestamptz` column, per `checkShape()`'s doc comment on validating
- * presence, not type); a bundle/JSON-backed connector hands back a string instead. Bare `String(value)`
- * on a `Date` produces `Date.prototype.toString()`'s locale/timezone-dependent format
- * ("Wed Jan 15 2020 05:30:45 GMT-0500 (Eastern Standard Time)"), not ISO — which a stricter downstream
- * consumer than `new Date(...)`'s legacy fallback (`normalizeStagedDate`'s `Date.parse`, or a strict
- * `Temporal.Instant.from()`) rejects outright. Mirrors `importers/users-groups.ts#readSourceDate`'s
- * Date-vs-string tolerance, except this returns a string (what `StagedPage`/`StagedPageHistoryEntry`'s
- * fields are typed as) rather than a `Date`. A malformed value degrades to `fallback` the same way
- * `asString`/`asNullableString` already do for a missing one, rather than failing the whole row. */
+/** Normalizes a source timestamp column to ISO. A live `PostgresSourceConnector` hands back a real
+ * `Date` (node-postgres's own decoding), a bundle connector a string, and bare `String(date)` is
+ * `Date.prototype.toString()`'s locale/timezone-dependent format, which a strict parser rejects
+ * outright. A malformed value degrades to the fallback rather than failing the whole row. */
 function asNullableTimestampString(value: unknown): string | null {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value.toISOString()
@@ -225,8 +164,7 @@ function asNullableTimestampString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value)
 }
 
-/** Same normalization as `asNullableTimestampString`, for a non-nullable field
- * (`createdAt`/`updatedAt`/`versionDate`) whose fallback is `asString`'s own `''` rather than `null`. */
+/** `asNullableTimestampString` for a non-nullable field. */
 function asTimestampString(value: unknown, fallback = ''): string {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? fallback : value.toISOString()
@@ -234,10 +172,8 @@ function asTimestampString(value: unknown, fallback = ''): string {
   return value === null || value === undefined ? fallback : String(value)
 }
 
-/** Widened past a strict `=== true` (Task 1850) — see `coerceSourceBoolean`'s doc comment for why a
- * bundle-sourced 0/1 has to coerce the same as the Postgres connector's real boolean. A value this
- * doesn't recognize (missing column, malformed row) falls back to `false` rather than throwing,
- * matching this function's pre-1850 total behavior. */
+/** A bundle-sourced 0/1 has to coerce the same as the Postgres connector's real boolean. An
+ * unrecognized value (missing column, malformed row) degrades to `false` rather than throwing. */
 function asBoolean(value: unknown): boolean {
   return coerceSourceBoolean(value) === true
 }
@@ -256,9 +192,8 @@ function requireNumber(value: unknown, field: string): number {
   return num
 }
 
-/** Normalizes a `[{tag, title}]` (the shape both connector kinds denormalize onto — see the module
- * doc comment) down to plain tag strings, dropping anything malformed rather than throwing: a
- * migration's staging pass should surface bad rows as warnings elsewhere, not abort on one bad tag. */
+/** Flattens the `[{tag, title}]` shape both connector kinds denormalize onto their rows to plain
+ * tag strings, dropping anything malformed rather than aborting a whole migration on one bad tag. */
 function resolveTags(value: unknown): StagedTag[] {
   if (!Array.isArray(value)) return []
   const tags: StagedTag[] = []
@@ -273,13 +208,9 @@ function resolveTags(value: unknown): StagedTag[] {
   return tags
 }
 
-/** The staged `content` value for a page or one of its history entries: `null` through unchanged (2.x
- * genuinely stores no content for this row), otherwise run through `convertDrawioFences()` (a 2.x
- * ```diagram fence becomes a working, ::block-drawio-wrapped ```drawio block) and
- * `convertMermaidFences()` (a bare 2.x ```mermaid fence gets the ::block-diagram wrapper 3.0's block
- * needs to activate it at all) — pushing any conversion warning onto the same `warnings` array every
- * other staging concern already reports through. Shared by `stagePage`/`stageHistoryEntry` since
- * either kind of diagram can equally sit in a past revision's content, not only the current one. */
+/** 2.x's ```diagram and bare ```mermaid fences need 3.0's `::block-drawio`/`::block-diagram`
+ * wrappers to render at all. Shared by `stagePage`/`stageHistoryEntry`: a past revision's content
+ * can hold either kind just as the current one can. */
 function stageContent(raw: unknown, identifier: string, warnings: string[]): string | null {
   if (raw === null || raw === undefined) return null
   const drawio = convertDrawioFences(asString(raw), identifier)
@@ -375,22 +306,19 @@ function compareVersionDate(a: StagedPageHistoryEntry, b: StagedPageHistoryEntry
   const timeA = Date.parse(a.versionDate)
   const timeB = Date.parse(b.versionDate)
   if (Number.isNaN(timeA) || Number.isNaN(timeB)) {
-    // Fall back to a stable string comparison rather than letting NaN comparisons silently no-op —
-    // ISO-8601 sorts lexicographically the same as chronologically for well-formed values, and this
-    // only triggers for malformed ones.
+    // A NaN comparison would silently no-op; ISO-8601 sorts lexicographically the same as
+    // chronologically, so a stable string order is the best available for a malformed value.
     return a.versionDate.localeCompare(b.versionDate)
   }
   return timeA - timeB
 }
 
 /**
- * The lightweight pre-pass (Task #1794): walks `connector.pages()` once, retaining only the `oldId`
- * set orphan classification needs — never `content`/`render`/`toc`. See "Streaming shape" in the
- * module doc comment for why this has to run, in full, before `extractContentStaging()` can emit even
- * its first page.
+ * The pre-pass: walks `connector.pages()` once, retaining only the `oldId` set orphan
+ * classification needs. Must run to completion before `extractContentStaging()` can emit even its
+ * first page.
  *
- * Does not call `connector.connect()`/`disconnect()` — the caller owns the connector's lifecycle, per
- * its documented contract in `./connector.ts`.
+ * Never connects or disconnects — the caller owns the connector's lifecycle.
  */
 export async function buildContentStagingIndex(
   connector: SourceConnector
@@ -405,18 +333,12 @@ export async function buildContentStagingIndex(
 }
 
 /**
- * Walks a connected `SourceConnector`'s `pages()` a second time (the first being
- * `buildContentStagingIndex()`, whose result this consumes as `index`), merge-joining
- * `connector.pageHistory()` in as it goes, and yields one fully-built `StagedPage` at a time —
- * `content`/`render`/`toc` (and every history entry's own `content`) exist only for as long as the
- * caller holds onto the page it was just handed. See "Streaming shape" in the module doc comment for
- * the merge-join's ordering assumption and how a violation of it degrades. Warnings and
- * `orphanedHistory` accumulate on `context` as the walk proceeds — read them once this generator has
- * been fully drained (`orphanedHistory` is only sorted at that point).
+ * The second walk over `connector.pages()`, merge-joining `connector.pageHistory()` in as it goes
+ * and yielding one fully-built `StagedPage` at a time — a page's heavy fields live only as long as
+ * the caller holds the page it was handed. Warnings and `orphanedHistory` accumulate on `context`;
+ * read them only once this generator has been fully drained.
  *
- * Does not call `connector.connect()`/`disconnect()` — the caller owns the connector's lifecycle, per
- * its documented contract in `./connector.ts`. Navigation is not part of this walk at all — call
- * `extractNavigation()` separately; it carries no per-page memory concern of its own.
+ * Never connects or disconnects — the caller owns the connector's lifecycle.
  */
 export async function* extractContentStaging(
   connector: SourceConnector,
@@ -438,8 +360,7 @@ export async function* extractContentStaging(
   for await (const raw of connector.pages()) {
     const staged = stagePage(raw, options, context.warnings)
 
-    // -> Drain every pageHistory row belonging to this page (or sorting before it) before moving on —
-    //    both streams are ordered ascending by the same page id, so this is a plain merge-join.
+    // -> Both streams are ordered ascending by the same page id, so this is a plain merge-join.
     while (!historyLookahead.done) {
       const rawHistory = historyLookahead.value
       const sourcePageOldId = asNullableNumber(rawHistory.pageId)
@@ -454,8 +375,7 @@ export async function* extractContentStaging(
 
       if (sourcePageOldId < staged.oldId) {
         if (index.pageOldIds.has(sourcePageOldId)) {
-          // Unreachable if the source genuinely orders pageHistory() ascending by pageId, as
-          // documented (`connector.ts`) — a row for an already-emitted page would mean it didn't.
+          // Unreachable while a connector upholds `connector.ts`'s documented pageId ordering.
           // Warn and drop rather than mis-attach it to the wrong page or lose it silently.
           context.warnings.push(
             `pageHistory ${asString(rawHistory.id, '?')}: pageId ${sourcePageOldId} belongs to an already-emitted page — pageHistory() was not ordered ascending by pageId as expected, so this row could not be attached and was dropped.`
@@ -502,9 +422,8 @@ export async function* extractContentStaging(
 }
 
 /**
- * Extracts `navigation()` rows verbatim — split out from `extractContentStaging()` because navigation
- * carries no per-page memory concern of its own (one small tree per key) and has nothing to do with
- * the page/history streaming problem this module otherwise exists to solve.
+ * Split out from `extractContentStaging()`: one small tree per key carries no per-page memory
+ * concern, so none of the streaming machinery applies to it.
  */
 export async function extractNavigation(connector: SourceConnector): Promise<StagedNavigation[]> {
   const navigation: StagedNavigation[] = []

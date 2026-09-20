@@ -6,21 +6,17 @@
   - `markdown-it-emoji` is the renderer's own vocabulary: `:shortcode:` is what gets written into a
     page, and anything outside that map would go in as text that never becomes an emoji. It has no
     notion of categories.
-  - `unicode-emoji-json` carries the CLDR grouping and ordering — Smileys & Emotion, Animals & Nature,
-    and so on — which is what the picker's tabs are, and no notion of shortcodes.
+  - `unicode-emoji-json` carries the CLDR grouping and ordering the picker's tabs are, and no notion
+    of shortcodes.
 
-  So this writes out the intersection: each group, in Unicode's own order, as `[shortcode, character]`
-  pairs — the shortcode is what gets written into the page, the character is what the picker draws in its
-  grid. The picker cannot offer an emoji the renderer would not draw, because every pair came from the
-  renderer's own map.
+  So this writes out their intersection, which is why the picker cannot offer an emoji the renderer
+  would not draw: every pair came from the renderer's own map.
 
   The characters are written here rather than looked up at runtime, even though the editor already
   bundles that map for rendering. Reading it would mean importing `markdown-it-emoji/lib/data/full.mjs`
-  from app code — a path into the package's internals rather than an entry point it publishes, and one
-  more dependency for the bundler to discover. A few kB of duplicated characters is the cheaper side of
-  that trade.
-
-  `unicode-emoji-json` is a devDependency for that reason: its data ends up here, and here is committed.
+  from app code — a path into the package's internals rather than an entry point it publishes. A few kB
+  of duplicated characters is the cheaper side of that trade, and why `unicode-emoji-json` can stay a
+  devDependency.
 
   Usage: node scripts/generate-emoji.mjs [--check]
 */
@@ -35,11 +31,9 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const OUT = path.join(ROOT, 'src/assets/emoji.generated.js')
 
 /**
- * One shortcode per emoji, since several can point at the same character — `laughing` and `satisfied`
- * are both 😆, `+1` and `thumbsup` are both 👍.
- *
- * The first one wins, except that a name starting with a letter beats one that does not: the map's own
- * order is close to canonical, and `thumbsup` reads better in a page's source than `+1`.
+ * One shortcode per emoji, since several can point at the same character. The first one wins, except
+ * that a name starting with a letter beats one that does not: the map's own order is close to
+ * canonical, and `thumbsup` reads better in a page's source than `+1`.
  */
 function buildShortcodeIndex() {
   const index = new Map()
@@ -61,8 +55,8 @@ function build() {
     const emoji = []
     for (const entry of group.emojis) {
       const shortcode = index.get(entry.emoji)
-      // -> Skipped rather than invented: an emoji the renderer has no shortcode for cannot be written
-      //    into a page as an emoji, so it has no business in a picker
+      // -> An emoji the renderer has no shortcode for cannot be written into a page as an emoji, so
+      //    it has no business in a picker
       if (shortcode && !claimed.has(shortcode)) {
         claimed.add(shortcode)
         emoji.push([shortcode, entry.emoji])

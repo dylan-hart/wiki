@@ -6,17 +6,9 @@ import Login from './Login.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * `pages/Login.vue` against `ui-redesign/Cardinal Wiki - Login 3x.dc.html` (OpenProject #2627).
- *
- * Two things this covers that nothing else can:
- *
- * - The colophon. Task 749's regression -- the login screen showing the site's copyright/license
- *   line at all -- used to be asserted against `AuthLayout`, which is where the footer lived. The
- *   design puts it inside the 500px credentials column instead, so the assertion moves here with it.
- * - The structural claims behind the screen's own measurements. jsdom runs no layout engine, so a
- *   height in pixels cannot be asserted; what CAN be asserted is the contract that produces it --
- *   the classes the stylesheet hangs on, and the `size`/`padding` pair each band is built from,
- *   since `WBtn` writes its own `min-height` as an inline style that no rule can override.
+ * jsdom runs no layout engine, so a height in pixels cannot be asserted; what can be is the contract
+ * that produces it -- the classes the stylesheet hangs on, and the `size`/`padding` pair each band
+ * is built from, since `WBtn` writes its own `min-height` as an inline style no rule can override.
  */
 
 const MESSAGES = {
@@ -56,7 +48,6 @@ describe('Login — the two-column shell', () => {
 
     expect(wrapper.find('.auth-content').exists()).toBe(true)
     expect(wrapper.find('.auth-bg').exists()).toBe(true)
-    // -> Decorative: the pane holds the site's login background and nothing a reader has to read
     expect(wrapper.find('.auth-bg').attributes('aria-hidden')).toBe('true')
   })
 

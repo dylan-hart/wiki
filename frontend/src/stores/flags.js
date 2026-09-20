@@ -27,8 +27,8 @@ export const useFlagsStore = defineStore('flags', {
       }
     },
     /**
-     * Take in flags that arrived with something else — `bootstrap` hands them over with the site and
-     * the session, which is how an app load gets them without a request of its own.
+     * For flags that arrived with something else: `bootstrap` hands them over with the site and the
+     * session, which is how an app load gets them without a request of its own.
      */
     apply(systemFlags) {
       this.$patch({

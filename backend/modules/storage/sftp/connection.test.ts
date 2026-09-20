@@ -4,7 +4,6 @@ import { describe, test } from 'node:test'
 import type Client from 'ssh2-sftp-client'
 import { connectSftp, ensureDirectory, type SftpTargetConfig } from './connection.ts'
 
-/** A password-auth config with sane defaults, overridden per test. */
 function makeConfig(overrides: Partial<SftpTargetConfig> = {}): SftpTargetConfig {
   return {
     host: 'sftp.example.com',
@@ -17,11 +16,6 @@ function makeConfig(overrides: Partial<SftpTargetConfig> = {}): SftpTargetConfig
   }
 }
 
-/**
- * A stub matching just the `Client` surface `connectSftp`/`ensureDirectory` call, built with
- * `mock.fn()` per the `test/mocks.ts` convention so a test can assert on `.mock.calls` directly rather
- * than reaching for a real `ssh2-sftp-client` connection.
- */
 function makeStubClient(overrides: Record<string, any> = {}): any {
   return {
     connect: mock.fn(async () => {}),
@@ -252,9 +246,8 @@ describe('ensureDirectory', () => {
         throw new Error('Failure')
       })
     })
-    // -> The recheck inside `ensureDirectory` also calls `exists`, which is stubbed to always return
-    //    `false` above — override it so the *second* call (the recheck) reports the segment as now
-    //    present, simulating another process having created it in between.
+    // -> `ensureDirectory`'s post-mkdir recheck calls `exists` again: this override makes the second
+    //    call report the segment as present, as if another process had created it in between.
     let call = 0
     client.exists = mock.fn(async () => {
       call += 1

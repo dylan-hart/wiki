@@ -1,38 +1,18 @@
 <template>
   <div class="page-header flex flex-wrap">
-    <!-- PAGE ICON -->
     <!--
-      This row is a plain flex row, so under `dir="rtl"` the flex axis itself already reorders the
-      icon, the title column and the actions -- the icon lands beside whichever edge is now the
-      reading start. What would NOT follow along on its own is the gap between them: `ps-4`/`ms-4`/
-      `me-2` (Tailwind's logical spacing utilities) are used in place of `pl-4`/`ml-4`/`mr-2` below so
-      that gap stays on the correct side of each element rather than staying physically left/right.
+      Logical spacing utilities rather than physical ones: the flex axis already reorders this row
+      under `dir="rtl"`, but a physical gap would stay on the side it names instead of following
+      whichever element just moved.
     -->
     <!--
-      The page's own icon, set in a square hairline plate rather than standing loose beside the title
-      -- Cardinal's masthead is a plate, and the icon is the one thing in it that is a picture rather
-      than type, so it gets a frame to sit in.
-
-      The plate is the same box in both states; only what is inside it changes (a button that opens
-      the picker while editing, a bare icon while reading), so the masthead's geometry does not shift
-      the moment an author starts editing.
-    -->
-    <!--
-      Ground, edge, radius and glyph colour all come from `--page-header-icon-*` (`tailwind.css`)
-      rather than a border/bg utility pair: the plate sits INSIDE the masthead, so it has to follow
-      whatever the masthead is. Ledger's own defaults for the four are the paper tint, the hairline,
-      a square corner and the accent glyph -- exactly what the utilities drew -- so Ledger is
-      unchanged; Cobalt's are a translucent white well with a rounded corner and a white glyph on its
-      gradient banner.
+      The plate is the same box whether the page is being read or edited; only its contents change,
+      so the masthead's geometry does not shift the moment an author starts editing. Its ground,
+      edge, radius and glyph come from `--page-header-icon-*` rather than utilities, because it sits
+      INSIDE the masthead and has to follow whichever aesthetic the masthead is drawn in.
     -->
     <div class="flex-none ps-4 flex items-center">
       <div class="page-header-icon flex flex-none items-center justify-center" :style="plateStyle">
-        <!--
-          The blueprint corner marks. Four 7px right-angles standing just outside the plate's own
-          corners -- the mark the design puts on every framed thing that is being POINTED AT rather
-          than merely bounded (the empty state, a callout, the primary button). Decorative, so it is
-          one `aria-hidden` element drawn with four background gradients rather than four nodes.
-        -->
         <i class="page-header-icon__marks" aria-hidden="true" />
         <w-btn
           v-if="isEditing"
@@ -41,10 +21,7 @@
           flat
           :aria-label="t(`editor.props.icon`)"
           :style="{ minHeight: glyphSize, width: glyphSize }">
-          <!-- -> The same size the icon has when the page is merely being read; see the branch below -->
           <w-icon :name="pageStore.icon" :size="glyphSize" />
-          <!-- -> Not `v-model`: writing the store is only half of what picking an icon means here, and
-                  the other half is telling the editor the page changed. See `setIcon`. -->
           <w-menu content-class="shadow-7">
             <icon-picker-dialog :model-value="pageStore.icon" @update:model-value="setIcon" />
           </w-menu>
@@ -52,21 +29,14 @@
         <w-icon v-else :name="pageStore.icon" :size="glyphSize" />
       </div>
     </div>
-    <!-- PAGE HEADER -->
     <!--
-      In the editor the title and the description are the fields, edited where they sit rather than
-      through a button and a popup. They keep the heading type they have when the page is being read:
-      what tells an author they can type here is the hover tint and the caret, not a box drawn around
-      the text.
-
-      The text is NOT interpolated into the editable elements. Vue would rewrite the text node on every
-      keystroke as the store echoes it back, and a rewritten text node puts the caret at the start of
-      it. `syncEditable` writes it instead, and only when the two have actually diverged.
+      The editable spans are deliberately not interpolated: Vue would rewrite the text node on every
+      keystroke as the store echoes it back, putting the caret at its start. `syncEditable` writes
+      them instead, and only when element and store have actually diverged.
     -->
     <!--
-      Centred rather than top-aligned: with no description the title is the only line in this column,
-      and left at the top it sat above the middle of the icon beside it. A page that has one is taller
-      than everything else in the row, so there is nothing to centre and this changes nothing.
+      Centred rather than top-aligned: with no description the title is this column's only line, and
+      at the top it sat above the middle of the icon beside it.
     -->
     <div class="min-w-0 flex-1 flex flex-col justify-center p-2 sm:p-4">
       <h1 class="text-h4 page-header-title">
@@ -102,51 +72,28 @@
         <span v-else>{{ pageStore.description }}</span>
       </div>
     </div>
-    <!-- PAGE ACTIONS -->
     <!--
-      `has-editor-actions` is what keeps this row on a phone, where it is otherwise hidden: what it
-      holds while a page is being read is a handful of icons for a wide screen, but while a page is
-      being WRITTEN it holds the only way to save or to get back out. See the stylesheet.
+      `has-editor-actions` keeps this row on a phone, where it is otherwise hidden: while a page is
+      being read it holds a handful of icons, but while one is being WRITTEN it holds the only way
+      to save or to get back out.
     -->
     <!--
-      Task/Feature #3350: while `isEditing` is true, Tab is meant to flow title -> description ->
-      the markdown editor's own content, not through this row -- which sits between the two in plain
-      DOM order. `:tabindex="isEditing ? -1 : undefined"` on the docs-help, Discard, Create Page and
-      Save/Save & Close buttons below takes them out of the Tab sequence for exactly that window,
-      still reachable by click, and back in the Tab order the moment `isEditing` goes false again
-      (e.g. the "pending changes, no editor open" state the properties panel can leave behind, where
-      title/description are plain, non-editable spans and there is no Tab-order conflict to avoid).
-      Watch/Print/Edit/Suggest-edits never render while `isEditing` can be true
-      (`v-if="!editorStore.isActive"`), so they need no such guard. The Submit-edits button
-      (`isSuggesting`) is the same story from the other direction: it never renders while `isEditing`
-      is true (suggest mode leaves title/description read-only), so it is left untouched too.
+      The `tabindex` guards below: while the page is being edited Tab must flow title ->
+      description -> the editor's own content, and this row sits between them in DOM order. The
+      buttons that never render while `isEditing` can be true need no such guard.
     -->
     <div
       class="page-header-actions flex-none p-4 flex items-center justify-end"
       :class="{ 'has-editor-actions': hasEditorActions }">
       <template v-if="!editorStore.isActive">
         <!--
-          Whoever is looking at a draft can already see it, so the badge is not gated on being logged
-          in the way the actions beside it are: it is telling a reader what they are reading, not
-          offering them something to do.
+          Not gated on being logged in the way the actions beside it are: whoever is looking at a
+          draft can already see it, and this only tells them what they are reading.
         -->
         <w-badge
           v-if="pageStore.publishState === `draft`"
           color="negative"
           :label="t(`editor.props.draft`)" />
-        <!--
-          Watching a page is a state of it, so the button IS the state: filled and orange while the
-          page is watched, an outline in grey while it is not. Same orange as Edit, because both are
-          this reader's own hold on the page rather than decoration.
-
-          Tabler draws both halves of that pair -- `tabler:bell-filled` and `tabler:bell` -- so the two
-          states really are two drawings rather than one drawing in two colours. (Names left unquoted
-          on purpose: the icon bundler scans this file for quoted references and would keep bundling
-          an icon nothing draws.)
-
-          Not offered on a redirection: a watch is an offer to be told when a page's content changes,
-          and nobody is reading this one — they are passing through it.
-        -->
         <w-btn
           class="ms-4"
           :class="{ 'is-ringing': state.bellRinging, 'is-watching': pageStore.isWatching }"
@@ -172,11 +119,9 @@
       </template>
       <template v-if="editorStore.isActive">
         <!--
-          Persistent, not a toast: `EditorMarkdown.vue` already toasts the terminal `denied` status
-          once, but a `disconnected` socket can sit retrying for a good while (a flaky wifi, a proxy
-          hiccup) and edits keep being made and kept locally the whole time -- something to glance at
-          on and off, not a message that has to be caught in the few seconds it was on screen.
-          Clears itself the moment `collabStore.status` moves off `disconnected`, reconnected or not.
+          Persistent, not a toast: a disconnected socket can sit retrying for a good while while
+          edits keep being made and kept locally -- something to glance at on and off, not a message
+          that has to be caught in the few seconds it was on screen.
         -->
         <div
           v-if="collabStore.status === 'disconnected'"
@@ -186,10 +131,6 @@
           <w-icon name="tabler:wifi-off" size="18px" />
           <span class="text-caption">{{ t('editor.collab.disconnected') }}</span>
         </div>
-        <!--
-          Whoever else has this page open in an editor. Renders nothing when that is nobody, which is
-          also what it renders whenever there is no collaboration session at all.
-        -->
         <collab-presence class="me-2" />
         <w-btn
           class="ms-4"
@@ -204,15 +145,14 @@
         </w-btn>
       </template>
       <!--
-        Not `v-else-if` on the block below: changes made from the page properties panel put the header
-        into the pending state without an editor behind it, and hiding Edit there left no way back into
-        the content at all. Ahead of the commit actions so those stay rightmost.
+        Not `v-else-if` on the block below: changes made from the page properties panel put the
+        header into the pending state without an editor behind it, and hiding Edit there would leave
+        no way back into the content at all. Ahead of the commit actions so those stay rightmost.
       -->
       <template v-if="!editorStore.isActive && userStore.can(`write:pages`)">
         <!--
-          The page's own primary action, and the one filled button on this surface (Cardinal: one
-          filled button per surface). Everything else in the row -- watch, print, the review queue,
-          the docs link -- is a bare icon in the chrome tone.
+          The one filled button on this surface, per Cardinal's one-filled-button-per-surface rule;
+          everything else in the row is a bare icon in the chrome tone.
         -->
         <w-btn
           class="ms-4"
@@ -223,15 +163,9 @@
           @click="editPage" />
       </template>
       <!--
-        For a reader who may read the page but not change it, and whose groups an approval rule lets
-        suggest edits to it. Same place and same shape as Edit, because it is the same intent -- what
-        differs is where the result goes.
-
-        Never on a redirection. A suggestion is a rewrite of a page's text put in front of a reviewer,
-        and a redirection has no text -- what it has is a target, which is a decision about where a
-        path leads rather than a contribution to read. The server still answers `canSuggestEdits` from
-        the approval rules, which are written against paths and know nothing about editors; this is
-        the one place that asks for it.
+        Never on a redirection: a suggestion is a rewrite of a page's text, and a redirection has no
+        text. The server answers `canSuggestEdits` from approval rules written against paths, which
+        know nothing about editors, so the editor check belongs here.
       -->
       <template v-else-if="!editorStore.isActive && pageStore.canSuggestEdits && !isRedirect">
         <w-btn
@@ -307,17 +241,12 @@
         </w-btn-group>
       </template>
     </div>
-    <!-- SUGGESTION OUTCOME -->
     <!--
-      The return leg `hasOpenSuggestion` alone never gave: that flag only ever goes false once a
-      reviewer acts, telling its author nothing about what became of it. `w-full` on a flex-wrap row
-      puts this on its own line below the icon/title/actions above, whichever of them wrapped.
+      Gated on `!hasOpenSuggestion`: once this reader has a newer suggestion open on the page, the
+      outcome of the one before it is no longer what they are here to see. `w-full` on a flex-wrap
+      row puts this on its own line, whichever of the parts above wrapped.
 
-      Gated on `!hasOpenSuggestion` -- once this reader has a newer suggestion open on the page, the
-      outcome of the one before it is no longer what they are here to see.
-
-      Literal colour classes, like the stale-page banner in `InboxReview.vue`: WBanner has no `color`
-      prop, so one would be silently dropped.
+      Literal colour classes because `WBanner` has no `color` prop, which would be silently dropped.
     -->
     <w-banner
       v-if="!pageStore.hasOpenSuggestion && pageStore.resolvedSubmission"
@@ -364,23 +293,18 @@ import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 /**
- * How long the bell swings for, in milliseconds. Matches the `w-bell-ring` animation below — the class
- * has to come off once it has played, or the next watch would not play it again.
+ * Must match the `w-bell-ring` animation's duration below: the class has to come off once it has
+ * played, or the next watch would not replay it.
  */
 const BELL_RING_MS = 700
-
-// PATH DISPLAY
 
 const { isActive: pathDisplayActive, humanize } = usePathDisplay()
 
 /**
- * The reading-mode heading text (Feature #2574/#2578) -- `pageStore.title` unchanged when the site's
- * path-display setting is off, or the humanized last segment of `pageStore.path` when it's on. A
- * deliberate override of whatever title the page was actually saved with, not a fallback for a page
- * with no title -- see the parent Feature's own scope note. Only the reading-mode `v-else` span
- * reads this; the `contenteditable` field beside it (shown while editing) still binds
- * `pageStore.title` directly, since editing a page's real title must never be short-circuited by
- * this display-only setting.
+ * A deliberate override of whatever title the page was saved with when the site's path-display
+ * setting is on, not a fallback for a page with no title. Read only by the reading-mode span: the
+ * `contenteditable` field beside it binds `pageStore.title` directly, since editing a page's real
+ * title must never be short-circuited by a display-only setting.
  */
 const displayedTitle = computed(() => {
   if (!pathDisplayActive.value) {
@@ -390,8 +314,6 @@ const displayedTitle = computed(() => {
   return humanize(segments[segments.length - 1])
 })
 
-// STORES
-
 const collabStore = useCollabStore()
 const editorStore = useEditorStore()
 const flagsStore = useFlagsStore()
@@ -399,102 +321,62 @@ const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
-
-// I18N
 
 const { t } = useI18n()
 
-// COMPUTED
-
 /**
- * At or above the `sm` breakpoint (`css/tailwind.css`), which is this app's phone boundary — below it
- * the header is compacted, since a 64px icon and a 34px title over a row of icons is most of a phone
- * screen before the page has said anything.
+ * 600px is the `sm` breakpoint in `css/tailwind.css`; the media query at the foot of this file
+ * compacts the header on the same boundary.
  */
 const isAtLeastSm = useMinWidth(600)
 const isPhoneViewport = computed(() => !isAtLeastSm.value)
 
 /**
- * The page icon, halved on a phone.
- *
- * Bound rather than left to a media query: `WIcon` renders `size` as an inline `font-size`, which no
- * stylesheet can outrank without `!important`.
+ * Sized in JS rather than by a media query: `WIcon` renders `size` as an inline `font-size`, which
+ * no stylesheet can outrank without `!important`.
  */
-/*
-  The plate and the glyph inside it. The plate is the 64px square the design draws (halved on a
-  phone, along with everything else in this row); the glyph is a little over half of it, which is
-  what leaves the frame reading as a frame rather than as a border drawn round an icon.
-*/
 const plateSize = computed(() => (isPhoneViewport.value ? '36px' : '64px'))
 const glyphSize = computed(() => (isPhoneViewport.value ? '20px' : '34px'))
 const plateStyle = computed(() => ({ width: plateSize.value, height: plateSize.value }))
 
 /**
- * Whether this row holds an editor's own controls — Save, Discard, Submit — rather than only the
- * actions offered to a reader. Those must survive the phone layout: the properties panel puts the
+ * The editor's own controls must survive the phone layout, and the properties panel can put the
  * header into the pending state with no editor open, so `isActive` alone is not the question.
  */
 const hasEditorActions = computed(() => editorStore.isActive || editorStore.hasPendingChanges)
 
-/**
- * Suggesting an edit rather than making one: the editor is open on a submission, and everything about
- * the page other than its content is out of scope.
- */
 const isSuggesting = computed(() => editorStore.isActive && editorStore.mode === 'suggest')
 
-/**
- * Editing the page itself, which is what makes the icon, title and description editable in place.
- * Excludes suggest mode, where those are page properties the submitter has no say over.
- */
+/** Excludes suggest mode: a submitter has no say over the page's icon, title or description. */
 const isEditing = computed(() => editorStore.isActive && !isSuggesting.value)
 
 /**
- * Whether this is a redirection — one being read, edited or created alike, since `pageCreate` puts the
- * editor on the page store as well.
- *
- * What it takes out of this row is everything addressed to a READER of the page: watching it,
- * suggesting a change to it, and reviewing the suggestions. Nobody stays on a redirection long enough
- * for any of those to mean anything. The title, the icon and Edit stay, because those belong to
- * whoever maintains it.
+ * True of a redirection being read, edited or created alike, since `pageCreate` puts the editor on
+ * the page store as well. What it takes out of this row is everything addressed to a READER —
+ * watching the page, suggesting a change to it — since nobody stays on a redirection long enough
+ * for those to mean anything. The title, the icon and Edit belong to whoever maintains it and stay.
  */
 const isRedirect = computed(() => pageStore.editor === 'redirect')
 
-// DATA
-
 const state = reactive({
-  /**
-   * Whether the bell is mid-swing. Set for as long as the animation runs and cleared afterwards, so
-   * that watching a page again a minute later rings it again — a class left on plays once and never
-   * plays a second time.
-   */
   bellRinging: false
 })
 
-// REFS
-
-/** The two in-place fields, which only exist while the page itself is being edited. */
 const titleEl = ref(null)
 const descriptionEl = ref(null)
 
 /**
- * The read-mode title element (the `v-else` span, present whenever the header isn't editing) --
- * exposed so `Index.vue` can run the keyword-highlight pass (`helpers/renderedContent.js`'s
- * `applyKeywordHighlight`) against it too, the same way it already does against the article body.
- * The title lives in a separate DOM subtree from `.page-contents`, and OpenProject #2901 is exactly
- * that gap: a `?highlight=` term arriving from a graph click never touched this element.
+ * Exposed so `Index.vue` can run its keyword-highlight pass over the title too: the title lives in
+ * a separate DOM subtree from `.page-contents`, so a `?highlight=` term would otherwise miss it.
  */
 const titleDisplayEl = ref(null)
 
 defineExpose({ titleDisplayEl })
 
-// WATCHERS
-
 /*
-  Opening the editor is what mounts the two fields, so it is also what fills them. `immediate` covers
-  arriving with the editor already open, where the elements appear in the same tick as this runs.
+  `immediate` covers arriving with the editor already open, where the fields appear in the same tick
+  as this runs.
 */
 watch(
   () => isEditing.value,
@@ -503,9 +385,8 @@ watch(
 )
 
 /*
-  Changed from somewhere else -- the properties panel edits both of these, and a save replaces the whole
-  page -- so the field follows. A change that came FROM the field is already in the element and
-  `syncEditable` leaves it alone.
+  The properties panel edits both of these and a save replaces the whole page, so the field follows.
+  A change that came FROM the field is already in the element, and `syncEditable` leaves it alone.
 */
 watch(
   () => pageStore.title,
@@ -516,14 +397,10 @@ watch(
   (description) => syncEditable(descriptionEl.value, description)
 )
 
-// METHODS
-
 /**
- * Put a value into a contenteditable without disturbing a caret that is already in it.
- *
- * Writing `textContent` replaces the node's text and collapses the selection to its start, so it is
- * only done when the element and the store have actually diverged — which is never mid-keystroke,
- * since the keystroke is where the store's value came from.
+ * Writing `textContent` collapses the selection to the node's start, so it is only done when the
+ * element and the store have actually diverged — which is never mid-keystroke, since the keystroke
+ * is where the store's value came from.
  */
 function syncEditable(el, value) {
   if (el && el.textContent !== (value ?? '')) {
@@ -531,7 +408,6 @@ function syncEditable(el, value) {
   }
 }
 
-/** Both fields, from the store. Call after they mount; they do not exist outside the editor. */
 async function seedEditables() {
   await nextTick()
   syncEditable(titleEl.value, pageStore.title)
@@ -539,12 +415,8 @@ async function seedEditables() {
 }
 
 /**
- * The icon picked from the header.
- *
- * The same two steps the title and the description take below, and for the same reason: an icon is part
- * of the page, so changing it has to leave the editor holding an unsaved change. Bound through the event
- * rather than `v-model` because that wrote the store and nothing else -- Save Changes stayed disabled
- * until something else was edited, and closing the editor threw the new icon away without a word.
+ * Bound through the event rather than `v-model`: `v-model` would write the store alone, leaving the
+ * editor undirtied. An icon is part of the page, so changing it is an unsaved change.
  */
 function setIcon(icon) {
   pageStore.icon = icon
@@ -552,20 +424,18 @@ function setIcon(icon) {
 }
 
 function onEditableInput(field, event) {
-  // -> Clearing the field leaves a browser-inserted `<br>` behind, which contributes nothing to the
-  //    text but does hold a second line open under the placeholder
+  // -> Clearing the field leaves a browser-inserted `<br>` behind, which adds nothing to the text
+  //    but does hold a second line open under the placeholder
   if (event.target.textContent === '' && event.target.innerHTML !== '') {
     event.target.innerHTML = ''
   }
   pageStore[field] = event.target.textContent
-  // -> What the tag editor and the properties panel do for their own edits: the header is a place a
-  //    page gets changed, so it owes the same "unsaved changes" signal
   editorStore.markDirty()
 }
 
 /*
-  Tidied on the way out rather than as it is typed: a pasted line break or a run of spaces has no
-  business in a title, but collapsing them under the caret would move it while someone is still going.
+  Tidied on the way out rather than as it is typed: collapsing whitespace under the caret would move
+  it while someone is still going.
 */
 function onEditableBlur(field, event) {
   const tidied = event.target.textContent.replace(/\s+/g, ' ').trim()
@@ -576,19 +446,12 @@ function onEditableBlur(field, event) {
   syncEditable(event.target, tidied)
 }
 
-/*
-  The save/discard/conflict/undo cluster, lifted out whole (`composables/pageSaveFlow.js`). It still
-  needs the two answers only this header has -- whether the open editor is a suggestion, and whether
-  the page's pending asset renames could be committed -- and registers the save-conflict watch
-  itself, in this component's own effect scope.
-*/
 const { discardChanges, saveChanges } = usePageSaveFlow({
   isSuggesting,
   processPendingAssets
 })
 
 async function createPage() {
-  // Handle home page creation flow
   if (pageStore.path === 'home') {
     if (!(await processPendingAssets())) {
       return
@@ -615,7 +478,6 @@ async function createPage() {
     return
   }
 
-  // All other pages
   dialog({
     component: defineAsyncComponent(() => import('../components/TreeBrowserDialog.vue')),
     componentProps: {
@@ -656,16 +518,10 @@ async function createPage() {
 }
 
 /**
- * Uploads whatever assets are pending, if any. Resolves `true` when the caller may proceed with the
- * save/create it was about to do, `false` when the upload was cancelled or failed and the caller
- * should stop instead.
- *
- * Resolves rather than rejecting on cancel: `dialog()`'s `.onCancel(cb)` invokes `cb` with no
- * argument (`composables/dialog.js`'s `closeDialog`), so `.onCancel(reject)` used to reject this
- * promise with `undefined` as the reason -- every one of the three call sites below awaits this
- * outside a try/catch (their own enclosing handlers are not awaited by whatever triggered them
- * either), so a cancelled/failed upload surfaced as an unhandled promise rejection with no message
- * (OpenProject #945).
+ * Resolves `true` when the caller may proceed with the save/create it was about to do, `false` when
+ * the upload was cancelled or failed. Resolves rather than rejecting on cancel: no call site awaits
+ * this inside a try/catch, and `dialog()`'s `.onCancel(cb)` passes no argument, so rejecting would
+ * surface as an unhandled rejection with no message.
  */
 async function processPendingAssets() {
   if (!(editorStore.pendingAssets?.length > 0)) {
@@ -687,10 +543,6 @@ async function editPage() {
   loading.hide()
 }
 
-/**
- * Open the editor on an edit suggestion. Picks up the reader's own pending suggestion if they have
- * one, which the server decides -- see `pageSuggest`.
- */
 async function suggestEdits() {
   loading.show()
   try {
@@ -706,8 +558,8 @@ async function suggestEdits() {
 }
 
 /**
- * Send the suggestion, asking a guest who they are first: nothing else records that, and a reviewer
- * has to be able to answer them.
+ * A guest is asked who they are first: nothing else records that, and a reviewer has to be able to
+ * answer them.
  */
 async function submitSuggestion() {
   if (!userStore.authenticated) {
@@ -723,8 +575,8 @@ async function submitSuggestionCommit(guest = {}) {
   loading.show()
   try {
     await pageStore.pageSubmitSuggestion(guest)
-    // -> Back to the page as everyone else sees it: what was typed is now a suggestion waiting for a
-    //    reviewer, not a version of the page, so leaving the editor open on it would be a lie
+    // -> What was typed is a suggestion waiting for a reviewer, not a version of the page, so the
+    //    editor must not stay open on it
     editorStore.$patch({
       isActive: false,
       editor: '',
@@ -734,8 +586,8 @@ async function submitSuggestionCommit(guest = {}) {
     notify({
       type: 'positive',
       message: t('common.page.suggestSubmitted'),
-      // -> Only an account can be matched to a suggestion afterwards, so only a logged in author is
-      //    told they can come back to it; for a guest that would be a promise nothing here can keep
+      // -> Only an account can be matched to a suggestion afterwards, so only a logged-in author is
+      //    told they can come back to it
       caption: userStore.authenticated
         ? t('common.page.suggestSubmittedHint')
         : t('common.page.suggestSubmittedHintGuest')
@@ -755,11 +607,8 @@ function printPage() {
 }
 
 /**
- * Watch the page, or stop watching it.
- *
- * The bell rings on the way IN only: a swing is the page announcing that it will now tell you about
- * itself, and playing the same flourish for switching that off would say the opposite thing with the
- * same gesture. The store moves before the request answers, so the icon flips under the pointer.
+ * The bell rings on the way IN only: the swing says the page will now tell you about itself, and
+ * replaying it for switching that off would say the opposite with the same gesture.
  */
 async function toggleWatch() {
   const watching = !pageStore.isWatching
@@ -783,26 +632,13 @@ async function toggleWatch() {
 
 <style scoped>
 /*
-  One target box for the whole action row (OpenProject #2616).
+  One equal target box for every button in this row, so a reader aiming at any of them aims at the
+  same size. Written as a child combinator rather than a class, so a button added later inherits it;
+  `>` deliberately stops at the row's own children, leaving the save/save-and-close pair inside
+  `w-btn-group` alone -- a group is one control with its own internal seam.
 
-  Watch, Print and the review queue were `dense` icon-only buttons sitting beside a full labelled
-  Edit, which is a 28px/10px box against a 32px/14px one -- three visibly smaller places to aim at in
-  a row a reader reads as one group. `dense` is gone from all three (it drove nothing in `WBtn` but
-  those two metrics), and this rule is what keeps the equality true from here on: a button added to
-  this row later inherits the box rather than having to remember to ask for it.
-
-  What is NOT equalised is the fill. Edit stays the one accent button on this surface and everything
-  else stays a bare icon in the chrome tone -- see the comment above Edit itself. The note this fixes
-  was about the hit area, not the colour.
-
-  Written as a child combinator rather than a class, for the same reason: a class is a thing to
-  remember. `>` deliberately stops at the row's own children, leaving the save/save-and-close pair
-  inside `w-btn-group` alone -- a group is one control with its own internal seam, not two members of
-  this row.
-
-  `!important` because `WBtn` writes `min-height` and `padding` as INLINE styles, which no class beats
-  on specificity alone; `.w-btn.header-nav-btn` in `css/_base.css` documents the same fight against
-  the same two properties for the site header's own band.
+  `!important` because `WBtn` writes `min-height` and `padding` as INLINE styles, which no class
+  beats on specificity alone.
 */
 .page-header-actions > .w-btn {
   min-height: 2.572em !important;
@@ -810,15 +646,12 @@ async function toggleWatch() {
 }
 
 /*
-  The secondary actions' own plate. Ledger draws them as bare icons in the chrome tone on a white
-  band -- `--page-header-action-bg` is `transparent` and `--page-header-action-fg` the same
-  `--color-slate-soft` each caller asks for, so nothing changes there. Cobalt sets each one in a
-  `rgba(255,255,255,.14)` rounded plate with a white stroke, because the band underneath is a
-  saturated gradient and a chrome-tone glyph on it is neither legible nor the mockup.
+  The secondary actions' own plate, through the `--page-header-action-*` tokens: Ledger leaves them
+  bare icons in the chrome tone, while Cobalt needs a plate, since a chrome-tone glyph on its
+  saturated band is not legible.
 
-  `:not(.w-btn--is-primary)` keeps Edit out of it: that button is the one accent fill on this row in
-  both aesthetics and paints itself. Matched on the flat icon buttons only -- a labelled button
-  (Save, Close in the editor) keeps `WBtn`'s own treatment.
+  Matched on the flat buttons only -- Edit takes no `flat` and paints itself as this row's one
+  accent fill, and a labelled button (Save, Close) keeps `WBtn`'s own treatment.
 */
 .page-header-actions > .w-btn.w-btn--flat {
   background-color: var(--page-header-action-bg);
@@ -827,37 +660,23 @@ async function toggleWatch() {
 }
 
 /*
-  OpenProject #2961: the watch button's own accent while the page IS watched. `WBtn`'s `color` prop
-  writes an inline `style="color: ..."` on the button root, which always beats the class rule above
-  regardless of aesthetic or source order -- that inline color is what made both this button (when
-  not watching) and the print button beside it read as the wrong, subdued token in Cobalt instead of
-  `--page-header-action-fg`. Neither button takes a `color` prop any more; this state is expressed as
-  a class instead, written one class more specific than the rule above so it wins on specificity
-  alone rather than depending on appearing later in the file.
+  The watched state as a class rather than `WBtn`'s `color` prop: that prop writes an inline colour
+  on the button root, which always beats the rule above and would drag the unwatched state off
+  `--page-header-action-fg` with it. Written one class more specific than that rule, so it wins on
+  specificity rather than on source order.
 */
 .page-header-actions > .w-btn.w-btn--flat.is-watching {
   color: var(--color-accent);
 }
 
 /*
-  The phone layout of this row.
+  The phone layout of this row. Unlayered scoped rules, so they beat the `text-h4` utility without
+  needing `!important`; the size is written as a value rather than as `text-h5` so it lives beside
+  the breakpoint that asks for it.
 
-  The title comes down from `text-h4`, which is a 34px display size written for a header the width of a
-  desktop window: at 390px a title of any length wrapped, and the description under it was pushed out of
-  the bar. 24px is the same step `text-h5` takes, chosen as a value rather than as that class so the size
-  lives beside the breakpoint that asks for it.
-
-  The text column's padding halves with it, which is most of what brings the bar's own height down --
-  `pages/Index.vue` takes the fixed 95px off on the same breakpoint, so what is left of it is this
-  column. Horizontal too, and deliberately: at 8px the title lines up with the article underneath, which
-  now pads by the same amount.
-
-  And the actions go, all of them -- Watch, Print, the review queue, Edit -- because they are icons
-  squeezed against the right edge of a row that has no room for the title as it is. Nothing is lost that
-  is not reachable elsewhere: Print is the browser's own menu, and a page is edited on a machine with a
-  keyboard. An editor already open keeps its controls, or there would be no way to save or leave it.
-
-  Unlayered scoped rules, so they beat the `text-h4` utility without needing `!important`.
+  The reader actions go entirely: icons squeezed against the edge of a row with no room for the
+  title as it is, and nothing among them that is not reachable elsewhere. An editor already open
+  keeps its controls, or there would be no way to save or leave it.
 */
 @media (max-width: 599.98px) {
   .page-header-title {
@@ -871,13 +690,10 @@ async function toggleWatch() {
 }
 
 /*
-  The bell swinging as a page starts being watched.
-
-  On the icon inside the button rather than on the button itself, so the ripple, the hover tint and the
-  hit area all stay where they are while only the drawing moves. `transform-origin` at the top centre
-  is what makes it swing from its mounting instead of spinning about its middle.
-
-  `:deep`, because the icon is rendered by `WBtn` and a scoped rule would not reach into it.
+  On the icon rather than the button, so the ripple, the hover tint and the hit area all stay where
+  they are while only the drawing moves; `transform-origin` at the top centre swings it from its
+  mounting instead of spinning it about its middle. `:deep` because `WBtn` renders the icon and a
+  scoped rule would not reach into it.
 */
 .is-ringing :deep(svg) {
   animation: w-bell-ring 0.7s ease-in-out;
@@ -908,55 +724,43 @@ async function toggleWatch() {
   }
 }
 
-/* -> A swinging bell says nothing the colour change does not; for a reader who asked for less motion
-   it is noise with a vestibular cost, so it simply does not swing. */
 @media (prefers-reduced-motion: reduce) {
   .is-ringing :deep(svg) {
     animation: none;
   }
 }
 
-/*
-  The corner marks: one absolutely-positioned box inset past the plate, with each of its four corners
-  painted by a pair of 7px background gradients. A pseudo-element would give two corners at most, and
-  four real nodes would put decoration in the accessibility tree.
-*/
+/* -> `position: relative` is the corner marks' containing block. */
 .page-header-icon {
   position: relative;
   background-color: var(--page-header-icon-bg);
   border: var(--page-header-icon-border);
   border-radius: var(--page-header-icon-radius);
-  /* -> The glyph inside, whether it is the bare icon or the picker button, inherits this */
   color: var(--page-header-icon-fg);
 }
 
 /*
-  Ledger's plate is the paper tint, which is a light-mode value: on the dark theme it takes the
-  recessed rung of the dark ramp instead. Cobalt's plate is the same translucent white on its own
-  gradient in BOTH themes -- the banner does not change between them -- so the aesthetic is excluded
-  here rather than given a second value.
+  Ledger's plate and glyph are both light-mode values, so the dark theme swaps them here rather than
+  through a second value on the tokens: Cobalt's plate is the same translucent white well carrying a
+  white glyph in BOTH themes, which is why it is excluded instead.
 */
 .body--dark:not(.body--cobalt) .page-header-icon {
   background-color: var(--color-dark-4);
   border-color: var(--color-hairline-dark);
-  /*
-    And the glyph in it (OpenProject #2807): `--color-accent-fill` has no dark-mode value of its own,
-    so left to the token's Ledger default this plate drew the light theme's bright tone against a
-    dark ground -- the same swap `w-input-control`'s error ring already makes in `tailwind.css`.
-    Cobalt is excluded because its plate is a translucent white well carrying a white glyph in both
-    themes, which is why the swap is a rule here rather than a second value on `--color-accent-fill`.
-  */
   color: var(--color-accent-dark);
 }
 
-/*
-  The corner marks are Ledger's, and `--corner-marks` is the token that says so: `block` there,
-  `none` under Cobalt, whose plate is bounded by its own radius instead.
-*/
+/* -> Hidden under Cobalt through the token rather than a Cobalt-only rule; its plate is bounded by
+   its own radius instead. */
 .page-header-icon__marks {
   display: var(--corner-marks);
 }
 
+/*
+  One absolutely-positioned box whose four corners are painted by pairs of background gradients: a
+  pseudo-element would give two corners at most, and four real nodes would put decoration in the
+  accessibility tree.
+*/
 .page-header-icon__marks {
   position: absolute;
   inset: -5px;
@@ -973,14 +777,12 @@ async function toggleWatch() {
 }
 
 /*
-  The two headings, while they are also the fields.
+  No border and no focus ring: at rest each heading has to read exactly as it does when the page is
+  being read, which is the whole point of editing it where it sits. What says "type here" is the
+  hover tint, the caret and the placeholder below.
 
-  No border and no focus ring: at rest each one has to read exactly as it does when the page is being
-  read, which is the whole point of editing them where they sit. What says "type here" is the hover
-  tint, the caret, and -- while a field is empty -- the placeholder below.
-
-  The padding is cancelled by an equal negative margin, so the text keeps the position it has outside
-  the editor and only the tint is inset from it.
+  The padding is cancelled by an equal negative margin, so the text keeps the position it has
+  outside the editor and only the tint is inset from it.
 */
 .page-header-editable {
   display: inline-block;
@@ -1008,13 +810,12 @@ async function toggleWatch() {
 }
 
 /*
-  Keyed off the store rather than `:empty`, which a cleared field can fail: the browser leaves a `<br>`
-  behind and the element stops counting as empty even though it looks it.
+  Keyed off the store rather than `:empty`, which a cleared field can fail: the browser leaves a
+  `<br>` behind and the element stops counting as empty even though it looks it.
 */
 .page-header-editable.is-empty::before {
   content: attr(data-placeholder);
   opacity: 0.4;
-  /* -> Decoration: it must not be selectable, and it must never end up in the value */
   pointer-events: none;
   user-select: none;
 }

@@ -34,30 +34,22 @@ interface FolderBody {
   locale?: string
 }
 
-/** A folder's own slash-separated path, which is what a rule over that branch addresses. */
 function folderPathOf(folder: { folderPath?: string | null; fileName: string }): string {
   const parent = decodeTreePath(folder.folderPath ?? '') ?? ''
   return parent ? `${parent}/${folder.fileName}` : folder.fileName
 }
 
 /**
- * Tree API Routes
- *
- * The tree is what the file manager and the navigation browse: one listing that interleaves folders,
- * pages and assets. Folders are the only kind created here — a page or an asset gets its tree entry
- * from whatever created it.
+ * The tree interleaves folders, pages and assets in one listing. Folders are the only kind created
+ * here — a page or an asset gets its tree entry from whatever created it.
  */
 async function routes(app: FastifyInstance) {
-  /**
-   * BROWSE THE TREE
-   */
   app.get<{ Params: { siteId: string }; Querystring: TreeQuery }>(
     '/sites/:siteId/tree',
     {
       /*
         No route-level `permissions`: page permissions come from a group's RULES, and every entry is
-        filtered against them below — a caller allowed nowhere gets an empty listing rather than a
-        refusal, which is the same thing the tree would look like if the pages were not there.
+        filtered against them below — a caller allowed nowhere gets an empty listing, not a refusal.
       */
       schema: {
         summary: 'Browse the tree',
@@ -141,8 +133,6 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const q = req.query
       const locale = q.locale ?? defaultLocale(req.params.siteId)
-      // -> `null` rather than `[]` for an absent filter: the model reads an empty array as "match
-      //    nothing", so the two are not interchangeable here the way they are in `api/pages/read.ts`.
       const types = splitList(q.types)
       const tags = splitList(q.tags)
       const items = await CARDINAL.models.tree.getTree({
@@ -165,9 +155,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * BROWSE THE TREE AS A READER
-   */
   app.get<{ Params: { siteId: string }; Querystring: { path?: string; locale?: string } }>(
     '/sites/:siteId/tree/browse',
     {
@@ -221,11 +208,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> `siteEnabledPreHandler` (`helpers/siteResolution.ts`) has already answered 404 for an unknown
-      //    `:siteId` before any handler here runs, so this is the site, not a maybe.
+      // -> `siteEnabledPreHandler` has already answered 404 for an unknown `:siteId`.
       const site = CARDINAL.sites[req.params.siteId]
-      // -> The same setting that hides the sidebar's Browse button, enforced where it counts: with
-      //    browsing off, the tree is not something to hand out one folder at a time either
       if (!site.config?.features?.browse) {
         return reply.forbidden('Browsing is disabled on this site.')
       }
@@ -240,9 +224,8 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This folder does not exist.')
       }
       /*
-        A browse row carries a whole path rather than a folder/name pair, and stands for a page, a
-        folder, or both at once. Judged on that path either way: for the page it IS the page, and for
-        a folder it is the branch, which is what a rule over the branch is talking about.
+        A browse row stands for a page, a folder, or both at once, and is judged on its path either
+        way: for a folder that path is the branch, which is what a rule over the branch addresses.
       */
       const actor = CARDINAL.models.groups.actorForRequest(req)
       return {
@@ -252,12 +235,8 @@ async function routes(app: FastifyInstance) {
             path: item.path,
             siteId: req.params.siteId,
             locale,
-            // -> `tree.browse()` (OpenProject #1128) joins `pages.classification` in for a page at
-            //    this path; a folder-only entry carries none, same "no CLASSIFICATION rule matches"
-            //    null it always had.
+            // -> Both empty for a folder-only entry, which no CLASSIFICATION or TAG rule matches
             classification: item.classification,
-            // -> OpenProject #3409: threaded through so a TAG/TAGALL rule decides `read:pages` here
-            //    the same way a path rule does; empty for a folder-only entry, same as `classification`.
             tags: item.tags
           })
         )
@@ -265,9 +244,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST PAGES AS A READER
-   */
   app.get<{
     Params: { siteId: string }
     Querystring: {
@@ -342,7 +318,6 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const locale = req.query.locale ?? defaultLocale(req.params.siteId)
-      // -> `null` rather than `[]` for an absent filter, same as BROWSE THE TREE above
       const tags = splitList(req.query.tags)
       const pages = await CARDINAL.models.tree.listPages({
         siteId: req.params.siteId,
@@ -363,19 +338,13 @@ async function routes(app: FastifyInstance) {
           path: page.path,
           siteId: req.params.siteId,
           locale,
-          // -> `tree.listPages()` (OpenProject #1128) now joins `pages.classification` in directly.
           classification: page.classification,
-          // -> OpenProject #3409: threaded through so a TAG/TAGALL rule decides `read:pages` here the
-          //    same way a path rule does.
           tags: page.tags
         })
       )
     }
   )
 
-  /**
-   * GET FOLDER
-   */
   app.get<{ Params: { siteId: string; folderId: string } }>(
     '/sites/:siteId/tree/folders/:folderId',
     {
@@ -399,7 +368,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This folder does not exist.')
       }
       const folderPath = folderPathOf(folder)
-      // -> Not visible is the same as not there, so it answers as the id had matched nothing
+      // -> Not visible is the same as not there, so it answers as if the id had matched nothing
       if (!mayOnFolder(req, 'read:pages', req.params.siteId, folderPath, folder.locale)) {
         return reply.notFound('This folder does not exist.')
       }
@@ -411,16 +380,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE FOLDER
-   */
   app.post<{ Params: { siteId: string }; Body: FolderBody }>(
     '/sites/:siteId/tree/folders',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions come
-        from a group's RULES. Checked against the folder's own path below.
-      */
+      // -> No route-level `permissions`: page permissions are path-bound, checked in the handler
       schema: {
         summary: 'Create a folder',
         description:
@@ -474,11 +437,9 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       /*
-        Against where the folder is going. `parentPath` is the slash-separated path when given; with
-        `parentId` the parent has to be looked up and scoped to this site — a `parentId` naming a
-        folder in another site is refused here rather than silently falling through to the request's
-        own `parentPath`/`locale` (OpenProject #2131), which would leak neither its identity nor
-        create anything, but would compute the permission check against the wrong path.
+        Judged against where the folder is going. A `parentId` that does not resolve in this site is
+        refused rather than falling through to the request's own `parentPath`, which would run the
+        permission check against the wrong path.
       */
       let parentPath = req.body.parentPath ?? ''
       let parent: Awaited<ReturnType<typeof CARDINAL.models.tree.getFolderById>> = null
@@ -490,8 +451,8 @@ async function routes(app: FastifyInstance) {
         parentPath = folderPathOf(parent)
       }
       const target = [parentPath, req.body.pathName].filter(Boolean).join('/')
-      // -> Mirrors createFolder's own parent-wins locale rule (models/tree.ts:750-751): a folder
-      //    cannot be in a different locale than the one holding it
+      // -> Mirrors `createFolder()`'s parent-wins locale rule: a folder cannot be in a different
+      //    locale than the one holding it
       const locale = req.body.parentId
         ? (parent?.locale ?? req.body.locale ?? defaultLocale(req.params.siteId))
         : (req.body.locale ?? defaultLocale(req.params.siteId))
@@ -518,16 +479,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * RENAME FOLDER
-   */
   app.patch<{ Params: { siteId: string; folderId: string }; Body: FolderBody }>(
     '/sites/:siteId/tree/folders/:folderId',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions come
-        from a group's RULES. Checked against the folder's own path below.
-      */
+      // -> No route-level `permissions`: page permissions are path-bound, checked in the handler
       schema: {
         summary: 'Rename a folder',
         description:
@@ -568,29 +523,20 @@ async function routes(app: FastifyInstance) {
       if (!mayOnFolder(req, 'manage:pages', req.params.siteId, currentPath, existing.locale)) {
         return reply.forbidden('You are not allowed to rename this folder.')
       }
-      // -> A title-only edit -- sending the current path segment back -- leaves every descendant's
-      //    path untouched (`renameFolder()`'s own short-circuit below), so there is nothing at a new
-      //    location to authorize. Normalized the same way the model normalizes it, so this agrees
-      //    with the model's own "did the segment actually change" check.
+      // -> A title-only edit moves nothing, so there is no destination to authorize. Normalized as
+      //    `renameFolder()` normalizes it, so both agree on whether the segment changed.
       const newName = normalizePagePath(req.body.pathName)
       if (newName !== existing.fileName) {
         const parentPath = decodeTreePath(existing.folderPath ?? '') ?? ''
         const destPath = parentPath ? `${parentPath}/${newName}` : newName
-        // -> Authorize like a move, the way `PATCH .../pages/:pageId/move` already does for a single
-        //    page (OpenProject #2102): `manage:pages` at the current path is not an opinion about the
-        //    destination, since rules are matched on path. Checked against `write:pages`, not
-        //    `manage:pages`, for the same reason the single-page move is -- see that route's own
-        //    comment.
+        // -> Authorized like a page move: rules match on path, so `manage:pages` at the current
+        //    path says nothing about the destination, and landing something there is a write there.
         if (!mayOnFolder(req, 'write:pages', req.params.siteId, destPath, existing.locale)) {
           return reply.forbidden('You are not allowed to rename this folder there.')
         }
-        // -> Everything under the folder moves with it, so every descendant page needs the same
-        //    two-sided check: `manage:pages` at where it sits now, `write:pages` at where the rename
-        //    would land it. A rule addressed at the folder's own path (e.g. an ALLOW at the site root
-        //    plus a narrower DENY on one descendant branch) would otherwise pass at the folder and
-        //    silently drag the denied branch to a path where the DENY no longer matches. Real `tags`
-        //    and `classification` travel with each descendant page, not `classification: null` --
-        //    that hardcoded null is only correct for the folder entry itself, which is not a page.
+        // -> Every descendant page moves too and needs the same two-sided check, on its own tags
+        //    and classification: an ALLOW at the folder plus a narrower DENY below it would
+        //    otherwise drag the denied branch to a path the DENY no longer matches.
         const { pages: descendants } = await CARDINAL.models.tree.listDescendants(
           req.params.folderId,
           req.params.siteId
@@ -637,16 +583,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE FOLDER
-   */
   app.delete<{ Params: { siteId: string; folderId: string } }>(
     '/sites/:siteId/tree/folders/:folderId',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions come
-        from a group's RULES. Checked against the folder's own path below.
-      */
+      // -> No route-level `permissions`: page permissions are path-bound, checked in the handler
       schema: {
         summary: 'Delete a folder',
         description:
@@ -664,8 +604,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> As deleting a single page does: every page going with the folder is recorded against
-      //    whoever deleted it, so there has to be somebody to record
+      // -> Every page going with the folder is recorded against whoever deleted it, so there has to
+      //    be somebody to record
       const actor = actorFrom(req)
       if (!actor) {
         return reply.unauthorized('Deleting a folder requires a logged in user.')
@@ -688,13 +628,8 @@ async function routes(app: FastifyInstance) {
       ) {
         return reply.forbidden('You are not allowed to delete this folder.')
       }
-      // -> All-or-nothing, checked before anything is mutated: `deleteFolder` cascades to every
-      //    descendant page and asset, so a caller who may only reorganise THIS folder's own path must
-      //    not be able to drag along a page under a `delete:pages` DENY, or an asset outside their
-      //    `manage:assets` reach, just because the folder itself was theirs to manage (OpenProject
-      //    #2100). Judged on each descendant's own real path/tags/classification -- never the
-      //    folder's -- the same way this handler's own `mayOnFolder` check (`helpers/pageAccess.ts`)
-      //    is judged on the folder's.
+      // -> Checked before anything mutates: `deleteFolder` cascades, and managing the folder's own
+      //    path must not take along a page under a `delete:pages` DENY or an asset out of reach.
       const descendants = await CARDINAL.models.tree.listDescendants(
         req.params.folderId,
         req.params.siteId
@@ -720,8 +655,7 @@ async function routes(app: FastifyInstance) {
         req.params.folderId,
         req.params.siteId
       )
-      // -> The tree entries are gone; these are the rows behind them, which is where a page and an
-      //    asset actually live
+      // -> `deleteFolder` removed only the tree entries; these are the rows behind them
       await CARDINAL.models.pages.deleteOrphaned(req.params.siteId, removed.pages, actor)
       await CARDINAL.models.assets.deleteOrphaned(req.params.siteId, removed.assets, {
         authorId: actor.id

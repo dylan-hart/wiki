@@ -8,29 +8,14 @@ import { registerErrorHandler } from './errors.ts'
 import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
 
 /**
- * `registerErrorHandler` is one `if`, and that `if` is the whole point of the file: which of the two
- * handlers an uncaught error reaches is decided by `req.url.includes('/_api/')` alone. Both halves
- * have their own coverage (`helpers/errorHandler.test.ts`); what nothing exercised is the dispatch
- * between them.
+ * Both branches answer byte-identical bodies for every case, so asserting on the response cannot
+ * tell them apart and a collapsed or inverted dispatch would pass. What differs is how an
+ * unexpected throw is logged: `/_api/` logs `unhandled error, answered 500` with
+ * `buildErrorLogContext(req)` in its fields, the other branch `unhandled error outside /_api` with
+ * `{ error }` alone. `warn` is mocked only to assert that neither branch logs a crash below `error`.
  *
- * The two branches answer BYTE-IDENTICAL bodies for every case — `apiErrorHandler` and
- * `sendNonApiError` build the same `{ ok, error, statusCode, message }` shape and collapse an
- * unexpected throw to the same generic 500 — so asserting on the response cannot tell them apart, and
- * a collapsed or inverted `if` would pass. What DOES differ is the logging:
- *
- * | probe                | `/_api/` branch                                | non-API branch                        |
- * | -------------------- | ---------------------------------------------- | ------------------------------------- |
- * | 404 (has statusCode) | silent (answered as-is)                        | silent (answered as-is, Bug #2837)    |
- * | 500 (unexpected)     | logs `unhandled error, answered 500`, its       | logs `unhandled error outside /_api`, |
- * |                      | fields carrying `buildErrorLogContext(req)`    | fields `{ error }` alone              |
- *
- * so this suite asserts on `CARDINAL.logger.error`'s call count, message and fields per probe — at `error`, which
- * is Bug #2650: both branches used to log a crashed request at `warn`, one level below what an
- * operator alerts on, so a 500 was indistinguishable from a routine notice. `warn` is mocked
- * alongside purely to assert it is NOT the level either branch reaches for. Built with a bare
- * `fastify()` rather than `test/fastify.ts#buildTestApp`: the harness installs the `/_api/` handler
- * DIRECTLY (every suite that uses it mounts one route plugin at `/`, where the dispatch would never
- * fire), and the dispatching wrapper is exactly what is under test.
+ * A bare `fastify()` rather than `test/fastify.ts#buildTestApp`: the harness installs the `/_api/`
+ * handler directly, and the dispatching wrapper is what is under test.
  */
 describe('registerErrorHandler', () => {
   let app: FastifyInstance
@@ -45,11 +30,10 @@ describe('registerErrorHandler', () => {
 
     const throwingRoutes: FastifyPluginAsync = async (instance) => {
       // -> A deliberate `@fastify/sensible` error: it carries a `statusCode`, so both branches
-      //    answer its curated message as-is — and only the non-API one logs it.
+      //    answer its curated message as-is and log nothing.
       instance.get('/_api/deliberate', async (_req, reply) => reply.notFound('No such page.'))
       instance.get('/other/deliberate', async (_req, reply) => reply.notFound('No such page.'))
-      // -> An unexpected throw, whose message names internals: both branches collapse it to the same
-      //    generic 500 body, and both log it — but only the `/_api/` one attaches a log context.
+      // -> An unexpected throw, whose message names internals.
       instance.get('/_api/boom', async () => {
         throw new Error('ENOENT: /srv/wiki/data/assets/secret.png')
       })
@@ -110,8 +94,7 @@ describe('registerErrorHandler', () => {
       'unhandled error, answered 500',
       'the /_api/ branch spreads buildErrorLogContext(req) into the fields of this line'
     )
-    // -> `req.id` is the same correlation id the `http` access line carries, which is the whole
-    //    point of spreading the context in.
+    // -> The same correlation id the `http` access line carries.
     assert.ok(apiFields.reqId)
 
     error.mock.resetCalls()
@@ -121,8 +104,7 @@ describe('registerErrorHandler', () => {
     const otherFields = error.mock.calls[0]!.arguments[2] as Record<string, unknown>
     assert.equal(error.mock.calls[0]!.arguments[1], 'unhandled error outside /_api')
     assert.equal(otherFields.reqId, undefined, 'the non-API branch attaches no request log context')
-    // -> An unhandled exception is `error` on BOTH surfaces, never `warn` (#2650): an operator
-    //    alerting on `error` has to see a crashed request whichever handler answered it.
+    // -> An operator alerting on `error` has to see a crashed request whichever handler answered.
     assert.equal(warn.mock.calls.length, 0)
   })
 
@@ -140,8 +122,6 @@ describe('registerErrorHandler', () => {
     for (const url of ['/_api/boom', '/other/boom']) {
       const res = await app.inject({ method: 'GET', url })
       assert.equal(res.statusCode, 500)
-      // -> The deployment path the thrown `ENOENT` carried never reaches the client, on either
-      //    surface.
       assert.equal(res.body.includes('/srv/wiki'), false)
       assert.deepEqual(res.json(), {
         ok: false,

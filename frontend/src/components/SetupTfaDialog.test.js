@@ -37,7 +37,7 @@ function mountDialog() {
   })
 }
 
-/** Fills the OTP widget and clicks Verify, without depending on its internal DOM structure. */
+/** Emits on the OTP component rather than typing into it, whose DOM is the widget's own business. */
 async function enterCodeAndVerify(wrapper, code) {
   await wrapper.findComponent(WOtpInput).vm.$emit('update:modelValue', code)
   const verifyBtn = wrapper.findAll('button').find((b) => b.text() === 'auth.tfa.verifyToken')
@@ -50,7 +50,7 @@ describe('SetupTfaDialog', () => {
     const wrapper = mountDialog()
     await flushPromises()
 
-    // -> `groupedSecret` displays the raw secret grouped by spaces, not the recovery codes' dashes
+    // -> `groupedSecret` displays the secret in spaced blocks, not as the raw string
     expect(wrapper.text()).toContain('ABCD 1234 EFGH 5678')
   })
 
@@ -82,7 +82,6 @@ describe('SetupTfaDialog', () => {
     for (const code of RECOVERY_CODES) {
       expect(wrapper.text()).toContain(code)
     }
-    // -> Not confirmed yet -- the dialog must not have closed itself
     expect(wrapper.emitted('ok')).toBeUndefined()
   })
 
@@ -98,7 +97,6 @@ describe('SetupTfaDialog', () => {
     const closeBtn = wrapper.findAll('button').find((b) => b.text() === 'common.actions.close')
     await closeBtn.trigger('click')
 
-    // -> A confirmation dialog was opened rather than the setup dialog closing immediately
     expect(openDialogs.length).toBe(dialogCountBefore + 1)
     expect(wrapper.emitted('ok')).toBeUndefined()
 

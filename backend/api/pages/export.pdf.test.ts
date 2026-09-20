@@ -5,22 +5,6 @@ import pagesRoutes from './index.ts'
 import { SESSION_COOKIE_NAME } from '../../helpers/security.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * Route-level test for `GET /sites/:siteId/pages/:pageId/export/pdf` — OpenProject #2258/#2262.
- *
- * Driving a real headless browser is `models/pdfExport.ts`'s job — `pdfExport.test.ts` covers the
- * browser-launch guard and the block-settle wait without a real browser. What belongs to the route,
- * and what this file checks, is the wiring: an anonymous caller is refused before anything else runs,
- * exactly like the page re-render route above it in `api/pages/write.ts` and `POST /diagrams/render` beside
- * it (task 2262, reconciling this route against those two siblings, which both refuse anonymous the
- * same way for the same reason, regardless of whether the page itself is one an anonymous reader
- * could otherwise see),
- * `read:pages` is checked in the handler (page rules, not `config.permissions`), a missing or
- * password-locked page is refused before the model is ever asked to open a browser, and the request
- * the model receives carries the caller's own hostname, this instance's port, the page's path, and
- * the raw `__Host-wikiSession` cookie value.
- */
-
 const SITE_ID = '11111111-1111-1111-1111-111111111111'
 const PAGE_ID = '22222222-2222-2222-2222-222222222222'
 
@@ -51,8 +35,7 @@ before(async () => {
       pdfExport: {
         exportPdf
       },
-      // -> The route shares `limitRenders` (see `helpers/rateLimit.ts`) with re-render; always
-      //    allowed here, since throttling itself is that file's own concern, not this route's
+      // -> The route's `limitRenders` preHandler consumes from this; always allowed here.
       rateLimits: {
         consume: mock.fn(async () => ({ allowed: true, retryAfter: 0 }))
       }
@@ -63,9 +46,7 @@ before(async () => {
     routes: pagesRoutes,
     ajv: true,
     wiki,
-    // -> Stands in for the real `@fastify/session` and `@fastify/cookie` plugins: every request is
-    //    an authenticated user carrying whatever `x-test-cookie` sends as its session cookie, unless
-    //    it opts out with `x-test-anon`.
+    // -> Also stands in for `@fastify/cookie`: the route reads its cookie off `req.cookies`.
     session: (req: any) => {
       const cookie = req.headers['x-test-cookie']
       req.cookies = typeof cookie === 'string' ? { [SESSION_COOKIE_NAME]: cookie } : {}

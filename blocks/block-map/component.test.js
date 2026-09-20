@@ -9,17 +9,12 @@ import { mountBlock, resetBlockDom, stubSiteFetch } from '../test/mount.js'
 const OSM_DEFAULT = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 /**
- * Mounts a `<block-map>` with valid coordinates, optionally carrying page-authored props, and waits
- * past `firstUpdated`'s `getBlockConfig` fetch and Leaflet's own tile-layer setup.
- *
- * `settle: 2`: firstUpdated is async (it awaits getBlockConfig before building the tile layer), so
- * its own body runs after updateComplete resolves. A couple of macrotask turns is enough for the
- * stubbed fetch's promise chain and the synchronous Leaflet setup after it to settle.
+ * `settle: 2` — `firstUpdated` awaits `getBlockConfig` before building the tile layer, so its body
+ * runs after `updateComplete` has already resolved.
  */
 const mountMap = (props = {}) =>
   mountBlock('block-map', { props: { lat: 45.5019, lon: -73.5674, ...props }, settle: 2 })
 
-/** The `src` Leaflet actually gave the one tile it drew for this map, or '' if none was found. */
 function tileImgSrc(el) {
   return el.shadowRoot.querySelector('.leaflet-tile-container img')?.getAttribute('src') ?? ''
 }
@@ -28,8 +23,8 @@ const stubSiteConfig = (blocksConfig = {}) => stubSiteFetch({ site: { blocksConf
 
 describe('block-map tile server precedence', () => {
   beforeEach(() => {
-    // -> getBlockConfig caches its fetch for the module's lifetime (one request per real page load);
-    //    each test needs its own site-config response, so the cache must not survive between them.
+    // -> getBlockConfig caches its fetch for the module's lifetime, so a test's own site-config
+    //    response would otherwise be ignored in favour of the previous test's
     _resetSiteCache()
   })
 
@@ -62,8 +57,6 @@ describe('block-map tile server precedence', () => {
     })
   })
 
-  // -> The acceptance bar for this task is the whole chain end-to-end, not just resolveTileSettings
-  //    in isolation: fetch -> getBlockConfig -> firstUpdated -> the tile actually drawn by Leaflet.
   describe('end-to-end, as actually drawn by Leaflet', () => {
     it('draws the built-in OSM tiles when nothing overrides them', async () => {
       stubSiteConfig({})
@@ -92,10 +85,8 @@ describe('block-map tile server precedence', () => {
   })
 
   /*
-   * `block-map` constructs its controller with `{ attribute: false }` -- it resolves the theme
-   * itself (a map can be pinned light on a dark page through its own `theme` prop) and a second,
-   * possibly disagreeing answer sitting on the host would be misleading. So what follows the app's
-   * theme here is the controller's own `isDark`, not a `dark` attribute.
+   * `{ attribute: false }`: this block's controller sets no `dark` attribute, since the `theme`
+   * prop can pin a map light on a dark page, so the assertion is on the controller's own `isDark`.
    */
   describeDarkMode(
     () => {

@@ -4,11 +4,9 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import { comments as commentsTable } from '../db/schema.ts'
 import type { PageActor } from './pages.ts'
 
-// Node 26 (this repo's target runtime) provides `Temporal` as a native global. This
-// dev environment runs an older Node without it, so shim just enough of `Temporal.Now.instant()` for
-// `comments.update()` and `comments.purgeGuestPii()` — which genuinely call the real global,
-// unmodified — to run here too. `subtract()` only needs to understand `{ hours }`, the one duration
-// shape either method passes it.
+// Node 26 has `Temporal` natively; a dev environment on an older Node does not, so shim just enough
+// of `Temporal.Now.instant()` for `comments.update()` and `comments.purgeGuestPii()`, which call the
+// real global unmodified. `subtract()` only ever sees `{ hours }` from either method.
 if (typeof (globalThis as any).Temporal === 'undefined') {
   const makeInstant = (epochMilliseconds: number): any => ({
     epochMilliseconds,
@@ -21,20 +19,11 @@ if (typeof (globalThis as any).Temporal === 'undefined') {
 }
 
 /**
- * Two independently-built test suites over `models/comments.ts`, merged into one file at
- * merge-review time (see the model file's own header for the merge story). Kept as two separate,
- * self-scoped `describe` blocks rather than interleaved: the first mocks `CARDINAL.db` to unit-test
- * `create`/`update`/`delete`/`listForPage`/`countForPage` with no real database; the second runs
- * `pageRefsForSite`/`listForAdmin`/`getWithPage`/`delete` against a real throwaway Postgres. Each
- * block's `before`/`beforeEach`/`after` are scoped to its own `describe` so the mock-db setup in the
- * first block cannot clobber the real db connection the second block depends on.
+ * Two `describe` blocks, each with its own `before`/`beforeEach`/`after`: this one mocks
+ * `CARDINAL.db` outright, and that setup must not clobber the real connection the DB-backed block
+ * below depends on.
  */
 describe('comments model — mocked', () => {
-  /**
-   * Fake `CARDINAL.db` — just enough of the drizzle chain shape for `create`/`update`/`delete` to run
-   * against, with no real postgres involved. Each call is recorded so the assertions below can check
-   * what the model handed to the query builder.
-   */
   interface RecordedInsert {
     values: Record<string, unknown>
   }
@@ -61,20 +50,12 @@ describe('comments model — mocked', () => {
   } = { inserts: [], updates: [], deletes: [], selects: [], counts: [] }
 
   /**
-   * `selectRows`/`countValue` let each `listForPage`/`countForPage` test control what the fake
-   * `SELECT ... LEFT JOIN` / `$count` chain hands back, without needing a real postgres underneath —
-   * this model's threading and fallback-name logic runs entirely in application code over whatever rows
-   * the query returns, so the query itself doesn't need to be real to exercise that logic.
-   *
-   * `getRows` backs the plain `select().from().where().limit()` chain `get()` runs — which `delete()`
-   * now calls internally (OpenProject #1923) to fetch the row a `comment:delete` hook payload needs
-   * before removing it. Empty by default, matching `get()` returning `null` for an id the fake db was
-   * never told about — the pre-#1923 `delete` tests rely on exactly that to keep passing unchanged.
-   *
-   * `updateRow` fills in the full-row fields (`siteId`/`pageId`/`authorId`/`guestName`/`replyTo`) a
-   * real `UPDATE ... RETURNING` would still carry that `update()`'s own `set` never touches — needed
-   * so a test can assert on `comment:edit`'s emitted payload without reconstructing the whole row by
-   * hand every time.
+   * `selectRows`/`countValue` stand in for the `SELECT ... LEFT JOIN` and `$count` chains: the
+   * threading and fallback-name logic under test runs entirely over whatever rows come back, so the
+   * query itself need not be real. `getRows` backs the plain `select().where().limit()` chain `get()`
+   * runs — which `delete()` uses to read the row its hook payload needs — and is empty by default,
+   * so `get()` answers `null` for an id the fake was never told about. `updateRow` supplies the
+   * full-row fields a real `UPDATE ... RETURNING` carries but `update()`'s own `set` never touches.
    */
   function makeFakeDb(
     config: {
@@ -103,10 +84,9 @@ describe('comments model — mocked', () => {
       }),
       update: () => ({
         set: (set: Record<string, unknown>) => ({
-          // -> Recorded synchronously in `where()` itself, not inside `returning()`: `comments.update()`
-          //    calls `.returning()` to read the row back, but `comments.setReplyTo()` (OpenProject #3204)
-          //    is a fire-and-forget `Promise<void>` that awaits `.where(...)` directly and never calls
-          //    `.returning()` at all -- recording here is what lets both be asserted on the same way.
+          // -> Recorded in `where()` rather than `returning()`: `comments.update()` reads the row
+          //    back through `.returning()`, but `comments.setReplyTo()` awaits `.where(...)`
+          //    directly and never calls it, so only here do both get recorded.
           where: (where: unknown) => {
             calls.updates.push({ set, where })
             return {
@@ -147,23 +127,15 @@ describe('comments model — mocked', () => {
 
   let comments: typeof import('./comments.ts').comments
 
-  /**
-   * `create`/`update`/`delete` each queue a hook themselves now (OpenProject #1923, moved out of
-   * `api/comments.ts`) — `hookEmits` records every `CARDINAL.models.hooks.emit()` call so a test can
-   * assert on the payload directly, and `usersById` is `CARDINAL.models.users.getById`'s backing store for
-   * the `authorName` resolution that payload needs.
-   */
+  /** `usersById` backs `users.getById`, which a hook payload's `authorName` resolves through. */
   let hookEmits: { event: string; siteId: string | null; data: Record<string, any> }[]
   let usersById: Record<string, { name: string }>
 
   /**
-   * Backing store for `CARDINAL.models.commentProviders.getSiteProviders` (WP #3377): what
-   * `activeProviderModule`/`renderForSite` sees as "the site's providers". Empty by default, so
-   * every pre-existing test in this file (none of which cares about `render`) keeps behaving exactly
-   * as before — no active provider means `renderForSite` returns `null` without ever attempting an
-   * import. Individual `render` tests below set this to a single `isEnabled: true` row naming the
-   * real `default` module (`hasImplementation: true`), which really does get dynamically imported —
-   * it has no database dependency of its own, so that's safe here.
+   * What `activeProviderModule`/`renderForSite` sees as the site's providers. Empty by default, so a
+   * test that does not care about `render` never reaches a module import at all; the `render` tests
+   * below name the real `default` module, which genuinely is imported and has no database dependency
+   * of its own.
    */
   let siteProviders: any[]
   let warnCalls: { message: string; fields: Record<string, any> }[]
@@ -179,9 +151,8 @@ describe('comments model — mocked', () => {
         warn: (_scope: string, message: string, fields: Record<string, any> = {}) => {
           warnCalls.push({ message, fields })
         },
-        // -> `helpers/moduleRegistry.ts#loadModule` logs a `debug` line on a successful module
-        //    load; without this, that call throws (`CARDINAL.logger.debug is not a function`),
-        //    which `loadModule`'s own try/catch then mis-reports as a load *failure*.
+        // -> `loadModule` logs a `debug` line on a successful load; without this stub that call
+        //    throws, and its own try/catch mis-reports the load as a failure.
         debug: (_scope: string, _message: string, _fields?: Record<string, any>) => {}
       },
       models: {
@@ -331,10 +302,6 @@ describe('comments model — mocked', () => {
       assert.equal(hookEmits[0].data.metadata.authorName, 'Casey')
     })
 
-    // -------------------------------------------------------------------------------------------
-    // createdAt/updatedAt override (OpenProject #3204)
-    // -------------------------------------------------------------------------------------------
-
     it('with no createdAt/updatedAt override, leaves the insert without those keys (column default applies)', async () => {
       await comments.create({ siteId: 's1', pageId: 'p1', content: 'ordinary comment' })
       assert.equal(
@@ -360,10 +327,6 @@ describe('comments model — mocked', () => {
       assert.equal((values.updatedAt as Date).toISOString(), '2019-05-02T08:30:00.000Z')
     })
 
-    // -------------------------------------------------------------------------------------------
-    // render population via the active comment-provider module (WP #3377)
-    // -------------------------------------------------------------------------------------------
-
     it('leaves render null when the site has no active comment provider', async () => {
       siteProviders = []
       await comments.create({ siteId: 's1', pageId: 'p1', content: 'hello there' })
@@ -384,10 +347,8 @@ describe('comments model — mocked', () => {
     })
 
     it('degrades to a null render when a provider names a module with no comments.ts to import', async () => {
-      // -> A provider row naming a module directory with no `comments.ts` at all: the dynamic
-      //    import rejects inside the shared `loadModule` helper, which already logs and returns
-      //    `null` on its own — `activeProviderModule` then sees "no module" and `renderForSite`
-      //    degrades to `null` without ever reaching its own try/catch around `render()`.
+      // -> The dynamic import rejects inside `loadModule`, which logs and returns `null` itself, so
+      //    `renderForSite` degrades before reaching its own try/catch around `render()`.
       siteProviders = [
         { module: 'does-not-exist', isEnabled: true, hasImplementation: true, config: {} }
       ]
@@ -457,10 +418,6 @@ describe('comments model — mocked', () => {
       )
       assert.equal(calls.updates.length, 0)
     })
-
-    // -------------------------------------------------------------------------------------------
-    // render re-population via the active comment-provider module (WP #3377)
-    // -------------------------------------------------------------------------------------------
 
     it('leaves render null when the comment being updated cannot be found (no siteId to render for)', async () => {
       siteProviders = [{ module: 'default', isEnabled: true, hasImplementation: true, config: {} }]
@@ -613,9 +570,8 @@ describe('comments model — mocked', () => {
 
     it('drops a reply whose replyTo points at a comment absent from the result set, rather than surfacing it as an orphaned top-level comment', async () => {
       ;(globalThis as any).CARDINAL.db = makeFakeDb({
-        // Simulates the state a deleted-and-cascaded parent would leave behind IF the cascade somehow
-        // hadn't already removed this row too — it never should reach this method in practice, but the
-        // tree-builder must not misrepresent it as a fresh top-level comment or throw.
+        // A parent's delete cascades, so this row should never reach the tree-builder at all; it
+        // must still not throw or misread the reply if one ever does.
         selectRows: [row({ id: 'c2', replyTo: 'deleted-parent-id' })]
       })
 
@@ -642,13 +598,9 @@ describe('comments model — mocked', () => {
 })
 
 /**
- * Task 625 (Feature 394): the data-access layer behind the admin comment moderation listing. Covers
- * `pageRefsForSite` (the narrow page-ref query `api/comments.ts`'s permission-scoping strategy is
- * built on) and `listForAdmin` (pagination, and each of the three filters) directly against a real
- * database — no mock of the query builder, since almost everything here IS the query.
- *
- * Permission scoping itself (which page ids reach `listForAdmin` at all) is `api/comments.ts`'s job,
- * not this model's — see the DB-backed route test in `api/comments.admin.test.ts` for that half.
+ * Run against a real database rather than a mocked query builder, since almost everything here IS
+ * the query. Which page ids reach `listForAdmin` at all is `api/comments.ts`'s permission scoping,
+ * not this model's.
  */
 describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -667,7 +619,7 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await teardownTestDb()
   })
 
-  /** Inserts a comment directly (this model has no `create` of its own — that's Feature 391's). */
+  /** Inserts directly: `create()`'s hook and render side effects are not what these tests cover. */
   async function insertComment(overrides: Partial<typeof commentsTable.$inferInsert> = {}) {
     const rows = await fixtures.db
       .insert(commentsTable)
@@ -726,7 +678,6 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
       { path: 'paginate/other', title: 'Other', editor: 'markdown', content: 'x' },
       actor
     )
-    // -> On the other page: must never appear in a query scoped to `[page.id]` alone.
     const otherPageComment = await insertComment({
       pageId: otherPage.id,
       content: 'Not accessible',
@@ -753,7 +704,6 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
     assert.equal(firstPage.totalHits, 5)
     assert.equal(firstPage.results.length, 2)
-    // -> Newest first: index 4 ("Comment 4") has the latest createdAt.
     assert.equal(firstPage.results[0]!.content, 'Comment 4')
     assert.equal(firstPage.results[1]!.content, 'Comment 3')
     assert.equal(firstPage.results[0]!.pagePath, 'paginate/target')
@@ -768,10 +718,9 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(secondPage.results.length, 2)
     assert.equal(secondPage.results[0]!.content, 'Comment 2')
 
-    // -> `otherPage`'s comment must never surface from a query scoped to `[page.id]` alone.
     const idsFromEitherRequest = [...firstPage.results, ...secondPage.results].map((c) => c.id)
     assert.ok(!idsFromEitherRequest.includes(otherPageComment.id))
-    // -> Every one of the 5 inserted comments is accounted for across both pages.
+    // -> Union of what came back and what went in is still 5: no other comment leaked in.
     assert.equal(new Set([...idsFromEitherRequest, ...inserted.map((c) => c.id)]).size, 5)
   })
 
@@ -894,9 +843,9 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
       createdAt: new Date(base + 120_000)
     })
 
-    // -> chunkSize 1 against 3 page ids forces the chunked path (3 chunks), never a single query
-    // binding all three ids into one `IN (...)`. `fixtures.db` is the exact instance installed as
-    // `CARDINAL.db`, so spying on it observes every query `listForAdmin` actually issues.
+    // -> chunkSize 1 against 3 page ids forces the chunked path, never one `IN (...)` binding all
+    //    three. `fixtures.db` is the exact instance installed as `CARDINAL.db`, so the spy sees
+    //    every query `listForAdmin` issues.
     const selectSpy = mock.method(fixtures.db, 'select')
     let firstPage
     try {
@@ -907,8 +856,7 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
         limit: 2,
         offset: 0
       })
-      // Each of the 3 chunks issues its own page query + its own `count(*)` — 6 `select` calls,
-      // versus 2 for one unchunked query. Proves several bind-safe queries ran, not one oversized one.
+      // -> 6 = 3 chunks x (page query + `count(*)`), against 2 for a single unchunked query.
       assert.equal(selectSpy.mock.calls.length, 6)
     } finally {
       selectSpy.mock.restore()
@@ -916,7 +864,7 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     assert.equal(firstPage.totalHits, 3)
     assert.equal(firstPage.results.length, 2)
-    // -> Merged and re-sorted newest-first across chunks, exactly like the unchunked path.
+    // -> Re-sorted newest-first across chunks, like the unchunked path.
     assert.equal(firstPage.results[0]!.content, 'Chunk C')
     assert.equal(firstPage.results[1]!.content, 'Chunk B')
 
@@ -989,8 +937,7 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
       content: 'A recent guest comment',
       createdAt: new Date(now - 1 * 24 * 60 * 60 * 1000)
     })
-    // -> A logged-in author's row, backdated the same as `old`, must never be touched even though it
-    //    is past the window -- it has no guest columns to begin with.
+    // -> Backdated like `old` but authored: past the window, with no guest columns to clear.
     const authored = await insertComment({
       pageId: page.id,
       authorId: fixtures.userId,
@@ -1005,7 +952,7 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(oldAfter!.guestName, null)
     assert.equal(oldAfter!.guestEmail, null)
     assert.equal(oldAfter!.guestIp, null)
-    // -> Content and thread position are not PII -- only who-the-guest-was is cleared.
+    // -> Content and thread position are not PII -- only who the guest was is cleared.
     assert.equal(oldAfter!.content, 'An old guest comment')
 
     const recentAfter = await commentsModel.get(recent.id)
@@ -1016,7 +963,7 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const authoredAfter = await commentsModel.get(authored.id)
     assert.equal(authoredAfter!.authorId, fixtures.userId)
 
-    // -> A second run finds nothing left to purge: already-swept rows are not rewritten.
+    // -> Idempotent: an already-swept row is not rewritten.
     const secondRun = await commentsModel.purgeGuestPii(90)
     assert.equal(secondRun, 0)
   })

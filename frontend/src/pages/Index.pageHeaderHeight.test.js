@@ -10,36 +10,22 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2614: the masthead's height used to depend on whether the page had a description.
- * Measured in a real Chromium before the fix, at 1280px: 129.81px with one, 108.80px without — a
- * 21px step every reader saw as the page under it jumping as they moved between pages.
+ * The masthead's height has to be MEASURED, not asserted about: `min-height` need not be the
+ * binding constraint, so a test reading the declaration back out of the stylesheet can call the rule
+ * correct while the band is visibly wrong. Neither `jsdom` nor `happy-dom` runs a layout engine —
+ * every `getBoundingClientRect()` comes back zeroed — so this goes to a real headless Chromium.
  *
- * This has to be measured, not asserted about: `min-height: 96px` was not even the binding
- * constraint in the broken state (both numbers above are larger than 96), so a test reading the
- * declaration back out of the stylesheet would have said the rule was correct while the band was
- * visibly wrong. Neither `jsdom` nor `happy-dom` runs a layout engine — every
- * `getBoundingClientRect()` comes back zeroed — so this goes to a real headless Chromium, the same
- * way `ApiKeyCreateDialog.test.js`'s grid suite does. `test/realGridLayout.js` explains the probe
- * and the `{ skip: !hasChromium() }` convention; nothing is added to that module here, since the
- * measurement below is specific to this one band.
- *
- * Vertical geometry only, deliberately: task #2615 is changing what the default
- * `contentWidth: 'centered'` renders horizontally in this same file, and a width assertion here
- * would break on work that has nothing to do with this band's height.
+ * Vertical geometry only, deliberately: a width assertion here would break on horizontal work that
+ * has nothing to do with this band's height.
  */
 
 const frontendRoot = join(import.meta.dirname, '..', '..')
 
 /**
- * The rule under test lives in an SFC `<style>` block, which `buildAppCss()` never sees — it
- * compiles `src/css/tailwind.css` alone. So both style blocks are pulled out of their `.vue` files
- * directly: no compile step needed, since every SFC style block is already plain, valid CSS
- * (OpenProject #3254 dropped the Sass pipeline that used to inject a `_theme`/`_palette` prelude).
- *
- * `PageHeader.vue`'s block is `scoped` in the app and is applied unscoped here. The fixture page
- * holds nothing but one masthead, so the two are equivalent for this measurement; what matters is
- * that the phone-breakpoint title size (`1.5rem`, declared there rather than in `Index.vue`) is
- * present, or the 390px case would measure a band that does not exist.
+ * `buildAppCss()` compiles `src/css/tailwind.css` alone and never sees an SFC `<style>` block, so
+ * both are pulled out of their `.vue` files directly. `PageHeader.vue`'s is `scoped` in the app and
+ * applied unscoped here: the fixture page holds nothing but one masthead, so the two are equivalent,
+ * and it is what carries the phone-breakpoint title size the 390px case needs.
  */
 function sfcStyles(relativePath) {
   const source = readFileSync(join(frontendRoot, relativePath), 'utf8')
@@ -47,9 +33,8 @@ function sfcStyles(relativePath) {
 }
 
 function compileSfcStyles(relativePath) {
-  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
-  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
-  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  // -> No compile step: every SFC `<style>` block is plain CSS, native nesting included, which the
+  //    real Chromium below parses as-is.
   return sfcStyles(relativePath)
 }
 
@@ -62,9 +47,8 @@ async function mountHeaderHtml({ title, description }) {
 }
 
 /**
- * Renders one real masthead at `width` and reports the band's own box. `scrollHeight` against
- * `clientHeight` is what says whether anything inside it is being cropped — the question a fixed
- * height would have had to answer, and the reason this reports both rather than the height alone.
+ * `scrollHeight` against `clientHeight` is what says whether anything inside the band is being
+ * cropped — the question a pinned height has to answer — hence both, not the height alone.
  */
 async function measureHeader({ browser, css, html, width }) {
   const page = await browser.newPage({ viewport: { width, height: 900 } })
@@ -90,18 +74,16 @@ const SHORT_TITLE = 'Getting Started'
 const DESCRIPTION = 'How to find your way around this wiki'
 /*
   Long enough to wrap under any face. Barlow is a webfont and is not installed in headless Chromium,
-  so the exact wrap POINT is not reproducible here — which is why nothing below asserts a height for
-  this case, only that the band grew to hold it rather than cropping it.
+  so the exact wrap POINT is not reproducible — which is why nothing below asserts a height for this
+  case, only that the band grew to hold it.
 */
 const WRAPPING_TITLE =
   'A really quite extraordinarily long page title of the sort that has no chance whatsoever of ' +
   'staying on a single line however wide the window happens to be'
 
 /*
-  Launching a real Chromium, building the Tailwind stylesheet and compiling two SCSS blocks is not a
-  5-second operation while seven other files are transforming beside it — same scheduling fact
-  `ApiKeyCreateDialog.test.js`'s own real-layout describe records. The measurements themselves take
-  milliseconds once the browser is up.
+  The long timeout is for the launch: starting a real Chromium and building the stylesheet while
+  other files transform beside it is not a 5-second operation. The measurements take milliseconds.
 */
 describe('page header band height — real layout', { skip: !hasChromium(), timeout: 60000 }, () => {
   let browser
@@ -134,11 +116,9 @@ describe('page header band height — real layout', { skip: !hasChromium(), time
       width: 1280
     })
 
-    // -> The defect itself: these two were 129.81 and 108.80 before the fix.
     expect(withDescription.height).toBe(withoutDescription.height)
     expect(withDescription.height).toBe(120)
 
-    // -> Pinned, not merely tall enough to look right: nothing inside either band is cropped.
     expect(withDescription.scrollHeight).toBeLessThanOrEqual(withDescription.clientHeight)
     expect(withoutDescription.scrollHeight).toBeLessThanOrEqual(withoutDescription.clientHeight)
   })
@@ -152,10 +132,8 @@ describe('page header band height — real layout', { skip: !hasChromium(), time
     })
 
     /*
-      The one sanctioned reason the band is not a constant: a wrapping title has nowhere to go in
-      120px, and `min-height` lets it have the line rather than hiding it. See the rule's own
-      comment in `Index.vue` — a fixed height here is recorded as having cropped a two-line title
-      once already.
+      The one sanctioned reason the band is not a constant: `min-height`, not a fixed height, is
+      what lets a second title line exist instead of being cropped.
     */
     expect(wrapped.height).toBeGreaterThan(120)
     expect(wrapped.scrollHeight).toBeLessThanOrEqual(wrapped.clientHeight)
@@ -170,10 +148,9 @@ describe('page header band height — real layout', { skip: !hasChromium(), time
     })
 
     /*
-      `min-height: 0` on the phone breakpoint is deliberate and is NOT what this bug is about: a
-      120px band under a halved icon and a 24px title is a band of empty ground. Asserted as a
-      ceiling rather than an exact number, since the phone height is the sum of its contents and
-      moves with any of them.
+      `min-height: 0` on the phone breakpoint is deliberate -- a 120px band under a halved icon and a
+      24px title is empty ground. A ceiling, not an exact number, since the phone band is the sum of
+      its contents and moves with any of them.
     */
     expect(phone.height).toBeLessThan(120)
     expect(phone.scrollHeight).toBeLessThanOrEqual(phone.clientHeight)

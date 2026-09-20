@@ -100,11 +100,9 @@ describe('tree table', () => {
 })
 
 /**
- * OpenProject #2012 -- eight indexes were strict column prefixes of another non-partial btree
- * index on the same table (or, for `userGroups`, of the table's own primary key), so they cost a
- * write on every insert/update/delete for no lookup they uniquely served. Guards both that the
- * redundant declarations stay gone and that the covering index each one leaned on is still there
- * to actually cover the lookup.
+ * A btree index that is a strict column prefix of another (or of the table's primary key) costs a
+ * write on every row change and serves no lookup of its own. Each case also pins the covering
+ * index: dropping the wrong one of the pair loses the lookup.
  */
 describe('prefix-redundant indexes (OpenProject #2012)', () => {
   const indexNames = (table: PgTable) => getTableConfig(table).indexes.map((idx) => idx.config.name)
@@ -178,11 +176,8 @@ describe('userAvatars table', () => {
 })
 
 /**
- * Guards `docs/audits/site-scoping-audit.md` against drift: every table in `schema.ts` that has no
- * `siteId` column (the `sites` table itself aside) must be named somewhere in the audit doc. A
- * table added later without updating the doc — the scenario the audit exists to prevent for
- * "later epics adding comments/mail/extensions/storage-sync-target tables" — fails this test
- * instead of silently going unreviewed.
+ * Every table without a `siteId` column must be named in `docs/audits/site-scoping-audit.md`, so a
+ * new unscoped table cannot go unreviewed.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -200,13 +195,6 @@ function unscopedTableNames(): string[] {
   return names.sort()
 }
 
-/**
- * Regression coverage for OpenProject #1984/#2012 -- eight index declarations that were a strict
- * column prefix of another non-partial btree index on the same table, so they were paid for on
- * every INSERT/UPDATE/DELETE for no lookup they uniquely served. Locks each drop in place, plus the
- * one sibling index in each table that both replaces the dropped one AND must survive (dropping the
- * wrong one of the pair would silently reintroduce the exact cost this cleanup removed).
- */
 describe('prefix-redundant indexes (#2012)', () => {
   function indexNames(table: PgTable): string[] {
     return getTableConfig(table).indexes.map((idx) => idx.config.name ?? '')
@@ -273,17 +261,7 @@ describe('site-scoping-audit.md', () => {
   })
 })
 
-/**
- * Postgres rejects `ALTER TABLE … ADD COLUMN x text NOT NULL` outright once the table holds any
- * rows, so every such statement across `backend/db/migrations/*` needs a `DEFAULT` -- a migration
- * that needs to add a NOT NULL column to an already-populated table should backfill (or seed) first,
- * then add the column with a matching `DEFAULT`, the way `20260821120434_main`/`20260822152223_main`
- * used to before the pre-3.0 migration-history squash (task 2) folded the whole incremental history
- * into one genesis `CREATE TABLE` set, which needs no such pattern of its own. The one past exception
- * this allow-list carried, `20260817165130_main` (OpenProject #1665), no longer exists post-squash --
- * see `docs/variances.md`'s now-deleted entry for it. The allow-list stays empty until a future
- * incremental migration genuinely needs one again.
- */
+/** Postgres rejects `ADD COLUMN … NOT NULL` with no `DEFAULT` once the table holds any rows. */
 
 const MIGRATIONS_DIR = path.join(HERE, 'migrations')
 const ADD_COLUMN_NOT_NULL_NO_DEFAULT_ALLOWLIST = new Set<string>([])
@@ -298,7 +276,7 @@ async function migrationFoldersWithNotNullNoDefault(): Promise<Map<string, strin
     try {
       contents = await readFile(sqlPath, 'utf8')
     } catch {
-      continue // not every folder necessarily has a migration.sql (none currently don't, but be safe)
+      continue // a folder with no migration.sql
     }
     const badLines = contents
       .split('\n')
@@ -336,21 +314,9 @@ describe('migration.sql NOT NULL columns require a DEFAULT', () => {
 })
 
 /**
- * OpenProject #2350: an automated review of an external (pre-merge) diff flagged
- * `jobs_waitUntil_createdAt_idx` as created by two separate migrations
- * (`20260825202921_main` from WP #2081 and a `20260825203757_main` cited against WP #1364).
- * Neither the duplicate migration folder nor a second `CREATE INDEX` for that name exists
- * anywhere in this branch's history -- the finding was against a branch/diff state that never
- * reached trunk, not a live defect -- but the underlying failure mode is real and worth guarding
- * against directly: two migrations independently emitting `CREATE INDEX "<same name>"` for the
- * same index would make a fresh install's migration run fail outright the moment the second one
- * ran (Postgres rejects a duplicate relation name), and a hand-fix to "just drop the redundant
- * one" without checking first is exactly how the sole legitimate index WP #2081 added to `jobs`
- * (fixing the sequential-scan-on-every-poll cost `core/scheduler.ts#processJob`'s claim query
- * paid) could get deleted by mistake. This walks every `migration.sql` in filename (i.e.
- * chronological) order, tracking which named indexes are currently live, and fails if any
- * `CREATE [UNIQUE] INDEX` names one that is already live -- a `DROP INDEX` of the same name
- * first legitimately clears it for a later migration to recreate.
+ * Two migrations that `CREATE INDEX` the same name fail a fresh install's migration run: Postgres
+ * rejects the duplicate relation name. Folder names sort chronologically, so a `DROP INDEX` frees a
+ * name for a later migration to recreate.
  */
 
 const CREATE_INDEX_RE =
@@ -373,12 +339,11 @@ async function indexNameEventsInMigrationOrder(): Promise<IndexNameEvent[]> {
     try {
       contents = await readFile(sqlPath, 'utf8')
     } catch {
-      continue // not every folder necessarily has a migration.sql (none currently don't, but be safe)
+      continue // a folder with no migration.sql
     }
 
-    // A single migration.sql can interleave CREATE/DROP INDEX statements across several
-    // statement-breakpoints, so walk it once in source order rather than matching each regex
-    // independently and losing the relative ordering between the two kinds.
+    // Merged by source offset: one migration.sql can interleave CREATE and DROP INDEX, and their
+    // relative order decides which names are live.
     const matches: { index: number; kind: 'create' | 'drop'; name: string }[] = []
     for (const m of contents.matchAll(CREATE_INDEX_RE)) {
       matches.push({ index: m.index!, kind: 'create', name: m[1] })
@@ -456,11 +421,9 @@ describe('migration.sql duplicate index creation (OpenProject #2350)', () => {
 })
 
 /**
- * OpenProject #1646: every `timestamp` column must be `timestamptz` (`withTimezone: true`).
- * node-postgres decodes a naive `timestamp` (oid 1114) in the Node process's *local* timezone via
- * `postgres-date`, while Drizzle writes a JS `Date` as `.toISOString()` (UTC) and `defaultNow()`
- * compiles to the database server's own local `now()` — three clocks for one column type. A bare
- * `timestamp()` reintroduces that split; this guards against one slipping back in.
+ * node-postgres decodes a naive `timestamp` in the Node process's local timezone, Drizzle writes a
+ * `Date` as UTC, and `defaultNow()` compiles to the database server's local `now()` — three clocks
+ * for one column type. `timestamptz` (`withTimezone: true`) has one.
  */
 function timestampColumns(): { table: string; column: string; withTimezone: boolean }[] {
   const found: { table: string; column: string; withTimezone: boolean }[] = []
@@ -494,26 +457,10 @@ describe('timestamp columns', () => {
   })
 })
 
-/**
- * Guards against the redundancy OpenProject #1809 removed (eight indexes each a strict column
- * prefix of another non-partial btree index on the same table -- write amplification and storage
- * cost for an index Postgres will only ever use in place of the one that already covers it) coming
- * back unnoticed. A *partial* index is exempt: `jobHistory_dispatchWebhook_hookId_idx` and
- * `jobHistory_active_idx` are deliberately narrower-but-overlapping, scoped to disjoint `WHERE`
- * conditions rather than one subsuming the other's rows, so "is a column prefix" doesn't mean
- * "is redundant with" for those. Likewise an index using anything other than the default `btree`
- * method (the `gin`/`gin_trgm_ops` indexes on `pages`) is exempt: a `gin` index answers a
- * fundamentally different query shape than a `btree` prefix comparison assumes.
- */
-
 type ComparableIndex = {
   name: string
-  /** `null` once any index column isn't a plain named column (e.g. a `sql` expression) --
-   *  such an index is still eligible to be the REDUNDANT (shorter) one only if every column up to
-   *  its own length is plain, but can never be validly compared as a prefix source beyond that, so
-   *  it's simplest to just exclude it from the comparison pool entirely: expression-column indexes
-   *  in this schema (`glossaryTerms_composite_idx`, `pages_title_trgm_idx`) are exactly the
-   *  longer/covering side of any real redundancy anyway, never the shorter/redundant side. */
+  /** `null` when any column is an expression (a `sql` fragment) rather than a plain named column.
+   *  Such an index is left out of the comparison, so a plain index it covers goes unflagged. */
   columns: string[] | null
 }
 
@@ -550,10 +497,8 @@ describe('findPrefixRedundantIndexes (pure helper)', () => {
   })
 
   test('flags an exact duplicate (e.g. of a primary key index) as a prefix of itself-length pair', () => {
-    // Two indexes with IDENTICAL columns aren't a strict prefix of each other (`length <` fails both
-    // ways) -- a byte-for-byte duplicate like the old `userGroups_composite_idx`/PK pair is instead
-    // exactly a prefix of any composite index that extends past it. This case documents that an
-    // exact duplicate is caught only once one of the two column lists is genuinely longer.
+    // Identical column lists are not a STRICT prefix of each other, so an exact duplicate is not
+    // flagged -- only a genuinely longer index makes the shorter one redundant.
     const findings = findPrefixRedundantIndexes([
       { name: 'pk_idx', columns: ['userId', 'groupId'] },
       { name: 'composite_idx', columns: ['userId', 'groupId'] }
@@ -586,8 +531,8 @@ describe('schema.ts index redundancy', () => {
       const config = getTableConfig(value)
       const comparable: ComparableIndex[] = []
       for (const idx of config.indexes) {
-        // Partial indexes and non-btree methods (gin, …) answer different query shapes than a
-        // plain column-prefix comparison assumes -- see the file-level comment above.
+        // A partial index covers only its `WHERE` rows and a non-btree method (gin, …) answers a
+        // different query shape, so a column prefix does not make either redundant.
         if (idx.config.where) continue
         if (idx.config.method && idx.config.method !== 'btree') continue
         const columns: string[] = []
@@ -628,22 +573,9 @@ describe('schema.ts index redundancy', () => {
 })
 
 /**
- * OpenProject #2598 (resolving Issues #2590/#2591/#2595): `20260905142836_main` converted
- * `glossaryTerms.aliases` from `text[]` to `jsonb` with
- * `ALTER COLUMN "aliases" SET DATA TYPE jsonb USING to_jsonb("aliases")`. `to_jsonb` on a `text[]`
- * yields a JSON array of plain STRINGS -- `["USS","NASA"]` -- not the `GlossaryAliasRow[]`
- * (`{ value, isAcronym }`) shape `db/schema.ts`'s `aliases` declares and `models/glossary.ts` reads,
- * so every pre-existing term with a non-empty alias list came back the wrong shape and
- * `assertNoSurfaceFormCollision`'s `row.aliases.map((a) => a.value.toLowerCase())` threw. The fix
- * was to squash the column into the genesis `CREATE TABLE` so no conversion ever runs.
- *
- * This guards the general failure mode rather than only the one column that hit it:
- * `to_jsonb(<a column>)` in a `SET DATA TYPE jsonb` is correct only when the source column already
- * holds the target row shape, which for an array or a composite it does not. A future jsonb
- * conversion that genuinely needs one writes the real per-row expression instead (a
- * `jsonb_agg(jsonb_build_object(...))` over `unnest(...)`, say), and anything that legitimately
- * does cast a whole column can be added to the allow-list with a note saying why its source shape
- * is already right.
+ * `to_jsonb(<column>)` keeps the source column's shape -- a `text[]` becomes a JSON array of plain
+ * strings, not the `{ value, isAcronym }[]` rows `glossaryTerms.aliases` holds. Allow-list a
+ * migration only when its source shape is already the target's.
  */
 
 const TO_JSONB_COLUMN_CAST_RE =
@@ -660,7 +592,7 @@ async function migrationsCastingAColumnWithToJsonb(): Promise<Map<string, string
     try {
       contents = await readFile(sqlPath, 'utf8')
     } catch {
-      continue // not every folder necessarily has a migration.sql (none currently don't, but be safe)
+      continue // a folder with no migration.sql
     }
     const hits = [...contents.matchAll(TO_JSONB_COLUMN_CAST_RE)].map((m) => m[0])
     if (hits.length > 0) offenders.set(entry.name, hits)
@@ -745,9 +677,6 @@ describe('glossaryTerms.aliases is jsonb in the genesis migration (OpenProject #
   })
 
   test('the genesis CREATE TABLE also carries the isAcronym column squashed alongside it', async () => {
-    // -> `20260905142836_main` added BOTH columns in one migration, so deleting it squashes both,
-    //    not just `aliases` -- a squash that dropped `isAcronym` would leave a fresh install
-    //    missing a column `db/schema.ts` declares.
     const body = glossaryTermsCreateTable(await genesisMigrationSql())
     const line = body.split('\n').find((l) => l.includes('"isAcronym"'))
     assert.ok(line, 'expected an "isAcronym" column in the genesis CREATE TABLE')

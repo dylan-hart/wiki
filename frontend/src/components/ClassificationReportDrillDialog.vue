@@ -1,7 +1,6 @@
 <!--
-  OpenProject #1081: the drill-down `AdminClassification.vue`'s coverage report opens when an admin
-  clicks a level's count -- "everything currently classified as X", instance-wide (`GET
-  /pages/classification-report/:levelId`), paginated newest-updated first.
+  Opened from `AdminClassification.vue`'s coverage report: everything instance-wide currently
+  classified at one level, paginated newest-updated first.
 -->
 <template>
   <w-dialog
@@ -56,8 +55,6 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { useDark } from '@/composables/dark'
 
-// PROPS
-
 const props = defineProps({
   levelId: {
     type: String,
@@ -69,23 +66,13 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent()
 
-// COMPOSABLES
-
 const dark = useDark()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const PAGE_SIZE = 20
 
@@ -96,11 +83,7 @@ const state = reactive({
   isLoading: false
 })
 
-// COMPUTED
-
 const totalPages = computed(() => Math.max(1, Math.ceil(state.total / PAGE_SIZE)))
-
-// METHODS
 
 async function load() {
   state.isLoading = true
@@ -119,8 +102,6 @@ async function load() {
   }
   state.isLoading = false
 }
-
-// MOUNTED
 
 onMounted(() => {
   load()

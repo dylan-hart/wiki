@@ -4,20 +4,15 @@ import { I18n } from '../shared/i18n.js'
 import { DarkMode } from '../shared/theme.js'
 import { VideoEmbedElement } from '../shared/video-embed.js'
 
-/** Every Vimeo host a link can arrive on: the share link and the player's own address. */
 const HOSTS = /^(?:www\.)?vimeo\.com$/
 const PLAYER_HOST = 'player.vimeo.com'
 
-/** What a Vimeo video id is made of — purely numeric, unlike YouTube's mixed-case ids. */
 const ID = /^\d+$/
 
 /**
- * The video a link points at, or null for a link that points at no video.
- *
  * A share link carries the id as its first path segment (`vimeo.com/<id>`), optionally followed by
- * the privacy hash unlisted videos are given (`vimeo.com/<id>/<hash>`); a player link carries the same
- * two in `/video/<id>` and `?h=<hash>`. A bare id is taken as one too, the same as `block-youtube`
- * does for a pasted id rather than a link.
+ * the privacy hash unlisted videos are given (`vimeo.com/<id>/<hash>`); a player link carries the
+ * same two in `/video/<id>` and `?h=<hash>`. A bare id is taken as one too.
  */
 function parseUrl(source) {
   const value = source.trim()
@@ -44,18 +39,10 @@ function parseUrl(source) {
   return id && ID.test(id) ? { id, hash: hash ?? null } : null
 }
 
-/**
- * Block Vimeo
- *
- * A Vimeo player, from the address of a video. Nothing is fetched until the frame is scrolled near,
- * and the frame is the only thing here: the player, its controls and everything it does are Vimeo's,
- * driven by the parameters below.
- */
 export class BlockVimeoElement extends VideoEmbedElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'vimeo',
@@ -113,10 +100,7 @@ export class BlockVimeoElement extends VideoEmbedElement {
     ]
   }
 
-  /*
-    The shared player shell, plus the border this one draws around it — a Vimeo player's own frame
-    sits flush to its edges, so without one it has no boundary against the page.
-  */
+  /* A Vimeo player sits flush to its edges, so without a border it has no boundary against the page. */
   static styles = [
     ...VideoEmbedElement.styles,
     css`
@@ -128,9 +112,7 @@ export class BlockVimeoElement extends VideoEmbedElement {
 
   constructor() {
     super()
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
-    // -> Resolves the two messages below against the page's locale; see `../shared/i18n.js`
     this._i18n = new I18n(this)
   }
 
@@ -153,10 +135,8 @@ export class BlockVimeoElement extends VideoEmbedElement {
   }
 
   /**
-   * The address of the player, with what it was asked for.
-   *
-   * Only the parameters that were actually changed: an option left out is Vimeo's own default,
-   * which is the one that goes on being maintained.
+   * Only the parameters actually changed are sent: an option left out is Vimeo's own default, which
+   * is the one that goes on being maintained.
    */
   _embedUrl({ id, hash }) {
     const params = new URLSearchParams()
@@ -167,9 +147,9 @@ export class BlockVimeoElement extends VideoEmbedElement {
     if (this.autoplay) {
       params.set('autoplay', '1')
       /*
-        -> Muted, because that is the only way it plays. Every browser refuses to start a video with
-           sound before the reader has interacted with the page, and refuses silently: the player
-           simply sits there, which reads as a block that is broken rather than one being overruled.
+        -> Muted, because that is the only way it plays: browsers refuse to start a video with sound
+           before the reader has interacted with the page, and refuse silently -- the player just
+           sits there, reading as a broken block rather than an overruled one.
       */
       params.set('muted', '1')
     }
@@ -177,9 +157,8 @@ export class BlockVimeoElement extends VideoEmbedElement {
       params.set('controls', '0')
     }
     if (!this.fs) {
-      // -> Hides Vimeo's own fullscreen button; `allowfullscreen` on the iframe is what stops the
-      //    browser actually granting fullscreen, but leaves the button sitting there doing nothing
-      //    without this, same trap the `mute` param above avoids for autoplay.
+      // -> Dropping `allowfullscreen` from the iframe is what denies fullscreen, but leaves Vimeo's
+      //    own button sitting there doing nothing; this hides it too
       params.set('fullscreen', '0')
     }
     if (this.loop) {

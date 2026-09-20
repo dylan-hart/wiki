@@ -1,8 +1,3 @@
-# Scope decided in OpenProject task 666 (Feature 402): PDF export is built (tasks 669/670).
-# Server-side pre-rendering of Mermaid/PlantUML diagrams, deferred at the time as task 785, now
-# ships too (`models/diagramRender.ts`). PlantUML rendering does not actually need this
-# extension (see that model's class comment); Mermaid does, which is why the description below keeps
-# mentioning diagrams.
 key: puppeteer
 title: Puppeteer
 description: >-
@@ -14,30 +9,20 @@ detect:
   type: module
   value: puppeteer
 # Chrome for Testing, the Chromium build @puppeteer/browsers downloads on install, has no ia32 or
-# loong64 build at all — leaving them off this list (rather than adding them and letting npm install
-# discover it) is what keeps the admin area from offering an install that can only fail. Verified
-# against @puppeteer/browsers 3.0.6's browser-data/chrome.ts folder mapping, the dependency this
-# puppeteer version pins (npm registry metadata for puppeteer@25.4.0), 2026-08-17.
+# loong64 build at all — listing either here would offer an install that can only fail.
 architectures:
   - x64
   - arm64
-# @puppeteer/browsers' detectBrowserPlatform() (browser-data 3.0.6) only recognizes darwin/linux/win32
-# — anything else makes it return undefined and the postinstall download throw, which is the same
-# "looked compatible, npm install failed" failure the architecture restriction above avoids. Note also
-# that on native (non-x64-emulated) Linux arm64 that same function still resolves to the x64
-# `linux64` Chrome build, since Chrome for Testing ships no Linux arm64 build — this is why the
-# production Dockerfile (dev/build/Dockerfile) installs Chromium from the distro instead and sets
-# PUPPETEER_SKIP_DOWNLOAD/PUPPETEER_EXECUTABLE_PATH; an operator installing Puppeteer here by hand on a
-# bare Linux arm64 host needs to do the same. Verified 2026-08-17, re-check on a Puppeteer bump.
+# @puppeteer/browsers' detectBrowserPlatform() recognizes only these three; anything else makes the
+# postinstall download throw. On native Linux arm64 it still resolves to the x64 `linux64` build,
+# since Chrome for Testing ships no Linux arm64 one — which is why dev/build/Dockerfile installs
+# distro Chromium and sets PUPPETEER_SKIP_DOWNLOAD/PUPPETEER_EXECUTABLE_PATH. An operator installing
+# by hand on a bare Linux arm64 host needs to do the same.
 platforms:
   - linux
   - darwin
   - win32
-# Detection: a declared optional dependency of the backend (backend/package.json), same as Sharp -- an
-# ordinary `npm ci`/`npm install` already has it (skippable with `--omit=optional` for a source checkout
-# that has no use for a server-side browser). Installable with npm, which is also how the admin area
-# repairs an instance that was set up with optional dependencies omitted.
+# A declared optional dependency, so an ordinary install already has it and `--omit=optional` leaves
+# it out; installing from the admin area is how such an instance is repaired.
 isInstallable: true
-# No installVersion here: the pin lives in backend/package.json now that this is a declared dependency,
-# and a second one here could only drift from it (see ExtensionDefinition.installVersion's doc comment
-# in models/extensions.ts).
+# No installVersion: the pin lives in backend/package.json, and a second one here could only drift.

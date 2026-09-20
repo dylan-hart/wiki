@@ -14,14 +14,8 @@ import { createTestI18n } from '../../test/i18n.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #3467 (Feature #3464): the Wysiwyg editor's formatting toolbar -- plain buttons,
- * dropdown triggers and every btn-group child -- uses the shared `.flush-hover-btn` primitive
- * (`css/_base.css`, #3465), so a hover reads as a square cell that fills the 40px band edge to edge
- * with no gap to its neighbour, in Ledger and Cobalt, light and dark.
- *
- * Two layers: the mounted component (every toolbar button carries the classes and none is `round`),
- * and the component's real `<style>` block plus the compiled app CSS in real Chromium, since neither
- * happy-dom nor jsdom resolves a flex layout or the `!important`-vs-inline-style fight.
+ * The real-Chromium layer earns its cost because neither happy-dom nor jsdom resolves a flex layout
+ * or the `!important`-vs-inline-style fight the flush-hover primitive depends on.
  */
 
 const DIR = dirname(fileURLToPath(import.meta.url))
@@ -62,7 +56,7 @@ describe('EditorWysiwyg.vue toolbar buttons (OpenProject #3467)', () => {
       expect(btn.classes(), label).toContain('flush-hover-btn--square')
       expect(btn.classes(), label).not.toContain('rounded-full')
       expect(btn.classes(), label).not.toContain('rounded-[28px]')
-      // -> `flat` is WBtn's own marker class for the unfilled variant
+      // -> `flat` shows up as no inline background colour; only a solid variant writes one
       expect(btn.element.style.backgroundColor, label).toBe('')
     }
   })
@@ -171,10 +165,8 @@ describe('EditorWysiwyg toolbar under real Chromium', { skip: !hasChromium() }, 
           expect(got[k].h, `${bodyClass} ${k} height`).toBe(40)
           expect(got[k].radius, `${bodyClass} ${k} radius`).toBe('0px')
         }
-        // -> Flush to the band's start edge and to the band's top
         expect(got.a.l, bodyClass).toBe(got.bar.l)
         expect(got.a.t, bodyClass).toBe(got.bar.t)
-        // -> No gap between the plain button and the group, nor inside the group under Cobalt
         expect(got.b.l, bodyClass).toBe(got.a.r)
         expect(got.d.l, bodyClass).toBe(got.c.r)
         expect(got.c.l, bodyClass).toBe(got.b.r)

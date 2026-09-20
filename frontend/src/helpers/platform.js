@@ -1,8 +1,4 @@
 /**
- * Whether the current device is an Apple platform (macOS, iOS, iPadOS) -- used to decide between
- * the Cmd (⌘) and Ctrl keyboard-shortcut hint shown next to the global search field
- * (`HeaderSearch.vue`).
- *
  * `navigator.userAgentData.platform` (User-Agent Client Hints) is the modern source, but it is
  * Chromium-only as of mid-2026 -- Safari and Firefox implement neither the interface nor the
  * `platform` member, so `navigator.platform` (deprecated, but still universally supported) is the

@@ -10,19 +10,14 @@ import type { PageActor, PageInput } from './pages.ts'
 import type { AccessActor } from './groups.ts'
 import type { GlossaryAlias } from './glossary.ts'
 
-/** Terser test fixture for a `GlossaryAlias` -- most tests below don't care about `isAcronym`. */
 function alias(value: string, isAcronym = false): GlossaryAlias {
   return { value, isAcronym }
 }
 
 /**
- * OpenProject #2038: `invalidateCache()`'s cluster-broadcast half and `subscribeToEvents()`'s
- * inbound handler answering it are pure event-bus wiring, no SQL involved — so, per the
- * "prefer pure unit tests with no CARDINAL global and no database" guidance, this runs against
- * `test/mocks.ts` stubs rather than `test/db.ts`'s real, migrated database, the same way
- * `models/groups.test.ts` / `models/sites.test.ts` / `models/approvals.test.ts` cover their own
- * `broadcastReload()`/`subscribeToEvents()` pairs (there, against a real DB only because their
- * `reloadCache()` half is itself a SQL read this suite's equivalent, `dropLocalCache()`, is not).
+ * `invalidateCache()`'s cluster-broadcast half and the inbound handler answering it are pure
+ * event-bus wiring with no SQL involved, so this runs against `test/mocks.ts` stubs rather than a
+ * real, migrated database.
  */
 describe('glossary.invalidateCache() / subscribeToEvents() (pure, OpenProject #2038)', () => {
   let previousWiki: any
@@ -67,9 +62,8 @@ describe('glossary.invalidateCache() / subscribeToEvents() (pure, OpenProject #2
     )
     const handler = registered!.arguments[1] as (evt: unknown) => void
 
-    // -> Emittery (pinned 2.0.0) hands a specific `.on(eventName, listener)` the same `{ name, data }`
-    //    wrapper `onAny` gets, not the raw payload -- see `core/db.ts`'s `notifyViaDB` and
-    //    `core/db.test.ts`'s "echoing this same instance" test for the same shape read the same way.
+    // -> Emittery hands a specific `.on(eventName, listener)` the same `{ name, data }` wrapper
+    //    `onAny` gets, not the raw payload.
     handler({ name: 'invalidateGlossaryCache', data: { siteId: 'site-2' } })
 
     assert.equal(cache.delete.mock.calls.length, 1)
@@ -97,7 +91,7 @@ describe('glossary.invalidateCache() / subscribeToEvents() (pure, OpenProject #2
  * `models/glossary.ts` is almost entirely SQL — an insert with a case-insensitive uniqueness
  * constraint, an update, a delete, and a join resolving each term's canonical page to a link — so a
  * mock of the query builder would mostly be re-describing the code under test rather than verifying
- * it. This suite runs the real methods against a migrated, per-run-fresh database (see `test/db.ts`).
+ * it.
  */
 describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -283,20 +277,13 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
     const cached = await glossaryModel.getCachedTerms(fixtures.siteId, actor)
     const byTerm = Object.fromEntries(cached.map((t) => [t.term, t]))
 
-    // -> The fixture site's primary locale is 'en' (test/db.ts), so an 'en' page link carries no
-    //    locale prefix while the non-primary 'fr' one does — see `localizedPagePath`.
+    // -> The fixture site's primary locale is 'en', so an 'en' page link carries no locale prefix
+    //    while the non-primary 'fr' one does.
     assert.equal(byTerm.CacheEn!.link, '/docs/cached-en')
     assert.equal(byTerm.CacheFr!.link, '/fr/docs/cached-fr')
     assert.equal(byTerm.CacheNone!.link, null)
   })
 
-  /**
-   * OpenProject #1127: `getCachedTerms` used to bake a term's canonical-page `link` in with no
-   * permission check at all -- every reader got the same resolved link regardless of whether they
-   * could read the linked page themselves. It now resolves `link` fresh per `actor`'s own
-   * `read:pages` access, so an actor without it sees the term as plain, unlinked text (the definition
-   * still comes through -- only the link is gated), exactly like a term with no canonical page set.
-   */
   test('getCachedTerms() resolves a link only for an actor with read:pages on the canonical page', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -309,9 +296,8 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       pageId: page.id
     })
     try {
-      // -> The fixture group's own `rules` column starts empty (`setupTestDb`), so an actor speaking
-      //    only for it -- no `manage:system`, unlike the shared `actor` above -- gets no ALLOW rule
-      //    at all: fails closed, per `helpers/pageRules.ts`.
+      // -> The fixture group's `rules` column starts empty, so an actor speaking only for it -- no
+      //    `manage:system`, unlike the shared `actor` above -- matches no ALLOW rule and fails closed.
       const noAccessActor: AccessActor = { groupIds: [fixtures.groupId], permissions: [] }
       const denied = await glossaryModel.getCachedTerms(fixtures.siteId, noAccessActor)
       const deniedTerm = denied.find((t) => t.term === 'GatedTerm')
@@ -490,15 +476,9 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
     })
 
     /**
-     * OpenProject #2598 (Issues #2590/#2591/#2595). `20260905142836_main` reached the jsonb column
-     * by `SET DATA TYPE jsonb USING to_jsonb("aliases")` over the old `text[]`, which produces an
-     * array of plain STRINGS rather than the `{ value, isAcronym }` rows everything above assumes,
-     * so a term saved before that migration came back the wrong shape and
-     * `assertNoSurfaceFormCollision`'s `a.value.toLowerCase()` threw on it. The column is now
-     * squashed into the genesis `CREATE TABLE` and no conversion runs at all — these two assert
-     * that against the REAL migrated database `setupTestDb()` stands up, which is the only place
-     * the migration SQL's actual effect (as opposed to `db/schema.ts`'s declaration of it) is
-     * observable.
+     * An `aliases` column holding plain strings rather than `{ value, isAcronym }` rows breaks
+     * every reader of it. These two assert against the REAL migrated database, the only place the
+     * migration SQL's effect — as opposed to `db/schema.ts`'s declaration of it — is observable.
      */
     test('the migrated column is physically jsonb, not text[]', async () => {
       const result: any = await fixtures.db.execute(sql`
@@ -532,10 +512,8 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       ])
       assert.deepEqual(created.aliases, [alias('USS', true), alias('US Ship')])
 
-      // -> `assertNoSurfaceFormCollision` walks every existing row's `aliases` and reads
-      //    `a.value.toLowerCase()`. Against the wrong shape that is the reported
-      //    `TypeError: Cannot read properties of undefined (reading 'toLowerCase')`; against the
-      //    right one it is an ordinary 409.
+      // -> `assertNoSurfaceFormCollision` reads `a.value.toLowerCase()` on every existing row's
+      //    aliases: against the wrong shape that is a `TypeError`, against the right one a 409.
       await assert.rejects(
         () =>
           glossaryModel.createTerm(fixtures.siteId, {
@@ -728,10 +706,9 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
     })
 
     test('importTerms() rejects a bare "/" path rather than defaulting it to the home page (OpenProject #1936)', async () => {
-      // -> Unlike `api/pages/read.ts`'s page-view route and `mcp/tools/getPage.ts`, `resolvePagePath()`
-      //    does NOT fall back to `generatePathHash('home')` for a path that normalizes to empty --
-      //    see the comment on `resolvePagePath()` in `models/glossary.ts`. A home page existing on
-      //    the site must not change that: "/" still fails to resolve.
+      // -> `resolvePagePath()` deliberately does NOT fall back to the home page for a path that
+      //    normalizes to empty, unlike the page-view route. A home page existing on the site must
+      //    not change that: "/" still fails to resolve.
       await pagesModel.createPage(fixtures.siteId, pageInput({ path: 'home' }), actor)
 
       await assert.rejects(

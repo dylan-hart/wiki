@@ -9,17 +9,10 @@
         :aria-label="t('editor.markup.insertToolbarLabel')"
         @keydown="sideToolbarRoving.onKeydown"
         @focusin="sideToolbarRoving.onFocusin">
-        <!-- ------------------------------------------------------- -->
-        <!-- SIDE TOOLBAR -->
-        <!-- ------------------------------------------------------- -->
         <!--
-          A WAI-ARIA APG "Toolbar" (Task/Feature #3350, `composables/toolbarRovingTabindex.js`): this
-          rail is ONE Tab stop rather than ten, so Tab from the page description above goes straight
-          to the Monaco editor rather than through every button here first. Each button below carries
-          a `:tabindex` from `sideToolbarRoving.tabindexFor(N)` -- a literal index per button, matching
-          its position in the DOM -- and the container's own `@keydown`/`@focusin` move both real
-          focus and which one is the `"0"` as arrow keys are pressed. Every button stays reachable by
-          click or by arrowing to it; none of them lose their own Enter/Space activation.
+          A WAI-ARIA APG toolbar (`composables/toolbarRovingTabindex.js`): the whole rail is one Tab
+          stop, so Tab goes straight on to the Monaco editor. Each button's `tabindexFor(N)` index
+          has to match its position in the DOM.
         -->
         <w-btn
           class="flush-hover-btn"
@@ -32,9 +25,6 @@
             t('editor.markup.insertLink')
           }}</w-tooltip>
         </w-btn>
-        <!-- -> Straight to the File Manager. The menu this replaces offered two other sources: a remote
-                URL, which was never implemented, and the clipboard — see `getAssetFromClipboard`, which
-                now has no caller. -->
         <w-btn
           class="flush-hover-btn"
           icon="tabler:photo-plus"
@@ -118,8 +108,8 @@
             t('editor.markup.insertEmoji')
           }}</w-tooltip>
         </w-btn>
-        <!-- -> Icons only: what goes in is a `:tabler:home:` shortcode, and the picker's other tab hands
-                back an `img:` URL, which is not something that syntax can say -->
+        <!-- -> `no-image`: the insert is a `:tabler:home:` shortcode, and that syntax cannot carry the
+                `img:` URL the picker's other tab hands back -->
         <w-btn
           class="flush-hover-btn"
           icon="tabler:seeding"
@@ -151,15 +141,10 @@
         <span class="editor-markdown-type">Markdown</span>
       </div>
       <div class="editor-markdown-mid" ref="editorMidRef">
-        <!-- ------------------------------------------------------- -->
-        <!-- TOP TOOLBAR -->
-        <!-- ------------------------------------------------------- -->
         <!--
-          A second, independent toolbar in the same sense as the sidebar above -- its own single Tab
-          stop, its own `topToolbarRoving` instance (horizontal: Left/Right rather than Up/Down). The
-          preview-toggle button at the end is the toolbar's only conditionally-rendered member
-          (`v-if="!state.previewShown"`), so it takes the next free index (12) rather than any of the
-          fixed buttons ahead of it being renumbered.
+          A second toolbar, with its own Tab stop and its own horizontal `topToolbarRoving`. The
+          preview-toggle button at the end is the only conditionally-rendered member, so it takes the
+          next free index (12) rather than the fixed buttons ahead of it being renumbered.
         -->
         <div
           class="editor-markdown-toolbar"
@@ -203,11 +188,9 @@
             }}</w-tooltip>
           </w-btn>
           <!--
-            The three buttons in this bar that open a menu rather than acting on click carry the
-            design's own 9px chevron beside the glyph, so a reader can tell which of them are going to
-            ask a follow-up question before pressing one. `w-tooltip`/`w-menu` are floating children
-            and contribute no box of their own, so the chevron is the only thing the slot adds to the
-            button's own layout.
+            A button that opens a menu rather than acting on click carries the design's 9px chevron,
+            so a reader can tell it will ask a follow-up. `w-tooltip`/`w-menu` float and contribute no
+            box, so the chevron is all the slot adds to the button's layout.
           -->
           <w-btn
             class="flush-hover-btn flush-hover-btn--square"
@@ -254,7 +237,6 @@
               t('editor.markup.superscript')
             }}</w-tooltip>
           </w-btn>
-          <!-- -> The design rules the inline-markup group off from the block-level group here -->
           <w-separator class="editor-markdown-toolbar-rule" vertical />
           <w-btn
             class="flush-hover-btn flush-hover-btn--square"
@@ -277,13 +259,10 @@
                   @click="insertBeforeEachLine({ content: `> `, before: `> [!NOTE]` })">
                   <w-item-section side>
                     <!--
-                      A colour with a utility behind it. WIcon composes the class from this name, so
-                      Tailwind never sees it while scanning and emits only the ones written out in
-                      full somewhere in the app -- of the blues, that is this one. Asking for the 7
-                      step, as this did, left the icon the colour of the menu text.
-
-                      Nothing above may spell a class out either: the scanner reads comments too, and
-                      would generate whatever this explanation quoted.
+                      Tailwind never sees this class: WIcon composes it from the name, so only the
+                      tones written out in full somewhere in the app are emitted -- of the blues,
+                      this one. Nothing here may spell a class out either; the scanner reads
+                      comments too.
                     -->
                     <w-icon name="tabler:square-rounded-letter-i" color="blue" />
                   </w-item-section>
@@ -297,7 +276,6 @@
                   </w-item-section>
                   <w-item-section>{{ t('editor.markup.admonitionSuccess') }}</w-item-section>
                 </w-item>
-                <!-- -> The same speech bubble the page draws an IMPORTANT admonition with -->
                 <w-item
                   clickable
                   @click="insertBeforeEachLine({ content: `> `, before: `> [!IMPORTANT]` })">
@@ -400,7 +378,6 @@
               t('editor.markup.keyboardKey')
             }}</w-tooltip>
           </w-btn>
-          <!-- -> The only way back once the preview is closed: its own toggle goes with it -->
           <template v-if="!state.previewShown">
             <w-space />
             <w-btn
@@ -416,16 +393,9 @@
             </w-btn>
           </template>
         </div>
-        <!-- ------------------------------------------------------- -->
-        <!-- MONACO EDITOR -->
-        <!-- ------------------------------------------------------- -->
+        <!-- MONACO EDITOR (`EditorMarkdown.flushHover.test.js` slices the template on this marker) -->
         <div class="editor-markdown-editor"><div ref="monacoRef" /></div>
       </div>
-      <!--
-        The draggable resize divider between the source and preview panes. Only offered while the
-        preview is actually open (nothing to drag against otherwise) and at/above the `md` breakpoint
-        -- see `canResizePreview`'s doc comment for why dragging is withheld below it.
-      -->
       <div
         v-if="canResizePreview"
         class="editor-markdown-divider"
@@ -472,11 +442,10 @@
             </w-btn>
           </div>
           <!--
-            The render goes directly into the element carrying `page-contents`, exactly as the page
-            view does it. The wrapper div this replaces made the headings grandchildren of that
-            element, so content rules written against its direct children -- the page title's rule
-            reaching out to the sidebar -- applied on one surface and not the other. Its `ref` was
-            never read; the scroll-sync and block loading both use the container.
+            The render goes directly into the element carrying `page-contents`, as the page view does
+            it: a wrapper in between would make the headings grandchildren, so content rules written
+            against its direct children would apply on one surface and not the other.
+            (`EditorMarkdown.flushHover.test.js` anchors on this comment's opening words.)
           -->
           <div
             class="editor-markdown-preview-content page-contents"
@@ -560,22 +529,16 @@ import * as monaco from 'monaco-editor'
 import { Position, Range } from 'monaco-editor'
 import { MarkdownRenderer, sanitizeForPreview } from '@/renderers/markdown'
 
-// STORES
-
 const commonStore = useCommonStore()
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// AESTHETIC
-
 /*
   Monaco is the one surface the token layer cannot reach: `defineTheme()` takes plain hex strings and
-  never resolves a CSS custom property, so the aesthetic has to be applied by SWITCHING THEMES rather
-  than by re-resolving a variable. Two are defined at mount (see `defineTheme` below); this picks one
-  and the watcher keeps a live aesthetic change (the admin's Theme page, or the reader's own profile
-  toggle) in step with the rest of the app.
+  never resolves a CSS custom property, so a live aesthetic change has to be applied by switching
+  between the two themes defined at mount rather than by re-resolving a variable.
 */
 const aesthetic = useAesthetic()
 
@@ -588,22 +551,13 @@ watch(
   }
 )
 
-// I18N
-
 const { t } = useI18n()
 
-// COMPUTED
-
 /*
-  The side toolbar's tooltips and dropdown menus popped OUTWARD, away from the icon column, which
-  `App.vue`'s `applyLocale` always put on the reading-start edge of this editor -- so their `anchor`/
-  `self` used to be hardcoded to the one physical side that had room: `right` of the button. `WTooltip`
-  and `WMenu` place themselves in raw viewport pixels (`composables/anchoredPosition.js`), which knows
-  nothing about `direction`, so under `dir="rtl"` the sidebar itself swaps to the other edge (a plain
-  flex row already follows the inline axis) but a tooltip still anchored `right` would pop away from
-  the editor instead of toward it. `directionalAnchor` mirrors the pair when it is. Read once at
-  setup rather than kept reactive: switching the reader's locale mid-edit is not a case this editor
-  has to survive gracefully.
+  `WTooltip`/`WMenu` position themselves in raw viewport pixels (`composables/anchoredPosition.js`),
+  which knows nothing about `direction`, so a pair hardcoded to `right` would pop away from the editor
+  under `dir="rtl"` -- where the sidebar itself has swapped edges. Read once at setup rather than kept
+  reactive: switching locale mid-edit is not a case this editor has to survive gracefully.
 */
 const sideToolbarTooltip = directionalAnchor(
   document.documentElement.dir,
@@ -616,76 +570,43 @@ const sideToolbarMenu = directionalAnchor(document.documentElement.dir, 'top rig
 const sideToolbarMenuAnchor = sideToolbarMenu.anchor
 const sideToolbarMenuSelf = sideToolbarMenu.self
 
-// STATE
-
 let editor
 let md
-/** Where the paste listener ended up, so it can be taken off the same node. See the note in onMounted. */
 let pasteCaptureNode = null
-/** The "Edit Table" lens provider, which is registered against the language rather than this editor. */
 let tableLensProvider = null
-/** The "Edit Block Parameters" lens provider, registered the same way. */
 let blockLensProvider = null
-/**
- * The blocks this site has, as the API describes them — their props included.
- *
- * Read once with the list of disabled ones, since it is the same request. What the lens needs from it
- * is the props: a block whose definition is not here is one this editor cannot offer a form for.
- */
 let siteBlocks = []
 /**
- * The `debounce()`-wrapped Monaco event handlers registered in `onMounted`, kept only so
- * `onBeforeUnmount` can `cancel()` them. Without this, a debounced call still pending when the
- * component unmounts fires ~500ms later against the already-`dispose()`d editor -- for the
- * cursor-position one, `editor.getPosition()` returns `null` on a disposed instance, and reading
- * `.lineNumber` off it throws (OpenProject #808).
+ * Kept only so `onBeforeUnmount` can `cancel()` them: a debounced call still pending at unmount fires
+ * ~500ms later against the already-`dispose()`d editor, where `editor.getPosition()` returns `null`
+ * and the cursor handler throws reading `.lineNumber` off it.
  */
 let debouncedContentChange = null
 let debouncedCursorPositionChange = null
-/**
- * The pending `editor.focus()` timeout `insertAssetClb` schedules 500ms after an insert, kept so
- * `onBeforeUnmount` can `clearTimeout()` it -- left to fire after unmount it calls `.focus()` on an
- * editor `dispose()` has already torn down (OpenProject #943's related minor).
- */
+/** Cleared at unmount: left to fire, it calls `.focus()` on an editor `dispose()` has torn down. */
 let insertAssetFocusTimeout = null
 const monacoRef = ref(null)
 const editorPreviewContainerRef = ref(null)
 const editorMidRef = ref(null)
 const previewPaneRef = ref(null)
 
-/*
-  The two toolbars' own roving-tabindex controllers (Task/Feature #3350,
-  `composables/toolbarRovingTabindex.js`) -- the side insert-toolbar is a vertical column (Up/Down),
-  the top formatting toolbar a horizontal row (Left/Right). See the template's own comments beside
-  each `role="toolbar"` container for how the two are wired to their buttons.
-*/
 const sideToolbarRef = ref(null)
 const topToolbarRef = ref(null)
 const sideToolbarRoving = useToolbarRovingTabindex(sideToolbarRef, { orientation: 'vertical' })
 const topToolbarRoving = useToolbarRovingTabindex(topToolbarRef, { orientation: 'horizontal' })
 
 /**
- * Whether the preview pane has already played its entrance once this mount.
- *
- * Gates which transition name the pane's `<transition>` uses (see the template) -- `false` picks the
- * fast `editor-markdown-preview-initial` variant, timed to match the side nav's own close animation
- * (`WDrawer.vue`'s `0.2s`) since the two happen together the moment the editor opens. Flipped to `true`
- * once, in `onMounted`, after that first reveal has been scheduled -- every later toggle (the toolbar
- * button) then uses the original, slower `editor-markdown-preview` transition, unchanged from before
- * this fix.
+ * `false` picks the pane's fast `-initial` entrance transition, timed to match the side nav's own
+ * `0.2s` close since the two happen together the moment the editor opens. Flipped once in `onMounted`
+ * so every later toggle uses the slower `editor-markdown-preview` one.
  */
 const previewEverRevealed = ref(false)
 
 /**
- * Blocks this site has switched off, as the tags they are written as.
- *
  * The preview fetches a component for every element it does not recognise, so a disabled block would
- * draw here and then disappear the moment the page was saved — the server strips one that is not
- * enabled out of the render. Naming them lets the preview leave the element undefined, which is what
- * the saved page comes back as: the block gone, the content the author wrote inside it still there.
- *
- * Only what the site lists as off. A tag that is not in the list at all is a child block, which has no
- * switch of its own, or an unknown one — this decides nothing about either.
+ * draw here and then vanish on save. Naming them lets the preview leave the element undefined, which
+ * is what the saved page comes back as. Only what the site lists as off -- a tag absent from the list
+ * is a child block or an unknown one, and this decides nothing about either.
  */
 const disabledBlockTags = ref(new Set())
 
@@ -703,94 +624,56 @@ const HEADER_ICONS = [
 ]
 
 /*
-  How the preview follows the caret: the line being edited goes to the TOP of the pane.
-
-  `start` rather than `nearest`, which was tried and is wrong here -- `nearest` leaves a line alone as
-  long as it is visible anywhere, so a line sitting on the last row of the pane stays there, with what is
-  being written pinned to the bottom edge and nothing after it in view.
-
-  Asking for the top on every caret move costs nothing when the caret stays put: the element is already
-  there, so the browser computes the same offset and there is no movement. What used to make this thrash
-  was the pane losing its scroll position to the re-render -- see `processContent` -- and animating up
-  from the top of the document each time, not the alignment asked for here.
-
-  `inline: 'nearest'` only so that a wide block -- a table, a diagram -- is never scrolled sideways as a
-  side effect of following the caret down the page.
+  `block: 'start'`, not `nearest`: `nearest` leaves a line alone as long as it is visible anywhere, so a
+  line on the last row stays pinned to the bottom edge with nothing after it in view. `inline: 'nearest'`
+  keeps a wide block -- a table, a diagram -- from being scrolled sideways as a side effect.
 */
 const SYNC_SCROLL = { behavior: 'smooth', block: 'start', inline: 'nearest' }
 
 /**
- * Whether the window is wide enough to open the preview beside the source.
- *
- * 1024 is the app's `md` breakpoint (`css/tailwind.css`). Below it the two panes are half a small window
- * each, and the source is the one being typed into — so the preview starts closed and is opened when
- * wanted, from the toolbar button that takes its place.
+ * 1024 is the app's `md` breakpoint (`css/tailwind.css`). Below it each pane is half a small window and
+ * the source is the one being typed into, so the preview starts closed and is opened on request.
  */
 const isAtLeastMd = useMinWidth(1024)
 
 const state = reactive({
   /*
-    Starts closed regardless of `isAtLeastMd` -- not a placeholder value to read past, unlike
-    `previewWidth` below, but the actual initial state. Opening it is deferred to `onMounted`, once
-    `previewWidth` is already resolved too, so the very first time this flips true both values are
-    already correct and the pane's entrance transition (see the template's `<transition>` and
-    `previewEverRevealed`) animates straight to the right width -- rather than appearing instantly at
-    the SCSS fallback (`50vw`) and snapping to the real width a moment later, once the async settings
-    fetch resolves, which is what starting `true` here used to produce.
+    Opening it is deferred to `onMounted`, once `previewWidth` has resolved too, so that the pane's
+    entrance transition animates straight to the right width instead of appearing at the CSS `50vw`
+    fallback and snapping once the async settings fetch lands.
   */
   previewShown: false,
   previewScrollSync: true,
   /*
-    `null` until `onMounted` resolves this user's saved width (or the lack of one) through
-    `resolveInitialPreviewWidth` -- the same placeholder-then-resolve shape as `previewShown` above.
-    Tracked separately from `previewShown` on purpose (requirement: a hide/show cycle keeps the last
-    dragged width): `null` means "no custom width, use the responsive 50vw default", a number is a
-    pixel width this session or a past one committed by dragging the divider, and it is left alone by
-    hiding the pane -- only overwritten by another drag, or restored from a saved value on mount.
+    `null` means "no custom width, use the responsive 50vw default"; a number is a pixel width
+    committed by dragging the divider. Tracked separately from `previewShown` so a hide/show cycle
+    keeps the last dragged width -- only another drag or a saved value on mount overwrites it.
   */
   previewWidth: null,
   /*
-    Set by `flushEditorContent` whenever it skips `processContent` because the preview pane is
-    closed (OpenProject #1889) -- the debounced content sync still has to happen every 500ms so a
-    save is never reading stale `pageStore.content`, but re-running the markdown-it/KaTeX/
-    highlight.js pipeline for a preview nobody can see is pure waste. `flushStaleRenderIfNeeded`
-    clears it the moment the render is actually needed: reopening the pane (the `previewShown`
-    watcher below) or saving (`flushEditorContentForSave`, what's registered as
-    `editorStore.contentFlusher`).
+    Set by `flushEditorContent` when it skips `processContent` because the preview pane is closed: the
+    content sync still has to run so a save never reads stale `pageStore.content`, but re-running the
+    markdown-it/KaTeX/highlight.js pipeline for a preview nobody can see is waste.
+    `flushStaleRenderIfNeeded` clears it the moment a current render is actually needed.
   */
   renderIsStale: false
 })
 
-/*
-  The resize divider's whole drag, and live collaboration's Monaco wiring -- both lifted out whole
-  (`composables/previewResize.js`, `composables/markdownCollab.js`). Each still reads this
-  component's own state: the divider writes `state.previewWidth`/`previewShown` and measures the two
-  panes, and the collab half is handed the editor once `onMounted` has created it.
-*/
 const { isDragging, onDividerPointerDown, onDividerPointerMove, onDividerPointerUp } =
   usePreviewResize({ state, previewPaneRef, editorMidRef })
 
 const { start: startCollab, stop: stopCollab } = useMarkdownCollab()
 
 /**
- * Whether the resize divider is offered at all.
- *
- * Below the `md` breakpoint the preview already defaults shut and, once opened deliberately from the
- * toolbar, takes half of a small window (see `isAtLeastMd` above) -- letting it also be dragged there
- * would let an author shrink the SOURCE pane on the one screen size that can least afford to lose the
- * room. Resizing is therefore an `md`-and-up affordance, matching the preview's own default already
- * being width-dependent.
+ * Resizing is an `md`-and-up affordance: below it, dragging would let an author shrink the source pane
+ * on the one screen size that can least afford to lose the room.
  */
 const canResizePreview = computed(() => state.previewShown && isAtLeastMd.value)
 
 /**
- * The inline style that gives the preview pane a custom width, or `null` to fall back to the SCSS
- * default (a responsive `50vw`, both for the settled width and for the open/close transition -- see
- * `--preview-width`'s use there).
- *
- * Also `null` below the `md` breakpoint even when a custom width IS saved: `canResizePreview` already
- * withholds the divider there, and applying a desktop-sized saved width through CSS alone on a
- * narrower screen would squeeze the source pane exactly as unresizably as dragging one there would.
+ * `null` falls back to the stylesheet's responsive `50vw`. Also `null` below `md` even when a custom
+ * width IS saved: applying a desktop-sized width there would squeeze the source pane exactly as
+ * unresizably as dragging one would, which `canResizePreview` already withholds.
  */
 const previewInlineStyle = computed(() => {
   if (!isAtLeastMd.value || typeof state.previewWidth !== 'number') {
@@ -798,22 +681,17 @@ const previewInlineStyle = computed(() => {
   }
   return {
     '--preview-width': `${state.previewWidth}px`,
-    // -> `flex: 0 0 <px>` replaces the SCSS `-preview` rule's own `flex: 0 1 50%` outright (inline
-    //    style always wins), pinning the basis exactly rather than leaving it shrinkable against `-mid`
+    // -> Inline style beats the `-preview` rule's own `flex: 0 1 50%`, pinning the basis exactly
+    //    rather than leaving it shrinkable against `-mid`
     flex: `0 0 ${state.previewWidth}px`
   }
 })
 
 /**
- * What the preview pane actually draws (OpenProject #2911).
- *
- * `pageStore.render` itself stays exactly what `md.render()` produced -- that is the payload
- * `pageSave` sends, and the server re-derives its own sanitized copy from it at save time regardless
- * of what this preview shows, so there is nothing to gain and a save/preview distinction to lose by
- * mutating the store value itself. This is only ever read by the `v-html` below, gated on the same
- * `write:scripts`/`write:styles` permissions the save is about to be sanitized against --
- * `userStore.pagePermissions`, since these are page-scoped permissions, refreshed for the page under
- * edit by `pageStore.pageLoad()`'s `applyViewerState()`.
+ * `pageStore.render` itself stays exactly what `md.render()` produced -- that is the payload `pageSave`
+ * sends, and the server re-derives its own sanitized copy from it, so mutating the store value would
+ * only lose the save/preview distinction. Gated on the same page-scoped `write:scripts`/`write:styles`
+ * permissions the save is about to be sanitized against.
  */
 const previewHtml = computed(() =>
   sanitizeForPreview(pageStore.render, {
@@ -822,14 +700,6 @@ const previewHtml = computed(() =>
   })
 )
 
-// METHODS
-
-/*
-  The insert commands themselves live in `helpers/markdownInsert.js`, as plain functions over the
-  Monaco editor rather than closures over this component's own `editor`. Bound to it here, once, so
-  the template, the overlays' callbacks and the keybindings below go on calling them by exactly the
-  names and argument shapes they always have.
-*/
 const insertAtCursor = (opts) => insertCmd.insertAtCursor(editor, opts)
 const insertCodeBlock = (language) => insertCmd.insertCodeBlock(editor, language)
 const insertBlockClb = (markdown) => insertCmd.insertBlockClb(editor, markdown)
@@ -846,14 +716,8 @@ function insertAssets() {
 }
 
 /**
- * What the file manager handed back, as markdown at the cursor.
- *
- * Both kinds go in as paths from the site root: a file through `assetPath`, which is where the
- * reasoning about that form lives, and a page the way the link picker writes one.
- *
- * An image goes in as one and anything else as a link -- a PDF picked from the file manager is a link
- * to a PDF, not a broken picture -- which is the same distinction `insertFilesAsAssets` draws for a
- * file that arrives by drop.
+ * An image goes in as one, anything else as a link: a picked PDF is a link to a PDF, not a broken
+ * picture. Same distinction `insertFilesAsAssets` draws for a drop.
  */
 function insertAssetClb(opts) {
   let content = ''
@@ -877,21 +741,17 @@ function insertAssetClb(opts) {
 }
 
 /**
- * The chosen emoji, as its shortcode.
- *
- * `:tada:` rather than 🎉, because that is what the renderer replaces — see `renderers/markdown.js`,
- * where the emoji plugin's tokens are the only ones handed to twemoji. A raw character would survive
- * into the page and be drawn by whatever font the reader happens to have.
+ * `:tada:` rather than 🎉: only the emoji plugin's own tokens are handed to twemoji
+ * (`renderers/markdown.js`), so a raw character would survive into the page and be drawn by whatever
+ * font the reader happens to have.
  */
 function insertEmoji(shortcode) {
   insertAtCursor({ content: `:${shortcode}:` })
 }
 
 /**
- * The picked icon, as the shortcode that draws it — `tabler:home` in, `:tabler:home:` out.
- *
- * The same delimiters an emoji uses, and the same insertion: the two are one syntax as far as the
- * source is concerned, told apart by the colon inside the reference. See `renderers/markdown.js`.
+ * `tabler:home` in, `:tabler:home:` out — the same delimiters an emoji uses, the two told apart by
+ * the colon inside the reference (`renderers/markdown.js`).
  */
 function insertIcon(reference) {
   if (reference) {
@@ -906,12 +766,9 @@ function insertBlock() {
 }
 
 /**
- * The tabset, without going through the picker.
- *
- * A shortcut to picking Tabs from the block list and inserting it as it stands, so the markup is
- * built from the same definition rather than written out a second time here — a change to the block's
- * starter body reaches both. It still asks the server which blocks this site has: a shortcut to a
- * block an administrator switched off would insert something the page cannot draw.
+ * Built from the block's own definition rather than written out a second time here, so a change to
+ * its starter body reaches both paths. The server is still asked which blocks this site has: a
+ * shortcut to a block an administrator switched off would insert something the page cannot draw.
  */
 async function insertTabset() {
   try {
@@ -942,12 +799,9 @@ function insertTable() {
 }
 
 /**
- * The same overlay, over a table already in the page — what the "Edit Table" lens above one does.
- *
- * The lens carries only the line it was drawn on, and the table is looked up again here rather than
- * taken from the lens: a lens is provided once and then moves with the text, so its argument is a line
- * number from whenever the document last settled. Reading the table back out of the model at the moment
- * of the click is what keeps the range and the source it hands over describing the same thing.
+ * The table is looked up again here rather than taken from the lens: a lens is provided once and then
+ * moves with the text, so its line argument is from whenever the document last settled. Reading the
+ * model at click time is what keeps the range and the source it hands over describing one thing.
  */
 function editTable(line) {
   const tables = findEditableTables(editor.getModel().getValue())
@@ -965,19 +819,14 @@ function editTable(line) {
   })
 }
 
-/** The block as this site describes it, or undefined for one it does not list. */
 function blockDefinition(name) {
   return siteBlocks.find((block) => block.block === name)
 }
 
 /**
- * The parameters dialog, over a block already in the page — what the lens above one opens.
- *
- * The block is looked up again here rather than taken from the lens, for the reason `editTable` gives:
- * a lens is provided once and then moves with the text, so the line it carries is from whenever the
- * document last settled. The name it was drawn for is carried along and has to match too — where a
- * table spans lines and can be found by containment, a block's opening line is a single line, and an
- * edit above it would otherwise put a form for one block over another.
+ * Looked up again rather than taken from the lens, for the reason `editTable` gives. The block name is
+ * matched as well as the line: a table spans lines and can be found by containment, but a block's
+ * opening line is a single line, and an edit above it would put one block's form over another.
  */
 function editBlock(line, name) {
   const found = findBlocks(editor.getModel().getValue()).find(
@@ -992,9 +841,8 @@ function editBlock(line, name) {
     componentProps: { definition, values: blockValues(found, definition) }
   }).onOk((values) => {
     /*
-      The opening line and nothing else, so the body between the fences is left exactly as it was —
-      which for a tabset is every tab in it. One undo takes the whole change back, and the caret lands
-      on the line that moved rather than wherever it was before the dialog opened.
+      The opening line and nothing else, so the body between the fences is left exactly as it was --
+      which for a tabset is every tab in it. One edit, so one undo takes the whole change back.
     */
     const model = editor.getModel()
     editor.executeEdits('block', [
@@ -1009,14 +857,8 @@ function editBlock(line, name) {
 }
 
 /**
- * Insert a link, from the shared picker.
- *
- * Whatever is selected becomes the link's text, so marking a phrase and pressing the button reads as
- * "make this a link". With nothing selected the picker's own answer supplies it: the title of the page
- * that was chosen, or the URL itself, which is at least something to type over.
- *
- * `{target="_blank"}` is markdown-it-attrs syntax, and `target` is one of the three attributes the
- * stored render is allowed to keep — see `renderers/markdown.js` and `models/rendering.ts`.
+ * `{target="_blank"}` is markdown-it-attrs syntax, and `target` is one of the few attributes the stored
+ * render is allowed to keep (`renderers/markdown.js`, `models/rendering.ts`).
  */
 function insertLink() {
   dialog({ component: LinkPickerDialog }).onOk(({ href, openInNewTab, title }) => {
@@ -1026,7 +868,7 @@ function insertLink() {
     const attributes = openInNewTab ? '{target="_blank"}' : ''
     /*
       One edit for both cases: a selection is replaced, and an empty selection -- which is all a bare
-      cursor is -- inserts. `insertAtCursor` cannot do the first, since it builds its own empty range.
+      cursor is -- inserts. `insertAtCursor` cannot do the first: it builds its own empty range.
     */
     editor.executeEdits('', [
       {
@@ -1039,9 +881,6 @@ function insertLink() {
   })
 }
 
-/**
- * Toggle Markup at selection
- */
 async function toggleMarkup({ start, end }) {
   if (!end) {
     end = start
@@ -1054,11 +893,9 @@ async function toggleMarkup({ start, end }) {
   }
 
   const edits = []
-  // -> Cursor position to land on after the edit, one per null-word edit below (OpenProject #800).
-  //    Parallel to `edits` only in that both grow together; passed to `executeEdits` as-is only
-  //    when every edit in this call needed one, so a mixed multi-cursor batch (some selections
-  //    landing on a real word, others not) falls back to Monaco's own default cursor placement
-  //    rather than silently dropping the cursors this array doesn't know about.
+  // -> One entry per null-word edit below, passed to `executeEdits` only when every edit in this call
+  //    needed one: a mixed multi-cursor batch falls back to Monaco's own placement rather than
+  //    silently dropping the cursors this array doesn't know about.
   const cursors = []
 
   for (const selection of editor.getSelections()) {
@@ -1067,9 +904,8 @@ async function toggleMarkup({ start, end }) {
       const wordObj = editor.getModel().getWordAtPosition(selection.getPosition())
       const { text, atCursor } = resolveWordMarkup({ start, end, word: wordObj?.word ?? null })
       if (atCursor) {
-        // No word under the cursor -- empty line/document, or adjacent to non-word markup with
-        // nothing inside it. Insert the empty markers at the cursor and land the caret between
-        // them, so the author can type straight into them instead of hitting a TypeError.
+        // No word under the cursor: insert the empty markers and land the caret between them, so the
+        // author can type straight into them.
         const cursorRange = new Range(
           selection.startLineNumber,
           selection.startColumn,
@@ -1108,12 +944,9 @@ async function toggleMarkup({ start, end }) {
 }
 
 /**
- * Read the blocks this site has, once, before the first preview is drawn.
- *
- * Order matters more than it looks: a component only has to be fetched once to be defined for the
- * rest of the session, so a list that arrives after the first render is too late to keep a disabled
- * block from drawing. The lens over a block wants the same list a moment later, and asking twice for
- * it would be asking the same question twice.
+ * Must finish before the first preview is drawn: a component only has to be fetched once to be defined
+ * for the rest of the session, so a list that arrives after the first render is too late to keep a
+ * disabled block from drawing.
  */
 async function loadSiteBlocks() {
   try {
@@ -1123,27 +956,21 @@ async function loadSiteBlocks() {
     )
   } catch (err) {
     /*
-      Left empty, which draws everything as it did before. The preview being too generous is the
-      better failure: the server strips a disabled block on save either way, so the cost is a preview
-      that flatters the page, against hiding blocks the site really does have. The lens is the other
-      way round — with no definitions to build a form from, it simply does not appear.
+      Left empty, drawing everything. A too-generous preview is the better failure: the server strips
+      a disabled block on save either way, so the cost is a preview that flatters the page, against
+      hiding blocks the site really does have.
     */
     log.warn('editor', 'could not read which blocks this site has enabled', err)
   }
 }
 
 /**
- * Say why a block is sitting there doing nothing.
+ * A disabled block is left undefined, so without this it draws as its own contents and reads as broken
+ * rather than as switched off.
  *
- * A disabled block is left undefined, so it draws as its own contents and otherwise says nothing —
- * which reads as a block that is broken rather than one that is switched off. The notice names the
- * reason and what saving will do about it; what the author wrote stays underneath, because that is
- * what the saved page keeps once the server has stripped the element.
- *
- * Written into the preview's DOM rather than into the render, which is deliberate: `pageStore.render`
- * is what `pageSave` sends, and a notice added to it would be a notice saved into the page. The
- * preview is rebuilt from that string on every keystroke, so this is re-applied each time and nothing
- * has to be cleaned up — the same footing `enhanceRenderedContent` works on.
+ * Written into the preview's DOM rather than into the render: `pageStore.render` is what `pageSave`
+ * sends, so a notice added there would be saved into the page. The preview is rebuilt from that string
+ * on every keystroke, so this is simply re-applied each time and nothing has to be cleaned up.
  */
 function markDisabledBlock(el) {
   if (el.dataset.blockDisabled !== undefined) {
@@ -1157,15 +984,8 @@ function markDisabledBlock(el) {
 }
 
 /**
- * Open the tabset panel the caret is in.
- *
- * Which is the useful answer, and a different question from "which panel was open before": an author
- * writing inside the second panel of a tabset is telling us plainly which one they are looking at. The
- * source line is matched against the panel ranges of the same parse that built the preview -- see
- * `getTabAtLine` -- and the panel is opened through the block's own `active` property.
- *
- * Silent about everything it does not find: a caret outside every tabset leaves them all as they were,
- * and so does a render that has not landed yet.
+ * The caret beats "whichever panel was open before": an author writing inside the second panel is
+ * saying plainly which one they are looking at.
  */
 function syncPreviewTabs() {
   const container = editorPreviewContainerRef.value
@@ -1184,16 +1004,14 @@ function syncPreviewTabs() {
 
 function processContent(newContent) {
   /*
-    A render that throws must not become a render that is empty.
-
-    `pageSave` sends whatever is in the store, and the server replaces the stored HTML with it -- so
-    patching a failed render in blanks the published page, and patching nothing keeps the last good
-    one. Loud rather than silent, because the preview is then showing something other than the source.
+    A render that throws must not become a render that is empty: `pageSave` sends whatever is in the
+    store and the server replaces the stored HTML with it, so patching a failed render in would blank
+    the published page. Loud, because the preview is then showing something other than the source.
   */
   let html
   try {
-    // -> The page's own path, because a relative image in the source is relative to the folder it
-    //    sits in -- and it is being edited, so it is whatever the path field says right now
+    // -> A relative image in the source is relative to the folder the page sits in, which while
+    //    editing is whatever the path field says right now
     html = md.render(newContent, { pagePath: pageStore.path })
   } catch (err) {
     log.error('editor', 'could not render the Markdown preview', err)
@@ -1207,18 +1025,12 @@ function processContent(newContent) {
 
   const container = editorPreviewContainerRef.value
   /*
-    Two things about the preview have to survive the patch, because `v-html` does not patch anything --
-    it throws every child away and builds them again, on every keystroke.
-
-    Where the reader had scrolled to is the first. An emptied box has nowhere to be scrolled to, so its
-    `scrollTop` is clamped to zero; the cursor handler then animated back down from the top of the
-    document to the line being typed, over and over, which is what made the preview appear to fly about
-    while typing in a long page.
-
-    Which tab is open is the second. A block is a custom element with state of its own, and a rebuilt one
-    starts again from its defaults -- so typing in the second panel of a tabset kept throwing the author
-    back to the first. Carried across by position: the source order of the blocks is what survives an
-    edit, not the elements. See `active` in `blocks/block-tabs`.
+    `v-html` does not patch: it throws every child away and rebuilds them, on every keystroke. Two
+    things must be carried across by hand. Scroll position, because an emptied box clamps `scrollTop`
+    to zero and the cursor handler then animates back down from the top on every keystroke. And which
+    tab is open, because a block is a custom element and a rebuilt one starts from its defaults --
+    carried by position, since the source order of the blocks is what survives an edit, not the
+    elements.
   */
   const scrollTop = container?.scrollTop ?? 0
   const openTabs = [...(container?.querySelectorAll('block-tabs') ?? [])].map(
@@ -1230,12 +1042,9 @@ function processContent(newContent) {
   })
   nextTick(async () => {
     /*
-      With the preview pane closed there is often no DOM to attend to -- and, since `flushEditorContent`
-      (OpenProject #1889) now skips calling this at all while `state.previewShown` is false, most
-      closed-pane edits never even reach this line any more. What still can: the post-init and
-      conflict-resolution callers below run unconditionally, and the `previewShown` watcher's
-      catch-up render can land before Vue has mounted the pane's `v-if` in the same tick. Either way
-      the render is stored, so the store still holds what a save would send.
+      Callers that do not go through `flushEditorContent` can reach here with the pane closed: the
+      post-init render, and the `previewShown` watcher's catch-up landing before Vue has mounted the
+      pane's `v-if` in the same tick. The render is already stored either way.
     */
     if (!container) {
       return
@@ -1250,23 +1059,17 @@ function processContent(newContent) {
     // -> After the carry-across, so that the tabset being written in wins over what it had open before
     syncPreviewTabs()
     /*
-      The panels have to be settled BEFORE the position goes back, and that means waiting for them: a
-      block applies its open panel on its own update, a microtask later.
-
-      Restoring first is restoring against a layout that is about to change, and the change is the height
-      of a whole panel. With a rebuilt tabset showing its first panel, a position inside a taller one is
-      past the end of a shorter document, so the browser clamps it -- and then scroll anchoring hands back
-      a different position again as the real panel opens. Measured at 800px of drift on a short-first,
-      tall-second tabset, which the caret sync then animated back from on every keystroke.
+      The panels have to be settled before the scroll position goes back, and a block applies its open
+      panel on its own update, a microtask later. Restoring first restores against a layout about to
+      change by the height of a whole panel: the browser clamps the position against the shorter
+      document, then scroll anchoring hands back a different one again as the real panel opens.
     */
     await Promise.all(tabsets.map((el) => el.updateComplete ?? Promise.resolve()))
     container.scrollTop = scrollTop
-    // -> Keyed on the tag, so a repeat of the same element in the preview is only resolved once. The
-    //    value carries `isCustom`/`id` off `siteBlocks` when the tag matches a block this site has --
-    //    what `loadBlocks()` needs to tell a custom block's per-site import URL from a built-in's flat
-    //    one. A tag that matches nothing there (an unknown element, or the list not having loaded yet)
-    //    is passed as the bare string, which `loadBlocks()` treats as a built-in guess -- the same
-    //    generous-preview fallback `loadSiteBlocks()` above already documents.
+    // -> Keyed on the tag, so a repeat of the same element is only resolved once. The value carries
+    //    `isCustom`/`id` when the tag matches a block this site has, which is how `loadBlocks()` tells
+    //    a custom block's per-site import URL from a built-in's flat one; a tag matching nothing goes
+    //    in as the bare string and is treated as a built-in guess.
     const pendingBlocks = new Map()
     for (const block of container.querySelectorAll(':not(:defined)')) {
       const tag = block.tagName.toLowerCase()
@@ -1282,10 +1085,9 @@ function processContent(newContent) {
     }
     if (pendingBlocks.size > 0) {
       /*
-        Asked again once the definitions land. A block that has not been upgraded yet is a plain unknown
-        element: setting `active` on it puts a value somewhere Lit will pick up, but nothing has read the
-        panels or hidden any of them, so the tab the author is in is only actually opened here -- on the
-        first render of a page whose blocks are being fetched for the first time.
+        Asked again once the definitions land: setting `active` on a not-yet-upgraded element stores a
+        value Lit will pick up, but nothing has read or hidden the panels, so on the first render of a
+        page whose blocks are still being fetched the tab is only actually opened here.
       */
       commonStore.loadBlocks([...pendingBlocks.values()]).then(syncPreviewTabs)
     }
@@ -1295,21 +1097,12 @@ function processContent(newContent) {
 }
 
 /**
- * Take files the author brought in — pasted or dropped — and write markdown for them at the cursor.
+ * Nothing is uploaded here: each file becomes a pending asset behind a `blob:` URL, and
+ * `UploadPendingAssetsDialog` sends them on save and rewrites those URLs, so the editor shows the
+ * image immediately and the page never stores a blob URL.
  *
- * Nothing is uploaded here. Each one becomes a pending asset held against a `blob:` URL that the
- * markdown points at, and `UploadPendingAssetsDialog` sends them on save and rewrites those URLs to
- * wherever they actually landed. So the editor shows the image immediately and the page never stores a
- * blob URL.
- *
- * An image goes in as one, anything else as a link with its file name for text — a dropped PDF is a
- * link to a PDF, not a broken picture. The name is the image's alt text as well, which is both what the
- * handler this replaces did and better than nothing for a reader who cannot see it.
- *
- * `generateUniqueName` is passed straight through to `editorStore.addPendingAsset` -- see its own doc
- * comment (OpenProject #806 follow-up). Only the paste call site below sets it: every browser names a
- * clipboard-pasted file "image.png" regardless of source, where a dropped file's name is real user
- * intent worth keeping.
+ * `generateUniqueName` is set only by the paste call site: every browser names a clipboard-pasted file
+ * "image.png" regardless of source, where a dropped file's name is real user intent worth keeping.
  */
 function insertFilesAsAssets(files, { generateUniqueName = false } = {}) {
   const markup = files.map((file) => {
@@ -1321,21 +1114,11 @@ function insertFilesAsAssets(files, { generateUniqueName = false } = {}) {
 }
 
 /**
- * Resolve `htmlToMarkdown`'s `![alt](pending-image:N)` placeholders into real pending-asset
- * `blob:` URLs, for the images embedded in a rich-HTML paste (OpenProject #2504).
- *
- * Turndown's own conversion is synchronous, but retrieving an image's bytes is not -- the `src` can
- * be a `data:` URI (a screenshot, commonly megabytes of base64), a `blob:` URL, or a same-origin or
- * remote `http(s):` reference -- so `htmlToMarkdown` hands back placeholders instead of resolving
- * them itself; this is the async other half. `fetch` is what turns any of those three `src` shapes
- * into bytes uniformly, and the resulting `Blob` goes through the exact same
- * `editorStore.addPendingAsset` pending-asset pipeline `insertFilesAsAssets` above already uses for
- * a bare image paste, so it uploads and rewrites on save the same way.
- *
- * A `src` that cannot actually be retrieved (a cross-origin image the source page's CORS policy
- * doesn't allow, a `blob:` URL from a tab that has since navigated away, ...) drops just that one
- * image -- the same graceful degradation the old drop-every-image rule used to apply unconditionally,
- * now scoped to only the images that genuinely could not be fetched.
+ * The async other half of `htmlToMarkdown`, which is synchronous and so hands back
+ * `![alt](pending-image:N)` placeholders rather than fetching an embedded image's bytes itself.
+ * `fetch` turns all three `src` shapes -- `data:`, `blob:` and `http(s):` -- into bytes uniformly. A
+ * `src` that cannot be retrieved (cross-origin CORS, a `blob:` from a navigated-away tab) drops just
+ * that one image.
  */
 async function resolvePendingImages(markdown, images) {
   let content = markdown
@@ -1354,8 +1137,8 @@ async function resolvePendingImages(markdown, images) {
       } catch {
         replacement = ''
       }
-      // -> `token` is unique per call (see `htmlToMarkdown`), so this can only ever match the one
-      //    placeholder it was generated for
+      // -> `token` is unique per call (see `htmlToMarkdown`), so this can only match the placeholder
+      //    it was generated for
       content = content.split(placeholder).join(replacement)
     })
   )
@@ -1363,15 +1146,11 @@ async function resolvePendingImages(markdown, images) {
 }
 
 /*
-  Pasting a file inserts it; pasting HTML converts it to markdown; anything else is left alone. See
-  `shouldClaimPaste` for the text-wins-over-an-accompanying-image decision -- pulled out to
-  `helpers/editorFileTransfer.js` so it is unit-testable without a real clipboard event.
-
   Both branches take the paste over completely -- `stopPropagation` as well as `preventDefault`,
   because this runs in capture ABOVE the editor: letting it travel on would hand the same paste to
-  Monaco's own paste-as feature (files) or its default plain-text insert (HTML), which would answer
-  it a second time in its own way. Both of those calls happen before any `await` below, so the paste
-  is still claimed synchronously even though resolving embedded images is not.
+  Monaco's own paste-as feature (files) or its default plain-text insert (HTML), which would answer it
+  a second time in its own way. Both calls happen before any `await` below, so the paste is still
+  claimed synchronously even though resolving embedded images is not.
 */
 async function onEditorPaste(event) {
   if (shouldClaimPaste(event.clipboardData)) {
@@ -1380,24 +1159,15 @@ async function onEditorPaste(event) {
     insertFilesAsAssets(pastedFiles(event.clipboardData), { generateUniqueName: true })
     return
   }
-  // -> OpenProject #2448 (Feature #2417): a paste carrying HTML -- a webpage selection, a Word or
-  //    OneNote paste, ... -- is converted to markdown rather than left to fall through to whatever
-  //    the browser's own plain-text paste would have inserted. See `helpers/htmlToMarkdown.js` for
-  //    what the conversion does and does not attempt, including its own embedded images (OpenProject
-  //    #2504) -- resolved here via `resolvePendingImages` before the markdown is inserted.
   const html = event.clipboardData?.getData?.('text/html') ?? ''
   if (html.trim().length === 0) {
     return
   }
-  // -> OpenProject #2834: Monaco's own "copy with syntax highlighting" ALSO writes a `text/html`
-  //    payload -- per-token `<span style="color:...">` runs, one `<div>` per source line -- alongside
-  //    `text/plain` on every ordinary in-editor copy/cut, with nothing above to tell that apart from a
-  //    genuine external rich-content paste. `isSameVisibleText` reduces the HTML down to its own bare
-  //    visible text and compares it against this same clipboard event's `text/plain`: a same-editor
-  //    round trip is identical once reduced that way (Monaco colors the source, it never restructures
-  //    it), so the conversion below is skipped and the browser's own default plain-text paste runs
-  //    instead -- exactly what happened before OpenProject #2448 added this handler. A genuine rich
-  //    paste's `text/html` still reaches `htmlToMarkdown` unchanged.
+  // -> Monaco's own "copy with syntax highlighting" ALSO writes a `text/html` payload alongside
+  //    `text/plain` on every ordinary in-editor copy, with nothing above to tell that apart from a
+  //    genuine external rich paste. Monaco colors the source without restructuring it, so a
+  //    same-editor round trip reduces to the identical visible text and is left to the browser's own
+  //    plain-text paste instead of being converted.
   const text = event.clipboardData?.getData?.('text/plain') ?? ''
   if (isSameVisibleText(html, text)) {
     return
@@ -1410,9 +1180,8 @@ async function onEditorPaste(event) {
 }
 
 /*
-  A drop has to be claimed twice: `dragover` is what tells the browser this is a valid target -- without
-  it there is no drop at all, just the browser navigating away to the file -- and `drop` is where it
-  arrives. See `shouldAcceptDrag` for why this cannot just check `hasFiles`.
+  A drop has to be claimed twice: `dragover` is what tells the browser this is a valid target --
+  without it there is no drop at all, just the browser navigating away to the file.
 */
 function onEditorDragOver(event) {
   if (!shouldAcceptDrag(event.dataTransfer)) {
@@ -1436,14 +1205,9 @@ function onEditorDrop(event) {
 }
 
 /**
- * Rewrite text that was already in the editor — the blob URLs of pending assets, once the upload has
- * given them real paths.
- *
- * Done as targeted edits rather than by putting the whole page back with `setValue`. Replacing the
- * model wholesale reads as "everything was deleted and everything was typed again", which throws away
- * the undo history and the caret, and in a collaborative session would land on everyone else as
- * exactly that — their own unsaved sentences deleted and retyped by someone who only uploaded an
- * image.
+ * Targeted edits rather than `setValue`: replacing the model wholesale reads as "everything was
+ * deleted and everything was typed again", throwing away the undo history and the caret -- and in a
+ * collaborative session landing on everyone else as exactly that.
  */
 function reloadEditorContent({ replacements = [] } = {}) {
   const model = editor.getModel()
@@ -1460,20 +1224,12 @@ function reloadEditorContent({ replacements = [] } = {}) {
 }
 
 /**
- * Copy the editor's current text into the store right now, rather than on the usual 500ms debounce.
+ * Deliberately leaves `contentLoaded` and `lastChangeTimestamp` alone: those say an edit happened,
+ * which is not true of a save running this on a page nobody has touched since it loaded --
+ * `pageSave()`'s own guard is what a wrongly-forced `contentLoaded` would defeat.
  *
- * Called by the change handler below on every debounced edit. Deliberately leaves `contentLoaded` and
- * `lastChangeTimestamp` alone: those describe an actual edit having happened, which is true every time
- * the change handler below calls this, but is not true of a save that runs this on a page nobody has
- * touched since it loaded -- `pageSave()`'s own guard is what a wrongly-forced `contentLoaded` would
- * defeat.
- *
- * The render is skipped, not just deferred, while the preview pane is closed (OpenProject #1889):
- * `processContent` runs the full markdown-it/KaTeX/highlight.js pipeline over the whole document, and
- * with no preview DOM to patch the result was being computed and immediately discarded, twice a
- * second, for as long as an author kept typing with the pane shut. `renderIsStale` records that the
- * store's `content` has moved on since the last render, so whichever of `flushStaleRenderIfNeeded`'s
- * two callers needs a current render next -- reopening the pane, or a save -- can catch it up.
+ * With the preview closed the render is skipped rather than deferred, and `renderIsStale` records
+ * that `content` has moved on since the last one so `flushStaleRenderIfNeeded` can catch it up.
  */
 function flushEditorContent() {
   const value = editor.getValue()
@@ -1485,15 +1241,6 @@ function flushEditorContent() {
   processContent(value)
 }
 
-/**
- * Runs `processContent` against whatever `flushEditorContent` left un-rendered, if anything.
- *
- * Called from the two moments a current render actually matters while the preview pane is closed: the
- * `previewShown` watcher below (an author reopening the pane wants to see it, not the last thing that
- * rendered before they closed it) and `flushEditorContentForSave` (a save reads `pageStore.render`,
- * which `pageStore.content` alone does not keep current -- see that function's own comment). A no-op
- * when nothing is stale, so calling it after every ordinary render is harmless.
- */
 function flushStaleRenderIfNeeded() {
   if (!state.renderIsStale) {
     return
@@ -1503,24 +1250,16 @@ function flushStaleRenderIfNeeded() {
 }
 
 /**
- * What's registered as `editorStore.contentFlusher`, which `pageSave()` calls synchronously before it
- * reads `content` -- see the call site there for why a save can otherwise land inside the 500ms
- * debounce window `flushEditorContent` above exists to close.
- *
- * A save needs more than that, though: with the preview pane closed, `flushEditorContent` alone would
- * leave `pageStore.render` stale, and `pageSave()`'s body is built from `render`, not `content` --
- * an unrendered edit would otherwise ship the previous save's HTML under this one's markdown. Flushing
- * first and then catching up the render (if `flushEditorContent` just marked it stale) is what keeps
- * both in step at the one moment that matters even with nobody watching the preview.
+ * Registered as `editorStore.contentFlusher`, which `pageSave()` calls synchronously before reading
+ * the store, so a save cannot land inside the 500ms debounce window. `pageSave()`'s body is built from
+ * `render`, not `content`, so the stale render has to be caught up too or an unrendered edit ships the
+ * previous save's HTML under this one's markdown.
  */
 function flushEditorContentForSave() {
   flushEditorContent()
   flushStaleRenderIfNeeded()
 }
 
-// -> Catches up a render that `flushEditorContent` skipped while the pane was closed (OpenProject
-//    #1889), so an author who reopens it sees what they just typed rather than what was on screen
-//    when they closed it
 watch(
   () => state.previewShown,
   (shown) => {
@@ -1530,30 +1269,15 @@ watch(
   }
 )
 
-// MOUNTED
-
 onMounted(async () => {
-  // -> Setup Editor View
   editorStore.$patch({
     hideSideNav: true
   })
 
   /*
-    This user's saved Markdown editor preferences -- font size, whether the preview pane opens, and its
-    saved width -- read before Monaco is created so all three apply from the first paint. Normally
-    already sitting in the store by now: `App.vue`'s boot flow prefetches them in the background as
-    soon as the session starts, well ahead of any "Edit" click, specifically so the preview's entrance
-    transition below can start in step with the side nav's own close animation instead of both waiting
-    on a network round trip neither has any real reason to share a deadline with. Only actually fetched
-    here as a fallback for whoever beats that prefetch -- a guest who just signed in, or simply a click
-    fast enough to win the race -- so this mount never depends on the prefetch having finished. A user
-    who has never saved any preference (or a request that fails) resolves to an empty object, which
-    `resolveEditorFontSize` / `resolveInitialPreviewShown` / `resolveInitialPreviewWidth` all treat as
-    "no preference", not as an error to surface.
-
-    Run alongside `loadSiteBlocks()` below rather than after it -- awaiting the two in sequence, as
-    before, just adds their times together for no reason; neither depends on the other's result, and
-    `loadSiteBlocks()` still finishes well before the first preview render at the end of this hook.
+    Read before Monaco is created so font size, preview state and preview width all apply from the
+    first paint. `App.vue` prefetches these at session start so the entrance transition below need not
+    wait on a round trip; the fetch here is only the fallback for a click that beats the prefetch.
   */
   const userSettingsPromise =
     editorStore.userSettings.markdown !== undefined
@@ -1567,12 +1291,10 @@ onMounted(async () => {
 
   state.previewShown = resolveInitialPreviewShown(userSettings, isAtLeastMd.value)
   /*
-    Clamped against the viewport right here rather than left to `previewInlineStyle`'s own bounds:
-    that computed only ever withholds the whole custom width below `md`, it does not shrink an
-    oversized one back down to fit a narrower-but-still-`md` window (e.g. a width saved on a wide
-    monitor, reopened on a 1024px one). `EDITOR_MIN_WIDTH_PX` is subtracted the same way the drag's
-    own live clamp does it (`onDividerPointerDown`), just against the viewport instead of the two
-    panes' measured widths -- nothing to measure yet this early in the mount.
+    Clamped here because `previewInlineStyle` only withholds a custom width below `md`; it does not
+    shrink an oversized one to fit a narrower-but-still-`md` window (a width saved on a wide monitor,
+    reopened on a 1024px one). Subtracts `EDITOR_MIN_WIDTH_PX` the way the drag's own live clamp does,
+    just against the viewport -- there is nothing measured to clamp against this early in the mount.
   */
   const resolvedWidth = resolveInitialPreviewWidth(userSettings)
   state.previewWidth =
@@ -1583,12 +1305,8 @@ onMounted(async () => {
           Math.max(PREVIEW_HIDE_THRESHOLD_PX, window.innerWidth - EDITOR_MIN_WIDTH_PX)
         )
   /*
-    Left `false` through this render, so the `previewShown` flip just above -- the pane's one and only
-    entrance this mount, if it opens at all -- is still the fast `-initial` transition (see the ref's
-    own doc comment) when Vue processes it. `nextTick` is what lands this AFTER that, not before: it
-    resolves once the DOM update from the current synchronous batch is done, which is what keeps a
-    later, unrelated toggle-button click (a wholly separate reactive flush) from ever racing this into
-    reading `true` early and picking the wrong transition for the entrance itself.
+    `nextTick`, so this lands after Vue has processed the `previewShown` flip above and that entrance
+    still picks the fast `-initial` transition.
   */
   nextTick(() => {
     previewEverRevealed.value = true
@@ -1597,22 +1315,19 @@ onMounted(async () => {
   md = new MarkdownRenderer(editorStore.editors.markdown)
 
   /*
-    -> Define Monaco Theme
-
-    Both aesthetics' themes, from this one Ledger definition: `defineMonacoThemes` derives Cobalt's
-    by mapping each tone onto the role's Cobalt answer (`helpers/monacoTheme.js`), so the editor's
-    own shape -- which rung the text sits on, the gutter a step below it -- is stated once here and
-    holds under either aesthetic. The watcher above switches between them live.
+    Both aesthetics' themes, from this one Ledger definition: `defineMonacoThemes` derives Cobalt's by
+    mapping each tone onto the role's Cobalt answer (`helpers/monacoTheme.js`), so the editor's shape
+    -- which rung the text sits on, the gutter a step below it -- is stated once and holds under
+    either.
   */
   defineMonacoThemes(monaco, {
     base: 'vs-dark',
     inherit: true,
     /*
-      The markdown token ramp `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` spells out, line by
-      line, rather than `vs-dark`'s inherited blues and oranges -- which are a different application's
-      palette showing through the one surface of this app that is genuinely somebody else's widget.
+      The design's own markdown ramp rather than `vs-dark`'s inherited blues and oranges, which are a
+      different application's palette showing through.
 
-      Token names are Monarch's, from `monaco-editor`'s own markdown grammar: a heading is `keyword`
+      Token names are Monarch's, from `monaco-editor`'s markdown grammar: a heading is `keyword`
       (which is also a list marker), a blockquote is `comment`, a fence's ``` line is `string`, the
       body inside one is `variable.source`, and an inline `code` span is `variable`. A theme rule
       matches by token PREFIX, so the bare names here cover the `.md` postfix the grammar appends.
@@ -1625,18 +1340,12 @@ onMounted(async () => {
       { token: 'variable', foreground: 'a9b7d0' }
     ],
     /*
-      Cardinal's own dark ramp, not the near-black this carried before: both design files that draw a
-      code surface (`ui-redesign/Cardinal Wiki - Editor 3x.dc.html` and `… - History 3x.dc.html`) set
-      the text ground at the recessed rung and the line-number gutter at ink BELOW it, with the numbers
-      in a muted slate. `#070a0d`/`#0d1117` were a step darker than anything in the ramp, so the editor
-      read as a different application's window sitting inside this one -- and the pair that replaced
-      them had ground and gutter the wrong way round against what the Editor file actually draws (its
-      `#14171f` is on the line-number cell, `#171b24` on the column behind the text).
+      Cardinal's own dark ramp: the text ground sits on the recessed rung with the line-number gutter
+      at ink BELOW it, which is the way round both design files draw a code surface.
 
-      Every value below is literal hex rather than a `var(--color-*)` reference on purpose: Monaco's
-      `defineTheme()` reads `colors` as plain hex/rgba strings and never resolves a CSS custom
-      property, so there is no token to move this onto -- it is re-typed against `css/tailwind.css`'s
-      values instead, and pinned by `EditorMarkdown.theme.test.js`.
+      Literal hex rather than `var(--color-*)` of necessity -- `defineTheme()` reads `colors` as plain
+      hex/rgba strings and never resolves a CSS custom property. Re-typed from `css/tailwind.css` and
+      pinned by `EditorMarkdown.theme.test.js`.
     */
     colors: {
       'editor.background': '#171b24',
@@ -1646,7 +1355,7 @@ onMounted(async () => {
       'editorLineNumber.activeForeground': '#c14a52',
       'editorGutter.background': '#14171f',
       'editorCursor.foreground': '#e4676b',
-      /* -> "Edit table" / "Edit block parameters": the design draws a lens in the positive tone */
+      /* -> The "Edit table" / "Edit block parameters" lenses, drawn in the positive tone */
       'editorCodeLens.foreground': '#3f7a66'
     }
   })
@@ -1658,20 +1367,14 @@ onMounted(async () => {
       /([*_]{1,2}|~~|`+)?[\p{Alphabetic}\p{Number}\p{Nonspacing_Mark}]+(_+[\p{Alphabetic}\p{Number}\p{Nonspacing_Mark}]+)*\1/gu
   })
 
-  // -> Initialize Monaco Editor
   editor = monaco.editor.create(monacoRef.value, {
     automaticLayout: true,
     cursorBlinking: 'blink',
-    // cursorSmoothCaretAnimation: true,
     fontSize: resolveEditorFontSize(userSettings),
     /*
-      Written out rather than left to Monaco's defaults: `fontFamily` has no default of its own here
-      otherwise (Monaco falls back to its own generic monospace stack, not this app's `--font-mono`),
-      and `lineHeight` -- a ratio, since Monaco treats anything under 8 as a multiplier of `fontSize`
-      rather than a pixel value -- was left to Monaco's own default ratio, not the design's 1.85. Both
-      mirror `composables/monacoDiff.js`'s own already-established `12.5px Roboto Mono / 1.85` pair;
-      `fontSize` itself stays the reader's own saved preference rather than a fixed role, unlike the
-      read-only diff editor's.
+      Written out because Monaco otherwise falls back to its own generic monospace stack, not this
+      app's `--font-mono`. `lineHeight` is a ratio: Monaco treats anything under 8 as a multiplier of
+      `fontSize` rather than a pixel value. Both mirror `composables/monacoDiff.js`.
     */
     fontFamily: "'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace",
     lineHeight: 1.85,
@@ -1687,17 +1390,12 @@ onMounted(async () => {
   })
 
   /*
-    "Edit Table" over every table in the page, which opens the table editor on that table.
+    A code lens rather than a context-menu action: the offer has to be visible to be found. It appears
+    only over the tables the overlay can actually hold (`findEditableTables`) -- offering it over a
+    table with a multi-line cell or a rowspan would be offering to flatten it.
 
-    A code lens rather than a context-menu action: the offer has to be visible to be found, and a table
-    in markdown source is exactly the thing an author does not want to edit by hand. It appears only over
-    the tables the overlay can actually hold -- `findEditableTables` says which -- because offering it
-    over a table with a multi-line cell or a rowspan would be offering to flatten it.
-
-    The command is registered on this editor rather than globally (`monaco.editor.registerCommand`),
-    which is what gives `editor.addCommand` an id to hand the lens. The PROVIDER is per-language and
-    process-wide, so it has to be disposed with the component or a second visit to the editor would draw
-    every lens twice.
+    The PROVIDER is per-language and process-wide, so it has to be disposed with the component or a
+    second visit to the editor draws every lens twice.
   */
   const editTableCommand = editor.addCommand(0, (_accessor, line) => editTable(line))
   tableLensProvider = monaco.languages.registerCodeLensProvider('markdown', {
@@ -1717,13 +1415,9 @@ onMounted(async () => {
   })
 
   /*
-    "Edit Block Parameters" over every block in the page, for the same reason the table has one: what
-    a block was given is a list of quoted attributes on one line, which is a poor thing to edit by
-    hand and an easy thing to offer a form for.
-
-    It appears only over a block this editor holds a definition for and that has something to fill in.
-    A child block -- a `::block-tab` inside a tabset -- is one it never does: those are left out of
-    the list the API answers with, having no switch of their own to be listed against.
+    The same idea for a block's parameters, which are a list of quoted attributes on one line. It
+    appears only over a block this editor holds a definition for: a child block -- a `::block-tab`
+    inside a tabset -- is left out of the list the API answers with, having no switch of its own.
   */
   const editBlockCommand = editor.addCommand(0, (_accessor, line, block) => editBlock(line, block))
   blockLensProvider = monaco.languages.registerCodeLensProvider('markdown', {
@@ -1744,7 +1438,6 @@ onMounted(async () => {
     }
   })
 
-  // -> Define Formatting Actions
   editor.addAction({
     contextMenuGroupId: 'markdown.extension.editing',
     contextMenuOrder: 0,
@@ -1811,10 +1504,11 @@ onMounted(async () => {
     keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
     label: 'Save',
     precondition: '',
+    // TODO: this only swallows the browser's own save dialog -- Ctrl+S never reaches `pageSave()`,
+    //       and nothing else in the app binds it. Wire it up or drop the action.
     run(ed) {}
   })
 
-  // -> Handle content change
   debouncedContentChange = debounce((ev) => {
     editorStore.markDirty()
     // -> What the author has typed IS the source, whatever the load did or did not deliver; see
@@ -1824,12 +1518,10 @@ onMounted(async () => {
   }, 500)
   editor.onDidChangeModelContent(debouncedContentChange)
 
-  // -> Handle cursor movement
   debouncedCursorPositionChange = debounce((ev) => {
     if (!state.previewScrollSync || !state.previewShown) {
       return
     }
-    // -> Moving the caret into another panel opens it, the same as typing in one does
     syncPreviewTabs()
     const currentLine = editor.getPosition().lineNumber
     if (currentLine < 3) {
@@ -1854,39 +1546,24 @@ onMounted(async () => {
   editor.onDidChangeCursorPosition(debouncedCursorPositionChange)
 
   /*
-    Files arriving by paste or by drop.
-
-    Paste is CAPTURED on the element above the editor, and that is the whole trick. Monaco's own
+    Paste is CAPTURED on the element ABOVE the editor, and that is the whole trick: Monaco's own
     paste-as feature (`CopyPasteController`) listens in the capture phase on the editor's container and
-    calls `stopImmediatePropagation()` for every paste it claims -- which includes any paste carrying
-    files. A listener on that container or below it, in either phase, is simply never reached. Capture
-    runs outside-in, so one level up goes first and can decide before Monaco sees it.
-
-    The drop half replaces a listener that could not fire either, for a different reason: without
-    `dragover` claiming the target, the browser treats a file dropped on a page as a navigation and
-    opens it, and the drop event never reaches anything here.
+    calls `stopImmediatePropagation()` for every paste it claims, files included, so a listener on that
+    container or below it is never reached in either phase. Capture runs outside-in, so one level up
+    goes first.
   */
   pasteCaptureNode = monacoRef.value.parentElement ?? monacoRef.value
   pasteCaptureNode.addEventListener('paste', onEditorPaste, true)
   monacoRef.value.addEventListener('dragover', onEditorDragOver)
   monacoRef.value.addEventListener('drop', onEditorDrop)
 
-  // -> Live collaboration
-
   startCollab(editor)
 
-  // -> Post init
-
   /*
-    Monaco itself is a lazy chunk, and everything above this line -- the settings prefetch, the theme
-    registration, `monaco.editor.create()` -- runs asynchronously, so this can land well after the
-    editor has visibly mounted. Focusing unconditionally steals focus from wherever the author already
-    put it in that window: opening a new page and typing straight into the Title field (`PageHeader.vue`'s
-    contenteditable, which has no autofocus of its own -- this call is what a fresh mount has instead)
-    was seen losing every keystroke to the editor instead the moment Monaco's async init finally
-    resolved mid-type, leaving the title empty and the typed title text prepended into the page body.
-    Only claim focus when nothing else has it yet (a fresh mount's default `document.activeElement`
-    is `<body>`) -- the author who has already moved on to another field keeps their keystrokes there.
+    Monaco is a lazy chunk and everything above this line is async, so this can land well after the
+    editor has visibly mounted. Focusing unconditionally would steal focus from wherever the author
+    has moved in that window -- typing into the Title field mid-init lost every keystroke to the
+    editor. A fresh mount's `document.activeElement` is `<body>`, so that is the one case to claim.
   */
   if (document.activeElement === document.body) {
     editor.focus()
@@ -1901,7 +1578,6 @@ onMounted(async () => {
   EVENT_BUS.on('insertBlock', insertBlockClb)
   EVENT_BUS.on('reloadEditorContent', reloadEditorContent)
 
-  // -> See `flushEditorContentForSave` and `pageSave()` in `stores/page.js` for why this exists
   editorStore.contentFlusher = flushEditorContentForSave
 })
 
@@ -1913,22 +1589,18 @@ onBeforeUnmount(() => {
   pasteCaptureNode?.removeEventListener('paste', onEditorPaste, true)
   monacoRef.value?.removeEventListener('dragover', onEditorDragOver)
   monacoRef.value?.removeEventListener('drop', onEditorDrop)
-  // -> Only clear it if it is still this instance's -- guards against a second mount's registration
-  //    being torn down by the first's unmount in whatever order they settle in
+  // -> Only if it is still this instance's, so a second mount's registration is not torn down by the
+  //    first's unmount in whatever order the two settle
   if (editorStore.contentFlusher === flushEditorContentForSave) {
     editorStore.contentFlusher = null
   }
-  // -> Registered against the markdown language, not this editor, so nothing else takes it down
+  // -> Registered against the markdown language, not this editor, so nothing else takes them down
   tableLensProvider?.dispose()
   blockLensProvider?.dispose()
-  // -> A pending debounced call left uncancelled fires ~500ms after unmount, against an editor that
-  //    `dispose()` (below) has already torn down -- `editor.getPosition()` on a disposed instance
-  //    returns `null`, and the cursor handler crashed reading `.lineNumber` off it (OpenProject #808).
   debouncedContentChange?.cancel()
   debouncedCursorPositionChange?.cancel()
   clearTimeout(insertAssetFocusTimeout)
-  // -> Before the editor goes: the collab watchers still reach for it, the binding is holding the
-  //    model, and leaving the room is what takes this author's avatar out of everyone else's header
+  // -> Before the editor goes: the collab watchers still reach for it and the binding holds the model
   stopCollab()
   if (editor) {
     editor.dispose()
@@ -1937,46 +1609,27 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 @charset "UTF-8";
 /*
-  Diffed against `Editor 3x - Cobalt` (OpenProject #2774). This component's own chrome below --
-  both toolbar bands, the source pane's gutter/background, the preview pane's frame, and the
-  collab-presence host bar (`.collab-disconnected me-2 flex ...` in `PageHeader.vue`, drawn beside
-  `CollabPresence.vue`'s own bubbles) -- still styles itself against the pre-aesthetic-split
-  `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` referenced above, predating both Ledger and Cobalt,
-  and reads bare `var(--color-slate)`/`var(--color-surface)`/`var(--color-tint)`/`var(--color-primary)` SCSS constants throughout rather than the
-  `--color-*`/`--radius-*` tokens Cobalt overrides. Nothing here is illegible or broken under Cobalt
-  -- every constant is still a valid, contrasting Ledger colour -- but none of it takes on Cobalt's
-  own blue/pill language the way `_page-contents.css`'s code-block panel (this Task's one fix here)
-  now does. A full pass is a much larger restructuring than this diff-and-fix Task's economical scope
-  covers (dozens of call sites across a 2000+ line file, none of them this Task's explicit "the work"
-  items), so it is logged here rather than attempted piecemeal: the render preview pane already
-  inherits `_page-contents.css`'s own Cobalt-aware tokens correctly (it shares the `.page-contents`
-  class), which is the one place OpenProject #2774's acceptance criteria actually named.
+  TODO: this component's own chrome -- both toolbar bands, the source pane's frame, the preview pane's
+  -- still reads bare Ledger colour values rather than the `--color-*`/`--radius-*` tokens Cobalt
+  overrides, so it stays Ledger-flavoured under Cobalt. Legible, but off-language; a full pass is
+  dozens of call sites. The render preview itself is fine: it inherits `_page-contents.css` through
+  its `page-contents` class.
 */
 .editor-markdown {
   /*
     Percentage heights all the way down rather than a viewport calc (`100vh` minus every fixed-height
-    bar above this one), which is what this used to be and had to grow a new hardcoded term -- and get
-    it exactly right -- every time a bar was added or resized above it (most recently the breadcrumb
-    bar staying mounted through editing, OpenProject #813). `Index.vue`'s `.page-container` already
-    hands its row a definite height via `items-stretch`, which is what lets the reading column's own
-    scroll area just say `height: 100%` (`w-scroll-area class="page-container-scrl" style="height:
-    100%"`) -- this is the editor doing the same thing, so it inherits whatever is above it instead of
-    restating it.
+    bar above this one), which needed a new hardcoded term -- exactly right -- every time a bar was
+    added or resized above it. `Index.vue`'s `.page-container` already hands its row a definite height
+    via `items-stretch`, so inheriting is enough.
   */
   height: 100%;
   min-height: 0;
   /*
-    While the divider is being dragged (`isDragging`, see `onDividerPointerDown`/`onDividerPointerUp`).
-    Pointer capture already keeps the drag tracking correctly once the pointer leaves the divider's
-    own few px -- this is only about what the pointer LOOKS like, and stopping Monaco or the preview
-    text from being selected as it sweeps across them mid-drag.
+    Pointer capture already keeps a drag tracking once the pointer leaves the divider -- the
+    `is-resizing` rules below are only about what the pointer looks like, and about stopping Monaco
+    or the preview text from being selected as it sweeps across them mid-drag.
   */
 }
 .editor-markdown.is-resizing {
@@ -1994,10 +1647,8 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-mid {
   /*
-    The column the code sits in. `#171b24` -- the recessed rung -- is what the Editor design puts
-    behind the text, with the line-number gutter one step DARKER at ink; the Monaco theme paints
-    both, and this is the same value so nothing shows through as a different dark while Monaco is
-    still measuring itself.
+    The same value the Monaco theme paints behind the text, so nothing shows through as a different
+    dark while Monaco is still measuring itself.
   */
   background-color: var(--color-dark-4);
   flex: 1 1 50%;
@@ -2005,20 +1656,16 @@ onBeforeUnmount(() => {
   height: 100%;
   position: relative;
   /*
-    The seam facing the preview pane, which is the next flex item in `-main` -- always the one
-    after this in reading order, whichever physical side that mirrors to under `dir="rtl"`.
-
-    A hairline in the language's own border tone, 5px wide: the design draws the pane seam as a
-    `#dbe1ec` strip, not as a stripe of the accent. Cardinal reserves the accent for the live edge,
-    and a permanent red rule down the middle of the editor is not one.
+    The seam facing the preview pane, in the border tone rather than the accent: Cardinal reserves the
+    accent for the live edge, and a permanent red rule down the middle of the editor is not one.
+    Logical, so it mirrors with the panes under `dir="rtl"`.
   */
   border-inline-end: 5px solid var(--color-hairline);
   /*
     Monaco writes its measured width in pixels onto its own elements, so this item's automatic
-    min-width -- min-content, i.e. whatever Monaco last laid itself out at -- pins it to the full
-    width it took while the preview was closed. Bringing the preview back then leaves it the few
-    pixels the flex line has left over, and Monaco never re-measures because its container never
-    shrinks. Zero lets the basis decide instead.
+    min-content min-width pins it to the full width it took while the preview was closed -- bringing
+    the preview back then leaves it whatever the flex line has left over, and Monaco never
+    re-measures because its container never shrinks. Zero lets the basis decide instead.
   */
   min-width: 0;
 }
@@ -2032,7 +1679,7 @@ onBeforeUnmount(() => {
   height: 100%;
 }
 .editor-markdown {
-  /* -> Set down the rail in Cardinal's chrome overline: tracked uppercase mono, the caption tier */
+  /* -> The rail's label, set in Cardinal's chrome overline */
 }
 .editor-markdown-type {
   writing-mode: vertical-rl;
@@ -2051,15 +1698,12 @@ onBeforeUnmount(() => {
   height: 100%;
   position: relative;
   cursor: col-resize;
-  /* -> Pointer capture (see `onDividerPointerDown`) keeps the drag tracking correctly once the */
-  /*    pointer leaves this narrow strip; this stops a fast drag from also selecting text in Monaco */
-  /*    or the preview as the pointer crosses over them along the way. */
   touch-action: none;
   user-select: none;
   /*
-    Invisible until interacted with. `-mid`'s own `border-inline-end` just before this is already
-    the seam's permanent visual line -- this only adds a highlight on top of it while the divider is
-    actually being grabbed or hovered, rather than shipping a second, always-on stripe beside it.
+    `-mid`'s own `border-inline-end` is already the seam's permanent line, so the `::after` below is
+    a highlight on top of it only while the divider is grabbed or hovered -- not a second, always-on
+    stripe beside it.
   */
 }
 .editor-markdown-divider::after {
@@ -2082,8 +1726,8 @@ onBeforeUnmount(() => {
   height: 100%;
   overflow: hidden;
   /*
-    Paper, not a grey: the design renders the preview onto the same white the article column itself
-    uses, so what an author sees beside the source is the page as it will actually be read.
+    Paper, not a grey: the preview sits on the same ground the article column uses, so what an author
+    sees beside the source is the page as it will actually be read.
   */
 }
 .body--light .editor-markdown-preview {
@@ -2093,20 +1737,10 @@ onBeforeUnmount(() => {
   background-color: var(--color-dark-3);
 }
 .editor-markdown-preview {
-  /* @include until($tablet) { */
-  /*   display: none; */
-  /* } */
   /*
-    `-enter-from` is the Vue 3 name; as `-enter` it matched nothing, so the pane animated shut but
-    snapped open. The inner selector was stale in the same way -- the content class is
-    `-preview-content` -- which left the render reflowing for the length of the transition.
-  */
-  /*
-    `var(--preview-width, 50vw)`: the custom-property fallback is what keeps this transition (and
-    the settled `-content` max-width below) behaving exactly as before for anyone who has never
-    dragged the divider -- `previewInlineStyle` only ever sets the property once a width has
-    actually been dragged or loaded from a saved one, and leaves it unset (falling through to the
-    `50vw` written here) otherwise.
+    `previewInlineStyle` sets `--preview-width` only once a width has actually been dragged or loaded
+    from a saved one, so the `50vw` fallback written into every use of it below is what a reader who
+    has never touched the divider gets.
   */
 }
 .editor-markdown-preview-enter-active,
@@ -2125,14 +1759,10 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-preview {
   /*
-    The pane's one-time entrance (see `previewEverRevealed`'s doc comment in the script), timed to
-    `WDrawer.vue`'s own `0.2s` close so the two read as one movement -- the side nav sliding away on
-    the left as this opens on the right. `opacity` is added on top of `max-width` here, unlike the
-    toggle-button transition above: a genuinely empty pane has nothing left to paint at `max-width: 0`
-    regardless, but this variant also covers whatever the pane is opening ONTO A STILL-RESOLVING
-    layout, where a border, shadow or the toolbar's own background could otherwise read as a sliver of
-    "something" at the very start of the animation. `var(--ease-standard)` for the same reason as the
-    timing: it is the curve the side nav itself moves on.
+    The pane's one-time entrance (`previewEverRevealed`), on `WDrawer.vue`'s own `0.2s` and curve so
+    the side nav sliding away and this opening read as one movement. `opacity` is added on top of
+    `max-width` only here: this variant opens onto a still-resolving layout, where a border, shadow or
+    the toolbar's ground could otherwise read as a sliver of "something" at the start.
   */
 }
 .editor-markdown-preview-initial-enter-active,
@@ -2154,9 +1784,8 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-preview {
   /*
-    The preview pane's own header. The design gives it no ground of its own -- it is the paper the
-    render sits on, ruled off by a hairline -- so the only thing separating it from the article
-    below is that rule, exactly as a page's own chrome is separated everywhere else in Cardinal.
+    The pane's header gets no ground of its own: it is the paper the render sits on, ruled off by a
+    hairline, the way page chrome is separated everywhere else in Cardinal.
   */
 }
 .editor-markdown-preview-toolbar {
@@ -2177,10 +1806,9 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-preview-toolbar {
   /*
-    Each button is a flush square cell (`flush-hover-btn` + `--square`, `css/_base.css`, OpenProject
-    #3466) filling the band's whole content height, so its hover touches the band's top edge and the
-    hairline under it -- no gap. `align-self: stretch` lets the flex row size it; `min-height: 0`
-    (`!important`: WBtn writes `min-height` inline) stops the button's own default from taking more.
+    `align-self: stretch` sizes each button to the band, so its hover fills the whole content height
+    with no gap; `min-height: 0` clears WBtn's taller default, and needs `!important` because WBtn
+    writes that default as an inline style.
   */
 }
 .editor-markdown-preview-toolbar .w-btn {
@@ -2189,9 +1817,8 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-preview-toolbar {
   /*
-    The "Render preview" label. Colour comes from `-toolbar`'s own `color` above, which already
-    resolves correctly per aesthetic -- only the face itself (italic display sans, not the
-    `<strong><em>` default of bold-and-italic body text) needs stating here.
+    Only the face is stated: colour comes from `-toolbar`'s own `color` above, which already resolves
+    per aesthetic.
   */
 }
 .editor-markdown-preview-toolbar-title {
@@ -2200,14 +1827,8 @@ onBeforeUnmount(() => {
 .editor-markdown-preview-content {
   height: calc(100% - 40px);
   overflow-y: scroll;
-  /* -> The design's own article inset inside the preview pane */
   padding: 22px 24px;
   max-width: calc(var(--preview-width, 50vw) - 57px);
-  /* -ms-overflow-style: none; */
-  /* &::-webkit-scrollbar { */
-  /*   width: 0px; */
-  /*   background: transparent; */
-  /* } */
 }
 .editor-markdown-preview-content > div {
   outline: none;
@@ -2217,14 +1838,10 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-preview-content {
   /*
-    The inset column this pane renders onto runs a shade smaller than the published article's own
-    `.page-contents` (`ui-iteration-cobalt-typography/cobalt-typography.md` §3 "Editor"'s "Preview
-    h2 / paragraph" and "Preview inline code" rows) -- it is half a screen wide, not a full reading
-    column. Colour, weight and line-height already come out right by inheriting `_page-contents.css`'s
-    own rules (which this element's shared `page-contents` class pulls in); only the SIZE differs, so
-    only `font-size` (plus `p`'s own line-height, since it does not track a shared heading rule the
-    way `h2`'s already-correct 1.15 does) is restated here -- combined with `.page-contents` for
-    specificity over that shared file's own rules, rather than depending on stylesheet load order.
+    This pane is half a screen wide, not a full reading column, so its type runs a shade smaller than
+    the published article's. Everything but size already comes out right by inheriting
+    `_page-contents.css` through the shared `page-contents` class, so only `font-size` is restated --
+    combined with `.page-contents` for specificity over that file rather than relying on load order.
   */
 }
 .editor-markdown-preview-content.page-contents h2 {
@@ -2243,10 +1860,8 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-preview-content.page-contents {
   /*
-    The GitHub-alert label ("Note", "Tip", …) reads as a flat mono eyebrow in this preview --
-    `Editor 3x - Cobalt`'s own admonition draws it in one neutral tone regardless of severity,
-    unlike the published article's hue-per-kind title (`_page-contents.css`'s `.alert-title`,
-    untouched here and left keyed to `--alert-hue`).
+    The GitHub-alert label reads as a flat mono eyebrow in one neutral tone here, unlike the published
+    article's hue-per-kind title (`_page-contents.css`'s `.alert-title`, keyed to `--alert-hue`).
   */
 }
 .editor-markdown-preview-content.page-contents .alert-title {
@@ -2257,11 +1872,9 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-preview-content {
   /*
-    A block this site has switched off, marked by `markDisabledBlock`. Editor-only styling: the
-    server strips the element on save, so no reader ever meets one of these.
-
-    Built from the admonition palette `.page-contents` already declares -- the preview pane
-    carries that class, so both themes are covered by the tokens rather than by a rule here.
+    Editor-only: the server strips a disabled block on save, so no reader meets one. Built from the
+    admonition palette `.page-contents` already declares, which is what covers both themes without a
+    rule of its own here.
   */
 }
 .editor-markdown-preview-content [data-block-disabled] {
@@ -2280,7 +1893,7 @@ onBeforeUnmount(() => {
   color: var(--content-danger);
   font-size: 0.85rem;
   font-weight: 600;
-  /* -> `tabler:alert-triangle`, drawn as a mask so it takes the colour above rather than one of its own */
+  /* -> The glyph below is drawn as a mask so it takes this colour rather than one of its own */
 }
 .editor-markdown-preview-content .block-disabled-notice::before {
   content: '';
@@ -2293,7 +1906,7 @@ onBeforeUnmount(() => {
   mask-size: contain;
 }
 .editor-markdown-preview-content {
-  /* -> Whatever the author wrote inside, which is what the saved page is left holding */
+  /* -> Spacing under the notice, above whatever the author wrote inside the disabled block */
 }
 .editor-markdown-preview-content [data-block-disabled] > .block-disabled-notice + * {
   margin-top: 0.5rem;
@@ -2325,28 +1938,18 @@ onBeforeUnmount(() => {
   background-color: var(--color-teal-1);
   padding: 0 15px 15px;
   overflow: hidden;
-  /*
-    OpenProject #3252: native CSS nesting has no `@at-root` equivalent, so this dark-mode
-    override is hand-converted to a plain, unnested rule at the bottom of this style block
-    instead -- see "Hand-converted @at-root escapes" below, including why that rule now
-    reads `.body--dark` rather than this block's original `.theme--dark`.
-  */
+  /* -> This panel's dark-mode tint is the unnested `.body--dark` rule at the foot of this block */
 }
 .editor-markdown {
   /*
-    The markup bar over the source pane.
-
-    Cardinal's chrome is continuous light slate, and the design draws this band as exactly that: the
-    tinted strip, a hairline underneath, slate glyphs. What was here instead -- a cardinal-red band
-    with a darker red 60px stub on its reading-start edge, continuing the sidebar's own red stripe --
-    put the loudest colour in the language across the top of the one screen an author spends the most
-    time on, and spent the accent on chrome rather than on the live edge it is reserved for.
+    The markup bar is chrome, so it is the continuous light slate the rest of the app's chrome is --
+    tinted strip, hairline underneath, slate glyphs. The accent is reserved for the live edge, not
+    spent across the top of the screen an author spends the most time on.
   */
 }
 .editor-markdown-toolbar {
   height: 40px;
   padding: 0 8px;
-  /* -> Flex so the preview toggle can be pushed to the far inline-end by `w-space` */
   display: flex;
   align-items: center;
 }
@@ -2362,14 +1965,10 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-toolbar {
   /*
-    Each button is a flush square cell (`flush-hover-btn` + `--square`, `css/_base.css`, OpenProject
-    #3466): square corners in Ledger and Cobalt alike, no margin, and a hover that fills the band's
-    whole content height, touching its top edge and the hairline under it. `align-self: stretch` lets
-    the flex row size the button; `min-height: 0` (`!important`, because `WBtn` writes `min-height` as
-    an inline style that otherwise beats any selector here -- its default is taller than this band
-    and would overflow it) stops the button's own default from taking more. The band's `0 8px`
-    padding is on its short edges, so it does not open a gap on a long one. Scoped to this toolbar's
-    own buttons -- `WBtn.vue` keeps its default for every other caller.
+    `align-self: stretch` sizes each button to the band, so its hover fills the whole content height.
+    `WBtn`'s default min-height is taller than the band and would overflow it -- invisibly, until a
+    flat button's hover fill paints that overflow -- and `min-height: 0` needs `!important` because
+    `WBtn` sets that default as an inline style. Scoped here: every other caller keeps the default.
   */
 }
 .editor-markdown-toolbar .w-btn {
@@ -2377,7 +1976,7 @@ onBeforeUnmount(() => {
   min-height: 0 !important;
 }
 .editor-markdown-toolbar {
-  /* -> The chevron on a menu-opening button: the fainter of the two icon tones, as the design has it */
+  /* -> The chevron on a menu-opening button: the fainter of the two icon tones */
 }
 .editor-markdown-toolbar-caret {
   margin-inline-start: 1px;
@@ -2388,10 +1987,10 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-toolbar {
   /*
-    20px of hairline, the design's own group rule, not a full-height divider. The colour goes
-    through `--w-hairline-color` because `.w-hairline` paints its line on an `::after` and is
-    itself transparent (`css/tailwind.css`); `self-stretch`/`h-auto` come off `WSeparator` as
-    Tailwind utilities, which this unlayered rule outranks without needing `!important`.
+    A 20px group rule, not a full-height divider. The colour goes through `--w-hairline-color`
+    because `.w-hairline` paints its line on an `::after` and is itself transparent
+    (`css/tailwind.css`); `WSeparator`'s own `self-stretch`/`h-auto` are Tailwind utilities, which
+    this unlayered rule outranks without `!important`.
   */
 }
 .editor-markdown-toolbar-rule {
@@ -2405,9 +2004,8 @@ onBeforeUnmount(() => {
 }
 .editor-markdown {
   /*
-    The insert rail. Light slate like the toolbar beside it, ruled off from the source pane by the
-    same hairline -- the two together are one continuous piece of chrome wrapping the dark editor,
-    which is what the design draws and what the rest of the app already looks like.
+    The insert rail, light slate like the toolbar beside it and ruled off by the same hairline: the
+    two together read as one continuous piece of chrome wrapping the dark editor.
   */
 }
 .editor-markdown-sidebar {
@@ -2430,13 +2028,9 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-sidebar {
   /*
-    Each button is a flush cell (`flush-hover-btn`, `css/_base.css`, OpenProject #3466): square
-    corners, and a hover that spans the rail's whole width -- window edge to the hairline -- with no
-    gap on either long edge. It stays 34px tall, the design's cell height. `align-self: stretch`
-    overrides the rail's `align-items: center`, which is what the caption below still uses. `padding`
-    and `min-height` are inline styles on the element from `WBtn`, hence `!important`, for the same
-    reason the markup toolbar's own override above needs it. The rail's `8px 0` padding is on its
-    short edges (above the first cell, below the caption), so it opens no gap on a long one.
+    A 34px cell spanning the rail's whole width, so its hover reaches both long edges:
+    `align-self: stretch` overrides the rail's `align-items: center`, which the caption below still
+    uses. `!important` because both the button's padding and `WBtn`'s min-height are inline styles.
   */
 }
 .editor-markdown-sidebar .w-btn {
@@ -2444,29 +2038,10 @@ onBeforeUnmount(() => {
   min-height: 34px !important;
   padding: 0 !important;
 }
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
-  Hand-converted @at-root escapes (OpenProject #3252). `.tabset-content`'s dark-mode tint above used
-  to read `@at-root .theme--dark & { background-color: color-mix(in srgb, var(--color-teal-5) 10%,
-  transparent); }` (OpenProject #3247 converted this rule's value from an `rgba()` call on the Sass
-  `teal-5` variable to the equivalent `color-mix()` form beforehand), nested five levels deep inside
-  `.editor-markdown {
-  &-preview { &-content { .tabset { &-content { ... } } } } }` (`&` there compiles to
-  `.editor-markdown-preview-content .tabset-content`) -- `@at-root` discarded all five levels of
-  ambient nesting to put `.theme--dark` in front instead of the app's usual `.body--dark`.
-
-  `.theme--dark` is not a class this codebase (or Wiki.js's `scarlett` branch it forked from) has
-  ever applied to anything -- `grep -rn "theme--dark" frontend/src` turns up only this comment now --
-  so the rule was permanently dead: this tint never actually painted in dark mode, regardless of
-  theme. `composables/dark.js` is the single source of truth for dark mode and toggles `.body--dark`
-  on `<body>`, the class every other dark-mode override in this same file (and everywhere else in the
-  app) actually reads. Per OpenProject #3252's own note, this conversion corrects the class to
-  `.body--dark` rather than silently carrying the dead selector forward -- the screenshot
-  verification for this rule is against the NOW-ACTIVE tint, not a no-op.
+  Unnested, and at the foot of the block rather than beside the rule it overrides, because
+  `.body--dark` sits in front of the whole selector. `composables/dark.js` is the one source of truth
+  for dark mode and is what toggles that class on `<body>`.
 */
 .body--dark .editor-markdown-preview-content .tabset-content {
   background-color: color-mix(in srgb, var(--color-teal-5) 10%, transparent);

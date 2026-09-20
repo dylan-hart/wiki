@@ -9,11 +9,8 @@ vi.mock('@/helpers/clipboard', () => ({
 }))
 
 /**
- * "Did you mean": the backend's `pages/search` response carries a `suggestion` (closest page title
- * by trigram similarity) only when a real query found nothing. The panel's empty-preview state shows
- * it as a clickable prompt that replaces the current query with the suggestion and re-runs the
- * search -- same mousedown-prevent trick as the result rows above, so the click survives the field's
- * blur.
+ * The backend carries a `suggestion` only when a real query found nothing, which is why every
+ * fixture here pairs it with a zero-hit result.
  */
 describe('HeaderSearch did-you-mean suggestion', () => {
   beforeEach(() => {
@@ -94,12 +91,6 @@ describe('HeaderSearch did-you-mean suggestion', () => {
   })
 })
 
-/**
- * "Copy Search Link": a small icon button next to the results-count line, visible only once
- * `siteStore.search` is non-empty, that builds the shareable `/_search?q=` URL `Search.vue`'s route
- * watcher already reads and copies it via the `copyToClipboard` helper -- mirroring
- * `ApiKeyCopyDialog.vue`'s `copyKey()` try/catch + `notify()` pattern.
- */
 describe('HeaderSearch copy search link', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -118,8 +109,8 @@ describe('HeaderSearch copy search link', () => {
   })
 
   it('renders the copy-link button, aria-labeled, below the 2-character preview floor', async () => {
-    // -> Below `PREVIEW_QUERY_MIN_LENGTH`, none of the loading/empty/found states have anything to
-    //    show -- proving the button's visibility is gated on `siteStore.search` alone, not on those.
+    // -> One character is below `PREVIEW_QUERY_MIN_LENGTH`, so no preview state has anything to
+    //    show: the button's visibility is gated on `siteStore.search` alone.
     const { wrapper } = await mountForPreview()
 
     await wrapper.find('.header-search-input').setValue('a')

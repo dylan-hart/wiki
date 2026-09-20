@@ -43,9 +43,6 @@
     </div>
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12 lg:col-span-6">
-        <!-- ----------------------- -->
-        <!-- Theme Options -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.theme.appearance')">
           <template #action>
             <w-btn
@@ -79,12 +76,6 @@
               :loading="state.loading > 0"
               :aria-label="t(`admin.theme.darkMode`)" />
           </w-settings-row>
-          <!--
-            `tabler:palette`, not `tabler:color-swatch` (OpenProject #2809, the mockup diff this card
-            was never checked against by #2769): the Aesthetic Setting mockup's own row plate draws a
-            circle-with-dots-and-swirl glyph, which is Tabler's palette icon, not the ribbon/paint-tube
-            shape `color-swatch` draws.
-          -->
           <template v-for="cl of colorKeys" :key="cl">
             <w-settings-row
               control-width="auto"
@@ -133,9 +124,6 @@
             </w-settings-row>
           </template>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Code Blocks -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.theme.codeBlocks')">
           <template #action>
             <w-btn
@@ -161,9 +149,6 @@
               :aria-label="t(`admin.theme.codeBlocksAppearance`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Theme Layout -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.theme.layout')">
           <template v-if="flagStore.experimental">
             <w-settings-row
@@ -211,9 +196,6 @@
         </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-6">
-        <!-- ----------------------- -->
-        <!-- Fonts -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.theme.fonts')">
           <template #action>
             <w-btn
@@ -250,14 +232,9 @@
               :aria-label="t(`admin.theme.contentFont`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Code Injection -->
-        <!-- ----------------------- -->
         <!--
-          A code editor is not a control that fits at a row trailing edge, so each field takes the
-          `preview` slot and spans the row under its own label -- the same shape AdminSearch uses
-          for the Postgres dictionary overrides. It replaces a pair of rows per field: one holding
-          the label and hint, a second holding nothing but the editor.
+          A code editor does not fit at a row's trailing edge, so each field takes the `preview`
+          slot and spans the row under its own label.
         -->
         <w-settings-card class="mt-4" :title="t('admin.theme.codeInjection')">
           <w-settings-row
@@ -321,34 +298,19 @@ import { startCase } from 'es-toolkit/string'
 import UtilCodeEditor from '../components/UtilCodeEditor.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// ACCESS
-// -> Task #684: gates this page behind `site:theme` (or `manage:sites` / the older instance-wide
-//    `manage:theme`, task #681), redirecting away from a site the caller may not administer. See
-//    `composables/siteAdminAccess.js`.
 useSiteAdminAccess('site:theme')
-
-// STORES
 
 const flagStore = useFlagsStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.theme.title')
 }))
 
-// DATA
-
-/**
- * Fallbacks for theme keys a site may not have stored yet, so that every control renders with a
- * defined value. Must mirror the theme defaults used by the backend when creating a site.
- */
+/** Fallbacks for keys a site has not stored yet -- must mirror the backend's theme defaults. */
 function defaultConfig() {
   return {
     aesthetic: 'ledger',
@@ -371,7 +333,6 @@ function defaultConfig() {
   }
 }
 
-/** The theme as the API expects it -- every control's field, and nothing else. */
 function payload(config) {
   return {
     aesthetic: config.aesthetic,
@@ -406,8 +367,6 @@ const { state, load, save } = useAdminSettings({
   },
   commit: (siteId, config) =>
     API_CLIENT.put(`sites/${siteId}`, { json: { theme: payload(config) } }).json(),
-  // -> The site being edited is the one this browser tab is reading, so the new theme applies
-  //    immediately rather than only after a reload
   onSavedCurrentSite: (config) => {
     siteStore.$patch({ theme: payload(config) })
     EVENT_BUS.emit('applyTheme')
@@ -417,39 +376,25 @@ const { state, load, save } = useAdminSettings({
 const colorKeys = ['primary', 'secondary', 'accent', 'header', 'sidebar']
 
 /**
- * The two page backgrounds `colorPrimary`'s own contrast is checked against below -- `body.body--dark`
- * swaps the page surface to `--color-dark-3` (see `css/tailwind.css`), so which one applies depends on
- * the config being edited, not the admin's own current appearance.
- *
- * `#1b1f2a` is Cardinal's `--color-dark-3`; it was still the pre-re-skin `#1e232a` until this was
- * noticed measuring a real warning against the wrong ground.
+ * The page backgrounds `colorPrimary`'s contrast is checked against. `body.body--dark` swaps the
+ * page surface to `--color-dark-3` (`css/tailwind.css`, which `PAGE_BG_DARK` mirrors), so which one
+ * applies follows the config being edited, not the admin's own current appearance.
  */
 const PAGE_BG_LIGHT = '#ffffff'
 const PAGE_BG_DARK = '#1b1f2a'
 
-/**
- * The site header and sidebar both draw their nav text in Cardinal's ink (`HeaderNav.vue`,
- * `NavSidebar.vue`) -- so a site picking a dark chrome colour is now the case this warns about,
- * where before it was a site picking a light one.
- */
+/** The ink the header and sidebar draw nav text in (`HeaderNav.vue`, `NavSidebar.vue`). */
 const CHROME_TEXT_COLOR = '#1c2233'
 
 /*
-  "Measured", not "Centered": the setting holds page content to the design's 720px measure and leaves
-  it flush to the article column's leading edge -- it does not centre anything, and never should have
-  claimed to (see `Index.vue`'s `.page-container-body.is-measured` rule). Translated, unlike the other
-  option lists on this page, because these two labels had to be rewritten here anyway.
+  "Measured", not "Centered": `measured` holds content to the design's measure at the article
+  column's leading edge and centres nothing (`Index.vue`'s `.page-container-body.is-measured`).
 */
 const widthOptions = computed(() => [
   { label: t('admin.theme.contentWidthFull'), value: 'full' },
   { label: t('admin.theme.contentWidthMeasured'), value: 'measured' }
 ])
 
-/*
-  Translated, unlike `rightLeftOptions`/`fonts`/`codeThemes` below -- the confirmed spec (OpenProject
-  #2769) calls for dedicated `admin.theme.aestheticLedger`/`aestheticCobalt` keys rather than reusing
-  a raw literal the way those lists do.
-*/
 const aesthetics = computed(() => [
   { label: t('admin.theme.aestheticLedger'), value: 'ledger' },
   { label: t('admin.theme.aestheticCobalt'), value: 'cobalt' }
@@ -462,8 +407,8 @@ const rightLeftOptions = [
 ]
 
 const fonts = [
-  // -> First, and the default: Barlow is the app's own design language, and the only entry that
-  //    brings a display companion with it (Barlow Condensed, for headings) -- see helpers/fonts.js.
+  // -> The default, and the only entry bringing a display companion (Barlow Condensed, for
+  //    headings) -- see `helpers/fonts.js`.
   { label: 'Barlow', value: 'barlow' },
   { label: 'Inter', value: 'inter' },
   { label: 'Open Sans', value: 'opensans' },
@@ -727,32 +672,20 @@ const codeThemes = [
   { label: 'Xt 256', value: 'xt256' }
 ]
 
-// METHODS
-
-/**
- * How `cl`'s currently configured color would render under the admin's OWN `userStore.cvd` setting
- * -- a live preview, not a check against the site's chosen color, so it stays useful for an admin
- * who has a CVD themselves even before they touch anything.
- */
 function cvdPreviewColor(cl) {
   return getAccessibleColor(cl, state.config[`color` + startCase(cl)], userStore.cvd)
 }
 
-/**
- * The foreground/background pair that actually matters for `cl`, or null when this color isn't
- * checked at all.
- */
 function contrastPairFor(cl) {
   const base = state.config[`color` + startCase(cl)]
   if (!base) {
     return null
   }
   /*
-    The chrome and the brand fills are measured against DIFFERENT foregrounds, and were not always:
-    Cardinal's header and sidebar draw their contents in ink (`CHROME_TEXT_COLOR`), while a solid
-    button, chip or toast in `slate`/`accent` still carries a white label -- so pairing all four
-    against one colour, as this used to, would now pass a chrome tone that is unreadable and fail a
-    fill that is fine.
+    Chrome and brand fills are measured against DIFFERENT foregrounds: the header and sidebar draw
+    their contents in ink (`CHROME_TEXT_COLOR`), while a solid button, chip or toast in
+    `slate`/`accent` carries a white label. One shared foreground would pass an unreadable chrome
+    tone and fail a fill that is fine.
   */
   if (cl === 'header' || cl === 'sidebar') {
     return { fg: CHROME_TEXT_COLOR, bg: base }
@@ -777,11 +710,9 @@ function contrastWarningRatio(cl) {
 }
 
 /**
- * The Aesthetic row's own change handler, rather than a plain `v-model` -- `useAdminSettings#load()`
- * replaces `state.config` wholesale with the fetched theme (`composables/adminSettings.js`'s
- * `load()`), so a `watch` on `state.config.aesthetic` would also fire (and wrongly call
- * `resetColors()`) the moment a Cobalt site's theme loads. Driving the toggle off its own
- * `update:model-value` event means this only runs on a genuine admin click.
+ * Driven off the toggle's own `update:model-value` rather than a `watch` on
+ * `state.config.aesthetic`: `useAdminSettings#load()` replaces `state.config` wholesale, so a
+ * watcher would also fire -- and wrongly reset the colors -- the moment a site's theme loads.
  */
 function onAestheticChange(value) {
   state.config.aesthetic = value
@@ -789,15 +720,9 @@ function onAestheticChange(value) {
 }
 
 /**
- * Resets every admin-editable color to its default. `colorPrimary`/`colorAccent`/`colorHeader`/
- * `colorSidebar` reset to the CURRENT aesthetic's own defaults
- * (`helpers/aestheticDefaults.js`, OpenProject #2768), not a single hardcoded set -- so a Cobalt
- * site's "Reset defaults" button, and switching aesthetic itself (`onAestheticChange`, OpenProject
- * #2769), both land on Cobalt's colors, not Ledger's. `colorSecondary` stays a single default
- * regardless of aesthetic -- the Cobalt handoff never calls for the positive color to move with the
- * aesthetic switch. `dark` is left untouched: it is a wholly separate axis
- * (`composables/dark.js`, `helpers/aestheticDefaults.js:16`) that neither a color-defaults reset nor
- * an aesthetic switch may drive (OpenProject #2806).
+ * Colors reset to the CURRENT aesthetic's own defaults (`helpers/aestheticDefaults.js`), not one
+ * hardcoded set, so a Cobalt site lands on Cobalt's. `colorSecondary` is aesthetic-independent, and
+ * `dark` is a separate axis that neither a color reset nor an aesthetic switch may drive.
  */
 function resetColors() {
   state.config.colorSecondary = '#3f7a66'
@@ -823,5 +748,3 @@ function resetCodeBlocks() {
   border: 1px solid rgb(0 0 0 / 0.2);
 }
 </style>
-
-<!-- -> The `.admin-theme-cm` rules that were here framed the old editor; UtilCodeEditor draws its own -->

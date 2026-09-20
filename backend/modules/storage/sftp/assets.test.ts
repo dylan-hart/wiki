@@ -63,12 +63,10 @@ describe('remotePathForAsset', () => {
 })
 
 /**
- * The large-file threshold is `helpers/blobTarget.ts`'s, not this module's own any more: binary
- * (1024-based) units and `>=` at the boundary, the same classification `models/storage.ts`'s
- * write-path dispatch gate and the s3/azure/gcs targets apply. This module used to parse 1000-based
- * units and test `>`, so a 5,000,000-byte file on a `5MB` target was "large" here and nowhere else.
- * `helpers/blobTarget.test.ts` covers the parser and `categoryOf` directly; these two cases pin the
- * converged semantics where `exportAssets` actually acts on them.
+ * The large-file threshold is `helpers/blobTarget.ts`'s: binary (1024-based) units and `>=` at the
+ * boundary, the same classification `models/storage.ts`'s write-path dispatch gate and the
+ * s3/azure/gcs targets apply. `helpers/blobTarget.test.ts` covers the parser and `categoryOf`
+ * directly; these two cases pin the semantics where `exportAssets` acts on them.
  */
 describe('exportAssets / large-file classification', () => {
   test('a file exactly at the threshold IS large (">=", 5MB = 5 * 1024²)', async () => {

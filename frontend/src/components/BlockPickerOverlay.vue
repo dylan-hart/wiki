@@ -13,12 +13,9 @@
           icon="tabler:x"
           @click="close" />
         <!--
-          -> Insert is this screen's primary action, so it takes the accent, not the source's green
-
-          `accent` (#c14a52), not the brighter `accent-fill` (#e4676b): the label over it is white,
-          and only the darker of the two tones clears 4.5:1 under white. See the live-edge note at
-          the "Cardinal: the accent, in all three of its tones" comment near the top of
-          `css/tailwind.css` for which tone belongs on which surface.
+          The accent rather than the source's green, since insert is this screen's primary action --
+          and `accent`, not the brighter `accent-fill`, because only the darker of the two tones
+          clears 4.5:1 under the white label.
         -->
         <w-btn
           color="accent"
@@ -32,9 +29,6 @@
     </w-header>
     <w-page-container>
       <w-page class="block-picker flex flex-nowrap items-stretch">
-        <!-- ----------------------- -->
-        <!-- The blocks -->
-        <!-- ----------------------- -->
         <div class="block-picker-catalog">
           <w-scroll-area style="height: 100%">
             <div class="p-4">
@@ -53,13 +47,9 @@
                   :class="{ 'is-selected': state.selected?.id === block.id }"
                   @click="select(block)">
                   <!--
-                    The block's own Iconify reference, read straight off the definition rather than
-                    assembled into an `img:/_assets/icons/ultraviolet-<name>.svg` path. The card is a
-                    line drawing, and the design file's own handoff says why the illustrated set
-                    cannot ride on one: "2.x drew a coloured glow, which a line-drawing card cannot
-                    wear." A custom block brings no in-repo definition to trust, so it draws the one
-                    fallback glyph instead. It sits inside the hairline plate the design draws
-                    around it, rather than loose on the card.
+                    The definition's own Iconify reference, never a name assembled by concatenation:
+                    a built name is invisible to `scripts/generate-icons.mjs` and draws nothing. A
+                    custom block brings no in-repo definition to trust, so it gets one fallback glyph.
                   -->
                   <span class="block-picker-plate rounded-card shadow-card">
                     <w-icon :name="block.isCustom ? 'tabler:puzzle' : block.icon" size="21px" />
@@ -67,7 +57,6 @@
                   <div class="min-w-0 flex-1 text-left">
                     <div class="block-picker-name">
                       <strong>{{ block.name }}</strong>
-                      <!-- -> The same italic purple tag `AdminBlocks.vue` gives an uploaded block -->
                       <em v-if="block.isCustom" class="text-purple">
                         {{ t('admin.blocks.custom') }}
                       </em>
@@ -78,9 +67,8 @@
                     <div class="block-picker-tag">&lt;block-{{ block.block }}&gt;</div>
                   </div>
                   <!--
-                    The corner marks that say this card is the chosen one. Out of flow and faded in
-                    rather than added, so a card occupies exactly the same box selected or not --
-                    see the `&-card` rule below for why nothing here may change its size.
+                    Out of flow and faded in rather than added on selection, so a card occupies
+                    exactly the same box in both states and nothing reflows.
                   -->
                   <i class="block-picker-mark block-picker-mark-tl" aria-hidden="true" />
                   <i class="block-picker-mark block-picker-mark-tr" aria-hidden="true" />
@@ -91,9 +79,6 @@
             </div>
           </w-scroll-area>
         </div>
-        <!-- ----------------------- -->
-        <!-- Its properties -->
-        <!-- ----------------------- -->
         <div class="block-picker-form">
           <w-scroll-area style="height: 100%">
             <!-- A section header draws its own horizontal inset, so this pads vertically only -->
@@ -109,9 +94,7 @@
                   :block="state.selected.block"
                   :fields="state.selected.props"
                   :values="state.values" />
-                <!-- -> The markup itself, since that is what lands in the page -->
                 <div class="w-section-header mt-6">{{ t('editor.blockPicker.markdown') }}</div>
-                <!-- The same 16px all round, so it sits inside the panel the way the fields do -->
                 <pre class="block-picker-output m-4">{{ markdown }}</pre>
               </template>
             </div>
@@ -135,49 +118,34 @@ import BlockPropsForm from '@/components/BlockPropsForm.vue'
 
 import { useSiteStore } from '@/stores/site'
 
-// PROPS
-
 /**
- * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this prop
- * (OpenProject #2530). Declared here even though this overlay opens with no initial state to read --
- * without a declared prop, the value would fall through onto this component's DOM root instead.
+ * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts. Declared even
+ * though this overlay reads none of it -- an undeclared prop falls through onto the DOM root.
  */
 defineProps({
   overlayOpts: { type: Object, default: () => ({}) }
 })
 
 /**
- * Picks a block and what to give it, and hands the editor the MDC markup for it.
- *
- * Only metadata is used here — the name, the icon, and the props the block declares. The component
- * itself is never imported: a block's code is fetched when its tag turns up in a page (see
- * `commonStore.loadBlocks`), and a picker that pulled in every block to show a list of them would
- * defeat that.
+ * Only block metadata is used here. A block's component is never imported: its code is fetched when
+ * its tag turns up in a page (`commonStore.loadBlocks`), and a picker that pulled in every block to
+ * list them would defeat that.
  *
  * `::block-name{prop="value"}` is MDC block syntax, which the renderer turns into
  * `<block-name prop="value">` — the element the component registers itself as.
  */
 
-// STORES
-
 const siteStore = useSiteStore()
-
-// I18N
 
 const { t } = useI18n()
 const { blockText } = useBlockLocale()
 
-// DATA
-
 const state = reactive({
   blocks: [],
   selected: null,
-  /** Field values for the selected block, by prop name. */
   values: {},
   isLoading: false
 })
-
-// COMPUTED
 
 /** Only blocks this site has switched on: the rest cannot render, so offering them is a trap. */
 const blocks = computed(() => state.blocks.filter((block) => block.isEnabled))
@@ -189,12 +157,10 @@ const canInsert = computed(
   () => Boolean(state.selected) && blockPropsFilled(state.selected, state.values)
 )
 
-// METHODS
-
 function select(block) {
   state.selected = block
-  // -> Started at the site's configured default where there is one, else the block's own — so the
-  //    form shows what inserting it now would actually do
+  // -> The site's configured default ahead of the block's own, so the form shows what inserting it
+  //    right now would actually do
   state.values = Object.fromEntries(
     block.props.map((prop) => [prop.name, propDefault(block, prop)])
   )
@@ -208,8 +174,6 @@ function insert() {
 function close() {
   siteStore.$patch({ overlay: '' })
 }
-
-// MOUNTED
 
 onMounted(async () => {
   state.isLoading = true
@@ -228,20 +192,13 @@ onMounted(async () => {
 
 <style>
 /*
-  Cancel / Insert (OpenProject #2873): the general Cobalt button-group gap rule -- adjacent buttons
-  take an 8-10px gap and each keeps its own radius, never a rounded button butted against a square
-  one (Task #2859, `ui-iteration/README.md` Part 2) -- applied literally here at 8px, matching the
-  Cobalt mockup, since #2859's own shared class/rule had not landed in this worktree; reconcile to
-  whatever mechanism it ships with at integration. `WBtnGroup`'s default seam (a hairline
-  `border-inline-end` on every button but the last, the Ledger "joined buttons" look) is switched off
-  here so it doesn't show through the gap -- `WBtn` already gives every button its own default
-  control radius unconditionally, so nothing else about the buttons themselves needs to change.
+  Under Cobalt adjacent buttons take a gap and each keeps its own radius, so `WBtnGroup`'s default
+  seam (a hairline `border-inline-end` on every button but the last) is switched off here -- left on,
+  it shows through the gap.
 
-  A dedicated class rather than nesting under `.card-header .w-btn-group`: `.card-header` is a
-  sibling of `.block-picker` in this overlay's markup (the header sits outside `<w-page-container>`),
-  not a descendant, so there is no ancestor wrapper here to scope a nested rule the way
-  `TableEditorOverlay.vue`'s own `.table-editor .card-header .w-btn-group` does. `block-picker-actions`
-  on the group itself is the equivalent scope with no such wrapper needed.
+  A dedicated class rather than nesting under `.card-header .w-btn-group`: the header sits outside
+  `<w-page-container>`, so `.card-header` is a sibling of `.block-picker`, not a descendant, and
+  there is no ancestor wrapper to scope a nested rule against.
 */
 .block-picker-actions {
   .body--cobalt & {
@@ -252,17 +209,14 @@ onMounted(async () => {
     }
   }
 }
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* These selectors stay flat: a `&-suffix` concatenation is a Sass idiom, and native CSS nesting
+   silently drops such a rule rather than matching it. */
 .block-picker {
   height: 100%;
   padding: 0;
   /*
-    Nothing here sits on a `w-card`, and that is where the app's dark text colour comes from -- so the
-    panels have to state it themselves or everything inheriting `color` stays black on a dark surface.
+    Nothing here sits on a `w-card`, which is where the app's text colour comes from, so the panels
+    below state it themselves -- otherwise everything inheriting `color` stays black on dark.
   */
 }
 .body--light .block-picker {
@@ -273,13 +227,9 @@ onMounted(async () => {
 }
 .block-picker {
   /*
-    The catalog is paper and the properties panel is the tinted strip beside it, ruled off with the
-    one hairline between them -- the pairing the design draws, and the same relationship a settings
-    card's header strip has to its rows. Stated outright rather than left to whatever sits behind
-    the overlay, since the two panels are only legible relative to each other.
-
-    The proportions are the design's own: the catalog takes the room, the panel is a fixed 340px
-    column that stops growing once the fields in it are wide enough to read.
+    Both panels state their own background rather than inheriting whatever sits behind the overlay:
+    paper catalog against tinted strip is only legible relative to each other. The catalog takes the
+    room; the properties column is fixed, since it stops being more readable past field width.
   */
 }
 .block-picker-catalog {
@@ -308,10 +258,9 @@ onMounted(async () => {
 }
 .block-picker {
   /*
-    Two columns at most, however wide the overlay gets: a card carries a name, a sentence and a tag
-    name, so it reads better wide than tiled. The `max()` is what caps the count -- a track asking
-    for half the row (less its share of the gap) can only ever fit twice -- while the 280px floor
-    takes over on a panel too narrow for two of them and drops the grid to a single column.
+    Two columns at most, however wide the overlay gets: a track asking for half the row (less its
+    share of the gap) can only ever fit twice, while the 280px floor takes over on a panel too
+    narrow for two of them and drops the grid to a single column.
   */
 }
 .block-picker-grid {
@@ -321,29 +270,12 @@ onMounted(async () => {
 }
 .block-picker {
   /*
-    -> A card is the whole hit target, so the icon and the text are both part of choosing it
-
-    A Cardinal card is a line drawing, so being the chosen one has to be drawn in line weight: 2.x
-    rang the picked card with a coloured glow, which this surface cannot wear. Selection is the
-    hairline recoloured to the accent, doubled by an INSET shadow of the same tone, plus the four
-    corner marks and a tinted icon plate.
-
-    Every part of that is deliberate about geometry, and this is the constraint to preserve if these
-    rules are ever touched: an unselected card already carries a 1px border, a selected one carries
-    the same 1px border in a different colour, the extra weight is painted inside the existing
-    bounds by an inset shadow (which cannot affect layout at all), and the corner marks are
-    absolutely positioned. So a card's box is identical in both states and NOTHING on the screen
-    moves as selection travels from one card to another. A border that appeared on selection, or a
-    thicker one, would widen the card and reflow the row -- see `blockPickerLayout.test.js`, which
-    measures exactly this in a real browser.
-
-    `rounded-card`/`shadow-card` (template classes, OpenProject #2767/#2775): `0`/`none` under
-    Ledger, so this changes nothing there; an unselected card under Cobalt draws the same soft
-    radius/shadow every other card-shaped surface does. The 1px hairline border above stays either
-    way -- dropping it to match the Cobalt mockup's borderless card would leave `.is-selected`'s
-    accent border as the only thing distinguishing a 0px-wide edge from a 1px one, which is exactly
-    the box-geometry invariant this comment (and `blockPickerLayout.test.js`) exists to rule out.
-    Logged as a gap rather than guessed at, not fixed here.
+    The constraint to preserve if these rules are ever touched: selection must cost no layout. An
+    unselected card already carries the 1px border a selected one merely recolours, the extra weight
+    is an INSET shadow (which cannot affect layout), and the corner marks are absolutely positioned
+    -- so a card's box is identical in both states and nothing on screen moves as selection travels.
+    A border that appeared on selection, or a thicker one, would widen the card and reflow the row;
+    `blockPickerLayout.test.js` measures exactly this in a real browser.
   */
 }
 .block-picker-card {
@@ -383,7 +315,7 @@ onMounted(async () => {
   box-shadow: inset 0 0 0 1px var(--color-accent-dark);
 }
 .block-picker {
-  /* The 40px hairline plate the glyph sits in -- the same material as a settings row's plate. */
+  /* The glyph's plate -- the same material as a settings row's. */
 }
 .block-picker-plate {
   display: flex;
@@ -413,13 +345,11 @@ onMounted(async () => {
 }
 .block-picker {
   /*
-    Two adjacent 1px rules per corner, sitting 4px clear of the card. They overhang the card, which
-    the catalog's own 16px inset and the grid's 12px gap both absorb -- nothing clips them and
-    nothing is pushed aside, since they are out of flow.
+    The marks sit 4px clear of the card and so overhang it; the catalog's 16px inset and the grid's
+    12px gap both absorb that, and being out of flow they push nothing aside.
 
-    OpenProject #2896: `display: var(--corner-marks)` is `block` (a no-op) under Ledger and `none`
-    under Cobalt, matching `Login.vue`/`NavEditMenu.vue`'s identical construction -- Cobalt draws no
-    registration marks at all, on a block card same as everywhere else.
+    `display: var(--corner-marks)` is `block` under Ledger and `none` under Cobalt, which draws no
+    registration marks anywhere -- the same construction `Login.vue`/`NavEditMenu.vue` use.
   */
 }
 .block-picker-mark {
@@ -490,7 +420,7 @@ onMounted(async () => {
 .block-picker {
   /*
     The tag name is what actually lands in the page, so it is the one line on the card that follows
-    the selection into the accent -- the card's own confirmation of what it is about to insert.
+    the selection into the accent.
   */
 }
 .block-picker-tag {
@@ -512,7 +442,7 @@ onMounted(async () => {
   color: var(--color-accent-dark);
 }
 .block-picker {
-  /* Nothing picked yet: a faint outline of the shape a block leaves, and the sentence saying so. */
+  /* The empty state, until a block is picked. */
 }
 .block-picker-empty {
   display: flex;
@@ -538,10 +468,7 @@ onMounted(async () => {
   color: var(--color-text-secondary-dark);
 }
 .block-picker {
-  /*
-    The generated markup, drawn as the design draws it: an ink slab with the accent down its leading
-    edge. It reads as a quotation of the page rather than another field, which is what it is.
-  */
+  /* The generated markup, drawn as a quotation of the page rather than as another field. */
 }
 .block-picker-output {
   padding: 11px 12px;

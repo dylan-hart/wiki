@@ -5,11 +5,8 @@ import { buildVendoredTablerCollection } from './vendor-icon-sets.ts'
 import { parseSideloadIconCollection } from '../models/icons.ts'
 
 /**
- * `buildVendoredTablerCollection()` (OpenProject #3043): reads the pinned `@iconify-json/tabler`
- * devDependency straight out of `node_modules` and merges its `icons.json` + `info.json` into one
- * full Iconify collection object. Exercises the real installed package rather than a fixture, since
- * the whole point of this script is to track that dependency -- a fixture would not catch the
- * package changing its own on-disk shape.
+ * Runs against the real installed `@iconify-json/tabler` rather than a fixture: the script exists to
+ * track that dependency, and a fixture would not catch the package changing its on-disk shape.
  */
 describe('buildVendoredTablerCollection()', () => {
   it('merges icons.json and info.json into one collection matching parseSideloadIconCollection', () => {
@@ -27,11 +24,6 @@ describe('buildVendoredTablerCollection()', () => {
   })
 })
 
-/**
- * OpenProject #3442: `vendor-icons:check` compares `backend/assets/icon-sets/tabler.json` byte for
- * byte against the generator's output, so the repo-wide `oxfmt --check` must never touch it.
- * The only thing keeping oxfmt away is the root `.oxfmtrc.json` `ignorePatterns` entry.
- */
 describe('oxfmt ignores the vendored icon set', () => {
   it('keeps backend/assets/icon-sets/** in .oxfmtrc.json ignorePatterns', () => {
     const config = JSON.parse(

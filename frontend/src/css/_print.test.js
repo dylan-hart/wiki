@@ -4,21 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * Regression coverage for OpenProject #821: printing a page used to print the whole app shell
- * (header, side nav, ToC/tags/rating column, page action buttons, floating corner buttons) along
- * with the article. `_print.css` fixes that with `@media print` rules keyed off the classes those
- * elements render with.
- *
- * These are source-inspection tests, not rendered-DOM ones -- `@media print` is never evaluated
- * under Vitest's `happy-dom` environment (there is no real paginated print renderer to assert
- * against, see `AdminLayout.test.js`'s own `count-badge` test for the same style of check used
- * elsewhere in this codebase for a CSS rule that can't be exercised by mounting). What CAN be
- * verified here is the CONTRACT between the stylesheet and the templates it targets: that every
- * class `_print.css` hides is still the class the corresponding component actually renders
- * (catching a rename that would silently stop hiding it), and that the one thing print is required
- * to keep -- `FooterNav`'s copyright/license line and "Powered by Cardinal.js" credit, the
- * attribution requarks/wiki#1593 (upstream) asks a print layout to retain -- is neither in the
- * hidden-selector list nor nested inside anything that is.
+ * Source-inspection, not rendered DOM: `@media print` is never evaluated under happy-dom, and
+ * there is no paginated print renderer to assert against. What CAN be verified is the contract
+ * between the stylesheet and the templates it targets -- every class `_print.css` hides is still a
+ * class the corresponding component renders (a rename on either side would otherwise silently stop
+ * hiding it), and the attribution requarks/wiki#1593 (upstream) asks a print layout to retain is
+ * neither in the hidden-selector list nor nested inside anything that is.
  */
 
 const cssDir = dirname(fileURLToPath(import.meta.url))
@@ -36,14 +27,11 @@ describe('print stylesheet wiring', () => {
 })
 
 describe('print stylesheet hides only chrome classes that still exist', () => {
-  // -> Every selector `_print.css` hides outright, mapped to the component whose template is
-  //    supposed to still be rendering that class. A future rename on either side that isn't kept in
-  //    step would otherwise fail silently -- the chrome would just stop being hidden.
   const hiddenClassesToSources = {
     '.w-header': '../components/shared/WHeader.vue',
     '.w-drawer': '../components/shared/WDrawer.vue',
-    // -> `MainLayout`'s own corner button moved inline into the header bar (OpenProject #2928);
-    //    the page view's TOC-panel opener (and `AdminLayout`'s sidebar opener) still wear the class
+    // -> The page view's TOC-panel opener (and `AdminLayout`'s sidebar opener) wear this class;
+    //    `MainLayout`'s own corner button is inline in the header bar
     '.corner-btn': '../pages/Index.vue',
     '.page-breadcrumbs': '../pages/Index.vue',
     '.page-header-actions': '../components/PageHeader.vue',
@@ -94,10 +82,9 @@ describe('print stylesheet leaves attribution alone', () => {
     const scrollAreaBody = indexSource.slice(scrollAreaTagStart, scrollAreaEnd)
     expect(scrollAreaBody).toContain('<footer-nav')
 
-    // -> And not merely a false positive from being anywhere in the file: the two chrome siblings
-    //    that print DOES hide -- the ToC/tags/rating column and the floating action rail -- are both
-    //    later siblings of the article column in document order, entirely after the scroll area
-    //    closes, so `footer-nav` landing inside the scroll area is not also inside either of them.
+    // -> Not a false positive from the tag merely being somewhere in the file: the two chrome
+    //    siblings print DOES hide sit entirely after the scroll area closes, so landing inside the
+    //    scroll area rules out being inside either of them.
     const pageSidebarIndex = indexSource.indexOf('class="page-sidebar"')
     const pageActionsColIndex = indexSource.indexOf('<page-actions-col')
     expect(pageSidebarIndex).toBeGreaterThan(scrollAreaEnd)

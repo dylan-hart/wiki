@@ -1,10 +1,8 @@
 <template>
   <w-page class="tags-browse">
     <!--
-      No `padding` on the page: the design runs the section band edge to edge across the content
-      column and pads only the body beneath it (`.tags-browse-body`). `w-page padding` inset the band
-      by 16px on all four sides, which made it read as a floating heading rather than as the column's
-      own header strip.
+      No `padding` on the page: the section band runs edge to edge across the content column, and
+      only the body beneath it (`.tags-browse-body`) is inset.
     -->
     <div class="w-section-header">{{ t('tags.title') }}</div>
 
@@ -14,8 +12,8 @@
           <div class="tags-browse-subheader flex items-center justify-between">
             <span>{{ t('tags.currentSelection') }}</span>
             <!--
-              Plain secondary text flush to the column's own 8px edge, as the design draws it: the
-              dense button's 10px of horizontal padding pushed the label past every chip below it.
+              `padding="none"` keeps the label flush to the column's 8px edge; the dense button's own
+              10px of horizontal padding pushes it past every chip below.
             -->
             <w-btn
               flat
@@ -29,15 +27,11 @@
           <div
             class="tags-browse-chips tags-browse-chips--selected flex flex-wrap items-center gap-[5px] p-2">
             <!--
-              The `#` is a mono glyph, not a drawn icon: the design sets it in Roboto Mono ahead of
-              the label, exactly as the already-settled page tag plate (`PageTags.vue`) does.
+              The `#` is a mono glyph, not a drawn icon, matching the page tag plate (`PageTags.vue`).
 
-              `color="accent"`, not `primary`: this chip carries WHITE text over a solid fill, which
-              is the accent role's own job (see `css/tailwind.css`'s token-block comment) -- under
-              Ledger the two admin defaults are numerically equal so this was invisible, but Cobalt's
-              `colorPrimary` (`#1f4fd6`, links) and `colorAccent` (`#c8303c`, white-text fills) genuinely
-              diverge (`helpers/aestheticDefaults.js`), and the Cobalt Tags mockup's "current
-              selection" chip is the red accent, not the blue link color.
+              `color="accent"`, not `primary`: white text over a solid fill is the accent role's job.
+              The two are numerically equal under Ledger but diverge under Cobalt, where primary is
+              the link blue.
             -->
             <w-chip
               v-for="tag of state.selectedTags"
@@ -55,10 +49,8 @@
         <div class="tags-browse-subheader flex items-center justify-between">
           <span>{{ state.managementMode ? t('tags.manageTags') : t('editor.props.tags') }}</span>
           <!--
-            A 24px box with a 14px glyph, per the design: `size="10px"` gives the box (WBtn's round
-            variant is 2.4em), and the glyph comes through the SLOT rather than the `icon` prop so
-            `WIcon`'s own `size` renders as an inline style -- the prop route would inherit WBtn's
-            1.715em and draw a 17px gear inside a 24px circle.
+            The glyph comes through the slot, not the `icon` prop, so `WIcon`'s own `size` applies:
+            the prop route inherits WBtn's 1.715em and draws a 17px glyph in a 24px circle.
           -->
           <w-btn
             v-if="canManageTags"
@@ -149,9 +141,8 @@
 
         <div class="tags-browse-subheader">{{ t('tags.locale') }}</div>
         <!--
-          Not `dense`: the design's filter fields are the 34px frame with 10px of inset, which is
-          exactly what the DEFAULT field draws (`composables/fieldFrame.js`) -- `dense` is the 28px
-          one. `options-dense` is unrelated and stays: it compresses the dropped-open menu.
+          Not `dense`: the filter fields are the default 34px frame, `dense` being the 28px one
+          (`composables/fieldFrame.js`). `options-dense` is unrelated -- it compresses the open menu.
         -->
         <div class="p-2">
           <w-select
@@ -214,12 +205,7 @@
         <div class="p-4" v-else-if="state.results.length < 1">
           <em>{{ hasResultFilters ? t('tags.noResultsWithFilter') : t('tags.noResults') }}</em>
         </div>
-        <!--
-          The rows sit inside a hairline plate on the surface, not loose on the page ground -- the
-          design wraps them in a bordered white box inset 8px from the column. `separator` is off
-          because the rule the design draws between rows is the pale tint, not the list's own
-          black-at-12%; `.tags-browse-plate` draws it as a border instead.
-        -->
+        <!-- No `separator`: `.tags-browse-plate` draws the row rule itself, in a paler tint. -->
         <div v-else class="tags-browse-plate">
           <w-list>
             <w-item
@@ -237,10 +223,6 @@
                 <w-item-label v-if="item.description" caption class="tags-browse-result-desc">{{
                   item.description
                 }}</w-item-label>
-                <!--
-                  Path and last-updated are the design's mono metadata pair -- the same treatment,
-                  not a plain caption and a greyed one.
-                -->
                 <w-item-label caption class="tags-browse-result-meta"
                   >/{{ item.path }}</w-item-label
                 >
@@ -269,7 +251,6 @@
         <div
           class="tags-browse-more flex justify-center"
           v-if="state.results.length > 0 && state.results.length < state.total">
-          <!-- An outlined plate on the surface, as the design draws it -- not a flat accent label. -->
           <w-btn
             outline
             color="primary"
@@ -302,24 +283,16 @@ import { DEFAULT_PAGE_ICON } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-/** How many results one page of a browse holds. The API caps a single request at 100. */
+/** The API caps a single search request at 100. */
 const RESULTS_LIMIT = 100
-
-// ROUTER
 
 const route = useRoute()
 const router = useRouter()
 
-// STORES
-
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => {
   const siteTitle = siteStore.title
@@ -329,16 +302,12 @@ useMeta(() => {
   }
 })
 
-// DATA
-
 const state = reactive({
   loadingTags: 0,
   loading: 0,
   /**
-   * The one piece of this screen's state that lives in the URL -- everything a tag chip in
-   * `PageTags.vue` or a shared link needs to reopen the same intersection. `filterLocale`,
-   * `filterQuery` and `orderBy` stay local: refining an already-open browse, not something worth a
-   * history entry or a link of its own.
+   * The only piece of this screen's state kept in the URL, so a `PageTags.vue` chip or a shared
+   * link reopens the same intersection. The filters below only refine an already-open browse.
    */
   selectedTags: [],
   filterLocale: '',
@@ -347,8 +316,6 @@ const state = reactive({
   results: [],
   total: 0,
   offset: 0,
-  // -> Tag management (OpenProject #1877): mutating a tag is a page-rule-permission action, so it is
-  //    off by default and hidden entirely from anyone without `manage:pages` -- see `canManageTags`.
   managementMode: false,
   renamingTag: null,
   renameValue: '',
@@ -363,11 +330,9 @@ const availableTags = computed(() =>
 )
 
 /*
- * A page-rule permission cannot be checked with `userStore.can()` (the global-permission list) --
- * `pagePermissions` is what the session holds for the CURRENT route path, which is what the
- * PATCH/DELETE endpoint behind this control actually checks too (per affected page, server-side).
- * This is a visibility gate only: a reader who fails it never sees the controls at all, but the real
- * enforcement -- and which of the tag's pages actually get touched -- happens per page on the server.
+ * A page-rule permission is not in `userStore.can()`'s global list: `pagePermissions` is what the
+ * session holds for the current route path. Visibility only -- the PATCH/DELETE routes enforce it
+ * per affected page, so a tag's unauthorized pages are left alone whatever this says.
  */
 const canManageTags = computed(() => userStore.pagePermissions.includes('manage:pages'))
 
@@ -384,21 +349,14 @@ const orderByOptions = computed(() => [
 const hasResultFilters = computed(() => Boolean(state.filterQuery || state.filterLocale))
 
 /*
- * `title` reads naturally A-Z; every other field (currently just `updatedAt`) reads naturally
- * newest-first, same per-field default `Search.vue` uses for its own order-by. There is no
- * direction toggle here -- unlike `Search.vue`, this screen has no control for it -- so getting the
- * one direction each field gets is what stands between "Last Modified" and always showing the
- * oldest-updated page first.
+ * `title` reads A-Z, every other field newest-first, the same per-field default `Search.vue` uses.
+ * This screen has no direction control, so the field's default is the only direction it ever gets.
  */
 const orderByDirection = computed(() => (state.orderBy === 'title' ? 'asc' : 'desc'))
 
-// WATCHERS
-
 /*
- * The URL is the source of truth for WHICH tags are selected, same shape `Search.vue` uses for its
- * own `q` -- a route change (a `PageTags.vue` chip, the back button, a pasted link) is what drives
- * `state.selectedTags` here, never the other way around. Toggling a tag pushes a new route instead of
- * writing `state.selectedTags` directly, and this watcher is what turns that back into a fetch.
+ * The URL is the source of truth for the selection: toggling a tag pushes a route rather than
+ * writing `state.selectedTags`, and this watcher is what turns a route change back into a fetch.
  */
 watch(
   () => route.query.tags,
@@ -411,8 +369,6 @@ watch(
 
 watch(() => [state.filterLocale, state.filterQuery, state.orderBy], debounce(performSearch, 400))
 
-// METHODS
-
 function splitTags(raw) {
   return (raw ?? '')
     .split(',')
@@ -421,12 +377,11 @@ function splitTags(raw) {
 }
 
 /**
- * Adds or removes one tag from the selection, AND-narrowing what is shown -- see the spec decision
- * this feature shipped under (OpenProject #987): selecting more tags only ever narrows the results.
+ * Selected tags are ANDed server-side: toggling one on only ever narrows the results.
  *
- * A push, not a replace: each tag toggled is a deliberate step through the facets, and the back
- * button retracing them is the expected way to back out of a browse -- unlike `Search.vue`'s `q`,
- * which replaces on every keystroke so typing doesn't spam history.
+ * A push, not a replace: each toggle is a deliberate step through the facets and the back button
+ * retracing them is how a reader backs out of a browse -- unlike `Search.vue`'s `q`, which replaces
+ * on every keystroke so typing doesn't spam history.
  */
 function toggleTag(tag) {
   const next = state.selectedTags.includes(tag)
@@ -443,11 +398,6 @@ function setLocale(value) {
   state.filterLocale = value ?? ''
 }
 
-/**
- * Runs a search. `append` distinguishes the two callers: a fresh search (a tag toggled, the query,
- * locale or order changed) starts over at offset 0 and replaces `state.results`, while `loadMore()`
- * asks for the next page at the current offset and appends onto what is already shown.
- */
 async function performSearch(append = false) {
   if (state.selectedTags.length < 1) {
     state.results = []
@@ -493,10 +443,7 @@ function loadMore() {
   return performSearch(true)
 }
 
-/**
- * Toggles the management mode sidebar view. Never called unless `canManageTags` already gated the
- * button that triggers it, so no permission check happens here.
- */
+/** No permission check here: `canManageTags` gates the only control that calls it. */
 function toggleManagementMode() {
   state.managementMode = !state.managementMode
   cancelRename()
@@ -514,9 +461,8 @@ function cancelRename() {
 }
 
 /**
- * Confirms and performs a rename -- renaming onto a value that is already another tag's name IS the
- * merge (OpenProject #1868/#1873): same route, same handler, distinguished only by which title/message
- * the confirmation shows.
+ * Renaming onto a name another tag already holds IS the merge: same route and handler, differing
+ * only in which title and message the confirmation shows.
  */
 function confirmRename(entry) {
   const newTag = state.renameValue.trim()
@@ -596,7 +542,6 @@ async function performDelete(tagValue) {
   }
 }
 
-/** Refreshes the tag list and re-runs the current search, so a rename/delete is visible at once. */
 async function refreshAfterMutation() {
   await siteStore.fetchTags(true)
   state.selectedTags = state.selectedTags.filter((tag) =>
@@ -605,14 +550,11 @@ async function refreshAfterMutation() {
   await performSearch()
 }
 
-// MOUNTED
-
 onMounted(async () => {
   state.loadingTags++
   try {
-    // -> Force a refresh rather than reusing whatever siteStore.tags already held: a tag created (or
-    //    just applied) elsewhere in this session leaves the store's cache stale, and this screen's
-    //    whole purpose is showing the current tag list to browse by (OpenProject #1121).
+    // -> Forced refresh: a tag created or applied elsewhere in this session leaves
+    //    `siteStore.tags` stale, and browsing the current tag list is this screen's whole purpose.
     await siteStore.fetchTags(true)
   } catch (err) {
     notify({
@@ -627,40 +569,29 @@ onMounted(async () => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
-  `ui-redesign/Cardinal Wiki - Tags 3x.dc.html`, walked top to bottom (OpenProject #2626). Every
-  metric below is the design file's own; where a number here looks arbitrary it is quoted from it.
+  Metrics below are `ui-redesign/Cardinal Wiki - Tags 3x.dc.html`'s own, which is where the
+  arbitrary-looking numbers come from.
 
-  Deliberately NOT scoped. Several rules have to reach shared components the page mounts (`WChip`'s
-  padding, `WItem`'s row metrics, `WItemLabel`'s caption tone), and a scoped block cannot -- while an
-  SFC style block is emitted UNLAYERED, which is what lets a plain class here beat the Tailwind
-  utility those components carry without `!important`.
+  Deliberately NOT scoped: several rules reach shared components the page mounts (`WChip`'s padding,
+  `WItem`'s row metrics, `WItemLabel`'s caption tone), which a scoped block cannot. An SFC style
+  block is emitted unlayered, so a plain class here still beats those components' Tailwind utilities
+  without `!important`.
 */
 .tags-browse {
-  /* The page's own inset, held here rather than on `w-page`, so the band above stays full-bleed. */
+  /* No inset of its own: `.tags-browse-body` pads, so the band above stays full-bleed. */
 }
 .tags-browse-body {
   display: flex;
   align-items: flex-start;
   /*
-    The design pads the body `16px 20px` beneath a full-bleed section band. `.w-section-header`
-    already contributes the section rhythm's own 14px `margin-block-end` (#2631), so 2px here lands
-    the first row on the design's 16px -- rather than overriding the shared band, which #2631 owns.
-
-    Unrelated to the band's own HEIGHT (#2717 raised it 34px -> 38px to match the sidebar-actions
-    and breadcrumb bands beside it): this 2px reconciles the shared rhythm's fixed 14px trailing
-    margin against the design's fixed 16px total gap, and that arithmetic doesn't involve the
-    band's height at all -- `ui-redesign/Cardinal Wiki - Tags 3x.dc.html` draws the row below the
-    band at a flat `padding: 16px 20px` regardless of how tall the band above it is.
+    The design pads this body `16px 20px`; `.w-section-header` above already contributes the shared
+    section rhythm's 14px `margin-block-end`, so 2px here lands the first row on that 16px. The
+    band's own height doesn't enter into it.
   */
   padding: 2px 20px 16px;
   gap: 1.5rem;
-  /* The design wraps rather than squeezing: 280 + 24 + 320 is the point the two columns stack. */
+  /* Wrap rather than squeeze: 280 + 24 + 320 is where the two columns stack. */
   flex-wrap: wrap;
 }
 .tags-browse-sidebar {
@@ -672,15 +603,12 @@ onMounted(async () => {
   min-width: 320px;
 }
 .tags-browse-subheader {
-  /* 12px above every group, 8px above the column's first -- the design's own rhythm. */
   padding: 12px 8px 0;
   font-size: 13px;
   font-weight: 500;
   /*
-    `var(--color-accent)`, not the `var(--color-primary)` literal it replaces: numerically identical under
-    Ledger (both admin defaults are `#c14a52`), but the Cobalt Tags mockup's subheaders
-    ("Current selection", "Tags", "Locale", "Order by") are the accent red (`#c8303c`), which is
-    `--color-accent` under Cobalt -- `--color-primary` there is the unrelated link blue.
+    The accent role, not primary: the two are numerically identical under Ledger, but under Cobalt
+    primary is the link blue while these subheaders are the accent red.
   */
   color: var(--color-accent);
 }
@@ -689,11 +617,8 @@ onMounted(async () => {
 }
 .tags-browse-subheader {
   /*
-    Dark counterpart of the same accent-text role, not `--color-primary-light` (a lightened
-    PRIMARY, the wrong hue under Cobalt) -- `--color-accent-dark` is the token this codebase
-    already uses for "accent text on a dark ground" (`css/tailwind.css`'s `.text-highlight b`
-    dark rule), with a real Cobalt-dark value of its own so this renders correctly with no
-    dedicated dark mockup.
+    The dark counterpart below is `--color-accent-dark`, the token for accent text on a dark ground,
+    not a lightened primary -- which would be the wrong hue under Cobalt.
   */
 }
 .body--dark .tags-browse-subheader {
@@ -701,8 +626,8 @@ onMounted(async () => {
 }
 .tags-browse {
   /*
-    The `#` ahead of a chip's label, in the design's mono. Sized in `em` so one rule serves both the
-    11.5px sidebar chip (10px) and the 11px result-row chip (9.5px).
+    The `#` ahead of a chip's label is sized in `em` so one rule serves both the 11.5px sidebar chip
+    and the 11px result-row chip.
   */
 }
 .tags-browse-hash {
@@ -712,7 +637,7 @@ onMounted(async () => {
   font-weight: 500;
 }
 .tags-browse {
-  /* Sidebar chips: `padding:3px 7px; gap:4px` -- neither the dense nor the default WChip box. */
+  /* The sidebar chip box below is the design's own -- neither WChip's dense nor its default box. */
 }
 .tags-browse-chips .w-chip {
   gap: 4px;
@@ -720,17 +645,8 @@ onMounted(async () => {
 }
 .tags-browse {
   /*
-    `--shadow-primary` on the selected chips -- `none` under both Ledger and Cobalt now (OpenProject
-    #2856's matte pass dropped the mockup's `box-shadow:0 4px 14px rgba(200,48,60,.35)` glow
-    outright, no replacement), so this rule is a no-op in every aesthetic today and is kept as the
-    wiring `--shadow-primary` gains a value again through in the future. A dedicated modifier class
-    rather than reaching for `.tags-browse-chips` alone: that class is shared with the "available
-    tags" block below, which stays a flat fill with no glow.
-
-    OpenProject #2813: this is a `WChip`, not a `WBtn`, so it can't pick up `--shadow-primary`
-    through that component's own `color="accent"` wiring -- it stays a direct, hand-wired consumer
-    on purpose, already keyed off the same accent role #2813 decided on (see `WChip`'s own `color`
-    usage on `.tags-browse-chips--selected` above).
+    Selected chips carry their own modifier class because `.tags-browse-chips` is shared with the
+    available-tags block, which stays a flat fill.
   */
 }
 .tags-browse-count {
@@ -757,11 +673,8 @@ onMounted(async () => {
 }
 .tags-browse-plate {
   /*
-    Cobalt draws this plate's edge through `--shadow-card` alone, not the `border` above --
-    `--radius-card`/`--shadow-card` are both `0`/`none` under Ledger, so that border stays the
-    only visible edge there, and under Cobalt `--shadow-card` is itself a hairline ring now
-    (OpenProject #2856's matte pass), not the mockup's blurred `box-shadow:0 2px 10px
-    rgba(16,25,74,.08)` glow.
+    Cobalt draws this plate's edge through `--shadow-card` alone rather than the border above;
+    `--radius-card`/`--shadow-card` are `0`/`none` under Ledger, leaving that border its only edge.
   */
 }
 body.body--cobalt .tags-browse-plate {
@@ -801,7 +714,6 @@ body.body--cobalt .tags-browse-plate {
 @media (max-width: 1023.98px) {
   .tags-browse-body {
     flex-direction: column;
-    /* The design's 20px inline padding is a desktop rhythm; a phone column takes the page's own. */
     padding-inline: 16px;
   }
   .tags-browse-sidebar,
@@ -813,72 +725,43 @@ body.body--cobalt .tags-browse-plate {
 }
 
 /*
-  Hoisted out of `.tags-browse` (was `@at-root body.body--cobalt .tags-browse-chips--selected
-  .w-chip`, converted by hand per docs/frontend-sass-removal-plan.md's block-classification note --
-  this selector deliberately does NOT descend from `.tags-browse`, so plain nesting under it would
-  have wrongly scoped the rule).
+  `--shadow-primary` is `none` under every aesthetic today, so this rule draws nothing; it is the
+  wiring a glow would re-enter through. A `WChip` cannot pick the token up through `WBtn`'s
+  `color="accent"` plumbing, so it is a hand-wired consumer of the same accent role.
 
-  `--shadow-primary` on the selected chips -- `none` under both Ledger and Cobalt now (OpenProject
-  #2856's matte pass dropped the mockup's `box-shadow:0 4px 14px rgba(200,48,60,.35)` glow outright,
-  no replacement), so this rule is a no-op in every aesthetic today and is kept as the wiring
-  `--shadow-primary` gains a value again through in the future. A dedicated modifier class rather
-  than reaching for `.tags-browse-chips` alone: that class is shared with the "available tags" block
-  below, which stays a flat fill with no glow.
-
-  OpenProject #2813: this is a `WChip`, not a `WBtn`, so it can't pick up `--shadow-primary` through
-  that component's own `color="accent"` wiring -- it stays a direct, hand-wired consumer on purpose,
-  already keyed off the same accent role #2813 decided on (see `WChip`'s own `color` usage on
-  `.tags-browse-chips--selected` above).
+  Not nested under `.tags-browse`: this selector does not descend from it.
 */
 body.body--cobalt .tags-browse-chips--selected .w-chip {
   box-shadow: var(--shadow-primary);
 }
 
 /*
-  OpenProject #2717: this page's own top band (`.w-section-header`, "Browse by tags") sat at the
-  shared 34px section-header height while `.sidebar-actions` (`MainLayout.vue`, `height: 41px` as of
-  #2861's three-cell locale|browse|top restructure) beside it and `.page-breadcrumbs` (`Index.vue`,
-  `min-height: 41px`, matched to `.sidebar-actions` by #2613 and re-matched by #2861) sit at the same
-  vertical position everywhere else -- so this band's own bottom hairline landed above theirs instead
-  of on the same line.
+  This band has to sit on the same line as `.sidebar-actions` (`MainLayout.vue`) and
+  `.page-breadcrumbs` (`Index.vue`) beside it, both 41px. The shared `.w-section-header` stays at its
+  own 34px rhythm -- raising it globally would move every section band in the app -- so the height is
+  pinned here instead, and only the height: padding stays the shared class's, as
+  `sectionHeaderRhythm.test.js` checks.
 
-  The shared `.w-section-header` stays 34px (`#2631`'s own rhythm, guarded by
-  `sectionHeaderRhythm.test.js`, which scans for -- and this rule deliberately isn't -- a `padding`
-  override): raising it globally would move every section band in the app. This page pins its own
-  band locally instead, the same way `.tags-browse-plate` below overrides `WItem`'s metrics: two
-  classes for deterministic specificity over the shared, unscoped rule.
-
-  `min-height`, not `height`, for the same reason `.page-breadcrumbs` uses it: a long enough locale
-  name or a wrapped title still has to be able to grow past the band. Fill and border are left alone
-  -- the design (`ui-redesign/Cardinal Wiki - Tags 3x.dc.html`) already draws this band at the shared
-  class's own tint fill and hairline rule, just re-pinned to 41px tall to follow #2861, so nothing
-  else needs to change for the two bands to read as one strip.
+  `min-height`, not `height`, so a wrapped title can still grow past the band.
 */
 .tags-browse .w-section-header {
   min-height: 41px;
 }
 
 /*
-  The result row's own box, at the design's metrics rather than `WItem`/`WItemSection`'s defaults.
-
-  Written with the page class stated a second time on purpose: the rules these override live in
-  those components' SCOPED style blocks, which are unlayered and carry a `[data-v-*]` attribute --
-  so `.w-item-section--main ~ .w-item-section--side` there scores the same as the two-class form
-  here would, and a tie is settled by whichever stylesheet Vite happens to emit last. The extra
-  class puts the outcome on specificity instead, where it is deterministic.
+  The page class is stated a second time on purpose: the rules these override live in those
+  components' SCOPED style blocks, which are unlayered and carry a `[data-v-*]` attribute, so a
+  single class here would tie with them and the tie goes to whichever stylesheet Vite emits last.
+  The extra class settles it on specificity instead.
 */
 .tags-browse .tags-browse-plate {
-  /* Row box: `padding:12px 14px`, top-aligned, no minimum band height of its own. */
   .w-item {
     align-items: flex-start;
     min-height: 0;
     padding: 12px 14px;
   }
 
-  /*
-    The rule between rows is the pale tint, a step lighter than the plate's own hairline -- drawn
-    here rather than through `WList`'s `separator`, which paints black at 12%.
-  */
+  /* The row rule is drawn here, not through `WList`'s `separator`, which paints black at 12%. */
   .w-item + .w-item {
     border-block-start: 1px solid var(--color-tint);
 
@@ -887,7 +770,6 @@ body.body--cobalt .tags-browse-chips--selected .w-chip {
     }
   }
 
-  /* 14px between the plate, the body and the tag rail -- the design's gap, not WItemSection's 16. */
   .w-item-section--avatar {
     min-width: 0;
     padding-inline-end: 14px;

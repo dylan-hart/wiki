@@ -10,15 +10,9 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2774: `.page-header` (`pages/Index.vue`) now consumes the `--page-header-*` tokens
- * `tailwind.css` declared for it (OpenProject #2767/#2771) and never had a consumer for. This is the
- * one geometry-and-paint assertion for that wiring, split from `Index.pageHeaderHeight.test.js`
- * (which is deliberately height-only, per its own docstring) since this is a different axis of the
- * same rule.
- *
- * Real browser, same reasoning as the sibling file: `background: var(--page-header-bg)` resolving to
- * a flat colour versus Ledger's plain white depending on which aesthetic's token substitutes in is
- * exactly the kind of cascade neither `jsdom` nor `happy-dom` runs.
+ * `.page-header`'s paint and geometry from the `--page-header-*` tokens; height is
+ * `Index.pageHeaderHeight.test.js`'s. Real browser, because which aesthetic's token substitutes into
+ * `background: var(--page-header-bg)` is exactly the cascade neither `jsdom` nor `happy-dom` runs.
  */
 
 const frontendRoot = join(import.meta.dirname, '..', '..')
@@ -29,9 +23,8 @@ function sfcStyles(relativePath) {
 }
 
 function compileSfcStyles(relativePath) {
-  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
-  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
-  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  // -> No compile step: every SFC `<style>` block is plain CSS, native nesting included, which the
+  //    real Chromium below parses as-is.
   return sfcStyles(relativePath)
 }
 
@@ -43,7 +36,6 @@ async function mountHeaderHtml() {
   return wrapper.html()
 }
 
-/** Every computed value the assertions below need, for one aesthetic/theme combination. */
 async function measureHeader({ browser, css, html, bodyClasses }) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
   try {
@@ -76,11 +68,9 @@ describe(
     let css
 
     /*
-    `mountHeaderHtml()` mounts real shared components (`WBtn`, ...) that reach for the `EVENT_BUS`
-    global -- `test/setup.js` rebuilds it in its own `beforeEach`, which runs before every `it()` but
-    NOT before a suite's `beforeAll`. Called fresh from inside each test, after that hook, rather than
-    once up front, for exactly that reason (`Index.pageHeaderHeight.test.js`'s own `mountHeaderHtml`
-    calls follow the same rule).
+    `mountHeaderHtml()` mounts real shared components that reach for the `EVENT_BUS` global, which
+    `test/setup.js` rebuilds in a `beforeEach` -- that runs before every `it()` but NOT before a
+    suite's `beforeAll`, so each test calls it fresh instead of sharing one mount from up here.
   */
     beforeAll(async () => {
       browser = await chromium.launch()
@@ -108,7 +98,7 @@ describe(
         expect(theme.marginTop).toBe('0px')
         expect(theme.borderBottomWidth).toBe('1px')
       }
-      // -> The two themes' own surfaces, unchanged: `$surface` / `$dark-3`.
+      // -> Each theme keeps its own surface colour, so the plate is not a fixed fill.
       expect(light.backgroundColor).not.toBe(dark.backgroundColor)
     })
 
@@ -128,27 +118,19 @@ describe(
       })
 
       for (const theme of [light, dark]) {
-        // -> No gradient (handoff 5, Part 1.1: "Banner is flat #1f4fd6 (no gradient)") -- a plain
-        //    colour resolves through `background-color`, not `background-image`.
+        // -> A flat fill resolves through `background-color`, so a gradient would show up here.
         expect(theme.backgroundImage).toBe('none')
         expect(theme.backgroundColor).toBe('rgb(31, 79, 214)')
         expect(theme.borderRadius).toBe('8px')
-        // -> Matte, not glowing (OpenProject #2856): the banner's drop-shadow was dropped along with
-        //    every other hairline glow the matte pass removed -- the flat fill carries the card on
-        //    its own, with no shadow underneath it.
         expect(theme.boxShadow).toBe('none')
         expect(theme.borderBottomWidth).toBe('0px')
         expect(theme.marginLeft).toBe('24px')
-        // -> OpenProject #2970 split the top margin from the horizontal margin's 24px into its own
-        //    token, since the mockup (`Page View 3x - Cobalt`) draws the banner as `margin:10px 24px
-        //    0`. Dylan's hands-on review (OpenProject #2998) then found the computed top margin
-        //    should be 0, not the mockup's stated 10px, matching Ledger's own no-op default --
-        //    `--page-header-margin-block-start` was corrected to 0 there, alongside
-        //    `cobaltTokens.test.js`'s own copy of this same assertion.
+        // -> `--page-header-margin-block-start` has its own token, split from the horizontal 24px,
+        //    but resolves to 0 -- the banner sits flush with the top, as in Ledger.
         expect(theme.marginTop).toBe('0px')
       }
-      // -> One token block covers both themes; `tailwind.css`'s Cobalt-dark block does not restate
-      //    `--page-header-*`, so the flat colour itself is identical either way.
+      // -> `tailwind.css`'s Cobalt-dark block does not restate `--page-header-*`, so one token block
+      //    covers both themes.
       expect(light.backgroundColor).toBe(dark.backgroundColor)
     })
   }

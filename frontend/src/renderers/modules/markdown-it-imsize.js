@@ -28,17 +28,12 @@ function renderImSize(state, silent) {
   const labelStart = state.pos + 2
   const labelEnd = state.md.helpers.parseLinkLabel(state, state.pos + 1, false)
 
-  // parser failed to find ']', so it's not a valid link
   if (labelEnd < 0) {
     return false
   }
 
   pos = labelEnd + 1
   if (pos < max && state.src.charCodeAt(pos) === 0x28 /* ( */) {
-    //
-    // Inline link
-    //
-
     // [link](  <href>  "title"  )
     //        ^^ skipping these spaces
     pos++
@@ -99,8 +94,7 @@ function renderImSize(state, silent) {
     if (pos - 1 >= 0) {
       code = state.src.charCodeAt(pos - 1)
 
-      // there must be at least one white spaces
-      // between previous field and the size
+      // there must be at least one white space between the previous field and the size
       if (code === 0x20) {
         res = parseImageSize(state.src, pos, state.posMax)
         if (res.ok) {
@@ -126,9 +120,6 @@ function renderImSize(state, silent) {
     }
     pos++
   } else {
-    //
-    // Link reference
-    //
     if (typeof state.env.references === 'undefined') {
       return false
     }
@@ -154,8 +145,7 @@ function renderImSize(state, silent) {
       pos = labelEnd + 1
     }
 
-    // covers label === '' and label === undefined
-    // (collapsed reference link and shortcut reference link respectively)
+    // covers label === '' and label === undefined: a collapsed and a shortcut reference link
     if (!label) {
       label = state.src.slice(labelStart, labelEnd)
     }
@@ -169,10 +159,6 @@ function renderImSize(state, silent) {
     title = ref.title
   }
 
-  //
-  // We found the end of the link, and know for a fact it's a valid link;
-  // so all that's left to do is to call tokenizer.
-  //
   if (!silent) {
     state.pos = labelStart
     state.posMax = labelEnd
@@ -252,20 +238,15 @@ function parseImageSize(str, pos, max) {
 
   pos++
 
-  // size must follow = without any white spaces as follows
-  // (1) =300x200
-  // (2) =300x
-  // (3) =x200
+  // the size must follow `=` with no white space: `=300x200`, `=300x` or `=x200`
   code = str.charCodeAt(pos)
   if (code !== 0x78 /* x */ && (code < 0x30 || code > 0x39) /* [0-9] */) {
     return result
   }
 
-  // parse width
   const resultW = parseNextNumber(str, pos, max)
   pos = resultW.pos
 
-  // next charactor must be 'x'
   code = str.charCodeAt(pos)
   if (code !== 0x78 /* x */) {
     return result
@@ -273,7 +254,6 @@ function parseImageSize(str, pos, max) {
 
   pos++
 
-  // parse height
   const resultH = parseNextNumber(str, pos, max)
   pos = resultH.pos
 

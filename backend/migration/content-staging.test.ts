@@ -16,19 +16,11 @@ import {
   type StagedPage
 } from './content-staging.ts'
 
-/**
- * A minimal in-memory `SourceConnector` built from fixture rows, for exactly the entities this
- * task's staging structure reads — `pages()`, `pageHistory()`, `navigation()`. Every other generator
- * is a deferred stub, same as the real connectors, since nothing here exercises them.
- */
 class FixtureSourceConnector implements SourceConnector {
   readonly kind: SourceKind = 'postgres'
   private readonly fixturePages: SourceRecord[]
   private readonly fixtureHistory: SourceRecord[]
   private readonly fixtureNavigation: SourceRecord[]
-  /** Bumped every time `pages()` is iterated — lets a test assert how many full walks a given call
-   * actually performs (the streaming design's whole point is exactly two: one for the pre-pass
-   * index, one for the real staging walk — never more, never a whole-corpus buffer in between). */
   pagesWalkCount = 0
 
   constructor(
@@ -85,9 +77,6 @@ class FixtureSourceConnector implements SourceConnector {
   }
 }
 
-/** Drains `extractContentStaging()` into a plain array plus its side-channel `context`, and also
- * returns `navigation` — the shape most of this file's tests want, matching what the old batch
- * `extractContentStaging()` used to return directly. */
 async function stageAll(
   connector: SourceConnector,
   options: Parameters<typeof extractContentStaging>[1]
@@ -102,10 +91,6 @@ async function stageAll(
   return { pages, navigation, index, ...context }
 }
 
-/** A small, hand-authored fixture set of 2.x rows: two locale variants of one page, one page with an
- * author id no user importer ever mapped (simulating a deleted 2.x user), a full history chain
- * (deliberately supplied out of `versionDate` order), and one history row for a page that no longer
- * exists among the current `pages` rows (a deleted page, which `pageHistory` is meant to outlive). */
 const FIXTURE_PAGES: SourceRecord[] = [
   {
     id: 1,
@@ -230,9 +215,8 @@ const FIXTURE_HISTORY: SourceRecord[] = [
   },
   {
     id: 102,
-    // No page 999 exists in FIXTURE_PAGES -- this page was deleted, and its history is meant to
-    // outlive it (2.5x-source-schema.md: pageHistory.pageId is "a plain column with no FK constraint
-    // ... rows are meant to outlive the page they belonged to").
+    // No page 999 in FIXTURE_PAGES: 2.x's pageHistory.pageId carries no FK, so history outlives a
+    // deleted page.
     pageId: 999,
     action: 'deleted',
     path: 'gone',
@@ -262,7 +246,6 @@ function makeUserIdMap(): Map<number, string> {
   const map = new Map<number, string>()
   map.set(10, 'uuid-user-10')
   map.set(11, 'uuid-user-11')
-  // 999 deliberately absent.
   return map
 }
 
@@ -426,16 +409,9 @@ describe('extractContentStaging', () => {
   })
 
   test("does not retain an already-emitted page's heavy fields across the walk", async () => {
-    // -> A fake connector yielding far more pages than any resident set may hold (the streaming
-    //    contract this test locks down), each carrying a large, distinguishable `content` payload —
-    //    if extractContentStaging() were still buffering every StagedPage (or a map keyed by oldId
-    //    holding onto them) rather than yielding and releasing one at a time, an earlier page's
-    //    `content` would still be reachable through some resident structure by the time a later page
-    //    is staged. Since a generator only ever holds the single object it just yielded, the only way
-    //    to observe this from outside is to confirm nothing beyond the lightweight index and the
-    //    current page is used to build the *next* page's history/siblings — proven indirectly by the
-    //    module never retaining anything array/map beyond ContentStagingIndex, which asserted here for
-    //    the earlier tests' page counts, plus content asserted per-page as it streams below.
+    // -> A generator's resident set cannot be observed from outside, so the streaming contract is
+    //    checked indirectly: each page is built fresh from its own row, an already-yielded page is
+    //    never mutated, and the index (all that stays resident) carries no heavy field.
     const manyPages: SourceRecord[] = Array.from({ length: 50 }, (_, i) => ({
       id: i + 1,
       path: `page-${i + 1}`,
@@ -472,27 +448,19 @@ describe('extractContentStaging', () => {
       index,
       context
     )) {
-      // -> Each yielded page carries its own correct content — proves the generator is building each
-      //    page fresh from the current connector row rather than handing back a stale reference into
-      //    some earlier accumulated structure.
       assert.equal(page.content, `body-${page.oldId}`.repeat(1000))
-      // -> The previous page object is untouched by staging the next one — nothing in this module
-      //    mutates an already-yielded StagedPage after handing it to the caller.
       if (previous) {
         assert.equal(previous.content, `body-${previous.oldId}`.repeat(1000))
       }
       previous = page
     }
 
-    // -> The index itself — the only thing kept resident across the whole walk — never carries a
-    //    single heavy field: it is nothing but the set of page oldIds.
     assert.deepEqual(Object.keys(index), ['pageOldIds'])
   })
 
   test("coerces an export-bundle source's integer-valued isPrivate/isPublished flags (OpenProject #1850)", async () => {
-    // -> MySQL/MariaDB/SQLite via the export bundle connector represent 2.x boolean columns as JSON
-    //    integers (0/1), not real booleans — content-staging.ts's asBoolean() must widen to accept
-    //    that representation the same way it already tolerates other cross-engine shapes.
+    // -> The export bundle (the only source for MySQL/MariaDB/SQLite) carries 2.x boolean columns as
+    //    JSON 0/1, not the Postgres connector's real booleans.
     const integerFlagPage: SourceRecord = {
       id: 100,
       path: 'integer-flags',
@@ -529,9 +497,6 @@ describe('extractContentStaging', () => {
   })
 
   test('stages integer-valued isPrivate/isPublished flags (the export-bundle representation) the same as real booleans (Task 1850)', async () => {
-    // The export bundle is the only supported source for MySQL/MariaDB/SQLite
-    // (docs/migration/decision-source-scope.md), where 2.x's knex/Objection layer represents these
-    // columns as integer 0/1 rather than the Postgres connector's real JS boolean.
     const bundlePage: SourceRecord = {
       id: 5,
       path: 'bundle-sourced',
@@ -594,10 +559,8 @@ describe('extractContentStaging', () => {
   })
 })
 
-// OpenProject #3294: a live PostgresSourceConnector hands back a real `Date` for a `timestamp`/
-// `timestamptz` column (node-postgres's own default decoding), not a string -- `checkShape()` only
-// validates column presence, not type. Staging must normalize either shape to the same ISO string a
-// bundle/JSON-backed connector already hands back, rather than bare `String(value)`-ing a `Date` into
+// A live PostgresSourceConnector yields a real `Date` for a timestamp column (node-postgres's default
+// decoding), a bundle connector an ISO string. Staging must normalize both to ISO: `String(date)` is
 // `Date.prototype.toString()`'s locale/timezone-dependent format.
 describe('timestamp normalization (Date vs string ambiguity)', () => {
   test('stagePage normalizes real Date objects to ISO strings', async () => {

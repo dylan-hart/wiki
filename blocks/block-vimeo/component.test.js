@@ -4,9 +4,6 @@ import './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-/**
- * Appends a `<block-vimeo>` with `url` and any other props set, and waits for Lit's first render.
- */
 const mountPlayer = (url, props = {}) =>
   mountBlock('block-vimeo', { props: url === undefined ? props : { url, ...props } })
 

@@ -26,10 +26,6 @@ import type { SemanticChunkMatch } from './semanticSearch.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import type { GroupRule } from './groups.ts'
 
-/**
- * `toVectorLiteral` is pure — no `CARDINAL`, no database — so it gets its own always-on describe rather
- * than living only inside the DB-backed section below.
- */
 describe('semanticSearch: toVectorLiteral', () => {
   test('serializes a vector into pgvector input format', () => {
     assert.equal(toVectorLiteral([0.1, 0.2, 0.3]), '[0.1,0.2,0.3]')
@@ -48,9 +44,8 @@ describe('semanticSearch: toVectorLiteral', () => {
 const DIMS = 384
 
 /**
- * A `DIMS`-dim basis vector: `1` at `index`, `0` elsewhere. Two different indices are orthogonal
- * (cosine distance `1`); the same index is identical (cosine distance `0`) — exact, easy-to-reason-
- * about distances with no need for a real embedding model.
+ * Two different indices are orthogonal (cosine distance `1`), the same index identical (distance
+ * `0`) — exact, hand-checkable distances with no real embedding model involved.
  */
 function basisVector(index: number): number[] {
   const v = Array.from({ length: DIMS }, () => 0)
@@ -58,11 +53,9 @@ function basisVector(index: number): number[] {
   return v
 }
 
-/** Zero-pads a short, human-readable literal (e.g. `[0.9, 0.1, 0]`) out to `DIMS` dimensions.
- *  Cosine distance depends only on the coordinates that are non-zero in either operand, so padding
- *  both the query and every stored vector with trailing zeros leaves every distance in this file
- *  unchanged from what the same literal would produce in a smaller-dimension table — it just lets
- *  every hop-1 and hop-2 test in this file share one `vector(DIMS)` column. */
+/** Cosine distance depends only on coordinates non-zero in either operand, so trailing zeros let a
+ *  short hand-written literal (`[0.9, 0.1, 0]`) keep its intended distance in the `vector(DIMS)`
+ *  column every test here shares. */
 function pad(vector: number[]): number[] {
   return [...vector, ...Array.from({ length: DIMS - vector.length }, () => 0)]
 }
@@ -85,14 +78,11 @@ function makeRow(overrides: Partial<SemanticChunkMatch> = {}): SemanticChunkMatc
   }
 }
 
-/**
- * `selectHop2Seeds` is pure — no `CARDINAL`, no database — same reasoning as `toVectorLiteral` above.
- */
 describe('semanticSearch: selectHop2Seeds', () => {
   test("picks the top HOP2_SEED_COUNT distinct pages by each page's own best (lowest-distance) chunk", () => {
     const rows: SemanticChunkMatch[] = [
       makeRow({ pageId: 'page-a', chunkIndex: 0, distance: 0.5 }),
-      makeRow({ pageId: 'page-a', chunkIndex: 1, distance: 0.1 }), // page-a's best chunk
+      makeRow({ pageId: 'page-a', chunkIndex: 1, distance: 0.1 }),
       makeRow({ pageId: 'page-b', chunkIndex: 0, distance: 0.2 }),
       makeRow({ pageId: 'page-c', chunkIndex: 0, distance: 0.3 }),
       makeRow({ pageId: 'page-d', chunkIndex: 0, distance: 0.4 })
@@ -142,16 +132,7 @@ describe('semanticSearch: selectHop2Seeds', () => {
   })
 })
 
-/**
- * `bestChunkPerPage`, `dedupeAndRank`, `mergeHopResults` and `search`'s degradation path are pure or
- * near-pure (no database; `search`'s only external dependency is `helpers/embeddings.ts#embedText`) —
- * see this repo's "prefer pure unit tests" testing convention.
- */
 describe('semanticSearch: merge/rank/paginate', () => {
-  /**
-   * Canned fixture builder — a chunk match with only the fields a given test cares about spelled out,
-   * everything else defaulted so a test reads as "what distinguishes this row from its siblings".
-   */
   function makeMatch(
     overrides: Partial<SemanticChunkMatch> & { pageId: string; distance: number }
   ): SemanticChunkMatch {
@@ -201,7 +182,7 @@ describe('semanticSearch: merge/rank/paginate', () => {
       assert.equal(ranked[0]!.hop, 1)
       assert.equal(ranked[0]!.distance, 0.3)
       assert.equal(ranked[1]!.hop, 2)
-      // -> The reported `distance` stays the real, unpenalized value — only sort order is penalized.
+      // -> The reported `distance` stays unpenalized; only sort order is.
       assert.equal(ranked[1]!.distance, 0.3)
     })
 
@@ -218,7 +199,7 @@ describe('semanticSearch: merge/rank/paginate', () => {
       const hop1 = [makeMatch({ pageId: 'direct', distance: 0.5 })]
       const hop2 = [makeMatch({ pageId: 'related', distance: 0.1 })]
       const ranked = dedupeAndRank(hop1, hop2)
-      // 0.1 + HOP2_DISTANCE_PENALTY (0.1) = 0.2, still less than 0.5
+      // 0.1 + HOP2_DISTANCE_PENALTY is still under 0.5
       assert.deepEqual(
         ranked.map((r) => r.pageId),
         ['related', 'direct']
@@ -361,10 +342,8 @@ describe('semanticSearch: merge/rank/paginate', () => {
 
   describe('search', () => {
     test('degrades to an empty, non-approximate result set when the local embedding model is unavailable', async () => {
-      // -> Forces `embedText`'s real "unusable on this platform" path the same way
-      //    `helpers/embeddings.test.ts` does — renaming `@huggingface/transformers` out of the way
-      //    for the duration of this test — rather than actually attempting the real model's ~90MB
-      //    download, so this exercises `search()`'s own degradation path fast and offline.
+      // -> Renaming `@huggingface/transformers` out of the way forces `embedText`'s real "unusable
+      //    on this platform" path offline, rather than attempting the model's real download.
       const nodeModulesDir = path.join(import.meta.dirname, '..', 'node_modules', '@huggingface')
       const packageDir = path.join(nodeModulesDir, 'transformers')
       const disabledDir = path.join(nodeModulesDir, '.transformers-disabled-for-test')
@@ -405,21 +384,10 @@ describe('semanticSearch: merge/rank/paginate', () => {
 })
 
 /**
- * `annSearch` and `runHop2` are real SQL orchestration — a vector-index `ORDER BY`/`LIMIT` joined to
- * `pages` and filtered through `filterVisible` — the kind of thing this codebase's testing policy
- * reaches for a real Postgres over mocking the query builder for.
- *
- * `pageEmbeddingChunks` is not part of the generated schema (see `semanticSearch.ts`'s own doc
- * comment) — `core/db.ts`'s real boot-time bootstrap (#3095) is what creates it against a live
- * instance. This suite stands up its own throwaway copy of that same shape directly against the
- * fixture's own schema, scoped to this file's test run and dropped with it in `teardownTestDb()`,
- * rather than depending on #3095 having merged.
- *
- * One `setupTestDb()`/`teardownTestDb()` pair for the whole DB-backed section, shared by both the
- * `annSearch` and `runHop2` describes below — and one
- * `vector(DIMS)` table both hop 1 and hop 2 read and write, at the real `EMBEDDING_DIMENSIONS`
- * (`helpers/embeddings.ts`) rather than an arbitrary small width, via the `basisVector`/`pad` helpers
- * above.
+ * `pageEmbeddingChunks` is not part of the generated schema — `core/pgvectorBootstrap.ts` creates
+ * it at boot — so this suite stands up its own copy of that shape in the fixture's schema, dropped
+ * with it by `teardownTestDb()`. Its `vector(DIMS)` width is the real `EMBEDDING_DIMENSIONS`
+ * (`helpers/embeddings.ts`), not an arbitrary small one; `basisVector`/`pad` keep that workable.
  */
 describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -456,13 +424,11 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * Postgres extensions are database-wide, and `node --test` runs matched files concurrently against
-   * the same `DATABASE_URL` — a session-scoped advisory lock (mirroring `test/db.ts`'s own
-   * `createExtensionsSerialized`, under a distinct lock key so the two never contend with each other)
-   * is what keeps two suites' `CREATE EXTENSION IF NOT EXISTS vector` from racing. Returns `false`
-   * rather than throwing when the extension genuinely isn't installed on this Postgres, so the suite
-   * can skip cleanly instead of failing on an environment precondition (per the design doc's own
-   * "graceful degradation" testing note).
+   * Postgres extensions are database-wide and `node --test` runs files concurrently against one
+   * `DATABASE_URL`, so the advisory lock is what keeps two suites' `CREATE EXTENSION` from racing
+   * — under its own key, so it never contends with `test/db.ts`'s `createExtensionsSerialized`.
+   * Answers `false` rather than throwing when pgvector simply isn't installed, so the suite skips
+   * instead of failing on an environment precondition.
    */
   async function ensurePgvectorExtension(): Promise<boolean> {
     const pool = new Pool({ connectionString: process.env.DATABASE_URL })
@@ -509,8 +475,6 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
     `)
   }
 
-  /** Denies `read:pages` under `docs/hidden`, allows everything else — the same shape
-   *  `modules/search/db/search.test.ts`'s "paging stability for a restricted reader" describe uses. */
   async function restrictReaderToOpenBranch(): Promise<PageActor> {
     const rules: GroupRule[] = [
       {
@@ -557,9 +521,8 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
         actor
       )
 
-      // -> The hidden page's chunk is the CLOSER match (identical to the query vector) -- proving
-      //    `filterVisible` drops it despite ranking first, not merely that a farther visible row still
-      //    shows up.
+      // -> The hidden page's chunk is the CLOSER match (identical to the query vector), so this
+      //    proves `filterVisible` drops it despite ranking first.
       await insertChunk(hiddenPage.id, basisVector(0), { chunkText: 'exact match, but hidden' })
       await insertChunk(openPage.id, pad([0.9, 0.1, 0]), { chunkText: 'close match, visible' })
 
@@ -596,10 +559,8 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       const results = await annSearch(basisVector(0), { siteId: fixtures.siteId, locales: ['en'] })
 
-      // -> One `setupTestDb()` fixture is shared by every test in this file (per the "Testing
-      //    (backend)" convention), so the site/locale this suite scopes to also carries whatever
-      //    earlier tests in this file inserted -- narrow down to this test's own two pages before
-      //    asserting, rather than asserting the whole scanned set.
+      // -> The whole file shares one fixture, so this site/locale also carries what earlier tests
+      //    inserted: narrow to this test's own two pages rather than assert the whole scanned set.
       const pageIds = results
         .map((r) => r.pageId)
         .filter((id) => id === openPage.id || id === hiddenPage.id)
@@ -628,8 +589,8 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
         pageInput({ path: 'docs/open/far', title: 'Far' }),
         actor
       )
-      // -> Inserted out of distance order, so a passing result proves postgres's own `ORDER BY`, not
-      //    insertion order.
+      // -> Inserted out of distance order, so a pass proves postgres's `ORDER BY`, not insertion
+      //    order.
       await insertChunk(far.id, basisVector(1))
       await insertChunk(near.id, basisVector(0))
       await insertChunk(mid.id, pad([0.7, 0.7, 0]))
@@ -711,10 +672,6 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       )
     })
 
-    /**
-     * OpenProject #3328: `locales` accepts several values at once, matching keyword search's own
-     * `locales` filter -- a translation in a THIRD locale, named by neither, still never comes back.
-     */
     test('locales: several values are ORed together, a locale named by neither still never comes back', async (t) => {
       if (!pgvectorAvailable) {
         t.skip('pgvector extension not installed on this Postgres')
@@ -746,10 +703,6 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.deepEqual(own, [enPage.id, frPage.id].sort())
     })
 
-    /**
-     * OpenProject #3328: `path` is a prefix match, same semantics as keyword search's own `path`
-     * filter (`escapeLikePattern` + trailing `%`).
-     */
     test('path: only a page whose path starts with the filter comes back', async (t) => {
       if (!pgvectorAvailable) {
         t.skip('pgvector extension not installed on this Postgres')
@@ -782,10 +735,6 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       )
     })
 
-    /**
-     * OpenProject #3328: `tags` requires the page to carry every listed tag (`@>`), same as keyword
-     * search's own `tags` filter -- a page carrying only SOME of the listed tags does not match.
-     */
     test('tags: a page must carry every listed tag, not merely one of them', async (t) => {
       if (!pgvectorAvailable) {
         t.skip('pgvector extension not installed on this Postgres')
@@ -818,7 +767,6 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       )
     })
 
-    /** OpenProject #3328: `editor` is an exact match. */
     test('editor: only a page using the named editor comes back', async (t) => {
       if (!pgvectorAvailable) {
         t.skip('pgvector extension not installed on this Postgres')
@@ -855,7 +803,6 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       )
     })
 
-    /** OpenProject #3328: `publishState` is an exact match. */
     test('publishState: only a page in the named state comes back', async (t) => {
       if (!pgvectorAvailable) {
         t.skip('pgvector extension not installed on this Postgres')
@@ -901,12 +848,6 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
   })
 
-  /**
-   * Task #3100: hop-2 seed selection (pure, above) + the second ANN query (DB-backed here, real
-   * pgvector and real page rules) — see
-   * `docs/superpowers/specs/2026-09-13-semantic-vector-search-design.md`'s "Multi-hop retrieval
-   * algorithm" section, steps 4-5.
-   */
   describe('runHop2', () => {
     const hop2AllowAllRule: GroupRule = {
       id: 'allow-all',
@@ -951,25 +892,25 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
         pageInput({ path: 'near-seed', title: 'Near Seed' }),
         actor
       )
-      await insertChunk(nearSeed.id, seedVector) // distance 0 to the seed vector
+      await insertChunk(nearSeed.id, seedVector)
 
       const farFromSeed = await pagesModel.createPage(
         fixtures.siteId,
         pageInput({ path: 'far-from-seed', title: 'Far From Seed' }),
         actor
       )
-      await insertChunk(farFromSeed.id, basisVector(11)) // orthogonal to the seed vector: distance 1
+      await insertChunk(farFromSeed.id, basisVector(11)) // orthogonal to the seed: distance 1
 
       const hidden = await pagesModel.createPage(
         fixtures.siteId,
         pageInput({ path: 'hidden-hop2-page', title: 'Hidden Hop2 Page' }),
         actor
       )
-      await insertChunk(hidden.id, seedVector) // distance 0 too -- would outrank everything if visible
+      await insertChunk(hidden.id, seedVector) // distance 0 too: would outrank all if visible
 
-      // -> The seed row's own `distance` (from hop 1, against the ORIGINAL query) is deliberately set
-      //    far from 0: if `runHop2` mistakenly reused it, or reused some other vector, instead of the
-      //    seed's own `embedding`, the near-seed page would not come back as the closest match.
+      // -> The seed row's own `distance` (hop 1, against the ORIGINAL query) is deliberately far
+      //    from 0: had `runHop2` queried by anything but the seed's own `embedding`, the near-seed
+      //    page would not come back as the closest match.
       const seed = makeRow({
         pageId: 'seed-page-not-a-real-row',
         embedding: seedVector,
@@ -1033,8 +974,8 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
         makeRow({ pageId: 'p0', embedding: basisVector(20), distance: 0 }),
         makeRow({ pageId: 'p1', embedding: basisVector(21), distance: 0.1 }),
         makeRow({ pageId: 'p2', embedding: basisVector(22), distance: 0.2 }),
-        // -> a 4th distinct page, excluded as a seed by HOP2_SEED_COUNT -- its embedding
-        //    (basisVector(23), matching excludedTarget's own chunk) must never seed a query.
+        // -> a 4th distinct page, excluded as a seed by HOP2_SEED_COUNT: its embedding matches
+        //    `excludedTarget`'s own chunk, so it must never seed a query.
         makeRow({ pageId: 'p3', embedding: basisVector(23), distance: 0.3 })
       ]
 
@@ -1050,11 +991,10 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
         'the top-3 seed at basisVector(20) found the page whose own chunk matches it'
       )
 
-      // -> With only a handful of chunks in the whole test database, `excluded-seed-target` still
-      //    turns up in every seed's own overfetched (`SEMANTIC_SCAN_CAP`) scan -- absence is not the
-      //    right signal. What proves basisVector(23) was never USED AS A QUERY is that its distance
-      //    is never near 0: if it had seeded a query, its own matching chunk would score ~0 against
-      //    it, exactly like `target` does above against basisVector(20).
+      // -> With so few chunks in the database, `excluded-seed-target` turns up in every seed's
+      //    overfetched (`SEMANTIC_SCAN_CAP`) scan anyway, so absence is not the signal. What proves
+      //    its vector never seeded a query is that its distance is never near 0 -- a seeded query
+      //    would score its own matching chunk at ~0, as `target` scores above.
       const excludedAppearances = results.filter((r) => r.pageId === excludedTarget.id)
       assert.ok(
         excludedAppearances.every((r) => r.distance > 0.9),
@@ -1062,11 +1002,6 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       )
     })
 
-    /**
-     * OpenProject #3328: the filters apply at hop 2 exactly like hop 1, since both go through the
-     * same `queryChunks` -- a page a filter excludes cannot reappear by way of the second hop's own
-     * expansion, even when it would otherwise be the seed's own nearest match.
-     */
     test('a page excluded by a filter never reappears via hop-2 expansion', async (t) => {
       if (!pgvectorAvailable) {
         t.skip('pgvector extension not installed on this Postgres')

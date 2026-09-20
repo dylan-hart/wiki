@@ -27,20 +27,13 @@ export interface SetPageWatchPreferenceArgs {
 }
 
 /**
- * Change the delivery preference on an existing watch, gated exactly like `PATCH
- * /_api/sites/:siteId/pages/:pageId/watch` (`api/watching.ts`): logged in, and nothing else -- same
- * reasoning as `watch_page`/`unwatch_page`. `siteId` is resolved purely for the key's own site-pin
- * enforcement; `models/pageWatching.ts#setPreference()` itself takes no `siteId`.
+ * Gated like `PATCH /_api/sites/:siteId/pages/:pageId/watch` (`api/watching.ts`): logged in, and
+ * nothing else. `siteId` is resolved purely to enforce the key's own site pin --
+ * `models/pageWatching.ts#setPreference()` itself takes none.
  *
- * Only the fields the caller actually passed are forwarded to `setPreference()` -- an omitted field
- * must stay a genuinely ABSENT key, not a key set to `undefined`. `setPreference()` decides whether
- * there is anything to update at all by `Object.keys(preference).length`, so passing all four keys
- * with `undefined` values (easy to do by naively spreading a fully-typed args object) would look like
- * four real changes and fall into its update path instead of its "nothing asked, just report whether
- * still watching" one.
- *
- * There is nothing to set a preference ON for a page the caller is not watching -- mirroring the REST
- * route, this throws rather than creating a watch as a side effect; call `watch_page` first.
+ * An omitted field must stay a genuinely ABSENT key rather than one set to `undefined`:
+ * `setPreference()` decides whether there is anything to update by `Object.keys(preference).length`,
+ * so spreading a fully-typed args object would read as four real changes.
  */
 export async function handleSetPageWatchPreference(
   ctx: McpAuthContext,

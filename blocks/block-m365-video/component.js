@@ -1,11 +1,9 @@
 import { VideoEmbedElement } from '../shared/video-embed.js'
 
 /**
- * Hostnames Microsoft serves these embeds from. Deliberately the whole allow-list, checked as a
- * suffix with a dot boundary (`host === suffix || host.endsWith('.' + suffix)`) so a video's own
- * subdomain (`contoso-my.sharepoint.com`, `web.microsoftstream.com`) passes while a lookalike host
- * that merely ends with the same characters (`notsharepoint.com`, `evil-sharepoint.com.attacker.net`)
- * does not. This list, not a generic "any iframe src" field, is what keeps this block narrow.
+ * Matched as a suffix on a dot boundary, so a tenant's own subdomain (`contoso-my.sharepoint.com`)
+ * passes while a lookalike ending in the same characters (`evil-sharepoint.com.attacker.net`) does
+ * not. This list is the whole of what this block will frame.
  */
 const ALLOWED_HOST_SUFFIXES = [
   'sharepoint.com',
@@ -15,15 +13,11 @@ const ALLOWED_HOST_SUFFIXES = [
   'clipchamp.com'
 ]
 
-/** An embed-code snippet's `src` attribute, single- or double-quoted, across any line breaks in it. */
 const IFRAME_SRC = /<iframe\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i
 
 /**
- * The address a pasted embed points at, or null for input with nothing to extract.
- *
- * Accepts either the full `<iframe>` snippet Microsoft's Share -> Manage Access flow hands out, or
- * just the `src` pulled out of it by hand — both are what an author is likely to paste. Input that
- * opens with `<` but carries no `src` is treated as a malformed snippet, not as a literal address.
+ * Takes either the whole `<iframe>` snippet or a bare `src`, since an author pastes both. Input
+ * that opens with `<` but carries no `src` is a malformed snippet, not a literal address.
  */
 function extractSrc(source) {
   const match = IFRAME_SRC.exec(source)
@@ -33,7 +27,6 @@ function extractSrc(source) {
   return source.startsWith('<') ? null : source
 }
 
-/** `src` parsed as a URL, or null for one that is not a well-formed `https:` address. */
 function parseHttpsUrl(src) {
   const withScheme = src.startsWith('//') ? `https:${src}` : src
   const url = URL.parse(withScheme)
@@ -46,24 +39,14 @@ function isAllowedHost(hostname) {
 }
 
 /**
- * Block Microsoft 365 Video
- *
- * A Clipchamp or Stream-on-SharePoint video, from the embed code Microsoft's own Share -> Manage
- * Access flow hands out. The `src` is validated against Microsoft's own video hosts and then passed
- * through untouched — unlike `block-youtube`, this never rebuilds the address from parameters, since
- * Microsoft's snippet already carries whatever the tenant's sharing settings require and there is no
- * safe way to guess which of them can be dropped.
- *
- * This does not, and cannot, get a viewer past Microsoft's own auth wall: the frame plays only for a
- * viewer already signed into the same Microsoft 365 tenant with access to the file. Clipchamp has no
- * public-sharing option at all — see the block's `hint` text, which says so wherever an author fills
- * this prop in.
+ * This does not, and cannot, get a viewer past Microsoft's own auth wall: the frame plays only for
+ * a viewer already signed into the same tenant with access to the file, and Clipchamp has no
+ * public-sharing option at all.
  */
 export class BlockM365VideoElement extends VideoEmbedElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time into `compiled/blocks.manifest.json`, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'm365-video',
@@ -95,10 +78,6 @@ export class BlockM365VideoElement extends VideoEmbedElement {
   }
 
   static properties = {
-    /**
-     * The pasted embed code or address
-     * @type {string}
-     */
     embed: { type: String }
   }
 
@@ -108,9 +87,8 @@ export class BlockM365VideoElement extends VideoEmbedElement {
   }
 
   /*
-    The only one of these blocks whose input is not a `url` prop: what an author pastes here is a
-    whole `<iframe>` snippet out of Microsoft's own Share panel, so the source hook is overridden and
-    the inherited `url` prop is simply never set.
+    What an author pastes here is a whole `<iframe>` snippet, not an address, so this block
+    overrides the source hook and leaves the inherited `url` prop unset.
   */
   _source() {
     return (this.embed ?? '').trim()
@@ -125,9 +103,9 @@ export class BlockM365VideoElement extends VideoEmbedElement {
   }
 
   /**
-   * The address to embed, passed through untouched — unlike `block-youtube`, this never rebuilds it
-   * from parameters, since Microsoft's snippet already carries whatever the tenant's sharing
-   * settings require and there is no safe way to guess which of them can be dropped.
+   * The address is passed through untouched rather than rebuilt from parameters the way
+   * `block-youtube` does: the snippet carries whatever the tenant's sharing settings require, and
+   * there is no safe way to guess which of those can be dropped.
    */
   _parse(source) {
     const src = extractSrc(source)
@@ -144,11 +122,8 @@ export class BlockM365VideoElement extends VideoEmbedElement {
   }
 
   /**
-   * Two different messages, told apart by re-reading the input `_parse` just refused: a host that is
-   * simply not Microsoft's is worth naming, since the paste is otherwise a perfectly good embed.
-   * Recomputed rather than remembered — this runs only on the failure path, once, and a hook that
-   * returned a reason alongside its result would put that branch in every block here for the sake of
-   * this one.
+   * Re-reads the input `_parse` just refused rather than having `_parse` report a reason, which
+   * would put that branch in every block sharing the base class for the sake of this one.
    */
   _invalidSourceMessage(source) {
     const src = extractSrc(source)

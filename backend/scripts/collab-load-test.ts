@@ -1,32 +1,19 @@
 /* eslint-disable no-console -- a throwaway load-test script: its stdout IS its result, and it runs outside a booted `CARDINAL`. */
 /**
- * Throwaway load test for `core/collab.ts`'s chunked relay path — task 478.
+ * Manual load test for `core/collab.ts`'s chunked relay path, deliberately outside `npm run test` —
+ * `core/collab.test.ts` carries the same claims at CI scale. It seeds a multi-megabyte page, boots
+ * three real collab instances as worker threads (each with its own `CARDINAL`, LISTEN/NOTIFY client and
+ * `INSTANCE_ID`), fires bursty concurrent edits from sessions spread across them, then checks every
+ * replica converged and no instance is left holding a partial — the two shapes a dropped or
+ * misordered chunk, or a premature `RELAY_REASSEMBLY_TIMEOUT`, would take. It finishes by timing a
+ * cold instance's `hello`/`state` handshake against `PEER_STATE_TIMEOUT`.
  *
- * Not part of `npm run test`: this is a manual, ad-hoc script for the one investigation it was built
- * for, not a regression suite (see `core/collab.test.ts` for the permanent, CI-scale version of the
- * same claims). Run it against a disposable Postgres:
+ * Run against a disposable Postgres:
  *
  *   docker run --rm -d --name wiki-collab-load -p 56078:5432 \
  *     -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18
  *   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56078/postgres \
  *     node --experimental-strip-types backend/scripts/collab-load-test.ts
- *
- * What it does:
- *   1. Seeds one page with a multi-megabyte markdown document.
- *   2. Boots three real, separate `core/collab.ts` instances (worker threads, own `CARDINAL` global, own
- *      postgres LISTEN/NOTIFY client, own `INSTANCE_ID` — see `test/collabWorker.ts`), standing in for
- *      "at least two backend instances".
- *   3. Opens several simulated editor sessions spread across those instances, each a genuinely separate
- *      Yjs replica synced over the real sync protocol (`openSession` in `test/collabWorker.ts` — the
- *      same message framing `frontend/src/composables/collab.js`'s `WebsocketProvider` speaks).
- *   4. Fires concurrent, bursty edits from all sessions at once, several rounds, including edits large
- *      enough that a single one requires many `RELAY_CHUNK_SIZE` chunks on its own.
- *   5. Confirms every session on every instance converges to byte-identical text, and that no instance
- *      is left holding an abandoned partial — the two ways a dropped or misordered chunk, or a
- *      premature `RELAY_REASSEMBLY_TIMEOUT`, would show up.
- *   6. Separately measures how long a cold room's `hello`/`state` handshake actually takes to fully
- *      reassemble once the room holds that multi-megabyte document, and compares it against
- *      `PEER_STATE_TIMEOUT`.
  */
 import { Worker } from 'node:worker_threads'
 import { setupTestDb, teardownTestDb } from '../test/db.ts'
@@ -109,8 +96,8 @@ async function main(): Promise<void> {
   const connectionString = process.env.DATABASE_URL!
   const { pages } = await import('../models/pages.ts')
 
-  // -> ~3MB of markdown, comfortably "multi-megabyte" and, once encoded as a single Yjs insert op and
-  //    base64'd, several hundred `RELAY_CHUNK_SIZE` chunks on its own.
+  // -> ~3MB: once encoded as a single Yjs insert op and base64'd, several hundred
+  //    `RELAY_CHUNK_SIZE` chunks on its own.
   const seedContent = randomText(3 * 1024 * 1024)
   const page = await pages.createPage(
     fixtures.siteId,
@@ -130,8 +117,8 @@ async function main(): Promise<void> {
   const instances = [a, b, c]
 
   try {
-    // -> Open the room on `a` first so it seeds from the stored page; `b` and `c` then cold-start via
-    //    the peerState handshake, exercising exactly the multi-chunk `state` reply this task cares about.
+    // -> `a` first so it seeds from the stored page; `b` and `c` then cold-start via the peerState
+    //    handshake, which is what exercises the multi-chunk `state` reply.
     console.log('Opening room on instance a (seeds from stored page)...')
     const first = await a.call('ensureRoom', { pageId: page.id })
     console.log(`  room text length on a: ${first.length ?? first.text?.length}`)
@@ -146,7 +133,6 @@ async function main(): Promise<void> {
       `  b/c room open (incl. peerState handshake) took ${(performance.now() - bcStart).toFixed(0)}ms`
     )
 
-    // -> Several simulated editor sessions spread across all three instances.
     const sessionsPerInstance = 2
     const sessionIds: { instance: WorkerHandle; id: string }[] = []
     for (const [idx, instance] of instances.entries()) {
@@ -160,9 +146,8 @@ async function main(): Promise<void> {
       `Opened ${sessionIds.length} simulated sessions across ${instances.length} instances.`
     )
 
-    // -> Concurrent, bursty edits: several rounds, every session firing at once, sizes ranging from a
-    //    few characters (a keystroke) to tens of KB (a paste) — large enough on the high end to force
-    //    several chunks from a single update.
+    // -> Edit sizes span a keystroke to a paste, the high end large enough to force several chunks
+    //    out of a single update.
     const rounds = 6
     for (let round = 0; round < rounds; round++) {
       const edits = sessionIds.map(({ instance, id }) => {
@@ -214,10 +199,9 @@ async function main(): Promise<void> {
       }
     }
 
-    // -> PEER_STATE_TIMEOUT check: a genuinely fresh 4th instance, with no room of its own, asks the
-    //    cluster for state on a room that (after the edits above) holds several megabytes. Measured
-    //    with a generous timeout so the real completion time is visible, then compared against the
-    //    current constant.
+    // -> A genuinely fresh 4th instance asks the cluster for state on a room that now holds several
+    //    megabytes. The measuring timeout is deliberately far above `PEER_STATE_TIMEOUT` so the real
+    //    completion time is visible rather than cut short by the constant under test.
     console.log('Starting a 4th, cold instance to measure the hello/state handshake...')
     const d = await startInstance(connectionString, fixtures.schema, 'load-d-cold', fixtures.siteId)
     try {

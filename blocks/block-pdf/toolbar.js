@@ -3,27 +3,15 @@ import { html } from 'lit'
 import { inlineIcon, MDI_PATHS } from '../shared/icons.js'
 
 /**
- * `block-pdf`'s toolbar, split out of `component.js` (BLK-F9).
- *
- * A pure function of the viewer's state, not a second component: it draws into the same shadow root
- * as the rest of the block (`./styles.js` styles it) and owns nothing -- every control hands back to
- * a method on the element. The split is for `component.js`'s size, and because the toolbar's markup
- * has no bearing on the render engine it used to sit in the middle of.
+ * A function rather than a second component: it draws into the block's own shadow root and is styled
+ * from `./styles.js`.
  */
 
-/** The zoom steps, and so also what the toolbar's list offers besides the two fitting modes. */
 export const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
 
 /**
- * @param {object} state
- * @param {number} state.currentPage The page the viewer is showing, 1-based.
- * @param {number} state.pageCount How many pages the document has; 0 before it has loaded.
- * @param {number} state.scale The scale the pages are actually drawn at, for the zoom buttons'
- *   disabled states.
- * @param {string} state.zoomValue What the zoom list is set to -- `page-width`, `page-fit`, or a
- *   percentage as it is written in the list.
- * @param {string} state.src The document's own address, for the "open in a new tab" link.
- * @param {object} handlers One per control, bound by the element that owns them.
+ * `state.scale` is what the pages are actually drawn at, which is what tells the zoom buttons they
+ * are at an end; `state.zoomValue` is only what the list shows.
  */
 export function renderToolbar(state, handlers) {
   return html`

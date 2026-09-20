@@ -22,11 +22,7 @@
           <transition name="syncing">
             <w-spinner v-show="commonStore.routerLoading" color="accent" size="20px" />
           </transition>
-          <!--
-            Outlined rather than flat-on-a-black-bar: the admin header is a white plate now, so these
-            two need an edge of their own to read as controls. Exit keeps the accent -- it is the one
-            thing in the bar that leaves.
-          -->
+          <!-- Outlined so they read as controls on the white header plate -->
           <w-btn
             class="ms-2 admin-header-action-btn"
             outline
@@ -41,15 +37,11 @@
             :label="commonStore.locale.toUpperCase()"
             color="slate">
             <!--
-              Down from the button's trailing edge, like `PageHeader.vue`'s review-queue menu: `WMenu`
-              places itself in raw viewport pixels and knows nothing about `direction`
-              (`composables/anchoredPosition.js`), so the LTR-written "right" pair would pop the panel
-              off toward the visual right even once `dir="rtl"` has moved this button (the last item in
-              this toolbar's row) to the visual left. `localeMenu` mirrors it via `directionalAnchor`,
-              kept reactive off `composables/direction.js` since this header, like `PageHeader.vue`'s,
-              outlives a single locale -- it is this very menu that switches `commonStore.locale`, so a
-              reader picking an RTL locale from it must see it flip on the next render, not only after a
-              full reload.
+              `WMenu` places itself in raw viewport pixels and knows nothing about `direction`, so
+              the LTR-written "right" pair would pop the panel off toward the visual right once
+              `dir="rtl"` has moved this button to the visual left. `localeMenu` mirrors it
+              reactively: this menu is what switches the locale, so the flip has to happen on the
+              next render rather than on a reload.
             -->
             <w-menu
               content-class="translucent-menu"
@@ -91,10 +83,9 @@
           <w-item class="mb-2">
             <w-item-section>
               <!--
-                The edge is the accent FILL and the label the lightened accent, which is the pair the
-                design draws on the ink sidebar: `#e4676b` reads as a border on `#1c2233` where
-                `#f08287` (a text tone) is too pale to bound a box, and `#f08287` reads as a label
-                where the fill tone does not clear contrast.
+                Border in the accent fill, label in the lightened accent: on the ink sidebar the
+                text tone is too pale to bound a box, and the fill tone does not clear contrast as
+                a label.
               -->
               <w-btn
                 class="admin-contribute-btn"
@@ -107,9 +98,8 @@
             </w-item-section>
           </w-item>
           <!--
-            8 purpose-based groups (Feature #3330), replacing the old flat Site/Users/System scheme.
-            Overview carries no wrapping `v-if` -- Dashboard and Contribute are always reachable once
-            `access:admin` itself has been granted (checked by the route watcher below), same as before.
+            Overview carries no wrapping `v-if`: Dashboard and Contribute are reachable to anyone
+            holding `access:admin`, which the route watcher below already enforces.
           -->
           <w-item-label class="admin-nav-section" header>{{
             t('admin.nav.overview')
@@ -135,16 +125,6 @@
                 :class="countBadgeClass(adminStore.sites.length)" />
             </w-item-section>
           </w-item>
-          <!--
-            Content: Pages and Recovery/Deleted Pages keep the exact `siteSectionShown` condition they
-            were implicitly gated by before (as the two items in the old Site group with no `v-if` of
-            their own); Classification keeps the exact `manage:system` condition it was implicitly
-            gated by as a System item. Glossary/Comments/Approvals keep their own pre-existing `v-if`
-            verbatim -- see the implementation-plan comment on this work package for why the old
-            `siteSectionShown && ownV-if` compound isn't reproduced for them: each already carries its
-            own explicit, backend-mirroring gate, and the `siteSectionShown` AND was an artifact of the
-            old single-Site-group structure, not a deliberate second security layer.
-          -->
           <template v-if="contentSectionShown">
             <w-item-label class="admin-nav-section" header>{{
               t('admin.nav.content')
@@ -204,7 +184,6 @@
               <w-item-section>{{ t('admin.classification.title') }}</w-item-section>
             </w-item>
           </template>
-          <!-- Site Configuration: unchanged -- every member already carried its own maySee* gate. -->
           <template v-if="siteConfigurationShown">
             <w-item-label class="admin-nav-section" header>{{
               t('admin.nav.siteConfiguration')
@@ -281,10 +260,6 @@
               <w-item-section>{{ t('admin.storage.title') }}</w-item-section>
             </w-item>
           </template>
-          <!--
-            Editing Tools: Editors/Blocks keep their own maySee* gate; Search Engine/Icons keep the
-            exact `manage:system` condition they were implicitly gated by as System items.
-          -->
           <template v-if="editingToolsShown">
             <w-item-label class="admin-nav-section" header>{{
               t('admin.nav.editingTools')
@@ -326,13 +301,6 @@
               <w-item-section>{{ t('admin.icons.title') }}</w-item-section>
             </w-item>
           </template>
-          <!--
-            Users & Access: Authentication keeps its own pre-existing `manage:system` v-if;
-            Groups/Users keep their own gate; Audit Log keeps the exact `manage:system` condition it
-            was implicitly gated by as a System item. Security (OpenProject #3356) moved in from the
-            old Security & Advanced group, gated the same way it always was -- `manage:system`, now
-            declared explicitly on the item itself rather than inherited from that group's template.
-          -->
           <template v-if="usersAccessShown">
             <w-item-label class="admin-nav-section" header>{{
               t('admin.nav.usersAccess')
@@ -389,11 +357,6 @@
               <w-item-section>{{ t('admin.security.title') }}</w-item-section>
             </w-item>
           </template>
-          <!--
-            Monitoring: every member came from the old System group with no gate of its own beyond
-            `manage:system`, and none of them move anywhere else -- one group-level `v-if`
-            reproduces the old effective visibility exactly, same as Advanced below.
-          -->
           <template v-if="userStore.can(`manage:system`)">
             <w-item-label class="admin-nav-section" header>{{
               t('admin.nav.monitoringHealth')
@@ -466,11 +429,6 @@
               </w-item-section>
             </w-item>
           </template>
-          <!--
-            Integrations & Automation: API Access/Webhooks/Extensions/Mail keep the exact
-            `manage:system` condition they were implicitly gated by as System items; Analytics keeps
-            its own pre-existing `manage:sites` v-if verbatim.
-          -->
           <template v-if="integrationsAutomationShown">
             <w-item-label class="admin-nav-section" header>{{
               t('admin.nav.integrationsAutomation')
@@ -535,12 +493,6 @@
               <w-item-section>{{ t('admin.analytics.title') }}</w-item-section>
             </w-item>
           </template>
-          <!--
-            Advanced: every member came from the old System group with no gate of its own beyond
-            `manage:system`, and none of them move anywhere else -- see the Monitoring comment above.
-            Security itself moved into Users & Access above (OpenProject #3356), keeping its own
-            `manage:system` gate so its effective visibility is unchanged.
-          -->
           <template v-if="userStore.can(`manage:system`)">
             <w-item-label class="admin-nav-section" header>{{
               t('admin.nav.securityAdvanced')
@@ -562,17 +514,11 @@
       </w-scroll-area>
     </w-drawer>
     <!--
-      The way back to the sidebar once it overlays the page instead of taking a column of its own:
-      nothing else in the admin area opens it, and the header is a row of site and account controls
-      with no room for a menu button. (`MainLayout`'s equivalent moved inline into `HeaderNav`'s bar,
-      OpenProject #2928; this one stays a corner disc, out of that task's scope.)
+      The position goes on the wrapper, not on the button: `WBtn` is `relative` from its own class
+      list and Tailwind emits `relative` after `fixed`, so a `fixed` alongside it loses.
+      `.corner-btn` is in `css/_base.css`, since this layout never loads MainLayout's stylesheet.
 
-      The position goes on a wrapper rather than on the button: `WBtn` is `relative` from its own class
-      list, and Tailwind emits `relative` after `fixed`, so a `fixed` alongside it loses. `.corner-btn`
-      is in `css/_base.css`, since this layout never loads MainLayout's stylesheet.
-
-      `left-0` (not `start-0`) is deliberate, matching `MainLayout`'s own corner button -- OpenProject
-      #1590's physical-positioning triage: a fixed screen corner, not a reading-direction gutter. See
+      `left-0`, not `start-0`: a fixed screen corner, not a reading-direction gutter. See
       `frontend/src/physicalPositioning.test.js`.
     -->
     <transition name="corner-btn">
@@ -624,9 +570,8 @@ import AccountMenu from '../components/AccountMenu.vue'
 import FooterNav from '@/components/FooterNav.vue'
 import LoadingGeneric from '@/components/LoadingGeneric.vue'
 import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
-// -> Each with a loading placeholder, as the overlays opened from the page view have: the dialog
-//    around them is already on screen while the chunk is fetched, so without one the panel is empty
-//    until it arrives and then fills in all at once
+// -> A loading placeholder each: the dialog around them is already on screen while the chunk is
+//    fetched, so without one the panel sits empty until it arrives and then fills in at once
 const overlays = {
   EditorMarkdownConfig: defineAsyncComponent({
     loader: () => import('../components/EditorMarkdownConfigOverlay.vue'),
@@ -642,26 +587,17 @@ const overlays = {
   })
 }
 
-// STORES
-
 const adminStore = useAdminStore()
 const commonStore = useCommonStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
 const route = useRoute()
 
-// I18N
-
 const { t } = useI18n()
 
-// META
-
-// -> The site's own name rather than the literal `Cardinal.js`, as the page view does. A getter, so
-//    the template is recomputed when the site config arrives -- see the note in `MainLayout`.
+// -> A getter, not a plain object: the title is recomputed once the site config arrives.
 useMeta(() => {
   const siteTitle = siteStore.title
   return {
@@ -669,39 +605,21 @@ useMeta(() => {
   }
 })
 
-// DATA
-
-/**
- * Whether the reader has opened the overlaying sidebar. Only consulted below the breakpoint, where the
- * drawer is a panel over the page; above it the sidebar is a column that is simply there.
- */
 const narrowSidebarOpen = ref(false)
-
-// DIRECTION
 
 const direction = useDirection()
 
-// COMPUTED
-
-/**
- * Where the drawer stops overlaying the page and takes its own column — `WDrawer`'s own default, which
- * this layout leaves alone (unlike the site sidebar, which asks for 1200).
- */
+/** 1024 mirrors `WDrawer`'s own `overlayBelow` default, which this layout leaves alone. */
 const isWideViewport = useMinWidth(1024)
 
-/**
- * The header's own language-switcher menu's `anchor`/`self`, LTR-correct pair mirrored for
- * `dir="rtl"` — see the template comment above the `w-menu` this feeds.
- */
 const localeMenu = computed(() =>
   directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'bottom right', 'top right')
 )
 
 /**
- * `overlays`' loaded child owns the only visible heading for this full-screen overlay (its own
- * `<w-header class="card-header">`), so the accessible name is looked up here rather than duplicated
- * as a prop threaded down -- each entry mirrors the exact translation key that child's own header
- * already renders (OpenProject #2356).
+ * The loaded child owns the only visible heading for this full-screen overlay, so the accessible
+ * name is looked up here rather than threaded down as a prop. Each entry mirrors the exact
+ * translation key that child's own header renders -- keep the two maps in step.
  */
 const ADMIN_OVERLAY_TITLES = {
   EditorMarkdownConfig: () => t('admin.editors.markdownName'),
@@ -712,13 +630,9 @@ const ADMIN_OVERLAY_TITLES = {
 const overlayAriaLabel = computed(() => ADMIN_OVERLAY_TITLES[adminStore.overlay]?.())
 
 /**
- * Whether the sidebar is on screen: always on a wide viewport, and only once asked for on a narrow one.
- *
- * It used to be `ref(true)` plus `show-if-above`, which had two consequences. On a narrow window the
- * sidebar arrived open, over the page. And closing it there — the scrim is the only way — set the model to
- * false, which is what `WDrawer` takes as its cue to stop applying `showIfAbove` for good: widening the
- * window afterwards brought back neither the column nor any way to ask for it. Expressing the whole state
- * here means the answer is recomputed from the width every time rather than latched once.
+ * Recomputed from the width every time rather than a `ref` plus `show-if-above`: `WDrawer` stops
+ * applying `showIfAbove` for good once its model is set false, so closing the overlaying sidebar on
+ * a narrow window would leave a widened one with neither the column nor a way to ask for it.
  */
 const leftDrawerOpen = computed({
   get: () => isWideViewport.value || narrowSidebarOpen.value,
@@ -728,17 +642,12 @@ const leftDrawerOpen = computed({
   }
 })
 
-/*
-  Shown only where the sidebar is something to open, and not while it is already open — the scrim is what
-  closes it then, and the button would be behind the panel in any case.
-*/
 const showSidebarBtn = computed(() => !isWideViewport.value && !narrowSidebarOpen.value)
 
 /*
-  Task #684: each site-scoped surface's own gate, mirroring the exact permission combo its
-  `Admin*.vue` page and backend route require (see `composables/siteAdminAccess.js`'s
-  `GLOBAL_FALLBACKS` for why these differ from one blanket `manage:sites` check). Storage stays
-  `manage:system`-only, matching `api/storage.ts`, which has always required it and is deliberately
+  Each gate mirrors the permission combo its `Admin*.vue` page and backend route require -- see
+  `composables/siteAdminAccess.js`'s `GLOBAL_FALLBACKS` for why these differ from one blanket
+  `manage:sites` check. Storage is `manage:system`-only because `api/storage.ts` is deliberately
   not delegable.
 */
 const maySeeGeneral = computed(() =>
@@ -767,20 +676,12 @@ const maySeeTheme = computed(() =>
   maySeeSiteSurface(userStore, 'site:theme', adminStore.currentSiteId)
 )
 
-// -> The mail nav's status light warns on EITHER an unreachable SMTP transport (isMailConfigured)
-//    OR every mail link resolving to an unresolvable host (isMailBaseURLConfigured, OpenProject
-//    #3386) -- either one alone means a real user could be mailed something broken or misleading.
+// -> Either half alone means a real user could be mailed something broken: an unreachable SMTP
+//    transport, or mail links pointing at a host that does not resolve.
 const isMailHealthy = computed(
   () => adminStore.info.isMailConfigured && adminStore.info.isMailBaseURLConfigured
 )
 
-/*
-  Preserved unchanged from the old single "Site" group's own wrapper condition (shown once ANY
-  site-scoped surface is reachable, global or delegated) -- Pages and Recovery/Deleted Pages carried
-  no `v-if` of their own before Feature #3330's 8-group regroup and were gated purely by this, so
-  attaching it to them directly (see the Content group in the template) keeps their effective
-  visibility identical now that they sit alongside Content items gated by unrelated permissions.
-*/
 const siteSectionShown = computed(() => {
   return (
     maySeeGeneral.value ||
@@ -795,11 +696,6 @@ const siteSectionShown = computed(() => {
   )
 })
 
-/*
-  Content group header: shown once any of its six members would render -- Pages/Recovery via
-  `siteSectionShown` above, Glossary/Comments/Classification via their own gate, Approvals via
-  `maySeeApprovals` (already folded into `siteSectionShown`, listed again for clarity).
-*/
 const contentSectionShown = computed(() => {
   return (
     siteSectionShown.value ||
@@ -809,10 +705,6 @@ const contentSectionShown = computed(() => {
   )
 })
 
-/*
-  Site Configuration group header: shown once any of its six members -- General, Theme, Navigation,
-  Locale, Login, Storage -- would render.
-*/
 const siteConfigurationShown = computed(() => {
   return (
     maySeeGeneral.value ||
@@ -824,19 +716,13 @@ const siteConfigurationShown = computed(() => {
   )
 })
 
-/*
-  Editing Tools group header: shown once any of its four members would render -- Editors/Blocks via
-  their own gate, Search Engine/Icons via the `manage:system` condition they carry over unchanged
-  from the old System group.
-*/
 const editingToolsShown = computed(() => {
   return maySeeEditors.value || maySeeBlocks.value || userStore.can('manage:system')
 })
 
 /*
-  `read:*` grants the list and detail routes without the write ones (see `api/users/admin.ts` /
-  `api/groups.ts`), so the nav entry has to open for it too -- otherwise the permission grants access
-  to pages nothing links to.
+  `read:groups`/`read:users` grant the list and detail routes without the write ones, so the nav
+  entry has to open for them too -- otherwise the permission reaches pages nothing links to.
 */
 const groupsAreVisible = computed(() => {
   return userStore.can('read:groups') || userStore.can('manage:groups')
@@ -844,22 +730,10 @@ const groupsAreVisible = computed(() => {
 const usersAreVisible = computed(() => {
   return userStore.can('read:users') || userStore.can('manage:users')
 })
-/*
-  Users & Access group header: shown once any of its five members would render -- Groups/Users via
-  their own gate, Authentication/Audit Log/Security via the `manage:system` condition they carry
-  over unchanged from the old System group (Authentication already had it explicitly; Audit Log did
-  not; Security moved in from the old Security & Advanced group under OpenProject #3356, keeping the
-  exact same `manage:system` gate it always had).
-*/
 const usersAccessShown = computed(() => {
   return groupsAreVisible.value || usersAreVisible.value || userStore.can('manage:system')
 })
 
-/*
-  Integrations & Automation group header: shown once any of its five members would render -- API
-  Access/Webhooks/Extensions/Mail via the `manage:system` condition they carry over unchanged from
-  the old System group, Analytics via its own pre-existing `manage:sites` gate.
-*/
 const integrationsAutomationShown = computed(() => {
   return userStore.can('manage:system') || userStore.can('manage:sites')
 })
@@ -868,27 +742,18 @@ const overlayIsShown = computed(() => {
   return Boolean(adminStore.overlay)
 })
 
-// METHODS
-
 /*
-  The nav count badges carry a trailing-edge border saying whether the thing they count exists at
-  all -- red at zero, green otherwise -- so a section that is empty reads as such without opening
-  it. The colours are the status lights' own, so the two markers in the column say the same thing
-  the same way; see the `.count-badge` rules for where they come from.
+  The badge's trailing-edge border is red at zero and green otherwise, so an empty section reads as
+  empty without opening it. The tones are the status lights' own, so both markers in the column say
+  the same thing the same way.
 */
 function countBadgeClass(count) {
   return count > 0 ? 'count-badge count-badge--filled' : 'count-badge'
 }
 
-// WATCHERS
-
 watch(
   () => route.path,
   async (newValue) => {
-    /*
-      Following a link out of the overlaying sidebar puts it away, since the section it leads to is behind
-      it. On a wide viewport there is nothing to close and the flag is not consulted anyway.
-    */
     narrowSidebarOpen.value = false
     if (!newValue.startsWith('/_admin')) {
       return
@@ -918,11 +783,9 @@ watch(
   }
 )
 /*
-  Task #684: the sidebar's `maySee*` computeds (`site:general`, `site:theme`, ...) read
-  `userStore.sitePermissions`, which is only ever valid for the site it was fetched for -- so it has
-  to be refreshed here too, not only by `useSiteAdminAccess()` on whichever specific page happens to
-  be mounted. `immediate: true` covers the very first site the sidebar renders for, same as the
-  `access:admin` watcher above covers the first route.
+  `userStore.sitePermissions` is only ever valid for the site it was fetched for, and the sidebar's
+  `maySee*` computeds read it -- so it is refreshed here too, not only by `useSiteAdminAccess()` on
+  whichever page happens to be mounted. `immediate: true` covers the first site the sidebar renders.
 */
 watch(
   () => adminStore.currentSiteId,
@@ -931,8 +794,6 @@ watch(
   },
   { immediate: true }
 )
-
-// MOUNTED
 
 onMounted(async () => {
   if (!userStore.can('access:admin')) {
@@ -953,11 +814,6 @@ onMounted(async () => {
 </script>
 
 <style>
-/*
-  The admin header: a white plate ruled off from the page, matching the site header. The black bar
-  it replaces was the one place in the app that carried its own colour rather than the site's, and
-  on Cardinal there is nothing left for it to contrast against.
-*/
 .admin-header {
   background-color: var(--color-surface);
   color: var(--color-ink);
@@ -970,7 +826,6 @@ onMounted(async () => {
   border-bottom-color: var(--color-hairline-dark);
 }
 
-/* -> The wordmark, set exactly as the site header sets its own */
 .admin-wordmark {
   font-family: var(--font-display);
   font-size: 21px;
@@ -981,16 +836,13 @@ onMounted(async () => {
 }
 
 /*
-  See the button's own comment: the accent fill bounds the box, the lightened accent labels it.
-  `--color-accent-fill` rather than `var(--color-accent-fill)` -- the two are the same value for Ledger
-  (`#e4676b`, verified against `tailwind.css`'s `:root` block), and the custom property is what
-  lets a Cobalt site's `#ff4d5a` reach this border at all (OpenProject #2780).
+  The custom property rather than a fixed tone: it is what lets a Cobalt site's own accent reach
+  this border at all. `!important` beats WBtn's fixed border class.
 */
 .admin-contribute-btn {
   border-color: var(--color-accent-fill) !important;
 }
 
-/* -> "Admin area", in Cardinal's chrome overline */
 .admin-area-label {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -1008,11 +860,6 @@ onMounted(async () => {
 .admin-nav {
   height: 100%;
 }
-/*
-  Every admin page opens on the same band: a white plate ruled off from the page below it, holding the
-  page's icon, its overline, its title and whatever actions it offers. Same shape as a content page's
-  masthead (`PageHeader.vue`), at the design's own metrics.
-*/
 .admin-page-header {
   padding: 20px 24px;
   border-bottom: 1px solid var(--color-hairline);
@@ -1025,10 +872,8 @@ onMounted(async () => {
 }
 
 /*
-  The plate the icon sits in -- a square hairline box with the four blueprint corner marks overhanging
-  it, exactly as `PageHeader.vue` sets a page's own icon. The glyph is 34px inside a 64px box rather
-  than filling it: the marks are what the eye reads as the frame, and a glyph run to the edges leaves
-  them nothing to overhang.
+  The glyph is drawn well inside this box rather than filling it: the overhanging corner marks are
+  what the eye reads as the frame, and a glyph run to the edges leaves them nothing to overhang.
 */
 .admin-page-icon {
   position: relative;
@@ -1048,10 +893,8 @@ onMounted(async () => {
 }
 
 /*
-  Cobalt's admin plate is the tinted strip colour with no edge and a 6px corner, and its glyph is
-  drawn in the aesthetic's own blue rather than the chrome slate (`Admin 3x - Cobalt`). One rule for
-  both themes: `--color-tint` and `--color-accent-strong` each already carry Cobalt's light and dark
-  values, and the plate is the one thing on this band that does not follow the surface under it.
+  One rule covers both modes: `--color-tint` and `--color-accent-strong` already carry Cobalt's
+  light and dark values.
 */
 body.body--cobalt .admin-page-icon {
   border-color: transparent;
@@ -1063,9 +906,8 @@ body.body--cobalt .admin-page-icon {
 }
 
 /*
-  The corner marks: one box overhanging the plate by 5px on each side, with the eight short strokes
-  painted as background gradients -- four borders would draw four full sides, and the design draws 7px
-  of each corner and nothing between them.
+  Background gradients rather than borders: a border draws a full side, and the design draws 7px of
+  each corner and nothing between them.
 */
 .admin-page-icon__marks {
   /* -> `block` in Ledger (a no-op), `none` in Cobalt, whose plate is bounded by its own radius */
@@ -1084,7 +926,6 @@ body.body--cobalt .admin-page-icon {
     linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 1px 7px no-repeat;
 }
 
-/* -> The glyph itself, in the chrome tone */
 .admin-icon {
   flex: none;
   color: var(--color-slate-soft);
@@ -1095,9 +936,8 @@ body.body--cobalt .admin-page-icon {
 }
 
 /*
-  The overline above the title -- see `components/AdminPageEyebrow.vue` for where its text comes from.
-  The one accent-coloured thing in the band, because it is what says which part of the admin area the
-  reader is standing in; the title beneath it is ink, like every other page title in the app.
+  The one accent-coloured thing in the band: it is what says which part of the admin area the reader
+  is standing in. The title beneath it stays ink, like every other page title in the app.
 */
 .admin-page-eyebrow {
   padding-bottom: 8px;
@@ -1114,9 +954,8 @@ body.body--cobalt .admin-page-icon {
 }
 
 /*
-  The admin sidebar is drawn on INK in both themes -- it is the one column in the app that always is,
-  and the design keeps it that way: a white header plate over a dark index, which is what tells you
-  at a glance that you are behind the scenes rather than in the wiki.
+  Drawn on INK in both themes, deliberately: a dark index under a white header plate is what says at
+  a glance that you are behind the scenes rather than in the wiki.
 */
 .admin-sidebar {
   background-color: var(--color-ink);
@@ -1127,16 +966,11 @@ body.body--cobalt .admin-page-icon {
   }
 
   /*
-    Nav rows are 16px Barlow at weight 300, in the muted tone the design gives an index on ink -- the
-    current row picks up the weight and the white below. Stated here rather than left to WItem's own
-    defaults, which sized these rows off the app's body scale and drew them a step larger than the
-    sidebar they sit in.
-
-    Weight 300 is deliberate (OpenProject #2983, `ui-iteration-cobalt-typography/
-    cobalt-typography.md` §3 "Admin"): the one place Barlow (sans, not Condensed) drops below 600 --
-    §6's removal rule is scoped to Barlow CONDENSED, so this sans-family row is not the violation it
-    looks like. Metric, not colour, so it is shared by both aesthetics like every other role that
-    isn't one of the four §4 swaps; Cobalt's own block below only re-points the colour.
+    Stated here rather than left to WItem's own defaults, which size these rows off the app's body
+    scale and draw them a step larger than the sidebar they sit in. Weight 300 is deliberate -- the
+    one place Barlow sans drops below 600; the typography audit's removal rule is scoped to Barlow
+    CONDENSED, so this sans-family row is not the violation it looks like. Metric, not colour, so
+    both aesthetics share it and Cobalt's block below re-points only the colour.
   */
   .admin-nav-list {
     color: var(--color-slate-pale);
@@ -1156,13 +990,9 @@ body.body--cobalt .admin-page-icon {
   }
 
   /*
-    The current page: the raised tone with a 2px accent bar down its leading edge and its icon in the
-    lightened accent -- the same "you are here" mark the site sidebar, the overlays' rails and the
-    file list all use. It replaces a solid `bg-primary` fill, which on a red accent made the whole row
-    shout louder than the page it points at.
-
-    A border rather than a background stripe, so it takes its 2px out of the row's own inline padding
-    -- which is why the padding is given back below.
+    The same "you are here" mark the site sidebar, the overlays' rails and the file list all use --
+    not a solid fill, which on a red accent makes the whole row shout louder than the page it points
+    at.
   */
   .admin-nav-active {
     background-color: var(--color-dark-2);
@@ -1176,44 +1006,27 @@ body.body--cobalt .admin-page-icon {
     }
   }
 
-  /* -> Nav rows are a 24px icon and its label, so the avatar column's 56px track centres the icon
-  //    and leaves the pair reading as two columns rather than one item. Sizing the column to the
-  //    icon leaves the section's own 16px as the whole gap. Needs the extra `.w-list` to outrank
-  //    WItemSection's scoped rule, which matches on specificity alone. */
+  /* -> The extra `.w-list` outranks WItemSection's scoped rule, matching on specificity alone */
   .w-list .w-item-section--avatar {
     min-width: auto;
   }
 
   /*
-    Nav rows carry two kinds of trailing marker -- a status light and a count badge -- and they have
-    to read as one column. Both already end on the same trailing edge (regression coverage for
-    feature 413, task 727: StatusLight has no left/right of its own, only document order inside the
-    row's flex layout, so it already follows the reader's direction for free -- .count-badge's own
-    border below has to use the matching logical property, `border-inline-end`, or a `dir="rtl"`
-    reader would see the two markers' accent colours point at opposite edges of the same row, same
-    class of bug NavSidebar's open-group rail had). What did not line up is the height. StatusLight is
-    `height: 100%`, so it takes whatever the row gives it (28px on these dense rows), while a badge is
-    sized by its own text at 16px, leaving the lights standing 6px proud above and below every badge
-    in the column.
-
-    Pinning them to the badge's band fixes that. It is scoped to the sidebar rather than changed in
-    StatusLight, because the full-height stripe is the point everywhere else it is used: the storage,
-    rendering and auth lists put one beside a two-line item, where it reads as an edge marker for the
-    whole row and has no badge to line up with.
+    StatusLight is `height: 100%`, so it takes the whole 28px row while a badge is sized by its own
+    16px text -- leaving the lights standing proud of every badge in the same column. Scoped to the
+    sidebar rather than changed in StatusLight, where the full-height stripe is the point: the
+    storage, rendering and auth lists put one beside a two-line item with no badge to line up with.
   */
   .w-list .status-light {
     height: 16px;
   }
 
   /*
-    `var(--color-negative-fill)` / `var(--color-positive-fill)` rather than the `--color-*` custom properties, because these
-    have to match the status lights beside them exactly and StatusLight styles itself from the SCSS
-    variables -- the custom properties resolve through `--q-*`, which is rewritten at runtime for
-    per-site theming and would drift away from the lights on any site that sets its own colours. The
-    FILL tone of each, for the same reason StatusLight uses it: nothing is drawn over these bars.
+    The FILL tones, so these bars match the status lights beside them exactly -- both markers in the
+    column have to read as one thing. 5px is StatusLight's own width, so a badge's stripe and the
+    light on the row below it are one bar of colour rather than two thicknesses of it. The logical
+    inline-end edge, or an RTL reader sees the two markers point at opposite sides of the same row.
   */
-  /* -> 5px is StatusLight's own width, so the stripe on a badge and the light on the row below it */
-  /*    are the same bar of colour rather than two thicknesses of it */
   .count-badge {
     border-inline-end: 5px solid var(--color-negative-fill);
 
@@ -1222,8 +1035,6 @@ body.body--cobalt .admin-page-icon {
     }
   }
 
-  /* -> The section headings between nav groups, in Cardinal's chrome overline, with one hairline
-  //    above them rather than the two-tone bevel the double box-shadow drew */
   .admin-nav-section,
   .w-item-label--header {
     margin-top: 14px;
@@ -1239,37 +1050,16 @@ body.body--cobalt .admin-page-icon {
 }
 
 /*
-  Cobalt aesthetic overrides (OpenProject #2780, diffed against `ui-redesign-cobalt/Cardinal Wiki -
-  Admin[/General/Blocks] 3x - Cobalt.dc.html` and the HANDOFF's Chrome table). Scoped to
-  `body.body--cobalt` rather than folded into the rules above, for two reasons specific to this
-  layout:
+  Scoped to `body.body--cobalt` rather than folded into the rules above, for two reasons specific to
+  this layout:
 
-  1. The admin sidebar's Cobalt tokens (`--color-admin-sidebar-*`, `tailwind.css`'s
-     `body.body--cobalt` block) are ALSO declared once at `:root` with generic Ledger-ish defaults
-     (`--color-text-dark` / `--color-slate-light`) that do not exactly reproduce this file's own
-     hand-tuned Ledger values above (`var(--color-slate-pale)` text, `var(--color-slate-nav-icon)` icons) -- consuming them
-     unscoped would quietly shift Ledger's sidebar tone rather than leave it alone.
+  1. The admin sidebar's Cobalt tokens (`--color-admin-sidebar-*`) are ALSO declared at `:root` with
+     generic Ledger-ish defaults that do not reproduce this file's own hand-tuned Ledger values
+     above -- consuming them unscoped would quietly shift Ledger's sidebar tone.
   2. `--q-header` and `--color-accent` are the SITE's own admin-editable brand colours. Reading them
-     unscoped would make the admin header and page eyebrow start following a Ledger site's custom
-     colours too, which they have never done -- `.admin-header` and `.admin-page-eyebrow` above are
-     deliberately fixed regardless of `--q-*`.
-
-  A Cobalt-only override sidesteps both: it changes nothing for Ledger (including a Ledger site
-  with a customised `--q-header` / `--q-accent`) and gives Cobalt its own header-bar treatment plus
-  the sidebar's single, always-dark set of values -- matching "the admin sidebar is already dark in
-  Ledger and gets its own distinct Cobalt values" from the task's own scope.
-
-  Contribute button label/icon is left as-is: `color="accent-dark"` already resolves through
-  `var(--color-*)` (WBtn's own mechanism), so it is not a literal-colour gap. The Exit/EN header
-  buttons, however, ARE one (OpenProject #3001): for an outline `WBtn`, `color` only sets the
-  inline text/icon colour -- the border is always the fixed `border-hairline dark:border-border-dark`
-  Tailwind class, never tied to `color` at all, so neither button's edge followed Cobalt. The
-  `.admin-header-action-btn` rule below fixes it with a solid white stroke and border, which also
-  supersedes this comment's own prior "translucent white outline ... logged rather than guessed at"
-  deferral -- today's hands-on review settled on solid white as the simpler, concrete answer. The
-  "beta" badge the mockup draws beside "Admin area" that this layout does not render at all remains
-  out of scope here -- adding one is a product decision (is the admin area still beta?), not a
-  visual parity fix.
+     unscoped would make the admin header and page eyebrow follow a Ledger site's custom colours,
+     which they never have -- `.admin-header` and `.admin-page-eyebrow` above are deliberately fixed
+     regardless of `--q-*`.
 */
 body.body--cobalt {
   .admin-header {
@@ -1279,26 +1069,19 @@ body.body--cobalt {
   }
 
   /*
-    OpenProject #2983: `--color-header-eyebrow` (#dfe6ff) is the SITE header's own "Platform wiki"
-    eyebrow token (`HeaderSearch.vue`) -- a different role with a different mockup value. The admin
-    kicker's own target, `cobalt-typography.md` §3 "Admin", is #e6ecff; no existing custom property
-    already carries that literal for this role, so it is stated directly rather than reusing a
-    token that means something else.
+    A literal, not a token: `--color-header-eyebrow` (#dfe6ff) is the SITE header's eyebrow, a
+    different role with a different value, and no custom property carries #e6ecff for this one.
   */
   .admin-area-label {
     color: #e6ecff;
   }
 
   /*
-    OpenProject #3001: the outline WBtn `color` prop only ever sets the inline text/icon colour --
-    the border is always the fixed `border-hairline dark:border-border-dark` Tailwind class, which
-    neither `accent` (Exit) nor `slate` (Locale) resolves to white, and doesn't read well against
-    this solid blue header banner either. Solid white, not translucent (today's hands-on review call
-    -- see the comment above this block). `!important` needed to beat WBtn's fixed border class and
-    its own inline `color` style, same reasoning as `.admin-contribute-btn`'s border rule earlier in
-    this file. Plain white needs no light/dark split, unlike the sidebar tokens below it. `color:
-    #fff` also recolors each button's icon, drawn in `currentColor` -- the "white stroke" the report
-    describes.
+    An outline WBtn's `color` prop only sets the inline text/icon colour -- the border is always the
+    fixed `border-hairline dark:border-border-dark` Tailwind class, which reads poorly against this
+    solid blue banner. `!important` is needed to beat that class and the button's own inline `color`
+    style; `color: #fff` also recolours each icon, drawn in `currentColor`. Plain white needs no
+    light/dark split, unlike the sidebar tokens below.
   */
   .admin-header-action-btn {
     border-color: #fff !important;
@@ -1339,12 +1122,9 @@ body.body--cobalt {
     }
 
     /*
-      The nav count badges: `w-badge` sets its background/text as an inline `:style`, which only an
-      `!important` class rule can beat -- same reasoning as `.admin-contribute-btn`'s border above.
-      Left off `.count-badge`'s own trailing-edge stripe (`var(--color-negative-fill)` / `var(--color-positive-fill)`):
-      that colour has to keep matching `StatusLight`, which is a frozen shared primitive outside
-      this task's scope (OpenProject #2772/#2773) and stays on its fixed SCSS tones regardless of
-      aesthetic.
+      `w-badge` sets its background/text as an inline `:style`, which only an `!important` class
+      rule can beat. The trailing-edge stripe is deliberately left alone: it has to keep matching
+      `StatusLight`, which stays on its own fixed tones regardless of aesthetic.
     */
     .count-badge {
       background-color: var(--color-admin-sidebar-raised) !important;
@@ -1352,18 +1132,11 @@ body.body--cobalt {
     }
 
     /*
-      OpenProject #3002: the Site dropdown (`<w-select dark standout dense>`) had no Cobalt-specific
-      styling at all -- it relied entirely on `WSelect`'s generic `standout` variant (no border, since
-      `noFrame` skips the frame's box-shadow border) and `dense`'s fixed Tailwind sizing (`min-h-7
-      px-2` = 28px/8px), neither of which varies for Cobalt even though the sidebar around it already
-      carries its own dark-navy Cobalt tokens. `!important` beats those Tailwind utilities and
-      `standout`'s `bg-white/10` fill utility, same pattern as `.admin-contribute-btn`'s border and
-      `.admin-header-action-btn` above (OpenProject #3001). `--color-dark-4` (#171b24 Cobalt light,
-      #070b22 Cobalt dark) reads as a darker interior than the sidebar's own background in both
-      modes; `--color-heading-h2` (#1f4fd6 light, #8fb0ff dark) is a clearly lighter blue border
-      against it -- both confirmed with Dylan (2026-09-10) in the absence of an existing mockup value
-      for this specific control. One rule covers both Cobalt modes uniformly, since both tokens
-      already cascade correctly per mode.
+      `!important` beats `dense`'s fixed Tailwind sizing and `standout`'s `bg-white/10` fill, neither
+      of which varies for Cobalt. `--color-dark-4` reads as a darker interior than the sidebar behind
+      it and `--color-heading-h2` as a clearly lighter blue border against it -- chosen in the
+      absence of a mockup value for this control. Both tokens already cascade per mode, so one rule
+      covers light and dark.
     */
     .admin-site-select .w-input-control {
       min-height: 38px !important;
@@ -1375,9 +1148,8 @@ body.body--cobalt {
 }
 
 /*
-  Cobalt dark mode: the page eyebrow is the one piece of this layout that already varies with
-  `.body--dark` (see `.admin-page-eyebrow`'s own dark rule above), so its Cobalt override needs the
-  compound selector rather than living inside `body.body--cobalt` above.
+  The page eyebrow is the one piece of this layout that already varies with `.body--dark`, so its
+  Cobalt override needs the compound selector rather than living in the block above.
 */
 body.body--cobalt.body--dark {
   .admin-page-eyebrow {
@@ -1386,15 +1158,9 @@ body.body--cobalt.body--dark {
 }
 
 /*
-  Every admin page's own title row, shared by all 37 of them rather than restated per page.
-
-  Cardinal sets a page title in Barlow Condensed at 34/700 in INK -- the display face, at the size
-  the masthead uses, and not in the brand colour: `text-h5 text-primary` made every admin screen open
-  with a 24px red heading, which is the accent doing a heading's job. The accent is reserved for the
-  live edge, and a page title is not one.
-
-  Unscoped, in the admin layout's own stylesheet, because these classes are written in 37 page
-  components and one declaration is what keeps them in step.
+  Ink, not the brand colour: the accent is reserved for the live edge, and a page title is not one.
+  Unscoped here rather than restated per page, because every admin page component writes this class
+  and one declaration is what keeps them in step.
 */
 .admin-page-title {
   font-family: var(--font-display);
@@ -1421,9 +1187,8 @@ body.body--cobalt.body--dark {
   color: var(--color-text-secondary-dark);
 }
 
-/* -> No `.w-card` rule here: WCard already paints its own surface with these exact colours, and an */
-/*    unlayered rule in an SFC stylesheet outranks every Tailwind utility however specific, so this */
-/*    restatement did nothing except stop the admin pages tinting a card with `bg-negative` / `bg-info` */
+/* -> No `.w-card` rule here: an unlayered rule in an SFC stylesheet outranks every Tailwind */
+/*    utility however specific, so one would stop admin pages tinting a card with `bg-negative` */
 .admin-container {
   .body--light & {
     background-color: var(--color-paper);
@@ -1439,8 +1204,8 @@ body.body--cobalt.body--dark {
     backdrop-filter: blur(5px) saturate(180%);
   }
   > .w-dialog-viewport {
-    /* -> Equal margins all round until 1600px, where the sides can afford to be wider. Same rule and */
-    /*    same reasoning as `.main-overlay` in `MainLayout`, which the admin overlays match. */
+    /* -> Same rule and reasoning as `.main-overlay` in `css/_overlay-dialog.css`, which the admin */
+    /*    overlays match -- keep the two in step */
     padding: 24px;
 
     @media (min-width: 1600px) {
@@ -1452,8 +1217,6 @@ body.body--cobalt.body--dark {
       padding: 0;
     }
 
-    /* -> A flat panel with a hairline edge, matching `.main-overlay`'s; see MainLayout for why the */
-    /*    gradient title strip both of them used to draw is gone */
     > .w-dialog-panel {
       box-shadow: 0 10px 40px 0 rgba(28, 34, 51, 0.28);
 
@@ -1468,7 +1231,4 @@ body.body--cobalt.body--dark {
     }
   }
 }
-
-/* -> The `.admin-footer > .q-bar` rule that used to sit here never matched: FooterNav rendered a */
-/*    footer element, never a bar. Its colours come from its own scoped style. */
 </style>

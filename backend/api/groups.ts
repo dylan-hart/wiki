@@ -6,14 +6,9 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { GroupPatch, GroupRule, GroupWithUserCount } from '../models/groups.ts'
 
 /**
- * Refuse a `manage:groups` holder any change to who is in a group that carries `manage:system`.
- *
- * Membership of such a group IS the permission: adding somebody hands them the root of the instance,
- * and removing somebody takes it away from a real administrator. Deleting the group does both at
- * once, so it asks the same question.
- *
- * @param action What the caller was trying to do, as the message reads it back to them
- * @returns The refusal to throw, or null when the caller may proceed
+ * Membership of a group that carries `manage:system` IS the permission: adding somebody hands them
+ * the root of the instance, removing somebody takes it from a real administrator, and deleting the
+ * group does both at once. Only a holder of it may do any of the three.
  */
 function systemGroupGuard(
   req: FastifyRequest,
@@ -42,7 +37,6 @@ interface GroupUpdateBody {
   rules?: GroupRule[]
 }
 
-/** The group-wide permissions that alone are enough to list groups by id and name. */
 const LIST_GROUPS_GLOBAL_PERMISSIONS = [
   'read:groups',
   'manage:groups',
@@ -51,30 +45,17 @@ const LIST_GROUPS_GLOBAL_PERMISSIONS = [
 ]
 
 /**
- * Whether this caller may list groups (`GroupCore`: id, name, isSystem, userCount — no permissions,
- * no rules, no members).
- *
- * `config.permissions` cannot express this on its own: it reads the group-wide permission list only,
- * so a `site:approvals` or `site:navigation` delegate — who holds neither `read:groups`,
- * `manage:groups` nor `manage:navigation` globally, only a site-scoped rule granting one of those two
- * names — silently got an empty list back rather than a 403 (OpenProject #3381). `AdminApprovals.vue`
- * loads groups to populate an approval rule's submitter/reviewer group pickers, and `NavItemEditor`'s
- * visibility picker does the same for `manage:navigation`'s own delegated counterpart,
- * `site:navigation` — both need the identical handler check `mayUseIconPicker()` (`api/icons.ts`) and
- * `mayListBlocks()` (`api/blocks.ts`) already use for the same reason.
- *
- * `manage:sites` is folded into the global list rather than left to the `mayHoldPermissionSomewhere()`
- * fallback below: a full site administrator should list groups everywhere, not only where a rule
- * happens to grant one of the two site permissions.
+ * An in-handler check because `config.permissions` reads the group-wide list only, and a
+ * `site:approvals` or `site:navigation` delegate holds its grant on a site-scoped rule. Both need
+ * this listing (`GroupCore` only) for their group pickers. `manage:sites` is in the global list so
+ * a full site administrator lists groups everywhere, not only where a rule grants one of those two.
  */
 function mayListGroups(req: FastifyRequest): boolean {
   const actor = CARDINAL.models.groups.actorForRequest(req)
   if (LIST_GROUPS_GLOBAL_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
     return true
   }
-  // -> `null`, not a site id: this listing is not site-scoped (there is no `siteId` on this route to
-  //    narrow by) — the same site-blind case `mayHoldPermissionSomewhere()`'s own doc comment carves
-  //    out, and `mayUseIconPicker()` already relies on for the icon picker.
+  // -> `null`: this listing is not site-scoped, so there is no site to narrow by.
   return CARDINAL.models.groups.mayHoldPermissionSomewhere(
     actor,
     ['site:approvals', 'site:navigation'],
@@ -82,15 +63,9 @@ function mayListGroups(req: FastifyRequest): boolean {
   )
 }
 
-/**
- * Groups API Routes
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST ALL GROUPS
-   */
-  // No route-level permissions: a site:approvals/site:navigation delegate's grant is a site-scoped
-  // rule, invisible to config.permissions' group-wide-only check — see mayListGroups() above.
+  // No route-level permissions: a site-scoped delegate's grant is invisible to config.permissions —
+  // see mayListGroups().
   app.get(
     '/',
     {
@@ -118,9 +93,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE GROUP
-   */
   app.post<{ Body: { name: string } }>(
     '/',
     {
@@ -194,9 +166,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET SINGLE GROUP
-   */
   app.get<{ Params: { groupId: string } }>(
     '/:groupId',
     {
@@ -238,9 +207,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE GROUP
-   */
   app.put<{ Params: { groupId: string }; Body: GroupUpdateBody }>(
     '/:groupId',
     {
@@ -325,19 +291,14 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Group does not exist.')
       }
 
-      // -> Collect only the fields actually provided
       const patch: GroupPatch = {}
       if (req.body.name !== undefined) {
         patch.name = req.body.name
       }
       /*
-        Empty string is the seeded default (`db/schema.ts`'s column default) and means "no redirect
-        configured" -- not a target to validate. Anything else must be a rooted, same-origin path or
-        (unless `security.disallowOpenRedirect` is on) a complete http(s) URL: OpenProject #1360/#2208,
-        2026-08-24 security audit -- `PUT /_api/groups/:groupId`'s guard against a `manage:groups`
-        holder reaching `manage:system` (below) protects only that one permission bit, and previously
-        let ANY string through here, including `javascript:…`, which `AuthLoginPanel.vue`'s
-        `window.location.replace()` would execute in the next administrator's session on login.
+        Empty string is the column default and means "no redirect configured" -- not a target to
+        validate. Anything else reaches `AuthLoginPanel.vue`'s `window.location.replace()`, which
+        would execute a stored `javascript:…` in the next administrator's session on login.
       */
       const allowAbsolute = absoluteRedirectsAllowed()
       for (const field of [
@@ -411,12 +372,9 @@ async function routes(app: FastifyInstance) {
 
       try {
         await CARDINAL.models.groups.updateGroup(group.id, patch)
-        // -> OpenProject #936: `permissions` (the global, group-wide list) is flattened onto every
-        //    member's `session.permissions` at login, and otherwise stays live for up to the 30-day
-        //    cookie age -- a revoked permission needs the same immediate cutoff a deactivation gets.
-        //    `rules` (page permissions) is deliberately NOT here: those are resolved fresh against
-        //    the in-memory rules cache on every request (`groups.checkAccess()`), so a rule change
-        //    already takes effect on the very next one with no session involved at all.
+        // -> `permissions` is flattened onto every member's `session.permissions` at login, so a
+        //    revocation only takes effect once those sessions are cleared. `rules` are resolved per
+        //    request (`groups.checkAccess()`) and need no such cutoff.
         if (patch.permissions !== undefined) {
           await CARDINAL.models.sessions.clearSessionsForGroup(group.id)
         }
@@ -443,9 +401,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE GROUP
-   */
   app.delete<{ Params: { groupId: string } }>(
     '/:groupId',
     {
@@ -488,7 +443,6 @@ async function routes(app: FastifyInstance) {
         return reply.conflict('Cannot delete a system group.')
       }
 
-      // -> Deleting the group removes every member from it, so it is the membership guard's question
       const systemGroupRefusal = systemGroupGuard(req, group, 'delete the group')
       if (systemGroupRefusal) {
         throw systemGroupRefusal
@@ -515,14 +469,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST GROUP USERS
-   */
   app.get<{
     Params: { groupId: string }
     // -> `page`/`limit` are non-optional: the querystring schema declares a `default` for each, and
-    //    fastify's AJV runs with `useDefaults`, so a missing param is filled in before the handler
-    //    sees it.
+    //    fastify's AJV runs with `useDefaults`.
     Querystring: { filter?: string; page: number; limit: number }
   }>(
     '/:groupId/users',
@@ -593,9 +543,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * ASSIGN USER TO GROUP
-   */
   app.post<{ Params: { groupId: string; userId: string } }>(
     '/:groupId/users/:userId',
     {
@@ -656,12 +603,7 @@ async function routes(app: FastifyInstance) {
         throw systemGroupRefusal
       }
 
-      /*
-        The guests group and the guest account belong to each other and to nothing else — the group is
-        what anonymous visitors hold, and the account is who they are. `guestMembershipViolation` is
-        the one definition of that, shared with `setUserGroups`, which is what the user editor and
-        provider enrolment go through.
-      */
+      // -> The guests group and the guest account belong to each other and to nothing else.
       const violation = CARDINAL.models.groups.guestMembershipViolation(group.id, user)
       if (violation) {
         return reply.conflict(violation)
@@ -671,9 +613,8 @@ async function routes(app: FastifyInstance) {
       if (!assigned) {
         return reply.conflict('User is already assigned to this group.')
       }
-      // -> OpenProject #936: `session.groups` is a snapshot taken at login, so this user's open
-      //    sessions would otherwise go on pooling rules from their OLD group membership until they
-      //    next log in -- same reasoning as the permission-revocation fix on PUT /:groupId above.
+      // -> `session.groups` is a snapshot taken at login: uncleared, this user's open sessions keep
+      //    resolving rules against the old membership.
       await CARDINAL.models.sessions.clearSessionsFromUser(req.params.userId)
 
       await CARDINAL.models.auditLog.record({
@@ -692,9 +633,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UNASSIGN USER FROM GROUP
-   */
   app.delete<{ Params: { groupId: string; userId: string } }>(
     '/:groupId/users/:userId',
     {
@@ -745,9 +683,8 @@ async function routes(app: FastifyInstance) {
         throw systemGroupRefusal
       }
 
-      // -> Removing the guest account from the guests group would strip anonymous visitors of the
-      //    permissions that group carries, with no way to put it back. `unassignUserFromGroup`
-      //    refuses that pair as well; this answers it as a conflict rather than as a failure.
+      // -> Removing the guest account from the guests group would strip anonymous visitors of its
+      //    permissions. `unassignUserFromGroup` refuses that pair too; this answers a conflict.
       const user = await CARDINAL.models.users.getById(req.params.userId)
       if (user?.isSystem) {
         return reply.conflict('Cannot unassign a system user from a group.')
@@ -761,8 +698,7 @@ async function routes(app: FastifyInstance) {
       }
 
       await CARDINAL.models.groups.unassignUserFromGroup(group.id, req.params.userId)
-      // -> OpenProject #936: same reasoning as ASSIGN above -- a removed member's open sessions must
-      //    stop pooling this group's rules/permissions immediately, not on their next login.
+      // -> As on assignment: `session.groups` is a login-time snapshot.
       await CARDINAL.models.sessions.clearSessionsFromUser(req.params.userId)
       await CARDINAL.models.auditLog.record({
         event: 'group.memberRemoved',

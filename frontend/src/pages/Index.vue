@@ -1,25 +1,14 @@
 <template>
   <!--
-    `h-full min-h-0`: the shell hands this page a definite height, and the page has to CLAIM it for
-    the article column below to scroll on its own. Left to grow, the whole page would scroll inside
-    the shell instead and take the sidebars with it.
+    `h-full min-h-0`: the page must CLAIM the definite height the shell hands it, or the whole page
+    scrolls inside the shell -- sidebars and all -- instead of the article column scrolling alone.
   -->
   <w-page class="flex flex-col h-full min-h-0">
     <!--
-      Both bars are about a page: where it sits and when it was last written to. A path with no page
-      AT ALL -- `pageStore.notFound` -- has neither to report, so the missing-page screen below is the
-      whole column.
-
-      Kept mounted through editing too (OpenProject #813), not just while reading: the trail is still
-      how an author gets back out, and "Last modified" is exactly as useful mid-edit as it is while
-      reading -- `pageStore.path`/`breadcrumbs` and `updatedAt` do not move until a save actually lands
-      (see `pageSave`), so the bar keeps reporting the true last-saved state throughout an edit rather
-      than something that just changed underfoot. Staying mounted across the view-to-edit transition
-      also means this is no longer one more thing reflowing at the same moment as the side nav closing
-      and the preview pane sliding in.
+      Kept mounted through editing, not just while reading: the trail is how an author gets back out,
+      and `path`/`breadcrumbs`/`updatedAt` do not move until a save lands, so the bar keeps reporting
+      the true last-saved state mid-edit rather than something that changed underfoot.
     -->
-    <!-- -> `py-1` on a phone: with the date gone the bar holds one line of small type, and 8px above and
-            below it made a strip nearly as tall as the crumbs themselves -->
     <div class="page-breadcrumbs px-4 flex flex-wrap items-center" v-if="!pageStore.notFound">
       <div class="min-w-0 flex-1">
         <w-breadcrumbs
@@ -30,15 +19,9 @@
         </w-breadcrumbs>
       </div>
       <!--
-        Off on a phone: on a 390px screen the date takes a whole line of its own under the trail, which
-        is a lot of room for something a reader is not here for -- and the trail itself is how they get
-        back out, so that is what the bar keeps.
-
-        Also off for a page that has never been saved (`isUnsavedNewPage`): there is no last-saved
-        moment to report yet, and `publishState`/`updatedAt` at that point either are blank or, absent
-        the reset in `pageCreate`, would be carried over from whatever page was open before. The trail
-        above stays up regardless, title-only if that is all there is -- the path is real even before
-        the page behind it is.
+        Off on a phone, where the date takes a whole line under the trail, and off for a page never
+        saved: there is no last-saved moment to report yet, and `publishState`/`updatedAt` would
+        otherwise carry over from whatever page was open before.
       -->
       <div class="flex-none items-center justify-end hidden sm:flex" v-if="!isUnsavedNewPage">
         <template v-if="pageStore.publishState === 'draft'">
@@ -53,16 +36,12 @@
       </div>
     </div>
     <page-header v-if="!pageStore.notFound" ref="pageHeaderComp" />
-    <!-- -> `min-h-0` so the columns inside can be shorter than their content and scroll -->
     <div class="page-container flex min-h-0 flex-nowrap items-stretch" style="flex: 1 1 100%">
       <div
         class="min-w-0 flex-1"
         :style="siteStore.theme.tocPosition === `left` ? `order: 2;` : `order: 1;`">
         <component :is="editorComponents[editorStore.editor]" v-if="editorStore.isActive" />
-        <!--
-          The lock screen, in place of the article. There is nothing to hide here: the server sent no
-          body at all, so this is the whole of what arrived for a protected page.
-        -->
+        <!-- -> Nothing is hidden client-side: the server sends no body at all for a locked page -->
         <div v-else-if="pageStore.isLocked" class="page-placeholder">
           <w-icon class="page-placeholder-icon" name="tabler:lock" />
           <div class="text-h6">{{ t('common.page.locked') }}</div>
@@ -75,27 +54,14 @@
             :label="t(`common.page.unlock`)"
             @click="promptUnlock" />
         </div>
-        <!--
-          The same column for a path with no page behind it, which is a state of this view rather than
-          an error screen: the reader is still inside the wiki, at a URL that could hold a page, and
-          for anyone who may write one the answer to "this page does not exist" is the button that
-          creates it -- at this path, so that the link they followed leads somewhere afterwards.
-        -->
         <div v-else-if="pageStore.notFound" class="page-placeholder">
           <w-icon class="page-placeholder-icon" name="tabler:file-text" />
-          <!-- -> "...yet" is an invitation, so it is for whoever can take it up; to a reader who
-               cannot write here the page simply does not exist -->
           <div class="text-h6">
             {{ canCreatePage ? t('common.newpage.title') : t('common.notfound.subtitle') }}
           </div>
           <div class="text-body2 mt-1 opacity-60" v-if="canCreatePage">
             {{ t('common.newpage.subtitle') }}
           </div>
-          <!--
-            The path itself, because the sentence above is about a page the reader cannot see and this
-            is the one thing that says WHICH page: the link they followed, and what the button is about
-            to create.
-          -->
           <div class="text-caption font-robotomono mt-3 opacity-50">/{{ pageStore.path }}</div>
           <w-btn
             class="mt-6"
@@ -105,7 +71,6 @@
             padding="xs lg"
             :label="t(`common.newpage.create`)"
             @click="createPage" />
-          <!-- -> Nothing to create for this reader, so the way out is the way they came -->
           <w-btn
             class="mt-6"
             v-else
@@ -115,12 +80,6 @@
             padding="xs lg"
             :label="t(`common.newpage.goback`)"
             @click="goBack" />
-          <!--
-            A path that resolves to nothing is also what a deleted page's own address does, and
-            `read:history` at this path -- fetched above alongside the rest of the permissions this
-            screen needs -- is exactly the permission the Recently Deleted list itself is filtered
-            on, so a reader who could not see this deletion there would not be shown a link to it.
-          -->
           <w-btn
             class="mt-4"
             v-if="canViewDeletionHistory"
@@ -132,22 +91,16 @@
             :to="`/_admin/` + siteStore.id + `/pages/deleted`" />
         </div>
         <!--
-          A redirection, which is a page with nowhere to read: it takes the reader on rather than
-          showing them anything. Ahead of the article because there is no article -- see
-          `PageRedirect.vue` -- and behind the two screens above because a page that is locked, or
-          that is not there at all, has no target to have been given yet.
+          Ordering is load-bearing: ahead of the article because a redirection has none, and behind the
+          locked and missing screens because neither has a target to have been given yet.
         -->
         <page-redirect v-else-if="pageStore.editor === `redirect`" />
         <w-scroll-area class="page-container-scrl" ref="pageScroller" v-else style="height: 100%">
-          <!-- -> Half the padding on a phone, where 16px a side is 8% of the window spent on margin;
-                  the stylesheet has `--content-bleed` to match -->
           <div
             class="page-container-body"
             :class="{ 'is-measured': resolvedContentWidth === `measured` }">
-            <!--
-              Delegated rather than bound per link: the anchors are written by `v-html`, so there is
-              nothing here to put a handler on, and they are replaced wholesale on every render.
-            -->
+            <!-- -> Delegated: the anchors come from `v-html` and are replaced wholesale on every
+                 render -->
             <div
               class="page-contents"
               ref="pageContents"
@@ -210,44 +163,31 @@
             <template v-if="siteStore.features.comments && pageStore.allowComments">
               <w-separator class="my-6" />
               <!--
-                `siteStore.commentsProvider` is set only when the site's active comment provider is a
-                `codeTemplate` one (Disqus/Commento/Artalk) -- see `PageCommentsEmbed.vue`'s own doc
-                comment for the permission/canonical-URL boundaries it enforces. Every other case
-                (the native `default` provider, or no provider ever activated) renders `page-comments`
-                unchanged, exactly as before this existed.
+                `commentsProvider` is set only for a third-party `codeTemplate` provider
+                (Disqus/Commento/Artalk); the native provider and no provider at all both fall to
+                `page-comments`.
               -->
               <page-comments-embed v-if="siteStore.commentsProvider" />
               <page-comments v-else />
             </template>
           </div>
           <!--
-            Inside the scrolling column, and last: this is the bottom of the PAGE, so it is reached by
-            reading to the end of it rather than sitting over the article the whole way down.
-
-            The editor replaces this column wholesale, which is how it goes without a footer, and the
-            lock screen likewise -- a page that sent no body has no end to arrive at.
+            Inside the scrolling column, and last: the footer is the bottom of the PAGE, reached by
+            reading to the end of it rather than pinned over the article the whole way down.
           -->
           <w-footer>
             <footer-nav />
           </w-footer>
         </w-scroll-area>
       </div>
-      <!--
-        The scrim behind the contents panel while it is overlaying the article, which is also how it is
-        dismissed without picking a heading. Same treatment as the nav drawer's: see `WDrawer`.
-      -->
+      <!-- -> Also how the panel is dismissed without picking a heading; same treatment as `WDrawer`'s -->
       <transition name="page-sidebar-scrim">
         <div v-if="tocPanelIsOpen" class="page-sidebar-scrim" @click="closeTocPanel" />
       </transition>
       <!--
-        The contents column. Below 750px it stops being a column and becomes a panel that slides in from
-        the right over the article -- see the stylesheet -- so it stays mounted at every width and it is
-        `is-open` that decides whether it is on screen.
-
-        The click handler closes it on the way out: any anchor inside it is something that takes the reader
-        somewhere (a heading, a tag), and a panel left over the place they were going would have to be
-        dismissed by hand. A `<button>` in here -- the tag editor's, the rating -- is not that, which is
-        why the test is `closest('a')` rather than any click at all.
+        Mounted at every width: below 750px this is a slide-in panel rather than a column, and `is-open`
+        is what decides whether it is on screen. The click handler tests `closest('a')` rather than any
+        click, so the panel closes behind a heading or tag link but not behind the tag editor's button.
       -->
       <div
         class="page-sidebar"
@@ -256,29 +196,17 @@
         :style="siteStore.theme.tocPosition === `left` ? `order: 1;` : `order: 2;`"
         @click="onSidebarClick">
         <!--
-          OpenProject #3056: this wrapper is what lets the two cards below grow to fill
-          `.page-sidebar`'s own available height through the SAME flex layout pass that computes
-          that height (`flex: 1 0 auto`, in the stylesheet), rather than through their own
-          independent block-flow measurement -- see `NavSidebar.vue`'s `.sidebar-nav > nav` for the
-          reference writeup of why a mismatch between those two measurements can round a hair
-          taller than the actual space and trip `overflow-y: auto` even when nothing is actually
-          cut off.
+          This wrapper lets the cards below fill the rail's height through the same flex pass that
+          computes it, rather than an independent block-flow measurement that can round a hair taller
+          and spuriously trip the column's own overflow. `NavSidebar.vue` documents the mechanism.
         -->
         <div class="page-sidebar-content">
           <!--
-            The rail's sections are grouped into two boxes -- Contents, then Tags/Revision/Watching --
-            because Cobalt draws them as two floating white cards on its paper ground where Ledger
-            draws one continuous rail ruled off with hairlines. The grouping is the same in both: it is
-            the `--float-*` tokens that decide whether a box is a card (`--float-bg`, `--float-pad`,
-            `--radius-card`, `--shadow-card`, `--float-gap`) or nothing at all, and every one of them
-            collapses to transparent/0/none under Ledger, so these two wrappers render exactly as the
-            bare sections did. See the stylesheet.
+            Two boxes because Cobalt draws the rail as two floating cards where Ledger draws one
+            continuous column. Every `--float-*` token collapses to transparent/0/none under Ledger, so
+            the wrappers are invisible there.
           -->
           <div class="page-sidebar-card" v-if="showToc">
-            <!-- TOC -->
-            <!-- -> Its own string, not `common.page.toc`: this heading labels a column beside the
-                 article and reads better short, where "Table of Contents" is the full name of the
-                 thing and belongs where there is room for it -->
             <div class="page-sidebar-heading">{{ t('common.page.contents') }}</div>
             <page-toc
               :nodes="pageStore.toc"
@@ -287,7 +215,6 @@
               v-model:selected="state.tocSelected" />
           </div>
           <div class="page-sidebar-card" v-if="showTags || showRevision || showWatching">
-            <!-- Tags -->
             <template v-if="showTags">
               <w-separator v-if="showToc" />
               <div
@@ -296,16 +223,9 @@
                 <div class="flex items-center">
                   <div class="page-sidebar-heading flex-1">{{ t('common.page.tags') }}</div>
                   <!--
-                  Rendered for whoever may save the page, and hidden with `visibility` rather than
-                  removed as the pointer comes and goes: `display: none` took the row's height with it,
-                  so the heading jumped 6px the moment the pointer arrived. `visibility` also keeps it
-                  out of the tab order and out of hit-testing while hidden, which `opacity: 0` on its own
-                  would not.
-
-                  It stays put while editing, because that is when it is the way back out.
-
-                  A reader gets no button at all -- `v-if`, not the same `visibility` treatment, because
-                  for them it is not a control that happens to be out of sight.
+                  Hidden with `visibility`, not `display: none` (which took the row's height with it and
+                  jumped the heading 6px) and not `opacity: 0` alone (which leaves it in the tab order
+                  and hit-testable). A reader who cannot save gets no button at all.
                 -->
                   <w-btn
                     v-if="canEditPage"
@@ -324,18 +244,8 @@
                 <page-tags :edit="state.tagEditMode" />
               </div>
             </template>
-            <!-- Revision -->
-            <!--
-            Where the page stands in its own history: `rev 14 &middot; 6 changes`, who last wrote it, and when.
-            Three lines of text and no controls -- the history itself is a page of its own, reached from
-            the actions column, and a link here would be a fourth way to the same place.
-
-            Unlike Contents and Tags this is not gated on the page having volunteered anything: every
-            page has an author and a last-saved moment, so the section is always at least those two
-            lines. What varies is how much of the first line there is (see `revisionLine`), and the
-            guard below is only for the store before a page has actually landed in it -- drawing a
-            heading over three empty lines during a load is what it prevents, not any real page.
-          -->
+            <!-- -> No link to the full history: that is a page of its own, reached from the actions
+                 column, and a link here would be a second way to the same place -->
             <template v-if="showRevision">
               <w-separator v-if="showToc || showTags" />
               <div class="page-sidebar-heading">{{ t('common.page.revision') }}</div>
@@ -344,47 +254,35 @@
                 <div v-if="pageStore.authorName" class="flex flex-wrap items-center gap-1">
                   <span>{{ pageStore.authorName }}</span>
                   <!--
-                  #2735: provenance -- did the person actually type this, or did an MCP tool call
-                  acting as them? Same badge, same strings, as `PageHistoryOverlay.vue`'s history
-                  timeline; `flex-wrap` on the row is what lets the badge drop under the name on a
-                  narrow column rather than truncating either.
+                  Provenance: whether a person typed this or an MCP tool call acting as them. The row's
+                  `flex-wrap` lets the badge drop under the name on a narrow column rather than
+                  truncating either.
                 -->
                   <w-badge v-if="pageStore.revision?.via === 'mcp'" outline color="accent">
                     {{ t('history.viaMcp') }}
                     <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
                   </w-badge>
                 </div>
-                <!-- -> The masthead's own "Last modified" value, from the one relative-time formatter
-                   `userStore` has: the two are the same fact about the same page and must not drift -->
+                <!-- -> The masthead's own "Last modified" value: the same fact about the same page,
+                   so the two must not drift -->
                 <div v-if="pageStore.updatedAt" class="page-sidebar-revision-time">
                   {{ lastModified }}
                 </div>
               </div>
             </template>
             <!--
-            Watching (OpenProject #2649) -- who else is following this page, as a run of initial plates
-            with a `+N` remainder for everybody past the third.
-
-            Absent entirely, heading and rule included, on a page nobody watches: the same reasoning
-            `showTags` above is written against, and the reason a failed or refused request leaves this
-            empty rather than saying so. A rail section is a glance, not a place to report an error --
-            the bell in the page header is where watching is acted on and where a failure there is
-            reported.
+            Absent entirely, heading and rule included, when nobody watches -- and a failed or refused
+            fetch looks the same on purpose. A rail section is a glance, not a place to report an error;
+            the bell in the page header is where watching is acted on and where failures surface.
           -->
             <template v-if="showWatching">
-              <!--
-              Each rail section owns the rule ABOVE it, conditioned on there being anything above it to
-              separate from -- the pattern Tags follows for Contents. Revision (Task #2652) sits between
-              Tags and this, so its own `showRevision` is the third thing there can be something above.
-            -->
+              <!-- -> Each rail section owns the rule ABOVE it, conditioned on there being anything
+                   above it to separate from -->
               <w-separator v-if="showToc || showTags || showRevision" />
               <div class="page-sidebar-heading">{{ t('common.page.watching') }}</div>
               <div class="page-watchers">
-                <!--
-                `title` rather than a visible name: the plate is two letters wide by design and the
-                full name is what a reader hovers for. `aria-label` says the same thing to a screen
-                reader, for which two uppercase letters are not a name at all.
-              -->
+                <!-- -> The plate is two letters wide by design, so the full name is hovered for; two
+                     uppercase letters are not a name to a screen reader either -->
                 <div
                   v-for="watcher of watcherPlates"
                   :key="watcher.userId"
@@ -405,29 +303,16 @@
           </div>
         </div>
       </div>
-      <!-- -> Every action on it acts on a page: there is none here to edit, share, rate or delete -->
       <page-actions-col v-if="!pageStore.notFound" />
     </div>
     <!--
-      What opens that panel, in the bottom-right corner. `MainLayout`'s own scroll-to-top corner button
-      used to occupy the same corner at 750px and up before OpenProject #2894 retired it in favour of
-      the sidebar's own "Top" cell -- this is now the corner's only occupant, and only below 750px. The
-      `.corner-btn` shape is `css/_base.css`'s, shared with `AdminLayout`'s sidebar opener; the
-      sidebar opener `MainLayout` used to draw in the opposite corner moved inline into the header bar
-      (OpenProject #2928), so this is the only fixed corner button left in the page view.
+      Not gated on having scrolled, as scroll-to-top is: the contents are how a reader decides where to
+      go in a long page, which is most useful before they have gone anywhere.
 
-      Not gated on having scrolled, as scroll-to-top is: the contents are how a reader decides where to go
-      in a long page, and that is most useful before they have gone anywhere.
-
-      `right-0` (not `end-0`) is deliberate -- OpenProject #1590's physical-positioning triage: this is
-      the corner `scroll-to-top` stands down from, a pairing with ANOTHER fixed corner rather than with
-      the reading direction, so it must not move when the locale does. See
-      `frontend/src/physicalPositioning.test.js`.
-
-      `toc-open-btn-anchor` (OpenProject #3019): a hook for the Cobalt-only `bottom` override below,
-      clearing the fixed footer bar the same way the two drawers already do -- see that rule's own
-      comment for why. Bare Tailwind utilities carry the Ledger/default `bottom: 0`; nothing here
-      changes for Ledger, which has no fixed footer to clear.
+      `right-0`, not `end-0`, on purpose: this corner pairs with ANOTHER fixed corner button rather than
+      with the reading direction, so it must not move when the locale does -- see
+      `frontend/src/physicalPositioning.test.js`. `toc-open-btn-anchor` is the hook the Cobalt-only
+      `bottom` override below clears the fixed footer bar with.
     -->
     <transition name="toc-open-btn">
       <div v-if="showTocPanelBtn" class="toc-open-btn-anchor fixed bottom-0 right-0 z-30">
@@ -443,14 +328,8 @@
       </div>
     </transition>
     <!--
-      The keyword highlight/find indicator (OpenProject #2541): on screen for as long as `?highlight=`
-      is, whether or not the term was actually found in this page's content -- a silent "0 of 0" says
-      more than the indicator simply not appearing would, since the reader followed a graph node that
-      promised this exact term.
-
-      Fixed near the top, not bottom-right like the contents opener above: that corner is already
-      claimed (by this button below 750px, by scroll-to-top above it), and a find bar reads naturally
-      at the top of the content it is searching, the way a browser's own does.
+      On screen for as long as `?highlight=` is, whether or not the term was found: a silent "0 of 0"
+      says more than nothing appearing, since the reader followed a graph node promising this term.
     -->
     <transition name="keyword-highlight-bar">
       <div
@@ -569,16 +448,8 @@ const editorComponents = {
   })
 }
 
-/**
- * How many watcher plates the rail's Watching section draws before it stops counting out loud and
- * says `+N` instead.
- *
- * Fixed at three, as the design draws it, and deliberately not responsive: the rail is a
- * fixed-width column, so there is no width to fit plates against.
- */
+/** Deliberately not responsive: the rail is a fixed-width column, so there is no width to fit against. */
 const WATCHER_PLATE_CAP = 3
-
-// STORES
 
 const editorStore = useEditorStore()
 const flagsStore = useFlagsStore()
@@ -586,38 +457,23 @@ const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
 const route = useRoute()
 
-// I18N
-
 const { t } = useI18n()
-
-// COMPOSABLES
 
 const dark = useDark()
 
-/*
-  The page's own CSS, from the properties panel (OpenProject #3389/#3404). Nothing to hold onto -- it
-  follows the page store on its own, for as long as this view is mounted.
-*/
 usePageScripts()
 
-// META
-
 /*
-  A getter, not a plain object: the page's title is not known when this runs. The view is mounted for
-  the path, and the title arrives with the page a moment later -- read once, it was always the empty
-  string, so the tab showed nothing but the site name the template appends. It has to keep up with
-  every navigation after that too, since the view is reused rather than remounted.
+  A getter, not a plain object: the view mounts for the path and the title arrives with the page a
+  moment later, and it has to keep up with every navigation after that since the view is reused rather
+  than remounted.
 */
 useMeta(() => ({
   title: pageStore.title
 }))
-
-// DATA
 
 const state = reactive({
   showSideDialog: false,
@@ -627,75 +483,43 @@ const state = reactive({
   showTagsEditBtn: false,
   tagEditMode: false,
   tocSelected: null,
-  /**
-   * Whether the contents panel has been slid open. Only consulted below 750px, where the contents are a
-   * panel over the article rather than a column beside it.
-   */
   tocPanelOpen: false
 })
 const pageContents = ref(null)
-/** The article column, which is what scrolls -- see `scrollPageToTop`. */
 const pageScroller = ref(null)
 /**
- * The mounted `<page-header>` instance -- reached only for its exposed `titleDisplayEl`, the
- * read-mode title element the keyword-highlight pass (below) also runs against. `null` while
- * `pageStore.notFound` (the header isn't rendered at all) or before the component has mounted.
+ * The mounted `<page-header>`, reached only for its exposed `titleDisplayEl`. `null` while
+ * `pageStore.notFound` -- the header is not rendered at all then -- or before it has mounted.
  */
 const pageHeaderComp = ref(null)
 
-/*
-  KEYWORD HIGHLIGHT / FIND (OpenProject #2541, Feature #2539)
-  =============================================================
-  The `<mark>` elements the current `?highlight=` term is wrapped in, in document order -- see
-  `applyKeywordHighlight` -- and which one navigation is currently centred on. `-1` means "no
-  matches" (or no highlight active at all), never `0` into an empty array.
-*/
+// -> `-1` means no current match, never `0` into an empty array.
 const highlightMatches = ref([])
 const highlightCurrentIndex = ref(-1)
 
 /*
-  WATCHING (OpenProject #2649, Feature #2606)
-  =============================================================
-  The leading watchers of the open page and how many there are altogether, for the rail's Watching
-  section. `watcherTotal` is counted server-side over EVERY watcher regardless of the `limit` asked
-  for, which is what makes the `+N` remainder possible without fetching the whole list.
-
-  Empty until the request answers, and empty again the moment the page changes -- see the watcher
-  below. A page nobody watches and a page whose watchers could not be read are the same empty list on
-  purpose: neither draws a section.
+  `watcherTotal` is counted server-side over EVERY watcher regardless of the `limit` asked for, which
+  is what makes the `+N` remainder possible without fetching the whole list. A page nobody watches and
+  a page whose watchers could not be read are the same empty list on purpose: neither draws a section.
 */
 const watchers = ref([])
 const watcherTotal = ref(0)
 
-// COMPUTED
-
-/**
- * The article column's resolved content width (Feature #3051 / Task #3068): a per-user override
- * layered on top of the site's own `contentWidth` admin setting, not a replacement for it. `'site'`
- * (the default) defers entirely to `siteStore.theme.contentWidth`; `'measured'`/`'full'` force that
- * reader's own choice on every page they view, regardless of what the site currently has configured.
- */
 const resolvedContentWidth = computed(() =>
   userStore.contentWidth === 'site' ? siteStore.theme.contentWidth : userStore.contentWidth
 )
 
 /**
- * Below 750px, where the contents stop being a column beside the article and become a panel over it.
+ * Below 750px the contents stop being a column beside the article and become a panel over it.
  *
- * This view's own threshold: at 200px (see `1399.98px`) the column still costs a third of a 600px
- * window, and an article is what the reader came for. `MainLayout` has to agree with it — that is where
- * scroll-to-top gives up this corner — and so does `749.98px` in the stylesheet below.
+ * This view's own threshold, not one of the app's shared breakpoints. `MainLayout` — where
+ * scroll-to-top gives up this corner — and `749.98px` in the stylesheet below both have to agree.
  */
 const isAtLeast750 = useMinWidth(750)
 const tocIsPanel = computed(() => !isAtLeast750.value)
 
-/** Whether the contents panel is on screen. Never true while the contents are a column. */
 const tocPanelIsOpen = computed(() => tocIsPanel.value && showSidebar.value && state.tocPanelOpen)
 
-/*
-  The opener: only where the contents are a panel, only on a page that has one to show, and not while it is
-  already open -- the scrim is what closes it then, and the button would be behind the panel in any case.
-*/
 const showTocPanelBtn = computed(() => tocIsPanel.value && showSidebar.value && !state.tocPanelOpen)
 
 const showSidebar = computed(() => {
@@ -704,17 +528,15 @@ const showSidebar = computed(() => {
     siteStore.showSidebar &&
     siteStore.theme.tocPosition !== 'off' &&
     !editorStore.isActive &&
-    // -> Contents, tags and a rating, all of a page that is not there
     !pageStore.notFound &&
-    // -> Nor of one nobody stays on: a redirection has no headings to list and is gone in a moment
+    // -> A redirection has no headings to list and is gone in a moment
     pageStore.editor !== 'redirect'
   )
 })
 /*
   Whether there is a contents SECTION, heading and separator included -- not just whether the page
-  asked for one. A page with no headings, or whose depth settings leave nothing to list, would
-  otherwise show "Contents" over an empty space. Asked of the same helper the list itself draws from,
-  so the two can never disagree about whether a row survives.
+  asked for one, which would draw "Contents" over empty space on a page with no headings. Asked of the
+  same helper the list itself draws from, so the two cannot disagree about whether a row survives.
 */
 const showToc = computed(() => {
   if (!pageStore.showToc) {
@@ -728,43 +550,29 @@ const showToc = computed(() => {
   )
 })
 /*
-  Same question for the tags, and for the same reason: `showTags` is what the page ASKED for, and on a
-  page carrying none that left a "Tags" heading over an empty space.
-
-  Held open while the tag editor is in use, so that removing the last tag does not take the field being
-  typed into away with it. That only arises mid-edit -- with no tags to start from there is no edit
-  button to reach the mode through.
+  Same question for the tags, and held open while the tag editor is in use so that removing the last
+  tag does not take the field being typed into away with it.
 */
 const showTags = computed(() => {
   return pageStore.showTags && (pageStore.tags?.length > 0 || state.tagEditMode)
 })
 /*
-  Whether there is a Revision section. On a loaded page this is always true -- an author and a
-  last-saved moment are facts about every stored page -- so this is not the "did the page volunteer
-  one" question `showToc` and `showTags` ask. It is the guard against drawing the heading with
-  nothing under it at all: the store before a page has landed in it, and the moment between one
-  page's route and the next page's reply.
+  Always true on a loaded page -- an author and a last-saved moment are facts about every stored page
+  -- so this is not the "did the page volunteer one" question `showToc`/`showTags` ask. It guards only
+  the store before a page has landed in it.
 */
 const showRevision = computed(() =>
   Boolean(pageStore.revision || pageStore.authorName || pageStore.updatedAt)
 )
 /**
- * The rail's first Revision line -- `rev 14 · 6 changes`, `rev 1`, or nothing at all.
+ * The difference between this line's three renderings is ABSENCE, never a zero: no `revision` at all
+ * means the reader has no `read:history`, so there is no line; a `revision` with no `changeCount` is a
+ * page whose only version is its creation, so `rev 1` stands alone. The full line is assembled through
+ * a locale key rather than by joining two strings, so the separator and clause order stay a
+ * translator's.
  *
- * Three renderings, and the difference between them is ABSENCE, never a zero (see `Page#.revision`
- * in the API schema, and `stores/page.js`):
- *
- *  - no `revision` at all -- this reader has no `read:history` on the page, so there is no line;
- *    the author and the time below still render, since those come from the page itself.
- *  - a `revision` with no `changeCount` -- there is nothing to have diffed against (a page whose
- *    only version is its creation), so it is `rev 1` alone, with neither the interpunct nor a
- *    `0 changes` clause after it.
- *  - both -- the full line, assembled through a locale key rather than by joining two strings with
- *    a hardcoded `·`, so the separator and the order of the two clauses stay a translator's.
- *
- * The `> 0` is defensive rather than expected: the server never sends a zero here. It is written
- * that way so a zero that somehow arrives renders as the second case above -- which is what it
- * means -- rather than as `rev 1 · 0 changes`, which is a thing this section never draws.
+ * The `> 0` is defensive: the server never sends a zero, and one that arrives must render as `rev 1`
+ * rather than as `rev 1 · 0 changes`, which this section never draws.
  */
 const revisionLine = computed(() => {
   const revision = pageStore.revision
@@ -780,33 +588,17 @@ const revisionLine = computed(() => {
     changes: t('common.page.revisionChanges', { count: revision.changeCount }, revision.changeCount)
   })
 })
-/*
-  And the same question again for the watchers, with one fewer half to it: there is nothing a
-  page can ASK for here, so having somebody to draw is the whole test. A page nobody watches, a page
-  whose watchers have not come back yet, and a page whose watchers could not be read all answer false
-  -- a "Watching" heading over nothing is the very thing `showTags` above exists to avoid.
-*/
 const showWatching = computed(() => watcherPlates.value.length > 0)
 /**
- * The watchers actually drawn as plates: the leading `WATCHER_PLATE_CAP` of them, oldest first,
- * which is the order the route already answers in -- except that a reader who is watching is always
- * among them, first, regardless of where the route's oldest-first order would otherwise put them
- * (OpenProject #2722). The route is asked for only `WATCHER_PLATE_CAP` watchers to begin with, so on
- * a page with that many or more existing watchers the reader's own, freshly-added row is the newest
- * and therefore never comes back in the slice at all -- without this, pressing Watch would flip the
- * bell while the rail beside it stayed silent about the very person who just pressed it.
+ * The leading `WATCHER_PLATE_CAP` watchers, oldest first as the route answers -- except that a reader
+ * who is watching is pinned first regardless. The route is asked for only that many rows, so on a page
+ * with that many existing watchers the reader's own freshly-added row is the newest and never comes
+ * back in the slice at all; without the pin, pressing Watch would flip the bell while the rail stayed
+ * silent about the person who pressed it. De-duplicated by `userId`, and `watcherRemainder` needs no
+ * adjustment: the server's `total` already counts every real watcher.
  *
- * The reader's own entry comes from the fetched list when the route happened to include it (in which
- * case its real `initials`/`name` are used, same as anybody else's), and is otherwise built from
- * `userStore` -- the only source of a name/id for a row the fetch never returned. Either way it is
- * de-duplicated by `userId`, never added twice, and `watcherRemainder` needs no change to account for
- * it: the server's `total` already counts every real watcher, this reader included, no matter how
- * many of them the slice above actually returned.
- *
- * The two letters come from the server's own `initials` field -- served alongside `name` precisely so
- * every consumer draws the same two -- falling back to `helpers/initials.js` for a payload without
- * one. That helper stays the single client-side derivation of this; nothing here re-derives it
- * inline, which is the drift Bug #2609 consolidated away.
+ * The two letters come from the server's own `initials` so every consumer draws the same two, falling
+ * back to `helpers/initials.js`, which stays the single client-side derivation.
  */
 const watcherPlates = computed(() => {
   const fetched = watchers.value
@@ -827,23 +619,16 @@ const watcherPlates = computed(() => {
   }))
 })
 /**
- * How many watchers the plates do not account for, as the trailing `+N`. Counted off the server's
- * `total` -- every watcher, not the returned slice -- so it stays right however many the request
- * asked for, and floored at zero rather than trusted: a `total` behind the list it came with would
- * otherwise draw `+-1`.
+ * Counted off the server's `total` -- every watcher, not the returned slice -- and floored at zero
+ * rather than trusted: a `total` behind the list it came with would otherwise draw `+-1`.
  */
 const watcherRemainder = computed(() =>
   Math.max(watcherTotal.value - watcherPlates.value.length, 0)
 )
 /*
-  Whether this user may save a change to the page, which is what editing the tags amounts to -- the tags
-  go up with the rest of the page rather than through an endpoint of their own. So the test is the pair
-  the PATCH route accepts: `write:pages` or `manage:pages`.
-
-  Read off `pagePermissions` rather than through `userStore.can()`, which asks a broader question: the
-  group-wide list from `whoami` says what a user may do somewhere, and the rules decide where. What
-  they may do HERE is what `pages/userPermissions` answers, and it is the same authority the PATCH
-  route itself consults.
+  Editing the tags is saving the page -- they go up with the rest of it rather than through an endpoint
+  of their own -- so the test is the pair the PATCH route accepts. Read off `pagePermissions`, not
+  `userStore.can()`: the group-wide list says what a user may do somewhere, and this asks about HERE.
 */
 const canEditPage = computed(() =>
   ['write:pages', 'manage:pages'].some((permission) =>
@@ -852,29 +637,22 @@ const canEditPage = computed(() =>
 )
 
 /*
-  Whether the missing-page screen offers to create the page. `write:pages` at THIS path, from the same
-  list as the tag button above: page rules are written against paths, not against pages, so they answer
-  for one that does not exist yet — and it is the check the create endpoint itself makes. The group-wide
-  list would say "may write pages somewhere", which is how a button ends up leading to a 403.
+  `write:pages` at THIS path: page rules are written against paths, not pages, so they answer for one
+  that does not exist yet, and it is the check the create endpoint itself makes. The group-wide list
+  would say "may write pages somewhere", which is how a button ends up leading to a 403.
 
-  The editor is part of the answer: creating a page opens one, and markdown is the only editor this
-  view can mount. A site with it switched off has nothing to open, so the screen says the page is
-  missing and leaves it at that.
+  The editor is part of the answer because creating a page opens one, and markdown is the only editor
+  this view can mount.
 */
 const canCreatePage = computed(
   () => userStore.pagePermissions.includes('write:pages') && siteStore.editors.markdown
 )
 
 /**
- * Whether to point this reader at the Recently Deleted admin view.
- *
- * Two permissions, of the two different kinds, both have to hold: `access:admin` -- a GLOBAL
- * permission -- is what `AdminLayout` itself checks on arrival, and without it the link would only
- * bounce the reader to the unauthorized screen; `read:history` at this exact path -- a PAGE
- * permission, from the same `pages/userPermissions` fetch `canCreatePage` reads -- is what a row for
- * this path would need to appear on that list at all. A group can grant either without the other
- * (a contributor with `read:history` rules but no admin access is a normal setup, not an edge case),
- * so neither alone is enough to promise the link leads somewhere real.
+ * Two permissions of two different kinds, both needed before the Recently Deleted link is offered:
+ * the GLOBAL `access:admin` is what `AdminLayout` checks on arrival, and the PAGE-scoped
+ * `read:history` at this exact path is what a row for it would need to appear on that list at all. A
+ * group can grant either without the other, so neither alone promises the link leads somewhere real.
  */
 const canViewDeletionHistory = computed(
   () => userStore.can('access:admin') && userStore.pagePermissions.includes('read:history')
@@ -890,11 +668,9 @@ const relationsRight = computed(() => {
   return pageStore.relations ? pageStore.relations.filter((r) => r.position === 'right') : []
 })
 /**
- * Whether the page on screen has never been saved -- open in the editor, in `create` mode, and not
- * yet POSTed. `editorStore.isActive` is checked alongside `mode` rather than `mode` alone: `mode`
- * stays `create` until the save that flips it to `edit` completes (see `pageSave`), and also starts
- * out `create` before any page has ever been opened -- so a stale `mode` read while merely reading a
- * page (editor closed) must not be able to suppress "Last modified" there too.
+ * `editorStore.isActive` is checked alongside `mode` rather than `mode` alone: `mode` stays `create`
+ * until the save that flips it to `edit` completes, and starts out `create` before any page has been
+ * opened -- so a stale read while merely reading a page must not suppress "Last modified" there.
  */
 const isUnsavedNewPage = computed(() => editorStore.isActive && editorStore.mode === 'create')
 
@@ -904,10 +680,6 @@ const lastModified = computed(() => {
     : t('common.notAvailable')
 })
 
-/**
- * The trail the breadcrumb bar draws, root first. The Home crumb is prepended here rather than
- * written into the markup, so the bar takes a single flat list.
- */
 const breadcrumbs = computed(() => [
   {
     key: 'home',
@@ -926,11 +698,8 @@ const breadcrumbs = computed(() => [
 ])
 
 /**
- * The `highlight` query param, normalized to a single trimmed string -- or empty when absent.
- *
- * A repeated query key (`?highlight=a&highlight=b`) parses as an array; there is only ever one
- * keyword to carry forward, so the first value wins and anything else that is not a plain string
- * (an array of non-strings, `null`) is treated the same as no param at all.
+ * A repeated query key (`?highlight=a&highlight=b`) parses as an array; there is only ever one keyword
+ * to carry forward, so the first value wins and anything that is not a string means no param at all.
  */
 const highlightTerm = computed(() => {
   const raw = route.query.highlight
@@ -938,7 +707,7 @@ const highlightTerm = computed(() => {
   return typeof value === 'string' ? value.trim() : ''
 })
 
-/** Whether the find-in-page indicator should be on screen at all -- a term is active, found or not. */
+/** A term being active is the whole test: the indicator shows even when nothing was found. */
 const showHighlightIndicator = computed(() => highlightTerm.value.length > 0)
 
 const highlightCountLabel = computed(() =>
@@ -948,27 +717,15 @@ const highlightCountLabel = computed(() =>
   })
 )
 
-// WATCHERS
-
 /*
-  The copy buttons on code blocks are part of the content, so they are re-added whenever the content
-  is. Keyed on the render rather than on the route: it arrives after the page has already mounted, and
-  it is replaced again on every save without the route moving at all.
+  Keyed on the render rather than on the route: it arrives after the page has already mounted, and is
+  replaced again on every save without the route moving at all.
 
-  The keyword highlight/find pass (OpenProject #2541) rides the same watcher rather than one of its
-  own: it needs to re-run for exactly the same two reasons `enhanceRenderedContent` does -- the
-  content changing under an unmoved route (a save, or first arrival) -- PLUS a reason unique to it,
-  the `highlight` query param itself changing with the route otherwise unchanged. That third case is
-  why `highlightTerm` is a second watched source rather than an `onMounted`-only read: Vue Router
-  reuses this very component instance across two content-page navigations, so a reader clicking a
-  second highlighted graph node while already on a content page changes only the query, not the
-  component tree -- an `onMounted` check would never see it.
-
-  `pageStore.title` is a third source (OpenProject #2901): the title lives in `PageHeader.vue`'s own
-  reactive `{{ displayedTitle }}` text node, not `v-html` like the body, so a change to it while a
-  highlight is active would otherwise leave stale marks around text `applyKeywordHighlight`'s
-  clear-then-rewrap already detached Vue's binding from -- re-running here keeps it in step the same
-  way a body edit already does.
+  `highlightTerm` is a second source because the router reuses this component instance across content
+  navigations, so a reader clicking a second highlighted graph node changes only the query -- an
+  `onMounted` check would never see it. `pageStore.title` is a third: the title is a reactive text node
+  in `PageHeader.vue`, not `v-html` like the body, and `applyKeywordHighlight`'s clear-then-rewrap
+  detaches Vue's binding from it, so a title change under an active highlight would leave stale marks.
 */
 watch(
   [() => pageStore.render, highlightTerm, () => pageStore.title],
@@ -982,24 +739,14 @@ watch(
 )
 
 /*
-  OpenProject #3061: on save, `pageStore.pageSave()` (`stores/page.js`) `$patch`es `pageStore.render`
-  with the freshly-rendered HTML WHILE THE EDITOR IS STILL MOUNTED (`editorStore.isActive` is still
-  `true`) -- that alone is what fires the watcher above, but `pageContents` is the reading view's own
-  template ref and is still null at that moment (the `v-else` branch above hasn't mounted), so the
-  call hits `enhanceRenderedContent`'s `if (!root) return` guard as a silent no-op.
+  `pageSave` patches `pageStore.render` while the editor is STILL mounted, so the watcher above fires
+  against a null `pageContents` and no-ops. Only afterwards does the editor close and mount the reading
+  view, and none of that watcher's three sources move again at that point -- so without this, the
+  rendered content is never enhanced until something else changes render/title/highlight.
 
-  Only afterward does `pageSaveFlow.js`'s `saveChangesCommit` flip `editorStore.isActive` to `false`,
-  unmounting the editor and mounting `pageContents` for the first time already holding the updated
-  render -- but none of the three sources above change again at that point, so the watcher never
-  re-fires against the now-real DOM, and the code-copy button never appears until something else
-  changes render/title/highlight (a second save, or navigating away and back).
-
-  This watcher bridges exactly that gap: `isActive` flipping to `false` is the one signal the watcher
-  above cannot see for itself, since it is what makes `pageContents` a real element rather than a
-  state change to `pageStore`/`highlightTerm` itself. Re-running here is safe on every OTHER path the
-  editor can close onto (the page turns out locked, not found, or a redirect) -- `pageContents` stays
-  null on all three, so `enhanceRenderedContent`'s own guard makes this a no-op there, same as
-  `editorStore.isActive` turning `true` does on the way in.
+  `isActive` flipping to `false` is the one signal that watcher cannot see for itself. Re-running on
+  every other path the editor closes onto (locked, not found, redirect) is a no-op: `pageContents`
+  stays null there and `enhanceRenderedContent` guards on it.
 */
 watch(
   () => editorStore.isActive,
@@ -1015,17 +762,14 @@ watch(
 )
 
 /*
-  A protected page asks for its password the moment it arrives: the reader followed a link to read it,
-  and making them press a button first would only add a step. Keyed on the page rather than on the
-  flag, so dismissing the prompt does not immediately reopen it -- the lock screen's own button is the
-  way back in -- while walking to another protected page prompts again.
+  Keyed on the page rather than on the flag, so dismissing the prompt does not immediately reopen it --
+  the lock screen's own button is the way back in -- while walking to another protected page prompts
+  again.
 
-  Deliberately NOT `immediate`. This component is unmounted and remounted around any route outside the
-  page view (a search, the profile, the admin area), and the store it reads is global: an immediate run
-  fires against whatever page was on screen BEFORE that detour, so leaving a locked page for the search
-  screen and coming back to an unprotected one prompted for the earlier page's password. Every real
-  case still fires here, because `pageLoad` clears the flag as it starts and the reply sets it again --
-  so a locked page always arrives as a change, mount or no mount.
+  Deliberately NOT `immediate`: this component remounts around any route outside the page view and the
+  store it reads is global, so an immediate run fires against whatever page was on screen BEFORE that
+  detour. Every real case still fires, because `pageLoad` clears the flag as it starts and the reply
+  sets it again -- a locked page always arrives as a change, mount or no mount.
 */
 watch(
   () => (pageStore.isLocked ? pageStore.id : null),
@@ -1037,25 +781,16 @@ watch(
 )
 
 /*
-  The rail's Watching section (OpenProject #2649), fetched HERE rather than in `pageStore.pageLoad`.
+  Fetched here rather than in `pageStore.pageLoad`: it is a second round trip and the article must not
+  wait on it.
 
-  It is a second round trip, and the article must not wait on it: the sibling Revision section rides
-  the page read precisely because that one costs nothing extra, and this one cannot. So the page
-  arrives, draws, and the plates appear a moment later underneath it -- or never, on a page nobody
-  watches or one whose watchers the server declines to list.
+  `pageStore.watchersRevision` rather than `isWatching`, which flips synchronously the moment the bell
+  is pressed, before the PUT/DELETE it kicked off has committed -- a watcher keyed on it asked the
+  server while the write was still in flight and got back the state from before the click.
+  `watchersRevision` only moves once that request has resolved.
 
-  Three sources, and each is a real reason to ask again: the page id, obviously; `showSidebar`, which
-  is what makes this cost nothing at all on a site with the rail switched off or while the editor is
-  open; and `pageStore.watchersRevision` rather than `isWatching` itself -- `isWatching` flips
-  synchronously the moment the bell is pressed, before the PUT/DELETE it kicked off has actually
-  committed, so a watcher keyed on it asked the server for the list while that write was still in
-  flight and got back the state from before the click every time (OpenProject #2722).
-  `watchersRevision` only moves once `pageStore.pageWatch()`'s request has resolved, which is what
-  puts this fetch strictly after the write rather than racing it. Vue coalesces a flush, so a page
-  load moving id and revision together still asks once.
-
-  Same generation guard as `pageLoadGeneration` below and for the same reason: navigating A -> B while
-  A's watchers are still in flight must not let A's answer land over B's.
+  Same generation guard as `pageLoadGeneration` below: navigating A -> B while A's watchers are still
+  in flight must not let A's answer land over B's.
 */
 let watchersGeneration = 0
 
@@ -1080,10 +815,8 @@ watch(
       watcherTotal.value = resp?.total ?? 0
     } catch (err) {
       /*
-        Silent by design, and the section stays absent. Who watches a page is not something the reader
-        asked for, so a toast about it would interrupt them over something they did not do -- and the
-        request is refused for entirely ordinary reasons (a page they may not read, a page still
-        behind its password) that the view already says out loud elsewhere.
+        Silent by design, and the section stays absent: who watches a page is not something the reader
+        asked for, and the request is refused for ordinary reasons the view already says out loud.
       */
       log.warn('page', 'could not load the page watchers', err)
     }
@@ -1092,9 +825,8 @@ watch(
 )
 
 /*
-  A fragment that changes without the page doing so: a link inside the content, or the reader going
-  back to one. The browser tries it natively and gets nowhere when the heading is inside a panel that
-  is not open, so the same routine runs here — where the heading is revealed first.
+  `hashchange` is handled here as well as natively because the browser gets nowhere when the heading is
+  inside a panel that is not open — the helper reveals it first.
 */
 onMounted(() => {
   window.addEventListener('hashchange', onHashChange)
@@ -1111,14 +843,10 @@ function onHashChange() {
 }
 
 /**
- * Escape dismisses an active keyword highlight, same as the close control on its own indicator.
- *
- * A window-level listener rather than one scoped to the indicator itself: the reader did not open
- * find-mode by focusing anything -- it arrived already active, from a graph click -- so there is no
- * natural element for a scoped handler to sit on. `WDialog`'s own Escape handling
- * (`composables/escapeStack.js`) runs on a `document` bubble listener with no `stopPropagation`, so
- * pressing Escape while an unrelated dialog is open both closes that dialog AND dismisses the
- * highlight -- harmless, since dismissing an inactive or already-cleared highlight is a no-op.
+ * A window-level listener rather than one scoped to the indicator: find-mode arrived already active,
+ * from a graph click, so nothing is focused for a scoped handler to sit on. `WDialog`'s own Escape
+ * handling does not stop propagation, so Escape with a dialog open both closes it and dismisses the
+ * highlight -- harmless, since dismissing an inactive highlight is a no-op.
  */
 function onWindowKeydown(ev) {
   if (ev.key === 'Escape' && showHighlightIndicator.value) {
@@ -1127,40 +855,34 @@ function onWindowKeydown(ev) {
 }
 
 /*
-  Generation guard for the plain page-load branch of the watcher below (OpenProject #1785). The
-  watcher is `async` and Vue does not cancel a previous, still-running invocation when `route.path`
-  changes again -- so navigating A -> B while A's `pageStore.pageLoad` is still in flight can let A's
-  slower response land AFTER B's faster one, stomping B's title/body/tags/permissions with A's stale
-  data. A plain incrementing counter, not reactive state: it is only ever read and written from
-  inside the watcher's own closures, never from a template.
+  The watcher below is `async` and Vue does not cancel a previous, still-running invocation when
+  `route.path` changes again -- so navigating A -> B while A's `pageLoad` is in flight can let A's
+  slower response land AFTER B's, stomping B's title/body/tags/permissions. A plain counter, not
+  reactive state: it is only ever read and written inside the watcher's own closures.
 */
 let pageLoadGeneration = 0
 
 watch(
   () => route.path,
   async (newValue) => {
-    // -> Ignore route change (e.g. from page create route fix)
     if (editorStore.ignoreRouteChange) {
       editorStore.$patch({ ignoreRouteChange: false })
       return
     }
 
-    // -> Enter Create Mode?
     if (newValue.startsWith('/_create')) {
       return enterCreateMode(route, { router, t })
     }
 
-    // -> Enter Edit Mode?
     if (newValue.startsWith('/_edit')) {
       return enterEditMode(route, { router })
     }
 
-    // -> Moving to a non-page path? Ignore
     if (newValue.startsWith('/_')) {
       return
     }
 
-    // -> Captured before the first await -- see the counter's own comment above.
+    // -> Captured before the first await.
     const generation = ++pageLoadGeneration
     return loadPageForRoute(route, generation, {
       router,
@@ -1173,56 +895,32 @@ watch(
   { immediate: true }
 )
 
-// METHODS
-
 /**
- * Follow a link inside the page's content without reloading the application.
- *
- * A rendered page is HTML, so its internal links are ordinary anchors: the browser would throw the
- * whole SPA away and build it again to show a page the router can swap in. `routableHref` decides
- * which ones are ours; anything it declines is left to the browser, including a click asking for a
- * new tab.
- */
-/**
- * Back to the top of the article on arriving at another page.
- *
- * The article column scrolls, not the window -- the shell around it holds still -- so the router's own
- * `scrollBehavior` has nothing to do: it scrolls the document, which never moved. Left alone, a reader
- * following a link from halfway down one page arrives halfway down the next.
- *
- * Called before the content is swapped rather than after, so the jump happens on the page being left
- * instead of showing the new one at the old offset for a frame. A `#heading` in the URL still wins:
- * `scrollToAnchorWhenReady` runs once the render has settled, and travelling to it from the top is
- * what it is written to do.
+ * The article column scrolls, not the window, so the router's own `scrollBehavior` has nothing to do:
+ * it scrolls the document, which never moved. Called before the content is swapped, so the jump
+ * happens on the page being left rather than showing the new one at the old offset for a frame. A
+ * `#heading` in the URL still wins -- `scrollToAnchorWhenReady` runs once the render has settled.
  */
 function scrollPageToTop() {
   pageScroller.value?.$el?.scrollTo({ top: 0, left: 0 })
 }
 
 /**
- * The page title element, when the header is on screen at all -- `null` while `pageStore.notFound`
- * (no `<page-header>` mounted) or before it has mounted. See `PageHeader.vue`'s exposed
- * `titleDisplayEl` for why this reaches into the component instance rather than a plain template
- * ref: the title lives in a completely separate DOM subtree from `.page-contents` (OpenProject
- * #2901).
+ * `null` while `pageStore.notFound` or before the header mounts. Reaches into the component instance
+ * rather than a plain template ref because the title lives in a separate DOM subtree from
+ * `.page-contents`.
  */
 function highlightableTitleEl() {
   return pageHeaderComp.value?.titleDisplayEl ?? null
 }
 
 /**
- * Re-applies (or clears) the keyword highlight against the article and the page title that are
- * actually on screen right now, reading `highlightTerm` fresh rather than taking it as an argument
- * -- this is always called from inside the watcher above, after `nextTick`, so the DOM and the term
- * are already in step.
+ * Reads `highlightTerm` fresh rather than taking it as an argument -- always called from the watcher
+ * above, after `nextTick`, so the DOM and the term are already in step. Matches are concatenated
+ * title-first, so the "N of M" count and navigation walk the title before the body it sits above.
  *
- * Runs against both roots and concatenates their matches title-first, so the "N of M" count and
- * `stepHighlightMatch` navigation include the title and walk it before the body it sits above.
- *
- * Always resets to "no current match" and re-focuses match 0: whether this run is a first
- * activation, a term change, or a re-render with the same term, the old `highlightCurrentIndex`
- * pointed at a `<mark>` element that `applyKeywordHighlight`'s own clear-then-rewrap has already
- * thrown away (see its own header comment) -- keeping it would point navigation at a detached node.
+ * Always resets to match 0: `applyKeywordHighlight`'s clear-then-rewrap has already thrown away the
+ * `<mark>` the old index pointed at, so keeping it would point navigation at a detached node.
  */
 function syncKeywordHighlight() {
   const term = highlightTerm.value
@@ -1244,7 +942,6 @@ function syncKeywordHighlight() {
   }
 }
 
-/** Marks one match as current and scrolls it roughly to the centre of the article. */
 function focusHighlightMatch(index) {
   for (const [i, mark] of highlightMatches.value.entries()) {
     mark.classList.toggle('is-current-match', i === index)
@@ -1257,7 +954,6 @@ function focusHighlightMatch(index) {
   })
 }
 
-/** Wraps around in both directions, same as native find-in-page next/previous. */
 function stepHighlightMatch(delta) {
   const total = highlightMatches.value.length
   if (total === 0) {
@@ -1275,10 +971,8 @@ function goToPreviousHighlightMatch() {
 }
 
 /**
- * Turns the highlight off while staying on the page: unwraps every `<mark>`, hides the indicator,
- * and strips `?highlight=` from the URL with `router.replace` -- no new history entry, so Back still
- * leaves by however the reader actually arrived rather than bouncing them straight back into
- * find-mode. A graph click must not permanently pin a reader into find-mode once they have said no.
+ * `router.replace`, not `push`: no new history entry, so Back leaves by however the reader actually
+ * arrived rather than bouncing them straight back into find-mode.
  */
 function dismissHighlight() {
   clearKeywordHighlight(highlightableTitleEl())
@@ -1294,19 +988,12 @@ function dismissHighlight() {
 }
 
 /**
- * What a relation button links to, as props for `WBtn`.
- *
- * The buttons were rendered with neither, so a relation was decoration: it drew its label and caption
- * and swallowed the click. A target is stored as `PageRelationDialog` leaves it — a rooted path within
- * this wiki (`/guides/upgrading`) or a complete external address — so the two cases are told apart the
- * same way an in-content link is, by `routableHref`, and the router takes the ones that are ours
- * rather than reloading the app to reach them.
+ * A target is stored as `PageRelationDialog` leaves it — a rooted path within this wiki or a complete
+ * external address — so the two are told apart by `routableHref`, the same way an in-content link is,
+ * and the router takes the ones that are ours rather than reloading the app to reach them.
  *
  * Nothing at all for a relation with no target: the dialog only requires a label, and an `<a>` with an
  * empty href reloads the current page.
- *
- * @param rel A page relation
- * @returns `{ to }` for a page in this wiki, `{ href }` for an ordinary web address, `{}` for neither
  */
 function relationLink(rel) {
   const target = rel.target?.trim()
@@ -1325,8 +1012,8 @@ function relationLink(rel) {
   if (routed) {
     return { to: routed }
   }
-  // -> An ordinary web link or nothing: a target is author-supplied, and `javascript:` in an href is
-  //    script this page would run on click
+  // -> A target is author-supplied, and `javascript:` in an href is script this page would run on
+  //    click
   return /^https?:$/.test(url.protocol) ? { href: url.toString() } : {}
 }
 
@@ -1346,15 +1033,11 @@ function onContentClick(ev) {
     return
   }
   /*
-    A heading on this same page: travelled to rather than jumped at, which is how the contents list
-    and an arriving `#heading` already reach one. Through the helper, so a heading inside a closed tab
-    is revealed first, and only claimed once it says it found somewhere to go -- a fragment naming
-    nothing in the render is left to the browser, as it was.
-
-    The URL still follows, so the address bar can be copied and Back returns to the section before.
-    `router.push` rather than assigning `location.hash`, which would jump the page as well -- and since
-    a pushed hash sets no target element, marking where the reader landed is the helper's job (see
-    `LANDED_CLASS`) rather than `:target`'s.
+    Through the helper, so a heading inside a closed tab is revealed first, and only claimed once it
+    says it found somewhere to go -- a fragment naming nothing in the render is left to the browser.
+    `router.push` rather than assigning `location.hash`, which would jump the page as well; since a
+    pushed hash sets no target element, marking where the reader landed is the helper's job
+    (`LANDED_CLASS`) rather than `:target`'s.
   */
   const hash = sameDocumentHash(anchor, window.location)
   if (hash) {
@@ -1381,11 +1064,9 @@ function closeTocPanel() {
 }
 
 /**
- * Close the contents panel once the reader has picked something out of it.
- *
- * Delegated rather than bound per row: `PageToc` emits only `update:selected`, which does not fire again
- * when the heading already showing is picked a second time — so a click is the thing to listen for, not the
- * selection changing. Any anchor counts, which is what also covers a tag.
+ * Delegated rather than bound per row: `PageToc` emits only `update:selected`, which does not fire
+ * again when the heading already showing is picked a second time — so a click is the thing to listen
+ * for, not the selection changing. Any anchor counts, which is what also covers a tag.
  */
 function onSidebarClick(ev) {
   if (tocPanelIsOpen.value && ev.target?.closest?.('a')) {
@@ -1393,22 +1074,17 @@ function onSidebarClick(ev) {
   }
 }
 
-/** Asks for the page's password. Opened on arrival, and again from the lock screen's own button. */
 function promptUnlock() {
   dialog({ component: PageUnlockDialog })
 }
 
 /**
- * Opens the editor on the page that is not there, at the path that was asked for.
- *
  * The path comes from the store rather than from the route, because the route is where it goes: the
- * editor moves to `/_create/<editor>` and the path travels in the page itself, which is the same way
- * every other New Page button works. Which editor is `pickEditor`'s call -- it asks when the site has
- * more than one active, and answers on its own (no dialog shown) when there is only one real choice.
+ * editor moves to `/_create/<editor>` and the path travels in the page itself, the same way every
+ * other New Page button works. `pickEditor` asks only when the site has more than one editor active.
  */
 async function createPage() {
   const editor = await pickEditor(siteStore)
-  // -> The picker was dismissed rather than answered: nothing to create yet
   if (!editor) {
     return
   }
@@ -1423,8 +1099,8 @@ async function createPage() {
 }
 
 /**
- * Back out of a path that has no page. `router.back()` alone lands on the wiki's own error screen for
- * a reader who arrived at this URL directly, having nothing to go back to, so that case goes home.
+ * `router.back()` alone lands on the wiki's own error screen for a reader who arrived at this URL
+ * directly, having nothing to go back to, so that case goes home.
  */
 function goBack() {
   if (window.history.state?.back) {
@@ -1437,22 +1113,8 @@ function goBack() {
 
 <style>
 /*
-  Where the contents column stops being able to afford 300px. This view's own threshold, not one of
-  the app's shared breakpoints, and this one is a function of this page's two sidebars. Stated as a
-  `max` value just under 1400px, the way the shared ones are.
-*/
-
-/*
-  ...and where it stops being a column at all and becomes a panel over the article. The same boundary as
-  the 750px `useMinWidth` above, which decides whether the opener is rendered, and as the one `MainLayout`
-  uses to stand scroll-to-top down from this corner. All three have to agree.
-*/
-
-/*
-  The column in place of the article: the lock screen, the page that does not exist, and the
-  redirection on its way somewhere else. All three are the same shape -- a large faint icon, a
-  sentence, and the one button that does something about it -- and share the styling so they cannot
-  drift apart. `PageRedirect.vue` draws its own screens with these classes for that reason.
+  Shared by the lock screen, the missing page and the redirection so the three cannot drift apart --
+  `PageRedirect.vue` draws its own screens with these classes for that reason.
 */
 .page-placeholder {
   display: flex;
@@ -1465,9 +1127,8 @@ function goBack() {
   text-align: center;
 
   /*
-    Stated per theme, as everything else in this column is: the article's own colours come from
-    `_page-contents.css`, so a plain block dropped in beside it inherits the document's black and
-    goes invisible on the dark surface. The icon below takes its colour from here as well.
+    Stated per theme because the article's own colours come from `_page-contents.css`: a plain block
+    dropped in beside it inherits the document's black and goes invisible on the dark surface.
   */
   .body--light & {
     color: var(--color-grey-9);
@@ -1477,35 +1138,21 @@ function goBack() {
   }
 }
 
-/*
-  Large and faint. It is the illustration on an otherwise empty column, not something to look at -- the
-  sentence under it is what the reader is here to read.
-*/
 .page-placeholder-icon {
   margin-bottom: 24px;
   font-size: 96px;
   opacity: 0.12;
 }
 
-/*
-  The trail, above the masthead. Cardinal sets a path in Roboto Mono on the content column's own white,
-  ruled off underneath -- so it reads as the page's address rather than as another band of chrome. The
-  gradient it used to carry (grey-1 to grey-3 with a heavier rule under it) was a bevel, and the whole
-  point of the trail is that it gives way to the page beneath it.
-*/
 .page-breadcrumbs {
   /*
-    41px to match `MainLayout.vue`'s `.sidebar-actions`, the band immediately to the left of this one:
-    the two sit at the same vertical position and each rules itself off with its own hairline, so any
-    disagreement in height leaves the two rules on different lines and the two grounds meeting at a
-    step. Both boxes are `border-box`, so that 1px border is inside the 41px on either side. (OpenProject
-    #2861 raised `.sidebar-actions` from 38px to 41px for its three-cell locale|browse|top restructure;
-    this band follows it to keep the two rules on the same line, same as #2613 originally matched it.)
+    41px to match `MainLayout.vue`'s `.sidebar-actions`, the band immediately to the left: the two sit
+    at the same vertical position and each rules itself off with its own hairline, so any disagreement
+    in height leaves the two rules on different lines. Both boxes are `border-box`, so that 1px border
+    is inside the 41px on either side.
 
-    A fixed height at all -- rather than one sized by its own contents through the `py-1`/`sm:py-2`
-    pair this used to carry -- because the bar's height otherwise moved with whatever the trail
-    happened to hold: a crumb with an icon made it taller than one without.
-
+    A fixed height at all, rather than one sized by its contents, because the bar's height otherwise
+    moved with whatever the trail held: a crumb with an icon made it taller than one without.
     `min-height` rather than `height` so a trail long enough to wrap can still grow past the band.
   */
   min-height: 41px;
@@ -1513,9 +1160,8 @@ function goBack() {
   font-size: 11.5px;
 
   /*
-    The bar sets a background per theme, so it owes a foreground too: the LAST crumb -- the current
-    page -- deliberately inherits rather than taking `active-color`, and what it was inheriting in
-    dark mode was the document's black.
+    The bar sets a background per theme, so it owes a foreground too: the LAST crumb deliberately
+    inherits rather than taking `active-color`, and in dark mode would inherit the document's black.
   */
   .body--light:not(.body--cobalt) & {
     background-color: var(--color-surface);
@@ -1529,20 +1175,13 @@ function goBack() {
   }
 
   /*
-    Cobalt's trail sits on the page's own paper ground with no band and no rule under it -- the
-    banner card below it is what separates the two -- and marks the current page in cobalt rather
-    than leaving it to inherit the trail's caption tone (`Page View 3x - Cobalt`). One rule for both
-    themes: every token in it is already aesthetic- and theme-aware.
+    One rule for both themes: every token in it is already aesthetic- and theme-aware.
 
-    OpenProject #2975 (Cobalt typography, "Breadcrumb bar" role table): every non-last `<li>` here
-    carries its own inline `color` -- `WBreadcrumbs`' `active-color` prop, resolved as
-    `var(--color-grey-5/-7)`, LEDGER's tone -- so a plain `color:` on this block alone never reaches
-    a trail segment; only the LAST crumb had a rule specific enough (`li:last-child
-    .w-breadcrumbs__el`, no inline style to out-rank) to actually land. `.w-breadcrumbs__el` gets its
-    own explicit `color` below instead of leaning on inheritance from the `<li>`'s inline style --
-    an explicit declaration on the element itself beats an inherited value with no `!important`
-    needed. The separator's inline `color` (`separator-color="grey"`) sits on that SAME `<li>`, not a
-    child, so unseating it does need `!important`.
+    Every non-last `<li>` carries an inline `color` from `WBreadcrumbs`' `active-color` prop, so a
+    plain `color:` on this block alone never reaches a trail segment. `.w-breadcrumbs__el` gets its own
+    explicit `color` instead -- a declaration on the element beats an inherited value with no
+    `!important`. The separator's inline `color` sits on that SAME `<li>`, not a child, so unseating
+    it does need one.
   */
   body.body--cobalt & {
     background-color: transparent;
@@ -1564,12 +1203,9 @@ function goBack() {
   }
 
   /*
-    A point off the trail on a phone, on the bar rather than on the crumbs: `WBreadcrumbs` sets no size
-    of its own and its icons are 125% of whatever it inherits, so one declaration here takes the text and
-    the icons down together and keeps the two in proportion.
-
-    13px is where it stops. The trail is how a reader gets back out, and it is already the smallest type
-    on the screen -- what is wanted is a bar that gives way to the page under it, not one nobody can read.
+    Sized on the bar rather than on the crumbs: `WBreadcrumbs` sets no size of its own and its icons
+    are 125% of whatever it inherits, so one declaration here takes the text and the icons down
+    together and keeps the two in proportion.
   */
   @media (max-width: 599.98px) {
     min-height: 30px;
@@ -1577,11 +1213,6 @@ function goBack() {
   }
 }
 
-/*
-  The "last modified" note at the trailing end of the trail, and the draft mark beside it. The bar is
-  already mono at 11.5px; this only holds the tone, so the note reads as part of the address rather
-  than as a second voice.
-*/
 .page-breadcrumbs-modified {
   white-space: nowrap;
 
@@ -1592,44 +1223,14 @@ function goBack() {
     color: var(--color-text-caption-dark);
   }
 }
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
-  The masthead. A white plate with the page's icon in a hairline square beside its title, ruled off
-  from the article -- the two-stop gradient and the white top edge it used to carry were the same
-  bevel the trail above it had, and they are gone for the same reason.
+  The same 120px on every page: sized by its contents, the band came out taller on a page with a
+  description than on one without, and moving between the two visibly shifted the article under it.
+  The 8px of block padding is what makes 120px reachable -- the text column brings its own `p-4`, and
+  16px here on top of that left less room than a title-plus-description block needs.
 
-  120px, and the same 120px on every page. What it used to say here was a 96px MINIMUM around a 64px
-  icon plate, which sounds fixed and was not: the band was sized by whatever was in it, so a page with
-  a description came out at 130px and a page without at 109px, and moving between the two visibly
-  shifted the whole article under it. Neither number was the 96px, which is why reading the
-  declaration told you nothing -- `Index.pageHeaderHeight.test.js` measures the rendered band in a
-  real browser instead.
-
-  The 8px of block padding is what makes 120px reachable rather than aspirational. The text column
-  brings its own `p-4`, and 16px here on top of it left 87px for a title-plus-description block that
-  needs 96.8 -- the band would have grown past 120 on every page that had a description, which is the
-  defect over again. At 8px the budget is 103px and both pages land on exactly 120.
-
-  A MINIMUM still, for exactly one remaining case: a title long enough to wrap. 120px against a
-  36px/1.05 title, a description and the padding leaves about a line of slack -- enough for the
-  description, not for a second title line -- and a fixed height here is already recorded as having
-  cropped one (a fixed 95px, before the minimum replaced it). So the band takes the extra line rather
-  than hiding it. That is variance, but with a cause a reader can see in front of them, not one that
-  turns on whether an author happened to fill in a field. A description long enough to wrap grows it
-  the same way and for the same reason; a description of ordinary length never does.
-
-  Cobalt draws this band as a raised card rather than Ledger's flush white plate --
-  `--page-header-*` (`tailwind.css`, OpenProject #2767/#2771) is exactly the token set this was
-  supposed to consume and never did: Ledger's own defaults (`--color-white`/`--color-ink`/`0`/`none`/
-  `0`) reproduce the two rules just below unchanged, so wiring them in is additive for Ledger and is
-  what finally lights up Cobalt's radius/shadow/margin (OpenProject #2774). `--page-header-bg` is a
-  flat colour, not a gradient (handoff 5, Part 1.1; OpenProject #2857) -- see the Cobalt override
-  below for why its `background-color` still needs restating rather than following from this
-  shorthand alone.
+  A MINIMUM, not a height, for one case: a title long enough to wrap. There is about a line of slack at
+  120px, and a fixed height here has already cropped a wrapped title once.
 */
 .page-header {
   min-height: 120px;
@@ -1641,12 +1242,8 @@ function goBack() {
   background: var(--page-header-bg);
   color: var(--page-header-fg);
   /*
-    Sized by its contents on a phone instead, which comes out around 96px: the 120px is pitched for a
-    64px icon beside 34px display type, and holding it under the halved icon and title of the phone
-    layout left a band of empty ground under the description.
-
-    So the variance the desktop band just lost is deliberate down here -- there is no height worth
-    holding when everything that would fill it is half the size.
+    Sized by its contents on a phone instead: the 120px is pitched for a 64px icon beside 34px display
+    type, and holding it under the halved icon and title left empty ground under the description.
   */
 }
 @media (max-width: 599.98px) {
@@ -1656,11 +1253,7 @@ function goBack() {
   }
 }
 .page-header {
-  /*
-    Ledger's own flush plate: a hairline border rather than the radius/shadow/margin the tokens above
-    resolve to `0`/`none`/`0` for anyway -- kept as literal rules rather than folded into the tokens
-    since Ledger draws no card at all, just a ruled-off band.
-  */
+  /* Ledger draws no card, just a ruled-off band, so its hairline stays a literal rule. */
 }
 .body--light .page-header {
   background-color: var(--color-surface);
@@ -1672,18 +1265,11 @@ function goBack() {
 }
 .page-header {
   /*
-    Cobalt overrides both of the rules just above: the flat colour/radius/shadow/margin already set
-    by the tokens at the top of this block replace Ledger's flush plate entirely, in both themes --
-    the mockups draw the identical banner in light and dark (`tailwind.css`'s Cobalt-dark block does
-    not restate `--page-header-*`, so this is one rule for both).
-
-    `background-color` has to be restated here, at `--page-header-bg` again rather than left to the
-    base rule's `background:` shorthand: `.body--light &`/`.body--dark &` above declare their own
-    `background-color` at the same two-class specificity as this selector (`body.body--cobalt` adds a
-    type selector on top, which is what lets this block win over either regardless of which one a
-    page also carries -- light/dark and ledger/cobalt are independent body classes, so both can be
-    present at once). Leaving this undeclared would let Ledger's surface colour win instead of the
-    token.
+    One rule for both themes -- the mockups draw the identical banner in light and dark.
+    `background-color` must be restated rather than left to the base rule's `background:` shorthand:
+    the light/dark rules above declare their own at the same two-class specificity, and light/dark and
+    ledger/cobalt are independent body classes, so both can be present at once. The added type
+    selector is what lets this block win over either.
   */
 }
 body.body--cobalt .page-header {
@@ -1691,11 +1277,7 @@ body.body--cobalt .page-header {
   background-color: var(--page-header-bg);
 }
 .page-header {
-  /*
-    The page's own title, and the one place in the interface the display face is set at full size:
-    Barlow Condensed at 36px/700, which is what lets a long title stay on one line in a bar this
-    height. `text-wrap: pretty` keeps a two-line title from leaving one orphaned word.
-  */
+  /* The one place the display face is set at full size; `pretty` stops a two-line title orphaning a word. */
 }
 .page-header-title {
   font-family: var(--font-display);
@@ -1705,10 +1287,9 @@ body.body--cobalt .page-header {
   letter-spacing: normal;
   text-wrap: pretty;
   /*
-    The masthead's own foreground, not the app's ink: Cobalt's banner is a saturated flat colour and
-    its title is white. `--page-header-fg` is `var(--color-ink)` in Ledger, so the light rule this
-    replaces is reproduced exactly; dark mode keeps its own value, but only for Ledger -- Cobalt's
-    banner is identical in both themes.
+    The masthead's own foreground, not the app's ink: Cobalt's banner is a saturated flat colour with a
+    white title. Dark mode keeps its own value, but only for Ledger -- Cobalt's banner is identical in
+    both themes.
   */
   color: var(--page-header-fg);
 }
@@ -1716,11 +1297,7 @@ body.body--cobalt .page-header {
   color: var(--color-text-dark);
 }
 .page-header {
-  /*
-    The description under the title: Barlow at 400, not the 500 `text-subtitle2` was giving it. At the
-    weight the title carries it read as a second heading rather than as the sentence explaining the
-    first one.
-  */
+  /* 400, not 500: at the title's weight the description read as a second heading. */
 }
 .page-header-subtitle {
   margin-top: 6px;
@@ -1728,54 +1305,35 @@ body.body--cobalt .page-header {
   font-size: 14.5px;
   line-height: 1.45;
   letter-spacing: normal;
-  /* Same reasoning as the title above -- Ledger's token value is `var(--color-text-secondary)`. */
   color: var(--page-header-subtitle-fg);
 }
 .body--dark:not(.body--cobalt) .page-header-subtitle {
   color: var(--color-text-secondary-dark);
 }
 /*
-  The article and the footer under it, stacked inside the one box that scrolls -- Ledger only; see the
-  `.w-footer` rule below for what Cobalt does with the same markup.
-
-  `flex: 1 0 auto` on the article is what keeps the footer at the BOTTOM of a short page instead of
-  leaving it hanging under two lines of content: the article takes the leftover height, and past that
-  grows with its own content and pushes the footer out of view until the reader gets there. It must
-  not shrink either, or a long article would be squeezed to make room rather than scrolling.
+  `flex: 1 0 auto` on the article keeps the footer at the BOTTOM of a short page instead of leaving it
+  hanging under two lines of content: the article takes the leftover height, and past that grows with
+  its own content. It must not shrink either, or a long article would be squeezed rather than scroll.
 */
 .page-container-scrl {
   display: flex;
   flex-direction: column;
 
   /*
-    Cobalt (OpenProject #3017, Feature #3010): the site footer stops being the last item in this
-    scrolling column and becomes a full-viewport-width bar pinned to the bottom of the WINDOW instead
-    -- outside any grid or flex flow, `WLayout.vue`'s included (that file is untouched; this is scoped
-    to the page view alone).
+    Under Cobalt the site footer becomes a full-width bar pinned to the bottom of the WINDOW.
+    `position: fixed` is the whole mechanism -- nothing relocates the element in the template -- and it
+    depends on nothing between here and the viewport setting a `transform`/`filter`/`contain` that
+    would give it a nearer containing block.
 
-    `position: fixed` is the whole mechanism: it removes `.w-footer` from this flex column's layout on
-    its own, so nothing here needs to relocate the element in the template to get there -- a
-    fixed-position descendant paints relative to the viewport regardless of how deep in the DOM it
-    sits, as long as nothing between it and the viewport sets a `transform`/`filter`/`contain` that
-    would give it a nearer containing block, and nothing under `WLayout.vue`, `WPage.vue` or in this
-    file does.
+    `inset-inline: 0` rather than `width: 100vw`: with a reserved scrollbar gutter, `100vw` counts the
+    scrollbar as part of the viewport and forces a horizontal scrollbar into existence.
 
-    `inset-inline: 0` rather than `width: 100vw`: on a desktop browser with a reserved scrollbar
-    gutter, `100vw` counts the scrollbar itself as part of the viewport and overshoots the page's own
-    content width by that many pixels, forcing a horizontal scrollbar into existence. Pinning both
-    edges to `0` instead stretches the bar to exactly the width the page already renders at.
+    `z-index: 45` sits one step above the overlay nav drawer's `z-40` (`WDrawer.vue`) and its `z-30`
+    scrim. The nav drawer is the one exception: `MainLayout.vue` overrides ITS overlay to `46`.
 
-    `z-index: 45` sits one step above the overlay nav drawer's plain `z-40` (`WDrawer.vue`) and its
-    `z-30` scrim, so the bar stays above an open drawer that has NOT been given a reason to sit
-    higher -- the TOC drawer (`.page-sidebar` below) clears the bar's own last item the same way this
-    always worked (`--footer-bar-height`, `tailwind.css`; OpenProject #3018). The nav drawer is the
-    one exception, as of OpenProject #3032: `MainLayout.vue` overrides ITS overlay to `z-index: 46`,
-    one past this bar's own, so it paints on top instead -- see this rule's own comment below for why.
-
-    `.page-container-scrl` in the selector, not a bare `.w-footer`: this stylesheet is unscoped (no
-    `scoped` attribute on the `<style>` tag below), so an unqualified class selector here would reach
-    every `<w-footer>` in the app, not just this page's site footer -- `FileManager.vue`'s status bar
-    and `Search.vue`'s own footer both use the same component and must not be affected.
+    `.page-container-scrl` in the selector, not a bare `.w-footer`: this stylesheet is unscoped, so an
+    unqualified class selector would reach every `<w-footer>` in the app -- `FileManager.vue`'s status
+    bar and `Search.vue`'s footer use the same component and must not be affected.
   */
   .w-footer {
     body.body--cobalt & {
@@ -1785,26 +1343,15 @@ body.body--cobalt .page-header {
       z-index: 45;
 
       /*
-        OpenProject #3032: reverts #3018's approach of shrinking the nav sidebar to clear this bar
-        -- the sidebar should always reach the true bottom of the screen, so instead this bar makes
-        room for the sidebar. Below the sidebar's own permanent-column breakpoint
-        (`SIDEBAR_OVERLAY_BELOW`, `MainLayout.vue`) the drawer takes no layout space at all -- it is
-        a `position: fixed` overlay there, `WDrawer.vue`'s own -- so the bar stays exactly the
-        `inset-inline: 0` full width set above; that breakpoint's `z-index: 46` override on the
-        overlay drawer (`MainLayout.vue`) is what keeps the two from fighting over this corner while
-        it is open. At and above 1200px, this bar insets in from whichever edge the sidebar actually
-        renders on, by that edge's reactive width -- `MainLayout.vue` mirrors it onto
-        `--sidebar-inset-inline-start`/`--sidebar-inset-inline-end` (OpenProject #3142; one is always
-        `--sidebar-current-width`, the other always `0px`, split there because plain CSS has no way to
-        pick which physical/logical inset property a rule uses based on a custom property's string
-        value), inherited down from that shared ancestor element. Both are `0px` whenever the sidebar
-        isn't actually occupying either column, so a page/site with no sidebar at all still gets the
-        full-width bar.
+        The bar makes room for the nav sidebar rather than the sidebar shrinking to clear the bar: the
+        sidebar should always reach the true bottom of the screen. Below `MainLayout.vue`'s
+        permanent-column breakpoint the drawer is a fixed overlay taking no layout space, so the bar
+        keeps the full width set above.
 
-        Setting both properties unconditionally (rather than branching on `sidebarPosition` here) is
-        what makes this correct for both the default LEFT-positioned sidebar (`--sidebar-current-width`
-        on `inset-inline-start`, `--sidebar-inset-inline-end` at `0px`) and a `sidebarPosition: 'right'`
-        one (the reverse) without this stylesheet needing to know which is in effect at all.
+        `MainLayout.vue` mirrors the sidebar's width onto one of these two properties and `0px` onto
+        the other, split that way because plain CSS cannot pick an inset property from a custom
+        property's value. Setting both unconditionally is what makes this correct for a left- or a
+        right-positioned sidebar without this stylesheet knowing which is in effect.
       */
       @media (min-width: 1200px) {
         inset-inline-start: var(--sidebar-inset-inline-start, 0px);
@@ -1815,44 +1362,20 @@ body.body--cobalt .page-header {
 }
 
 /*
-  OpenProject #3135: `.page-container-scrl` above is not itself the flex item `.page-container`'s row
-  stretches -- it is that item's `height: 100%` child (the template's own `.min-w-0.flex-1` div, which
-  wraps everything the article column can render, this element included). A margin-bottom on
-  `.page-container-scrl` itself would only push empty space out past its OWN border box, which is
-  already pinned to 100% of an unchanged parent height -- it would not shrink anything visible, since
-  percentage height ignores margins. `.page-sidebar` (below) has no such wrapper: it IS the stretched
-  flex item, which is exactly why a bare `margin-bottom: var(--footer-bar-height)` works there.
+  The clearance goes on the wrapper, not on `.page-container-scrl`: that element is the wrapper's
+  `height: 100%` child, and percentage height ignores margins, so a margin there would shrink nothing.
+  (`.page-sidebar` below IS the stretched item, which is why a bare margin works there.) Addressed by
+  the child combinator off the unique `.page-container` rather than a bare `.min-w-0.flex-1`, a
+  Tailwind utility pair that recurs in this template and across the app.
 
-  So the clearance goes on the wrapper instead, addressed by the child combinator off the unique
-  `.page-container` (this file's only element with that class) rather than a bare `.min-w-0.flex-1`,
-  which recurs elsewhere in this same template (the relation columns further down) and, being a
-  Tailwind utility pair, elsewhere in the app entirely. Shrinking THIS flex item's own stretch-computed
-  height is what then shrinks `.page-container-scrl`'s 100% of it in turn, so its scrollport -- and the
-  native scrollbar riding along it -- stops above the bar instead of running behind it.
-
-  A brief same-day attempt (#3089) deleted this rule outright, reasoning that `--article-column-pad`'s
-  Cobalt bottom bump already gave enough trailing whitespace to clear the bar -- true for the article's
-  CONTENT, but the padding lives inside `.page-container-scrl`'s own scrollport and does nothing for
-  where the scrollport (and its native scrollbar) itself ends, which is what this rule is for; #3089
-  conflated the two and was reverted. `32.5px` is a literal figure (Dylan's own measurement, not a
-  formula off `--footer-bar-height`, which is a much larger, deliberately conservative text-wrap
-  estimate unrelated to this bar's actual rendered height) matching the footer bar's height, so the
-  scrollbar's track ends flush with its top edge. `--article-column-pad`'s Cobalt bottom value is cut
-  by this same 32.5px (60px -> 27.5px) so the two changes net to zero -- the page's fully-scrolled
-  content position is unchanged; only the scrollbar's own track now stops above the bar.
-
-  No narrow-viewport counterpart is needed here the way `.page-sidebar` needs one below
-  `749.98px`: this wrapper is never repositioned to `position: fixed` at any breakpoint, so a
-  single unconditioned rule covers every viewport width.
+  `32.5px` is a measurement of the footer bar's rendered height, not a formula off
+  `--footer-bar-height`, which is a much larger conservative text-wrap estimate.
+  `--article-column-pad`'s Cobalt bottom value is cut by the same 32.5px so the two net to zero: only
+  the scrollbar track moves. Padding alone cannot do this job -- it lives INSIDE the scrollport.
 */
 body.body--cobalt .page-container > .min-w-0.flex-1 {
   margin-bottom: 32.5px;
 }
-/*
-  The article's own whitespace. `32px 28px 44px` is the design's measurement, and the extra at the
-  foot is what stops the last paragraph sitting on the footer. It replaces a `p-2 sm:p-4` pair
-  (8px/16px), which left a rendered page very nearly flush to the column's edges.
-*/
 .page-container-body {
   flex: 1 0 auto;
   padding: var(--article-column-pad);
@@ -1862,15 +1385,12 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
   }
 
   /*
-    The other half of the padding above.
-
     `--content-bleed` is how far the rule under an h1 reaches BACK through this surface's padding, so
-    that it starts at the column's edge rather than at the text -- so it is a statement about this
-    surface's padding and has to move with it. 28px here, 16px on a phone.
+    it has to move with that padding.
 
-    On the `.page-contents` element rather than here, because that is where the default is declared and
-    a custom property set on the parent would simply be shadowed by it. The editor's preview pane
-    carries the class itself and pads differently, so it keeps the default.
+    Set on `.page-contents` rather than here, because that is where the default is declared and a
+    custom property set on the parent would simply be shadowed by it. The editor's preview pane carries
+    the class itself and pads differently, so it keeps the default.
   */
   .page-contents {
     --content-bleed: var(--content-bleed-default);
@@ -1883,11 +1403,9 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
   }
 
   /*
-    And the article's own card. In Ledger every one of these resolves to nothing -- transparent
-    ground, no padding, square corners, no shadow -- because the column IS the sheet there and the
-    padding above is all the whitespace the article gets. In Cobalt the column becomes the paper
-    ground (`.page-container` below) and this box is the white card floating on it, which is why the
-    padding moves in here and `--content-bleed` goes to `0`: a card clips at its corner.
+    In Ledger every one of these resolves to nothing, because the column IS the sheet there. In Cobalt
+    the column is the paper ground and this box is the card floating on it, which is why the padding
+    moves in here and `--content-bleed` goes to `0`: a card clips at its corner.
   */
   > .page-contents {
     background-color: var(--float-bg);
@@ -1898,31 +1416,21 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
 }
 
 /*
-  A measure, when the site asks for one. 720px is the measure the design draws
-  (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`: the article pads 32/28/44 and then holds its text
-  to 720px inside that) -- and it holds the text FLUSH to the padded column's leading edge, since the
-  mockup writes a bare `max-width: 720px` with no `margin: 0 auto` anywhere in the file. A measure is
-  a line length, not a position: the text starts where every other thing on this surface starts, and
-  simply stops early. Centring it instead left the article drifting away from the breadcrumbs and
-  header above it on a wide window, which is what this setting was reported for.
+  A measure is a line length, not a position: the text stays FLUSH to the padded column's leading edge
+  and simply stops early. Centring it left the article drifting away from the breadcrumbs and header
+  above it on a wide window.
 
-  On the CONTENTS' CHILDREN rather than on `.page-contents` itself, and with `block-infobox`
-  specifically excluded (OpenProject #2835): `.page-contents` is deliberately not centred, so all the
-  slack the 720px cap creates sits on its right -- exactly where an infobox floats. An infobox is a
-  DOM child of `.page-contents`, not of the separate `.page-sidebar` flex column, so it can only ever
-  float within whatever box `.page-contents` resolves to; capping `.page-contents` itself would trap
-  it at the measure width with nowhere to float into. Every other child (paragraphs, headings, lists,
-  tables, ...) still measures at 720px exactly as before -- only the one block whose whole purpose is
-  to use that reclaimed whitespace is let through.
+  Applied to the CONTENTS' CHILDREN rather than to `.page-contents` itself, with `block-infobox`
+  excluded: an infobox floats within whatever box `.page-contents` resolves to, so capping that element
+  would trap it at the measure width with nowhere to float into -- the reclaimed slack on the right is
+  exactly what it is for.
 */
 .page-container-body.is-measured > .page-contents > :not(block-infobox) {
   max-width: 720px;
 }
 
 /*
-  The article column's own ground: white, so it reads as a sheet laid on the paper behind it. Stated
-  here rather than left to the body, because the page's ground is `--color-paper` now -- see
-  `MainLayout`.
+  Stated here rather than left to the body, whose ground is `--color-paper` -- see `MainLayout`.
 */
 .page-container {
   .body--light:not(.body--cobalt) & {
@@ -1933,19 +1441,16 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
   }
 
   /*
-    Cobalt inverts the relationship: the column is the tinted ground and the article, contents,
-    metadata and actions each float on it as their own card. Transparent rather than a colour, so
-    what shows through is `MainLayout`'s `--color-paper` -- one ground behind every card, which is
-    what makes them read as cards at all.
+    Transparent rather than a colour, so what shows through is `MainLayout`'s `--color-paper`: one
+    ground behind every card, which is what makes them read as cards at all.
   */
   body.body--cobalt & {
     background-color: transparent;
   }
 }
 /*
-  The Tags heading's edit toggle. `visibility` is transitioned alongside the opacity so it still fades
-  BOTH ways: as a discrete property it flips at the end of the transition when going to hidden, and at
-  the start when coming back, which is exactly the timing a fade wants.
+  `visibility` is transitioned alongside the opacity so it still fades BOTH ways: as a discrete
+  property it flips at the end of the transition going to hidden and at the start coming back.
 */
 .tags-edit-btn {
   transition:
@@ -1964,63 +1469,33 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
   }
 }
 
-/*
-  Diffed against `Page View 3x - Cobalt`/`Page View Dark 3x - Cobalt` (OpenProject #2774): the
-  mockups draw Contents, Tags/Revision and the actions rail as THREE separate floating white cards on
-  the page's own paper ground, rather than this one continuous rail sharing the article's white
-  surface with hairline rules between its own sections -- `.page-container`'s own background stays
-  `var(--color-surface)` unconditionally for the same reason (the article relies on it as its own ambient white,
-  with no card of its own to carry that colour instead). Splitting the rail into per-section cards is
-  a real DOM/layout restructuring (a wrapper per section, a paper-coloured `.page-container` ground,
-  and the article gaining its own card treatment to keep its current white-on-white look) rather than
-  a token-consumption fix, and is logged here rather than attempted as part of this diff-and-fix pass
-  -- the token layer this WOULD consume (`--radius-card`/`--shadow-card`) already exists and needs no
-  further primitive work first. The headings/revision text INSIDE this rail are fixed below
-  regardless (`--color-text-caption`/`--color-text-body`), since those are plain colour swaps
-  independent of the larger card question.
-*/
 .page-sidebar {
   flex: 0 0 300px;
 
   /*
-    The rail's own inset, as the design draws it (`padding: 28px 20px`), rather than a `p-4` on each
-    section in the markup. Putting it on the column is what gives the rules between the sections their
-    margins for free: a `w-separator` is a child of this box, so it spans the content width and stops
-    20px short of both edges instead of running edge to edge across the rail.
+    The inset lives on the column rather than on each section, which is what gives the rules between
+    the sections their margins for free: a `w-separator` is a child of this box, so it spans the
+    content width instead of running edge to edge across the rail.
   */
   padding: 28px 20px;
 
   /*
-    Narrower once the window is: 300px is pitched for a wide desktop, where it is a tenth of the width, and
-    by 1200px it is a quarter of what is left after the nav sidebar. 200px still holds a heading of a few
-    words per line -- the contents list wraps rather than truncating (see `PageToc`) -- and hands the
-    article the other 100px.
-
     1400px is this view's own threshold rather than one of the app's `--breakpoint-*`: it is where THIS
-    column starts crowding the article, which depends on its own width and the nav's.
+    column starts crowding the article, which depends on its own width and the nav's. 200px still holds
+    a heading of a few words per line, since the contents list wraps rather than truncating.
   */
   @media (max-width: 1399.98px) {
     flex: 0 0 200px;
   }
 
   /*
-    And below 750px it stops being a column at all: even at 200px it is a third of a 600px window, and an
-    article is what the reader came for. It becomes a panel the width of the wide column, parked off the
-    right edge and slid in when asked for -- the same shape as the nav drawer on a narrow screen, and for
-    the same reason, so the two behave alike from opposite sides.
+    Below 750px it stops being a column at all and becomes a slide-in panel. `position: fixed` takes it
+    out of the row, so the article gets the whole width whether the panel is open or not; `transform`
+    is what animates, being the one property that moves a box without laying anything out again.
 
-    `position: fixed` is what takes it out of the row, so the article gets the whole width whether the
-    panel is open or not; the reader is never made to choose between the two, only to look at one at a
-    time. `transform` is what animates, being the one property that moves a box without laying anything
-    out again -- and the panel is out of flow, so there is nothing behind it to reflow anyway.
-
-    Right regardless of `tocPosition`: the opener is in the bottom-RIGHT corner, and a panel arriving from
-    the far side of the screen from the button that summoned it reads as something else appearing.
-
-    `right`/`translateX(100%)`/the shadow's negative x-offset below all stay physical rather than
-    logical on purpose (OpenProject #1590's physical-positioning triage): this panel is paired with a
-    fixed screen corner (the opener, below), not with the reading direction, so none of it should move
-    when the locale does.
+    Right regardless of `tocPosition`, and `right`/`translateX(100%)`/the shadow's x-offset all stay
+    physical rather than logical: the panel is paired with the opener's fixed screen corner, not with
+    the reading direction, so none of it should move when the locale does.
   */
   @media (max-width: 749.98px) {
     position: fixed;
@@ -2040,11 +1515,6 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     }
   }
 
-  /*
-    A hair off the article column's white rather than a grey panel beside it -- the rail holds the
-    page's own metadata (contents, tags, revision, watchers), so it belongs to the sheet, and the
-    hairline down its leading edge is what separates the two.
-  */
   .body--light:not(.body--cobalt) & {
     background-color: #fbfcfe;
     border-inline-start: 1px solid var(--color-hairline);
@@ -2055,35 +1525,29 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
   }
 
   /*
-    Cobalt has no rail as a surface at all: the two boxes inside it are cards on the page's own
-    paper ground, so the column itself is transparent and unruled, and its padding drops the 20px of
-    side inset the sections used to need (each card brings its own).
+    Cobalt has no rail as a surface: the boxes inside it are cards on the page's own paper ground, so
+    the column is transparent and unruled and the side inset moves into each card.
   */
   body.body--cobalt & {
     background-color: transparent;
     border-inline-start: 0;
     /*
       Left padding is 2px, not 0: `.page-sidebar-card`'s edge is a box-shadow ring
-      (`--shadow-card`), which extends 1px OUTSIDE its own border-box. This column's
-      `overflow-y: auto` silently computes `overflow-x` to `auto` too (the CSS Overflow
-      spec's same-axis-pairing quirk, per `_page-contents.css`'s `.table-scroll` comment),
-      so with 0 left padding that 1px of ring had nothing to render into and was clipped
-      away -- the card was missing its left hairline while the other three sides, which
-      have 24-28px of padding to spare, were fine. 2px is just enough room to contain it.
+      (`--shadow-card`) extending 1px OUTSIDE its border-box. This column's `overflow-y: auto`
+      silently computes `overflow-x` to `auto` too (the CSS Overflow spec's same-axis-pairing
+      quirk, per `_page-contents.css`'s `.table-scroll` comment), so at 0 that 1px of ring has
+      nothing to render into and is clipped away. The other three sides have padding to spare.
     */
     padding: 28px 24px 28px 2px;
   }
 
-  /* The rules BETWEEN this rail's own sections, which are hairlines like every other rule in the */
-  /* language -- where they used to be a light-on-light / near-black-on-dark pair drawing the bevel */
-  /* between two panels. */
-  /* */
-  /* The original set a background-colour here as well as a border. It never showed: the element is */
-  /* 1px tall with `box-sizing: border-box`, so the content box is 0px and the opaque border covers */
-  /* it completely. Only the border colour is carried across. */
+  /*
+    FIXME: `#{...}` is Sass interpolation left over from the Sass teardown and is not valid plain
+    CSS -- the custom property stores the literal text, so `WSeparator` never resolves a colour from
+    it and falls back to its own default. Both declarations should be bare `var(--color-hairline…)`.
+  */
   .w-separator {
     --w-hairline-color: #{var(--color-hairline)};
-    /* -> 22px of air on each side, as the design draws them */
     margin-block: 22px;
   }
   .body--dark & .w-separator {
@@ -2091,71 +1555,50 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
   }
 
   /*
-    The column is the height of the shell, so its own content scrolls when there is more of it than
-    there is room -- a long contents list, in practice. Nothing sticky is involved: the shell holds
-    still on its own, and the article beside this scrolls in its own box.
-
-    OpenProject #3007: this used to carry its own hardcoded flat-grey standard scrollbar declarations
-    here, unconditioned on either aesthetic -- the same near-duplicate of the rule `WScrollArea.vue`
-    used to hardcode (see that component's own header comment, OpenProject #3006). One of those two
-    standard properties is inherited, and Chromium 121+ ignores every `::-webkit-scrollbar*` rule on
-    an element carrying a non-auto value of the other -- so that direct, unwrapped pair was actively
-    defeating the global `.body--ledger`/`.body--cobalt` scrollbar spec for this column in every
-    engine, not merely losing a specificity fight. Deleting it (not just recolouring it) is what lets
-    the aesthetic-scoped global rule reach this element instead, matching every other scrolling region.
+    No scrollbar styling here on purpose: one of the two standard scrollbar properties is inherited,
+    and Chromium 121+ ignores every `::-webkit-scrollbar*` rule on an element carrying a non-auto value
+    of the other, so declaring either here defeats the global `.body--ledger`/`.body--cobalt` spec for
+    this column in every engine rather than merely losing a specificity fight.
   */
   overflow-y: auto;
   overscroll-behavior: contain;
 
   /*
-    OpenProject #3056: `.page-sidebar` is itself a flex item stretched to the row's own height
-    (`items-stretch`, the template's own class on `.page-container`), which -- like `NavSidebar.vue`'s
-    `.sidebar-nav` -- can resolve to a fractional pixel value. Declaring THIS column a flex column of
-    its own is what lets `.page-sidebar-content` below grow to fill it through that SAME flex layout
-    pass rather than through an independent block-flow measurement of its own content, which is what
-    keeps the two figures from rounding a hair apart and spuriously tripping the `overflow-y: auto`
-    above on content that genuinely fits -- see that file's own comment for the full mechanism.
+    This column is a flex item stretched to the row's height, which can resolve to a fractional pixel
+    value. Declaring it a flex column of its own is what lets `.page-sidebar-content` grow to fill it
+    through that SAME layout pass rather than an independent block-flow measurement, so the two figures
+    cannot round a hair apart and spuriously trip the overflow above on content that fits.
+    `NavSidebar.vue`'s `.sidebar-nav` documents the mechanism.
   */
   display: flex;
   flex-direction: column;
 }
 
 /*
-  OpenProject #3056: the sole flex child of the column above, growing to consume whatever height
-  `.page-sidebar` has left over rather than only its own two cards' natural content height --
-  `flex: 1 0 auto` mirrors `NavSidebar.vue`'s `.sidebar-nav > nav` exactly (flex-grow so it is sized by
-  the SAME pass that sizes `.page-sidebar` itself when the cards are shorter than the column,
-  flex-shrink: 0 so it never shrinks below them when they are taller, which is genuine overflow and
-  correctly still scrolls).
+  `flex-grow` so it is sized by the same pass that sizes `.page-sidebar` when the cards are shorter
+  than the column; `flex-shrink: 0` so it never shrinks below them when they are taller, which is
+  genuine overflow and correctly still scrolls.
 */
 .page-sidebar-content {
   flex: 1 0 auto;
 }
 
 /*
-  OpenProject #3018: mirrors `MainLayout.vue`'s own `.bg-sidebar` fix for the same fixed footer bar
-  (OpenProject #3017/#3010) -- see that file's comment for the full reasoning. On a wide viewport
-  this column stretches to the full height of `.page-container`'s row (`items-stretch`, the
-  template's own class), so Cobalt's `position: fixed` footer bar now paints straight over its
-  bottom edge. `margin-bottom` shrinks the stretched box itself, rather than padding blank space
-  inside one that stays full height, which is what lets this column's own `overflow-y: auto`
-  scrollport -- and the native scrollbar riding along it -- stop above the bar, not merely be
-  followed by hidden padding the bar still covers.
+  This column stretches to the full height of `.page-container`'s row, so Cobalt's fixed footer bar
+  paints straight over its bottom edge. `margin-bottom` shrinks the stretched box itself rather than
+  padding blank space inside one that stays full height, which is what lets its scrollport -- and the
+  native scrollbar riding along it -- stop above the bar. Mirrors `MainLayout.vue`'s `.bg-sidebar`.
 */
 body.body--cobalt .page-sidebar {
   margin-bottom: var(--footer-bar-height);
 }
 
 /*
-  The narrow-viewport counterpart: below `749.98px` this column is a `position: fixed`
-  overlay of its own (`top: 0; right: 0; bottom: 0`, in the block above). A margin is NOT a no-op
-  there the way it would be for a plain fixed box: with both `top` and `bottom` set non-auto and
-  `height: auto`, the spec solves the used height as the containing block's size minus `top`,
-  `bottom` AND both margins -- so left un-reset, the `margin-bottom` above (which carries no width
-  scoping of its own, and so still applies down here too) would apply a SECOND time on top of the
-  `bottom` override just below, double-subtracting the bar's height. `bottom` is overridden directly
-  here, and `margin-bottom` explicitly zeroed to cancel the other rule; same clearance, same token,
-  same reasoning as `.bg-sidebar.w-drawer--overlay` in `MainLayout.vue`.
+  Below `749.98px` this column is a fixed overlay, where a margin is NOT a no-op: with both `top` and
+  `bottom` non-auto and `height: auto`, the spec solves the used height as the containing block minus
+  `top`, `bottom` AND both margins. The rule above carries no width scoping, so left un-reset its
+  `margin-bottom` would double-subtract the bar's height on top of the `bottom` override here. Same
+  reasoning as `.bg-sidebar.w-drawer--overlay` in `MainLayout.vue`.
 */
 @media (max-width: 749.98px) {
   body.body--cobalt .page-sidebar {
@@ -2165,17 +1608,9 @@ body.body--cobalt .page-sidebar {
 }
 
 /*
-  A rail section's heading -- the same mono, uppercase, letter-spaced label the design uses for every
-  section marker in the language (`.w-section-header` is the banded version of the same voice). No icon
-  beside it: the rail holds four short lists, and a glyph per heading was four pictures competing with
-  the one thing in the column that is a picture (the tags' own `#` marks).
-*/
-/*
-  One box per group of rail sections -- Contents, then Tags/Revision/Watching. Every declaration
-  here collapses to nothing under Ledger (`--float-bg: transparent`, `--float-pad: 0`,
-  `--radius-card: 0`, `--shadow-card: none`, `--float-gap: 0`), so the two wrappers are invisible
-  there and the rail is the single continuous column it has always been; under Cobalt they are the
-  two floating white cards the mockup draws.
+  Every declaration here collapses to nothing under Ledger (`--float-bg: transparent`, `--float-pad:
+  0`, `--radius-card: 0`, `--shadow-card: none`, `--float-gap: 0`), so the wrappers are invisible there
+  and the rail is one continuous column; under Cobalt they are the two floating cards.
 */
 .page-sidebar-card {
   background-color: var(--float-bg);
@@ -2189,10 +1624,9 @@ body.body--cobalt .page-sidebar {
 }
 
 /*
-  The hairline that used to separate Contents from Tags. It is now the FIRST child of the second
-  card, and a card replaces the rule it stands in for -- so under Cobalt it goes
-  (`--float-rule-display: none`) while the rules BETWEEN Tags, Revision and Watching, which are
-  inside one card and still separate three things, stay.
+  The separator between Contents and Tags is the FIRST child of the second card, and under Cobalt the
+  card itself replaces the rule it stands in for. The rules BETWEEN Tags, Revision and Watching sit
+  inside one card and still separate three things, so they stay.
 */
 .page-sidebar-card > .w-separator:first-child {
   display: var(--float-rule-display);
@@ -2213,24 +1647,17 @@ body.body--cobalt .page-sidebar {
 }
 
 /*
-  Cobalt's own Contents/Tags/Revision headings (`Page View 3x - Cobalt` mockup) are `--color-text-
-  caption`, not `var(--color-text-caption)` -- the same hex in Ledger (`#57668a`, so this changes nothing there)
-  but a genuinely different, Cobalt-aware value once the aesthetic overrides it. One rule for both
-  themes: `--color-text-caption` already carries the correct light/dark Cobalt values on its own
-  (OpenProject #2774).
+  One rule for both themes, overriding the dark-mode tone above: `--color-text-caption` already carries
+  the correct light and dark Cobalt values on its own.
 */
 body.body--cobalt .page-sidebar-heading {
   color: var(--color-text-caption);
 }
 
 /*
-  The Revision section's three lines (OpenProject #2652). One type size and one leading for all
-  three -- 13px/1.7 in the body face, as the design draws them -- because they are one statement
-  about the page read top to bottom, not a list of three fields: the version, who wrote it, and
-  when. Only the last is toned down, and only by one tier.
-
-  No margin of its own: the heading above it owns the gap under itself, the same way the contents
-  list and the tag row are spaced from theirs.
+  One type size and leading for all three lines, because they are one statement about the page read top
+  to bottom rather than a list of three fields. No margin of its own: the heading above owns the gap
+  under itself, as it does for the contents list and the tag row.
 */
 .page-sidebar-revision {
   color: var(--color-slate);
@@ -2239,9 +1666,8 @@ body.body--cobalt .page-sidebar-heading {
 }
 
 /*
-  Cobalt's own revision text is `--color-text-body`, not `var(--color-slate)` -- the two are close but not equal
-  (`#38465f` vs Ledger's own `#2f3a4f`), so this is additive rather than a base-rule swap, matching
-  the sibling heading rule above (OpenProject #2774).
+  Additive rather than a base-rule swap: Cobalt's revision tone is close to but not equal to
+  `--color-slate`. Same shape as the sibling heading rule above.
 */
 body.body--cobalt .page-sidebar-revision {
   color: var(--color-text-body);
@@ -2259,11 +1685,6 @@ body.body--cobalt .page-sidebar-revision {
   color: var(--color-text-caption-dark);
 }
 
-/*
-  The Watching section's run of plates (OpenProject #2649). A flex row rather than a grid: there are
-  at most four things in it (three plates and the remainder), and they sit against the inline start
-  with the gap the design draws between them.
-*/
 .page-watchers {
   display: flex;
   align-items: center;
@@ -2271,13 +1692,8 @@ body.body--cobalt .page-sidebar-revision {
 }
 
 /*
-  One person, as two letters on a tinted square. Square on purpose -- Cardinal draws no rounded
-  avatars, and the rail's tags are square too -- and a hair darker than var(--color-tint) so a run of plates reads
-  as a run of objects on the rail's own near-white ground rather than dissolving into it.
-
-  Barlow Condensed at 10/600, the language's face for a short uppercase chrome label, which is exactly
-  what a pair of initials is. `flex: none` because the plate is a fixed 26px and must not be squeezed
-  by a long remainder beside it.
+  Square on purpose: Cardinal draws no rounded avatars, and the rail's tags are square too.
+  `flex: none` because the plate is a fixed 26px and must not be squeezed by a long remainder beside it.
 */
 .page-watchers-plate {
   display: flex;
@@ -2287,7 +1703,7 @@ body.body--cobalt .page-sidebar-revision {
   width: 26px;
   height: 26px;
   border: 1px solid var(--color-hairline);
-  /* -> Between var(--color-tint) and var(--color-hairline); the design's own value, and there is no token at this step */
+  /* -> A raw hex because there is no token at this step, between tint and hairline */
   background-color: #e9edf5;
   color: var(--color-slate);
   font-family: var(--font-display);
@@ -2302,7 +1718,6 @@ body.body--cobalt .page-sidebar-revision {
   color: var(--color-text-dark);
 }
 
-/* Everybody past the third, in the mono the rail sets every other count and timestamp in. */
 .page-watchers-remainder {
   color: var(--color-text-caption);
   font-family: var(--font-mono);
@@ -2315,9 +1730,8 @@ body.body--cobalt .page-sidebar-revision {
 }
 
 /*
-  Behind the panel, and under it: the same tint and the same z-index as the nav drawer's scrim, one step
-  below the panel it dims. The opener is at z-30 as well and is not rendered while the panel is open, so
-  the two never overlap.
+  One step below the panel it dims, and the same z-index as the nav drawer's scrim. The opener is at
+  z-30 too but is not rendered while the panel is open, so the two never overlap.
 */
 .page-sidebar-scrim {
   position: fixed;
@@ -2340,45 +1754,32 @@ body.body--cobalt .page-sidebar-revision {
 }
 
 /*
-  OpenProject #3019 (Feature #3010's own cross-viewport verification task): the TOC-open corner
-  button is the one other `fixed bottom-0 right-0` occupant of this corner (see its template
-  comment) -- below `750px`, exactly where Cobalt's `.w-footer` rule above also switches to
-  `position: fixed`, so left un-cleared the two would occupy the same bottom-right patch of the
-  window with the opaque, higher `z-index: 45` footer bar painting directly over the button and
-  hiding the reader's only way to open the contents panel. `--footer-bar-height` is the same token
-  `.page-sidebar`/`.bg-sidebar` already clear by (OpenProject #3018); this button gets no
-  `margin-bottom` counterpart because it is never a stretched box, only ever `position: fixed`, so
-  there is no earlier rule's `margin-bottom` to zero out here the way those two drawers' narrow-mode
-  overrides do. Cobalt-only, and with no separate narrow-viewport media query: `showTocPanelBtn` is
-  already `false` at `750px` and up, so this rule is dormant whenever the button itself is not
-  rendered.
+  The contents opener occupies the same bottom-right corner as Cobalt's fixed footer bar below 750px,
+  and the bar is opaque and higher (`z-index: 45`), so left un-cleared it paints over the reader's only
+  way to open the contents panel. No `margin-bottom` counterpart is needed: this button is never a
+  stretched box. No narrow-viewport media query either -- `showTocPanelBtn` is already `false` at 750px
+  and up, so the rule is dormant whenever the button is not rendered.
 */
 body.body--cobalt .toc-open-btn-anchor {
   bottom: var(--footer-bar-height);
 }
 
 /*
-  The keyword highlight/find indicator (OpenProject #2541). Top-centre, clear of the breadcrumb bar
-  and the page header above it -- both are `position: static`, so this is the one element on the
-  view actually pinned to the viewport up here.
+  The breadcrumb bar and the page header above are both `position: static`, so this is the one element
+  on the view actually pinned to the viewport up here.
 */
 .keyword-highlight-bar {
   top: 12px;
-  /*
-    Dead centre of the viewport, not one screen edge or the other -- `left`/`transform: translateX`
-    is the plain centring idiom here, with nothing physical about "centre" for a locale to disagree
-    with.
-  */
+  /* -> Physical `left` is fine: there is nothing about "centre" for a locale to disagree with */
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 4px;
   /*
-    Logical, not `padding: 4px 6px 4px 12px`: the extra room belongs at the START, next to the count
-    text, and the tighter side at the END, next to the close button -- a physical `left`/`right` pair
-    would swap sides under RTL, where this row itself flips but a physical padding declaration would
-    not follow it.
+    Logical, not physical: the extra room belongs at the START next to the count text and the tighter
+    side at the END next to the close button, and the row itself flips under RTL where a physical
+    `left`/`right` pair would not follow it.
   */
   padding-block: 4px;
   padding-inline: 12px 6px;

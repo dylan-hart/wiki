@@ -1,11 +1,8 @@
 <template>
   <!--
-    `inheritAttrs: false` below stops every undeclared attribute (`min`, `max`, `step`, `aria-label`,
-    ...) from decorating the wrapper, which is where they landed by default and did nothing --
-    a `<div>` has no spinner floor/ceiling to constrain. `class` and `style` are the exception:
-    both are genuinely about the FIELD (sizing, margin -- callers reach for them to size the
-    whole field, not the raw control inside it), so they're handed to the frame as `rootClass` /
-    `rootStyle` rather than forwarded onto the inner control with everything else.
+    `class` and `style` are the exception to `inheritAttrs: false`'s forwarding: both are genuinely
+    about the FIELD (callers reach for them to size or space the whole field, not the raw control
+    inside it), so they go to the frame as `rootClass`/`rootStyle` -- see `controlAttrs`.
   -->
   <w-field-frame
     variant-class="w-input"
@@ -24,10 +21,7 @@
     :error-message="errorMessage">
     <slot name="prepend" />
 
-    <!--
-      Static text pinned in front of the value, e.g. the leading "/" on a path filter. Marked
-      aria-hidden: it is decoration around the field, not part of what has been typed.
-    -->
+    <!-- aria-hidden: decoration around the field, not part of what has been typed. -->
     <span
       v-if="prefix"
       aria-hidden="true"
@@ -36,11 +30,10 @@
     </span>
 
     <!--
-      cobalt-typography.md §3's "Read-only field value" role (400 13px mono, the secondary text
-      colour) -- `monospaced` carries the size/family/tracking every mono value shares, at `font-
-      normal` because the design's own read-only swatch is weight 400, not the 600 this used to
-      carry; `readonly`'s own colour swap is separate below, since a caller can pass `monospaced` on
-      an EDITABLE field (a key, a slug) that stays in the ordinary ink/text-body colour.
+      cobalt-typography.md §3's "Read-only field value" role: `monospaced` carries the
+      size/family/tracking every mono value shares, at weight 400 per the design's own swatch.
+      `readonly`'s colour swap stays separate, since a caller can pass `monospaced` on an EDITABLE
+      field (a key, a slug) that keeps the ordinary text colour.
     -->
     <component
       :is="type === 'textarea' ? 'textarea' : 'input'"
@@ -72,9 +65,9 @@
       @keyup.enter="$emit('keyup:enter', $event)" />
 
     <!--
-      The mirror of the prefix above, and placed before the trailing controls rather than after
-      them: it belongs to the value -- the closing `/` of a regex, a unit after a number -- so it
-      has to sit against the text, not beyond the clear cross.
+      Before the trailing controls rather than after them: the suffix belongs to the value -- the
+      closing `/` of a regex, a unit after a number -- so it sits against the text, not beyond the
+      clear cross.
     -->
     <span
       v-if="suffix"
@@ -84,9 +77,8 @@
     </span>
 
     <!--
-      `me-1` on the button rather than more padding on the control: the padding is what every
-      trailing control shares -- the clear cross, an `append` slot -- and this is about the eye,
-      which reads cramped against the field's edge at the row's own 8px.
+      `me-1` on the button rather than more padding on the control: the control's padding is shared
+      by every trailing control, and only the eye reads cramped against the field's edge.
     -->
     <button
       v-if="revealable && type === 'password'"
@@ -95,8 +87,8 @@
       :aria-label="isRevealed ? resolvedHideLabel : resolvedRevealLabel"
       :aria-pressed="String(isRevealed)"
       @click="isRevealed = !isRevealed">
-      <!-- -> A size of its own rather than the control's 1em: at the field's 14px the eye came out
-              smaller than the text it sits beside, which is not much of a target to aim at -->
+      <!-- -> A size of its own rather than the control's 1em: at the field's 14px the eye comes out
+              smaller than the text beside it, which is not much of a target to aim at -->
       <w-icon :name="isRevealed ? 'tabler:eye-off' : 'tabler:eye'" size="xs" />
     </button>
 
@@ -120,13 +112,11 @@ import { fieldProps, useFieldFrame } from '@/composables/fieldFrame'
 import { useDictText } from '@/composables/i18nText'
 
 /**
- * Text input.
- *
  * Validation follows the `rules` convention already in the codebase: an array of functions taking
  * the value and returning `true` when valid, or a message string when not.
  *
- * The label, the notched outline, the hint/error line and the state that colours them are shared
- * with `WSelect`, and live in `WFieldFrame.vue` / `composables/fieldFrame.js`. What is here is the
+ * The label, the frame, the hint/error line and the state that colours them are shared with
+ * `WSelect` and live in `WFieldFrame.vue` / `composables/fieldFrame.js`. What is here is the
  * `<input>`/`<textarea>` itself and everything only a text field has.
  */
 
@@ -134,8 +124,8 @@ import { useDictText } from '@/composables/i18nText'
  * The single root is the frame's wrapper `<div>`, not the real control -- an attribute Vue would
  * otherwise land there by default (`name`, `inputmode`, `maxlength`, an `aria-label` a caller
  * passes) does nothing on a `<div>`. `$attrs` is bound explicitly onto the real
- * `<input>`/`<textarea>` below instead. `autofocus` is one of the attributes this rescues, and is
- * worth special handling beyond plain forwarding -- see `fieldProps`.
+ * `<input>`/`<textarea>` below instead. `autofocus` needs more than plain forwarding -- see
+ * `fieldProps`.
  */
 defineOptions({ inheritAttrs: false })
 
@@ -149,12 +139,10 @@ const props = defineProps({
     type: String,
     default: 'text'
   },
-  /** Static text shown before the value. */
   prefix: {
     type: String,
     default: null
   },
-  /** Static text shown after the value, e.g. the closing `/` of a pattern or a unit. */
   suffix: {
     type: String,
     default: null
@@ -164,14 +152,10 @@ const props = defineProps({
     default: null
   },
   /**
-   * Drop the field's own surface and let whatever is behind it show through.
-   *
-   * For a field on a surface that is not flat: a translucent (acrylic) menu, where the field's white
-   * would sit as an opaque slab on a panel meant to be see-through — and where the floating label,
-   * riding the top border, would have that slab on one side of it and the blur on the other.
-   *
-   * Only the fill goes. The border, the focus ring and the label's notch are untouched, so the field is
-   * still obviously a field.
+   * Drop the field's own surface and let whatever is behind it show through — for a field on a
+   * surface that is not flat, such as a translucent (acrylic) menu, where the field's white would
+   * sit as an opaque slab on a panel meant to be see-through. Only the fill goes: the border and
+   * the focus ring are untouched, so the field is still obviously a field.
    */
   transparent: {
     type: Boolean,
@@ -181,27 +165,22 @@ const props = defineProps({
     type: String,
     default: null
   },
-  /** Rows for `type="textarea"`. */
   rows: {
     type: [String, Number],
     default: 3
   },
-  /** Native `min` attribute, e.g. for `type="number"`. */
   min: {
     type: [String, Number],
     default: undefined
   },
-  /** Native `max` attribute, e.g. for `type="number"`. */
   max: {
     type: [String, Number],
     default: undefined
   },
-  /** Native `step` attribute, e.g. for `type="number"`. */
   step: {
     type: [String, Number],
     default: undefined
   },
-  /** Monospaced content, e.g. code or keys. */
   monospaced: {
     type: Boolean,
     default: false
@@ -214,25 +193,18 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Accessible name for the reveal toggle. Falls back to `common.input.showPassword`. */
   revealLabel: {
     type: String,
     default: null
   },
-  /**
-   * Accessible name for the reveal toggle once the value is visible. Falls back to
-   * `common.input.hidePassword`.
-   */
   hideLabel: {
     type: String,
     default: null
   },
-  /** Shows a clear button while the field has a value. */
   clearable: {
     type: Boolean,
     default: false
   },
-  /** Accessible name for the clear button. Falls back to `common.input.clear`. */
   clearLabel: {
     type: String,
     default: null
@@ -254,10 +226,6 @@ const isRevealed = ref(false)
 
 const hasValue = computed(() => String(props.modelValue ?? '').length > 0)
 
-/*
-  Floated whenever the resting position is unavailable or would collide -- see `useFieldFrame`. A
-  leading icon or prefix is what occupies it here.
-*/
 const hasLeadingAdornment = computed(() => Boolean(slots.prepend || props.prefix))
 
 const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = useFieldFrame({
@@ -268,13 +236,8 @@ const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = us
   hasLeadingAdornment,
   /*
     A field carries its own surface rather than borrowing whatever it sits on: white in light mode,
-    the panel tone in dark. Transparent read fine on a white card and wrong everywhere else -- a
-    tinted section, the page ground, the profile card -- where the field dissolved into its
-    surroundings.
-
-    Flat tones on both sides rather than a translucency, because Cardinal's grounds are a known,
-    short list and a field is meant to present the SAME surface on every one of them.
-
+    the panel tone in dark. Flat tones on both sides rather than a translucency, because Cardinal's
+    grounds are a known, short list and a field presents the SAME surface on every one of them.
     `transparent` opts out, for the surfaces where that reasoning inverts -- see the prop.
   */
   surface: computed(() => {
@@ -282,21 +245,14 @@ const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = us
       return ''
     }
     // -> A read-only field is recessed rather than merely uneditable: the design gives it its own
-    //    slightly-sunken ground (#f8f9fc / the dark ramp's `-3-5`) so it reads as displayed, not typed
-    //
-    // `--color-dark-4` is `#070b22` under Cobalt dark -- too extreme; `Primitives Dark 3x -
-    // Cobalt.dc.html`'s own read-only field swatch renders `#0e1540`, the same value
-    // `WCardHeader.vue`'s section-header band wants. `--color-dark-3-5` names that rung once
-    // (OpenProject #2816); its Ledger default equals `-4`'s own Ledger value, so this class swap is a
-    // no-op under Ledger and only changes rendering under Cobalt dark.
+    //    slightly-sunken ground, so it reads as displayed rather than typed. `dark-3-5` is the rung
+    //    the dark read-only swatch draws -- `dark-4` is too extreme a ground for a field.
     if (props.readonly) {
       return 'bg-[#f8f9fc] dark:bg-dark-3-5'
     }
     return 'bg-surface dark:bg-dark-3'
   })
 })
-
-// COMPUTED
 
 const dictText = useDictText()
 const resolvedRevealLabel = computed(
@@ -311,7 +267,6 @@ const resolvedClearLabel = computed(
 
 const hasError = computed(() => Boolean(errorMessage.value))
 
-/** Hover tracking for the ring, bound onto the frame's control element. */
 const controlEvents = {
   onPointerenter: () => {
     isHovered.value = true
@@ -321,30 +276,21 @@ const controlEvents = {
   }
 }
 
-/**
- * Everything the caller passed through as a plain HTML attribute -- `name`, `inputmode`,
- * `maxlength`, `aria-label`, `data-*`, ... -- forwarded onto the real control rather than left
- * stranded on the wrapper `<div>`. `class`/`style` are carved out because they're handed to the
- * frame as `rootClass`/`rootStyle` above: a caller's `class="mb-2"` means spacing around the
- * whole field, not a class on the input glyph itself.
- */
+/** `class`/`style` are carved out: the frame takes them, since they size the whole field. */
 const controlAttrs = computed(() => {
   const { class: _class, style: _style, ...rest } = attrs
   return rest
 })
 
-/** A revealed password field renders as plain text; every other type is passed through unchanged. */
 const effectiveType = computed(() =>
   props.type === 'password' && props.revealable && isRevealed.value ? 'text' : props.type
 )
 
 const describedBy = computed(() => (showsBottom.value ? `${inputId}-desc` : undefined))
 
-// METHODS
-
 /**
- * Emits an empty string rather than null: `modelValue` is typed as string|number here, and callers
- * bind it straight into request payloads where a null would change the meaning.
+ * Emits an empty string rather than null: callers bind `modelValue` straight into request payloads,
+ * where a null would change the meaning.
  */
 function clear() {
   emit('update:modelValue', '')
@@ -358,8 +304,8 @@ function focus() {
   inputEl.value?.focus()
 }
 
-// -> `type="hidden"` cannot take focus at all, so the prop is a deliberate no-op there rather than
-//    a call that would silently fail on `focus()`
+// -> `type="hidden"` cannot take focus at all, so `autofocus` is a deliberate no-op there rather
+//    than a call that silently fails
 onMounted(() => {
   if (props.autofocus && props.type !== 'hidden') {
     focus()
@@ -396,8 +342,8 @@ watch(
 
 /*
   Join the enclosing WForm, if there is one, so submitting validates this field too. Optional by
-  design -- most inputs in the codebase stand alone rather than inside a form. `focus` rides along so
-  a failed submit can land the user on the first invalid control -- see WForm's `validate()`.
+  design -- most inputs in the codebase stand alone rather than inside a form. `focus` rides along
+  so a failed submit can land the user on the first invalid control -- see WForm's `validate()`.
 */
 const registerWithForm = inject('wFormRegister', null)
 registerWithForm?.({ validate, focus: () => inputEl.value?.focus() })
@@ -406,11 +352,9 @@ defineExpose({
   validate,
   focus,
   /**
-   * Show the value of a `revealable` password field, as if the eye had been clicked.
-   *
-   * For a caller that fills the field in itself: a generated password the user never typed is worth
-   * nothing hidden behind dots, and having to click the eye afterwards is a step with no purpose.
-   * Hiding it again is left to the user, which is why there is no matching `conceal()`.
+   * For a caller that fills a `revealable` password field in itself: a generated password the user
+   * never typed is worth nothing hidden behind dots. Hiding it again is left to the user, which is
+   * why there is no matching `conceal()`.
    */
   reveal: () => {
     isRevealed.value = true

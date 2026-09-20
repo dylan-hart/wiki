@@ -5,12 +5,6 @@ import { useAdminStore } from '@/stores/admin'
 
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * Covers OpenProject #1238's admin opt-out UI: `AdminPageviews.vue` is the `manage:system`-gated
- * on/off toggle for pageview tracking, wired to `GET`/`PUT system/pageviews` the same way
- * `AdminMetrics.vue`/`AdminApi.vue` wire their own toggles (see those files' own tests for the
- * pattern this mirrors).
- */
 function mountPage() {
   return mountWithApp(AdminPageviews).wrapper
 }
@@ -66,11 +60,6 @@ describe('AdminPageviews', () => {
     wrapper.unmount()
   })
 
-  /**
-   * OpenProject #2335: the page used to be a bare toggle with no evidence tracking was actually
-   * recording anything. These cover the added `summary` block -- populated from the response, and
-   * rendered as real evidence rather than staying invisible.
-   */
   it('load() populates state.summary from the response', async () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
@@ -142,11 +131,6 @@ describe('AdminPageviews', () => {
     wrapper.unmount()
   })
 
-  /**
-   * OpenProject #2791: the per-page sortable table, fetched independently of the instance-wide
-   * toggle/summary above -- off `adminStore.currentSiteId`, since a per-page breakdown only makes
-   * sense scoped to one site's own pages.
-   */
   describe('per-page table (OpenProject #2791)', () => {
     it('does not fetch the table with no site chosen (no extra system/pageviews-adjacent call)', async () => {
       API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })

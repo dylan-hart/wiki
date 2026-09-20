@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { trackPointerDrag } from './pointerDrag'
 
 /**
- * A stand-in for the element the gesture is captured on. jsdom implements neither
- * `setPointerCapture` nor `releasePointerCapture`, which is the very case the helper guards.
+ * `captureThrows` reproduces what a real browser does with a synthetic pointer -- the case the
+ * helper guards. The test DOM's own capture methods never refuse.
  */
 function makeElement({ captureThrows = false } = {}) {
   const el = document.createElement('div')

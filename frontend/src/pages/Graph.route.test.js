@@ -3,10 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { mountGraph } from './graphFixtures.js'
 
 /*
- * OpenProject #3312 (Feature #3311): `Graph.vue` reads the `?path=` query param once, on the
- * initial `loadGraph()`, and centers/highlights whichever node it resolves to -- scoped to
- * `pageStore.locale` (the locale of the page the reader was reading before navigating to the
- * graph), since `route.query.path` is a bare, un-prefixed path and two locales can share one.
+ * `route.query.path` is a bare, un-prefixed path that two locales can share, so resolving it is
+ * scoped to `pageStore.locale` -- the locale of the page the reader came from.
  */
 
 const MULTI_LOCALE_GRAPH = {
@@ -63,9 +61,8 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
     )
     expect(wrapper.vm.focusNodeId).toBe('en:reference/api')
     expect(wrapper.vm.highlightedNodeIds.has('en:reference/api')).toBe(true)
-    // -> Pinned to the same (width/2, height/2) point `startSimulation()`'s own `forceCenter` uses --
-    //    jsdom has no layout engine, so `containerRef`'s `getBoundingClientRect()` is zeroed here,
-    //    same as every other Graph suite that reads it (see `Graph.controlLayout.test.js`).
+    // -> The pin lands on `forceCenter`'s (width/2, height/2); jsdom has no layout engine, so the
+    //    container's `getBoundingClientRect()` is all zeroes and that centre is (0, 0).
     expect(target.fx).toBe(0)
     expect(target.fy).toBe(0)
   })
@@ -77,11 +74,9 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
       pageLocale: 'en'
     })
 
-    // -> The anchor still gets its highlight ring: `highlightedNodeIds` (which drives the ring in
-    //    `graphDraw.js#drawNodes`) contains it.
     expect(wrapper.vm.highlightedNodeIds.has('en:reference/api')).toBe(true)
-    // -> But with no keyword filter typed, nothing should be dimmed -- `keywordHighlightedNodeIds`
-    //    (passed as `repaint()`'s `dimmingIds`) must stay empty even though the anchor is resolved.
+    // -> `keywordHighlightedNodeIds` (`repaint()`'s `dimmingIds`) is a separate set from the ring
+    //    one: a resolved anchor rings its node without dimming anything.
     expect(wrapper.vm.keywordHighlightedNodeIds.size).toBe(0)
   })
 
@@ -92,10 +87,8 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
       pageLocale: 'fr'
     })
 
-    // -> Read off `allNodes` (the full fetched graph), not `nodes` (OpenProject #3333's own
-    //    anchor-restricted rendered subset) -- the `en` copy is now excluded from `nodes` entirely
-    //    once anchored to the `fr` copy (see `Graph.anchor.test.js`), so it has to be looked up from
-    //    the unrestricted source to assert it was never pinned.
+    // -> Off `allNodes`: anchoring to the `fr` copy drops the `en` one from the rendered `nodes`
+    //    subset, so only the unrestricted source can show it was never pinned.
     const en = wrapper.vm.allNodes.find(
       (node) => node.path === 'guides/onboarding' && node.locale === 'en'
     )
@@ -132,23 +125,15 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
     })
 
     // -> `reference/api` (en) has no descendants in this fixture, so anchoring to it leaves only
-    //    itself -- the other two nodes (a different path entirely, and the same path in a different
-    //    locale) are both outside its subtree. See `Graph.anchor.test.js` for the full restriction
-    //    behavior; this suite only re-asserts that the ?path= mechanism this file covers now feeds
-    //    that restriction, since prior to OpenProject #3333 it deliberately never narrowed anything.
+    //    itself: the other two nodes are both outside its subtree.
     const realPaths = wrapper.vm.nodes.filter((node) => !node.synthetic).map((node) => node.path)
     expect(realPaths).toEqual(['reference/api'])
   })
 })
 
 /*
- * OpenProject #3334: `applyRouteFocus()` used to run exactly once, at mount, from `loadGraph()`'s
- * initial fetch -- the sidebar's own in-graph re-root branch (`navSidebarDestination.js`
- * `graphSidebarBranch()`, #3313) updates `route.query.path` via `router.replace()` while `/_graph`
- * stays mounted the whole time, so nothing downstream ever noticed a LATER change. These assert the
- * `watch(() => route.query.path, applyRouteFocus)` fix: a live query-param change re-centers and
- * re-highlights, releases the previously-focused node's pin rather than stacking a second pin on
- * top of it, and a redundant re-navigation to the already-active path is a no-op.
+ * The sidebar's in-graph re-root updates `route.query.path` through `router.replace()` while
+ * `/_graph` stays mounted, so route focus must be watched rather than read once on the first fetch.
  */
 describe('Graph.vue live route-focus re-application on ?path= change (OpenProject #3334)', () => {
   it('re-centers and re-highlights when route.query.path changes after mount, with no remount', async () => {
@@ -211,10 +196,8 @@ describe('Graph.vue live route-focus re-application on ?path= change (OpenProjec
 })
 
 /*
- * OpenProject #3337: the Graph nav button now sends the current page's nearest containing folder
- * (root for a top-level page) rather than the page itself, so `?path=` commonly names a synthetic
- * folder/root node -- these assert `applyRouteFocus()` resolves, pins and highlights one of those,
- * not only a real page node.
+ * The Graph nav button sends the current page's nearest containing folder (root for a top-level
+ * page), so `?path=` commonly names a synthetic folder/root node rather than a real page.
  */
 describe('Graph.vue ?path= route focus resolves a synthetic folder/root anchor (OpenProject #3337)', () => {
   it('resolves, pins and highlights the synthetic folder node named by ?path=', async () => {

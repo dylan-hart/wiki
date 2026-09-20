@@ -28,23 +28,16 @@ import type { GroupRule } from './groups.ts'
 import { mail } from './mail.ts'
 import { task as notifyPageWatchers } from '../tasks/simple/notify-page-watchers.ts'
 
-/**
- * A tree row by id, read straight off the table.
- *
- * `tree.getById()` is private (it is the model's one lookup that takes no `siteId`), so a test that
- * wants to see what a page write left in the tree reads the row itself rather than through the model.
- */
+/** `tree.getById()` is private, so a test reads the row itself rather than through the model. */
 async function readTreeRow(id: string) {
   const rows = await CARDINAL.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
   return rows[0] ?? null
 }
 
 /**
- * Task 3395: `wysiwyg` and the plain `markdown` editor both produce `contentType: 'markdown'` now
- * (`EDITOR_CONTENT_TYPES`), which would make `CONTENT_TYPE_EDITORS`'s naive `Object.fromEntries`
- * inverse (last entry wins on a collision) attribute a file-backed `'markdown'` page to `wysiwyg` —
- * an editor its content never went through. `getEditorForContentType` is a pure function, so this
- * needs no database.
+ * `wysiwyg` and the plain `markdown` editor both produce `contentType: 'markdown'`
+ * (`EDITOR_CONTENT_TYPES`), so the inverse is ambiguous: a naive `Object.fromEntries` of it (last
+ * entry wins) attributes every `'markdown'` page to whichever editor it happens to list last.
  */
 describe('getEditorForContentType', () => {
   test('a plain markdown content type still resolves back to the markdown editor, not wysiwyg', () => {
@@ -66,39 +59,32 @@ describe('getEditorForContentType', () => {
 })
 
 /**
- * `models/pages.ts`'s create/update/move/delete are almost entirely SQL — inserts, duplicate-path
- * checks, and coordination with the tree and history tables — so a mock of the query builder would
- * mostly be re-describing the code under test rather than verifying it. This suite runs the real
- * methods against a migrated, per-run-fresh database (see `test/db.ts`).
+ * These methods are almost entirely SQL — inserts, duplicate-path checks, and coordination with the
+ * tree and history tables — so a mock of the query builder would mostly re-describe the code under
+ * test rather than verify it. Run against a real, per-run-fresh database instead.
  */
 describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let pagesModel: typeof import('./pages.ts').pages
   let pageClassificationModel: typeof import('./pageClassification.ts').pageClassification
   let actor: PageActor
-  // -> A single wrap for the whole describe block, its implementation swapped per-test via
-  //    `.mock.mockImplementation()` rather than re-mocking with `mock.method()` again: node:test's
-  //    `mock.restoreAll()` unwinds nested `mock.method()` wraps back to whatever the PREVIOUS wrap's
-  //    "original" was, not all the way to the true original, when a target is re-mocked more than
-  //    once without an intermediate `.mock.restore()` -- one wrap kept alive for the whole block and
-  //    reconfigured in place is what makes `after()`'s `restoreAll()` land back on the real thing.
+  // -> One wrap for the whole block, reconfigured per test via `.mock.mockImplementation()`: a
+  //    target re-mocked with `mock.method()` more than once unwinds on `restoreAll()` only to the
+  //    previous wrap's "original", never back to the real method.
   let ensureCanRenderMock: ReturnType<typeof mock.method>
 
   before(async () => {
     fixtures = await setupTestDb()
-    // -> Seeded before any model call, so the very first `getLocales()` cache fill already sees them
-    //    — `isReservedLocaleCode()`'s "installed, not per-site-active" reserved-segment checks need at
-    //    least the site's own active codes to actually be installed.
+    // -> Seeded before any model call, so the first `getLocales()` cache fill already sees them —
+    //    `isReservedLocaleCode()` asks which codes are installed, not which are per-site active.
     await seedLocale(fixtures.db, { code: 'en' })
     await seedLocale(fixtures.db, { code: 'fr' })
     ;({ pages: pagesModel } = await import('./pages.ts'))
     ;({ pageClassification: pageClassificationModel } = await import('./pageClassification.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     // -> Puppeteer is never installed in this test environment, so a real `ensureCanRender()` would
-    //    refuse every renderless create/update below -- and almost none of these SQL-orchestration
-    //    tests supply a `render`. Stubbed to succeed here; the refusal itself, and the queued
-    //    rerender it unlocks, get their own dedicated tests further down with a narrower override
-    //    (OpenProject #1716).
+    //    refuse every render-less create/update below, and almost none of these tests supply a
+    //    `render`. The refusal itself gets its own tests further down, with a narrower override.
     ensureCanRenderMock = mock.method(
       CARDINAL.models.renderQueue,
       'ensureCanRender',
@@ -121,11 +107,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     }
   }
 
-  /**
-   * Minimal `.values()` object satisfying every NOT NULL column, for a raw insert that bypasses
-   * `createPage()`'s own duplicate-path probe entirely -- this is what proves the uniqueness is a
-   * database constraint, not just an application-level check.
-   */
+  /** A raw insert bypassing `createPage()`'s own probes, defaults and refusals entirely. */
   function rawPageRow(overrides: { path: string; locale: string; siteId: string }) {
     return {
       locale: overrides.locale,
@@ -157,13 +139,10 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * `pages.classification` carries no column default (OpenProject #1705) -- the one-time backfill
-   * that justified defaulting to the fixed `classificationPublicId` system row has already run, and
-   * a bare column default would otherwise keep naming that row even after an administrator deletes
-   * it. An insert that omits it entirely must therefore fail loudly (a NOT NULL violation) rather
-   * than silently default to a level that may no longer exist. `as any` bypasses the compile-time
-   * protection the same change gives real callers (`.values()` now requires `classification`), since
-   * this test's whole point is proving the database itself refuses a row without one.
+   * `pages.classification` deliberately carries no column default: one would keep naming the
+   * `classificationPublicId` system row even after an administrator deletes it, so an omitted
+   * classification has to fail loudly instead. `as any` is what bypasses the compile-time
+   * requirement `.values()` puts on real callers, since the database's own refusal is the point.
    */
   test('an insert omitting classification is rejected, not silently defaulted', async () => {
     const { classification: _omitted, ...rowWithoutClassification } = rawPageRow({
@@ -231,19 +210,16 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
     const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
     const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
-    // -> Newest first: [0] is the update, [1] is the creation -- both attributed to the same actor.
+    // -> Newest first: [0] is the update, [1] is the creation.
     assert.equal(entries.length, 2)
     assert.equal(entries[0]!.via, 'mcp')
     assert.equal(entries[1]!.via, 'mcp')
   })
 
   /**
-   * OpenProject #3389/#3402: `scriptJsLoad`/`scriptJsUnload`/`scriptCss` round-trip through
-   * `createPage()`/`updatePage()`/`getPage()` the same way `config`'s flattened fields do, stored
-   * together as the single `scripts` jsonb column. Permission enforcement (`write:scripts`/
-   * `write:styles`) is a route-level concern (`api/pages/scriptsPermission.test.ts`) -- this model
-   * layer trusts whatever it's given, which is exactly what these tests exercise: `actor` here holds
-   * `manage:system` throughout, same as every other test in this describe block.
+   * `scriptJsLoad`/`scriptJsUnload`/`scriptCss` are flattened on and off the single `scripts` jsonb
+   * column, the way `config`'s fields are. Enforcing `write:scripts`/`write:styles` is a
+   * route-level concern; this model layer trusts whatever it is given.
    */
   describe('per-page scripts (OpenProject #3389/#3402)', () => {
     test('createPage() stores scriptJsLoad/scriptJsUnload/scriptCss, and getPage() reads them back', async () => {
@@ -295,8 +271,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         actor
       )
       assert.equal(updated!.scriptJsLoad, 'console.log("new load")')
-      // -> Untouched fields carry over from the existing `scripts` blob, the same way `buildConfig`
-      //    preserves a `config` field the patch didn't mention.
       assert.equal(updated!.scriptCss, 'body { color: blue }')
     })
 
@@ -342,11 +316,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
 
     /**
-     * OpenProject #3404: the composable's "a locked page injects nothing" acceptance criterion is a
-     * server-side guarantee, not something the frontend enforces on data it was never sent — `toPage()`
-     * already blanks `scriptJsLoad`/`scriptJsUnload`/`scriptCss` for a locked page the same way it
-     * blanks `render`/`toc`, driven by the same `unlocked` flag. This makes that explicit for the three
-     * script fields specifically, rather than leaving it implied by the generic body-withholding tests.
+     * "A locked page injects nothing" is a server-side guarantee, not something the frontend
+     * enforces on data it was never sent: `toPage()` blanks these off the same `unlocked` flag it
+     * blanks `render`/`toc` off.
      */
     test('getPage() blanks scriptJsLoad/scriptJsUnload/scriptCss for a locked page, and restores them once unlocked', async () => {
       const page = await pagesModel.createPage(
@@ -404,10 +376,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   test('a create race on the same path surfaces as a 409 CustomError, not a raw 23505', async () => {
-    // -> Both calls race the same probe-then-insert: either may lose at the probe (the ordinary
-    //    duplicate-path check) or at the insert itself (the unique index Task 1 added). Exactly one
-    //    of the two outcomes happens depending on interleaving, but the assertion holds either way --
-    //    which is the point of this test.
+    // -> Whichever call loses may lose at the duplicate-path probe or at the unique index itself,
+    //    depending on interleaving; the assertion is shaped to hold for both outcomes.
     const input = () => pageInput({ path: 'unique/race-probe', locale: 'en' })
     const results = await Promise.allSettled([
       pagesModel.createPage(fixtures.siteId, input(), actor),
@@ -436,11 +406,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(page.contentType, 'html')
   })
 
-  /**
-   * Task 3395: locks `EDITOR_CONTENT_TYPES.wysiwyg` mapping to `'markdown'`, not `'html'` -- the
-   * WYSIWYG editor's save path now serializes through `@tiptap/markdown` (`EditorWysiwyg.vue`), not
-   * `editor.getJSON()`.
-   */
+  /** The WYSIWYG editor's save path serializes through `@tiptap/markdown`, not `editor.getJSON()`. */
   test('createPage stores the wysiwyg editor content as markdown, matching EDITOR_CONTENT_TYPES', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -456,10 +422,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(page.contentType, 'markdown')
   })
 
-  /**
-   * Task 491: locks `EDITOR_CONTENT_TYPES.asciidoc` mapping to `'asciidoc'`, not `'html'` -- this is
-   * what a real save actually produces.
-   */
   test('createPage stores the asciidoc editor content as asciidoc, matching EDITOR_CONTENT_TYPES', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -507,10 +469,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   test('createPage() preserves PageInput.createdAt/updatedAt instead of stamping import time', async () => {
-    // -> Regression test for OpenProject #835 / upstream requarks/wiki#4631 ("Importing from Local
-    //    File System is ignoring dateCreated and date fields"): the migration importer's whole reason
-    //    for supplying these fields is to carry a source page's real timestamps across rather than
-    //    letting createPage()'s ordinary now() default silently overwrite them with import time.
+    // -> The migration importer supplies these to carry a source page's real timestamps across,
+    //    rather than letting `createPage()`'s `now()` default stamp import time over them
+    //    (upstream requarks/wiki#4631).
     const sourceCreatedAt = '2019-03-14T08:00:00.000Z'
     const sourceUpdatedAt = '2021-11-02T17:30:00.000Z'
 
@@ -527,9 +488,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(page.createdAt.toISOString(), sourceCreatedAt)
     assert.equal(page.updatedAt.toISOString(), sourceUpdatedAt)
 
-    // The pageHistory row createPage() writes for the page's initial state must be dated the same
-    // real updatedAt, not the moment this test ran — otherwise a page imported with genuinely old
-    // history would show a "created" entry timestamped today at the top of its timeline.
+    // The initial pageHistory row has to carry that same real updatedAt, or a page imported with
+    // genuinely old history shows a "created" entry timestamped today atop its timeline.
     const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
     const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
     assert.equal(entries.length, 1)
@@ -587,20 +547,13 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
 
     assert.equal(updated!.title, 'Updated Title')
-    // -> Untouched: not part of the patch
     assert.equal(updated!.description, 'original description')
   })
 
   test('updatePage syncs the tree row even when only the description changed (OpenProject #1709)', async () => {
-    // -> Description is handled by a separate branch that never touches `treeTable`, so before this
-    //    fix the tree write's guard (`treeTitle !== null || patch.tags !== undefined`) skipped
-    //    entirely -- leaving `meta.description` (what the file manager reads) and `updatedAt` (what
-    //    an `updatedAt`-ordered listing sorts by) stale on a description-only edit.
-    //
-    // -> `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
-    //    older and doesn't expose it (same environment gap `api/pages.test.ts`'s own
-    //    `installFakeTemporal` documents). Installed only when genuinely missing, so a real Node 26
-    //    run exercises the native API.
+    // -> `Temporal` is a global on every official Node 26 build, but absent on one whose V8 was
+    //    compiled without Temporal support. Faked only when genuinely missing, so an official build
+    //    still exercises the native API.
     const previousTemporal = (globalThis as any).Temporal
     const previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
     if (typeof previousTemporal === 'undefined') {
@@ -624,8 +577,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       const beforeTree = await readTreeRow(page.id)
       assert.equal((beforeTree!.meta as Record<string, any>).description, 'original description')
 
-      // -> A later `updatedAt` than the create-time row requires actual elapsed time between the two
-      //    writes; both use `sql\`now()\`` so a Node-side sleep is enough to force the difference.
+      // -> Both writes stamp `sql\`now()\``, so real elapsed time between them is what makes the
+      //    second `updatedAt` later at all.
       await new Promise((resolve) => setTimeout(resolve, 10))
 
       const updated = await pagesModel.updatePage(
@@ -653,12 +606,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   test("updatePage keeps the page's original editor even if the patch names a different one", async () => {
-    // -> The invariant `PageHistoryOverlay.vue`'s `restoreVersion`/`branchFrom` rely on: a page's
-    //    editor is fixed at creation (see the comment on `updatePage`, "which editor authored a page
-    //    is not something a save may change"), so every version ever recorded for a given page was
-    //    written by the same editor the page still has today. That is what makes a same-page restore
-    //    structurally unable to hit a genuine editor-type mismatch -- there is no format-conversion
-    //    feature that could have made a version disagree with its own page.
+    // -> An ordinary save may not change which editor authored a page; only `convertEditor()` can.
     const page = await pagesModel.createPage(
       fixtures.siteId,
       pageInput({ path: 'docs/editor-locked', editor: 'markdown' }),
@@ -679,16 +627,14 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
     const createdMeta = (await readTreeRow(page.id))!.meta as Record<string, any>
     assert.equal(createdMeta.authorId, fixtures.userId)
-    // -> Never recorded at all: nothing reads either field (OpenProject #1703's fix), so `treeMeta`
-    //    no longer computes a value that would formerly have been wrong on this very path
+    // -> Never recorded: nothing reads either field, so `treeMeta` computes neither.
     assert.equal('creatorId' in createdMeta, false)
     assert.equal('ownerId' in createdMeta, false)
 
     await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Retitled' }, actor)
 
     const retitledMeta = (await readTreeRow(page.id))!.meta as Record<string, any>
-    // -> `updatePage` hands `treeMeta` the flattened `Page` shape (`toPage()`), not a raw row -- these
-    //    fields must still match what they held right after creation
+    // -> `updatePage` hands `treeMeta` the flattened `Page` shape (`toPage()`), not a raw row.
     assert.equal(retitledMeta.authorId, createdMeta.authorId)
     assert.equal(retitledMeta.contentType, createdMeta.contentType)
     assert.equal(retitledMeta.editor, createdMeta.editor)
@@ -731,7 +677,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(moved!.path, 'docs/move-destination')
     assert.equal(moved!.title, 'Moved')
 
-    // -> The old path is free again, since the page that held it moved rather than staying to block it
     const reoccupied = await pagesModel.createPage(
       fixtures.siteId,
       pageInput({ path: 'docs/move-source', title: 'Reoccupied' }),
@@ -854,13 +799,10 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   test('movePage accepts a title-only move on a grandfathered page whose path is not changing', async () => {
-    // -> `createPage()` refuses this path outright since task 12/#994 -- reachable only by writing
-    //    under the model layer, exactly the "grandfathered" row the reserved-segment check on
-    //    `movePage` must not punish for an edit that leaves its shadowing first segment untouched.
-    //    A real grandfathered page also has a real ancestor folder tree row (filled in by
-    //    `tree.addPage` back when it was created, before `tree.createFolder` started refusing `fr`)
-    //    -- seeded directly here so `movePage`'s unconditional tree delete+recreate doesn't have to
-    //    re-materialize `fr` through the now-reserved `createFolder` path.
+    // -> `createPage()` refuses this path outright, so a grandfathered row is reachable only by
+    //    writing under the model layer. Its ancestor folder row is seeded the same way: `movePage`'s
+    //    unconditional tree delete+recreate would otherwise have to re-materialize `fr` through
+    //    `createFolder`, which refuses a reserved segment too.
     const [rawPage] = await fixtures.db
       .insert(pagesTable)
       .values(rawPageRow({ path: 'fr/legacy', locale: 'en', siteId: fixtures.siteId }))
@@ -899,10 +841,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       pageInput({ path: 'docs/txn-source' }),
       actor
     )
-    // -> An asset entry occupying the destination file name is invisible to the `pages`-table
-    //    duplicate-path probe (assets aren't pages), so the update proceeds and only the tree write,
-    //    a moment later inside the same transaction, hits the collision -- exactly the partial-failure
-    //    shape #1022 asks to no longer be able to happen.
+    // -> An asset at the destination is invisible to the `pages`-table duplicate-path probe, so the
+    //    update proceeds and only the tree write, later in the same transaction, hits the collision
+    //    -- the partial-failure shape this test exists for.
     await seedTreeEntry(fixtures.db, {
       siteId: fixtures.siteId,
       path: 'docs/txn-dest',
@@ -940,8 +881,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       { path: 'docs/cascade-b', title: 'English, Renamed', includeTranslations: true },
       actor
     )
-    // -> The primary's own title change is its own -- the twin keeps its own title, only its path
-    //    moves along
     assert.equal(moved!.path, 'docs/cascade-b')
     assert.equal(moved!.title, 'English, Renamed')
 
@@ -950,13 +889,11 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(movedFr!.locale, 'fr')
     assert.equal(movedFr!.title, 'Français')
 
-    // -> Both tree entries actually moved, not just the pages rows
     const enTree = await readTreeRow(en.id)
     assert.equal(enTree!.fileName, 'cascade-b')
     const frTree = await readTreeRow(fr.id)
     assert.equal(frTree!.fileName, 'cascade-b')
 
-    // -> The old path is free again in both locales
     const reoccupied = await pagesModel.createPage(
       fixtures.siteId,
       pageInput({ path: 'docs/cascade-a', locale: 'en', title: 'Reoccupied' }),
@@ -1012,8 +949,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       pageInput({ path: 'docs/cascade-abort', locale: 'fr' }),
       actor
     )
-    // -> Sitting at the destination path, in the twin's own locale, occupied by neither the primary
-    //    nor the twin -- exactly what should make the whole batch fail rather than only the twin
+    // -> Occupies the destination path in the twin's own locale, held by neither the primary nor
+    //    the twin.
     await pagesModel.createPage(
       fixtures.siteId,
       pageInput({ path: 'docs/cascade-abort-taken', locale: 'fr', title: 'Already Here' }),
@@ -1031,7 +968,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         err.statusCode === 409 && err.name === 'pageDuplicatePath' && /fr/.test(err.message)
     )
 
-    // -> Neither the primary nor the untouched twin moved
     const untouchedEn = await pagesModel.getPage({ siteId: fixtures.siteId, id: en.id })
     assert.equal(untouchedEn!.path, 'docs/cascade-abort')
     const untouchedFr = await pagesModel.getPage({ siteId: fixtures.siteId, id: fr.id })
@@ -1039,11 +975,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   test("movePage with includeTranslations: primary changing locale into a twin's own locale aborts the whole batch (OpenProject #1026)", async () => {
-    // -> The pre-transaction probes only see the DB as it is right now, so this collision -- the
-    //    primary landing in the SAME locale a twin is cascading into, at the SAME destination path --
-    //    isn't caught by either probe. It has to be caught by the `pages_siteId_locale_path_idx`
-    //    unique index firing mid-transaction and being translated to the same 409, the way a plain
-    //    two-request race already is.
+    // -> Neither pre-transaction probe can see this collision -- the primary landing in the SAME
+    //    locale a twin is cascading into, at the SAME destination path. Only the
+    //    `pages_siteId_locale_path_idx` unique index catches it, mid-transaction, translated to 409.
     const en = await pagesModel.createPage(
       fixtures.siteId,
       pageInput({ path: 'docs/cascade-locale-swap', locale: 'en' }),
@@ -1065,7 +999,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       (err: any) => err.statusCode === 409 && err.name === 'pageDuplicatePath'
     )
 
-    // -> Neither moved, and neither changed locale
     const untouchedEn = await pagesModel.getPage({ siteId: fixtures.siteId, id: en.id })
     assert.equal(untouchedEn!.path, 'docs/cascade-locale-swap')
     assert.equal(untouchedEn!.locale, 'en')
@@ -1075,10 +1008,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #870: `models/glossary.ts#getCachedTerms` caches which page a term points at.
-   * Nothing about the glossary itself changes on a page move, so nothing would otherwise tell that
-   * cache the page it already resolved is now at a different path -- `movePage` has to invalidate it
-   * itself, the same way a term CRUD does.
+   * `glossary.getCachedTerms` caches which page a term points at, and a move changes nothing about
+   * the glossary itself -- so `movePage` has to invalidate that cache.
    */
   test('movePage invalidates the glossary cache so a canonical page it renamed resolves to its new path', async () => {
     const page = await pagesModel.createPage(
@@ -1116,9 +1047,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #2452: a move rewrites same-site, same-locale references to the page's old path in
-   * place, reusing the `links`/`relations` tracking `models/rendering.ts#extractInternalLinks`
-   * already writes on every save rather than re-parsing content from scratch.
+   * A move rewrites same-site, same-locale references in place, driven by the `links`/`relations`
+   * tracking `extractInternalLinks` already writes on every save rather than by re-parsing content.
    */
   describe('movePage relinks same-site referencing pages (OpenProject #2452)', () => {
     test("rewrites a referencing page's content, render and links to the new path", async () => {
@@ -1246,8 +1176,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         pageInput({ path: 'docs/relink-locale-target', locale: 'en' }),
         actor
       )
-      // -> Same bare path, but the FR locale's own page -- a same-locale reference to it must not be
-      //    touched by the EN page's move (`nodeId(row.locale, target)`, `api/graph.ts`).
+      // -> Same bare path, but the FR locale's own page: a link identity is the locale and the path
+      //    together, so the EN page's move must leave a reference to this one alone.
       await pagesModel.createPage(
         fixtures.siteId,
         pageInput({ path: 'docs/relink-locale-target', locale: 'fr' }),
@@ -1314,9 +1244,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         }),
         actor
       )
-      // -> A stale recovery draft, as collab's debounced autosave would leave behind for a
-      //    referrer opened for editing and abandoned before this move -- the actual repro this
-      //    bug describes. The state's content is irrelevant here; only its presence/absence is.
+      // -> A stale recovery draft, as collab's debounced autosave leaves behind for an abandoned
+      //    edit; only its presence matters here, not what it holds.
       await fixtures.db.insert(pageDraftsTable).values({
         pageId: referrer.id,
         siteId: fixtures.siteId,
@@ -1345,8 +1274,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         .from(pageDraftsTable)
         .where(eq(pageDraftsTable.pageId, referrer.id))
       assert.equal(referrerDraft, undefined)
-      // -> A page relinking never touched keeps its own draft -- this isn't a blanket sweep, only
-      //    the pages the move actually rewrote.
+      // -> Not a blanket sweep: a page relinking never rewrote keeps its own draft.
       const [untouchedDraft] = await fixtures.db
         .select()
         .from(pageDraftsTable)
@@ -1385,10 +1313,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(draftAfter, undefined)
     })
 
-    // -> OpenProject #2519: a move that changes BOTH path and locale in the same call must leave
-    //    every same-old-locale referencing page untouched -- its own bare-path link can never resolve
-    //    to a page that now lives in a different locale, so rewriting it to `newPath` would only
-    //    point it at whatever (or nothing) happens to occupy that path in the OLD locale afterward.
+    // -> A bare-path link in the old locale can never resolve to a page that now lives in a
+    //    different one, so rewriting it to `newPath` would only point it at whatever (or nothing)
+    //    happens to occupy that path in the OLD locale afterward.
     test('does not rewrite a same-old-locale reference when the move changes locale as well as path', async () => {
       const target = await pagesModel.createPage(
         fixtures.siteId,
@@ -1426,11 +1353,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
 
     /**
-     * OpenProject #3379: `LinkPickerDialog.vue` writes a locale-prefixed href (`/fr/guide`) for a
-     * non-primary-locale target, which `extractInternalLinks` strips before storing so `links`
-     * holds the bare path a move already knows how to find (`oldPath`/`newPath` are both bare).
-     * What a move must ALSO still find and rewrite is the literal locale-prefixed href text still
-     * sitting in `content`/`render` -- this is the other half of the same defect.
+     * A locale-prefixed href (`/fr/guide`) is stripped by `extractInternalLinks` before storage, so
+     * `links` holds the bare path `oldPath`/`newPath` are spelled in -- but the prefixed text
+     * itself is still sitting in `content`/`render`, and has to be rewritten there too.
      */
     test('rewrites a locale-prefixed href, preserving the locale segment', async () => {
       const target = await pagesModel.createPage(
@@ -1453,8 +1378,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         .select()
         .from(pagesTable)
         .where(eq(pagesTable.id, referrer.id))
-      // -> The locale prefix is stripped before storage -- `links` already holds the bare path,
-      //    same convention as a same-locale link.
       assert.deepEqual(before!.links, ['docs/relink-locale-prefixed-target'])
 
       await pagesModel.movePage(
@@ -1468,8 +1391,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         .select()
         .from(pagesTable)
         .where(eq(pagesTable.id, referrer.id))
-      // -> The markdown `](` syntax is a residual gap the WP's resolved scope explicitly accepts --
-      //    only the `render`'s `href="` occurrence, and `links`, are expected to be rewritten.
+      // -> The markdown `](` form is a knowingly accepted gap: only the `render`'s `href="`
+      //    occurrence and `links` are rewritten.
       assert.equal(
         after!.content,
         'See the [target](/fr/docs/relink-locale-prefixed-target) for more.'
@@ -1482,15 +1405,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
   })
 
-  /**
-   * OpenProject #1688: `recordPageMoveSideEffects` was extracted out of `recordMoveSideEffects` as a
-   * per-page helper (for a future bulk mover -- OpenProject #1683 -- to call once per page while still
-   * batching the glossary invalidation). This is the regression case the extraction's own "Done when"
-   * calls for: the full side-effect set a single-page `movePage` fires -- history, search, hooks,
-   * storage, glossary -- must still fire exactly as before. Search/storage/hooks/glossary are stubbed
-   * with `mock.fn()` (`backend/test/mocks.ts`'s convention) so each call's exact arguments can be
-   * asserted directly, the same way `CARDINAL.cache`/`CARDINAL.events`'s stubs let a test read `.mock.calls`.
-   */
   test('movePage fires the full side-effect set for a single-page move', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -1516,12 +1430,10 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       )
       assert.equal(moved!.path, 'docs/side-effects-after')
 
-      // -> History: a "moved" entry was recorded for this page
       const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
       const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
       assert.equal(entries.items[0]!.action, 'moved')
 
-      // -> Search
       assert.equal(searchModel.renamed.mock.calls.length, 1)
       const [searchSiteId, searchRawMoved, searchPreviousPath, searchPreviousLocale] =
         searchModel.renamed.mock.calls[0]!.arguments
@@ -1530,7 +1442,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(searchPreviousPath, 'docs/side-effects-before')
       assert.equal(searchPreviousLocale, 'en')
 
-      // -> Hooks
       assert.equal(hooksModel.emit.mock.calls.length, 1)
       const [hookEvent, hookSiteId, hookPayload] = hooksModel.emit.mock.calls[0]!.arguments
       assert.equal(hookEvent, 'page:rename')
@@ -1539,7 +1450,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(hookPayload.path, 'docs/side-effects-after')
       assert.equal(hookPayload.previousPath, 'docs/side-effects-before')
 
-      // -> Storage
       assert.equal(storageModel.dispatch.mock.calls.length, 1)
       const [storageEvent, storagePayload] = storageModel.dispatch.mock.calls[0]!.arguments
       assert.equal(storageEvent, 'page:rename')
@@ -1547,7 +1457,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(storagePayload.path, 'docs/side-effects-after')
       assert.equal(storagePayload.previousPath, 'docs/side-effects-before')
 
-      // -> Glossary: invalidated exactly once for this single-page move
       assert.equal(glossaryModel.invalidateCache.mock.calls.length, 1)
       assert.equal(glossaryModel.invalidateCache.mock.calls[0]!.arguments[0], fixtures.siteId)
     } finally {
@@ -1580,12 +1489,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #1739: `deletePage` used to run the `pages` delete and `tree.deleteEntry` as two
-   * separate statements, with nothing at the db level tying them together (`tree.id` carries no FK
-   * back to `pages.id`). A failure in the second left an orphaned tree row -- still rendered by
-   * `getTree`'s left join, 404ing when opened, and permanently blocking re-creation at the same path
-   * via `tree_composite_page_idx`. Wrapped in one transaction, forcing `tree.deleteEntry` to throw
-   * must roll the `pages` delete back too, leaving both rows exactly as they were.
+   * `tree.id` carries no FK back to `pages.id`, so only `deletePage`'s transaction ties the two
+   * deletes together. A surviving orphan tree row would still be rendered by `getTree`'s left join,
+   * 404 when opened, and permanently block re-creation at that path via `tree_composite_page_idx`.
    */
   test('deletePage rolls back the page row when tree.deleteEntry fails, leaving the path reusable', async () => {
     const page = await pagesModel.createPage(
@@ -1611,8 +1517,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       deleteEntry.mock.restore()
     }
 
-    // -> Both rows survive together, exactly as before the failed attempt -- not "the page is gone
-    //    but the tree row remains" (the pre-fix orphan)
     const pageAfterFailure = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
     assert.ok(pageAfterFailure)
     const treeEntryAfterFailure = await readTreeRow(page.id)
@@ -1624,14 +1528,12 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
     assert.equal(folderAfterFailure.meta?.children ?? 0, childrenBefore)
 
-    // -> The real deletePage, unmocked, must still be able to finish the job
     const deleted = await pagesModel.deletePage(fixtures.siteId, page.id, actor)
     assert.equal(deleted, true)
     assert.equal(await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id }), null)
     assert.equal(await readTreeRow(page.id), null)
 
-    // -> And the path is free to reuse -- `tree_composite_page_idx` would refuse this insert if the
-    //    old tree row had survived
+    // -> `tree_composite_page_idx` would refuse this insert if the old tree row had survived.
     const recreated = await pagesModel.createPage(
       fixtures.siteId,
       pageInput({ path: 'atomic-delete/page-one', title: 'Recreated After Rollback' }),
@@ -1660,15 +1562,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(target, null)
   })
 
-  /**
-   * OpenProject #1739 (part of #1730): `deletePage` used to delete the `pages` row and then call
-   * `tree.deleteEntry` as two separate statements on the default connection -- there is no FK from
-   * `tree.id` to `pages.id`, so nothing at the database level removed the tree row if the second
-   * statement failed. That left a tree entry pointing at a page that no longer existed, permanently
-   * blocking a future page at the same path via `tree_composite_page_idx`. `deletePage` now wraps both
-   * in one transaction, so a failure partway through rolls back everything -- including the `pages`
-   * delete that already ran -- rather than leaving an orphan.
-   */
   test('a failure inside tree.deleteEntry rolls back the whole deletePage, leaving the path recreatable', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -1691,8 +1584,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       deleteEntry.mock.restore()
     }
 
-    // -> Rolled back atomically: the `pages` delete that ran first inside the same transaction did not
-    //    survive the later failure, so nothing is orphaned on either side.
     const stillThere = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
     assert.ok(stillThere, 'the page row was not left deleted by the failed transaction')
 
@@ -1707,8 +1598,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       "the folder's child count is unchanged by the failed attempt"
     )
 
-    // -> A real (unmocked) delete now succeeds, and the path it freed can be reused -- proof the
-    //    earlier failure left nothing behind that `tree_composite_page_idx` would have blocked on.
     const deleted = await pagesModel.deletePage(fixtures.siteId, page.id, actor)
     assert.equal(deleted, true)
 
@@ -1730,10 +1619,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #870: the FK from `glossaryTerms.pageId` is `set null` (see `db/schema.ts`), so a term
-   * canonically linked to a deleted page is unlinked at the db level -- but the cached, resolved copy
-   * of that link (`models/glossary.ts#getCachedTerms`) would keep serving the old one forever
-   * (`CARDINAL.cache` carries no TTL) unless `deletePage` drops it too.
+   * The FK from `glossaryTerms.pageId` is `set null`, so the db unlinks the term itself -- but the
+   * cached, resolved copy of that link would keep serving the old path forever (`CARDINAL.cache`
+   * carries no TTL) unless `deletePage` drops it too.
    */
   test('deletePage invalidates the glossary cache so a term linked to it resolves to no link', async () => {
     const page = await pagesModel.createPage(
@@ -1763,13 +1651,10 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #1706: `getRawCachedTerms` caches a term's canonical page classification and tags
-   * alongside its path/locale, and `getCachedTerms` runs the actor's `read:pages` check against that
-   * cached copy -- but only `movePage`/`deletePage`/`deleteOrphaned` invalidated it, not `updatePage`,
-   * the one path that actually changes `classification`/`tags`. These two cases set up a group rule
-   * whose ALLOW/DENY outcome for a non-`manage:system` actor depends on the page's classification (or
-   * tags), so a stale cache is provable by that actor's `link` flipping the wrong way rather than by
-   * spying on the invalidation call itself.
+   * `getCachedTerms` runs the actor's `read:pages` check against a cached copy of each term's
+   * classification and tags. Both cases hang a group rule's ALLOW/DENY off exactly those, so a
+   * stale cache shows up as a non-`manage:system` actor's `link` flipping the wrong way -- rather
+   * than as a missing call to a spy.
    */
   describe('updatePage invalidates the glossary cache (OpenProject #1706)', () => {
     let restrictedId: string
@@ -1855,11 +1740,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
 
     test('a tags-only patch drops the cache so a term loses its access-granting tag and stops resolving', async () => {
-      // -> Deliberately no competing path rule: `helpers/pageRules.ts` treats every TAG rule as
-      //    specificity 0, so a `path: ''` ALLOW would out-rank it on the match-priority tier and the
-      //    tag would never be what decides access, defeating the point of this test. A lone
-      //    ALLOW-by-tag rule, with the page starting with the tag and the patch removing it, isolates
-      //    tags as the only thing that can flip `read:pages` here.
+      // -> Deliberately no competing path rule: `helpers/pageRules.ts` gives every TAG rule
+      //    specificity 0, so a `path: ''` ALLOW would out-rank it and the tag would never be what
+      //    decides access.
       await setRules([
         {
           id: 'allow-tagged',
@@ -1908,12 +1791,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * Task #561's dispatcher wiring: `createPage`/`updatePage` already called `CARDINAL.models.search`
-   * (as `indexPage`, previously), but `movePage`/`deletePage` called nothing at all — "silent no-ops
-   * that only work by accident under Postgres" per the task. This spies on the dispatcher itself
-   * (`CARDINAL.models.search`, the same singleton `models/search.ts` exports) rather than asserting on
-   * search results, so it catches a hook that stops being called regardless of what the `db` engine
-   * does or does not need to do about it.
+   * Spies the dispatcher itself rather than asserting on search results: under the `db` engine a
+   * hook that is never called still looks correct, so only the call proves an external engine
+   * (Elasticsearch, Algolia, ...) would be kept in step.
    */
   test('createPage/updatePage/movePage/deletePage each call the search dispatcher', async () => {
     const calls: string[] = []
@@ -1954,8 +1834,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         `deleted:${page.id}`
       ])
     } finally {
-      // -> Restores the real prototype methods rather than reassigning them: these spies shadow them
-      //    as own properties, so deleting those is enough for lookup to fall back through
+      // -> The spies shadow the prototype methods as own properties, so deleting them is all it
+      //    takes for lookup to fall back through to the real ones.
       delete searchModel.created
       delete searchModel.updated
       delete searchModel.renamed
@@ -1964,10 +1844,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * `deleteOrphaned` is the other page-deletion path — pages left behind by a deleted folder
-   * (`api/tree.ts`'s `deleteFolder` route) — and unlike `deletePage` it called nothing on the search
-   * dispatcher at all: postgres's own index disappears for free with the row, but an external engine
-   * (Elasticsearch, Algolia, ...) keeps a stale entry forever unless told to drop it. Task #554.
+   * `deleteOrphaned` is the other page-deletion path — pages left behind by a deleted folder.
+   * Postgres's own index disappears with the row, but an external engine keeps a stale entry
+   * forever unless told to drop it.
    */
   test('deleteOrphaned calls the search dispatcher for every page it removes', async () => {
     const calls: string[] = []
@@ -2009,12 +1888,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #2232: `pages.password` used to store the page's password in cleartext, and
-   * `unlockPage()` compared a guess against it with a timing-safe string comparison. Anyone with read
-   * access to Postgres or a backup could recover every page password with no work factor. This suite
-   * covers the fix: the column now holds a `bcrypt` verifier, `createPage`/`updatePage` hash whatever
-   * plaintext they are given before it touches the database, and `unlockPage()` checks a guess against
-   * the hash with `bcrypt.compare` instead.
+   * `pages.password` holds a `bcrypt` verifier, never the plaintext: read access to Postgres or to
+   * a backup must not hand over every page password.
    */
   describe('page passwords (OpenProject #2232)', () => {
     test('createPage() stores a bcrypt verifier, not the submitted password', async () => {
@@ -2033,8 +1908,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       const hash = stored[0]!.password
       assert.ok(hash)
       assert.notEqual(hash, 'correct horse battery staple')
-      // -> bcrypt's own encoded format ($<algorithm version>$<cost>$<salt+hash>), not just "some other
-      //    string" -- proof this went through `bcrypt.hash`, not some other transform.
+      // -> bcrypt's own encoded format ($<version>$<cost>$<salt+hash>): proof this went through
+      //    `bcrypt.hash` and not some other transform.
       assert.match(hash!, /^\$2[aby]?\$\d{2}\$/)
     })
 
@@ -2180,11 +2055,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #3400: `convertLegacyWysiwygRow()` is the run-once migration job's own write path --
-   * a raw insert stands in for the legacy row `createPage()` can no longer produce (the wysiwyg editor
-   * writes `contentType: 'markdown'` now, per `EDITOR_CONTENT_TYPES`), and `updatePage()`'s own
-   * `isLegacyWysiwygConversionSave` branch is the lazy on-open fallback's counterpart -- an ordinary
-   * save from a page that loaded as legacy JSON, done editing.
+   * The raw inserts stand in for a legacy row `createPage()` can no longer produce, the wysiwyg
+   * editor writing `contentType: 'markdown'` (`EDITOR_CONTENT_TYPES`).
    */
   describe('legacy WYSIWYG JSON conversion (OpenProject #3400)', () => {
     const legacyJsonContent = JSON.stringify({
@@ -2192,7 +2064,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }]
     })
 
-    /** A raw legacy row: `editor: 'wysiwyg'`, `contentType: 'html'`, JSON under `content`. */
     async function insertLegacyRow(path: string, content: string = legacyJsonContent) {
       const inserted = await fixtures.db
         .insert(pagesTable)
@@ -2249,7 +2120,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(second, false)
 
       const rows = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, id)).limit(1)
-      // -> Untouched by the second, no-op call -- still what the first call wrote.
       assert.equal(rows[0]!.content, '# Hello')
 
       const history = await fixtures.db
@@ -2325,9 +2195,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #3399: `convertEditor()` flips a page's `editor` column between `markdown` and
-   * `wysiwyg` -- the render-equality guard itself is client-side (`PageConvertDialog.vue`), so this
-   * only proves the write, the guardrails against an unsafe flip, and the one history version.
+   * The render-equality guard that decides a conversion is safe to offer at all is client-side
+   * (`PageConvertDialog.vue`), so this covers only the write, the refusals, and the one history
+   * version.
    */
   describe('convertEditor() (OpenProject #3399)', () => {
     test('flips editor from markdown to wysiwyg and records one history version, leaving content untouched', async () => {
@@ -2470,21 +2340,10 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
   })
 
-  /**
-   * OpenProject #1716: `createPage()`/`updatePage()` used to leave `render`/`toc`/`searchContent`/
-   * `links` untouched (update) or blank forever (create) for a write that carried `content` with no
-   * `render` — no refusal, and no path back to a correct render short of a human re-saving the page
-   * in the browser. This locks down the fold-in: `ensureCanRender()` consulted, and refused up front
-   * rather than after, when it fails; a queued rerender job left behind when it succeeds, with
-   * `render`/`toc`/`searchContent`/`links` blanked in the meantime rather than left pointing at
-   * content that no longer exists.
-   */
   describe('render-less create/update leave a queued rerender job (OpenProject #1716)', () => {
     afterEach(() => {
-      // -> Restore the describe-wide success stub (installed in `before()` above) after a test below
-      //    narrows or replaces it -- must not leak into the next test, same discipline the
-      //    watch-notification describe block's own `beforeEach` documents for `mail`. Reconfigures the
-      //    single shared wrap in place (see its own declaration comment) rather than re-mocking.
+      // -> Every test below narrows or replaces the describe-wide success stub; restoring it here is
+      //    what keeps one test's version from leaking into the next.
       ensureCanRenderMock.mock.mockImplementation(async () => {})
     })
 
@@ -2509,14 +2368,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(queued.length, 1)
     })
 
-    /**
-     * OpenProject #3401: `ensureCanRender()` is now consulted with the page's own editor name, not a
-     * hardcoded `'markdown'` -- proven here for a `wysiwyg` page (content type markdown since #3388)
-     * the same way the `markdown` case above is. `ensureCanRender()`'s own real behavior for
-     * `'wysiwyg'` (no longer `renderUnsupportedEditor`) is unit-tested directly in
-     * `renderQueue.test.ts`; this pins that `createPage()` actually reaches it with the real editor
-     * name rather than something normalized away first.
-     */
     test('createPage() with a wysiwyg editor and no render consults ensureCanRender with "wysiwyg", not "markdown", and leaves a queued rerender job', async () => {
       const calls: string[] = []
       ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
@@ -2618,8 +2469,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
       const [after] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
       assert.equal(after!.content, '# New\n\nSee the [new target](/docs/new-target).')
-      // -> Blanked, not left holding the previous revision's render/searchContent/links: the queued
-      //    job (below) is what fills these back in from the content just written.
       assert.equal(after!.render, '')
       assert.equal(after!.searchContent, '')
       assert.deepEqual(after!.links, [])
@@ -2687,10 +2536,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
   describe('listPagesForSitemap', () => {
     /**
-     * `fixtures.groupId` stands in for the guests group here: `CARDINAL.data.systemIds.guestsGroupId` is
-     * only ever a fixed UUID looked up at runtime, not something `setupTestDb()` seeds meaning into,
-     * so pointing it at the fixture group and writing rules onto that group exercises the exact same
-     * `rulesForGroups` / `helpers/pageRules.ts` path a real anonymous request would go through.
+     * `guestsGroupId` is only ever a uuid looked up at runtime, so pointing it at the fixture group
+     * exercises the same `rulesForGroups` path a real anonymous request goes through.
      */
     async function setGuestRules(rules: any[]): Promise<void> {
       CARDINAL.data = { systemIds: { guestsGroupId: fixtures.groupId } }
@@ -2791,10 +2638,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
   })
 
-  /**
-   * The join half of translation staleness/missing detection (OpenProject #2476) --
-   * `helpers/translationStatus.test.ts` covers the pure compare over rows shaped like these.
-   */
+  /** The join half of translation staleness detection; `helpers/translationStatus.ts` compares. */
   describe('getTranslationRows', () => {
     test('returns one row per locale that actually has a page at the given path', async () => {
       await pagesModel.createPage(
@@ -2880,10 +2724,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         pageInput({ path: 'translations/scoped', title: 'This site', locale: 'en' }),
         actor
       )
-      // -> A raw insert, not `createPage()`: `createPage` refuses any siteId absent from the
-      //    in-memory `CARDINAL.sites` cache, which a site row inserted straight into the DB (rather than
-      //    through `models/sites.ts`) never populates. Only the WHERE clause's site scoping is under
-      //    test here, so a hand-built row bypassing that whole cache/business-rule layer is enough.
+      // -> A raw insert: `createPage()` refuses any siteId absent from the in-memory `CARDINAL.sites`
+      //    cache, which a site row inserted straight into the DB never populates. Only the WHERE
+      //    clause's site scoping is under test here.
       await fixtures.db.insert(pagesTable).values({
         locale: 'en',
         path: 'translations/scoped',
@@ -2905,11 +2748,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /*
-    Feature 357, task 446: `getPathFromAlias` used to select only `{ id, path }`, so the
-    alias-resolution route's `mayOnPage(req, 'read:pages', { path: target.path })` never saw a
-    locale or any tags — a locale- or tag-scoped page rule could never be evaluated for a page
-    reached through its alias, only a path-based one, silently. This proves the select now carries
-    both fields through, which is what api/pages/read.ts's alias route threads into `mayOnPage`.
+    The alias-resolution route threads `locale` and `tags` straight into `mayOnPage`, so a select
+    missing either silently narrows a page reached through its alias to path-based rules alone.
   */
   test('getPathFromAlias resolves locale and tags along with id and path', async () => {
     const page = await pagesModel.createPage(
@@ -2937,11 +2777,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(resolved, null)
   })
 
-  /**
-   * OpenProject #1897/#1902: the batched reads the classification-conflicts resolve route uses
-   * instead of a per-id `getPage`/`parentClassification` loop -- `api/pages.classification.test.ts`
-   * stubs the model entirely, so this is what proves each one actually resolves the right rows.
-   */
   describe('getPagesByIds / parentClassifications (OpenProject #1902)', () => {
     let internalId: string
     let restrictedId: string
@@ -3011,7 +2846,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         pageInput({ path: 'batch-floor/root-level' }),
         actor
       )
-      // -> No page actually published at this parent path -- an empty-folder case.
       const emptyFolderChild = {
         locale: rootLevel.locale,
         path: 'batch-floor/no-such-parent/child'
@@ -3053,9 +2887,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
 
     test('the query is scoped per locale, not just per path -- a same-named parent path in another locale never leaks in', async () => {
-      // -> Same parent path in two locales with two DIFFERENT classifications, so a query that
-      //    matched `locale IN (...)` and `path IN (...)` independently (rather than as a real pair)
-      //    would risk picking up the wrong locale's row.
+      // -> Two locales, one parent path, DIFFERENT classifications: a query matching `locale IN
+      //    (...)` and `path IN (...)` independently rather than as a pair picks the wrong row.
       await pagesModel.createPage(
         fixtures.siteId,
         pageInput({ path: 'batch-locale/parent', locale: 'en', classification: restrictedId }),
@@ -3077,9 +2910,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         actor
       )
 
-      // -> Each locale queried on its own, against the single-page method, so a distinct map key
-      //    per locale never masks a cross-locale mismatch the way batching both together under one
-      //    path-only key could.
+      // -> Each locale batched on its own and compared against the single-page method: batching
+      //    both at once would let the per-locale map key mask a cross-locale mismatch.
       const enBatched = await pageClassificationModel.parentClassifications(fixtures.siteId, [
         { locale: 'en', path: 'batch-locale/parent/child' }
       ])
@@ -3105,15 +2937,10 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #1587 §2 / task 1612: `listAllForGraph` used to apply no visibility filter at all,
-   * and its only consumer (`assembleGraph`'s `canRead`, in `api/graph.ts`) checks a page-rule
-   * PERMISSION, never publication state — so `GET /sites/:siteId/graph` could hand an unauthenticated
-   * caller a draft or `isBrowsable: false` page's title, classification and link graph whenever
-   * guests hold `read:pages` via a rule. `publicOnly` threads straight into `pageIsVisible`
-   * (`tree.ts`), the same helper `tree.getTree()`/`tree.browse()` use: `isBrowsable` applies either
-   * way, authenticated or not — per that function's own doc comment, it is the author saying "not in
-   * the tree", not an access rule — while `publishState` is gated by `publicOnly` alone, so only an
-   * unauthenticated caller is denied a draft.
+   * The graph route's own `canRead` checks a page-rule permission and never publication state, so
+   * `publicOnly` is what keeps a draft away from an unauthenticated caller. It threads into
+   * `pageIsVisible` (`tree.ts`), where the two halves differ: `isBrowsable` is the author saying
+   * "not in the tree" rather than an access rule, so it applies either way.
    */
   describe('listAllForGraph publicOnly (OpenProject #1587 §2)', () => {
     test('publicOnly hides a draft; a non-browsable page stays hidden either way', async () => {
@@ -3162,10 +2989,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * `helpers/translationStaleness.test.ts` covers the comparison logic itself as a pure function;
-   * this proves `getTranslationStaleness` wires it to a real `(siteId, path)` join off the actual
-   * `pages` table -- `test/db.ts#setupTestDb()` already seeds this site's locale config with
-   * `active: ['en', 'fr']`, matching the locale-translation-linking decision's convention.
+   * `setupTestDb()` seeds this site with `locales.active: ['en', 'fr']`, which is what makes `fr`
+   * the locale these cases expect to come back stale or missing.
    */
   describe('getTranslationStaleness (OpenProject #2477)', () => {
     test('flags a translation older than the primary page as stale', async () => {
@@ -3322,11 +3147,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 })
 
 /**
- * The change-event trigger `updatePage`/`movePage`/`deletePage`/`deleteOrphaned` queue after
- * `pageHistory.record()` (`models/pages.ts#notifyWatchers`). `CARDINAL.scheduler` is a stub here (see
- * `test/db.ts`) that records `addJob` calls instead of actually running a worker pool, so each test
- * drives the queued `notifyPageWatchers` task itself against the payload the trigger produced — which
- * exercises the real pipeline end to end without needing a live scheduler.
+ * `CARDINAL.scheduler` is a stub that records `addJob` calls instead of running a worker pool, so
+ * each test drives the queued `notifyPageWatchers` task itself against the payload the trigger
+ * produced — the whole pipeline, with no live scheduler.
  */
 describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -3344,9 +3167,8 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       .returning({ id: usersTable.id })
     watcherId = watcher!.id
 
-    // -> The watcher is an ordinary reader, not an admin: OpenProject #2173's read:pages re-check in
-    //    `pageWatching.listWatchers` needs them to actually hold it, the same way a real watcher
-    //    would need to in order to be notified at all.
+    // -> An ordinary reader, not an admin: `pageWatching.listWatchers` re-checks `read:pages`, so a
+    //    watcher who does not actually hold it is never notified.
     await fixtures.db
       .insert(userGroupsTable)
       .values({ userId: watcherId, groupId: fixtures.groupId })
@@ -3368,8 +3190,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       })
       .where(eq(groupsTable.id, fixtures.groupId))
     await CARDINAL.models.groups.reloadCache()
-    // -> Same reasoning as the describe block above: none of these tests supply a `render`, and
-    //    Puppeteer is never installed here (OpenProject #1716).
+    // -> No test here supplies a `render`, and Puppeteer is never installed in this environment.
     mock.method(CARDINAL.models.renderQueue, 'ensureCanRender', async () => {})
   })
 
@@ -3381,10 +3202,9 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
   const originalSendPageWatchNotification = mail.sendPageWatchNotification.bind(mail)
 
   beforeEach(() => {
-    // -> Each test starts from the real sender; a stub installed by one test must not leak into the
-    //    next. CARDINAL.config here (see `test/db.ts`) has no `mail` key at all, so the real sender would
-    //    throw ERR_MAIL_NOT_CONFIGURED on its own — exactly the behavior the "leaves it pending, does
-    //    not throw the job" tests below rely on without any extra setup.
+    // -> Each test starts from the real sender, so no stub leaks into the next. That sender throws
+    //    ERR_MAIL_NOT_CONFIGURED here — this fixture's config carries no `mail` key — which is what
+    //    the "leaves it pending, does not throw the job" tests below rely on.
     mail.sendPageWatchNotification = originalSendPageWatchNotification
   })
 
@@ -3398,7 +3218,6 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
     }
   }
 
-  /** Runs every `notifyPageWatchers` job the stub scheduler was handed since the last call. */
   async function drainQueuedNotifications(): Promise<void> {
     const addJob = CARDINAL.scheduler.addJob as unknown as {
       mock: {
@@ -3425,9 +3244,8 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
   }
 
   /**
-   * Same as `pendingEventsFor`, but keyed on `pagePath` rather than `pageId` — the field to use once
-   * the page in question has been deleted, since `pageId` is a foreign key (OpenProject #3203) and is
-   * `set null` on the very delete that made the row worth looking up in the first place.
+   * The lookup to use for a page that has been deleted: `pageId` is a foreign key, `set null` on
+   * the very delete that made the row worth looking up.
    */
   async function pendingEventsForPath(
     pagePath: string
@@ -3459,7 +3277,6 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageId: page.id,
       userId: watcherId
     })
-    // -> The actor also watches their own page -- they must not be notified about their own edit
     await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
@@ -3523,16 +3340,12 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
     await pagesModel.deletePage(fixtures.siteId, page.id, actor)
     await drainQueuedNotifications()
 
-    // -> pageId is a foreign key, `set null` on delete (OpenProject #3203, `db/schema.ts`), so the row
-    //    can no longer be found by pageId once the page it was about is gone -- look it up by the
-    //    watcher and the path/action it recorded instead, the same fields the event itself survives on.
     const events = await pendingEventsForPath('watch/delete-me')
     assert.equal(events.length, 1)
     assert.equal(events[0]!.userId, watcherId)
     assert.equal(events[0]!.action, 'deleted')
     assert.equal(events[0]!.pageId, null)
 
-    // -> The watch row itself is gone with the page (FK cascade) -- only the pending event survives it
     assert.equal(await CARDINAL.models.pageWatching.isWatching(page.id, watcherId), false)
   })
 
@@ -3550,15 +3363,13 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
 
     await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-    // -> No `drainQueuedNotifications()` here on purpose (OpenProject #3203): the row already exists
-    //    the moment `deletePage` returns, because `notifyWatchers` records it itself -- while the
-    //    `pages` row this FK depends on still exists -- rather than leaving the INSERT to the deferred
-    //    job, which would by now be trying to insert against a page id that no longer exists.
+    // -> No `drainQueuedNotifications()` here on purpose: `notifyWatchers` records the row itself,
+    //    while the `pages` row its FK depends on still exists. Left to the deferred job, the INSERT
+    //    would name a page id that is gone by the time it runs.
     const events = await pendingEventsForPath('watch/delete-synchronously')
     assert.equal(events.length, 1)
     assert.equal(events[0]!.action, 'deleted')
 
-    // -> Draining the queued job afterwards must not insert a second row for the same watcher.
     await drainQueuedNotifications()
     assert.equal((await pendingEventsForPath('watch/delete-synchronously')).length, 1)
   })
@@ -3630,13 +3441,12 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       userId: watcherId,
       notifyMode: 'immediate'
     })
-    // -> `CARDINAL.config.mail` has no `host` in this test fixture (see `test/db.ts`), so the real
-    //    sender throws `ERR_MAIL_NOT_CONFIGURED` -- exactly the "unconfigured mail" case this task
-    //    has to fail loud on, not silently drop.
+    // -> Left unstubbed on purpose: the real sender throws `ERR_MAIL_NOT_CONFIGURED` in this
+    //    fixture, which is the unconfigured-mail case being exercised.
     await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Will Not Send' }, actor)
 
-    // -> Must not reject: a mail failure must not surface as a failed job (see this file's own
-    //    `notify-page-watchers.ts` doc comment on why that would also double-insert `recordMany`).
+    // -> A failed job is retried, and the retry would double-insert through `recordMany`, so a mail
+    //    failure must not surface as one.
     await assert.doesNotReject(() => drainQueuedNotifications())
 
     const events = await pendingEventsFor(page.id)
@@ -3738,13 +3548,9 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
 })
 
 /**
- * The content lifecycle log lines (OpenProject #2674): one `info pages` record per create, move,
- * delete, restore and publish-state crossing, and none at all for an ordinary edit.
- *
- * Asserted on the SCOPE and the FIELDS a call passed, never on a rendered string — the renderer is
- * `core/logger.ts`'s business, and a suite matching formatted text breaks the moment a column widens.
- * `CARDINAL.logger.info` is swapped for a collector per test rather than read back off
- * `logger.backlog()`, for the same reason: the backlog's frame shape belongs to the logger.
+ * Asserted on the scope and the fields a call passed, never on a rendered string, and collected by
+ * swapping `CARDINAL.logger.info` rather than reading `logger.backlog()` — the rendering and the
+ * backlog's frame shape both belong to the logger, not to the code under test.
  */
 describe('page content lifecycle log lines (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -3761,8 +3567,7 @@ describe('page content lifecycle log lines (DB-backed)', { skip: !hasTestDatabas
     ;({ pages: pagesModel } = await import('./pages.ts'))
     ;({ pageHistory: pageHistoryModel } = await import('./pageHistory.ts'))
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
-    // -> Same reasoning as every other describe in this file: nothing here supplies a `render`, and
-    //    Puppeteer is never installed in this environment (OpenProject #1716).
+    // -> No test here supplies a `render`, and Puppeteer is never installed in this environment.
     mock.method(CARDINAL.models.renderQueue, 'ensureCanRender', async () => {})
   })
 
@@ -3783,7 +3588,6 @@ describe('page content lifecycle log lines (DB-backed)', { skip: !hasTestDatabas
     CARDINAL.logger.info = originalInfo
   })
 
-  /** Every `info` line filed under `pages`, optionally narrowed to one message. */
   function pagesLines(message?: string) {
     return infoCalls.filter(
       (call) => call.scope === 'pages' && (message === undefined || call.message === message)

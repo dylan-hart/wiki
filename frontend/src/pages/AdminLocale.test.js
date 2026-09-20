@@ -8,14 +8,6 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
-/**
- * Coverage indicator on the 'Active Locales' w-item loop (task 696). Each row must surface
- * `lc.completeness` -- the field `GET /_api/locales` already returns via `getLocales()` -- as an
- * at-a-glance signal (a `w-linear-progress` bar plus a percentage label), not just render the raw
- * number, and must visually distinguish an under-translated locale from a well-covered one so an
- * admin can spot it without reading every row.
- */
-
 const LOCALES = [
   { code: 'en', name: 'English', nativeName: 'English', language: 'en', completeness: 100 },
   { code: 'fr', name: 'French', nativeName: 'Français', language: 'fr', completeness: 82 },
@@ -23,10 +15,8 @@ const LOCALES = [
 ]
 
 async function mountPage({ permissions = ['manage:sites'] } = {}) {
-  // -> onMounted() only calls load() when a site is already selected
-  // -> `manage:sites` satisfies `useSiteAdminAccess('site:locale')`'s GLOBAL_FALLBACKS check on its
-  //    own, skipping its site-scoped fetchSitePermissions() redirect-on-denial path entirely.
-
+  // -> A site must already be selected for onMounted() to load, and `manage:sites` satisfies
+  //    `useSiteAdminAccess('site:locale')` on its own, skipping its redirect-on-denial path
   const router = await createTestRouter(['/_admin/:siteid/locale'], '/_admin/site-1/locale')
 
   stubApi(
@@ -65,7 +55,6 @@ describe('AdminLocale: per-row completeness indicator', () => {
     const labels = wrapper.findAll('.locale-completeness-label').map((el) => el.text())
     expect(labels).toEqual(['100%', '82%', '12%'])
 
-    // -> Assert the underlying w-linear-progress value directly (via its ARIA attrs), not just text
     const progressEls = wrapper.findAll('.w-linear-progress')
     expect(progressEls).toHaveLength(3)
     expect(progressEls[0].attributes('aria-valuenow')).toBe('100')
@@ -78,10 +67,8 @@ describe('AdminLocale: per-row completeness indicator', () => {
     await flushPromises()
 
     const labels = wrapper.findAll('.locale-completeness-label')
-    // -> en (100%) and fr (82%) are above the low-coverage threshold
     expect(labels[0].classes()).not.toContain('text-grey')
     expect(labels[1].classes()).not.toContain('text-grey')
-    // -> am (12%) is well under it, and should read as visually muted
     expect(labels[2].classes()).toContain('text-grey')
   })
 
@@ -94,13 +81,6 @@ describe('AdminLocale: per-row completeness indicator', () => {
   })
 })
 
-/**
- * OpenProject #1886: `POST /_api/locales/sideload` (backend/api/locales.ts) already exists and is
- * `manage:system`-gated, but nothing in the UI called it -- `grep -rn 'sideload' frontend/src`
- * returned nothing before this. The route takes no body: it rescans `<dataPath>/locales/` on the
- * server's own data volume for locale-pack JSON files an operator placed there out-of-band, so the
- * control is a "sideload now" trigger, not a file picker.
- */
 describe('AdminLocale: offline sideload control', () => {
   function sideloadButton(wrapper) {
     return wrapper.findAll('button').find((b) => b.text().includes('Sideload Locale Package'))
@@ -143,7 +123,6 @@ describe('AdminLocale: offline sideload control', () => {
       message: '1 locale package(s) loaded successfully.',
       caption: 'tlh'
     })
-    // -> A newly-loaded locale should show up without a manual page refresh
     expect(API_CLIENT.get).toHaveBeenCalledWith('locales')
   })
 

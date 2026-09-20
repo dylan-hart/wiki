@@ -9,12 +9,9 @@ import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
  * Pure unit tests: no database, no real network. `@google-cloud/storage` has no equivalent of
- * `aws-sdk-client-mock` in this repo (see `s3/storage.test.ts`), so the SDK's own I/O methods are
- * stubbed directly on the class prototypes with `node:test`'s `mock.method` — every `Bucket` / `File`
- * instance this module constructs is a real instance of those classes, so patching the prototype
- * catches every call, exactly as `azure/storage.test.ts` does for `@azure/storage-blob`.
- * `CARDINAL.logger`/`CARDINAL.models.assets` are the only `CARDINAL` members `storage.ts` touches — matching the
- * pure-unit-test convention this repo's backend testing follows.
+ * `aws-sdk-client-mock` in this repo, so the SDK's own I/O methods are stubbed on the class
+ * prototypes — every `Bucket` / `File` this module constructs is a real instance of those classes, so
+ * patching the prototype catches every call.
  */
 
 installTestWiki({
@@ -159,8 +156,6 @@ describe('gcs storage / exportAll', () => {
 })
 
 describe('gcs storage / getDirectUrl', () => {
-  /** That it addresses the right key for the shared TTL is the contract's; that it asks for a `read`
-   * action, and hands back exactly what the SDK signed, is this SDK's. */
   test("asks the SDK for a 'read' signed URL and returns it unchanged", async () => {
     const target = makeTarget()
 
@@ -181,9 +176,8 @@ describe('gcs storage / getDirectUrl', () => {
 })
 
 /**
- * The ten asset-lifecycle claims every blob storage module owes `models/storage.ts`, read out of
- * `@google-cloud/storage`'s own call shapes — see `test/storageModuleContract.ts` for what they are
- * and why they live in one place. Everything above this line is this module's alone.
+ * The asset-lifecycle claims every blob storage module owes `models/storage.ts`, read out of
+ * `@google-cloud/storage`'s own call shapes. Everything above this line is this module's alone.
  */
 runStorageModuleContract('gcs', {
   makeTarget,
@@ -202,8 +196,8 @@ runStorageModuleContract('gcs', {
         sourceKey: (call.this as File).name,
         destinationKey: (call.arguments[0] as File).name
       })),
-    // -> The URL itself is the SDK's canned answer here, carrying nothing to read back: `getSignedUrl`
-    //    is the call that names the object and the expiry, so the request is what gets described.
+    // -> The URL is the SDK's canned answer and carries nothing to read back; the `getSignedUrl` call
+    //    is what names the object and the expiry, so the request is what gets described.
     describeDirectUrl: () => {
       const call = getSignedUrlMock.mock.calls[0]!
       return {

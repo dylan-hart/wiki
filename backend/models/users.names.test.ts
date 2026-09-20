@@ -2,12 +2,6 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { deriveDisplayName, resolveNameFields } from './users.ts'
 
-/**
- * The insert half of Feature #2608's `name` derivation invariant, as pure functions — no `CARDINAL`, no
- * database. The update half needs a stored row to reconcile against and so is covered by
- * `models/users.names.db.test.ts` instead.
- */
-
 describe('deriveDisplayName', () => {
   test('joins the two halves with a single space', () => {
     assert.equal(deriveDisplayName('Dylan', 'Hart'), 'Dylan Hart')

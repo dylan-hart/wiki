@@ -4,22 +4,10 @@ import Fastify from 'fastify'
 
 import { registerSchemas } from './security.ts'
 
-// -> The `apiRateLimit*` shape-declaration describe (Task 636) was removed by OpenProject #2690
-//    (`docs/testing-audit/backend.md`'s `api/schemas/security.test.ts` row): it restated the
-//    schema's own property list with nothing lost by its removal — a drift here surfaces as a 400
-//    the first time an admin saves the new rate-limit fields, not silently. The `trustProxy`
-//    describe below is the one with independent value: a genuine shipped bug (#2366), not a shape
-//    restatement.
-
 /**
- * OpenProject #2366: `trustProxy`'s `anyOf: [{ type: 'boolean' }, { type: 'string' }]` must accept a
- * real JSON boolean under Fastify's default AJV `coerceTypes: 'array'`, not just when read back out
- * of `app.getSchema()`. A plain `oneOf` used to 400 here -- AJV evaluates every branch to count
- * matches, and coercion let a real boolean also "pass" the `string` branch, so `oneOf` (exactly one
- * match) rejected a value that was never actually invalid. This exercises real AJV validation end to
- * end (register the schema, mount a throwaway route that references it as `body`, `inject()` a real
- * request) rather than inspecting the schema's shape, since the bug was never visible from the shape
- * alone -- `oneOf: [{ type: 'boolean' }, { type: 'string' }]` looks entirely correct on paper.
+ * Exercises real AJV validation end to end rather than inspecting the schema's shape: under
+ * Fastify's default `coerceTypes: 'array'`, `oneOf: [{ type: 'boolean' }, { type: 'string' }]`
+ * looks correct on paper yet rejects a real boolean, which coercion lets match both branches.
  */
 describe('SecurityConfig schema trustProxy accepts a real JSON boolean (#2366)', () => {
   const setup = async () => {

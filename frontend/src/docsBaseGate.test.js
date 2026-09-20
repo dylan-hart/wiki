@@ -6,30 +6,9 @@ import { describe, expect, it } from 'vitest'
 import { listSourceFiles } from '../test/sourceFiles.js'
 
 /**
- * OpenProject #1929. Seven admin/editor surfaces name a concept THIS FORK invented -- there is no
- * page on the upstream Wiki.js docs site that could describe them -- so each one's `docsBase`-based
- * "help"/"view docs" button was deleted rather than left pointing at a URL that 404s. `docsBase`
- * itself is alive and correct on the ~20 surfaces that DO have an upstream doc page behind them;
- * what this gate asserts is that these seven, specifically, never grow one back.
- *
- * Seven suites used to carry a byte-identical `expect(source).not.toContain('docsBase')` against one
- * component each (`components/TableEditorOverlay.test.js`, `pages/{AdminFlags,AdminScheduler,
- * AdminApprovals,AdminTerminal,AdminClassification,AdminSites}.test.js`) -- the same assertion and
- * the same seven-paragraph rationale copied seven times, each invisible from the others. Gathered
- * here as one `describe.each` over the list, in the source-scanner style of `i18nSourceGate.test.js`,
- * it is also strictly more coverage than the seven were: a renamed or moved component used to make
- * its own suite fail with a `readFileSync` ENOENT that reads as a broken test rather than a missing
- * guard, and a NEW fork-invented surface can now be covered by adding one line here instead of a
- * whole file.
- *
- * The five rendered-DOM `docsBase` assertions elsewhere (`components/BlockPickerOverlay.test.js`,
- * `pages/{AdminCluster,AdminMetrics,AdminGlossary,AdminApi}.test.js`) are a different property --
- * that a surface which DOES have a doc page renders the link correctly -- and stay where they are.
- *
- * `AdminTerminal.vue`, named above as one of the original seven, is now `AdminLiveLog.vue`
- * (OpenProject #2680): the xterm view of a text stream became a rendered view of structured log
- * frames. Still fork-invented -- upstream has no such page at all -- so it keeps its entry, under
- * the concept the surface actually names now.
+ * Each of these surfaces names a concept this fork invented, with no page on the upstream Wiki.js
+ * docs site behind it, so a `docsBase` help button there would point at a 404. `docsBase` stays
+ * correct on the surfaces that do have an upstream doc page.
  */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 

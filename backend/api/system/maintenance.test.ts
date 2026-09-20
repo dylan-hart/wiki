@@ -6,14 +6,8 @@ import maintenanceRoutes from './maintenance.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
- * `POST /wysiwyg/convert` and `GET /wysiwyg/convert/:jobId` (OpenProject #3400) -- the queue-and-poll
- * pair `scanPageProblems`/`GET /pages/scan/:jobId` (`system/transfer.ts`) already establish, so this
- * only tests THIS pair's own HTTP-layer contract: it asks the scheduler to queue the right task with
- * the triggering user's id, records the audit entry, and reads `jobHistory`/the pending queue back the
- * same way the scan route does. `CARDINAL.scheduler`/`CARDINAL.models.jobs`/`CARDINAL.models.auditLog`
- * are stubbed -- what actually walks the `pages` table and converts a row is
- * `tasks/simple/convert-wysiwyg-json.ts`'s own task, covered separately (DB-backed) alongside
- * `models/pages.ts#convertLegacyWysiwygRow`.
+ * The HTTP-layer contract only, over a stubbed scheduler: the conversion itself is
+ * `tasks/simple/convert-wysiwyg-json.ts`'s, covered DB-backed in its own suite.
  */
 describe('POST /wysiwyg/convert, GET /wysiwyg/convert/:jobId', () => {
   let app: FastifyInstance

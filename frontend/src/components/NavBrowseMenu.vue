@@ -10,10 +10,8 @@
             contents would jump mid-slide. Long titles truncate instead. -->
     <div class="browse-menu-panel">
       <div class="browse-menu-header flex flex-nowrap items-center">
-        <!-- -> The shared up-one-level plate (`UpOneLevelBtn.vue`), which owns the absent-at-the-root
-                rule and the slide-in that keeps the title beside it moving with it rather than
-                jumping. `acrylic-btn` is passed rather than baked in: this is the one of its three
-                call sites that sits on a translucent surface. -->
+        <!-- -> `acrylic-btn` is passed rather than baked into the plate: this call site is the one
+                that sits on a translucent surface. -->
         <up-one-level-btn
           :show="!isRoot"
           :disabled="state.isLoading"
@@ -21,7 +19,7 @@
           @click="goUp" />
         <div class="min-w-0 flex-1">
           <!-- -> The root has no title of its own, and the site is already named in the sidebar
-                  header directly above this, so there the path stands alone -->
+                  header above, so there the path stands alone -->
           <div v-if="level.title" class="truncate text-sm font-medium">{{ level.title }}</div>
           <div class="text-caption truncate opacity-60 font-robotomono">/{{ state.path }}</div>
         </div>
@@ -41,8 +39,7 @@
               :key="item.path"
               class="browse-menu-row flex flex-nowrap items-stretch">
               <!--
-                One row per name, whichever of the two kinds it is -- and both at once for a page
-                that also has a folder of pages under it. There the label opens the page and the
+                A name can be both a page and a folder. There the label opens the page and the
                 chevron beside it descends, so neither way in hides the other.
               -->
               <router-link
@@ -56,9 +53,8 @@
                   class="shrink-0 opacity-70" />
                 <span class="truncate">{{ item.title }}</span>
               </router-link>
-              <!-- -> The File Manager's folder, so a folder looks the same wherever the wiki draws
-                      one. Full strength, unlike the line icons around it: it is a colour image, and
-                      dimming it only washes the yellow out. -->
+              <!-- -> The File Manager's folder glyph, so a folder looks the same wherever the wiki
+                      draws one. -->
               <button v-else type="button" class="browse-menu-target" @click="descend(item)">
                 <w-icon name="tabler:folder" size="xs" class="shrink-0" />
                 <span class="truncate">{{ item.title }}</span>
@@ -103,17 +99,12 @@ import { useSiteStore } from '@/stores/site'
 import UpOneLevelBtn from './UpOneLevelBtn.vue'
 
 /**
- * The sidebar's Browse menu: one folder of the site at a time, as a reader walks it.
+ * Slides a level sideways on the way in or out rather than nesting submenus -- a wiki tree is deep,
+ * and cascading panels would run off the screen a couple of levels down.
  *
- * Opens on the folder holding the page being read, and slides a level sideways on the way in or out
- * rather than nesting submenus -- a wiki tree is deep, and cascading panels would run off the screen
- * a couple of levels down.
- *
- * What it lists comes from `tree/browse`, which decides what a reader may see; nothing here filters,
- * so there is no version of this menu that shows more than the server was willing to hand over.
+ * `tree/browse` decides what a reader may see; nothing here filters, so this menu can never show
+ * more than the server was willing to hand over.
  */
-
-// PROPS
 
 const props = defineProps({
   anchor: {
@@ -130,42 +121,28 @@ const props = defineProps({
   }
 })
 
-// STORES
-
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// REFS
-
 const menu = ref(null)
-
-// DATA
 
 const EMPTY_LEVEL = { title: '', items: [], truncated: false }
 
 const state = reactive({
-  /** Slash-separated path of the folder being listed. Empty at the site root. */
+  /** Slash-separated. Empty at the site root, which is not a folder. */
   path: '',
-  /** Which way the next level slides in from. */
   direction: 'forward',
   isLoading: false,
   /** Levels already fetched, by path, so that walking back up is instant. */
   levels: {}
 })
 
-// COMPUTED
-
 const level = computed(() => state.levels[state.path] ?? EMPTY_LEVEL)
 
 const isRoot = computed(() => !state.path)
 
-// METHODS
-
-/** Opens on the folder holding the current page, with whatever was cached from last time dropped. */
 function onShow() {
   state.levels = {}
   state.direction = 'forward'
@@ -174,9 +151,9 @@ function onShow() {
 }
 
 /*
-  Which fetch is the current one. Reopening the menu drops the cache and asks again, so a request
-  from the previous open can still land afterwards — and it must not be the one that decides the
-  progress bar is finished. The level it writes is keyed by its own path, so it is harmless otherwise.
+  Reopening the menu drops the cache and asks again, so a request from the previous open can still
+  land afterwards — and it must not be the one that decides the progress bar is finished. The level
+  it writes is keyed by its own path, so it is harmless otherwise.
 */
 let latestRequest = 0
 
@@ -213,10 +190,7 @@ async function load(path) {
   }
 }
 
-/**
- * Moves to another level: the contents are fetched first, so the slide reveals the rows already in
- * place rather than an empty panel that fills in afterwards.
- */
+/** Fetches before sliding, so the slide reveals rows already in place rather than an empty panel. */
 async function moveTo(path, direction) {
   if (state.isLoading || path === state.path) {
     return
@@ -236,8 +210,8 @@ function descend(item) {
 }
 
 /**
- * The route to a listed page. Every level of this menu is fetched at `pageStore.locale` (see `load`),
- * so that is the locale every row in it belongs to, not necessarily the site's primary one.
+ * Every level is fetched at `pageStore.locale`, so that is the locale every row belongs to -- not
+ * necessarily the site's primary one.
  */
 function itemPath(item) {
   return localizedPagePath(item.path, pageStore.locale, siteStore.localeRouting)
@@ -254,14 +228,10 @@ function goUp() {
 }
 
 /*
-  A fixed height, because the header's contents are not the same on every level: the root has no
-  title line and no up button, and letting the row size itself moved everything below it by the
-  difference each time a level changed. 52px is the two lines it holds at most -- a 20px title and a
-  20px path -- plus the space around them.
-
-  That leaves 12px above and below the 28px plate, which is where the 12px beside it comes from: the
-  gap around it reads as even only if all four sides match. The left one is this padding, the right
-  one is the plate's own trailing margin, which `UpOneLevelBtn.vue` owns along with the rest of it.
+  A fixed height, because the header's contents differ per level -- the root has no title line and no
+  up button -- and a self-sizing row moved everything below it each time a level changed. 52px is the
+  two lines it holds at most plus the space around them, which leaves 12px above and below the plate;
+  the 12px start padding matches, so the gap around the plate reads as even on all four sides.
 */
 .browse-menu-header {
   height: 52px;
@@ -283,9 +253,8 @@ function goUp() {
 }
 
 /*
-  The page being read, marked without a line of script: a `router-link` to the current route carries
-  `router-link-exact-active` itself, and the menu opens on that page's own folder — so it is normally
-  one of the rows on screen.
+  Marks the page being read without a line of script: a `router-link` to the current route carries
+  `router-link-exact-active` itself, and the menu opens on that page's own folder.
 */
 .browse-menu-target.router-link-exact-active {
   color: var(--color-primary);
@@ -336,8 +305,6 @@ function goUp() {
 }
 
 /*
-  The slide.
-
   The incoming level stays in flow, so the panel takes its height immediately; the outgoing one is
   taken out of flow for the duration, which is what lets the two overlap while they cross.
 */

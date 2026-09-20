@@ -145,76 +145,55 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
 
 /**
- * Collects/edits ONE glossary entry and hands it back to the caller (`AdminGlossary.vue`) via
- * `onDialogOK` -- it makes no API call of its own. Glossary admin editing is a staged workflow
- * (OpenProject #1113): every add/edit/delete is applied to a local working copy, and nothing reaches
- * the server until that screen's own "Save" action, which atomically replaces the whole glossary and
- * records a version. This dialog's only job is producing one valid, staged entry.
+ * Glossary admin editing is staged: this dialog makes no API call of its own, handing one entry back
+ * through `onDialogOK` for `AdminGlossary.vue` to hold in a local working copy until its own Save
+ * atomically replaces the whole glossary.
  *
- * The canonical-page field is a plain, live-validated path input (OpenProject #1112) rather than a
- * `<w-select>` dropdown fed by a capped candidate list -- a dropdown has no way to offer every page on
- * a wiki with more than a couple hundred, and silently made an already-assigned page outside that cap
- * unreachable. Typing a path debounces a lookup against the same by-hash page endpoint a page view
- * itself resolves a URL through (`pagePathHash` mirrors the backend's `generatePathHash` bit for bit),
- * showing whether it currently resolves -- but resolution is NOT enforced here: the final bulk Save
- * is what actually validates every entry, exactly like a JSON import does, so a path can be staged
- * before its target page exists yet without blocking the rest of this edit.
+ * The canonical-page field is a live-validated path input rather than a `<w-select>` fed by a capped
+ * candidate list, which cannot offer every page of a large wiki and made an already-assigned page
+ * outside the cap unreachable. Resolution is shown but NOT enforced: the bulk Save validates every
+ * entry, so a path may be staged before its target page exists.
  */
-
-// PROPS
 
 const props = defineProps({
   siteId: {
     type: String,
     required: true
   },
-  /** The staged entry being edited (`{ term, definition, isAcronym, aliases, path }`, `aliases`
-   *  each `{ value, isAcronym }` -- OpenProject #2575), or null to create one. */
+  /** `{ term, definition, isAcronym, aliases: { value, isAcronym }[], path }`, or null to create. */
   term: {
     type: Object,
     default: null
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptTerm.value
 })
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   term: props.term?.term ?? '',
   definition: props.term?.definition ?? '',
-  /** Marks the term itself as an acronym (OpenProject #2575), distinct from an ordinary term --
-   *  its stored casing is a canonical DISPLAY casing consulted by the path-segment humanizer. */
+  /** An acronym's stored casing is a canonical DISPLAY casing, consulted by the path-segment
+   *  humanizer. */
   isAcronym: props.term?.isAcronym ?? false,
-  /** `{ value, isAcronym }[]` -- see `state.isAcronym`'s own comment for what `isAcronym` means. */
+  /** `{ value, isAcronym }[]` */
   aliases: (props.term?.aliases ?? []).map((a) => ({ ...a })),
   aliasInput: '',
-  /** Whether the NEXT alias added via `addAlias()` is marked an acronym. */
+  /** Applies to the NEXT alias `addAlias()` pushes, not to any already in the list. */
   aliasIsAcronym: false,
   path: props.term?.path ?? '',
-  /** 'empty' | 'checking' | 'valid' | 'invalid' -- the live path lookup's current state. */
+  /** 'empty' | 'checking' | 'valid' | 'invalid' */
   pathStatus: 'empty',
   pathPageTitle: ''
 })
 
-// REFS
-
 const termForm = ref(null)
 const iptTerm = ref(null)
-
-// COMPUTED
 
 const isEdit = computed(() => Boolean(props.term))
 
@@ -231,28 +210,20 @@ const pathHint = computed(() => {
   return t('admin.glossary.canonicalPageHint')
 })
 
-// VALIDATION RULES
-
 const termValidation = [(val) => (val ?? '').trim().length > 0 || t('admin.glossary.termRequired')]
 
 const definitionValidation = [
   (val) => (val ?? '').trim().length > 0 || t('admin.glossary.definitionRequired')
 ]
 
-// WATCHERS
-
 watch(() => state.path, debounce(checkPath, 400))
-
-// METHODS
 
 function addAlias() {
   const value = state.aliasInput.trim()
   state.aliasInput = ''
   const lower = value.toLowerCase()
-  // -> Mirrors `normalizeAliases()` server-side (`models/glossary.ts`), which silently drops an
-  //    alias matching the term itself -- it would only ever be a no-op surface form, never a
-  //    genuinely distinct one. Rejecting it here too means a chip never appears just to vanish,
-  //    unexplained, the next time this entry round-trips through Save.
+  // -> Mirrors `normalizeAliases()` in `models/glossary.ts`, which silently drops an alias matching
+  //    the term itself: rejecting it here too keeps a chip from vanishing unexplained after a Save.
   if (
     !value ||
     lower === state.term.trim().toLowerCase() ||
@@ -267,12 +238,10 @@ function removeAlias(value) {
   state.aliases = state.aliases.filter((a) => a.value !== value)
 }
 
-/** Flips one existing alias's `isAcronym` flag -- clicking its chip (OpenProject #2575). */
 function toggleAliasAcronym(alias) {
   alias.isAcronym = !alias.isAcronym
 }
 
-/** Debounced (see the WATCHERS block): resolves `state.path` against this site's primary locale. */
 async function checkPath() {
   const raw = state.path.trim()
   if (!raw) {
@@ -306,8 +275,6 @@ async function save() {
     path: state.path.trim() || null
   })
 }
-
-// MOUNTED
 
 onMounted(checkPath)
 </script>

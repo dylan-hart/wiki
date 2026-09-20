@@ -3,10 +3,6 @@ import { describe, test } from 'node:test'
 import { LOG_SCOPES, type LogScope } from './logScopes.ts'
 import { LOG_SCOPES as reexported } from './logger.ts'
 
-/**
- * Pure unit test: the vocabulary is a plain array, so nothing here needs a `CARDINAL` global, a database
- * or the logger's renderer.
- */
 describe('LOG_SCOPES', () => {
   test('is exactly the 27 names of the recommendations §2.3 table, in its order', () => {
     assert.deepEqual(
@@ -48,11 +44,8 @@ describe('LOG_SCOPES', () => {
   })
 
   test('does not contain `legacy`', () => {
-    // -> `legacy` was the renderer's sentinel for a call still using the pre-scope shape, so the
-    //    Phase 2 sweep could grep for what was left. Both the sentinel and the overload behind it
-    //    went with OpenProject #2668, and the name must not come back as a real scope on the way
-    //    past: a line filed under `legacy` says nothing about which subsystem produced it, which is
-    //    the one thing a scope is for.
+    // -> The sentinel of the retired `(msg, context?)` call shape. It must not come back as a real
+    //    scope: a line filed under `legacy` says nothing about which subsystem produced it.
     assert.equal((LOG_SCOPES as readonly string[]).includes('legacy'), false)
   })
 
@@ -72,9 +65,8 @@ describe('LogScope (type level)', () => {
     const good: LogScope = 'storage'
     assert.equal(good, 'storage')
 
-    // -> The closed half of the vocabulary, and the reason the array is `as const`. `tsc` fails this
-    //    file if the assignment below ever STOPS being an error, so a widening of `LogScope` to
-    //    `string` breaks the build here rather than silently at every call site.
+    // -> `tsc` fails this file if the assignment below ever STOPS being an error, so a widening of
+    //    `LogScope` to `string` breaks the build here rather than silently at every call site.
     // @ts-expect-error — 'nope' is not a member of LOG_SCOPES.
     const bad: LogScope = 'nope'
     assert.equal(bad, 'nope')
@@ -85,8 +77,7 @@ describe('LogScope (type level)', () => {
   })
 
   test('the array itself is readonly at the type level', () => {
-    // -> Asserted by assignment rather than by calling `push`, which `as const` does not actually
-    //    prevent at runtime — the point is that no caller can widen the vocabulary through the array.
+    // -> By assignment rather than by calling `push`, which `as const` does not prevent at runtime.
     // @ts-expect-error — `as const` makes LOG_SCOPES a readonly tuple, not a mutable string[].
     const mutable: string[] = LOG_SCOPES
     assert.equal(mutable.length, LOG_SCOPES.length)

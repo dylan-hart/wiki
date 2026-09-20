@@ -5,20 +5,10 @@ import type { glossary } from '../models/glossary.ts'
 import type { assetServing } from '../models/assetServing.ts'
 
 /**
- * Everything a whole-instance replication restore (`models/replicationImport.ts#importSnapshot()`)
- * needs run against it once it has actually succeeded (OpenProject #2517): every `ClusterReloaded`
- * cache a wipe-and-replace just invalidated wholesale (`sites`, `groups`, `classificationLevels`),
- * the glossary term cache and the asset path-resolution cache, plus a queued -- not inline -- full
- * search reindex per restored site.
- *
- * There are two callers of `importSnapshot()`: the manual-upload path
- * (`tasks/simple/replication-import.ts`) and the scheduled cron-driven pull
- * (`models/replication.ts#pull()`). Both call this same function rather than each keeping its own
- * copy of the side-effect list, which is exactly what let the two drift apart in the first place —
- * `pull()` shipped with no post-import step at all until this WP.
- *
- * All five model types are `import type`-only, so this file carries no runtime dependency on any of
- * them -- a caller hands over whichever concrete (or stubbed, in a test) instances it already has.
+ * What must run once a whole-instance replication restore (`importSnapshot()`) has succeeded: the
+ * wipe-and-replace leaves every in-memory cache of the replaced tables stale, and the search
+ * reindex is queued rather than run inline. Every `importSnapshot()` caller runs this one function
+ * so their side-effect lists cannot drift apart.
  */
 export interface ReplicationPostImportDeps {
   sites: Pick<typeof sites, 'broadcastReload' | 'getAllSites'>

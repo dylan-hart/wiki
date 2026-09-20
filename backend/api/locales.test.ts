@@ -5,13 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import localesRoutes from './locales.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * `buildTestApp`'s `session: 'header'` + `permissions: true` install the real
- * `config.permissions` preHandler over a header-seeded session (see `groups.test.ts` for the same
- * pattern) — needed here only because `POST /sideload` is this file's first route that actually
- * declares route-level permissions; the two `GET` routes above are `publicAccess: true` and never
- * exercised this path.
- */
+/** Only `POST /sideload` needs a session: the two `GET` routes are `publicAccess: true`. */
 function headersFor(permissions: string[]) {
   return {
     'x-test-session': JSON.stringify({ authenticated: true, permissions, groups: [] })
@@ -38,8 +32,7 @@ let app: FastifyInstance
 
 const sideloadResult = { loaded: ['tlh'], skipped: [{ code: 'broken', error: 'invalid JSON' }] }
 
-// -> Mutable so a test can simulate a locale sideload changing what `getStrings('en')` returns
-//    without re-registering the whole app.
+// -> Mutable so a test can change what `getStrings('en')` returns without rebuilding the app.
 let currentEnStrings: Record<string, string> = sampleStrings
 
 before(async () => {
@@ -61,11 +54,6 @@ before(async () => {
 
 after(() => closeTestApp(app))
 
-// -> The "documents a concrete 200 response schema" pair (`GET /` and `GET /:code/strings`) was
-//    removed by OpenProject #2690 (`docs/testing-audit/backend.md`'s `api/locales.test.ts` row):
-//    they restated the route file's own schema declaration and lost nothing —
-//    `api/responseErrors.test.ts` covers the error-response half of this structurally, and the
-//    serialization tests below already exercise the 200 body for real.
 test('GET / serializes every field of a locale row', async () => {
   const res = await app.inject({ method: 'GET', url: '/' })
   assert.equal(res.statusCode, 200)
@@ -95,12 +83,6 @@ test('GET /:code/strings serializes an empty array for an unknown locale', async
   assert.deepEqual(res.json(), [])
 })
 
-/**
- * ETag/304 (OpenProject #1920): the ~190 KB translation map should not be re-sent on every cold
- * page load — a browser holding a matching `ETag` from a prior response should get an empty `304`
- * instead. `#1915` (caching `getStrings()` in `CARDINAL.cache`) is separate, out-of-scope work; these
- * tests only cover the route's header/revalidation behavior against whatever the model returns.
- */
 test('GET /:code/strings carries a quoted ETag and a revalidation Cache-Control', async () => {
   const res = await app.inject({ method: 'GET', url: '/en/strings' })
   assert.equal(res.statusCode, 200)
@@ -167,32 +149,16 @@ test('GET /:code/strings returns a 200 with a different ETag after the underlyin
 })
 
 /**
- * The 304 must be sent ONCE (OpenProject #2644).
- *
- * `notModifiedOrPrepare()` calls `reply.code(304).send()` and answers `true`; the handler then has
- * to `return reply`, not a bare `return`. Fastify's `reply.sent` is `raw.writableEnded`, so while
- * any async `onSend` hook is still awaiting it reads `false` — and an `async` handler resolving with
- * `undefined` at that moment makes `fastify/lib/wrap-thenable.js` take its
- * `reply.sent === false && reply.raw.headersSent === false` branch and send a SECOND time. On a real
- * server the second write throws `ERR_HTTP_HEADERS_SENT` and logs
- * `Reply was already sent, did you forget to "return reply" …`, which is what production was doing
- * on every revalidating locale fetch (the SPA sends `If-None-Match` on each page load). The trigger
- * is the async hook, not this route's `response: { 304: … }` schema: `@fastify/session`'s own
- * `onSend` hook (`core/http/session.ts`) is registered on the root app and awaits a session store
- * round trip, so every `/_api` reply is behind one.
- *
- * `app.inject()` does not surface the symptom — light-my-request's second `writeHead` does not
- * throw, so a test asserting only `statusCode === 304` passes on the broken code. What IS observable
- * either way is that the double send runs the `onSend` chain twice, so that is the assertion. The
- * hook has to defer on a real macrotask rather than `await Promise.resolve()`: a microtask-only hook
- * can finish before `wrap-thenable`'s own `.then` runs, which would make this pass for the wrong
- * reason.
+ * A handler that answers the 304 with a bare `return` instead of `return reply` sends it twice when
+ * an async `onSend` hook is pending (see `notModifiedOrPrepare()`). `app.inject()` does not surface
+ * that — light-my-request's second `writeHead` does not throw — but the double send runs the
+ * `onSend` chain twice, so that is the assertion. The hook defers on a real macrotask: a
+ * microtask-only one can finish before Fastify's own `.then` runs, passing for the wrong reason.
  */
 test('GET /:code/strings sends its 304 exactly once, behind an async onSend hook', async () => {
   let onSendCalls = 0
 
-  // -> A hook the suite needs registered ahead of its own routes is a plugin wrapper, not an
-  //    `app.addHook` after `buildTestApp` has already called `ready()`.
+  // -> A plugin wrapper: an `app.addHook` after `buildTestApp` has called `ready()` is too late.
   const withAsyncOnSend = async (instance: FastifyInstance) => {
     instance.addHook('onSend', async (_req, _reply, payload) => {
       onSendCalls += 1
@@ -236,11 +202,6 @@ test('GET /:code/strings sends its 304 exactly once, behind an async onSend hook
   }
 })
 
-/**
- * `POST /sideload` (OpenProject #820): a `manage:system`-only trigger for
- * `CARDINAL.models.locales.sideloadFromDataPath`, letting an admin rescan `<dataPath>/locales/` for a
- * dropped-in locale pack against a running instance without a restart.
- */
 test('POST /sideload requires manage:system', async () => {
   const res = await app.inject({
     method: 'POST',

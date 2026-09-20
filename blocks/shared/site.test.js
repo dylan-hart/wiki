@@ -61,9 +61,8 @@ describe('shared/site.js', () => {
     })
 
     it('does not permanently poison the cache after a request that rejects -- a later call retries', async () => {
-      // OpenProject #1981: a rejected fetch (offline, a dropped connection) is transient in a way a
-      // well-formed non-ok response is not, so it must not wedge the cache shut for the rest of the
-      // page's life the way the "caches a failed fetch too" case above deliberately does.
+      // Deliberately unlike the non-ok case above: a rejected fetch is transient, so it is not
+      // cached for the rest of the page's life.
       const fetchMock = stubFetch(
         vi
           .fn()
@@ -87,12 +86,6 @@ describe('shared/site.js', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
-    /*
-     * BLK-F5 / INFRA-F8: `./config.js` used to hold a second `sitePromise` over the same
-     * `GET /_api/sites/current`, so a page with (say) a map and a checklist on it asked the server
-     * for the very same payload twice. One cache now backs both, which is what this file's header
-     * always claimed.
-     */
     it('shares one request with getBlockConfig, rather than each module caching its own', async () => {
       const fetchMock = stubFetch(async () => ({
         ok: true,

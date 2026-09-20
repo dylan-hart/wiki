@@ -70,10 +70,9 @@ async function mountComposer({ replyTo = null, authenticated = true, name = 'Jan
 }
 
 /**
- * OpenProject #1671: the textarea's `:autofocus="Boolean(replyTo)"` attribute never did anything --
- * `WInput.vue` exposes no such prop. `onMounted` now focuses it itself for a reply composer, since
- * `PageComments.vue` mounts a fresh instance the moment a reply box is toggled open, and leaves the
- * permanent top-level composer alone (nothing was "just opened" about a form already on the page).
+ * `WInput.vue` exposes no `autofocus` prop, so `onMounted` does the focusing -- and only for a reply
+ * composer, which `PageComments.vue` mounts fresh the moment a reply box is toggled open. Nothing
+ * was "just opened" about the permanent top-level form already on the page.
  */
 describe('CommentComposer autofocus', () => {
   it('focuses the textarea on mount for a reply composer', async () => {
@@ -247,11 +246,8 @@ describe('CommentComposer', () => {
     expect(wrapper.emitted('posted')).toBeUndefined()
   })
 
-  // -> The API client's `throwHttpErrors` is configured not to throw for exactly HTTP 400
-  //    (`boot/api.js`), so a refusal on this route resolves with a parsed `{ ok: false, message }`
-  //    envelope rather than rejecting -- e.g. a session that expired between render and submit,
-  //    landing the anonymous branch on `backend/api/comments.ts`'s `reply.badRequest(...)`. Without
-  //    an explicit check, that envelope is indistinguishable from a real posted comment.
+  // -> A refusal that arrives as a parsed `{ ok: false, message }` envelope rather than as a
+  //    rejection is indistinguishable from a real posted comment without the composer's own check.
   it('shows the server message and leaves content/guestName/guestEmail intact on a 400 refusal, emitting no posted event', async () => {
     API_CLIENT.post.mockReturnValueOnce({
       json: () =>

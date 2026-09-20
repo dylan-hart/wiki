@@ -3,11 +3,6 @@ import { mount } from '@vue/test-utils'
 
 import WCardHeader from './WCardHeader.vue'
 
-/**
- * OpenProject #1617: `WCardHeader` mints an id with `useId()` and exposes it, so a `WDialog`
- * wrapping it can bind that id as `labelled-by` and reuse the heading text already on screen
- * instead of duplicating it into a separate `aria-label`.
- */
 describe('WCardHeader accessible-name plumbing', () => {
   it('exposes a non-empty headingId that lands on the element wrapping the heading text', () => {
     const wrapper = mount(WCardHeader, {
@@ -46,12 +41,6 @@ describe('WCardHeader accessible-name plumbing', () => {
   })
 })
 
-/**
- * OpenProject #1630 (task 1633): `WCardHeader` used to render a plain `<div>`, so every card and
- * dialog section it headed contributed nothing to the page's heading structure. `level` (defaulting
- * to `h2`, since a card/dialog section sits one level under the page's own `h1`) is purely semantic
- * -- the visual is entirely the two classes below, unaffected by which tag renders them.
- */
 describe('WCardHeader', () => {
   it('defaults to rendering an <h2>, carrying its visual classes', () => {
     const wrapper = mount(WCardHeader, { slots: { default: 'Site info' } })
@@ -71,7 +60,6 @@ describe('WCardHeader', () => {
       })
 
       expect(wrapper.element.tagName.toLowerCase()).toBe(level)
-      // -> Only one heading element in the tree either way, at the level asked for
       expect(wrapper.findAll('h1,h2,h3,h4,h5,h6')).toHaveLength(1)
     }
   )

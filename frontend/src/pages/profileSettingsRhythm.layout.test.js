@@ -12,36 +12,28 @@ import { createApiClientStub, stubApi } from '../../test/mocks.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #2701 -- the five profile sections that had no design of their own (avatar,
- * authentication, groups, API keys, notifications) adopting the Admin General pattern through
- * `WSettingsCard`/`WSettingsRow`.
+ * What these five pages claim is a RHYTHM -- every row the same height, every plate the same 34px
+ * at the same inset, every control on the same trailing edge, the rule between rows rather than
+ * after the last one -- and `happy-dom` runs no layout engine, reporting every rect as zero. So
+ * each page's real markup is rendered and measured in real headless Chromium;
+ * `components/shared/WSettingsRow.layout.test.js` does the same against the row in isolation.
  *
- * The claim those five now make is the same one the shared row makes and for the same reason it
- * cannot be checked under `happy-dom`: a RHYTHM. Every row the same height, every plate the same
- * 34px at the same inset, every control on the same trailing edge, the rule between rows rather
- * than after the last one. `happy-dom` runs no layout engine and reports every rect as zero, so
- * this suite renders each page's real markup in real headless Chromium and measures it --
- * `components/shared/WSettingsRow.layout.test.js` is the same technique against the component in
- * isolation; this is the same technique against the five pages that consume it, which is what the
- * work package asked to see.
- *
- * `hasChromium()` skips the suite cleanly where `npm run install-browsers` has not been run. Note
- * that a skipped run proves nothing -- a green `npm run test` on a machine with no Chromium has not
- * measured any of this.
+ * `hasChromium()` skips the suite where `npm run install-browsers` has not been run -- a skipped
+ * run has measured none of this.
  */
 
 /**
  * The content column inside the profile overlay, near enough: the panel is about half the viewport
- * and gives 300px of that to the section rail (`ProfileOverlay.vue`), so a laptop-sized window
- * leaves the sections roughly this much. The point of pinning it is that the rhythm below is
- * asserted at a width these pages are actually read at, not at a full-page one they never see.
+ * and gives 300px of that to the section rail (`ProfileOverlay.vue`). Pinned so the rhythm is
+ * asserted at a width these pages are actually read at, not a full-page one they never see.
  */
 const PANE_WIDTH = 560
 
 /** 12px top + 34px plate + 12px bottom -- the plate is the tallest thing in a one-line row. */
 const ONE_LINE_ROW_HEIGHT = 58
 
-/** The card's own inline padding, which every plate's leading edge and every control's trailing edge lands on. */
+/** The card's own inline padding: both the plate's leading edge and the control's trailing edge
+ *  land on it. */
 const ROW_INLINE_PADDING = 14
 
 function collectMountedStyles() {
@@ -98,11 +90,9 @@ const MESSAGES = {
 }
 
 /**
- * The five, each with whatever its own mount needs and nothing more. `html` is what goes into the
- * browser; `oneLineRows` says whether every row on that page is a single line of text (Groups and
- * Notifications) or whether some carry a multi-line hint by design (Auth's status lines, Api's
- * caption stack, Avatar's stacked preview) -- the equal-height assertion only holds for the former,
- * and claiming it for the latter would be asserting the design is something other than it is.
+ * `oneLineRows` says whether every row on that page is a single line of text, or whether some carry
+ * a multi-line hint by design (Auth's status lines, Api's caption stack, Avatar's stacked preview)
+ * -- the equal-height assertion only holds for the former.
  */
 const PAGES = [
   {
@@ -208,7 +198,7 @@ const PAGES = [
   }
 ]
 
-/** Everything measured off one rendered page, in one `page.evaluate` round trip. */
+/** Everything measured off one rendered page, in a single `page.evaluate` round trip. */
 function readPage() {
   const read = (el) => {
     const rect = el.getBoundingClientRect()
@@ -260,15 +250,11 @@ describe(
     let measured
 
     /**
-     * Mount all five, measure all five, once -- memoized so the five browser pages are paid for by
-     * whichever test runs first and reused by the rest.
-     *
-     * Deliberately NOT a `beforeAll`, which is what it looks like it should be: `test/setup.js`
-     * rebuilds `API_CLIENT`, `EVENT_BUS` and `localStorage` in a `beforeEach`, and a `beforeAll` runs
-     * ahead of the first of those -- mounting a page there dies on `WBtn`'s `EVENT_BUS.on(...)`
-     * before any measurement happens. Awaited at the top of each test instead, where the harness's
-     * globals are in place. `createApiClientStub()` per page is still needed on top of that, so one
-     * page's stubbed responses cannot answer the next page's request.
+     * Memoized rather than a `beforeAll`: `test/setup.js` rebuilds `API_CLIENT`, `EVENT_BUS` and
+     * `localStorage` in a `beforeEach`, and a `beforeAll` runs ahead of the first of those --
+     * mounting there dies on `WBtn`'s `EVENT_BUS.on(...)`. Awaited at the top of each test instead,
+     * where the harness's globals are in place. `createApiClientStub()` per page on top of that
+     * keeps one page's stubbed responses from answering the next page's request.
      */
     let measuring = null
 
@@ -284,8 +270,8 @@ describe(
           const html = wrapper.html()
           const scopedCss = collectMountedStyles()
 
-          // -> The precondition, asserted rather than assumed: with no scoped CSS there is no plate,
-          //    no padding and no rule, and every number below would be measuring a bare DOM.
+          // -> Without the scoped CSS there is no plate, no padding and no rule, and every number
+          //    below would be measuring a bare DOM.
           expect(scopedCss, `${name} scoped CSS`).toContain('w-settings-row')
 
           const page = await browser.newPage()
@@ -328,9 +314,7 @@ describe(
       measured = await measureAll()
       for (const { name } of PAGES) {
         const headings = measured[name].headings
-        // -> `pages/pageTitleHeadings.test.js` scans the SOURCE for these; this is the rendered half of
-        //    the same claim -- the page title survived the conversion as a real h1, and each card's
-        //    strip is the h2 under it rather than a styled div.
+        // -> The rendered half of `pages/pageTitleHeadings.test.js`'s source scan.
         expect(
           headings.filter((h) => h.tag === 'H1'),
           `${name} page title`
@@ -430,10 +414,9 @@ describe(
     })
 
     /**
-     * The avatar is the one stacked case among the five, and the work package's own instruction was to
-     * reuse the variant the shared row already has rather than inventing a second one -- so what is
-     * asserted is that this page renders THAT slot, positioned the way it is on Admin General's logo
-     * row: under both halves of the row, clear of the plate.
+     * The one stacked case among the five: it reuses the shared row's existing preview slot rather
+     * than a second variant, positioned as Admin General's logo row is -- under both halves of the
+     * row, clear of the plate.
      */
     it('stacks the avatar preview under the row rather than beside it', async () => {
       measured = await measureAll()

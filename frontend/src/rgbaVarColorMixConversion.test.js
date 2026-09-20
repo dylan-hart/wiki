@@ -6,18 +6,9 @@ import { describe, expect, it } from 'vitest'
 import { listSourceFiles } from '../test/sourceFiles.js'
 
 /**
- * OpenProject #3247 ("Sass removal 2/9: convert the 3 rgba($var, …) call sites to color-mix()").
- * `docs/frontend-sass-removal-plan.md`'s footprint count named exactly 3 `rgba($variable, …)` call
- * sites left in `frontend/src` -- `EditorMarkdown.vue:2153` and `GroupRulesEditor.vue:703-704` -- and
- * this is a source-scan for the same reason every other Sass-removal regression test in this
- * workspace is: nothing compiles Sass here at all any more (OpenProject #3254 dropped the pipeline
- * entirely), so a re-introduced `rgba($var, …)` would now be a plain-CSS parse casualty -- a dropped
- * declaration, not a build error -- and this source-scan is what still catches it.
- *
- * The two converted sites are also asserted individually against the exact `color-mix(in srgb,
- * var(--color-x) N%, transparent)` text, matching the pattern already shipped two rules above in
- * `GroupRulesEditor.vue` (`.is-allow`/`.is-deny`) that this WP's own scope note says to finish, not
- * reinvent.
+ * Nothing compiles Sass in this build, so a re-introduced `rgba($var, …)` is an unrecognised
+ * plain-CSS function and silently dropped rather than a build error. This source scan is what
+ * catches it.
  */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 
@@ -61,13 +52,6 @@ describe('GroupRulesEditor.vue .is-forceallow uses color-mix(), matching .is-all
 
 describe('EditorMarkdown.vue teal callout dark-mode tint uses color-mix()', () => {
   const source = readFileSync(resolve(SRC_ROOT, 'components/EditorMarkdown.vue'), 'utf-8')
-  /*
-   * OpenProject #3252 (a later, sibling WP) hand-converted this rule's `@at-root .theme--dark &`
-   * escape to a flat, unnested rule at the bottom of the same style block -- and corrected its
-   * class from the never-applied `.theme--dark` to the app's real `.body--dark` in the same move
-   * (see EditorMarkdown.vue's own "Hand-converted @at-root escapes" comment). This scan follows the
-   * rule to its new selector; the color-mix() value this WP (#3247) set is unchanged.
-   */
   const darkContentRule = source.match(
     /\.body--dark \.editor-markdown-preview-content \.tabset-content \{\s*background-color:\s*([^;]+);\s*\}/
   )

@@ -11,11 +11,7 @@ import { installTestWiki } from '../../test/mocks.ts'
 
 let wikiHandle: { restore(): void }
 
-/**
- * The two route-plugin wrappers this file's apps need on top of the shared harness: a cookie parser
- * (the logout route clears the session cookie), and the site-enabled guard `api/index.ts` registers
- * around every content route.
- */
+/** The logout route's `clearCookie` needs a cookie parser. */
 const withCookies: FastifyPluginAsync = async (instance) => {
   await instance.register(fastifyCookie)
   await instance.register(authenticationRoutes)
@@ -25,14 +21,7 @@ const withSiteGuard: FastifyPluginAsync = async (instance) => {
   instance.addHook('preHandler', siteEnabledPreHandler)
   await instance.register(authenticationRoutes)
 }
-/**
- * `POST /sites/:siteId/auth/register` and `GET /auth/verify/:token` — the request/response wiring
- * around `CARDINAL.models.login.register()` / `userCredentials.validateToken()` / `users.updateUser()`,
- * which are stubbed here
- * rather than run for real (that's `models/users.test.ts`'s DB-backed coverage of `register()` itself).
- * Registers the whole `authentication.ts` plugin, matching `api/mail.test.ts`'s pattern, since Fastify
- * compiles every route's schema at `ready()` regardless of which ones a given test actually hits.
- */
+
 describe('local account lifecycle (register/verify/forgotPassword/resetPassword)', () => {
   let app: FastifyInstance
   let registerMock: ReturnType<typeof mock.fn>
@@ -47,9 +36,6 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
         users: {
           updateUser: (...args: any[]) => updateUserMock(...args)
         },
-        // -> `register`/`forgotPassword`/`resetPassword` moved to `models/login.ts` and token
-        //    validation to `models/userCredentials.ts` when `models/users.ts` was split; the routes
-        //    reach them here now.
         login: {
           register: (...args: any[]) => registerMock(...args),
           forgotPassword: (...args: any[]) => forgotPasswordMock(...args),
@@ -79,9 +65,7 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
 
     app = await buildTestApp({
       routes: authenticationRoutes,
-      // -> Stand-in for `@fastify/session`: the resetPassword route writes
-      //    `req.session.authenticated` on success the same way `changePassword` does, so
-      //    `req.session` has to be a real, mutable, per-request object.
+      // -> A mutable per-request object: resetPassword writes `req.session.authenticated`
       session: () => ({})
     })
   })
@@ -131,12 +115,7 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
     assert.equal(arg.password, 'longenough1')
   })
 
-  /*
-    Feature #2608, Task #2642: the sign-up form sends two authored halves instead of one name, so the
-    body's `name` is optional and the two new fields must survive the schema and reach
-    `models/login.ts#register` untouched. Nothing in the route derives a display name -- that is
-    `models/users.ts#resolveNameFields`'s, once.
-  */
+  // -> The route derives no display name; `models/users.ts#resolveNameFields` does
   test('POST register: carries firstName/lastName through with no name at all', async () => {
     const { name: _name, ...halves } = registerPayload()
     const res = await app.inject({
@@ -277,11 +256,8 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
   })
 
   /**
-   * `POST /sites/:siteId/auth/forgotPassword` -- the one thing to prove at the route layer is that the
-   * generic success response is truly unconditional: it must come back identical whether the model sent
-   * an email or silently did nothing, and even when the model throws outright. Which of those happened
-   * is `models/users.test.ts`'s `forgotPassword()` coverage; this file only owns the request/response
-   * wiring, per this file's own header comment.
+   * The generic success must be unconditional -- identical whether the model sent an email, did
+   * nothing or threw -- or the route reveals which addresses have accounts.
    */
   test('POST forgotPassword: passes the body through and reports the generic success', async () => {
     const res = await app.inject({
@@ -298,9 +274,7 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
     assert.deepEqual(forgotPasswordMock.mock.calls[0].arguments[0], {
       strategyId: '11111111-1111-1111-1111-111111111111',
       email: 'ada@example.com',
-      // -> OpenProject #3386: the route now threads its own :siteId param through, so
-      //    sendForgotPassword can link at the requesting site's real hostname instead of always
-      //    falling back to the instance-wide defaultBaseURL.
+      // -> So the mailed link can point at the requesting site's own hostname
       siteId: '22222222-2222-2222-2222-222222222222'
     })
   })
@@ -449,10 +423,8 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
 })
 
 /**
- * #2336: logout's `clearCookie` must carry the same `Path`/`Secure`/`SameSite` attributes as the
- * cookie's registration in `index.ts`, or a real HTTPS deployment's browser rejects the clearing
- * `Set-Cookie` outright (the `__Host-` prefix requires `Secure` on every `Set-Cookie` for that name)
- * and the stale session cookie is never actually removed from the browser.
+ * The `__Host-` prefix requires `Secure; Path=/` on every `Set-Cookie` for that name, a clearing
+ * one included, or the browser rejects it and keeps the stale session cookie.
  */
 describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
   let app: FastifyInstance
@@ -474,8 +446,6 @@ describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
 
     const built = await buildTestApp({
       routes: withCookies,
-      // -> Stand-in for `@fastify/session`: a plain mutable session object with a `destroy()` spy,
-      //    same pattern as the "local account lifecycle" describe above.
       session: () => ({ authenticated: false, destroy: destroyMock })
     })
     return built
@@ -531,11 +501,8 @@ describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
 })
 
 /**
- * `GET /sites/:siteId/auth/strategies` is public and unauthenticated, so it must never publish more
- * than the login screen can act on. `selfRegistration` is only ever included for a form-based
- * strategy — a redirect-based provider's new-account path is `autoProvision`, which the public login
- * screen has no use for and which used to leak (as `registration`) which provider currently accepted
- * a self-registration POST, the vulnerability WP #2126 closed.
+ * The route is public, so it publishes only what the login screen can act on: `selfRegistration`
+ * for a form-based strategy, and nothing about a redirect-based provider's `autoProvision`.
  */
 describe('GET /sites/:siteId/auth/strategies', () => {
   const SITE_ID = 'b1111111-1111-1111-1111-111111111111'
@@ -628,12 +595,8 @@ describe('GET /sites/:siteId/auth/strategies', () => {
 })
 
 /**
- * Task #1680: `GET /sites/:siteId/auth/strategies` used to answer `reply.badRequest('Invalid Site
- * ID')` (400) for an unknown siteId — the only occurrence of that message in the backend, and out of
- * step with every other site-scoped route's 404 for the same condition. Fixed to `reply.notFound()`,
- * and since spec D1 that 404 comes from `siteEnabledPreHandler` — one condition, one message
- * (`SITE_MISSING_MESSAGE`), for every `:siteId` route — rather than from this route's own preamble,
- * so the hook is registered here the way `index.ts` registers it around the real plugin.
+ * The 404 comes from `siteEnabledPreHandler` rather than the route, so the hook is registered here
+ * the way `api/index.ts` registers it around the real plugin.
  */
 describe('GET /sites/:siteId/auth/strategies (unknown siteId)', () => {
   let app: FastifyInstance
@@ -681,14 +644,7 @@ describe('GET /sites/:siteId/auth/strategies (unknown siteId)', () => {
   })
 })
 
-/**
- * `PUT /sites/:siteId/auth/login`'s body schema (task 2169): `password` used to carry only
- * `minLength: 1`, which constrains a *present* value but does nothing for an omitted key, so
- * `{ strategyId, username }` validated and reached `users.login()` with `password: undefined`.
- * `password` is now in the schema's own `required` list, alongside the pre-existing `strategyId` —
- * this is the first of the fix's two guards (the model-level check in `users.login()` is the second,
- * covered in `models/users.test.ts`).
- */
+/** `minLength` constrains a present value only, so `password` has to be in `required` as well. */
 describe('PUT login: password is required by the route schema', () => {
   let app: FastifyInstance
   let loginMock: ReturnType<typeof mock.fn>
@@ -712,13 +668,6 @@ describe('PUT login: password is required by the route schema', () => {
       }
     })
 
-    // -> `buildTestApp` installs the real error handler BEFORE the schemas and routes, which this
-    //    block needs: this route's `400` response is `$ref: 'ApiError#'`, which requires an `ok`
-    //    field, and Fastify only applies a custom error handler ahead of response-schema
-    //    serialization when it is set before the schema that serialization would run against is
-    //    compiled in. Registered too late, Fastify's own validation-error body
-    //    (`{statusCode, code, error, message}`, no `ok`) fails ApiError serialization and comes back
-    //    as a 500 -- a harness ordering artifact the real app never hits.
     app = await buildTestApp({ routes: authenticationRoutes, session: () => ({}) })
   })
 
@@ -773,11 +722,6 @@ describe('PUT login: password is required by the route schema', () => {
     assert.equal(arg.password, 'correct-password')
   })
 
-  // -> OpenProject #2361: the account-keyed limiter (`consumeAccountAuthAttempt`, consumed inside
-  //    `users.login()`) used to throw a plain `Error('ERR_RATE_LIMITED')`, which this route's
-  //    `ERR_`-prefix check mapped to a generic 400 -- unlike the IP-keyed `limitAuthAttempts` hook,
-  //    which answers 429 with `Retry-After`. `users.login` now throws the typed
-  //    `AccountRateLimitedError` instead, and the route must map *that* to the same 429 contract.
   test('an account-keyed rate limit is answered as 429 with Retry-After, not 400', async () => {
     loginMock = mock.fn(async () => {
       throw new AccountRateLimitedError(55)

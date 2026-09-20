@@ -6,92 +6,28 @@ import { nodeId } from './graphFilters.js'
 import { clusterForce, parentFanForce } from './graphForces.js'
 
 /**
- * `Graph.vue`'s layout half: the d3-force simulation, the group hulls drawn around its result, and
- * the zoom behaviour attached to the canvas.
- *
- * Kept apart from `graphDraw.js`, which only paints what these produce. Everything the page decides
- * -- how a node is grouped, how large it draws, what colour its group is -- comes in as a callback
- * rather than being recomputed here, so this file never reads the page's state.
+ * Everything the page decides -- how a node is grouped, how large it draws, what colour its group
+ * is -- comes in as a callback, so this file never reads the page's state.
  */
 
-/*
-  `forceLink().id()` resolves against each node's composite `${locale}:${path}` id (OpenProject
-  #1621/#1629), not the bare `path` -- translations share a path by design, so an `id`-of-`path`
-  accessor would make d3-force's `nodeById` map collapse an `en`/`fr` pair sharing a path down to
-  whichever one it
-  processed last, with no error. `node.path` stays around on every node (real and synthetic alike)
-  as the display/navigation field -- `onCanvasClick`, the hover tooltip and `drawLabels()` all still
-  read it.
-
-  `d3.forceLink`'s distance and `d3.forceManyBody`'s charge strength used to be flat constants (60
-  and -120), tuned as starting points against the old 22px `MAX_NODE_RADIUS` ceiling -- unlike
-  `forceCollide`'s radius (`collideRadiusFor`, OpenProject #1141), which was already a per-node
-  function and so auto-scaled when that ceiling became 110px (OpenProject #2561). `linkDistanceFor()`
-  and `chargeStrengthFor()` below give both the same per-item scaling `collide` already had
-  (OpenProject #2562), rather than a second flat guess that would need retuning again the next time
-  the ceiling changes. Each is calibrated to land close to its own old flat constant when evaluated
-  at the *old* 22px ceiling, as a sanity check against the values they replace, then scale smoothly
-  out to the new 110px one. Both accessors run once, at attach time (d3-force resolves link ids to
-  real node objects and evaluates `.distance()`/`.strength()` functions during `force.initialize()`,
-  not per tick), so this costs nothing extra during the simulation's actual run.
-
-  The `cluster` force (`graphForces.js#clusterForce`, OpenProject #1158) pulls each node toward a
-  running centroid of its own group, layered on top of the forces above -- those alone don't
-  produce visually coherent clusters (per the spec). `0.05` is a starting point: low enough that
-  the other forces still dominate local layout, this is meant to be a bias toward clustering, not
-  the dominant force -- tune visually once there's a real graph on screen. It is attached once,
-  here, rather than re-attached on every `groupBy` change: unlike the `forceX`/`forceY` pair it
-  replaced (which cached their target at force-initialize time -- the root cause of #1158's frozen-
-  origin bug), this force recomputes group centroids from the *current* tick's `x`/`y` every time
-  d3-force calls it, so a `groupBy` change needs no re-attachment to take effect on the next tick.
-
-  The `parentFan` force (`graphForces.js#parentFanForce`, OpenProject #2581) is the same kind of
-  always-on, small-weight custom force -- layered on top of everything above, replacing none of it.
-  It nudges each non-root node toward a target angle around its own tree parent (derived from the
-  node's own `path`/`locale`, not from `edges`), which is what turns the one-sided arc the parent
-  Feature (#2579) describes into children wrapping fully around their parent. Attached once here for
-  the same reason `cluster` is: it recomputes its own parent/sibling structure from the current node
-  set every time d3-force re-initializes it (i.e. every `simulation.nodes(...)` call), so a filter or
-  `edgeMode` change needs no re-attachment either.
-*/
-
-/** Flat term added to a link's two endpoint radii to get its target distance -- picked so that two
- *  nodes each at the *old* 22px ceiling (`collideRadiusFor` = 24) land close to the *old* flat `60`
- *  distance: `40 + 24 + 24 = 88`, wider than 60 but in the same ballpark once real spacing (not just
- *  the bare number) is compared, and correctly wider given `collide` already claims 48px of that gap
- *  on its own. Two nodes at the new 110px ceiling (`collideRadiusFor` = 112) get `40 + 112 + 112 =
- *  264`, proportionally roomier without hand-picking a second unrelated constant. */
 const LINK_BASE_DISTANCE = 40
 
-/** A link's target distance: the flat base above plus both endpoints' own collision radii
- *  (`collideRadiusFor`, OpenProject #1141/#2561), so a link between two small nodes stays tight
- *  while one touching a large node opens up automatically -- the same per-item scaling
- *  `forceCollide` already gets, rather than one flat number for every link regardless of the nodes
- *  on either end (OpenProject #2562). Evaluated once at attach time (see the doc comment above), by
- *  which point d3-force has already resolved `link.source`/`link.target` from ids to the real node
- *  objects `collideRadiusFor` needs. */
+/** Evaluated once at attach time, not per tick -- by then d3-force has resolved
+ *  `link.source`/`link.target` from ids to the node objects `collideRadiusFor` needs. */
 export function linkDistanceFor(link, collideRadiusFor) {
   return LINK_BASE_DISTANCE + collideRadiusFor(link.source) + collideRadiusFor(link.target)
 }
 
-/** Flat base charge (before the radius term) for `chargeStrengthFor()` below. */
 const CHARGE_BASE_STRENGTH = 30
-/** How much additional repulsion each px of a node's own drawn radius adds. `4` is picked so a node
- *  at the *old* 22px ceiling reproduces close to the *old* flat `-120` charge:
- *  `-(30 + 22 * 4) = -118`, a sanity check against the value this replaces. A node at the new 110px
- *  ceiling gets `-(30 + 110 * 4) = -470`, proportionally stronger without overpowering the much
- *  smaller nodes most graphs are still mostly made of (`MIN_NODE_RADIUS`, `20` since OpenProject
- *  #2900, gets only `-110`). */
 const CHARGE_RADIUS_FACTOR = 4
 
-/** A node's charge strength: bigger nodes repel harder, scaling with the same per-node radius
- *  (`radiusFor`) that already sizes `collide`/hulls/labels, instead of one flat repulsion for every
- *  node regardless of size (OpenProject #2562). Evaluated once at attach time, same as
- *  `linkDistanceFor()` above -- `forceManyBody().strength()` also accepts a function, not per tick. */
 export function chargeStrengthFor(node, radiusFor) {
   return -(CHARGE_BASE_STRENGTH + radiusFor(node) * CHARGE_RADIUS_FACTOR)
 }
 
+/** `cluster` and `parentFan` are attached once and never re-attached on a `groupBy`/filter change:
+ *  both recompute their own structure from the current tick. `0.05` keeps each a bias rather than
+ *  the dominant force. */
 export function startSimulation(
   nodes,
   edges,
@@ -102,13 +38,10 @@ export function startSimulation(
     .force(
       'link',
       forceLink(edges)
-        // -> Composite `${locale}:${path}` id (OpenProject #1621/#1629), not bare `path`: two locales'
-        //    translations of the same page share a `path` by design, and d3-force's `nodeById`
-        //    map (built from this accessor) would otherwise collapse them onto whichever node it
-        //    kept last -- N duplicate dots on top of each other, every edge attached to just one
-        //    of them. `graphFilters.js`'s edge builders key their `source`/`target` on the same
-        //    `nodeId()` helper, which is what keeps this accessor's output resolvable against
-        //    every edge actually fed into the `edges` this is handed.
+        // -> Composite `${locale}:${path}` id, not bare `path`: two locales' translations of the
+        //    same page share a `path` by design, and d3-force's `nodeById` map would otherwise
+        //    collapse them onto whichever node it kept last. `graphFilters.js`'s edge builders key
+        //    `source`/`target` on the same `nodeId()`, which keeps every edge resolvable.
         .id((d) => nodeId(d))
         .distance((link) => linkDistanceFor(link, collideRadiusFor))
     )
@@ -123,63 +56,21 @@ export function startSimulation(
     .on('tick', onTick)
 }
 
-/*
-  `24`px (raised from `16`, OpenProject #2562) is a starting point sized against what was then a
-  `5`px minimum node-dot radius in `drawNodes()` -- tune visually so the circle clearly contains the
-  dots without ballooning past neighboring clusters. It's a floor added on top of the group's own
-  `maxDist` term (OpenProject #2296), which already grows by each member's own `radiusFor()`, not
-  the whole gap on its own -- a large node (up to `MAX_NODE_RADIUS`, `110` as of OpenProject #2561's
-  min/max lerp rework -- one shared ceiling for both sizing metrics, was `22`) would otherwise poke
-  through its own group tint. The flat term itself was raised too: with a node's own radius now
-  reaching `110` (vs. the old `22`), the same flat floor reads proportionally thinner next to a
-  large node's fill than it used to, so it gets a modest bump on top of the per-node radius term it
-  already adds.
-
-  `MIN_NODE_RADIUS` doubling 5 -> 10 (OpenProject #2594) needs no matching bump here, re-checked by
-  OpenProject #2562's own spacing retune once #2594 and #2593 had both landed: this constant is a
-  flat term ADDED ON TOP of the group's own `maxDist` (which already folds in each node's own
-  `radiusFor(node)`), so a floor-sized node's total clearance already grew from `29` to `34` through
-  the radius term alone the moment the floor doubled -- no separate retuning of the flat term itself
-  is needed. Contrast `MAX_NODE_RADIUS`, above: that ceiling is what this constant's own `16` -> `24`
-  bump was actually compensating for, and #2594 left it untouched.
-*/
+// A visual starting point, not a derived value: a flat floor on top of the group's own `maxDist`,
+// which already grows with each member's `radiusFor()`. Retune against a real graph.
 const CLUSTER_PADDING = 24
 
-/** Populates `clusters.value` -- one circle entry per visible group, per requested nesting level.
- *  Every group draws a circle, never a convex-hull polygon (OpenProject #2836): a hull fits a
- *  spread-out or elongated group tighter, but drawing every group's own best-fit shape read as
- *  visually inconsistent across a graph with many differently-shaped groups, so this trades that
- *  tighter fit for a uniform look. Sized off each node's edge (its centre plus its own
- *  `radiusFor()`), not just its centre (OpenProject #2296) -- `collideRadiusFor()` above already
- *  adds `radiusFor(node)` to a constant the same way, and is the pattern this mirrors.
+/** Every group draws a circle, never a convex-hull polygon: a hull fits a spread-out group tighter,
+ *  but per-group best-fit shapes read as visually inconsistent across a whole graph, so uniformity
+ *  wins over fit.
  *
- *  `levels` (OpenProject #3339, folder-mode nested grouping circles) defaults to `[1]` -- today's
- *  single-level behavior, unchanged for any caller that doesn't ask for more. `Graph.vue` passes
- *  `[1, 2, 3]` so folder mode also gets level-2/3 composite-key clusters; `groupKeyFor(node, level)`
- *  is what decides those are only ever produced in folder mode (returning `null`/`undefined`
- *  otherwise, or when a node isn't nested deep enough for that level -- excluded from bucketing
- *  the same way a `null`/`undefined` key from any grouping mode always was). Each level is its own
- *  independent `Map`-bucketing pass (one pass per level, never a re-filter per group), so the
- *  overall cost stays linear in the number of nodes times the number of levels requested -- see the
- *  parent Feature's complexity analysis. `level` is stamped onto every entry so a consumer (the
- *  sibling draw-order Task) can sort/select by it explicitly rather than trust `Map`/array order.
- *  `color` is resolved via `colorForGroup()` for level 1 only -- the categorical palette is an
- *  outermost-level-only concept (Feature #3338's scope); a level-2/3 entry's `color` is left `null`
- *  for the draw layer's own shared-neutral-fill decision to fill in.
+ *  `color` is resolved for level 1 only -- the categorical palette is an outermost-level concept;
+ *  deeper entries stay `null` for the draw layer to fill with its shared neutral.
  *
- *  A folder/synthetic node (OpenProject #3355) is a MEMBER of its own parent folder's circle at
- *  LEVEL 1 ONLY, not excluded outright the way it used to be -- e.g. Folder B nested inside Folder A
- *  now draws inside Folder A's level-1 circle, alongside any real page directly in Folder A. #3355's
- *  own scope is explicitly "cluster membership at the existing single level," predating this
- *  function's `levels` support (#3339) -- level 2/3 membership for a synthetic node is not something
- *  either Task specified or tested, so it stays excluded there, unchanged. `groupKeyFor` still
- *  answers "what circle is a REAL node in" exactly as before; a synthetic node instead goes through
- *  the optional `parentGroupKeyFor` accessor at level 1, which is asked for the key of the circle the
- *  node belongs to as a MEMBER (its parent's), never the key it would itself produce for its own
- *  children -- that distinction is what keeps a folder out of the circle it is itself the namer of.
- *  Two nodes are still never counted as members of anything: the true root (`node.root` -- it has no
- *  parent circle), and any synthetic node when the caller passes no `parentGroupKeyFor` at all, which
- *  keeps every pre-#3355 call site (this file's own unit tests included) unchanged. */
+ *  `parentGroupKeyFor` is asked for the key of the circle a synthetic (folder) node belongs to as a
+ *  MEMBER -- its parent's -- never the key it would itself produce for its own children, which is
+ *  what keeps a folder out of the circle it is itself the namer of. It applies at level 1 only, and
+ *  omitting it excludes synthetic nodes from membership entirely. */
 export function computeClusters(
   nodes,
   { groupKeyFor, colorForGroup, radiusFor, levels = [1], parentGroupKeyFor }
@@ -214,11 +105,8 @@ export function computeClusters(
       const color = level === 1 ? colorForGroup(key) : null
       const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
       const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
-      // -> A `reduce`, not `Math.max(...groupNodes.map(...))` -- the spread form blows V8's
-      //    ~100-125k argument limit at large group sizes (OpenProject #1837, a latent hazard only;
-      //    no group has come close to that in practice). Sized off each node's edge (its centre
-      //    plus its own `radiusFor()`), not just its centre (OpenProject #2296) -- see the
-      //    `computeClusters()` doc comment above.
+      // -> A `reduce`, not `Math.max(...groupNodes.map(...))`: the spread form blows V8's
+      //    ~100-125k argument limit at large group sizes.
       const maxDist = groupNodes.reduce(
         (max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy) + radiusFor(n)),
         0
@@ -229,11 +117,8 @@ export function computeClusters(
   return result
 }
 
-/*
-  `scaleExtent([0.1, 8])` is a starting point (wide enough to read a single node's label at max
-  zoom and see the whole graph at min zoom on a typical viewport) -- tune visually once there's
-  real data to zoom around in.
-*/
+// `scaleExtent` is a visual starting point: a readable single-node label at max zoom, the whole
+// graph at min zoom on a typical viewport.
 export function attachZoom(canvasEl, onZoom) {
   const selection = select(canvasEl)
   const behavior = d3zoom()

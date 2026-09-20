@@ -7,6 +7,5 @@ export function initializeComponents(app) {
   app.component('BlueprintIcon', BlueprintIcon)
   app.component('LoadingGeneric', LoadingGeneric)
   app.component('StatusLight', StatusLight)
-  // -> The `w-*` shared library; see components/shared/index.js
   registerSharedComponents(app)
 }

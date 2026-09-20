@@ -5,18 +5,6 @@ import pagesRoutes from './index.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * OpenProject #2421/#2465/#2466/#2468: publish/write role separation. `publishState` is carved out
- * of the PATCH route's ordinary `write:pages` gate in both directions --
- *   - `publish:pages` alone (no `write:pages`) is a valid, standalone grant that can toggle
- *     `publishState` on a page the actor cannot otherwise edit at all;
- *   - `write:pages` alone (no `publish:pages`) can edit every other field but never `publishState`.
- *
- * Route-level only, following `classification.test.ts`'s pattern directly above it (the direct
- * precedent this check's "changed AND different from current" shape is modeled on): a real Fastify
- * instance with `CARDINAL.models.pages`/`CARDINAL.models.groups` stubbed to the smallest surface each test
- * needs, rather than a database.
- */
 describe('pages API — publish/write role separation (OpenProject #2421)', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
@@ -33,14 +21,12 @@ describe('pages API — publish/write role separation (OpenProject #2421)', () =
 
   let updatePageCalls: any[] = []
   let checkAccessCalls: string[] = []
-  /** Which permissions `checkAccess` grants, by permission name -- every test overrides what it needs. */
   let grantedPermissions: Set<string>
 
   let app: FastifyInstance
 
   before(async () => {
-    // -> The PATCH handler calls `page.updatedAt.toTemporalInstant()` for the collab-save
-    //    notification regardless of whether this test's own assertions care about the timestamp.
+    // -> The PATCH handler calls `page.updatedAt.toTemporalInstant()` on every save
     await ensureTemporal()
     const wiki = {
       models: {
@@ -191,7 +177,6 @@ describe('pages API — publish/write role separation (OpenProject #2421)', () =
       method: 'PATCH',
       url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
       headers: sessionHeader,
-      // -> PAGE_FIXTURE.publishState is already 'draft'
       payload: { publishState: 'draft', title: 'Onboarding, revised' }
     })
     assert.equal(res.statusCode, 200)

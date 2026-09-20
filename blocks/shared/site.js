@@ -1,49 +1,23 @@
 /**
- * The current site's id and locale config, and the current page's locale/path -- for a block that
- * has neither threaded down to it (OpenProject #1969).
+ * The current site's id and locale config, and the current page's locale/path, for a block that has
+ * neither threaded down to it -- markdown authors write props, not ids.
  *
- * A block sitting in page content has no siteId of its own -- markdown authors write props, not
- * ids -- but a server-side-fetching block needs one to address `/_api/sites/:siteId/...`. Read off
- * the same public, hostname-routed `GET /_api/sites/current` `../shared/config.js`'s `getBlockConfig`
- * already uses, so a page needs no siteId threaded down to it and no gated route is ever called from
- * a reader's browser. Cached the same way and for the same reason: one request per page load, shared
- * by every block instance that asks.
- *
- * **This is the one convention every block uses to reach the API and learn its site id** --
- * `getSiteId()` plus plain `fetch`, never `globalThis.API_CLIENT` / `globalThis.WIKI_STATE`. Those
- * SPA globals exist only inside the app shell (`frontend/src/boot/externals.js`); a block that reads
- * them cannot run in a context that mounts blocks without it -- the page-level pre-rendering
- * OpenProject #3191 describes, concretely. `block-live-data` and `block-map`
- * (via `../shared/config.js`) were the first to follow this; `block-index` and `block-include`
- * (OpenProject #1975) were converted to it, and so was `block-checklist` (#1978) for its site id,
- * page id and data fetching.
- *
- * The one thing this convention does NOT cover is a signed-in reader's own permissions.
- * `block-checklist`'s "may I check an item off" control used to read `WIKI_STATE.user.can(...)`,
- * which has no public equivalent -- there is no `GET /_api/users/me/permissions` a page's own reader
- * could call without a gate of some kind. Its public equivalent instead is **the page itself**:
- * `GET /_api/sites/:siteId/pages/:hash` is the same publicly-readable, per-page-rule-checked route
- * the page view itself loads a page through, and its response already carries
- * `viewer.permissions` -- the reader's OWN page-rule permissions on THIS page, resolved server-side
- * against their session cookie, not something a block would have to ask a gated, group-wide route
- * for. `getCurrentPageAccess()` below resolves it. A block that needs a permission with no page-rule
- * equivalent at all -- there is none of that shape yet -- has no convention to follow here and should
- * get one written down before landing, the same way this file's history did.
+ * **The one convention every block uses to reach the API and learn its site id**: `getSiteId()` plus
+ * plain `fetch` against the public, hostname-routed `GET /_api/sites/current`, never
+ * `globalThis.API_CLIENT` / `globalThis.WIKI_STATE`. Those SPA globals exist only inside the app
+ * shell (`frontend/src/boot/externals.js`), so a block reading them cannot run in a context that
+ * mounts blocks without one -- page-level pre-rendering, concretely. No gated route is ever called
+ * from a reader's browser either.
  */
 
-/** The site-info payload, once fetched. Holds the promise, so concurrent callers share one request. */
+/** Holds the promise rather than the payload, so concurrent callers share one request. */
 let sitePromise = null
 
 /**
- * The public site-info payload, fetched at most once per page load.
- *
- * The single cache behind everything a block learns about the site it is being read on: its id and
- * locales (below), and its per-block config and blocks index (`./config.js`, which imports this
- * rather than keeping a second cache over the same request -- BLK-F5). A page with a map and a
- * checklist on it asks the server for this once, not once per module that wants a piece of it.
- *
- * `null` for a request that failed or was refused: every caller here treats a missing payload as the
- * block falling back to its own defaults, not as the block breaking.
+ * The single cache behind everything a block learns about the site it is read on -- `./config.js`
+ * resolves its per-block config off this rather than keeping a second cache over the same request.
+ * `null` for a request that failed or was refused, which every caller treats as "fall back to the
+ * block's own defaults", not as the block breaking.
  *
  * @returns {Promise<object | null>}
  */
@@ -52,8 +26,8 @@ export function fetchSite() {
     sitePromise = fetch('/_api/sites/current')
       .then((resp) => (resp.ok ? resp.json() : null))
       .catch(() => {
-        // Don't let a transient failure (offline, a dropped connection) poison every later
-        // caller on the page for good -- clear the cache so the next call gets a fresh fetch.
+        // A rejected fetch (offline, a dropped connection) is transient in a way a well-formed
+        // non-ok response is not, so it must not wedge the cache shut for the page's whole life.
         sitePromise = null
         return null
       })
@@ -61,19 +35,14 @@ export function fetchSite() {
   return sitePromise
 }
 
-/**
- * @returns {Promise<string | null>} The current site's id, or `null` if the request failed.
- */
 export async function getSiteId() {
   const site = await fetchSite()
   return site?.id ?? null
 }
 
 /**
- * The site's locale-routing config -- the same shape `Site#/properties/locales` documents
- * (`backend/api/schemas/site.ts`): `{ primary, active, forcePrefix, showMenu }`.
- *
- * @returns {Promise<{ primary?: string, active?: string[], forcePrefix?: boolean, showMenu?: boolean } | null>}
+ * The site's locale-routing config -- the shape `Site#/properties/locales` documents
+ * (`backend/api/schemas/site.ts`).
  */
 export async function getSiteLocales() {
   const site = await fetchSite()
@@ -81,17 +50,11 @@ export async function getSiteLocales() {
 }
 
 /**
- * The current page's locale and bare path, read off the browser's own address bar rather than a
- * store this block has no access to.
- *
- * This IS knowable without asking the server -- the reader is looking at this page, and its URL is
- * right there in `location.pathname`. The only thing the server has to say is which locale codes are
- * active, to tell a locale-prefixed path (`/fr/some/page`) apart from an ordinary one -- mirrors
- * `parseLocalePrefix` in `frontend/src/helpers/pagePaths.js`, which a block cannot import (a
- * separate, unrelated-at-build-time workspace). A path segment is decoded, the way a real page path
- * with non-ASCII or space characters shows up URL-encoded in `location.pathname`.
- *
- * @returns {Promise<{ locale: string | null, path: string }>}
+ * The current page's locale and bare path, read off `location.pathname` -- the one thing a block CAN
+ * know about its own page without asking the server. Only which locale codes are active has to come
+ * from the server, to tell a locale-prefixed path (`/fr/some/page`) apart from an ordinary one.
+ * Mirrors `parseLocalePrefix` in `frontend/src/helpers/pagePaths.js`, which a block cannot import
+ * across workspaces.
  */
 export async function getCurrentPage() {
   const locales = await getSiteLocales()
@@ -106,8 +69,6 @@ export async function getCurrentPage() {
 }
 
 /**
- * Fast, non-cryptographic 53-bit hash of a page path, as a URL-safe hex string.
- *
  * Mirrors `generatePathHash` in the backend's `helpers/common.ts` and `pagePathHash` in the
  * frontend's `helpers/pagePaths.js` bit for bit -- a page is addressed by this hash
  * (`GET sites/:siteId/pages/:pageIdOrHash`), so all three must stay in lockstep. The caller
@@ -130,17 +91,12 @@ function pagePathHash(path, seed = 0) {
 }
 
 /**
- * The current page's own id and this reader's page-rule permissions on it -- the public equivalent
- * of `WIKI_STATE.page.id` plus `WIKI_STATE.user.can(...)` (see this file's header).
- *
- * Resolves the page addressed by the current URL through the same route the page view itself loads
- * a page through (`GET /_api/sites/:siteId/pages/:hash`), which is readable without a session and
- * carries `viewer.permissions` -- this reader's own page-rule permissions on this exact page, checked
- * server-side against their session cookie. `null`/`[]` on any failure (no site, page not found, or a
- * network error): a block guarding a control with this should fail closed, the same way a missing
- * `WIKI_STATE` used to leave `_canCheck` false.
- *
- * @returns {Promise<{ siteId: string | null, pageId: string | null, permissions: string[] }>}
+ * There is no public, group-wide permission route a page's own reader could call, so this asks about
+ * the page instead: `GET /_api/sites/:siteId/pages/:hash` is the same publicly-readable,
+ * per-page-rule-checked route the page view loads a page through, and carries `viewer.permissions`
+ * -- this reader's OWN page-rule permissions on THIS page, resolved server-side against their
+ * session cookie. `null`/`[]` on any failure (no site, page not found, network error), so a block
+ * guarding a control with this fails closed.
  */
 export async function getCurrentPageAccess() {
   const [siteId, current] = await Promise.all([getSiteId(), getCurrentPage()])
@@ -166,11 +122,8 @@ export async function getCurrentPageAccess() {
 }
 
 /**
- * Test-only: forgets the cached site-info fetch, so the next call issues a fresh request.
- *
- * The one reset hook for the one cache -- `./config.js`'s `getBlockConfig`/`getBlockImportUrl` read
- * off the same `fetchSite()` above, so this clears them too. The module-level cache is deliberate in
- * production but would otherwise leak one test's mocked response into the next.
+ * Test-only. The one reset hook for the one cache: `./config.js`'s readers go through `fetchSite()`
+ * too, so this clears them as well.
  */
 export function _resetSiteCache() {
   sitePromise = null

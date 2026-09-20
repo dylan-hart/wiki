@@ -3,19 +3,13 @@ import assert from 'node:assert/strict'
 import { rendering } from './rendering.ts'
 
 /**
- * Task 631 -- verifies the `block-toggle-as-engine-switch` mechanism end to end, through the same
- * `postProcess()` a real save (`models/pages.ts#create`/`update`) or the Puppeteer queue's drain
- * (`storeRender`) actually calls. `blockAllowances()`/`sanitizeOptions()` (see `rendering.ts`) do not
- * know `katex`/`mathjax` by name -- they are ordinary entries in `CARDINAL.models.blocks.definitions`, gated
- * for a site purely by whether `getEnabledKeys()` returns them. That genericity is exactly what this
- * test exercises: no block-specific code path exists to verify, only the generic one applied to these
- * two blocks.
+ * `blockAllowances()`/`sanitizeOptions()` do not know `katex`/`mathjax` by name -- they are
+ * ordinary entries in `CARDINAL.models.blocks.definitions`, gated purely by `getEnabledKeys()`. No
+ * block-specific code path to verify, only the generic one applied to these two blocks.
  *
- * Fixture HTML is real output, not hand-written: captured from
- * `new MarkdownRenderer().render('::block-katex\n\`\`\`latex\nx = \\frac{...}...\`\`\`\n::')`
- * (`frontend/src/renderers/markdown.js`) -- markdown-it-mdc's block-component syntax wrapping a
- * fenced code block that markdown-it's own hljs highlighting already ran over, exactly what an author
- * saving a page with a KaTeX formula produces.
+ * Fixture HTML is real output, not hand-written: captured from `new MarkdownRenderer().render()`
+ * (`frontend/src/renderers/markdown.js`) over a `::block-katex` fence, so it carries markdown-it's
+ * own hljs highlighting exactly as an author saving a KaTeX formula produces it.
  */
 
 const KATEX_DEFINITION = {
@@ -40,7 +34,6 @@ const MATHJAX_DEFINITION = {
   ]
 }
 
-/** Real `MarkdownRenderer().render()` output for a `::block-katex` fence -- see file docstring. */
 const PAGE_WITH_KATEX_FORMULA =
   '<p>Before the formula.</p>\n' +
   '<block-katex>\n' +
@@ -77,9 +70,8 @@ describe('rendering.postProcess -- block-katex/block-mathjax as an ordinary bloc
   })
 
   test('disabling KaTeX for the site strips <block-katex> but keeps the fenced TeX as visible text', async () => {
-    // -> KaTeX turned off site-wide: `definitions` still lists it (it is still installed), but
-    //    `getEnabledKeys()` no longer returns it -- exactly what `AdminBlocks.vue` flipping the
-    //    toggle does to the row in the `blocks` table.
+    // -> Still installed, so `definitions` lists it, but absent from `getEnabledKeys()` -- what
+    //    turning the site toggle off leaves behind
     stubBlocks([KATEX_DEFINITION], new Set())
 
     const { render } = await rendering.postProcess('site-1', PAGE_WITH_KATEX_FORMULA, {
@@ -87,21 +79,18 @@ describe('rendering.postProcess -- block-katex/block-mathjax as an ordinary bloc
       styles: false
     })
 
-    // -> The custom element itself is gone -- not present in any form, styled or not
     assert.doesNotMatch(render, /<block-katex/)
     assert.doesNotMatch(render, /<\/block-katex>/)
-    // -> sanitize-html's default behaviour for a disallowed tag is unwrap, not delete: the code block
-    //    it wrapped survives, so the formula degrades to visible fenced code rather than vanishing
+    // -> sanitize-html's default for a disallowed tag is unwrap, not delete: the code block it
+    //    wrapped survives, so the formula degrades to visible fenced code rather than vanishing
     assert.match(render, /<pre class="codeblock/)
     assert.match(render, /\\frac/)
     assert.match(render, /\\sqrt/)
-    // -> Surrounding content is untouched -- only the disallowed tag was acted on
     assert.match(render, /Before the formula\./)
     assert.match(render, /After the formula\./)
   })
 
   test('switching engines (disable KaTeX, enable MathJax) does not rewrite existing ::block-katex markup', async () => {
-    // -> Both blocks installed; MathJax is the one switched on for this site now
     stubBlocks([KATEX_DEFINITION, MATHJAX_DEFINITION], new Set(['mathjax']))
 
     const { render } = await rendering.postProcess('site-1', PAGE_WITH_KATEX_FORMULA, {
@@ -109,8 +98,8 @@ describe('rendering.postProcess -- block-katex/block-mathjax as an ordinary bloc
       styles: false
     })
 
-    // -> The page was authored with ::block-katex, not ::block-mathjax -- nothing in `postProcess()`
-    //    rewrites one block's markup into another's, so the formula is inert code, not migrated
+    // -> Neither tag survives: katex is disabled so its element is unwrapped, and nothing rewrites
+    //    one block's markup into another's, so the formula is left inert rather than migrated
     assert.doesNotMatch(render, /<block-katex/)
     assert.doesNotMatch(render, /<block-mathjax/)
     assert.match(render, /\\frac/)

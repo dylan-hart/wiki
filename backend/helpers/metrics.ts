@@ -1,8 +1,3 @@
-/**
- * The gauge values `/metrics` reports, sourced from data already computed for `GET
- * /_api/system/info`, `CARDINAL.models.jobs`, and (for the pool fields) `CARDINAL.dbManager.pool` — this
- * module invents no new data path, only a text rendering of numbers those already compute.
- */
 export interface MetricsSnapshot {
   activeWorkers: number
   pagesTotal: number
@@ -10,17 +5,13 @@ export interface MetricsSnapshot {
   groupsTotal: number
   instancesTotal: number
   jobsQueued: number
-  /** Failed jobs currently retained in job history — not a lifetime total, see `METRIC_DEFS` help text. */
+  /** Currently retained in job history — not a lifetime total. */
   jobsFailed: number
-  /** Total clients (idle + in use) in the database connection pool. */
   dbPoolTotal: number
-  /** Idle clients in the database connection pool, available to be checked out. */
   dbPoolIdle: number
-  /** Queries currently waiting for a client to become available. */
   dbPoolWaiting: number
 }
 
-/** One gauge's Prometheus name and help text, in the order they are written to the response. */
 const METRIC_DEFS: { key: keyof MetricsSnapshot; name: string; help: string }[] = [
   {
     key: 'activeWorkers',
@@ -77,12 +68,9 @@ const METRIC_DEFS: { key: keyof MetricsSnapshot; name: string; help: string }[] 
 ]
 
 /**
- * Render a metrics snapshot as Prometheus text exposition format (version 0.0.4).
- *
- * Hand-rolled rather than pulled in via `prom-client`: the metric set is ten gauges computed
- * elsewhere, with no counters, histograms or per-request registry to justify a client library's
- * bookkeeping — see the `/metrics` scope decision in `controllers/metrics.ts` for the full call
- * (task 594, revisited and reaffirmed at task 1939).
+ * Prometheus text exposition format (version 0.0.4). Hand-rolled rather than pulled in via
+ * `prom-client`: every series is a gauge computed elsewhere, with no counters, histograms or
+ * per-request registry to justify a client library's bookkeeping.
  */
 export function formatPrometheusMetrics(snapshot: MetricsSnapshot): string {
   const lines: string[] = []

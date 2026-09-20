@@ -62,9 +62,6 @@
               </w-item-section>
               <w-item-section side>
                 <div class="flex flex-wrap items-center">
-                  <!-- Page-local install progress for this row, replacing the button while it runs --
-                       no full-screen overlay for something that can take up to 20 minutes. See
-                       `install()` for why. -->
                   <div
                     v-if="state.installing[ext.key]"
                     class="flex items-center gap-2 text-caption text-grey"
@@ -74,9 +71,8 @@
                     <div>
                       <div>{{ t('admin.extensions.installing') }}</div>
                       <div>{{ t('admin.extensions.installingHint') }}</div>
-                      <!-- aria-hidden: the message above is announced once via aria-live when this
-                           status appears; a per-second announcement of the elapsed time would spam
-                           screen reader users without adding anything actionable -->
+                      <!-- aria-hidden: the aria-live message above already announces the install;
+                           re-announcing the elapsed time every second adds nothing actionable -->
                       <div aria-hidden="true">
                         {{
                           t('admin.extensions.installElapsed', {
@@ -159,44 +155,32 @@ import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// STORES
-
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.extensions.title')
 }))
 
-// DATA
-
 const state = reactive({
   loading: 0,
   extensions: [],
   /**
-   * Per-row install progress, keyed by `ext.key`. Page-local state rather than the global
-   * `loading` overlay: a full-screen block for up to 20 minutes over a background npm install is
-   * itself questionable UX, and it also has no way to carry a per-row message (see `install()`).
+   * Page-local rather than the global `loading` overlay: a full-screen block for up to 20 minutes
+   * is poor UX, and the overlay cannot carry a per-row message.
    * @type {Record<string, { startedAt: number, elapsedSeconds: number }>}
    */
   installing: {}
 })
 
-/** Formats a whole number of seconds as `m:ss`, for the elapsed-time readout next to an in-progress
- *  install -- npm gives no percentage, so elapsed time is the only progress signal there is. */
+/** npm reports no percentage, so elapsed time is the only install progress signal available. */
 function formatElapsed(totalSeconds) {
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
   return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
-/** Ticks every `state.installing` entry's `elapsedSeconds`. Single shared interval rather than one
- *  per row, started on the first concurrent install and stopped once none remain. */
 let elapsedTicker = null
 
 function ensureElapsedTicker() {
@@ -219,16 +203,11 @@ function stopElapsedTickerIfIdle() {
 }
 
 /**
- * How long to give an install, in milliseconds.
- *
- * Stated because the client's own default is ten seconds, which no npm install finishes inside: the
- * request would be abandoned here while npm carried on running on the server, reporting a failure for
- * something that was about to succeed and leaving the administrator to install it twice. Matches the
- * ceiling the server puts on the same work, Puppeteer's browser download being what sets it.
+ * The client's own default is ten seconds, which no npm install finishes inside: the request would
+ * be abandoned while npm kept running server-side, reporting a failure for work about to succeed.
+ * Matches the server's own ceiling on the same work.
  */
 const INSTALL_TIMEOUT = 20 * 60 * 1000
-
-// METHODS
 
 async function load() {
   state.loading++
@@ -247,7 +226,6 @@ async function load() {
 }
 
 async function install(ext) {
-  // -> Page-local, not the global `loading` overlay: see `state.installing`'s doc comment above.
   state.installing[ext.key] = { startedAt: Date.now(), elapsedSeconds: 0 }
   ensureElapsedTicker()
   try {
@@ -266,11 +244,9 @@ async function install(ext) {
     // -> Re-detect rather than assume: the install is only done once the server can see the tool
     await load()
   } catch (err) {
-    // -> The 20-minute client timeout (INSTALL_TIMEOUT) firing while npm is still genuinely working
-    //    on the server must not read like a real failure -- it looks identical to one otherwise, and
-    //    a legitimate slow download would send the administrator off to retry an install already in
-    //    flight. Every other HTTP error (ky throws for every non-2xx status, e.g. the 409 an extension
-    //    that must be installed by hand answers with) falls through to the generic caption below.
+    // -> INSTALL_TIMEOUT firing while npm is still working server-side is indistinguishable from a
+    //    real failure, and reporting it as one sends the administrator off to retry an install
+    //    already in flight.
     if (isTimeoutError(err)) {
       notify({
         type: 'negative',
@@ -289,8 +265,6 @@ async function install(ext) {
   delete state.installing[ext.key]
   stopElapsedTickerIfIdle()
 }
-
-// MOUNTED
 
 onMounted(() => {
   load()

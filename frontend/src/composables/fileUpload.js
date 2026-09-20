@@ -6,19 +6,13 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { useSiteStore } from '@/stores/site'
 
 /**
- * Sort a drop's payload into uploadable files and rejected folders.
+ * `DataTransferItem.webkitGetAsEntry()` is the only thing that tells a dropped folder apart from a
+ * dropped file: `dataTransfer.files` flattens both, and a folder shows up there as a zero-byte,
+ * empty-`type` `File` that the server refuses as unreadable. Despite the `webkit` name it is
+ * cross-browser, but its absence falls back to the flattened list rather than uploading nothing.
  *
- * `DataTransferItem.webkitGetAsEntry()` is what tells a dropped folder apart from a dropped file --
- * `dataTransfer.files` flattens both into one `FileList` with no such distinction, and a folder
- * dropped there shows up as a zero-byte, empty-`type` `File` that `uploadFiles` would happily POST
- * and the server would just as happily refuse as unreadable. Folders are rejected outright here
- * rather than walked recursively: nothing in this flow can recreate a folder's structure server-side
- * (`uploadFiles` uploads flat, into whichever folder is currently open), so recursing would either
- * silently flatten every nested file into that one folder or require a second, unrelated feature
- * (server-side folder creation from a client-supplied tree) to do properly. Despite the `webkit`
- * name this is a long-standing cross-browser API, not a Chromium-only one -- Firefox and Safari both
- * implement it -- but it is still checked for before use, and its absence falls back to the flattened
- * list rather than uploading nothing.
+ * Folders are rejected rather than walked: `uploadFiles` uploads flat into the open folder, so
+ * recursing would silently collapse a tree until server-side folder creation exists.
  */
 export function collectDroppedFiles(dataTransfer) {
   const items = dataTransfer.items
@@ -44,12 +38,8 @@ export function collectDroppedFiles(dataTransfer) {
 }
 
 /**
- * The file manager's two upload on-ramps -- the hidden `multiple` file input and the drop zone --
- * and the single POST loop they both feed.
- *
- * The progress fields live on the component's own `state` (`isUploading`, `uploadPercentage`,
- * `shouldCancelUpload`, `isDraggingOver`, `loading`), since that is what the toolbar and the drop
- * overlay render from; only `dragDepth` is owned here, because nothing renders it.
+ * The progress fields stay on the component's own `state`, since the toolbar and the drop overlay
+ * render from them.
  *
  * @param {object} opts
  * @param {object} opts.state The file manager's reactive state bag.
@@ -61,15 +51,11 @@ export function useFileUpload({ state, fileIpt, reloadCurrentFolder }) {
   const { t } = useI18n()
 
   /**
-   * How many un-matched `dragenter`s the drop zone is currently inside.
-   *
-   * Not one of the reactive `state` fields: nothing in the template reads it, only `state.isDraggingOver`
-   * does, and it exists purely to make that boolean correct. The drop zone's children (the scroll area,
-   * the list rows) each fire their own `dragenter`/`dragleave` as the pointer crosses their edges, which
-   * bubble up to the same handlers -- so entering a child fires `dragenter` again before the `dragleave`
-   * that left the parent, and naively flipping a boolean on either event flickers the overlay off between
-   * rows. Counting nets that out: the pair from moving between two children cancel, and only the very
-   * first `dragenter` (count 0 -> 1) and the very last `dragleave` (count 1 -> 0) change `isDraggingOver`.
+   * How many un-matched `dragenter`s the drop zone is currently inside. The zone's children each
+   * fire their own `dragenter`/`dragleave` as the pointer crosses their edges, and entering a child
+   * fires `dragenter` before the `dragleave` that left the parent -- so flipping a boolean on either
+   * event flickers the overlay off between rows. Counting nets those pairs out, leaving only the
+   * first `dragenter` and the last `dragleave` to move `state.isDraggingOver`.
    */
   let dragDepth = 0
 
@@ -85,21 +71,8 @@ export function useFileUpload({ state, fileIpt, reloadCurrentFolder }) {
   }
 
   /**
-   * Upload one selection of files, through `sites/:siteId/assets` (one file) or
-   * `sites/:siteId/assets/batch` (more than one) -- OpenProject #3233.
-   *
-   * The one path both on-ramps feed: the file-picker's `multiple` input (`uploadNewFiles`, above) and
-   * the drop zone (`handleDrop`, below) both just gather a plain array of `File`s and hand it here,
-   * rather than each driving its own upload loop and its own progress UI.
-   *
-   * A single file keeps hitting the single-file route unchanged: per Feature #3211's own triage,
-   * that route stays real single-upload traffic going forward (and OpenProject #3234 gives it its
-   * own tighter rate limit on that assumption) rather than becoming dead code. A multi-file
-   * selection fires ONE multipart POST instead of the old sequential per-file loop -- `files` is
-   * repeated once per file, the same convention `ImportBatchPageDialog.vue`'s own batch upload
-   * already uses. Either way there is no longer a "between files" boundary a cancel can land on
-   * once the request is sent (the old loop's per-file `await` gave the single-file case none of
-   * that either), so a cancel here only takes effect before the request goes out.
+   * A multi-file selection is ONE multipart POST with `files` repeated per file, not a loop, so
+   * there is no "between files" boundary: a cancel only takes effect before the request goes out.
    */
   async function uploadFiles(filesToUpload) {
     if (!filesToUpload?.length) {
@@ -119,9 +92,8 @@ export function useFileUpload({ state, fileIpt, reloadCurrentFolder }) {
             const [fileToUpload] = filesToUpload
             if (!state.shouldCancelUpload) {
               state.uploadPercentage = 90
-              // -> The body is the file itself rather than a multipart form. The locale is the one
-              //    currently being browsed, so an upload lands in the same locale as the folder it
-              //    was dropped into rather than always the site's primary.
+              // -> The locale being browsed, so an upload lands in the same locale as the folder it
+              //    was dropped into rather than the site's primary
               await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
                 searchParams: {
                   fileName: fileToUpload.name,
@@ -187,8 +159,8 @@ export function useFileUpload({ state, fileIpt, reloadCurrentFolder }) {
           })
         }
         state.loading--
-        // -> Only meaningful after the picker input drove this batch; a value on the drop path
-        //    would have nothing to clear
+        // -> Clearing the picker is what lets the same file be chosen again; the drop path has no
+        //    input to clear
         if (fileIpt.value) {
           fileIpt.value.value = null
         }
@@ -204,10 +176,6 @@ export function useFileUpload({ state, fileIpt, reloadCurrentFolder }) {
     state.shouldCancelUpload = true
   }
 
-  // --------------------------------------
-  // DRAG-AND-DROP UPLOAD
-  // --------------------------------------
-
   function handleDragEnter(ev) {
     // -> Not every drag is a file: text dragged out of the page itself, e.g. from the search field,
     //    fires the same events and should not open an upload overlay
@@ -219,7 +187,8 @@ export function useFileUpload({ state, fileIpt, reloadCurrentFolder }) {
   }
 
   function handleDragOver(ev) {
-    // -> Otherwise the browser's default is to refuse the drop, which never fires `handleDrop`
+    // -> Copy cursor over the zone; the template's `@dragover.prevent` is what makes the drop
+    //    legal at all
     if (ev.dataTransfer) {
       ev.dataTransfer.dropEffect = 'copy'
     }

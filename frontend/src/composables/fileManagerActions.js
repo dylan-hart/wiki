@@ -14,13 +14,6 @@ import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import FolderRenameDialog from '@/components/FolderRenameDialog.vue'
 
 /**
- * Everything the file manager DOES to a folder, a page or an asset -- the create/rename/duplicate/
- * move/delete actions its context menus, its toolbar and its item rows all reach.
- *
- * Each is the same shape: open a dialog (or a confirm), then either call a store action or DELETE
- * through the API, then reload the folder the change landed in. The listing itself -- `loadTree`,
- * the tree component, the state bag -- stays with the component, and is passed in.
- *
  * @param {object} opts
  * @param {object} opts.state The file manager's reactive state bag.
  * @param {{value: object|null}} opts.treeComp The `TreeNav` component instance.
@@ -32,10 +25,6 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
   const siteStore = useSiteStore()
 
   const { t } = useI18n()
-
-  // --------------------------------------
-  // FOLDER METHODS
-  // --------------------------------------
 
   function newFolder(parentId) {
     dialog({
@@ -56,17 +45,7 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
       }
     }).onOk(async () => {
       treeComp.value.resetLoaded()
-      // // -> Delete current folder and children from cache
-      // const fPath = [state.treeNodes[folderId].folderPath, state.treeNodes[folderId].fileName].filter(p => !!p).join('/')
-      // delete state.treeNodes[folderId]
-      // for (const [nodeId, node] of Object.entries(state.treeNodes)) {
-      //   if (node.folderPath.startsWith(fPath)) {
-      //     delete state.treeNodes[nodeId]
-      //   }
-      // }
-      // -> Reload tree
-      await loadTree({ parentId: folderId, types: ['folder'], initLoad: true }) // Update tree
-      // -> Reload current view (in case current folder is included)
+      await loadTree({ parentId: folderId, types: ['folder'], initLoad: true })
       await loadTree({ parentId: state.currentFolderId })
     })
   }
@@ -117,10 +96,6 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     treeComp.value.resetLoaded()
   }
 
-  // --------------------------------------
-  // PAGE METHODS
-  // --------------------------------------
-
   function rerenderPage(item) {
     dialog({
       component: defineAsyncComponent(() => import('@/components/RerenderPageDialog.vue')),
@@ -131,11 +106,8 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
   }
 
   /**
-   * Copy a page, through the same dialog the page view's action rail opens.
-   *
-   * The copy is not written here: what comes back is where it should go, and the store opens the editor
-   * on an unsaved page holding the source's content -- so the author lands in the same place they would
-   * have from the page itself, and nothing exists until they save it.
+   * No copy is written here: the store opens the editor on an unsaved page holding the source's
+   * content, so nothing exists until the author saves it.
    */
   function duplicatePage(item) {
     dialog({
@@ -146,9 +118,8 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
         itemTitle: item.title,
         folderPath: item.folderPath,
         itemFileName: item.fileName,
-        // -> The locale this item was listed under, not `pageStore.locale` -- the file being
-        //    duplicated is whatever locale `state.locale` is currently browsing, which may not be
-        //    the locale of the page (if any) open in the editor underneath this overlay
+        // -> The locale this item was listed under, not `pageStore.locale` -- the page open in the
+        //    editor underneath this overlay may be in another one
         locale: state.locale
       }
     }).onOk(async (opts) => {
@@ -158,7 +129,7 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
           path: opts.path,
           title: opts.title
         })
-        // -> The editor is now underneath this overlay, as it is after opening a page to edit
+        // -> Reveals the editor the store has just opened underneath this overlay
         close()
       } catch (err) {
         notify({
@@ -171,11 +142,8 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
   }
 
   /**
-   * Rename a page, move it, or both.
-   *
-   * One action rather than two, through the same dialog the page view's action rail opens: what it
-   * hands back is a title and the full path the page should sit at, and only the path decides which of
-   * the two endpoints that is -- a page whose title changed in place was never moved.
+   * Rename and move are one action: the dialog hands back a title and a full path, and only the
+   * path decides which of the two endpoints is called.
    */
   function renameMovePage(item) {
     const currentPath = item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName
@@ -187,7 +155,7 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
         itemTitle: item.title,
         folderPath: item.folderPath,
         itemFileName: item.fileName,
-        // -> See the same note in `duplicatePage`, just above
+        // -> The locale this item was listed under, as in `duplicatePage`
         locale: state.locale
       }
     }).onOk((opts) => {
@@ -227,7 +195,6 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
           message: t('pages.moveSuccess')
         })
       }
-      // -> Reload current view
       await loadTree({ parentId: state.currentFolderId })
     } catch (err) {
       notify({
@@ -247,7 +214,6 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
           pageName
         }
       }).onOk(() => {
-        // -> Reload current view
         loadTree({ parentId: state.currentFolderId })
       })
     }
@@ -264,10 +230,6 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     }
   }
 
-  // --------------------------------------
-  // ASSET METHODS
-  // --------------------------------------
-
   function renameAsset(assetId) {
     dialog({
       component: AssetRenameDialog,
@@ -275,7 +237,6 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
         assetId
       }
     }).onOk(async () => {
-      // -> Reload current view
       await loadTree({ parentId: state.currentFolderId })
     })
   }
@@ -302,7 +263,6 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
         })
         return
       }
-      // -> Reload current view
       await loadTree({ parentId: state.currentFolderId })
     })
   }

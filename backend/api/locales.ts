@@ -2,9 +2,6 @@ import crypto from 'node:crypto'
 import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import type { FastifyInstance } from 'fastify'
 
-/**
- * Locales API Routes
- */
 async function routes(app: FastifyInstance) {
   app.get(
     '/',
@@ -107,8 +104,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       const strings = await CARDINAL.models.locales.getStrings(req.params.code)
       const etag = `"${crypto.createHash('sha1').update(JSON.stringify(strings)).digest('hex')}"`
-      // -> `nosniff: false`: these are this instance's own translation strings, served as JSON —
-      //    not the uploaded bytes the `controllers/` users of this helper are guarding
+      // -> `nosniff: false`: this instance's own translation strings as JSON, not uploaded bytes
       if (
         notModifiedOrPrepare(req, reply, {
           etag,

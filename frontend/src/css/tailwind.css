@@ -1,73 +1,40 @@
-/*
-  Tailwind, with Preflight.
-
-  Preflight is a global element reset -- it unstyles buttons, headings and lists, and zeroes every
-  border. It stayed off for the whole migration because Quasar's stylesheet was loaded alongside and
-  the reset would have visibly altered every not-yet-migrated screen. Quasar is gone, so Preflight
-  is now the app's only base layer and the `w-unstyled` gymnastics below are no longer needed.
-*/
 @import 'tailwindcss';
 
 /*
-  Base typography.
-
-  Preflight resets the document but sets no body type scale, so without this the browser default of
-  16px applies and everything inheriting it -- nav labels, the text inside inputs -- renders ~14%
-  larger than it used to. The framework that came out declared `body { font-size: 14px;
-  line-height: 1.5 }`, and the whole app is drawn against that: `text-body2` is 14px, the type ramp
-  in `@theme` is built around it, and the component metrics were measured against it.
-
-  In `@layer base`, so any `text-*` utility still wins.
+  Preflight sets no body type scale, and the whole app is metered against 14px -- `text-body2`, the
+  `@theme` type ramp and every component's measured spacing. In `@layer base`, so any `text-*`
+  utility still wins.
 */
 @layer base {
   body {
     font-size: 14px;
     line-height: 1.5;
-    /* Carried over with the size: the app's spacing was tuned against these being on */
+    /* The app's spacing was tuned against these being on */
     -webkit-text-size-adjust: 100%;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/*
-  Sources every template we may emit classes from. Automatic source detection is disabled by the
-  bare `theme.css`/`utilities.css` imports, so the globs are load-bearing, not belt-and-braces.
-*/
 @source '../../index.html';
 @source '../**/*.{vue,js}';
 
 /*
-  Utilities a page author can reach for that no template here writes.
-
-  A rendered page is injected into `.page-contents` as markup, and the classes on it come from what
-  someone typed into the editor -- through `markdown-it-attrs` or raw HTML -- which is not a source
-  file and can never be scanned. `@source inline()` emits these whether or not anything references
-  them, which is what makes them dependable for content: the alternative is a class that works only
-  for as long as some unrelated component happens to still use it.
-
-  Kept to the elevation ramp deliberately. Every utility emitted here is in the build for every
-  visitor of every site, so this list earns its weight by being short.
+  Page content is author-typed markup, never a scanned source file, so a class only content uses has
+  to be emitted unconditionally. Everything listed ships to every visitor of every site -- keep the
+  list short.
 */
 @source inline('shadow-{2xs,xs,sm,md,lg,xl,2xl}');
 
-/*
-  Dark mode is driven by the `body--dark` class on <body>, which is what the app has always toggled
-  (Quasar's `$q.dark.set()` writes it). Keying Tailwind's `dark:` variant off the same class means
-  Tailwind and Quasar stay in lockstep for as long as both are installed, and nothing has to change
-  when Quasar is finally dropped -- `useDark()` writes the identical class.
-*/
 @custom-variant dark (&:where(body.body--dark, body.body--dark *));
 
 /*
-  Suppresses every transition for one frame while `composables/dark.js` flips the `body--dark` class,
-  so a control styled with a `transition-colors` (or similar) utility switches color instantly on a
-  theme toggle instead of visibly fading -- Tailwind's transition utilities carry no `!important`, so
-  this beats them regardless of layer order. `dark.js` is the only place this class is ever toggled.
+  Suppresses transitions for one frame while `composables/dark.js` flips the `body--dark` class, so a
+  `transition-colors` control switches instantly instead of visibly fading. Tailwind's transition
+  utilities carry no `!important`, so this beats them regardless of layer order.
 
-  Deliberately scoped to `transition`, not `animation`: `dark.js`'s `apply()` also runs on every page
-  load (`App.vue` seeds the theme from the user's/site's preference on boot), and killing `animation`
-  would restart any loading spinner/skeleton mid-flight from frame 0 the moment this class clears.
+  Scoped to `transition`, not `animation`: `dark.js` also applies on every page load, so killing
+  `animation` would restart any loading spinner from frame 0 the moment this class clears.
 */
 html.theme-transition-suppress,
 html.theme-transition-suppress *,
@@ -77,40 +44,16 @@ html.theme-transition-suppress *::after {
 }
 
 /*
-  Brand colors indirect through `--q-*` custom properties rather than being literal values. The app
-  recolors itself at runtime (per-site theme + the accessible-color / colour-vision-deficiency
-  remapping in `stores/user.js`) by writing those properties on :root, so the indirection is what
-  keeps runtime theming working. Do not inline these.
-*/
-/*
-  The Cardinal accent, chrome and status tones. `css/_theme.scss`, this file's Sass-era counterpart,
-  was deleted once every `$variable` reference onto it was converted to the `var(--color-*)` form
-  these tokens already are. Every value here is paired with a foreground it actually gets drawn
-  under, and every such pair clears WCAG AA (4.5:1); `helpers/accessibility.test.js` pins them, so a
-  future edit that regresses one fails the suite rather than shipping quietly.
+  Brand colors indirect through `--q-*` rather than being literal values: the app recolors itself at
+  runtime (per-site theme, plus `stores/user.js`'s colour-vision-deficiency remapping) by writing
+  those properties on :root. Do not inline these.
 
-  The pairing is the part worth reading twice. Cardinal has two tones of each colour -- a bright FILL
-  and a darker TEXT tone -- and the brand tokens below always resolve to the tone that survives the
-  foreground it is drawn with:
+  Each is the darker TEXT tone of its colour, the one that survives the foreground it is drawn
+  under; the brighter halves are published separately as `--color-*-fill`. Warning is the one that
+  takes `--color-ink` rather than white. `helpers/accessibility.test.js` pins every pairing at AA.
 
-    accent/negative  #c14a52 under white (4.81:1)   -- #e4676b would be 3.26:1
-    secondary/positive #3f7a66 under white (5.01:1) -- #5f9c86 would be 3.19:1
-    warning          #d9a441 under `--color-ink`  (7.04:1) -- the one fill that takes DARK ink
-    info             #38465f under white (9.51:1)
-
-  The brighter fills are published separately as `--color-*-fill` and are for a surface carrying no
-  text, or carrying `--color-ink`: a status light, a toggle's track, a badge's edge, a callout's
-  gutter. Reaching for a `-fill` under a white label is the mistake this split exists to prevent.
-
-  `colorPrimary`/`colorSecondary`/`colorAccent` are also site-configurable (`AdminTheme.vue`) -- kept
-  equal to `backend/models/sites.ts`'s `DEFAULT_THEME_COLORS` seed and `AdminTheme.vue`'s
-  `resetColors()`, so a fresh install and a reset theme both start on Cardinal rather than only the
-  CSS fallback being right.
-
-  Brand colors indirect through `--q-*` custom properties rather than being literal values. The app
-  recolors itself at runtime (per-site theme + the accessible-color / colour-vision-deficiency
-  remapping in `stores/user.js`) by writing those properties on :root, so the indirection is what
-  keeps runtime theming working. Do not inline these.
+  `colorPrimary`/`colorSecondary`/`colorAccent` are also site-configurable, so keep these equal to
+  `backend/models/sites.ts`'s `DEFAULT_THEME_COLORS` seed and `AdminTheme.vue`'s `resetColors()`.
 */
 :root {
   --q-primary: #c14a52;
@@ -121,27 +64,22 @@ html.theme-transition-suppress *::after {
   --q-info: #38465f;
   --q-warning: #d9a441;
   /*
-    Chrome. Cardinal's header is a WHITE band ruled off with a hairline and its sidebar the cooler of
-    the two tints -- continuous light slate, not a dark bar over a saturated column. Both draw their
-    contents in `--color-ink` (`HeaderNav.vue`, `NavSidebar.vue`, and `AdminTheme.vue`'s
-    `CHROME_TEXT_COLOR`, which is what its contrast warnings measure against), where the 3.x chrome
-    drew them in white.
+    Chrome: a white header band ruled off with a hairline, over the cooler of the two tints. Both
+    draw their contents in `--color-ink` -- `AdminTheme.vue`'s `CHROME_TEXT_COLOR` is what its
+    contrast warnings measure against.
   */
   --q-header: #fff;
   --q-sidebar: #f0f2f7;
 }
 
 /*
-  `static` (rather than a plain `@theme`) forces every variable below into the output even when no
-  utility references it. That is load-bearing: the shared components take a `color` prop and resolve
-  it at runtime as `var(--color-<name>)` in a style binding, rather than as a `bg-<name>` class.
-  Tailwind's scanner cannot see a class name it never appears as literal text, so a class-based
-  approach would need every colour safelisted; a variable reference needs only that the variable
-  exists. Default (usage-pruned) emission would drop exactly the ones nothing happens to use as a
-  utility, and those props would silently resolve to nothing.
+  `static` rather than a plain `@theme`, so every variable below is emitted even when no utility
+  references it: the shared components take a `color` prop and resolve it at runtime as
+  `var(--color-<name>)` in a style binding, never as a scannable `bg-<name>` class. Usage-pruned
+  emission would drop exactly the colours nothing happens to use as a utility, and those props would
+  silently resolve to nothing.
 */
 @theme static {
-  /* -- Brand (runtime-themeable, see above) -------------------------------- */
   --color-primary: var(--q-primary);
   --color-secondary: var(--q-secondary);
   --color-accent: var(--q-accent);
@@ -153,39 +91,33 @@ html.theme-transition-suppress *::after {
   --color-sidebar: var(--q-sidebar);
 
   /*
-    The brand blue lightened for text on a dark surface: `primary` itself is a mid-tone picked to
-    read on white, and at #1976d2 on `dark-3` it lands around 2.7:1 -- too dim for a heading. Mixing
-    towards white rather than naming a palette blue keeps a re-themed site's own hue.
+    The brand tone lightened for text on a dark surface -- `primary` is a mid-tone picked to read on
+    white and lands around 2.7:1 on `dark-3`, too dim for a heading. Mixed towards white rather than
+    named as a palette colour so a re-themed site keeps its own hue.
   */
   --color-primary-light: color-mix(in srgb, var(--color-primary) 60%, white);
 
   /*
-    And the sidebar's colour a shade lighter, for the one control that sits INSIDE that column and has
-    to read as a button against it rather than as a second accent beside it: scroll-to-top, tucked into
-    the bottom of the sidebar in `MainLayout`. Mixed, for the reason above -- a themed sidebar takes its
-    lighter shade with it.
+    The sidebar's colour a shade lighter, for the one control that sits INSIDE that column and has to
+    read as a button against it rather than as a second accent beside it: `MainLayout`'s
+    scroll-to-top. Mixed for the reason above, so a themed sidebar takes its lighter shade with it.
   */
   --color-sidebar-light: color-mix(in srgb, var(--color-sidebar) 88%, white);
 
   /*
-    Restated here rather than inherited from Tailwind's default theme: the defaults live in a
-    prunable block, and components resolve `var(--color-white)` at runtime where the scanner cannot
-    prove the variable is needed.
+    Restated rather than inherited from Tailwind's default theme: the defaults live in a prunable
+    block, and components resolve `var(--color-white)` at runtime where the scanner cannot prove the
+    variable is needed.
   */
   --color-white: #fff;
   --color-black: #000;
 
-  /* -- Cardinal: the accent, in all three of its tones ---------------------- */
   /*
-    `--color-accent` (above) is the one a button or chip resolves to. These two are the other half of
-    the language: the bright fill for a surface carrying no text, or `--color-ink`; and the darkened
-    tone for accent text on any ground that is NOT white.
-
-    That boundary is narrower than it looks and is pinned in `helpers/accessibility.test.js`.
-    `--color-accent` clears 4.5:1 on white (4.81:1) and on nothing else -- 4.45:1 on `--color-paper`,
-    4.25:1 on `--color-tint` -- so paper counts as "not white" here just as much as the tinted strips
-    do. `--color-accent-strong` clears all four (5.4:1 -- 5.9:1), which is why links take it
-    everywhere rather than switching tone with whatever they happen to be sitting on.
+    The accent's other two tones: the bright fill for a surface carrying no text (or `--color-ink`),
+    and the darkened tone for accent text on any ground that is NOT white. That boundary is narrower
+    than it looks -- `--color-accent` clears 4.5:1 on white and on nothing else, paper and tint
+    included, while `--color-accent-strong` clears all four, which is why links take it everywhere
+    rather than switching tone with whatever they sit on. Pinned in `helpers/accessibility.test.js`.
   */
   --color-accent-fill: #e4676b;
   --color-accent-strong: #a83f45;
@@ -194,37 +126,26 @@ html.theme-transition-suppress *::after {
   /* The brighter status fills. Under `--color-ink` only -- never under a white label. */
   --color-positive-fill: #5f9c86;
   --color-warning-fill: #d9a441;
-  /*
-    Warning as TEXT, which `--color-warning`'s brighter fill tone is not (3.0:1 on white). The
-    custom-property face of the old Sass `$warning` (`_theme.scss`, now deleted) -- 3.64:1, so
-    headings and marks, not body copy. Cobalt keeps the same amber: the handoff moves the accent and the chrome, never the
-    status ramp's warning.
-  */
+  /* Warning as TEXT, which `--color-warning`'s brighter fill tone is not (3.0:1 on white). At
+     3.64:1 this is for headings and marks, not body copy. */
   --color-warning-text: #a8801f;
   --color-negative-fill: #e4676b;
 
-  /* -- Cardinal: chrome and paper ------------------------------------------- */
   --color-slate: #38465f;
   /*
-    The two faint slates are for HAIRLINES, ICON STROKES AND SEPARATORS. Neither is a text colour:
-    `slate-soft` is 3.53:1 on white and `slate-faint` 2.42:1, both under the 4.5:1 floor. Use
-    `--color-text-caption` for the faintest thing that carries words.
+    The two faint slates are for HAIRLINES, ICON STROKES AND SEPARATORS -- neither is a text colour
+    (3.53:1 and 2.42:1 on white). `--color-text-caption` is the faintest thing that carries words.
   */
   --color-slate-soft: #64789f;
   --color-slate-faint: #8a99b8;
   /*
     The palest of the four, and the one an OFF control is drawn in: an unchecked box's edge, a
-    switch's track and knob at rest, an empty state's icon. Not a text colour either (1.94:1) --
-    it is the tone that says "there is a control here and it is not doing anything".
+    switch at rest, an empty state's icon. Not a text colour either (1.94:1).
   */
   --color-slate-pale: #a9b7d0;
   --color-slate-light: #8ea6cf;
-  /*
-    An icon stroke on the INK sidebar (the admin area's own nav), dimmer than the label beside it.
-    The custom-property face of the old Sass `$slate-nav-icon` (`_theme.scss`, now deleted) --
-    declared here so a rule drawing
-    one follows the aesthetic rather than baking Ledger's tone in at build time.
-  */
+  /* An icon stroke on the INK sidebar (the admin nav), dimmer than the label beside it. A token so a
+     rule drawing one follows the aesthetic rather than baking Ledger's tone in. */
   --color-slate-nav-icon: #6d7893;
 
   --color-ink: #1c2233;
@@ -235,12 +156,11 @@ html.theme-transition-suppress *::after {
   --color-hairline: #dbe1ec;
   --color-rule: #c9d2e2;
 
-  /* -- Cardinal: light text tiers ------------------------------------------- */
+  /* -- Light-mode text tiers; the dark counterparts are `-dark`-suffixed below ---- */
   --color-text-body: #2f3a4f;
   --color-text-secondary: #4e5d7d;
   --color-text-caption: #57668a;
 
-  /* -- Cardinal: dark ------------------------------------------------------- */
   --color-hairline-dark: #2a3040;
   --color-border-dark: #3a4256;
   --color-disabled-dark: #4a5470;
@@ -248,9 +168,9 @@ html.theme-transition-suppress *::after {
   --color-text-secondary-dark: #9aa6bd;
   --color-text-caption-dark: #8792ab;
   /*
-    The accent lightened for an ink ground, and its fills take `--color-ink-dark` rather than white
-    -- white on #f08287 is 2.62:1. The two filled toasts go the other way and DARKEN, because a light
-    chip on ink glares; that is what `--color-positive-dark` / `--color-negative-dark` are for.
+    The accent lightened for an ink ground; its fills take `--color-ink-dark` rather than white
+    (2.62:1). The two filled toasts go the other way and DARKEN, because a light chip on ink glares
+    -- that is what `--color-positive-dark`/`--color-negative-dark` are for.
   */
   --color-accent-dark: #f08287;
   --color-accent-wash-dark: #3a2b34;
@@ -259,23 +179,18 @@ html.theme-transition-suppress *::after {
   --color-ink-dark: #14171f;
 
   /*
-    -- Cardinal dark surface ramp ------------------------------------------
-    Darkest (`-6`) to lightest (`-1`), which is the order every existing `bg-dark-N` utility and SFC
-    rule assumes. Cardinal names four of the six rungs; the other two extend the same ladder past
-    each end. `-3` is what `.w-card` paints a card in dark mode, so it is Cardinal's panel tone.
+    -- Dark surface ramp ----------------------------------------------------
+    Darkest (`-6`) to lightest (`-1`), the order every `bg-dark-N` utility and SFC rule assumes.
+    `-3` is what `.w-card` paints a card in dark mode, so it is the panel tone.
   */
   --color-dark: #14171f;
   --color-dark-1: #2f374a; /* raised, hovered */
   --color-dark-2: #242b3a; /* raised: a card header, a menu, a filled chip */
   --color-dark-3: #1b1f2a; /* panel: a card, a dialog body */
   /*
-    Half-rung between panel (-3) and recessed (-4), added for OpenProject #2816. Ledger has no gap
-    here -- its own dark mockup diff (#2773) found `-2`/`-4` already correct for both consumers below
-    -- so this pair's Ledger default is just `-4`'s own value, restated, which keeps Ledger dark
-    pixel-identical before and after this token existed. Cobalt dark overrides both to the distinct
-    value its own primitives mockup draws (`#0e1540`/`#c9d6ff`), which is neither `-2` nor `-4` --
-    see `body.body--cobalt.body--dark`'s block below. Two consumers: `.w-section-header`'s Cobalt-dark
-    band (this file, below) and `WInput.vue`/`WSelect.vue`'s read-only field surface.
+    Half-rung between panel (`-3`) and recessed (`-4`). Ledger has no gap there, so its value is
+    `-4`'s restated; Cobalt dark gives the pair a distinct value that is neither `-2` nor `-4`.
+    Consumers: `.w-section-header`'s Cobalt-dark band and `WInput`/`WSelect`'s read-only field.
   */
   --color-dark-3-5: #171b24;
   --color-dark-3-5-text: #8ea6cf;
@@ -285,9 +200,8 @@ html.theme-transition-suppress *::after {
 
   /*
     -- Material palette ---------------------------------------------------
-    Only the families the app actually references. Quasar's scale is 1..14 but nothing here uses
-    the accent range (11..14), so these stop at 10. `-6` is the base tone in Material and is what
-    the bare name (e.g. `text-red`) maps to, matching Quasar.
+    Only the families the app references, and only to `-10`: nothing here uses the accent range
+    above it. `-6` is Material's base tone, which is what the bare name (`text-red`) maps to.
   */
   --color-grey: #9e9e9e;
   --color-grey-1: #fafafa;
@@ -302,11 +216,9 @@ html.theme-transition-suppress *::after {
   --color-grey-10: #212121;
 
   /*
-    Muted/secondary body text, split by ground -- Cardinal's own secondary tier on each side rather
-    than a step of the Material grey ramp, which is neutral where everything else here is cooled
-    towards slate. `--color-text-secondary` is 6.42:1 on white; `--color-text-secondary-dark` is
-    6.71:1 on `dark-3`, the card ground it is measured against. Both pinned in
-    `helpers/accessibility.test.js`. Written as `text-muted dark:text-muted-dark`.
+    Muted body text, split by ground -- the secondary tier on each side rather than a step of the
+    Material grey ramp, which is neutral where everything else here is cooled towards slate. Written
+    as `text-muted dark:text-muted-dark`; both pinned in `helpers/accessibility.test.js`.
   */
   --color-muted: var(--color-text-secondary);
   --color-muted-dark: var(--color-text-secondary-dark);
@@ -447,19 +359,14 @@ html.theme-transition-suppress *::after {
   --color-yellow-6: #ffeb3b;
   --color-yellow-9: #f9a825;
 
-  /* -- Typography ---------------------------------------------------------- */
   /*
-    Cardinal sets type in three faces: Barlow Condensed for headings and any short, uppercase chrome
-    label, Barlow for body copy and controls, Roboto Mono for metadata (a path, a timestamp, a count,
-    a section overline).
+    Three faces: display for headings and short uppercase chrome labels, sans for body copy and
+    controls, mono for metadata (a path, a timestamp, a count, a section overline).
 
-    `--font-sans` is rewritten at runtime by `helpers/fonts.js` from the site's own `baseFont`
-    setting, and `--font-display` alongside it when that font declares a display companion (Barlow's
-    is Barlow Condensed). The literals here are the fallback for a site that overrides neither, and
-    the tail of each stack is what a browser gets while the webfont is still in flight -- so
-    `--font-display` names two system condensed faces before giving up on the condensed idea, rather
-    than falling straight back to the body stack and reflowing every heading when Barlow Condensed
-    lands.
+    `--font-sans` is rewritten at runtime by `helpers/fonts.js` from the site's own `baseFont`, and
+    `--font-display` alongside it when that font declares a display companion; the literals here are
+    the fallback for a site that overrides neither. `--font-display` names two system condensed faces
+    before giving up on the condensed idea, so headings do not reflow while the webfont is in flight.
   */
   --font-sans: 'Barlow', -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-display:
@@ -468,9 +375,8 @@ html.theme-transition-suppress *::after {
   --font-mono: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
 
   /*
-    Material type scale, matching the `text-h1`..`text-h6` / `text-subtitle*` / `text-caption` /
-    `text-overline` classes the templates already use. Declared as `--text-*` so Tailwind generates
-    them as first-class font-size utilities with a paired line-height.
+    Material type scale, matching the `text-h1`..`text-overline` classes the templates already use.
+    Declared as `--text-*` so Tailwind generates each as a utility with a paired line-height.
   */
   --text-h1: 6rem;
   --text-h1--line-height: 6rem;
@@ -523,17 +429,8 @@ html.theme-transition-suppress *::after {
 
   /*
     -- Elevation --------------------------------------------------------------
-    `--shadow-card`/`--shadow-dialog` are the Ledger halves of the Cobalt aesthetic's shape-token
-    pair (OpenProject #2767, `ui-redesign-cobalt/HANDOFF.md`'s "Shape tokens Cobalt needs that Ledger
-    never had"): Ledger separates a surface from its ground with a hairline, never elevation (see
-    `WCard.vue`'s own comment), so its card shadow is `none` and its dialog shadow is a single soft
-    glow rather than the three-layer Material stack this used to carry -- the values below replace
-    that stack outright, they do not sit beside it. `--shadow-primary` is new: no Ledger button
-    carries a shadow at all, so it is `none` there and only gets a value under Cobalt's
-    `body.body--cobalt` block below. `--shadow-menu`/`--shadow-dialog` used to be genuinely unrelated
-    to the aesthetic system -- Cobalt's own matte pass (OpenProject #2856) now drops both to `none`
-    under `body.body--cobalt`, since a menu, tooltip, dialog or drawer is an overlay on the scrim, not
-    a plate the matte take gives a border to; Ledger's own values below are unchanged.
+    Ledger separates a surface from its ground with a hairline, never elevation, so its card and
+    button shadows are `none`; the `body.body--cobalt` block below restates what it changes.
   */
   --shadow-card: none;
   --shadow-primary: none;
@@ -542,17 +439,15 @@ html.theme-transition-suppress *::after {
   --shadow-dialog: 0 0 30px rgb(0 0 0 / 0.4);
 
   /*
-    -- Cobalt aesthetic: shape tokens (OpenProject #2767) --------------------
-    New radii the Ledger scale never needed -- Cardinal draws square (see the `--radius-*` scale
-    zeroing further down), so every one of these is `0` here and picks up its real value only under
-    `body.body--cobalt` below. Declared in `@theme static` (not bare `:root`) so each also publishes
-    a matching Tailwind utility for a future screen-level task to reach for directly --
-    `rounded-card`, `rounded-control`, `rounded-dialog`, `rounded-pill`, `rounded-mark` -- with no
-    new component-level CSS of its own. Role assignment (the "radii sweep"): cards and fields take
-    `--radius-card`; buttons, toasts, banners and callouts take `--radius-control`; chips, tags and
-    toggles take `--radius-pill`; badges, checkboxes, inline code and count marks take
-    `--radius-mark`. A segmented control rounds only its outer edges (`rounded-s-control` /
-    `rounded-e-control`), never each segment.
+    -- Shape tokens ----------------------------------------------------------
+    Cardinal draws square (see the `--radius-*` scale zeroed further down), so every one of these is
+    `0` here and picks up its real value only under `body.body--cobalt` below. In `@theme static`,
+    not bare `:root`, so each also publishes a `rounded-card`/`-control`/`-dialog`/`-pill`/`-mark`
+    utility a screen can reach for with no component-level CSS of its own.
+
+    Roles: cards and fields take `--radius-card`; buttons, toasts, banners and callouts
+    `--radius-control`; chips, tags and toggles `--radius-pill`; badges, checkboxes, inline code and
+    count marks `--radius-mark`. A segmented control rounds only its outer edges, never each segment.
   */
   --radius-card: 0;
   --radius-control: 0;
@@ -560,57 +455,43 @@ html.theme-transition-suppress *::after {
   --radius-pill: 0;
   --radius-mark: 0;
   /*
-    An avatar is the one pill the handoff gives a value of its own -- `50%`, not `--radius-pill`'s
-    `12px` -- because a 30px square rounded by 12px is a squircle rather than the disc the mockups
-    draw. `0` here keeps Cardinal's square mark.
+    The one pill with a value of its own -- `50%` rather than `--radius-pill`, because a 30px square
+    rounded by 12px is a squircle, not a disc. `0` here keeps Cardinal's square mark.
   */
   --radius-avatar: 0;
   /* An icon plate in a list row (`<w-avatar identity="plate">`): the inbox lists' 36px square. */
   --size-avatar-plate: 36px;
 
   /*
-    -- Cobalt aesthetic: chrome and surface color tokens (OpenProject #2767) -
-    New, narrowly-scoped tokens for chrome surfaces the existing generic palette does not name on its
-    own -- the header eyebrow/search field, the sidebar's own text tiers, the admin sidebar (already
-    dark in Ledger), the footer strip, the h2/inner-rule treatment, the avatar plate and the tag chip.
-    Each Ledger default below is either the literal Ledger value from the handoff's tables or a
-    `var()` onto the existing generic token that already carries that exact value, so Ledger is
-    provably unchanged; Cobalt's own value is declared once, in the `body.body--cobalt` block.
+    -- Chrome and surface color tokens ---------------------------------------
+    Narrowly-scoped tokens for chrome surfaces the generic palette does not name on its own. Each
+    Ledger default below is either a literal or a `var()` onto the generic token already carrying
+    that exact value; Cobalt's own value is declared once, in the `body.body--cobalt` block.
 
-    Deliberately NOT here: `--q-header`/`--q-sidebar` and the rest of the `--q-*` brand colors
-    (header bar, sidebar ground, "primary color" / `colorPrimary`, positive TEXT). Those are
-    site-admin-configurable already, and Cobalt's own default for each is a per-aesthetic ADMIN
-    default (`helpers/aestheticDefaults.js`, `resetColors()`) that OpenProject #2768 owns, not a
-    `body.body--cobalt` override here -- overriding a `--q-*` token in this file would silently beat
-    whatever color an admin had actually chosen for their site.
+    Deliberately NOT here: `--q-header`/`--q-sidebar` and the rest of the `--q-*` brand colors.
+    Those are site-admin-configurable, and each aesthetic's default for them is an ADMIN default
+    (`helpers/aestheticDefaults.js`, `resetColors()`) -- overriding a `--q-*` token in this file
+    would silently beat whatever color an admin had actually chosen for their site.
   */
   --color-header-eyebrow: var(--color-text-secondary);
   /*
-    Everything the header band draws in ITS OWN foreground: the wordmark, the five icon buttons'
-    strokes, the account avatar's ring. Ledger's band is white paper, so its foreground is the same
-    ink and chrome tones the rest of the app uses; Cobalt's is a solid `#1f4fd6` bar, where every
-    one of them is white. Two tokens rather than one because the icons sit a step back from the
-    wordmark in Ledger (`--color-slate-soft`) and are level with it in Cobalt.
+    What the header band draws in ITS OWN foreground: the wordmark, the icon buttons' strokes, the
+    account avatar's ring. Two tokens rather than one because the icons sit a step back from the
+    wordmark in Ledger and level with it in Cobalt.
   */
   --color-header-fg: var(--color-ink);
   --color-header-icon: var(--color-slate-soft);
   --color-account-avatar-bg: var(--color-slate);
   /*
-    A segmented control's selected fill. Its own token because the two aesthetics answer differently:
-    Ledger fills it with the site's primary, Cobalt with the accent -- the handoff names a selected
-    segment in the list of "accent fill carrying WHITE text", alongside Edit, count badges and the
-    Draft mark, and `Aesthetic Setting 3x`'s Cobalt card draws it at `#c8303c`.
+    A segmented control's selected fill. Its own token because the aesthetics answer differently:
+    Ledger fills it with the site's primary, Cobalt with the accent.
   */
   --color-segment-selected: var(--color-primary);
-  /* The file manager tree's root glyph -- a chrome stroke in Ledger, the aesthetic's blue in Cobalt */
   --color-tree-root-icon: var(--color-slate-soft);
   /*
-    A dialog's own title band (`.card-header`, `css/_base.css` -- some sixty dialogs share it).
-    Ledger draws it in the dark ramp's raised rung whatever the theme, which is what the token
-    resolves to here; Cobalt draws it in its own raised indigo (`Profile 3x - Cobalt`'s `#1c2a70`),
-    deepening to the header bar's `#1a43bd` on a dark ground (the handoff's "Confirm dialog header
-    band" row). A token rather than a `.card-header` override so the three values live beside every
-    other aesthetic value rather than inside a component stylesheet.
+    A dialog's own title band (`.card-header`, `css/_base.css`). A token rather than a
+    `.card-header` override so all three aesthetic values live beside every other aesthetic value
+    rather than inside a component stylesheet.
   */
   --color-dialog-header-bg: var(--color-dark-2);
   --color-header-search-bg: var(--color-paper);
@@ -625,9 +506,8 @@ html.theme-transition-suppress *::after {
   --color-sidebar-active-text: var(--color-ink);
   --color-sidebar-hairline: var(--color-hairline);
   /*
-    The labels on the sidebar's own bands -- the locale/Browse row at its head, the "Edit navigation"
-    row at its foot. A step up in contrast from `--color-sidebar-text-secondary`, because these are
-    controls rather than a nav item's supporting line.
+    The labels on the sidebar's own bands. A step up in contrast from
+    `--color-sidebar-text-secondary`, because these are controls, not a nav item's supporting line.
   */
   --color-sidebar-actions-text: var(--color-slate);
   --color-admin-sidebar-bg: var(--color-ink);
@@ -649,28 +529,23 @@ html.theme-transition-suppress *::after {
   --color-tag-chip-accent-bg: var(--color-accent-wash);
   --color-tag-chip-accent-text: var(--color-accent-strong);
 
-  /* -- Motion -------------------------------------------------------------- */
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /*
-  -- Cobalt aesthetic: composite shape tokens (OpenProject #2767) ------------
-  These describe a whole declaration's value (a border shorthand, a `display`, a multi-stop
-  gradient) rather than a single Tailwind-scale rung, so they live in plain `:root` rather than
-  `@theme static` -- there is no Tailwind utility namespace a `border`/`box-shadow`/`display`
-  shorthand could publish itself as. Ledger's values below reproduce what the app already draws
-  today (a hairline-bordered card, the corner marks always shown, a 2px accent-colored left inset on
-  the active nav item, a plain white page header); Cobalt's own values live in the
-  `body.body--cobalt` block further down.
+  -- Composite shape tokens --------------------------------------------------
+  These describe a whole declaration's value (a border shorthand, a `display`, a gradient) rather
+  than a single Tailwind-scale rung, so there is no utility namespace they could publish themselves
+  as and they live in plain `:root` rather than `@theme static`. Ledger's values below reproduce
+  what the app draws today; Cobalt's live in the `body.body--cobalt` block further down.
 */
 :root {
   --border-card: 1px solid var(--color-hairline);
   --corner-marks: block;
   --nav-active-inset: inset 2px 0 0 var(--color-accent);
   /*
-    How far a nav row is inset from its column's own edges. Ledger's rows are full-bleed bands ruled
-    by the active item's left border; Cobalt's are rounded plates standing clear of both edges
-    (`Page View 3x - Cobalt`), which is what `10px` buys.
+    How far a nav row is inset from its column's own edges: Ledger's rows are full-bleed bands ruled
+    by the active item's left border, Cobalt's are plates standing clear of both edges.
   */
   --nav-item-inset: 0;
   --page-header-bg: var(--color-white);
@@ -682,10 +557,8 @@ html.theme-transition-suppress *::after {
 
   /*
     The rest of the masthead, which `--page-header-bg`/`-fg` alone cannot carry: the description
-    under the title, the icon's plate, and the plates the actions sit on. Ledger's values below are
-    exactly what `PageHeader.vue` and `Index.vue` drew as literals -- a paper-tinted hairline square
-    holding an accent glyph, a secondary-tone description, and actions with no plate at all -- so
-    Ledger is unchanged; Cobalt's flat banner needs every one of them to move at once.
+    under the title, the icon's plate, and the plates the actions sit on. Cobalt's flat banner needs
+    every one of them to move at once.
   */
   --page-header-subtitle-fg: var(--color-text-secondary);
   --page-header-icon-bg: var(--color-paper);
@@ -698,13 +571,11 @@ html.theme-transition-suppress *::after {
   /*
     -- The floating-card motif -------------------------------------------------
     Cobalt separates a surface from its ground by lifting it onto a white card; Ledger separates the
-    same surface with a rule, or does not separate it at all because the ground is already white.
-    A section that is FLAT in Ledger and a card in Cobalt reads these four rather than branching on
-    the aesthetic: Ledger's own values below are the do-nothing ones -- a transparent ground, no
-    padding, and (through the shape tokens above) a square corner with no shadow -- so every one of
-    those declarations collapses to nothing and Ledger renders exactly as it did. The rule display
-    is the other half of the same switch: the hairlines Ledger rules its sections off with are the
-    thing a card replaces, so they go once there are cards.
+    same surface with a rule, or not at all because the ground is already white. A section that is
+    FLAT in Ledger and a card in Cobalt reads these four rather than branching on the aesthetic:
+    Ledger's values are the do-nothing ones, so every such declaration collapses to nothing.
+    `--float-rule-display` is the other half of the switch -- the hairlines Ledger rules its
+    sections off with are the thing a card replaces.
   */
   --float-bg: transparent;
   --float-pad: 0;
@@ -713,11 +584,10 @@ html.theme-transition-suppress *::after {
 
   /*
     The article's own two boxes. In Ledger the column IS the sheet, so all the whitespace is the
-    column's and the contents box has none of its own; in Cobalt the column is the paper ground and
-    the contents box is the card, so the padding moves inward and the column keeps only the inset
-    that lets the card float. `--content-bleed` is how far an h1's rule reaches back through the
-    surface's own padding, so it follows whichever box is doing the padding -- and in Cobalt it is
-    `0`, because a card clips at its corner rather than bleeding past it.
+    column's; in Cobalt the column is the paper ground and the contents box is the card, so the
+    padding moves inward. `--content-bleed-*` is how far an h1's rule reaches back through the
+    surface's own padding, so it follows whichever box is doing that padding -- `0` in Cobalt,
+    because a card clips at its corner rather than bleeding past it.
   */
   --article-column-pad: 32px 28px 44px;
   --article-column-pad-xs: 20px 16px 32px;
@@ -726,56 +596,40 @@ html.theme-transition-suppress *::after {
   --content-bleed-xs: 16px;
 
   /*
-    Cobalt's fixed footer bar (OpenProject #3017/#3010, `Index.vue`'s `.page-container-scrl .w-footer`
-    rule): once the bar is pinned to the bottom of the window instead of sitting in normal flow,
-    nothing downstream of it in the DOM knows how much room it occupies any more. Published once here
-    so a sibling that needs to clear it -- `WDrawer.vue`'s own bottom padding, OpenProject #3018 --
-    reads the SAME number rather than a second, independently-guessed one. `0` in Ledger: the footer
-    stays in normal flow there, so nothing needs to make room for it.
+    Cobalt pins the footer bar to the bottom of the window, so nothing downstream of it in the DOM
+    knows how much room it occupies. Published once here so a sibling that has to clear it
+    (`WDrawer.vue`'s bottom padding) reads the SAME number rather than a second guessed one. `0` in
+    Ledger, where the footer stays in normal flow.
   */
   --footer-bar-height: 0;
 }
 
 /*
-  -- Ledger dark: --border-card (OpenProject #2811) --------------------------
-  `--border-card` above is declared once, in bare `:root`, against `--color-hairline` -- the LIGHT
-  hairline colour only, since `--color-hairline` itself is never redefined for plain (non-Cobalt)
-  dark mode, only for `body.body--cobalt`/`body.body--cobalt.body--dark`. Left as-is, a consumer
-  reading `--border-card` on a Ledger dark page would draw the light hairline colour. This gives
-  Ledger dark its own real value, off `--color-hairline-dark` (the token every other `dark:` hairline
-  utility already reads), so `WCard.vue` can consume `--border-card` unconditionally in both modes.
+  `--border-card` in bare `:root` resolves against the LIGHT hairline only -- `--color-hairline` is
+  never redefined for plain (non-Cobalt) dark mode. This gives Ledger dark its own value off
+  `--color-hairline-dark`, so `WCard.vue` can consume `--border-card` unconditionally in both modes.
 
-  Placed BEFORE `body.body--cobalt` below on purpose: `body.body--dark` and `body.body--cobalt` are
-  equal-specificity selectors (`body` + one class each), so which one wins on a page carrying both
-  classes is decided by source order, not specificity -- and Cobalt's own `--border-card: 0` (it
-  wants a borderless, shadow-only card in both its light and dark forms, so it doesn't restate this
-  again under `body.body--cobalt.body--dark`) needs to be the one that wins there. Keeping this block
-  earlier than Cobalt's is what makes that hold.
+  Must stay BEFORE `body.body--cobalt` below: the two are equal-specificity selectors, so on a page
+  carrying both classes source order decides, and Cobalt's own borderless card has to be the winner.
 */
 body.body--dark {
   --border-card: 1px solid var(--color-hairline-dark);
 }
 
 /*
-  -- Cobalt aesthetic: light token block (OpenProject #2767) -----------------
-  The Cobalt half of every token declared above, scoped to `body.body--cobalt` rather than a
-  `cobalt:` Tailwind variant -- see `ui-redesign-cobalt/HANDOFF.md`'s "Architecture" section. A
-  component keeps writing the same `rounded-card` / `bg-paper` / `text-ink` utility (or `var()`
-  reference) it always has; the token itself is what changes value once the class is on `<body>`
-  (`composables/aesthetic.js`, OpenProject #2766). Cobalt DARK is a further, more specific
-  `body.body--cobalt.body--dark` block layered on top of this one (OpenProject #2764) -- nothing
-  here is dark-mode-aware.
+  -- Cobalt: light token block -----------------------------------------------
+  The Cobalt half of every token declared above, scoped to a body class rather than a Tailwind
+  variant: a component keeps writing the same `rounded-card`/`bg-paper`/`text-ink` utility, and the
+  token is what changes value once `composables/aesthetic.js` puts the class on <body>. Cobalt dark
+  is a further, more specific block layered on top of this one -- nothing here is dark-mode-aware.
 
-  Every accent color below keeps the three roles the handoff's tables keep distinct: `--color-accent-
-  fill` is the UNTEXTED fill (a dot, an inset bar, a toggle) and is `#ff4d5a`; a fill carrying WHITE
-  text (an Edit button, a count badge, a Draft badge) is the `--q-accent` admin default, seeded
-  `#c8303c` by OpenProject #2768's `aestheticDefaults.js`, never this file; `--color-accent-strong`
-  (accent TEXT on a non-white ground -- links, in this codebase) is `#1f4fd6` here. Do not reuse
-  `--color-accent-fill`'s `#ff4d5a` for a white-text surface -- the mockups shipped with that exact
-  defect and `#c8303c` is the corrected value (handoff, "Known mockup defect, not a spec").
+  The accent keeps three distinct roles: `--color-accent-fill` is the UNTEXTED fill (a dot, an inset
+  bar, a toggle); a fill carrying WHITE text (an Edit button, a count badge) is the `--q-accent`
+  admin default from `helpers/aestheticDefaults.js`, never this file; `--color-accent-strong` is
+  accent TEXT on a non-white ground. Do not reuse the untexted fill for a white-text surface -- it
+  does not clear contrast there.
 */
 body.body--cobalt {
-  /* Reused generic tokens, redefined */
   --color-ink: #10194a;
   --color-paper: #f2f5ff;
   --color-tint: #e6edff;
@@ -789,12 +643,8 @@ body.body--cobalt {
   --color-accent-strong: #1f4fd6;
   --color-positive-fill: #22a37f;
   /*
-    The slate ramp, moved onto Cobalt's own indigo hue. Ledger's four slates are a warm-neutral
-    chrome tone plus three tones for HAIRLINES, ICON STROKES AND SEPARATORS (never text); Cobalt
-    needs the same four jobs done against `#f2f5ff` rather than `#f5f6f9`, and the mockups draw them
-    in the indigo family throughout -- `#b6bfe0` is the breadcrumb separator on the canonical page
-    view, `#7f8ed1` the sidebar icon stroke. `--color-slate` keeps carrying words (10.4:1 on white),
-    the other three do not, exactly as in Ledger.
+    The slate ramp, moved onto Cobalt's own indigo hue. `--color-slate` keeps carrying words, the
+    other three stay hairline/icon/separator tones that do not -- exactly as in Ledger.
   */
   --color-slate: #1e2a5e;
   --color-slate-soft: #7b88bd;
@@ -804,7 +654,6 @@ body.body--cobalt {
   --color-slate-nav-icon: #7f8ed1;
   --color-rule: #c8d2ee;
 
-  /* Shape */
   --radius-card: 8px;
   --radius-control: 6px;
   --radius-dialog: 12px;
@@ -814,26 +663,16 @@ body.body--cobalt {
   /* Cobalt's list-row plates are smaller discs; Ledger's stay 36px squares. */
   --size-avatar-plate: 26px;
   /*
-    -- Matte pass (OpenProject #2856) ----------------------------------------
-    Cobalt is matte: no drop shadows anywhere. `--shadow-card` used to be a blurred `0 2px 10px`
-    glow; every "plate" that reads it (`WCard`, the page-content/TOC/tags-revision floating cards
-    in `Index.vue`, the actions rail, search result cards, graph panels, nav-edit cards, ...) draws
-    its Cobalt edge SOLELY through this token rather than through `--border-card` (which stays `0`
-    here, unchanged) -- see each consumer's own comment ("Cobalt draws this as a shadowed sheet, not
-    a hairline-bordered box"). A 0-blur, 1px-spread ring reads as exactly that hairline border while
-    staying the one explicitly-kept shape the matte take allows ("0-blur rings ... those are
-    outlines"), so every one of those consumers gets its plate border for free, with no per-file
-    change. `--shadow-primary` (the Edit/Add/primary-button glow) has no such role to fill -- a
-    button is not one of the plates the handoff lists -- so it goes to `none` outright.
+    Cobalt is matte: no drop shadows anywhere. Every plate reads its Cobalt edge SOLELY through
+    `--shadow-card` rather than `--border-card` (which stays `0` here), so a 0-blur 1px-spread ring
+    is what draws that hairline border -- the one shape the matte take keeps. A button is not a
+    plate, so `--shadow-primary` goes to `none` outright.
   */
   --shadow-card: 0 0 0 1px #dfe5f5;
   --shadow-primary: none;
   /*
-    Matte pass (OpenProject #2856), continued: `--shadow-menu`/`--shadow-dialog` are untouched under
-    Ledger (a plain `:root` default shared by both aesthetics until now -- see that declaration's own
-    comment), but a menu, tooltip, dialog or drawer is an "overlay on the scrim", not one of the
-    plates the handoff lists a border for, so Cobalt drops its shadow outright rather than trading it
-    for a ring the way `--shadow-card` does above.
+    A menu, tooltip, dialog or drawer is an overlay on the scrim, not a plate, so it drops its
+    shadow outright rather than trading it for a ring the way `--shadow-card` does above.
   */
   --shadow-menu: none;
   --shadow-dialog: none;
@@ -842,23 +681,17 @@ body.body--cobalt {
   --nav-active-inset: inset 3px 0 0 #ff4d5a;
   --nav-item-inset: 10px;
 
-  /*
-    Page header banner. Flat, not the gradient the mockups shipped with before the "matte" take
-    (handoff 5, Part 1.1: "Banner is flat #1f4fd6 (no gradient)") -- OpenProject #2857.
-  */
+  /* Page header banner: flat, no gradient. */
   --page-header-bg: #1f4fd6;
   --page-header-fg: var(--color-white);
   --page-header-radius: 8px;
-  /* Matte pass (OpenProject #2856): the glow under the banner is gone. The banner sits on its own
-     solid gradient fill, not low-contrast on the `#f2f5ff` ground, so it gets no border either. */
+  /* The banner sits on its own solid fill rather than low-contrast on the page ground, so it needs
+     neither glow nor border. */
   --page-header-shadow: none;
   /*
-    Split into direction-specific tokens (OpenProject #2970): the horizontal margin and the top
-    margin are NOT the same value -- one shared token feeding both `margin-inline` and
-    `margin-block-start` in `Index.vue` was overstating the top gap at 24px. The mockup's stated
-    `margin:10px 24px 0` put the top gap at 10px, but Dylan's hands-on review (OpenProject #2998)
-    found the computed top margin should be 0, so the top-margin token stays its own value
-    (currently 0, matching Ledger) rather than collapsing back into the horizontal one.
+    Two direction-specific tokens, not one: the horizontal and top margins are different values, and
+    a single token feeding both `margin-inline` and `margin-block-start` in `Index.vue` overstated
+    the top gap.
   */
   --page-header-margin-inline: 24px;
   --page-header-margin-block-start: 0;
@@ -870,18 +703,15 @@ body.body--cobalt {
   --page-header-action-bg: rgb(255 255 255 / 0.14);
   --page-header-action-fg: #fff;
 
-  /* The floating-card motif, and the article's two boxes -- see the Ledger halves for what each does */
   --float-bg: var(--color-surface);
   --float-pad: 18px 20px;
   --float-gap: 14px;
   --float-rule-display: none;
   /*
-    OpenProject #3135: bottom value is Ledger's 44px plus 16px of trailing daylight above the fixed
-    footer bar, minus the 32.5px `Index.vue`'s `body.body--cobalt .page-container > .min-w-0.flex-1`
-    rule now takes as its own margin-bottom (44 + 16 - 32.5 = 27.5) -- the two changes net to the same
-    total trailing space below the article, so the page's fully-scrolled content position is
-    unchanged; only the scrollbar's own track now ends flush above the bar instead of running behind
-    it. Was `60px` (the pre-#3135 total, before that margin existed) under OpenProject #3055/#3089.
+    The bottom value is split with the 32.5px margin-bottom `Index.vue`'s
+    `body.body--cobalt .page-container > .min-w-0.flex-1` rule takes: together they are the trailing
+    space below the article, and changing one without the other shifts the fully-scrolled content
+    position. Paired assertion in `Index.footerClearanceMargin.test.js`.
   */
   --article-column-pad: 28px 24px 27.5px;
   --article-column-pad-xs: 18px 14px 32px;
@@ -889,7 +719,6 @@ body.body--cobalt {
   --content-bleed-default: 0px;
   --content-bleed-xs: 0px;
 
-  /* Chrome and surface colors */
   --color-header-eyebrow: #dfe6ff;
   --color-header-fg: #fff;
   --color-header-icon: #fff;
@@ -918,25 +747,14 @@ body.body--cobalt {
   --color-footer-text: #a7b3ea;
   --color-footer-link: #ff7a84;
   /*
-    The bar's own height, published for `WDrawer.vue`'s bottom padding to consume (OpenProject #3018)
-    -- see the bare `:root` declaration above for why this exists at all. Revisited by OpenProject
-    #3019's cross-viewport pass, exactly as flagged here when #3017 first landed: 64px was a
-    conservative ESTIMATE, not a measurement, and a real-Chromium measurement of the actual two-line
-    fixture both #3017's and #3018's own suites use (`common.footerCopyright` + a `siteStore.footerExtra`
-    line, `Index.footerCobalt.test.js`) found it wrapping to THREE rendered lines below ~382px --
-    `.site-footer`'s `padding: 8px 16px` around three lines of 11px Roboto Mono measures 83px there,
-    against this token's 64px, an 19px shortfall that left the two drawers' (and the TOC-open corner
-    button's, OpenProject #3019) own bottom edge painted UNDER the footer bar on an actual narrow
-    phone. 96px is a flat, width-independent bump with the same "conservative estimate" character as
-    the original 64px, chosen to clear that measured 83px worst case with margin rather than adding a
-    second content-length-dependent breakpoint of its own (the wrap point is a function of the site's
-    own `company`/`contentLicense`/`footerExtra` TEXT, not a stable viewport width, so a breakpoint
-    tuned to this one fixture's wrap point would just be a differently-fragile guess). This remains an
-    estimate, still: an unusually long, unbroken `company`/`footerExtra` value can still wrap past even
-    96px on a narrow phone (`overflow-wrap: anywhere` lets it keep wrapping with no cap) -- true
-    pixel-exact clearance would need the footer's real rendered height synced live (a `ResizeObserver`
-    writing this custom property, say), which is a real feature past what a verification pass should
-    take on; flagged here again rather than re-hidden behind a number that merely looks precise.
+    A conservative ESTIMATE, not a measurement: the footer wraps on the site's own
+    `company`/`contentLicense`/`footerExtra` TEXT, not at a stable viewport width, so a breakpoint
+    tuned to one fixture's wrap point would be a differently-fragile guess. This clears the measured
+    three-line worst case with margin.
+
+    TODO: an unusually long unbroken value can still wrap past 96px on a narrow phone, leaving the
+    drawers' bottom edge painted under the bar. Pixel-exact clearance needs the footer's rendered
+    height synced live -- a `ResizeObserver` writing this property.
   */
   --footer-bar-height: 96px;
   --color-inner-rule: #e6edff;
@@ -950,37 +768,19 @@ body.body--cobalt {
   --color-tag-chip-accent-bg: #ffe9eb;
   --color-tag-chip-accent-text: #c8303c;
   /*
-    The breadcrumb trail's `/` separator (`WBreadcrumbs.vue` via `Index.vue`'s `.page-breadcrumbs`),
-    OpenProject #2975. Aliased rather than a second literal: this IS `--color-slate-faint`'s own
-    value (the comment on that ramp above already names #b6bfe0 as "the breadcrumb separator on the
-    canonical page view") -- a dedicated name because the dark value below has to diverge from
-    `--color-slate-faint`'s (which stays #b6bfe0 in dark, unreviewed, for its other consumers) without
-    touching those consumers' own rendering.
+    The breadcrumb trail's separator. Aliased rather than a second literal, but under its own name
+    because the dark value below has to diverge from `--color-slate-faint`'s without touching that
+    token's other consumers.
   */
   --color-breadcrumb-separator: var(--color-slate-faint);
 }
 
 /*
-  -- Cobalt aesthetic: button-group gap + editor toolbar band (OpenProject #2859) ------------------
-  Two shape corrections from the "matte" take (`ui-iteration/README.md` Part 1.1, "Adjacent buttons
-  in a group ... take a gap (8-10px) and each keeps its own radius" / "Editor formatting toolbar ...
-  is a full-width square band, not a rounded pill"). Both light and dark Cobalt share these -- shape,
-  not color -- so they sit here rather than in the dark block below.
-
-  1. `WBtnGroup.vue`'s `.w-btn-group` joins adjacent `WBtn`s with a single hairline seam
-     (`border-inline-end` on every button but the last) under Ledger, where a button is square and
-     the seam reads as one continuous control. Cobalt's buttons are `--radius-control`-rounded, so
-     the same seam would butt a rounded corner against a straight one; the fix is a gap instead; each
-     button keeps its own radius and there is no seam left to draw. 8px matches the Table Editor's
-     Cancel/Update pair (`cobalt/Cardinal Wiki - Table Editor 3x - Cobalt.dc.html`); the mocks range
-     8-10px screen to screen (the Editor's Save changes / Save and close pair draws 10px), so a
-     screen that needs the high end of that range sets `gap` on its own `.w-btn-group` instance
-     rather than this rule changing. `!important` on the seam removal beats `WBtnGroup.vue`'s own
-     scoped rule outright rather than relying on a specificity count across the two files.
-  2. (Retired, OpenProject #3466.) The editor's markup toolbar used to take a `border-radius: 0`
-     rule here so its buttons read as a square band. Its buttons (and the insert rail's and preview
-     toolbar's) now carry the shared flush-hover primitive in `css/_base.css`, which squares them in
-     Cobalt and Ledger alike and owns the hover fill, so the toolbar-specific rule is gone.
+  Shared by Cobalt light and dark, so it sits here rather than in the dark block below.
+  `WBtnGroup.vue`'s hairline seam reads as one continuous control only while a button is square;
+  Cobalt's are rounded, so the seam would butt a rounded corner against a straight one and a gap
+  replaces it. A screen wanting a wider gap sets it on its own instance rather than changing this
+  rule. `!important` beats `WBtnGroup.vue`'s scoped rule without a cross-file specificity count.
 */
 body.body--cobalt .w-btn-group {
   gap: 8px;
@@ -991,75 +791,33 @@ body.body--cobalt .w-btn-group > .w-btn:not(:last-child) {
 }
 
 /*
-  -- Cobalt aesthetic: tag chip weight (OpenProject #2969, §4.3 role swap) ------------------------
-  One of the four places Cobalt is allowed to differ from Ledger in more than colour
-  (`ui-iteration-cobalt-typography/cobalt-typography.md` §4): a chip drawn as a filled tint reads
-  lighter than Ledger's hairline-outlined one at the same 400 weight, so Cobalt steps up to 500.
-  Lives here, on the compound `.w-chip` selector, rather than in the bare `body.body--cobalt` token
-  block above -- that block is colour-only (§2), enforced by `cobaltTypography.test.js`'s
-  source-scan.
+  A chip drawn as a filled tint reads lighter than Ledger's hairline-outlined one at the same
+  weight, so Cobalt steps up. On the compound `.w-chip` selector rather than in the bare
+  `body.body--cobalt` token block above, which is colour-only -- enforced by
+  `cobaltTypography.test.js`'s source scan.
 */
 body.body--cobalt .w-chip {
   font-weight: 500;
 }
 
 /*
-  -- Cobalt aesthetic: dark token block (OpenProject #2771) -----------------
-  Source: `ui-redesign-cobalt/HANDOFF.md`'s "Cobalt dark tokens" section. Layered on top of
-  `body.body--cobalt` above via the compound selector, so this wins by specificity regardless of
-  source order. Shape tokens (radii, corner marks, header banner geometry) are identical between
-  Cobalt light and dark and are NOT restated here -- see #2767's block above for those.
+  -- Cobalt: dark token block ------------------------------------------------
+  Compound selector, so this wins over `body.body--cobalt` by specificity regardless of source
+  order. Shape is identical between Cobalt light and dark and is NOT restated here.
 
-  Two different families of custom property need overriding here, and they earn the role for
-  different reasons:
+  Two families need overriding. The `-dark`-suffixed tokens and the `--color-dark-N` surface ramp,
+  because that is what nearly every component's `dark:` utility already reads regardless of
+  aesthetic -- overriding them here is what makes every other screen render correctly under Cobalt
+  dark with no per-screen code; the rungs with no Cobalt value of their own are left inherited
+  rather than guessed. And the plain, non-suffixed Cobalt tokens, for any consumer that reads one
+  without a `dark:` pairing. The `--q-*` brand colors stay out, same boundary as the light block.
 
-  1. Ledger's own "-dark"-suffixed tokens and the `--color-dark-N` surface ramp
-     (`--color-dark`/`-2`/`-3`/`-4`/`-5`, `--color-hairline-dark`, `--color-border-dark`,
-     `--color-disabled-dark`, `--color-text(-secondary/-caption)-dark`, `--color-accent(-wash)-dark`).
-     These are what nearly every existing component's `dark:` utility variant already reads
-     (`.w-card`'s `dark:bg-dark-3`, `WCheckbox`'s `dark:border-disabled-dark`, the many
-     `color: var(--color-accent-dark)` call sites, ...) regardless of aesthetic -- overriding them
-     here is what makes every other screen inherit correct Cobalt-dark rendering with zero
-     per-screen code, per this task's acceptance criteria. Mapped using each ramp rung's own
-     documented role (`-5` "the page ground", `-4` "a read-only field, an inset gutter", `-3` "a
-     card, a dialog body", `-2` "a card header, a menu, a filled chip") against the handoff's
-     Surfaces table -- which is also how "Confirm dialog header band" is covered without touching
-     `--q-header`: it is `--color-dark-2`, a generic ramp rung, not the admin-configurable header
-     bar. `--color-dark-1` and `--color-dark-6` (the two rungs the handoff gives no Cobalt value
-     for) are deliberately left inherited from Ledger rather than guessed.
-  2. The plain, non-suffixed Cobalt tokens #2767 already declared for its own light block, restated
-     with their dark values for any consumer that reads them without a `dark:` pairing.
-
-  Deliberately NOT here, same boundary as #2767's block: `--q-header`/`--q-sidebar` and the rest of
-  the `--q-*` brand colors. The handoff's "Header bar" role (the main site toolbar, one step deeper
-  than Cobalt light's `#1f4fd6`) has no dark-specific override slot in the current `--q-*`
-  architecture at all and is left for future work alongside OpenProject #2768.
-
-  A few handoff rows have no landed token or component call site to attach to yet -- labels on
-  tinted rows, inline code/active TOC/section kicker/field error/flat link accent treatments, filled-
-  toast darkening, the info toast, and the callout/info banner. Left undeclared rather than invented,
-  since a token nothing reads is the same drift risk this block exists to prevent. (The breadcrumb
-  separator/off-state value this used to list here landed with OpenProject #2975 --
-  `--color-breadcrumb-separator` below.)
-
-  Hairline/border re-derivation (OpenProject #2912): every hairline and border token below used to
-  be a flat white-alpha overlay (`rgb(255 255 255 / 0.0N)`). Composited over this block's blue-black
-  surfaces, a hue-less white overlay desaturates toward gray rather than reading as a brightened
-  version of the surface it borders -- exactly Dylan's own hands-on report. Each is now a solid hex
-  in the SAME ~232-degree hue family as the surface it borders, lightened well above that surface and
-  kept well below the accent/link brightness (`--color-accent-strong: #7fa0ff`, `--color-heading-h2:
-  #8fb0ff`) so a hairline is never mistaken for a link: `--color-hairline-dark`/`--color-hairline`
-  and `--color-border-dark` (the stronger hover/focus variant) are both derived from the card surface
-  `--color-dark-3` (`#141c4f`); `--color-sidebar-hairline` and `--color-admin-sidebar-hairline` are
-  both derived from the sidebar surface `--color-dark-3-5` (`#0e1540`) -- the same derivation for
-  both, since both border the same surface, with the admin token given its own explicit value here
-  rather than left to inherit Ledger dark's unrelated `#2a3040`. `--block-border`/`--tabs-border`
-  keep their own, further block below, and keep the SAME intentional strength gap above the card
-  hairline this comment's own point 1 already documents -- just hue-derived now instead of alpha-
-  derived.
+  Every hairline and border below is a solid hex in the SAME hue family as the surface it borders,
+  lightened above it and kept below the accent/link brightness so a hairline is never mistaken for
+  a link. A hue-less white-alpha overlay desaturates toward gray over these blue-black surfaces
+  instead of reading as a brightened version of them.
 */
 body.body--cobalt.body--dark {
-  /* Ledger dark-suffixed / ramp tokens most existing dark: utilities already read */
   --color-dark: #0a0f2c;
   --color-dark-2: #1a43bd;
   --color-dark-3: #141c4f;
@@ -1075,12 +833,10 @@ body.body--cobalt.body--dark {
   --color-text-caption-dark: #8b98d6;
   --color-accent-dark: #ff8f97;
   --color-accent-wash-dark: rgb(255 77 90 / 0.16);
-  /* The chrome tone on a dark ground: the handoff's "Faint / caption / kicker" for Cobalt dark. */
   --color-slate-light: #8b98d6;
   --color-slate-nav-icon: #8b98d6;
   --color-dialog-header-bg: #1a43bd;
 
-  /* Plain Cobalt aesthetic tokens, restated for dark */
   --color-paper: #0a0f2c;
   --color-tint: #070b22;
   --color-tint-alt: #141c4f;
@@ -1092,9 +848,8 @@ body.body--cobalt.body--dark {
   --color-accent-strong: #7fa0ff;
   --color-heading-h2: #8fb0ff;
   /*
-    OpenProject #2975: the breadcrumb separator's dark value genuinely diverges from
-    `--color-slate-faint`'s own (which stays #b6bfe0 in dark for its other, non-breadcrumb
-    consumers -- see the light block's alias comment) -- a literal here, not a second alias.
+    A literal, not a second alias: the separator's dark value diverges from `--color-slate-faint`'s,
+    which stays put in dark for its other, non-breadcrumb consumers.
   */
   --color-breadcrumb-separator: #3a4680;
   --color-inner-rule: rgb(255 255 255 / 0.06);
@@ -1108,57 +863,32 @@ body.body--cobalt.body--dark {
   --color-avatar-plate-text: #a3bbff;
 
   /*
-    Not a shape token despite living beside them in the light block: the handoff gives an explicit,
-    different shadow for the dark card/raised surface under "Surfaces", not under the radii sweep.
-    Matte pass (OpenProject #2856) gave this ring a neutral white-alpha colour
-    (`rgb(255 255 255 / 0.1)`) on the theory that a light-toned outline would read as a stray glow on
-    a dark plate. OpenProject #2933 overrides that call, per Dylan's explicit direction: every other
-    Cobalt-dark hairline is blue-tinted (`--color-hairline-dark`, re-derived to `#2e3d9e` under
-    #2912), and a neutral ring here read as "still gray" next to them rather than as a deliberate
-    restraint. The ring is `--color-hairline-dark` itself, the same token `.page-contents`/
-    `.page-sidebar-card` already resolve their own card edge through in Cobalt light.
+    The card ring takes `--color-hairline-dark` itself rather than a neutral white-alpha tint: every
+    other Cobalt-dark hairline is blue-tinted, and a grey ring beside them reads as an oversight
+    rather than as restraint.
   */
   --shadow-card: 0 0 0 1px var(--color-hairline-dark);
 
   /*
-    The floating-card motif on a dark ground. `--float-bg` is `--color-surface` (`#fff`) in Cobalt
-    light, and `--color-surface` does not move with dark mode -- so the card ground is restated here
-    as the dark ramp's own "card, dialog body" rung, which this block has already pointed at
-    `#141c4f` for exactly this surface.
+    `--color-surface` does not move with dark mode, so the card ground cannot be left aliased to it
+    here and is restated as the dark ramp's own "card, dialog body" rung.
   */
   --float-bg: var(--color-dark-3);
 }
 
 /*
-  -- Tabset block + shared block custom properties (OpenProject #2860) --------
-  The `--tabs-*` custom-property set `blocks/block-tabs/component.js` will read once Feature #2844
-  (Blocks theming, not yet built) swaps its `static get styles()` for these -- table in
-  `ui-iteration/tabset-block.md` -- plus a small `--block-*` namespace covering what `ui-iteration/
-  blocks.md`'s "Ground rules (every block)" and "Shared fragments" sections describe as reusable
-  across every block, not just this one. Declared here rather than on each block's own `:host`, per
-  blocks.md's own preferred convention ("set the properties on body ... and let them inherit --
-  since the page already owns the aesthetic switch"): a block lives in a shadow root and inherits
-  whatever custom property value is in scope on `<body>`, the same way it already inherits
-  `--q-primary`.
+  -- Tabset block + shared block custom properties ----------------------------
+  The `--tabs-*` set `blocks/block-tabs/component.js` reads, plus a `--block-*` namespace reusable
+  across every block. Declared on `<body>` rather than on each block's own `:host`: a block lives in
+  a shadow root and inherits whatever value is in scope on `<body>`, the same way it already
+  inherits `--q-primary`, and the page already owns the aesthetic switch.
 
-  This task adds the TOKENS ONLY -- no block or block-tabs component file changes. Nothing reads
-  these yet: `block-tabs/component.js` still declares its own pre-Cardinal `:host` fallback defaults
-  (a grey e0e0e0 border, a Quasar-blue active tab), and every other block still hardcodes its own
-  colors. That conversion is
-  Feature #2844's job (deliberately deferred; this Task's own "Owns" section is exactly "the
-  custom-property token layer" it will consume).
-
-  Values are literal per aesthetic rather than aliased onto the generic ramp wherever the source
-  table's own number diverges from the nearest existing token, however slightly -- `--tabs-border`'s
-  Cobalt-dark `rgba(255,255,255,.1)` is NOT `--color-hairline-dark`'s Cobalt-dark `rgb(255 255 255 /
-  0.08)`, and mixing the two silently would draw the wrong border the day something finally reads
-  this token. Only restated where a state's value differs from the one before it, matching every
-  other token block in this file (Ledger dark restates the ~10 `--tabs-*` rows tabset-block.md's
-  table actually changes for it, not all 21; Cobalt light and dark do the same against their own
-  predecessor row).
+  Values are literal per aesthetic rather than aliased onto the generic ramp wherever the block
+  spec's own number diverges from the nearest existing token, however slightly -- aliasing anyway
+  would draw the wrong border the day something reads the token. Restated only where a state's value
+  differs from the one before it, matching every other token block in this file.
 */
 :root {
-  /* Shared across every block: chrome, text tiers and the accent's three roles */
   --block-border: var(--color-hairline);
   --block-radius: var(--radius-card);
   --block-tile-radius: var(--radius-control);
@@ -1171,12 +901,10 @@ body.body--cobalt.body--dark {
   --block-accent-fill: var(--color-accent-fill);
   --block-accent-fg: var(--color-accent);
   --block-link-fg: var(--color-accent-strong);
-  /* -> errorBox (blocks.md "Shared fragments"): dashed in the accent fill, on the block's own surface */
   --block-error-border: 1px dashed var(--block-accent-fill);
   --block-error-bg: var(--block-bg);
   --block-error-radius: var(--block-tile-radius);
 
-  /* block-tabs: full table in ui-iteration/tabset-block.md */
   --tabs-border: #dbe1ec;
   --tabs-radius: 0;
   --tabs-shadow: none;
@@ -1201,33 +929,18 @@ body.body--cobalt.body--dark {
 }
 
 /*
-  Ledger dark. Only the rows tabset-block.md's table actually changes for it -- everything else
-  (radius, shadow, corner marks, strip padding/gap, tab padding/radius, active weight, panel
-  padding) stays the Ledger-light value above. Same for the `--block-*` set: shape (radius/tile-
-  radius/corner-marks/mark-color) is dark-invariant, same as `--radius-card`/`--corner-marks`
-  themselves; `--block-link-fg` is left undeclared rather than guessed -- blocks.md gives no
-  Ledger-dark link value, and this file's own convention (see the Cobalt-dark block's own header
-  comment, further up) is not to invent one.
+  Ledger dark. Only the rows that actually change; shape is dark-invariant, and `--block-link-fg` is
+  left undeclared rather than guessed at.
 
-  `--tabs-strip-rule`/`--tabs-tab-rule` ARE restated here despite being the same literal text as
-  Ledger light's (`1px solid var(--tabs-border)`) -- OpenProject #2886. A custom property's nested
-  `var()` is substituted using the COMPUTED value at the element where that property is actually
-  assigned in the cascade, and that already-resolved value is what then inherits down; it is not
-  re-substituted per descendant. Left undeclared here, both shorthands stay assigned only at
-  `:root` (`<html>`), so their embedded `var(--tabs-border)` keeps resolving against `<html>`'s
-  OWN `--tabs-border` -- the Ledger-LIGHT `#dbe1ec` -- even on a `body.body--dark` page, because
-  `<html>` itself never carries the dark override. `.tabs`'s own `border: 1px solid
-  var(--tabs-border)` doesn't have this problem (it substitutes locally, deep in the block's shadow
-  tree, where `--tabs-border` really is inherited as dark) -- confirmed by mounting the real
-  compiled block and reading its computed styles in headless Chromium: `.tabs`'s border resolved to
-  the correct `#2a3040`, while `.strip`'s bottom rule and each `.tab`'s right-hand rule resolved to
-  the light `#dbe1ec` -- a pale hairline that reads as white against a dark tab strip/panel.
-
-  `--block-error-border` is restated here for the identical reason -- OpenProject #2905, found
-  while fixing #2886 above. It holds the literal `1px dashed var(--block-accent-fill)`; left
-  undeclared here it would stay assigned only at `:root`, so its nested `var(--block-accent-fill)`
-  would keep resolving against `<html>`'s own Ledger-light fill instead of the dark one this block
-  restates just below.
+  THE NESTED-var() RULE, which governs every restatement in this file. A custom property's embedded
+  `var()` is substituted at the element where that property is assigned, and the resolved result is
+  what inherits down -- it is NOT re-substituted per descendant. So a composite token declared only
+  at `:root` keeps resolving its inner `var()` against `<html>`'s own values even on a
+  `body.body--*` page, because `<html>` never carries the body-level override. The three tokens
+  restated below with text identical to the light block's are exactly that case: without it they
+  draw the Ledger-LIGHT hairline and accent fill against a dark strip. A rule inside the block's own
+  shadow tree does not have this problem -- it substitutes locally, where the token is inherited as
+  dark.
 */
 body.body--dark {
   --block-border: var(--color-hairline-dark);
@@ -1235,7 +948,7 @@ body.body--dark {
   --block-tint-bg: var(--color-dark-2);
   --block-caption-fg: var(--color-text-secondary-dark);
   --block-eyebrow-fg: var(--color-text-caption-dark);
-  /* -> An untexted FILL lightens in Ledger dark, same as `--w-input-ring-error` above */
+  /* -> An untexted FILL lightens in Ledger dark, same as `--w-input-ring-error` below */
   --block-accent-fill: var(--color-accent-dark);
   --block-accent-fg: var(--color-accent-dark);
   --block-error-border: 1px dashed var(--block-accent-fill);
@@ -1255,37 +968,25 @@ body.body--dark {
 }
 
 /*
-  Cobalt light. `--block-tint-bg`, `--block-error-bg`, `--block-radius` and `--block-corner-marks`
-  are the `--block-*` rows this aesthetic changes -- the first two because Cobalt genuinely wants a
-  different value, the last two restated here per OpenProject #2955 (see that token's own comment
-  just below) rather than left to resolve through inheritance from the generic token it aliases,
-  which is exactly the mistake this comment used to claim was safe for them. `--block-bg`,
-  `--block-caption-fg`, `--block-eyebrow-fg` and the three accent roles genuinely are safe left
-  undeclared here -- the generic tokens they alias (`--color-white`, `--color-text-secondary`,
-  `--color-text-caption`, `--color-accent-fill`, `--color-accent`, `--color-accent-strong`) either
-  don't change under Cobalt or aren't referenced only from `:root`. `--block-border` is NOT one of
-  these: confirmed directly in real Chromium that it has the identical #2955 bug under plain
-  `body.body--cobalt` (resolves to Ledger light's `#dbe1ec`, not Cobalt's own `#dfe5f5` hairline) --
-  out of #2955's scope (only `--infobox-border`/`--block-radius`/`--block-corner-marks`), left
-  unfixed here and flagged for a follow-up rather than silently left claimed-correct.
+  Cobalt light. `--block-bg`, `--block-caption-fg`, `--block-eyebrow-fg` and the three accent roles
+  are safe left undeclared: the generic tokens they alias either do not change under Cobalt or are
+  not referenced only from `:root`.
+
+  FIXME: `--block-border` is not safe -- verified in real Chromium that it has the nested-var()
+  cascade bug described in the Ledger-dark block above under plain `body.body--cobalt`, resolving to
+  Ledger light's hairline rather than Cobalt's own. Restate it here, as the two shape rows below
+  already are.
 */
 body.body--cobalt {
   --block-tint-bg: var(--color-tint);
-  /* -> errorBox: Cobalt tints instead of using the card colour ("on #ffe9eb", ui-iteration/blocks.md) */
+  /* -> errorBox: Cobalt tints instead of using the card colour */
   --block-error-bg: var(--color-accent-wash);
   /*
-    OpenProject #2955 -- same nested-var() cascade bug class as #2886/#2905, on the two shape rows
-    this comment block's own header (above) used to call "dark-invariant" and therefore safe to
-    leave undeclared. `--block-radius`/`--block-corner-marks` (`var(--radius-card)`/
-    `var(--corner-marks)`, `:root` above) were assigned only at `:root`, so their nested `var()`s
-    kept resolving against `<html>`'s own Ledger-light values (`0`, `block`) forever, even though
-    `--radius-card`/`--corner-marks` themselves ARE correctly redefined here, further up in this
-    same rule (`8px`, `none`) -- every block reading the shared alias (infobox included) stayed
-    square-cornered with its Ledger corner marks still showing under Cobalt. Restated here so their
-    `var()`s substitute using THIS element's own Cobalt values instead. Neither `--radius-card` nor
-    `--corner-marks` changes again under `body.body--cobalt.body--dark`, so no further restatement
-    is needed there (same as `--tabs-radius`/`--tabs-corner-marks` below, which never restate for
-    Cobalt dark either).
+    Restated per the nested-var() rule (see the Ledger-dark block above): assigned only at `:root`,
+    their inner var()s keep resolving against the Ledger-light values even though the generic tokens
+    they alias ARE correctly redefined further up in this same rule, leaving every block that reads
+    them square-cornered with Ledger corner marks under Cobalt. Neither alias target changes again
+    under `body.body--cobalt.body--dark`, so no further restatement is needed there.
   */
   --block-radius: var(--radius-card);
   --block-corner-marks: var(--corner-marks);
@@ -1311,28 +1012,22 @@ body.body--cobalt {
 }
 
 /*
-  Cobalt dark. `--block-border` and `--block-tint-bg` need their own value here because the generic
-  tokens they would otherwise fall through to answer a DIFFERENT question at this specificity --
-  `--color-hairline-dark` is Cobalt dark's border-on-a-dark-card value; `--color-dark-2` is Cobalt
-  dark's dialog-header rung (`#1a43bd`), not its tint. `--block-accent-fill` is re-pointed back at
-  `--color-accent-fill` for the same reason `.w-input-control`'s `--w-input-ring-error` is
-  (OpenProject #2817, see its own rule further down): the generic `body.body--dark` rule above
-  lightens every FILL to `--color-accent-dark`, but Cobalt's own fill stays bright in both its light
-  and dark forms, and `--color-accent-fill` isn't restated in this block -- so re-pointing at it
-  here resolves back to Cobalt light's `#ff4d5a`.
+  Cobalt dark. The border and tint need their own literals because the generic tokens they would
+  otherwise fall through to answer a DIFFERENT question at this specificity -- `--color-dark-2` is
+  Cobalt dark's dialog-header rung, not its tint. Both are derived from the same card hue as
+  `--color-hairline-dark`, lightened a step further, keeping the strength gap this pair has always
+  held over the card hairline.
 
-  `--block-border`/`--tabs-border` (OpenProject #2912): re-derived from the same card hue as
-  `--color-hairline-dark` above (`#141c4f`'s ~232-degree blue), lightened a step further than it --
-  the same intentional strength gap this pair has always kept over the card hairline (previously
-  `rgba(255,255,255,.1)` vs. `--color-hairline-dark`'s `rgba(255,255,255,.08)`), just hue-derived
-  now instead of alpha-derived so it reads as a brighter blue rather than gray.
+  `--block-accent-fill` is re-pointed back at `--color-accent-fill` for the same reason
+  `.w-input-control`'s `--w-input-ring-error` is: the generic `body.body--dark` rule above lightens
+  every FILL, but Cobalt's own fill stays bright in both its light and dark forms.
 */
 body.body--cobalt.body--dark {
   --block-border: #3143b9;
   --block-tint-bg: var(--color-dark-3-5);
   --block-accent-fill: var(--color-accent-fill);
-  /* -> Same OpenProject #2905 reason as the Ledger-dark block above: restated here because
-        `--block-accent-fill` is restated on this exact selector too. */
+  /* -> Nested-var() rule again: restated because `--block-accent-fill` is restated on this exact
+        selector too. */
   --block-error-border: 1px dashed var(--block-accent-fill);
 
   --tabs-border: #3143b9;
@@ -1347,21 +1042,16 @@ body.body--cobalt.body--dark {
 }
 
 /*
-  -- The 8 block boards (OpenProject #2875) ----------------------------------
-  Custom-property sets for `block-infobox`, `block-spoiler`, `block-checklist`, `block-index`,
-  `block-countdown`, `block-live-data` and `block-gallery` -- the same convention `--tabs-*` set
-  above: Ledger light in this `:root` block, then only the rows that actually change under
-  `body.body--dark`, `body.body--cobalt` and `body.body--cobalt.body--dark`. Values are literal per
-  aesthetic rather than aliased onto the generic ramp, same reasoning as the tabs block's own header
-  comment -- most of these are TEXT colors, and the generic `--color-*` tokens are Ledger-light-only
-  in value (Ledger dark is applied in Vue SFCs via Tailwind `dark:` utility classes reading the
-  `-dark`-suffixed tokens directly, which a block cannot do from inside a shadow root), so a token a
-  block actually reads has to carry its own correct value at each of the four states itself. Shape
-  alone (border/radius/bg/tint/corner-marks/mark-color/error-*) is safe to read off the shared
-  `--block-*` set above, which the #2839/#2874 token layer already verified varies correctly.
+  -- The 8 block boards ------------------------------------------------------
+  Per-block custom-property sets, on the same convention as the `--tabs-*` set above: Ledger light
+  here, then only the rows that change under each further state.
+
+  Values are literal per aesthetic rather than aliased onto the generic ramp, because most are TEXT
+  colors and the generic `--color-*` tokens carry their Ledger-LIGHT value only -- a Vue SFC reaches
+  dark through a `dark:` utility on the `-dark`-suffixed token, which a block inside a shadow root
+  cannot do. Shape alone is safe to read off the shared `--block-*` set above.
 */
 :root {
-  /* block-infobox: full spec in ui-iteration/blocks.md */
   --infobox-border: var(--block-border);
   --infobox-name-bg: #f0f2f7;
   --infobox-name-fg: #1c2233;
@@ -1383,7 +1073,6 @@ body.body--cobalt.body--dark {
   --infobox-well-bg: #f0f2f7;
   --infobox-well-icon-fg: #64789f;
 
-  /* block-spoiler */
   --spoiler-cover-fg: #64789f;
   --spoiler-label-fg: #2f3a4f;
   --spoiler-hint-fg: #57668a;
@@ -1394,7 +1083,6 @@ body.body--cobalt.body--dark {
   --spoiler-hover-radius: 0;
   --spoiler-focus-ring: 2px solid #e4676b;
 
-  /* block-checklist */
   --checklist-summary-fg: #57668a;
   --checklist-summary-font: 500 10.5px var(--font-mono);
   --checklist-summary-done-fg: #3f7a66;
@@ -1411,7 +1099,6 @@ body.body--cobalt.body--dark {
   --checklist-history-bg: transparent;
   --checklist-history-rule: 1px solid #dbe1ec;
 
-  /* block-index */
   --index-row-fg: #64789f;
   --index-title-fg: #1c2233;
   --index-title-weight: 500;
@@ -1424,7 +1111,6 @@ body.body--cobalt.body--dark {
   --index-arrow-display: block;
   --index-chevron-display: none;
 
-  /* block-countdown */
   --countdown-label-font: 600 19px var(--font-display);
   --countdown-segment-bg: transparent;
   --countdown-segment-radius: 0;
@@ -1440,7 +1126,6 @@ body.body--cobalt.body--dark {
   --countdown-target-font: 10.5px var(--font-mono);
   --countdown-ended-fg: #3f7a66;
 
-  /* block-live-data */
   --live-data-label-fg: #57668a;
   --live-data-label-font: 500 9.5px var(--font-mono);
   --live-data-label-tracking: 0.16em;
@@ -1468,7 +1153,6 @@ body.body--cobalt.body--dark {
   --live-data-unknown-fg: #57668a;
   --live-data-unknown-dot: #8a99b8;
 
-  /* block-gallery */
   --gallery-tile-radius: 0;
   --gallery-hover-ring: inset 0 0 0 2px #e4676b;
   --gallery-hover-marks: block;
@@ -1487,18 +1171,12 @@ body.body--cobalt.body--dark {
   --gallery-counter-pad: 0;
 }
 
-/* Ledger dark: only the rows blocks.md's own dark palette actually changes for these blocks. */
 body.body--dark {
   /*
-    OpenProject #2955 -- same nested-var() cascade bug class as #2886/#2905. `--infobox-border`
-    (`var(--block-border)`, `:root` above) was assigned only at `:root`, so its nested
-    `var(--block-border)` kept resolving against `<html>`'s own Ledger-light `--block-border`
-    forever, even here under `body.body--dark` (which overrides `--block-border` to
-    `var(--color-hairline-dark)` further up, on `<body>` itself, never reaching `<html>`) -- drawing
-    a near-white `#dbe1ec` hairline against a dark card. Restated here so its `var(--block-border)`
-    substitutes using THIS element's own (dark) `--block-border` instead. `body.body--cobalt` and
-    `body.body--cobalt.body--dark` already restate `--infobox-border` with their own literals below
-    and are unaffected.
+    Restated per the nested-var() rule (see the tabset block's Ledger-dark comment above): left at
+    `:root`, its inner var() would keep resolving against the Ledger-LIGHT border and draw a
+    near-white hairline against a dark card. The Cobalt blocks below restate it with literals and
+    are unaffected.
   */
   --infobox-border: var(--block-border);
   --infobox-name-bg: #242b3a;
@@ -1556,7 +1234,6 @@ body.body--dark {
   --gallery-hover-ring: inset 0 0 0 2px #f08287;
 }
 
-/* Cobalt light: matte cards, 6px inner tiles, no rules, tint fills, cobalt titles/numerals. */
 body.body--cobalt {
   --infobox-border: #c9d6fb;
   --infobox-name-bg: #1f4fd6;
@@ -1677,7 +1354,6 @@ body.body--cobalt {
   --gallery-counter-pad: 4px 10px;
 }
 
-/* Cobalt dark: fills stay bright (see the tabs block's own note above), text lightens for dark ground. */
 body.body--cobalt.body--dark {
   --infobox-border: rgb(143 176 255 / 0.28);
   --infobox-name-bg: #3d6df7;
@@ -1734,13 +1410,8 @@ body.body--cobalt.body--dark {
 /*
   Element reset for the shared components.
 
-  Preflight is switched off above, so a bare <button> keeps its user-agent background, border and
-  font. Quasar's own reset currently hides that -- which is the trap: the components would look
-  correct right up until Quasar's stylesheet is removed, then quietly regress. Resetting here makes
-  the library self-sufficient, so Phase 5 changes nothing about how it renders.
-
-  In `@layer components`, so utility classes (which come later in the layer order) still win: a
-  `text-sm` or `bg-primary` on the same element overrides these baselines rather than fighting them.
+  In `@layer components`, so utility classes (later in the layer order) still win: a `text-sm` or
+  `bg-primary` on the same element overrides these baselines rather than fighting them.
 */
 @media (prefers-reduced-motion: reduce) {
   .w-input-control {
@@ -1749,12 +1420,6 @@ body.body--cobalt.body--dark {
 }
 
 @layer components {
-  /*
-    Border-box sizing. Preflight would normally supply this; with it switched off, a bordered
-    element sized in px comes out wider than asked (a 200px drawer with a 1px border measured
-    201px). Quasar's reset happens to cover this today, which is exactly why it has to be stated
-    here -- otherwise every such element silently changes size the day Quasar is removed.
-  */
   *,
   *::before,
   *::after {
@@ -1762,12 +1427,12 @@ body.body--cobalt.body--dark {
   }
 
   /*
-    The card surface, as a component class rather than utilities on `WCard`'s own tag, because it is
-    a DEFAULT that callers are expected to replace: the admin pages tint these cards into notices
-    with `bg-negative` / `bg-info` and `text-white`. Two background utilities on one element are
-    resolved by their order within the layer, not by which one the caller wrote, so as a utility this
-    one simply beat them and every notice came out white. Here it loses to any utility by layer
-    order, which is what makes `bg-*` on a `<w-card>` mean what it says.
+    A component class rather than utilities on `WCard`'s own tag, because this is a DEFAULT callers
+    are expected to replace (the admin pages tint these cards into notices with `bg-negative` and
+    `text-white`). Two background utilities on one element are resolved by their order within the
+    layer, not by which one the caller wrote, so as a utility this one would simply beat them; here
+    it loses to any utility by layer order, which is what makes `bg-*` on a `<w-card>` mean what it
+    says.
   */
   .w-card {
     background-color: var(--color-white);
@@ -1781,30 +1446,26 @@ body.body--cobalt.body--dark {
 
   /*
     Every dialog's panel, clamped to the viewport regardless of what its card asks for.
-
-    `WDialog`'s own `maxWidth` prop is opt-in (most callers never pass it), and a card's own
-    `min-width` -- several go past 550px, one as high as 850px -- otherwise wins outright on a
+    `WDialog`'s `maxWidth` prop is opt-in, and a card's own `min-width` otherwise wins outright on a
     phone-width screen, running the panel off both edges. `calc(100vw - 2rem)` matches the
-    viewport's own `p-4` gutter (1rem each side), so the clamp lines up with the padding the
-    backdrop already reserves rather than fighting it.
+    viewport's own `p-4` gutter, so the clamp lines up with the padding the backdrop already
+    reserves.
 
     A component class rather than a `WDialog.vue` `<style>` rule, for the same reason `.w-card`
-    lives here: every one of the 19 callers sets its `min-width` as an inline style on the panel's
-    own children, which -- same element, same specificity tier -- would otherwise be free to beat
-    a scoped rule depending on source order. A utility class wins here by @layer order alone.
+    lives here: callers set `min-width` as an inline style on the panel's own children, which would
+    otherwise be free to beat a scoped rule depending on source order.
   */
   .w-dialog-panel {
     max-width: calc(100vw - 2rem);
   }
 
   /*
-    How an image in a `WAvatar` is cropped to the avatar's shape: by taking its radius and filling
-    the box, rather than by the avatar clipping its overflow. Same approach as the avatar this
-    replaces, and the reason is the same -- a clipping avatar would also cut off a floating badge,
-    which is meant to overhang the corner.
+    An image in a `WAvatar` is cropped by taking the avatar's radius and filling the box, not by the
+    avatar clipping its overflow -- a clipping avatar would also cut off a floating badge, which is
+    meant to overhang the corner.
 
-    A DIRECT child only. An `img:`-style icon renders as `<i class="w-icon"><img></i>`, and that
-    inner image is sized by the icon, not by the avatar.
+    A DIRECT child only: an `img:`-style icon renders its `<img>` inside a `.w-icon` wrapper, and
+    that inner image is sized by the icon, not by the avatar.
   */
   .w-avatar > img {
     border-radius: inherit;
@@ -1812,22 +1473,15 @@ body.body--cobalt.body--dark {
     height: 100%;
   }
 
-  /*
-    `<w-avatar identity="...">`: an avatar drawn in the aesthetic's own shape -- `--radius-avatar` is
-    `0` in Ledger and `50%` in Cobalt -- where the default is a disc in both. Opt-in, so the ~25
-    other callers are untouched. `WAvatar` omits its `rounded-*` utility for these, which would
-    otherwise beat this rule by layer order.
-  */
+  /* Works only while `WAvatar` omits its `rounded-*` utility here: a utility beats this by layer. */
   .w-avatar--identity {
     border-radius: var(--radius-avatar);
   }
 
   /*
-    The header's initials mark (`AccountMenu.vue`'s `.account-initials`, a plain span) and an
-    `identity="initials"` avatar (a comment's author) are one design, so they share one rule -- and
-    one Ledger dark-mode override, which is what keeps a comment from showing a slate plate on a
-    dark surface. Layout (size, centring) stays with each owner. `--color-account-avatar-bg` is
-    `--color-slate` in Ledger and the white-text accent tone in Cobalt.
+    The header's initials mark (`AccountMenu.vue`'s `.account-initials`) and an `identity="initials"`
+    avatar are one design, so they share this rule and the Ledger dark override below. Layout (size,
+    centring) stays with each owner.
   */
   .account-initials,
   .w-avatar--initials {
@@ -1847,26 +1501,12 @@ body.body--cobalt.body--dark {
   }
 
   /*
-    A matched search term, wrapped in `<b>`. Used by both `Search.vue`'s full results screen and
-    `HeaderSearch.vue`'s live-preview panel -- the same `<span v-html="item.highlight">` markup the
-    backend's `ts_headline` excerpt produces in both places. Lives here rather than duplicated in each
-    component's own style block, for the same reason `.w-input-control` does: a scoped rule would only
-    ever match the component it was written in.
+    A matched search term, as the backend's `ts_headline` excerpt wraps it. Used by `Search.vue` and
+    `HeaderSearch.vue` alike, so it lives here rather than in either component's scoped style, where
+    a rule would only ever match the one it was written in.
 
-    Cardinal marks a matched term with the accent wash and the accent-on-tint tone, at 600 -- the
-    treatment the design gives it on both screens (`ui-redesign-supplementary/Cardinal Wiki - Search
-    3x.dc.html`: `background:#fdeced; color:#a83f45; font-weight:600`). It replaces a translucent
-    yellow highlighter over an italic excerpt, which was the one place in the app a second accent
-    colour appeared, and the only run of italic body copy outside an empty state.
-
-    The excerpt itself is upright now: the mark is what distinguishes the matched words, and setting
-    the whole line in italic on top of it was a second treatment doing the same job less legibly.
-
-    A DESCENDANT selector, not `> b`. Both call sites render the excerpt as `<span v-html="...">`
-    inside the labelled element, so the `<b>` the backend emits is a grandchild and the child
-    combinator this rule used to carry never matched anything -- the highlight was styled in neither
-    place. Measured in `pages/Search.layout.test.js` rather than asserted as a class name, which is
-    exactly the check that would not have caught it.
+    A DESCENDANT selector, not `> b`: both call sites render the excerpt as `<span v-html>` inside
+    the labelled element, so the `<b>` is a grandchild and a child combinator matches nothing.
   */
   .text-highlight b {
     background-color: var(--color-accent-wash);
@@ -1875,28 +1515,19 @@ body.body--cobalt.body--dark {
     font-weight: 600;
   }
 
-  /*
-    On ink the wash is a deep plum rather than a pale pink, and the accent lightens with it -- the
-    same pairing `--color-accent-wash-dark` is declared for. The light values are ~2:1 there.
-  */
+  /* The light values are ~2:1 on ink, so both halves of the pairing move. */
   body.body--dark .text-highlight b {
     background-color: var(--color-accent-wash-dark);
     color: var(--color-accent-dark);
   }
 
   /*
-    Shared frame for the form controls (WInput, WSelect). Lives here rather than in a component's
-    scoped style because both components use it, and a scoped rule would only match the one it was
-    declared in. The ring itself is an inline box-shadow on each control; this supplies the resting
-    colour and the transition that animates between resting and active.
-  */
-  /*
     Shared frame colours for the form controls (WInput, WSelect). Four states, one pixel each --
     `composables/fieldFrame.js` picks between them and paints the chosen one as an inset ring.
 
     Here rather than in a component's scoped style because both components use it, and a scoped rule
     would only ever match the one it was declared in. As custom properties rather than values in the
-    composable because that is what lets dark mode restate them in CSS instead of the composable
+    composable, because that is what lets dark mode restate them in CSS instead of the composable
     having to know which theme is active.
   */
   .w-input-control {
@@ -1919,31 +1550,12 @@ body.body--cobalt.body--dark {
   }
 
   /*
-    Cobalt's focus/hover ring, OpenProject #3028. The generic mechanism above cycles
-    `--w-input-ring[-hover|-active]` through the neutral slate ramp (`--color-slate-faint` /
-    `--color-slate` in light, `--color-border-dark` / `--color-slate-light` in dark) -- and Cobalt
-    redefines every one of those onto its OWN indigo hue rather than Ledger's warm grey, so a
-    hovered or focused field ends up drawn in one more shade of the same navy family the rest of
-    Cobalt's chrome (sidebar, hairlines, card shadows) already uses. Mathematically the ACTIVE ring
-    still clears WCAG contrast against a plain white/dark-card control face (verified below), but a
-    same-hue-family ring reads as a slightly darker border, not a highlight -- exactly the "no
-    Cobalt-specific override anywhere" gap OpenProject #3028 traced this to. Re-pointing both states
-    at Cobalt's own ACCENT hue (the one color in this palette whose entire job is "this is live/
-    actionable" -- links, `h2`s) makes a focused field visually distinct from its neutral chrome
-    instead of merely darker than it.
-
-    `--color-accent-strong` is reused rather than a new literal: it is already proven at AA (4.5:1)
-    against both a white/paper ground and the raised dark card surface by `cobaltContrast.test.js`'s
-    "link (accent-strong)" rows, which are exactly the two surfaces `.w-input-control`'s own
-    `bg-surface dark:bg-dark-3` can put a field on. `--color-slate-soft` is the hover half-step --
-    still hue-shifted off the neutral ramp, but a lighter tint so hover reads as "reachable" rather
-    than already-focused. It does not clear the 4.5:1 TEXT contrast bar the tests above check (a
-    ring is a UI outline, not text -- WCAG 1.4.11's applicable minimum is 3:1), and clears that
-    comfortably in both aesthetics; see `cobaltContrast.test.js`'s own addition for the figures.
-    `--color-slate-soft` has no Cobalt-dark override of its own, so it is restated explicitly in the
-    dark block below rather than left to resolve through a cross-block specificity tie with the
-    generic dark rule above -- the same reason the pre-existing `--w-input-ring-error` override just
-    below restates its var rather than relying on inheritance.
+    The generic mechanism above cycles the ring through the neutral slate ramp, but Cobalt redefines
+    every rung of that ramp onto its own indigo -- so a focused field passes contrast and still
+    reads as a slightly darker border rather than a highlight. Re-pointing both states at the ACCENT
+    hue, the one colour whose job is "this is live", makes it distinct from its neutral chrome.
+    `cobaltContrast.test.js` proves both values against the two grounds a field can sit on; the
+    hover half-step is a UI outline, not text, so 3:1 is its applicable floor.
   */
   body.body--cobalt .w-input-control {
     --w-input-ring-hover: var(--color-slate-soft);
@@ -1951,18 +1563,13 @@ body.body--cobalt.body--dark {
   }
 
   /*
-    Cobalt dark's own "bad address" mockup swatch (`Primitives Dark 3x - Cobalt.dc.html`) draws its
-    error ring at the same bright value Cobalt light uses, not the lightened value the generic rule
-    above applies for every other dark aesthetic. `--color-accent-fill` isn't restated in the Cobalt
-    dark token block (`body.body--cobalt.body--dark` above), so it still resolves to Cobalt light's
-    `#ff4d5a` here -- this rule just re-points the ring var at it. Higher specificity (4 classes vs.
-    3) than the generic rule above, so it wins regardless of source order. OpenProject #2817, fixing
-    the gap #2773 logged as a frozen-primitive deferral to Feature #2763.
+    Cobalt dark keeps the error ring at the bright value Cobalt light uses, not the lightened value
+    the generic dark rule above applies. `--color-accent-fill` is not restated in the Cobalt dark
+    token block, so re-pointing the ring var at it here resolves back to Cobalt light's own value.
+    Four classes against the generic rule's three, so it wins regardless of source order.
 
-    `--w-input-ring-hover`/`--w-input-ring-active` are restated here too (OpenProject #3028), for the
-    same "own dark card surface" reason as the light block just above -- `--color-accent-strong` and
-    `--color-slate-soft` both resolve to values proven against `--color-dark-3` by
-    `cobaltContrast.test.js`.
+    The hover/active rings are restated for the same reason as the light block above, against this
+    block's own dark card surface.
   */
   body.body--cobalt.body--dark .w-input-control {
     --w-input-ring-hover: var(--color-slate-soft);
@@ -1971,16 +1578,12 @@ body.body--cobalt.body--dark {
   }
 
   /*
-    A rule that stays exactly one device pixel thick under fractional display scaling.
+    A rule that stays exactly one device pixel thick under fractional display scaling. The element
+    keeps its 1px CSS box so layout behaves normally but paints nothing itself; the line is a
+    pseudo-element scaled to `1 / dpr`, since a 1px CSS rule paints 1.5 device pixels at 150%.
 
-    The element keeps its 1px CSS box (so layout and margins behave normally) but paints nothing
-    itself; the line is drawn by a pseudo-element scaled to `1 / dpr`. At 150% scaling that is
-    0.667 CSS px = 1.0 device px. Without it a 1px CSS rule paints 1.5 device pixels there --
-    measured at ~48% more ink than the same rule at 100% -- which is what makes rules look heavier
-    on a scaled display, and makes rules seen at different scales disagree on what "1px" means.
-
-    `--w-dpr` is published by helpers/hairline.js; the fallback of 1 keeps this correct on a
-    non-scaled display even if that never runs.
+    `helpers/hairline.js` publishes `--w-dpr`; the fallback of 1 keeps this correct on a non-scaled
+    display even if that never runs.
   */
   .w-hairline {
     position: relative;
@@ -2008,56 +1611,37 @@ body.body--cobalt.body--dark {
   /*
     Section header: the band that opens a card, a settings group or a side-panel section.
 
-    Cardinal draws it as a tinted strip ruled off underneath -- Roboto Mono, 10px, uppercase, wide
-    tracking, in the chrome slate. The treatment this replaces was a primary-coloured heading over a
-    radial wash with two soft rules trailing off beneath it, which was elevation by another name and
-    read as decoration rather than as structure.
+    Full-bleed through NOT having a margin of its own, which is right for the two commonest holders
+    (a `WCard` and an overlay's content column, neither of which pads). Baking a negative inline
+    margin into the class assumes every caller pads by the same amount, and where one does not the
+    band slides out under the rail beside it and loses its first character -- `--w-section-bleed`
+    below is that cancellation made opt-in and named by the container instead.
 
-    Full-bleed by default through NOT having a margin of its own: it runs edge to edge inside
-    whatever box holds it, which for the two commonest cases -- a `WCard` (no padding of its own) and
-    an overlay's content column -- is exactly right. A negative inline margin baked into the class
-    itself was tried and is wrong: it assumes every caller pads by the same 16px, and where one does
-    not (the profile overlay's section column) the band slides out under the rail beside it and loses
-    its first character. `--w-section-bleed` below is that same cancellation made opt-in and named by
-    the container instead of guessed at by the band.
-
-    The rhythm it opens: a 34px band, then `14px 16px` of body under it. The band's own trailing 14px
-    is the top half of that body inset, so a section that pads itself cancels the band's inset rather
-    than adding to it (`PagePropertiesDialog.vue` is the reference case for that shape).
+    The rhythm it opens: a 34px band, then `14px 16px` of body under it. The band's own trailing
+    margin is the top half of that body inset, so a section that pads itself cancels the band's
+    inset rather than adding to it.
   */
   .w-section-header {
     display: flex;
     align-items: center;
     min-height: 34px;
     /*
-      The inset the band has to bleed back out through, named ONCE by whichever box holds it, and
-      `0px` for the common case of a box that does not pad (a `WCard`, an overlay's content column).
+      The inset the band bleeds back out through, named ONCE by whichever box holds it, so the value
+      lives next to the padding it cancels rather than next to the band. `0px` for the common case
+      of a box that does not pad.
 
-      Every caller that puts a band inside a padded box needs the band to reach that box's edges, and
-      before this each one did the arithmetic itself, in its own spelling -- `-mx-4` here, `margin: 0
-      -16px` there, `margin: -14px -16px 14px` somewhere else -- so the value lived next to the band
-      rather than next to the padding it was cancelling, and drifted the moment either moved. A
-      container setting `--w-section-bleed` says what its own inset is and every band inside it
-      follows, which is the thing a fourth call site can reuse instead of inventing a fourth spelling.
-
-      Inline axis only, deliberately: the design's block and inline insets are not the same number
-      (14 vs 16), so a band that is ALSO the first thing inside a padded box still cancels that box's
-      top padding locally. One property cannot carry both honestly.
+      Inline axis only, deliberately: the design's block and inline insets are not the same number,
+      so a band that is ALSO the first thing inside a padded box still cancels that box's top
+      padding locally. One property cannot carry both honestly.
     */
     margin-inline: calc(-1 * var(--w-section-bleed, 0px));
-    /*
-      14px, not 12px: the design's section rhythm is a 34px band then `14px 16px` of body under it
-      (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`), and the trailing gap is the top half
-      of that body inset. `PagePropertiesDialog` was already hand-writing 14px here, which is what
-      made it the one caller on the rhythm and every other caller 2px off it.
-    */
     margin-block-end: 14px;
     padding: 6px 16px;
     background-color: var(--color-tint);
     /*
-      Ruled on BOTH edges, as the design draws it -- a band with a rule only under it reads as the top
-      of the block below rather than as a marker between two blocks, which is what it is. The one that
-      opens a panel has nothing above it to rule off from, and drops the top rule below.
+      Ruled on BOTH edges: a band with a rule only under it reads as the top of the block below
+      rather than as a marker between two blocks. The band that opens a panel has nothing above it
+      to rule off from, and drops the top rule below.
     */
     border-block: 1px solid var(--color-hairline);
     color: var(--color-slate);
@@ -2079,12 +1663,9 @@ body.body--cobalt.body--dark {
   }
 
   /*
-    Cobalt dark draws this band a rung darker than the generic rule above -- the design's own
-    primitives sheet ("Section header & row" swatch) renders `#0e1540`/`#c9d6ff`, not `--color-dark-2`'s
-    `#1a43bd` -- the value the confirm-dialog title band is drawn in instead (see `WConfirmDialog.vue`'s
-    own comment; the two bands are deliberately different roles, not the same one twice). `--color-
-    dark-3-5`/`-text` name that rung once (OpenProject #2816); this selector's extra `.body--cobalt`
-    class outranks the generic rule above by specificity, so Ledger dark is unaffected.
+    Cobalt dark draws this band a rung darker than the generic rule above -- `--color-dark-2` is the
+    value the confirm-dialog title band takes instead, and the two bands are deliberately different
+    roles. The extra `.body--cobalt` class outranks the generic rule, so Ledger dark is unaffected.
   */
   body.body--cobalt.body--dark .w-section-header {
     background-color: var(--color-dark-3-5);
@@ -2104,15 +1685,13 @@ body.body--cobalt.body--dark {
   }
 
   /*
-    The digit fields of a security code, as `WOtpInput` (OpenProject #3166) renders them -- it ships
-    no `<style>` of its own and takes these class names on each of its boxes. Kept here rather than in
-    the component itself, since a code entry should look the same on the login screen and in the
-    setup dialog; that shared baseline is also what lets `AuthTfaScreens.vue`'s own `:deep()` rules
-    override it for the one screen with a bespoke design.
+    The digit fields of a security code, which `WOtpInput` takes as class names rather than shipping
+    a `<style>` of its own. Here rather than in the component so a code entry looks the same on the
+    login screen and in the setup dialog; that shared baseline is also what lets
+    `AuthTfaScreens.vue`'s `:deep()` rules override it for the one bespoke screen.
 
-    The size has to be stated: the row is a flex row, so a field with no width of its own is stretched
-    to whatever share of the row it lands in -- which in a dialog several hundred pixels wide is a
-    very wide box for one digit.
+    The size has to be stated: the row is a flex row, so a field with no width of its own stretches
+    to whatever share of the row it lands in.
   */
   .otp-input {
     width: 3rem;
@@ -2124,10 +1703,7 @@ body.body--cobalt.body--dark {
     text-align: center;
   }
 
-  /*
-    Centering and wrapping matter on a narrow phone, where six fields inside the login screen's
-    padding would otherwise run past the edge.
-  */
+  /* Wraps on a narrow phone, where six fields inside the login screen's padding run past the edge. */
   .otp-input-container {
     display: flex;
     flex-wrap: wrap;
@@ -2151,16 +1727,15 @@ body.body--cobalt.body--dark {
     outline-color: var(--color-primary);
   }
 
-  /* Filled in, i.e. this digit is entered -- `WOtpInput` adds the class itself. */
   .otp-input.is-complete {
     border-color: var(--color-positive);
   }
 }
 
 /*
-  Quasar's breakpoints differ from Tailwind's defaults, and the templates are written against
-  Quasar's. Overriding rather than extending keeps `sm:`/`md:` meaning what the existing markup
-  assumes -- note Quasar's `sm` starts at 600px, not Tailwind's 640px.
+  The templates are written against these breakpoints, not Tailwind's defaults. Overriding rather
+  than extending keeps `sm:`/`md:` meaning what the existing markup assumes -- `sm` starts at 600px,
+  not Tailwind's 640px.
 */
 @theme {
   --breakpoint-*: initial;
@@ -2171,16 +1746,11 @@ body.body--cobalt.body--dark {
 }
 
 /*
-  Cardinal draws square. Every framed thing in the language -- panels, cards, dialogs, fields,
-  buttons, chips, the avatar plates -- is a hairline rectangle, and a radius anywhere reads as a
-  different design ("hairline borders, blueprint corner marks", and every screen in `ui-redesign/`
-  draws zero radius).
-
-  Zeroed on the SCALE rather than chased through the markup: `rounded`, `rounded-lg` and friends are
-  written in 138 places across the app, and squaring them one by one leaves the next `rounded-md`
-  somebody writes drawing a corner nothing else has. `--radius-full` is deliberately left alone --
-  it is what makes a genuinely circular thing circular (a radio's dot, a spinner, a status light),
-  which is a shape rather than a corner treatment, and the design draws those round too.
+  Cardinal draws square: every framed thing is a hairline rectangle, and a radius anywhere reads as
+  a different design. Zeroed on the SCALE rather than chased through the markup, so the next
+  `rounded-md` somebody writes does not draw a corner nothing else has. `--radius-full` is
+  deliberately left alone -- it is what makes a genuinely circular thing circular (a radio's dot, a
+  spinner, a status light), which is a shape rather than a corner treatment.
 */
 @theme static {
   --radius-xs: 0;
@@ -2195,9 +1765,8 @@ body.body--cobalt.body--dark {
 
 /*
   `rounded` with no suffix takes Tailwind's own literal 0.25rem rather than a `--radius-*` variable,
-  so the scale above cannot reach it -- and it is by far the most-written of them here. In
-  `@layer utilities` so anything more specific in a component still wins, exactly as the generated
-  utility would have.
+  so the scale above cannot reach it. In `@layer utilities` so anything more specific in a component
+  still wins, exactly as the generated utility would have.
 */
 @layer utilities {
   .rounded {

@@ -3,17 +3,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 /**
- * Covers the inline Temporal-polyfill-preload script embedded directly in `index.html` (WP #1838).
- *
- * The script has to live inline and non-module in `index.html` itself to run synchronously during
- * head parsing -- extracting it into an importable module and testing that instead would prove
- * nothing about what actually ships. So this test reads the real file and executes the real script
- * text between its `temporal-polyfill-preload:start`/`:end` markers, in both browser conditions.
+ * The preload script has to live inline and non-module in `index.html` to run synchronously during
+ * head parsing, so extracting it into an importable module and testing that would prove nothing
+ * about what ships. This reads the real file and executes the real script text between its
+ * `temporal-polyfill-preload:start`/`:end` markers.
  */
 
-// -> Vitest runs this file with `root: frontend/` (this file's own directory), so a cwd-relative
-//    path is robust here without needing `import.meta.url`, which this harness does not resolve to
-//    a `file:` URL for a workspace-root test file.
+// -> Vitest runs this file with `root: frontend/`, so a cwd-relative path resolves; this harness
+//    does not give a workspace-root test file a `file:` `import.meta.url` to work from.
 const indexHtmlPath = path.resolve(process.cwd(), 'index.html')
 
 function extractPreloadScript() {
@@ -52,7 +49,6 @@ describe('temporal polyfill preload script (index.html)', () => {
   test('injects a modulepreload link with the placeholder href when Temporal is missing', () => {
     expect(typeof globalThis.Temporal).toBe('undefined')
 
-    // -> Executes the real shipped inline script text extracted above, not a reimplementation of it
     new Function(script)()
 
     const link = document.head.querySelector('link[rel="modulepreload"]')

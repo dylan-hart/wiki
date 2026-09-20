@@ -57,11 +57,6 @@ describe('stripLocalePrefix', () => {
   })
 })
 
-/**
- * The single case-insensitive matcher `stripLocalePrefix` above and `helpers/appShell.ts`'s
- * `resolveAppShellLocale` both delegate to now (OpenProject #1024's consolidation), rather than each
- * keeping its own inlined `.find((code) => code.toLowerCase() === ...)`.
- */
 describe('matchLocaleCode', () => {
   test('returns the canonically-cased match for a differently-cased candidate', () => {
     assert.equal(matchLocaleCode('FR', ['en', 'fr']), 'fr')
@@ -85,11 +80,6 @@ describe('matchLocaleCode', () => {
   })
 })
 
-/**
- * The single source `api/tree.ts`, `api/pages/read.ts` and `models/pages.ts` all delegate to now
- * (OpenProject #1024's consolidation), rather than each keeping its own copy of the same
- * `CARDINAL.sites[siteId]?.config?.locales?.primary ?? 'en'` fallback.
- */
 describe('defaultLocale', () => {
   let wikiHandle: { restore(): void }
 
@@ -123,10 +113,6 @@ describe('defaultLocale', () => {
   })
 })
 
-/**
- * The refusal `models/pages.ts` makes on both the way in (`createPage`) and the way across
- * (`movePage`), written once here rather than as two copies of the same `active ?? [primary]` read.
- */
 describe('assertLocaleActive', () => {
   function withSites<T>(sites: any, fn: () => T): T {
     wikiHandle = installTestWiki({ sites })
@@ -168,10 +154,6 @@ describe('assertLocaleActive', () => {
   })
 })
 
-/**
- * A page path whose first segment is an installed locale code would be swallowed by the URL parser's
- * locale-prefix strip, so `createPage`/`movePage` refuse it outright.
- */
 describe('assertPathNotReservedLocale', () => {
   function withReservedCodes<T>(reserved: string[], fn: () => Promise<T>): Promise<T> {
     wikiHandle = installTestWiki({
@@ -245,8 +227,6 @@ describe('localePrefixRedirectTarget', () => {
   })
 
   test("an unrecognized first segment that looks like a locale code but isn't active redirects", () => {
-    // "de" reads like a locale code, but this site only has en/fr active, so it is just an ordinary
-    // page path that happens to start with something locale-shaped.
     assert.equal(
       localePrefixRedirectTarget('/de/foo', locales({ forcePrefix: true })),
       '/en/de/foo'

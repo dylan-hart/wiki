@@ -3,14 +3,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { COMMENT_EMBED_PROVIDERS } from './commentEmbeds.js'
 
 /*
-  Same reasoning as `helpers/analyticsProviders.test.js`: a real <script src> appended to the document
-  is exactly what production wants, and happy-dom's test-safe default refuses that load rather than
-  silently no-op'ing. `handleDisabledFileLoadingAsSuccess` dispatches `load` instead, which is what
-  lets `mount()`'s own `await` resolve in a test.
+  happy-dom refuses a real <script src> load rather than no-op'ing it, so `mount()`'s own `await`
+  would never resolve. This setting dispatches `load` instead.
 */
 window.happyDOM.settings.handleDisabledFileLoadingAsSuccess = true
 // -> Unlike a <script>, happy-dom does not refuse a <link rel="stylesheet"> fetch by default -- the
-// Artalk CSS load would otherwise be a REAL outbound network request to a host that does not exist.
+// Artalk CSS load would otherwise be a REAL outbound request to a host that does not exist.
 window.happyDOM.settings.disableCSSFileLoading = true
 
 function makeContainer() {
@@ -143,11 +141,9 @@ describe('COMMENT_EMBED_PROVIDERS.artalk', () => {
   it('appends a mount div and loads the self-hosted CSS/JS when Artalk is not already loaded', async () => {
     const container = makeContainer()
 
-    // -> `loadScriptOnce`'s awaited `load` event is happy-dom's refused-load stand-in, which fires
-    //    without actually running the script body -- so `window.Artalk` never becomes real inside a
-    //    test the way it would after a genuine browser load. `mount()` re-checks for it after the
-    //    await and returns quietly rather than calling `.init()` on nothing -- covered here by the
-    //    absence of a thrown error; the `already loaded` test below covers the `.init()` call itself.
+    // -> happy-dom's stand-in `load` event fires without running the script body, so `window.Artalk`
+    //    never becomes real here: this covers `mount()` returning quietly rather than calling
+    //    `.init()` on nothing. The `already loaded` test below covers the `.init()` call itself.
     await COMMENT_EMBED_PROVIDERS.artalk.mount(
       container,
       { server: 'https://artalk.example.com', siteName: 'My Wiki' },

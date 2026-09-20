@@ -4,10 +4,8 @@ import { nextTick, ref } from 'vue'
 import { useToolbarRovingTabindex } from './toolbarRovingTabindex.js'
 
 /**
- * Task/Feature #3350: the WAI-ARIA APG "Toolbar" roving-tabindex behavior backing
- * `EditorMarkdown.vue`'s two toolbars. Built and asserted against plain DOM buttons rather than
- * mounting `WBtn`/`EditorMarkdown` -- the composable itself knows nothing about either, it only
- * queries `containerRef.value` for `.w-btn` elements (by default) and calls `.focus()` on them.
+ * Plain DOM buttons rather than mounted `WBtn`s: the composable only queries `containerRef.value`
+ * for the selector and calls `.focus()`, so it knows nothing about the component.
  */
 function buildToolbar(count, { selector = '.w-btn' } = {}) {
   const container = document.createElement('div')
@@ -73,7 +71,6 @@ describe('useToolbarRovingTabindex', () => {
     const roving = useToolbarRovingTabindex(containerRef, { orientation: 'vertical' })
 
     buttons[0].focus()
-    // -> The horizontal keys do nothing for a vertical toolbar
     roving.onKeydown({ key: 'ArrowRight', preventDefault: () => {} })
     expect(document.activeElement).toBe(buttons[0])
 

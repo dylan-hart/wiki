@@ -1,20 +1,12 @@
 /**
- * The anti-drift guard for `scripts/verify-ci.sh` (OpenProject #2686, under Feature #2601).
- *
  * `verify-ci` claims to run "exactly what CI runs". That claim is the entire value of the command,
- * and it is the kind of claim that rots silently: someone adds a step to `.github/workflows/
- * quality.yml`, nothing anywhere fails, and from that day on a green `verify-ci` means less than it
- * says. So the claim is checked mechanically here -- the workflow is parsed, its gate commands are
- * extracted, and every one of them must appear in the script at the same working directory.
+ * and it rots silently: someone adds a step to `.github/workflows/quality.yml`, nothing anywhere
+ * fails, and from that day on a green `verify-ci` means less than it says. So it is checked
+ * mechanically here -- the workflow is parsed, its gate commands are extracted, and every one of
+ * them must appear in the script at the same working directory.
  *
- * Deliberately NOT asserted here: anything about `.github/workflows/*.yml`'s `node-version:` values
- * matching the image's pin. That cross-check is sibling Task #2685's and belongs in
- * `devcontainerCiParity.test.ts`, beside the rest of the image-parity assertions.
- *
- * Neither `scripts/` nor `.github/` has a test workspace of its own to sit next to, so this lives
- * here as a structural/self-consistency check against repo-root files -- the same category
- * `devcontainerCiParity.test.ts`, `postgres-version-consistency.test.ts` and
- * `devcontainerDatabaseUrl.test.ts` already establish for this directory.
+ * Deliberately NOT asserted: `node-version:` parity with the image's pin, which belongs beside the
+ * rest of the image-parity assertions in `devcontainerCiParity.test.ts`.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -47,18 +39,14 @@ type Command = string
 
 /**
  * Every shell command a job runs AS A GATE, one per line, keyed by the directory it runs in. A
- * `run:` block may be multi-line (`build.yml`'s "Build Assets" is `npm ci` then `npm run build`),
- * and a step with no `working-directory:` runs at the repo root, which the script spells `.`.
- *
- * Continuation lines (a trailing `\`) and shell-script bodies are folded away rather than split:
- * `quality.yml`'s git-cliff install and its boot smoke test are multi-line programs, not lists of
- * commands, and are matched below by their first line alone.
+ * `run:` block may be multi-line, and a step with no `working-directory:` runs at the repo root,
+ * which the script spells `.`. Continuation lines (a trailing `\`) are folded back first, so a
+ * `\`-continued program stays one command rather than becoming several.
  *
  * A `continue-on-error: true` step is skipped, because it is not a gate: it cannot turn the CI run
  * red, so a green `verify-ci` that did not run it still predicts a green CI run, which is the whole
- * claim this file guards. The quarantine lane (OpenProject #2692) is the only such step today, and
- * `verify-ci` does run it -- report-only on both sides, asserted in its own describe below rather
- * than through this list, since a report-only step has no place in a gate-parity comparison.
+ * claim this file guards. The quarantine lane is the only such step, and is asserted in its own
+ * describe below -- a report-only step has no place in a gate-parity comparison.
  */
 function commandsOf(job: { steps: WorkflowStep[] }): Command[] {
   const out: Command[] = []
@@ -76,9 +64,7 @@ function commandsOf(job: { steps: WorkflowStep[] }): Command[] {
 }
 
 /**
- * Every `run_step '<label>' <dir> <command...>` invocation in the script, normalised the same way.
- *
- * The script's header says these must stay one per line and literal, for exactly this reason: a
+ * The script's `run_step` invocations must stay one per line and literal, as its own header says: a
  * command assembled from a variable would be invisible here while still running, which is the
  * failure mode this file exists to prevent rather than to acquire.
  */
@@ -96,9 +82,9 @@ const SCRIPT_COMMANDS = new Set(SCRIPT_STEPS.map((s) => s.command))
 
 /**
  * The commands `quality.yml` runs to PROVISION the runner rather than to gate the code. The parity
- * image installs all three at the same pinned version (see `.devcontainer/Dockerfile`), so the
- * script asserts their presence as a precondition instead of re-running them -- which is checked in
- * its own test below, so that this allowlist cannot quietly become a way to ignore a step.
+ * image installs them at the same pinned version (see `.devcontainer/Dockerfile`), so the script
+ * asserts their presence as a precondition instead of re-running them -- which is checked in its own
+ * test below, so that this allowlist cannot quietly become a way to ignore a step.
  *
  * A NEW provisioning step added to the workflow matches nothing here and fails the first test,
  * which is the intent: somebody then has to decide whether it belongs in the image, in `--install`,
@@ -108,10 +94,9 @@ const PROVISIONED_BY_THE_IMAGE: { matches: RegExp; precondition: RegExp }[] = [
   { matches: /git-cliff/, precondition: /command -v git-cliff/ },
   { matches: /apt-get .*\bpandoc\b/, precondition: /command -v pandoc/ },
   { matches: /playwright install/, precondition: /PLAYWRIGHT_BROWSERS_PATH/ },
-  // OpenProject #3153: the parity image's devcontainer compose file runs a long-lived `minio`
-  // service the same way it runs `db` (see .devcontainer/docker-compose.yml), so verify-ci.sh
-  // checks for S3_TEST_ENDPOINT instead of re-running quality.yml's `docker run`/health-check steps
-  // that stand MinIO up fresh on a CI runner.
+  // The parity image's compose file runs a long-lived `minio` service the same way it runs `db`
+  // (.devcontainer/docker-compose.yml), so verify-ci.sh checks for S3_TEST_ENDPOINT instead of
+  // re-running quality.yml's `docker run`/health-check steps that stand MinIO up on a CI runner.
   { matches: /docker run .*minio/i, precondition: /S3_TEST_ENDPOINT is unset/ },
   { matches: /minio\/health\/ready/, precondition: /S3_TEST_ENDPOINT is unset/ }
 ]
@@ -207,16 +192,15 @@ describe('scripts/verify-ci.sh covers the legs outside the quality gate', () => 
     assert.match(smokeText, /npm ci --omit=dev/)
     assert.match(SCRIPT, /npm ci --omit=dev/)
 
-    // The two failure conditions that job asserts on, reproduced verbatim rather than paraphrased.
+    // The two failure conditions that job asserts on, verbatim rather than paraphrased.
     assert.match(SCRIPT, /ERR_MODULE_NOT_FOUND\|Cannot find \(package\|module\)/)
     assert.match(SCRIPT, /connection failed, retrying/)
   })
 })
 
 describe('scripts/verify-ci.sh’s quarantine lane is report-only', () => {
-  // The #2686 <-> #2692 contract: the lane runs on both sides and fails neither. Report-only on
-  // both sides is what makes verify-ci and quality.yml agree on the pass/fail verdict regardless of
-  // which of the two landed first.
+  // The lane runs on both sides and fails neither: report-only on both is what makes verify-ci and
+  // quality.yml agree on the pass/fail verdict.
   test('it runs npm run test:flaky in all four workspaces', () => {
     const lane = SCRIPT.slice(SCRIPT.indexOf('if [ "$RUN_FLAKY" = \'1\' ]'))
     assert.match(lane, /for workspace in backend frontend blocks e2e/)
@@ -269,9 +253,9 @@ describe('scripts/verify-ci.sh is runnable and states its own bar', () => {
   })
 
   test('it surfaces what did NOT run beside its green verdict', () => {
-    // docs/testing-audit/backend.md's finding: a default `npm run test` silently skips roughly a
-    // fifth of the backend suite. A verification command that prints "green" over that is a weaker
-    // promise than it reads as, so the count is part of the output rather than the scrollback.
+    // A default `npm run test` silently skips a sizable slice of the backend suite, and a command
+    // that prints "green" over that is a weaker promise than it reads as, so the count is part of
+    // the output rather than the scrollback.
     //
     // It counts the reporter's `# SKIP` markers, not its `skipped N` summary line: this codebase
     // skips at the `describe(..., { skip: ... })` level, which node reports as `skipped 0`.

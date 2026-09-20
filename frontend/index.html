@@ -11,21 +11,17 @@
     <title>Cardinal.js</title>
     <!--preload-links-->
     <!-- temporal-polyfill-preload:start
-      Feature-detects native `Temporal` support and, only when it's missing, starts fetching the
-      `temporal-polyfill` chunk in parallel with the eager bundle instead of after it. Without this,
-      `main.js`'s top-level `await initializeTemporal()` only reaches `boot/temporal.js`'s dynamic
-      `import('temporal-polyfill/global')` once the whole eager module graph has already loaded and
-      evaluated, so an affected browser (Safari, as of 2026-08-31 -- see WP #1828) pays a full extra
-      round trip, serialised after the main bundle, before the app can mount. This script only warms
-      the cache that dynamic import then hits; `main.js` and `boot/temporal.js` keep their current
-      logic unchanged.
+      Warms the `temporal-polyfill` chunk in parallel with the eager bundle for a browser lacking
+      native `Temporal`. Without it, `main.js`'s top-level `await initializeTemporal()` reaches
+      `boot/temporal.js`'s dynamic import only once the whole eager module graph has loaded and
+      evaluated, costing an affected browser a full extra serialised round trip before it can mount.
+      The feature detect is load-bearing: a browser with native `Temporal` must receive no link at
+      all, rather than fetch ~20 KB gzipped it will never execute.
 
-      `__TEMPORAL_POLYFILL_HREF__` is a placeholder. The chunk's real filename is content-hashed and
-      only known post-build, so it can't be hand-written here -- the Vite plugin added by WP #1833
-      substitutes this exact token with the real `assets/_assets/global.esm-<hash>.js` path via
-      `transformIndexHtml`. Do not preload unconditionally: browsers with native `Temporal` must
-      receive no such link, which is exactly what the guard below (and #1833 skipping the plugin's
-      own unconditional-preload list for this chunk) ensures.
+      FIXME: nothing substitutes `__TEMPORAL_POLYFILL_HREF__`, so the shipped preload points at the
+      literal placeholder. `src/build/temporalPolyfillChunk.js` only fills the chunk-url placeholder
+      further down, and does so after this script has already run; the href needs to come from
+      `window.__wikiTemporalPolyfillUrl`, which means emitting that assignment above this block.
     -->
     <script>
       if (typeof globalThis.Temporal === 'undefined') {
@@ -37,23 +33,18 @@
     </script>
     <!-- temporal-polyfill-preload:end -->
     <!--
-      Substituted by the `temporalPolyfillChunk` Vite plugin (`src/build/temporalPolyfillChunk.js`)
-      with the real, hashed build URL of the temporal-polyfill 'global.esm' chunk, as an inline
-      script setting `window.__wikiTemporalPolyfillUrl`. This never becomes a
-      `<link rel="modulepreload">` here -- that chunk is deliberately absent from Vite's own
-      modulepreload links, since preloading it for every browser would waste ~20 KB gzipped on
-      browsers with native `Temporal`. It exists only so a feature-detect script can conditionally
-      preload the chunk for browsers that still need it.
+      Substituted by `src/build/temporalPolyfillChunk.js` with an inline script setting
+      `window.__wikiTemporalPolyfillUrl` to the hashed build URL of temporal-polyfill's 'global.esm'
+      chunk. That chunk is deliberately kept out of Vite's own modulepreload links so only a
+      feature-detect script preloads it, for the browsers that actually need it.
     -->
     <!--temporal-polyfill-chunk-url-->
     <!--
-      No webfont is linked statically here any more: which family (if any -- `theme.baseFont` /
-      `theme.contentFont` can both be `'user'`, meaning "no override") is a per-site setting, only
-      known once the site's config has loaded. `helpers/fonts.js`'s `applyFonts()`, called from
-      `App.vue`'s `applyTheme()`, links only the stylesheet(s) actually selected -- self-hosted, from
-      the same `/_assets/fonts/<key>/<key>.css` assets this used to load unconditionally for Roboto
-      alone. Icon data is inlined at build time by scripts/generate-icons.mjs, so there is no icon
-      webfont to load either.
+      No webfont is linked statically: which family applies (if any -- `theme.baseFont` /
+      `theme.contentFont` can both be `'user'`, meaning "no override") is a per-site setting, known
+      only once the site config has loaded, so `helpers/fonts.js`'s `applyFonts()` links the
+      selected self-hosted stylesheets at runtime. Icon data is inlined at build time by
+      `scripts/generate-icons.mjs`, so there is no icon webfont either.
     -->
     <style type="text/css">
       @keyframes initspinner {

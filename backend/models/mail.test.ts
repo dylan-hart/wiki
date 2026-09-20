@@ -13,9 +13,8 @@ import { resetCoalesce } from '../helpers/logCoalesce.ts'
 import { interpolate } from './locales.ts'
 
 /**
- * `mail` builds its nodemailer transport straight from `CARDINAL.config.mail` and never touches the
- * database, so this is a pure unit test: no `test/db.ts` fixture needed, just a stand-in `CARDINAL`
- * global (same convention as `core/config.test.ts` / `api/sites.test.ts`).
+ * `mail` builds its transport from `CARDINAL.config.mail` and never touches the database, so these
+ * tests need only a stand-in `CARDINAL` global rather than the `test/db.ts` fixture.
  */
 
 let previousWiki: any
@@ -23,12 +22,9 @@ const originalGetTransporter = mail.getTransporter.bind(mail)
 const originalSend = mail.send.bind(mail)
 
 /**
- * `mail.ts`'s templates resolve every subject/body through `CARDINAL.models.locales.resolveString` /
- * `resolvePluralString` (#1611/#1623). The real implementation reads the `locales` DB table, which
- * this file deliberately does not stand up (see the file header comment) — instead this stub
- * re-implements the same lookup/fallback/plural-form contract `models/locales.ts` documents,
- * against the real `en.json` on disk plus whatever `catalogues` a test supplies for another
- * "locale", so a template test exercises the actual production `mail.*` string keys rather than a
+ * The real resolver reads the `locales` DB table, so this stub re-implements the same
+ * lookup/fallback/plural-form contract over the real `en.json` on disk plus whatever `catalogues` a
+ * test supplies, letting template tests exercise the production `mail.*` keys rather than a
  * hand-rolled duplicate of them.
  */
 const enStrings = JSON.parse(
@@ -67,11 +63,9 @@ function makeLocalesStub(catalogues: Record<string, Record<string, string>> = {}
   }
 }
 
-/** The default site a `siteId` in these tests resolves to — one non-primary locale (`fr`) active
- *  alongside the primary (`en`), so `sendPageWatchNotification`/`sendPageWatchDigest` have a real
- *  `locales` config to resolve `CARDINAL.sites[siteId]?.config?.locales` against. Its `hostname` is
- *  deliberately distinct from `defaultBaseURL`'s host, so a test asserting on the per-site host
- *  cannot pass by accident from the global fallback leaking through unnoticed. */
+/** One non-primary locale (`fr`) active alongside the primary, so the page-watch sends have a real
+ *  `locales` config to resolve against. The hostname is deliberately distinct from
+ *  `defaultBaseURL`'s, so an assertion on the per-site host cannot pass on the global fallback. */
 const DEFAULT_SITE_ID = 'site-1'
 const DEFAULT_SITES = {
   [DEFAULT_SITE_ID]: {
@@ -107,22 +101,19 @@ after(() => {
 })
 
 beforeEach(() => {
-  // -> Each test starts from an unconfigured transport and the real (un-mocked) methods, so a
-  //    stub installed by one test can't leak into the next.
+  // -> A transport or method stub installed by one test must not leak into the next.
   ;(mail as any).transporter = null
   ;(mail as any).transporterSnapshot = null
   mail.getTransporter = originalGetTransporter
   mail.send = originalSend
-  // -> `helpers/logCoalesce.ts`'s window map and the model's own per-window kind set are both
-  //    module/instance state shared by every case in this file, so a refused send in one test
-  //    would otherwise be counted into the next test's summary.
+  // -> The coalescing window map and the per-window kind set are shared module/instance state, so a
+  //    refused send in one test would otherwise be counted into the next test's summary.
   resetCoalesce()
   ;(mail as any).unconfiguredKinds.clear()
 })
 
 afterEach(() => {
-  // -> `mock.timers.reset()` is a no-op when a test never enabled them, so this is safe for the
-  //    whole file rather than only the coalescing describe.
+  // -> `mock.timers.reset()` is a no-op when a test never enabled them, so it is safe file-wide.
   mock.timers.reset()
   resetCoalesce()
   ;(mail as any).unconfiguredKinds.clear()
@@ -224,8 +215,6 @@ describe('mail.getTransporter', () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     setMailConfig({ host: '' })
     assert.throws(() => mail.getTransporter('digest'), /ERR_MAIL_NOT_CONFIGURED/)
-    // -> The whole point of coalescing: an unconfigured instance refuses EVERY send, so the
-    //    per-attempt line is the noise, not the signal.
     assert.equal((CARDINAL.logger.warn as any).mock.calls.length, 0)
   })
 
@@ -250,8 +239,6 @@ describe('mail.getTransporter', () => {
     mail.getTransporter('test')
     assert.equal((CARDINAL.logger.debug as any).mock.calls.length, 1)
 
-    // -> A live config edit through the admin area rebuilds the transport, and the new settings
-    //    are exactly what an operator diagnosing the edit wants to see.
     CARDINAL.config.mail.port = 587
     mail.getTransporter('test')
     const debugCalls = (CARDINAL.logger.debug as any).mock.calls
@@ -515,8 +502,7 @@ describe('mail.send', () => {
         kind: 'test'
       })
     )
-    // -> `core/logger.ts` renders the message inline and the stack on following lines; handing it a
-    //    string would throw both of those away.
+    // -> `core/logger.ts` renders the message inline and the stack after it; a string throws away both.
     const [, , fields] = (CARDINAL.logger.error as any).mock.calls[0].arguments
     assert.equal(fields.error, err)
   })
@@ -625,9 +611,6 @@ describe('classifyMailError', () => {
   })
 
   test('classifies ETLS as tls, distinct from a plain connection failure', () => {
-    // -> nodemailer reports a rejected (e.g. self-signed) certificate as ETLS whether it happens
-    //    during the initial implicit-TLS handshake or during STARTTLS — either way it calls for
-    //    "check the certificate / Verify SSL Certificate setting", not "check the host and port".
     assert.equal(classifyMailError({ code: 'ETLS' }), 'tls')
   })
 
@@ -853,7 +836,7 @@ describe('mail template senders', () => {
   test('sendForgotPassword includes an expiry notice matching the token TTL', async () => {
     await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
     const msg = sendCalls[0]
-    // -> Matches the 24-hour validUntil set by models/users.ts#generateToken for kind: 'resetPwd'.
+    // -> Matches the 24-hour validUntil set by `models/userCredentials.ts#generateToken`.
     assert.match(msg.text, /24 hours/i)
     assert.match(msg.html, /24 hours/i)
   })
@@ -991,7 +974,6 @@ describe('mail template senders', () => {
     })
     const msg = sendCalls[0]
     assert.match(msg.subject, /deleted/)
-    // -> No field summary to append when nothing changed about the page's content
     assert.doesNotMatch(msg.text, /deleted:/)
     assert.match(msg.text, /\(deleted\)/)
   })
@@ -1038,7 +1020,7 @@ describe('mail template senders', () => {
     assert.doesNotMatch(msg.html, /<script>/)
     assert.doesNotMatch(msg.html, /<img/)
     assert.match(msg.html, /&lt;script&gt;/)
-    // -> The plain-text alternative needs no escaping: it is never parsed as markup
+    // -> The plain-text alternative needs no escaping: it is never parsed as markup.
     assert.match(msg.text, /<script>alert\(1\)<\/script>/)
   })
 
@@ -1169,12 +1151,10 @@ describe('mail template senders', () => {
       assert.match(msg.text, /Page One/)
       assert.match(msg.text, /Page Two/)
       assert.match(msg.text, /Page Three/)
-      // -> Order preserved: "Page One" precedes "Page Two" precedes "Page Three" in the rendered text
       const [i1, i2, i3] = ['Page One', 'Page Two', 'Page Three'].map((needle) =>
         msg.text.indexOf(needle)
       )
       assert.ok(i1 < i2 && i2 < i3)
-      // -> Three distinct <li> lines in the HTML body, one per item
       assert.equal((msg.html.match(/<li>/g) ?? []).length, 3)
     })
 
@@ -1235,10 +1215,6 @@ describe('mail template senders', () => {
   })
 })
 
-/**
- * Task 2481: `sendEventNotification` — the email half of `models/hooks.ts#Hooks.emit()`'s fan-out,
- * deliberately generic across every `HookEvent` since the `data` shape varies by event family.
- */
 describe('mail.sendEventNotification', () => {
   let sendCalls: any[]
 
@@ -1337,13 +1313,6 @@ describe('mail.sendEventNotification', () => {
   })
 })
 
-/**
- * #1611/#1623/#1627: every template subject/body now resolves through
- * `CARDINAL.models.locales.resolveString`/`resolvePluralString` (`mail.*` keys in `en.json`) instead of
- * a hardcoded English template literal. These tests exercise that resolver contract directly —
- * `mail template senders` above already proves the six templates still render usable
- * subjects/bodies against the real production keys.
- */
 describe('mail templates resolve through the locale catalogue', () => {
   let sendCalls: any[]
 
@@ -1425,7 +1394,6 @@ describe('mail templates resolve through the locale catalogue', () => {
     assert.equal(sendCalls[2].subject, enStrings['mail.passwordChanged.subject'])
     assert.equal(sendCalls[3].subject, enStrings['mail.welcomeEmail.subject'])
     assert.equal(sendCalls[4].subject, enStrings['mail.testEmail.subject'])
-    // -> mail.watchAction.updated maps the `updated` action to the verb "edited" for display
     const expectedWatchSubject = enStrings['mail.watchNotification.subject']
       .replace('{label}', enStrings['mail.watchAction.updated'])
       .replace('{title}', 'Getting Started')
@@ -1499,11 +1467,9 @@ describe('mail templates resolve through the locale catalogue', () => {
 })
 
 /**
- * Every `send*` wrapper has to name its own `MailKind` — that is the whole mechanism behind `kind=`
- * on the mail log lines (OpenProject #2675), and a wrapper that forgot to set one would log
- * `kind=undefined` rather than fail anywhere. A table rather than one test per wrapper: the claim is
- * identical for all of them, and a new template added without a `kind` should fail here by omission
- * from this table, not pass by nobody having written its test.
+ * A wrapper that forgets its `MailKind` logs `kind=undefined` rather than failing anywhere, so
+ * nothing but this table catches it — and a new template left out of the table fails the coverage
+ * test at the end rather than passing unnoticed.
  */
 describe('mail send wrappers set their own kind', () => {
   let sendCalls: any[]
@@ -1617,9 +1583,12 @@ describe('mail send wrappers set their own kind', () => {
   }
 
   test('every MailKind but approval is covered by a wrapper above', () => {
-    // -> `approval` is the one kind composed outside this model (`models/approvalNotifications.ts`
-    //    builds its own body and calls `mail.send` directly), so it has no wrapper to table here.
+    // -> `approval` is composed outside this model (`models/approvalNotifications.ts` builds its
+    //    own body and calls `mail.send` directly), so it has no wrapper to table here.
     const covered = new Set(cases.map(([, kind]) => kind))
+    // FIXME: `tfaNewDeviceLogin` has a wrapper (`sendTfaNewDeviceLogin`) yet appears in neither
+    //        `cases` nor this list, so the claim above holds only by omission. Add it to both, and
+    //        pin the list with a `Record<MailKind, true>` literal so a new member cannot be missed.
     const all: MailKind[] = [
       'verify',
       'forgotPassword',

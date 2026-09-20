@@ -2,17 +2,6 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES, swaggerTransform } from './openapi.ts'
 
-/**
- * Regression test for the dead `X-API-Key` / `apiKeyAuth` security scheme.
- *
- * The Swagger doc used to declare two auth options (`apiKeyAuth` reading an `X-API-Key` header, and
- * `bearerAuth`), but the only real auth path — the `onRequest` hook in `index.ts` — has only ever read
- * `Authorization: Bearer <token>` and verified it via `CARDINAL.models.apiKeys.verify()`. Nothing in the
- * codebase reads an `X-API-Key` header, so `apiKeyAuth` documented a credential style that could never
- * authenticate a request: picking it in the Swagger UI Authorize dialog produced requests the server
- * silently ignored (the `onRequest` hook only inspects `req.headers.authorization`), which is worse
- * than not documenting a scheme at all.
- */
 describe('OpenAPI security config', () => {
   test('declares bearerAuth as the sole security scheme', () => {
     assert.deepEqual(Object.keys(OPENAPI_SECURITY_SCHEMES), ['bearerAuth'])
@@ -29,12 +18,6 @@ describe('OpenAPI security config', () => {
   })
 })
 
-/**
- * `@fastify/swagger`'s `transform` was inline in `index.ts` until task A15 lifted it out. It is what
- * turns each route's `config.permissions` declaration into the documented "Required Permissions"
- * line, so it is also the only thing keeping the API docs' permission story in step with what the
- * `preHandler` hook actually enforces — a pure `(schema, route) => schema` with nothing to boot.
- */
 describe('swaggerTransform', () => {
   test('folds a flat permission list into the description as an OR, always adding manage:system', () => {
     const { schema } = swaggerTransform({

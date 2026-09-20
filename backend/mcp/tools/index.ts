@@ -20,28 +20,8 @@ import { registerSideloadLocalesTool } from './sideloadLocales.ts'
 import { registerSideloadIconsTool } from './sideloadIcons.ts'
 
 /**
- * The whole MCP tool surface: read (search, read a page, browse the page tree, list assets, list who
- * watches a page, and the site-discovery helper the others lean on), an actor-authed read
- * (`list_watched_pages` — the caller's own watch list), write (create/update a page, upload an asset,
- * rename an asset, delete an asset), page-watch management (watch/unwatch a page, change a watch's
- * delivery preference), and the diagram renderer (site-independent — it draws from posted source, not
- * from any page). Every tool is registered regardless of what `getCtx()` grants —
- * `create_page`/`update_page`/`upload_asset`/`list_watched_pages` refuse at call time for anything but
- * a personal access token (`pageActorFor()`/`ctx.userId` in `mcp/auth.ts`), `delete_asset` refuses at
- * call time for anything lacking `manage:assets` on the asset's folder, the same way the read tools
- * refuse per page rather than being hidden from a caller who cannot use them. `rename_asset` is the
- * one write tool with no such restriction — see its own doc comment. `watch_page`/`unwatch_page`/
- * `set_page_watch_preference` refuse at call time for anything but a personal access token too, but
- * check `ctx.userId` directly rather than `pageActorFor()` — watch state is an account preference, not
- * a page-rule-gated write (see `watchPage.ts`'s own doc comment). `sideload_locales` and
- * `sideload_icons` are the two system-administration tools here: each a hard `manage:system` gate, no
- * lesser-privilege path — `sideload_locales` mirroring `POST /_api/locales/sideload`'s own route
- * permission, unlike `render_diagram`'s use of that same permission merely to exempt a caller from its
- * rate limit (see `sideloadLocales.ts`'s own doc comment) — and `sideload_icons` wrapping the same
- * `CARDINAL.models.icons.sideloadFromDataPath()` the `POST /_api/icons/sideload` route calls.
- *
- * `getCtx` rather than a plain `McpAuthContext`: see that type's doc comment in `mcp/auth.ts` for why a
- * long-lived HTTP session re-resolves it per request instead of fixing it at session-open time.
+ * Every tool is registered whatever `getCtx()` grants: each refuses at call time instead of being
+ * hidden, so a caller who cannot use one gets a reason rather than a missing tool.
  */
 export function registerAllTools(server: McpServer, getCtx: McpAuthContextGetter): void {
   registerListSitesTool(server, getCtx)

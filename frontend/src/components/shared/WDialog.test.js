@@ -7,12 +7,9 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import tailwindCss from '@/css/tailwind.css?raw'
 
 /*
-  `<w-dialog>` renders its panel through `<teleport to="body">` (see `WDialog.vue`), which is exactly
-  what makes `document.getElementById('app')` -- not some ancestor of the `<w-dialog>` component
-  instance -- the only element `inert` can land on and still work: the panel itself ends up as a
-  sibling of `#app`, not a descendant, once teleported. Stubbing `teleport` (same convention every
-  other `WDialog` consumer test in this workspace uses, e.g. `PageDeleteDialog.test.js`) is fine here
-  because what's under test is the side effect on `document`/`#app`, not the teleported markup itself.
+  The teleport makes the panel a SIBLING of `#app`, not a descendant, which is why `#app` is the only
+  element `inert` can land on and still leave the panel interactive. Stubbing `teleport` is fine
+  here: what is under test is the side effect on `#app`, not the teleported markup.
 */
 function mountDialog(props = {}) {
   return mount(WDialog, {
@@ -72,7 +69,6 @@ describe('WDialog', () => {
 
     await second.setProps({ modelValue: false })
     await flushPromises()
-    // -> First dialog is still open, so the background must stay inert
     expect(appRoot.hasAttribute('inert')).toBe(true)
 
     first.unmount()
@@ -102,7 +98,6 @@ describe('WDialog', () => {
     await flushPromises()
     expect(appRoot.hasAttribute('inert')).toBe(true)
 
-    // -> Unmounted while still open, e.g. a route change or host teardown
     wrapper.unmount()
 
     expect(appRoot.hasAttribute('inert')).toBe(false)
@@ -111,14 +106,8 @@ describe('WDialog', () => {
 })
 
 /**
- * `WDialog` renders behind a `<teleport to="body">`, which lands its content as a real child of
- * `document.body`, outside `@vue/test-utils`'s own tracked tree -- `wrapper.find()` never sees it.
- * Every query below goes through the real DOM instead, via a `DOMWrapper(document.body)`, matching
- * the pattern `ApiKeyCreateDialog.test.js` and `ImportBatchPageDialog.test.js` already established
- * for this component.
- *
- * `WDialog.vue` implements no focus management of its own, so this suite deliberately does not
- * assert on focus restoration -- see the file's own doc comment.
+ * The teleport lands the panel outside `@vue/test-utils`'s tracked tree, so `wrapper.find()` never
+ * sees it; every query below reads the real DOM through a `DOMWrapper(document.body)` instead.
  */
 
 function body() {
@@ -128,9 +117,8 @@ function body() {
 let mountedWrappers = []
 
 afterEach(() => {
-  // -> Unmounts every wrapper this test mounted first: `WDialog` binds its Escape listener on
-  //    `document` itself while open, which a bare `document.body.innerHTML = ''` would leave
-  //    dangling across tests.
+  // -> Unmount first: `WDialog` binds its Escape listener on `document` itself while open, which a
+  //    bare `document.body.innerHTML = ''` would leave dangling across tests
   for (const wrapper of mountedWrappers) {
     wrapper.unmount()
   }
@@ -210,15 +198,9 @@ describe('WDialog interaction', () => {
 })
 
 /**
- * OpenProject #1617: `WDialog` gains `labelledBy`/`ariaLabel` props bound on the `role="dialog"`
- * panel, giving every dialog in the app an accessible name. They must be real props rather than
- * fallthrough attributes -- `WDialog` sets `inheritAttrs: false` and binds `$attrs` on the
- * teleport root (`.w-dialog-root`) so it can carry a caller's `class`, and a bare
- * `aria-labelledby`/`aria-label` attribute would land there instead of on the panel.
- *
- * `WDialog` teleports its content to `document.body`, outside `@vue/test-utils`'s own tracked
- * tree, so assertions read the real DOM through a `DOMWrapper(document.body)` -- the same pattern
- * `ApiKeyCreateDialog.test.js` and `GlossaryTermDialog.test.js` use for this component.
+ * `labelledBy`/`ariaLabel` have to be real props, not fallthrough attributes: `WDialog` binds
+ * `$attrs` on the teleport root so it can carry a caller's `class`, so a bare `aria-labelledby`
+ * would name that wrapper instead of the `role="dialog"` panel.
  */
 describe('WDialog accessible name', () => {
   afterEach(() => {
@@ -287,22 +269,14 @@ function dispatchTab({ shiftKey = false } = {}) {
   )
 }
 
+/*
+  Real (unstubbed) teleport throughout, so `document.activeElement` reads the way a browser's would.
+*/
 /**
- * OpenProject #1608: `WDialog` traps and places focus itself -- capturing the trigger on open,
- * moving focus into the panel (or onto the panel, `tabindex="-1"`, when it has nothing tabbable),
- * cycling Tab/Shift+Tab at the panel's ends, restoring the trigger on close/unmount, and letting only
- * the topmost of several stacked dialogs trap. Real (unstubbed) `teleport` throughout, so assertions
- * read `document.activeElement` the way a browser actually would.
- */
-/**
- * Opens a `WDialog` the way every real caller does -- mounted closed, then flipped open by a
- * reactive prop change (a `v-model` toggle, or `useDialogComponent()`'s own post-mount tick) -- never
- * mounted with `modelValue: true` from the very first render. This isn't just fidelity to real usage:
- * `flush: 'post'`'s *immediate* invocation runs before Vue's own template-ref assignment (both are
- * queued post-render, but the watcher's is registered earlier, at `<script setup>` evaluation, than
- * the ref's, which is only registered once the panel's `v-if` actually patches in) but its *reactive*
- * invocations -- triggered by a real prop change after mount -- run through the ordinary effect
- * ordering where the ref is already live, exactly like every real dialog open.
+ * Mounted closed, then flipped open by a prop change, never mounted with `modelValue: true`: the
+ * open watcher's `flush: 'post'` IMMEDIATE invocation runs before Vue assigns the panel's template
+ * ref (the watcher is registered earlier, at `<script setup>` evaluation), while its reactive
+ * invocations run once the ref is live -- which is what every real dialog open does.
  */
 async function openDialog(props = {}, slots = {}) {
   const wrapper = mount(WDialog, { props: { modelValue: false, ...props }, slots })
@@ -383,7 +357,6 @@ describe('WDialog focus management', () => {
 
     const wrapper = await openDialog({}, { default: '<button id="first">First</button>' })
 
-    // -> Unmounted while still open, e.g. a route change or host teardown
     wrapper.unmount()
 
     expect(document.activeElement).toBe(trigger)
@@ -406,18 +379,15 @@ describe('WDialog focus management', () => {
       }
     )
 
-    // -> The dialog opened on top starts with initial focus
     expect(document.activeElement?.id).toBe('inner-first')
 
     document.getElementById('inner-last').focus()
     dispatchTab()
-    // -> The topmost (inner) dialog traps: wraps back to its own first control
     expect(document.activeElement?.id).toBe('inner-first')
 
-    // -> The outer panel is not `inert` (only `#app` is, and the teleported panel sits outside it),
-    //    so it can still take real focus -- but Tab pressed there is handled by the topmost (inner)
-    //    dialog's own listener, which finds focus outside its panel and pulls it back in rather than
-    //    leaving it free to wrap within the (non-topmost) outer dialog
+    // -> The outer panel can still take real focus (only `#app` is `inert`, and a teleported panel
+    //    sits outside it), but Tab there is handled by the topmost dialog, which pulls focus back
+    //    into its own panel rather than letting it wrap within the outer one
     document.getElementById('outer-last').focus()
     dispatchTab()
     expect(document.activeElement?.id).toBe('inner-first')
@@ -441,8 +411,7 @@ describe('WDialog focus management', () => {
     })
 
     mount(AutofocusHost)
-    // -> Mirrors `useDialogComponent()`'s own timing: mount -> tick (dialogVisible = true) -> tick
-    //    (autofocus target focused)
+    // -> `useDialogComponent()`'s timing: mount -> tick (visible) -> tick (autofocus target focused)
     await flushPromises()
     await nextTick()
     await nextTick()
@@ -452,22 +421,14 @@ describe('WDialog focus management', () => {
 })
 
 /**
- * OpenProject #1708: the scroll-lock watcher runs `{ immediate: true }` so it fires once at mount
- * for EVERY instance, including one that mounts already closed (`modelValue` defaults to `false`).
- * The immediate run took the else-branch -- the release path -- decrementing the shared
- * `wDialogDepth` counter and clearing `document.body.style.overflow` even though this instance
- * never incremented it. That is exactly what happens when `PagePropertiesDialog`'s two inline,
- * closed-by-default `<w-dialog>`s mount inside `SideDialog`'s already-open panel: each one takes
- * the shared depth from 1 to 0 and unlocks the page behind a dialog that is still on screen.
- *
- * The fix tracks a component-local `hasLocked` flag, set only by the watcher's open branch, so the
- * release path (both the watcher's else-branch and `onBeforeUnmount`) can only ever hand back a
- * lock this instance actually took.
+ * The lock is a depth counter shared by every instance, and the scroll-lock watcher is
+ * `{ immediate: true }`, so it fires at mount even for a dialog that mounts closed. The failure
+ * mode guarded here: such an instance releasing a lock it never took, unlocking the page behind a
+ * dialog still on screen.
  */
 
 afterEach(() => {
-  // -> The lock state lives on `document.body`, shared across every WDialog instance -- reset it
-  //    between tests so one test's leftover depth/overflow can't leak into the next.
+  // -> Lock state lives on `document.body`, so it leaks between tests unless reset
   delete document.body.dataset.wDialogDepth
   document.body.style.overflow = ''
 })
@@ -490,8 +451,6 @@ describe('WDialog scroll-lock reference counting', () => {
   })
 
   it('keeps the lock held while a second, closed dialog mounts on top (the SideDialog shape)', async () => {
-    // -> Simulates SideDialog: the panel host dialog is already open (depth 1) before
-    //    PagePropertiesDialog's own closed-by-default inline dialogs mount inside it.
     const outer = mount(WDialog, { props: { modelValue: true } })
     expect(document.body.dataset.wDialogDepth).toBe('1')
 
@@ -513,9 +472,6 @@ describe('WDialog scroll-lock reference counting', () => {
     expect(document.body.dataset.wDialogDepth).toBe('0')
     expect(document.body.style.overflow).toBe('')
 
-    // -> A stray extra `false` (no state change) must not decrement past zero via `hasLocked`
-    //    already being cleared -- Math.max(0, ...) already guarded the arithmetic, but the flag is
-    //    what stops the release branch from running again at all.
     await wrapper.setProps({ modelValue: false })
     expect(document.body.dataset.wDialogDepth).toBe('0')
   })
@@ -556,26 +512,19 @@ describe('WDialog scroll-lock reference counting', () => {
 
 describe('WDialog', () => {
   /**
-   * OpenProject #2106: the panel's own clamp lives in `tailwind.css` (a `.w-dialog-panel` component
-   * class, not a scoped rule in this SFC -- see the comment on it), because every one of the 19
-   * dialog cards sets `min-width` as an inline style on the panel's child, which would otherwise beat
-   * a scoped rule at the same specificity tier depending on source order. Asserted against the
-   * stylesheet source directly, since that inline style wins the CASCADE in jsdom/happy-dom the same
-   * way it would in a real layout -- the clamp only actually holds because it comes from a different
-   * property (`max-width` vs. the child's `min-width`) on a different element (the panel vs. its
-   * slotted child), not because one rule beats the other.
+   * Asserted against the stylesheet source because the clamp holds by being a different property on
+   * a different element than the dialog cards' inline `min-width`, not by winning the cascade --
+   * nothing a computed style in this environment could show.
    */
   it('clamps .w-dialog-panel to the viewport width, matching the p-4 gutter', () => {
     expect(tailwindCss).toMatch(/\.w-dialog-panel\s*\{[^}]*max-width:\s*calc\(100vw - 2rem\)/)
   })
 
   /**
-   * A wide inner card (e.g. `WebhookEditDialog`'s 850px `min-width`) still overflows the clamped
-   * panel on a narrow viewport -- the clamp caps the panel, not the child asking for more room
-   * inside it. Plain `justify-center` would center that overflow too, pushing the panel's start
-   * edge off both sides of the screen with no way to scroll back to it. `justify-center-safe` falls
-   * back to start-alignment exactly when the content overflows, which is what keeps the start edge
-   * reachable through the viewport's own `overflow-auto`.
+   * A wide inner card still overflows the clamped panel on a narrow viewport, since the clamp caps
+   * the panel and not the child asking for room inside it. Plain `justify-center` would centre that
+   * overflow, pushing the start edge off screen with no way to scroll back to it;
+   * `justify-center-safe` falls back to start-alignment exactly when content overflows.
    */
   it('centers the standard viewport with safe alignment, not plain centering', () => {
     const wrapper = mount(WDialog, {
@@ -602,13 +551,6 @@ describe('WDialog', () => {
   })
 })
 
-/**
- * OpenProject #2812: the panel's corner radius tracks `--radius-dialog` (`rounded-dialog` /
- * `rounded-t-dialog`, published by `tailwind.css`'s `@theme static` block -- 0 under Ledger, 12px
- * under Cobalt) rather than Tailwind's fixed `rounded-lg` scale rung, which used to hardcode a
- * radius no aesthetic asked for and contradicted Ledger's own `--radius-dialog: 0`. Asserted per
- * `position`, since each takes a different corner treatment (see `panelClasses`).
- */
 describe('WDialog corner radius', () => {
   it('rounds all corners with rounded-dialog for the standard position', () => {
     const wrapper = mount(WDialog, {
@@ -646,14 +588,11 @@ describe('WDialog corner radius', () => {
 })
 
 /**
- * OpenProject #2941: `.w-dialog-viewport` is `fixed inset-0`, so any horizontal overflow it picks
- * up reads as a page-wide horizontal scrollbar -- which is what the right-slide enter/leave
- * transition's transient `translateX(32px)` used to trigger for the ~0.2s it ran, back when this
- * element carried `overflow-auto` on both axes. Split into `overflow-x-hidden` (the viewport never
- * legitimately needs horizontal scroll -- `.w-dialog-panel`'s `max-width` clamp already keeps it
- * from ever growing wider than the viewport) + `overflow-y-auto` (still needed for dialog content
- * taller than the screen), permanently, for every position -- not just `right`, where the bug was
- * observed.
+ * `.w-dialog-viewport` is `fixed inset-0`, so any horizontal overflow it takes reads as a page-wide
+ * horizontal scrollbar -- which the right-slide transition's transient `translateX` causes under a
+ * plain `overflow-auto`. The panel's `max-width` clamp means the viewport never legitimately needs
+ * horizontal scroll, so the axes are split, for every position rather than only the one that showed
+ * it.
  */
 describe('WDialog viewport overflow', () => {
   it.each(['standard', 'right', 'bottom'])(
@@ -673,17 +612,9 @@ describe('WDialog viewport overflow', () => {
 })
 
 /**
- * `width`/`height` (OpenProject #2543 follow-up): a caller wanting something between "fits its
- * content" and `fullWidth`/`fullHeight`'s edge-to-edge panel -- `MainOverlayDialog.vue`'s Profile and
- * Inbox entries, sized at roughly half the viewport instead of full-screen.
- *
- * Plain pixel values here, deliberately not the real `clamp(...)` values `MainOverlayDialog.vue`
- * actually passes: jsdom's `cssstyle` package does not parse the modern `clamp()` CSS function, so a
- * `:style` binding carrying it is silently dropped rather than rendered -- a jsdom limitation, not a
- * bug in `panelStyle`, and real browsers apply it correctly. What's under test here is the prop
- * plumbing and precedence, not `clamp()` support, so the values themselves don't matter; the exact
- * `clamp(...)` constants are instead checked against `MainOverlayDialog.vue`'s own source text in
- * `MainOverlayDialog.test.js`.
+ * Plain pixel values rather than the `clamp(...)` real callers pass: jsdom's `cssstyle` cannot parse
+ * `clamp()` and silently drops the whole `:style` binding. What is under test is the prop plumbing
+ * and precedence, so the values themselves do not matter.
  */
 describe('WDialog width/height', () => {
   it('applies width and height as inline panel styles when full-width/full-height are unset', () => {
@@ -734,13 +665,9 @@ describe('WDialog width/height', () => {
 })
 
 /**
- * OpenProject #2370: `WDialog`'s Escape handler used to listen on `document` in the CAPTURE phase,
- * which fires before a nested `WMenu` dropdown's own (bubble-phase, #2364) handler ever gets a turn
- * -- so pressing Escape to close just the dropdown closed the whole dialog instead, discarding an
- * in-progress form (`UserCreateDialog.vue`'s Groups multi-select was the reproduction). Both
- * `WDialog` and `WMenu` teleport to `document.body`, so real (unstubbed) teleport is used throughout,
- * the same as the "WDialog interaction" suite above -- what is under test is genuine DOM event order,
- * which a stubbed teleport wouldn't exercise.
+ * Escape must reach a nested `WMenu` dropdown before the dialog, or closing the dropdown discards
+ * the in-progress form behind it. Real (unstubbed) teleport throughout, since what is under test is
+ * genuine DOM event order, which a stubbed teleport would not exercise.
  */
 describe('WDialog + nested WMenu Escape', () => {
   afterEach(() => {
@@ -754,8 +681,8 @@ describe('WDialog + nested WMenu Escape', () => {
       props: { modelValue: true, ...dialogProps },
       attachTo: document.body,
       slots: {
-        // -> Mirrors WMenu.test.js's own Host: a real, natively-focusable <button> wraps <w-menu>,
-        //    since WMenu resolves its trigger by climbing from its placeholder span's parent.
+        // -> A real, natively-focusable button has to wrap `<w-menu>`: it resolves its trigger by
+        //    climbing from its placeholder span's parent
         default: `
           <button id="menu-trigger" type="button">
             Open menu
@@ -809,8 +736,8 @@ describe('WDialog + nested WMenu Escape', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
 
-    // -> The persistent dialog declines Escape outright rather than consuming it, so the menu
-    //    underneath it on the stack still gets a turn
+    // -> A persistent dialog declines Escape rather than consuming it, so the menu below it on the
+    //    stack still gets a turn
     expect(document.querySelector('.w-menu')).toBeNull()
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
 
@@ -818,11 +745,8 @@ describe('WDialog + nested WMenu Escape', () => {
   })
 
   /**
-   * Not this WP's reported bug, but the same code path: moving Escape onto the shared LIFO stack
-   * means the topmost (most recently opened) of two stacked, non-persistent dialogs now closes
-   * first -- matching every other "topmost wins" convention in this file (Tab-trapping, initial
-   * focus) rather than the old capture-phase registration-order behaviour, which closed whichever
-   * dialog had opened FIRST.
+   * Escape goes through the shared LIFO stack, so the most recently opened dialog closes first --
+   * the same "topmost wins" rule Tab-trapping and initial focus follow, not registration order.
    */
   it('closes only the topmost of two stacked, non-persistent dialogs on Escape', async () => {
     const outer = mount(WDialog, { props: { modelValue: true }, attachTo: document.body })

@@ -7,9 +7,6 @@ import { classifyMailError } from '../models/mail.ts'
  */
 const PASSWORD_MASK = '********'
 
-/**
- * Mail settings, stored as the `mail` key of the settings table.
- */
 const MAIL_CONFIG_KEYS = [
   'senderName',
   'senderEmail',
@@ -27,13 +24,7 @@ const MAIL_CONFIG_KEYS = [
   'dkimPrivateKey'
 ] as const
 
-/**
- * Mail API Routes
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * GET MAIL CONFIG
-   */
   app.get(
     '/config',
     {
@@ -63,9 +54,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE MAIL CONFIG
-   */
   app.put<{
     Body: {
       senderName?: string
@@ -127,12 +115,10 @@ async function routes(app: FastifyInstance) {
         patch.defaultBaseURL = patch.defaultBaseURL.replace(/\/+$/, '')
       }
 
-      // -> The client only ever receives a masked password, so an unchanged one must not be stored
       if (patch.pass === PASSWORD_MASK) {
         delete patch.pass
       }
 
-      // -> Same masking contract for the DKIM private key: an unchanged mask must not overwrite it
       if (patch.dkimPrivateKey === PASSWORD_MASK) {
         delete patch.dkimPrivateKey
       }
@@ -152,9 +138,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SEND TEST EMAIL
-   */
   app.post<{
     Body: {
       recipientEmail: string

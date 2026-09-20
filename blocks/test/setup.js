@@ -1,14 +1,11 @@
 /*
-  jsdom 30 (this workspace's pinned version) implements the `CSSStyleSheet` constructor but not
-  `Document.prototype.adoptedStyleSheets` -- `'adoptedStyleSheets' in document` is `false`, so any
-  module that reads or assigns it throws `TypeError` at import time, before a single test runs.
-  `block-katex/component.js` does exactly that at module scope (it hoists KaTeX's `@font-face` rules
-  onto the document once, for every formula on the page to share -- see the comment above
-  `fontSheet` there), so without this shim no test can even import that block.
+  jsdom implements the `CSSStyleSheet` constructor but not `Document.prototype.adoptedStyleSheets`,
+  so any module that reads or assigns it throws `TypeError` at import time, before a single test
+  runs. `block-katex/component.js` does exactly that at module scope, so without this shim no test
+  can even import that block.
 
   A plain mutable data property is enough for how the real code uses it -- read the current array,
-  spread it into a new one, reassign -- nothing here needs the live/observable semantics of the real
-  spec type.
+  spread it into a new one, reassign -- nothing here needs the live semantics of the spec type.
 */
 if (!('adoptedStyleSheets' in document)) {
   Object.defineProperty(document, 'adoptedStyleSheets', {
@@ -19,12 +16,9 @@ if (!('adoptedStyleSheets' in document)) {
 }
 
 /*
-  `Temporal` is native from Node 26 (this repo's engine requirement) but this sandbox runs Node
-  25.9, same caveat `frontend/test/setup.js` documents for the same reason. `block-countdown` is the
-  one block that touches it at runtime, relying in production on `frontend/src/boot/temporal.js`
-  having already polyfilled `window.Temporal` before any block loads -- which a block's own test has
-  no such boot sequence to inherit, so it is polyfilled here the identical way. A no-op on a real
-  Node 26 runtime.
+  `block-countdown` relies in production on `frontend/src/boot/temporal.js` having polyfilled
+  `window.Temporal` before any block loads; a block's own test has no such boot sequence to inherit,
+  so a runtime without native `Temporal` is polyfilled here the identical way. A no-op on Node 26+.
 */
 if (typeof Temporal === 'undefined') {
   const { Temporal } = await import('temporal-polyfill')

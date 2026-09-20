@@ -12,11 +12,10 @@ import type { PageActor, PageInput } from './pages.ts'
 import type { GroupRule } from './groups.ts'
 
 /**
- * Task 534: `listPendingForDigest` and `markManyDelivered`, the two new queries the digest job reads
- * and writes through. DB-backed rather than mocked because the interesting behavior here is genuinely
- * SQL: filtering pending `digest`-mode rows out from pending `immediate`-mode ones (a stubbed query
- * builder would only prove the stub returns what it was told to), and a bulk `UPDATE ... WHERE id IN
- * (...)` actually touching every id passed and no others.
+ * DB-backed rather than mocked because the interesting behavior is genuinely SQL: filtering pending
+ * `digest`-mode rows out from pending `immediate`-mode ones, and a bulk `UPDATE ... WHERE id IN
+ * (...)` touching every id passed and no others. A stubbed query builder would only prove the stub
+ * returns what it was told to.
  */
 describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -193,9 +192,8 @@ describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase(
   })
 
   test('listPendingForDigest is bounded even when the pending backlog is larger', async () => {
-    // -> One over `DIGEST_PENDING_LIMIT` is enough to prove the cap; bulk-insert both the users and
-    //    the events (one statement each) rather than one row at a time, so this stays a fast test
-    //    despite the row count.
+    // -> One over `DIGEST_PENDING_LIMIT` proves the cap; bulk-insert the users and the events (one
+    //    statement each) so the row count stays cheap.
     const overLimitCount = DIGEST_PENDING_LIMIT + 1
     const userRows = await fixtures.db
       .insert(usersTable)
@@ -234,9 +232,9 @@ describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase(
 })
 
 /**
- * Task 535: the in-app inbox's own queries — `listForUser`, `markRead`, `unreadCount`. DB-backed for
- * the same reason as the digest queries above: what matters is genuinely SQL (the partial-unread
- * filter, the site scoping, an `UPDATE ... WHERE` that is both idempotent and ownership-checked).
+ * DB-backed for the same reason as the digest queries above: what matters is genuinely SQL — the
+ * partial-unread filter, the site scoping, an `UPDATE ... WHERE` that is both idempotent and
+ * ownership-checked.
  */
 describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -276,10 +274,9 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
       .returning({ id: sitesTable.id })
     otherSiteId = otherSite!.id
 
-    // -> Every `makeUser()` below is put in the fixture group, granted a blanket `read:pages` ALLOW
-    //    -- OpenProject #2173's read-time re-check in `listForUser` needs each of these ordinary
-    //    (non-`manage:system`) readers to actually hold `read:pages` on the fixture page, the same
-    //    way a real inbox reader would need to.
+    // -> Every `makeUser()` below lands in the fixture group with a blanket `read:pages` ALLOW:
+    //    `listForUser`'s read-time re-check needs these ordinary (non-`manage:system`) readers to
+    //    really hold `read:pages` on the fixture page, the same way a real inbox reader would.
     await fixtures.db
       .update(groupsTable)
       .set({
@@ -346,7 +343,6 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         notifyMode: 'immediate'
       }
     ])
-    // -> Already read: must not surface in the unread inbox.
     const [read] = await pageWatchEventsModel.recordMany([
       {
         siteId,
@@ -362,7 +358,6 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
       }
     ])
     await pageWatchEventsModel.markRead(read!.id, userId)
-    // -> Another user's row: must not leak across users.
     const otherUserId = await makeUser('inbox-other-user@example.com')
     await pageWatchEventsModel.recordMany([
       {
@@ -378,7 +373,6 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         notifyMode: 'digest'
       }
     ])
-    // -> Same user, other site: must not leak across sites.
     await pageWatchEventsModel.recordMany([
       {
         siteId: otherSiteId,
@@ -421,14 +415,11 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
       }
     ])
 
-    // -> Sanity: readable right after recording, same as any other unread row.
     assert.ok(
       (await pageWatchEventsModel.listForUser(userId, siteId)).some((r) => r.id === row!.id)
     )
 
-    // -> Narrow the blanket ALLOW with a DENY on this specific page -- the permission change happens
-    //    AFTER the event was already recorded, which is exactly the gap #2173 closes: recording is not
-    //    re-checked at read time under the old code, only at subscribe time.
+    // -> The DENY lands after the event was already recorded: read time is the only re-check.
     await fixtures.db
       .update(groupsTable)
       .set({
@@ -509,8 +500,6 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     const rows = await pageWatchEventsModel.listForUser(userId, siteId)
     assert.ok(!rows.some((r) => r.id === row!.id))
 
-    // -> Marking an already-read row again is a no-op, not a failure — same idempotency shape as
-    //    `unwatch`/`watch` elsewhere in this feature.
     const secondResult = await pageWatchEventsModel.markRead(row!.id, userId)
     assert.equal(secondResult, true)
   })
@@ -536,7 +525,6 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     const result = await pageWatchEventsModel.markRead(row!.id, strangerId)
     assert.equal(result, false)
 
-    // -> Untouched: the owner can still read and later mark it themselves.
     const rows = await pageWatchEventsModel.listForUser(ownerId, siteId)
     assert.ok(rows.some((r) => r.id === row!.id))
   })
@@ -589,13 +577,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     assert.equal(count, 2)
   })
 
-  /**
-   * OpenProject #3203: `pageId` is now a real foreign key, `set null` on delete (`db/schema.ts`'s own
-   * comment on this table). Deleting the page a recorded row points at must not delete the row itself
-   * — only unlink it — and `listForUser`'s read-time re-check must keep working off the row's own
-   * captured `pagePath`/`pageLocale` once `pageId` goes null, the same fallback it already used for a
-   * page it merely couldn't find a live row for.
-   */
+  /** `pageId` is an `on delete set null` foreign key, so deleting the page unlinks the row. */
   test('a row survives its page being deleted, with pageId nulled and pagePath still driving the read:pages re-check', async () => {
     const userId = await makeUser('inbox-page-deleted@example.com')
     const deletablePage = await pagesModel.createPage(

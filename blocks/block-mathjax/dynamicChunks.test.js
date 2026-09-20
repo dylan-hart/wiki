@@ -6,15 +6,9 @@ import { describe, expect, it } from 'vitest'
 import { DYNAMIC_CHUNKS } from './dynamicChunks.js'
 
 /*
-  The installed package's own `svg/dynamic/` directory, not a copy of its file list -- so this fails
-  the moment `dynamicChunks.js`'s hand-maintained map drifts from what `@mathjax/mathjax-newcm-font`
-  actually ships (a version bump adding, removing or renaming a range), the same shape of guard
-  `rolldown.config.mjs`'s `blocksManifest()` runs against block directories.
-
-  `new URL(import.meta.url)` first, rather than handing the string straight to the second `new URL()`
-  as its base: jsdom's `URL` (this suite's `environment: 'jsdom'`) silently resolves a plain-string
-  `file:` base against its own default document URL instead of the string given, producing an
-  `http://localhost:3000/...` result with no error -- passing an actual URL instance avoids it.
+  `new URL(import.meta.url)` rather than the bare string as the base: jsdom's `URL` silently resolves
+  a plain-string `file:` base against its own document URL instead, producing an
+  `http://localhost:3000/...` result with no error. A URL instance avoids it.
 */
 const DYNAMIC_DIR = fileURLToPath(
   new URL('../node_modules/@mathjax/mathjax-newcm-font/mjs/svg/dynamic/', new URL(import.meta.url))

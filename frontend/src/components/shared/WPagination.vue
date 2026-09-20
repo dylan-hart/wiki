@@ -45,54 +45,39 @@
 import { computed } from 'vue'
 import { useDictText } from '@/composables/i18nText'
 
-/**
- * Page selector.
- *
- * Shows a sliding window of at most `maxPages` buttons around the current page, with the first and
- * last always present when `boundaryNumbers` is set and an ellipsis wherever the run is broken.
- */
 const props = defineProps({
-  /** Current page, 1-based. */
   modelValue: {
     type: Number,
     default: 1
   },
-  /** Total number of pages. */
   max: {
     type: Number,
     required: true
   },
-  /** Most numbered buttons to show at once. */
   maxPages: {
     type: Number,
     default: 7
   },
-  /** Always show the first and last page. */
   boundaryNumbers: {
     type: Boolean,
     default: false
   },
-  /** Show previous/next arrows. */
   directionLinks: {
     type: Boolean,
     default: false
   },
-  /** Falls back to the `common.pagination.ariaLabel` dictionary entry when not given. */
   ariaLabel: {
     type: String,
     default: null
   },
-  /** Falls back to `common.pagination.page`. */
   pageLabel: {
     type: String,
     default: null
   },
-  /** Falls back to `common.pagination.previousPage`. */
   prevLabel: {
     type: String,
     default: null
   },
-  /** Falls back to `common.pagination.nextPage`. */
   nextLabel: {
     type: String,
     default: null
@@ -115,7 +100,7 @@ const resolvedNextLabel = computed(
   () => props.nextLabel ?? dictText('common.pagination.nextPage', 'Next page')
 )
 
-/** Sentinel for an elided run; not a page number, so it cannot collide with one. */
+/** A Symbol so it cannot collide with a page number. */
 const GAP = Symbol('gap')
 
 const pages = computed(() => {
@@ -124,7 +109,6 @@ const pages = computed(() => {
     return Array.from({ length: max }, (_, i) => i + 1)
   }
 
-  // -> Centre the window on the current page, then clamp it to the ends
   const half = Math.floor(maxPages / 2)
   let start = Math.max(1, modelValue - half)
   let end = Math.min(max, start + maxPages - 1)

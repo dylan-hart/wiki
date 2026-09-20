@@ -35,11 +35,6 @@
         </w-btn>
       </div>
     </div>
-    <!--
-      An auto-fit track of 230px cards, which is what the design draws: a 12-column split
-      stretched each card to a quarter of the window, so on a wide screen eight counters sat in
-      eight very wide boxes with a number floating in the middle of each.
-    -->
     <div class="admin-dashboard-grid">
       <w-card>
         <w-card-section class="admin-dashboard-card">
@@ -166,14 +161,6 @@
           <w-icon :name="versionCard.icon" :color="versionCard.color" />
           <div>
             <strong>{{ t(`admin.dashboard.wikiVersion`) }}</strong>
-            <!--
-              A STATUS LINE, not a counter figure -- OpenProject #2983, `ui-iteration-cobalt-
-              typography/cobalt-typography.md` §3 "Admin": "Status line 'Up to date'" is its own
-              typographic role (500 14px sans), distinct from "Counter small numeral" (700 26px
-              display) even though both happen to render inside a `<small>` here. The `--positive`
-              modifier only fires for the exact state the mockup draws colour for; `.pending`'s own
-              amber treatment (below) is untouched and still wins for the "checking" state.
-            -->
             <small
               class="admin-dashboard-status"
               :class="{
@@ -268,21 +255,14 @@
         </w-card-actions>
       </w-card>
       <w-card class="admin-dashboard-logins">
-        <!--
-          A banded section marker, the same one every framed list in the language opens with -- the
-          tinted strip, the mono overline and a hairline under it. It used to be a plain white row
-          with an icon and a bold label, which read as a first list item rather than as the panel's
-          own head.
-        -->
         <div class="admin-dashboard-panel">
           <w-icon name="tabler:key" />
           <span>{{ t('admin.dashboard.lastLogins') }}</span>
         </div>
         <w-list separator>
           <!--
-            Rows link only where the user list is reachable, the same condition the Users card puts on
-            its Manage button: the panel itself is `access:admin`, and reading one account is
-            `read:users`, so for a reader without it a link would land on a refusal.
+            Rows link only where the user list is reachable: this panel is `access:admin`, but
+            reading one account needs `read:users`, so otherwise the link lands on a refusal.
           -->
           <w-item
             v-for="lastLogin of state.lastLogins"
@@ -298,7 +278,6 @@
             </w-item-section>
             <w-item-section side>
               <div class="text-caption">{{ relativeDate(lastLogin.lastLoginAt) }}</div>
-              <!-- -> The exact moment, in the reader's own pattern and zone, behind the rough one -->
               <w-tooltip anchor="center left" self="center right">
                 {{ userStore.formatDateTime(t, lastLogin.lastLoginAt) }}
               </w-tooltip>
@@ -337,52 +316,32 @@ import UserCreateDialog from '@/components/UserCreateDialog.vue'
 import GroupCreateDialog from '@/components/GroupCreateDialog.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// STORES
-
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// COMPOSABLES
-
 const dark = useDark()
 
 /*
-  A card's footer actions take the CHROME tone, not the accent: the figure above them is already the
-  accent, and Cardinal allows one live edge per surface -- two would leave the card with nothing to
-  look at first. Which is also why they are flat rather than filled.
-
-  WBtn emits its colour as an inline style, so no `dark:` class can reach it and the theme has to be
-  read here: `slate` is a mid-tone picked to read on white, and on the dark card it needs the
-  lightened one.
+  `WBtn` emits its colour as an inline style, so no `dark:` class can reach it and the theme has to
+  be read here: `slate` is picked to read on white, and the dark card needs the lightened one.
 */
 const actionColor = computed(() => (dark.isActive ? 'slate-light' : 'slate'))
 
-/*
-  Manage only opens the list, which `read:*` is enough for -- the same rule the nav entries in
-  `AdminLayout` use. Creating one is what needs `manage:*`.
-*/
+/* Opening the list only needs `read:*`; creating one is what needs `manage:*`. */
 const groupsAreVisible = computed(
   () => userStore.can('read:groups') || userStore.can('manage:groups')
 )
 const usersAreVisible = computed(() => userStore.can('read:users') || userStore.can('manage:users'))
 
-// ROUTER
-
 const router = useRouter()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   loading: 0,
   lastLogins: []
 })
-
-// COMPUTED
 
 const versionCard = computed(() => {
   switch (adminStore.versionStatus) {
@@ -416,23 +375,11 @@ const versionCard = computed(() => {
   }
 })
 
-// META
-
 useMeta(() => ({
   title: t('admin.dashboard.title')
 }))
 
-// METHODS
-
-/*
-  The counter cards read from the admin store, which `AdminLayout` fills once on mount -- `fetchInfo`
-  for the counters on `info`, `fetchSites` for the sites card, which counts the list itself.
-
-  The logins panel is fetched here instead, and kept on this page's own state: nothing else shows it,
-  and the store is filled by the layout that every admin screen mounts, so putting it there would ask
-  for these rows on every one of them.
-*/
-// -> Reports its own failure rather than throwing on: one panel that could not be filled is not the
+// -> Reports its own failure rather than throwing: one panel that could not be filled is not the
 //    whole dashboard failing to refresh
 async function loadLastLogins() {
   try {
@@ -460,7 +407,8 @@ async function load() {
   state.loading--
 }
 
-// -> The store is already filled by the layout; this is the one thing on the page that has to ask
+// -> `AdminLayout` already fills the store for the counters; these rows are this page's alone, so
+//    they are fetched here rather than on every admin screen
 onMounted(loadLastLogins)
 
 function newSite() {
@@ -492,18 +440,11 @@ function checkForUpdates() {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Selectors stay flat: `&-suffix` concatenation is a Sass idiom, not valid in native CSS
+   nesting -- the browser silently drops such a rule rather than reporting it. */
 @charset "UTF-8";
 .admin-dashboard {
-  /*
-    The design's own track: as many 230px cards as fit, each taking its share of the remainder. See
-    the template for what a 12-column split did instead. The inset is the body's, not the page's --
-    the header band above it is full-bleed and pads itself, and the two line up at 24px.
-  */
+  /* As many 230px cards as fit; the 24px inset lines up with the full-bleed header band above. */
 }
 .admin-dashboard-grid {
   display: grid;
@@ -511,16 +452,9 @@ function checkForUpdates() {
   gap: 12px;
   padding: 20px 24px 40px;
   /*
-    The card IS the grid item -- there is no wrapper div between them. Grid's default
-    `align-items: stretch` sizes a grid item to the tallest thing on its row, so with a wrapper in
-    the way it was the WRAPPER that grew and the auto-height card inside it that stayed short:
-    Logins and Wiki Version, whose figures are the 22px `<small>` rather than the 30px `<span>`,
-    sat noticeably low against a full-height box, which is the ragged bottom edge.
-
-    Stretching the card only gets half of it. A taller card whose bands keep their own heights
-    leaves the footer strip stranded mid-box, so the card is a column and the figure band is what
-    absorbs the slack -- the strip stays welded to the bottom edge, where it reads as part of the
-    card rather than as something floating inside it.
+    The card IS the grid item -- no wrapper between them, so grid's `align-items: stretch` grows the
+    card itself rather than a wrapper around a card that stays short. The card is then a column
+    whose figure band absorbs the slack, keeping the footer strip welded to the bottom edge.
   */
 }
 .admin-dashboard-grid > .w-card {
@@ -532,9 +466,8 @@ function checkForUpdates() {
 }
 .admin-dashboard {
   /*
-    The recent-logins panel is a READING panel, not a counter: it holds four lines of names and times,
-    and the design caps it at 640px so those lines stay a readable measure instead of stretching to
-    whatever the window happens to be. It also spans the grid, so it starts on a row of its own.
+    A reading panel, not a counter: capped so its lines keep a readable measure instead of
+    stretching to the window, and spanning the grid so it starts on a row of its own.
   */
 }
 .admin-dashboard-logins {
@@ -543,7 +476,7 @@ function checkForUpdates() {
   margin-top: 12px;
 }
 .admin-dashboard {
-  /* -> The banded head of that panel; see the template for why it is a band and not a row */
+  /* -> The logins panel's head, banded so it does not read as a first list row */
 }
 .admin-dashboard-panel {
   display: flex;
@@ -560,10 +493,7 @@ function checkForUpdates() {
   color: var(--color-slate-light);
 }
 .admin-dashboard-panel {
-  /*
-    `.w-icon`, not `img`: these were raster `<img>` assets and are inline SVG now, so the size has
-    to be stated as a font-size (which is what WIcon sizes from) rather than a width.
-  */
+  /* `.w-icon`, not `img`: `WIcon` draws inline SVG and sizes from font-size, not width. */
 }
 .admin-dashboard-panel > .w-icon {
   font-size: 20px;
@@ -579,7 +509,7 @@ function checkForUpdates() {
 .admin-dashboard-card {
   display: flex;
   align-items: center;
-  /* -> See `-panel` above: inline SVG now, so sized by font-size rather than width */
+  /* -> Sized by font-size, which is what `WIcon` scales from */
 }
 .admin-dashboard-card > .w-icon {
   font-size: 34px;
@@ -599,11 +529,7 @@ function checkForUpdates() {
   color: var(--color-text-secondary-dark);
 }
 .admin-dashboard-card {
-  /*
-    The figure itself: Barlow Condensed at the size a counter card is built around, in the accent.
-    This is the one place the accent is used as a NUMBER rather than as an action -- the card's
-    whole content is that figure, so it is what the reader's eye is meant to land on.
-  */
+  /* The one place the accent is a number rather than an action: the figure is the card. */
 }
 .admin-dashboard-card span {
   font-family: var(--font-display);
@@ -614,13 +540,7 @@ function checkForUpdates() {
   display: block;
 }
 .admin-dashboard-card {
-  /*
-    "Counter small numeral" (OpenProject #2983, `cobalt-typography.md` §3 "Admin"): the Logins
-    card's own figure, drawn at this smaller size because "N / past 24h" doesn't fit the 30px
-    track the plain `span` figures use. 700 26px/1.2 display, same accent as `span` above --
-    #2969's own defect naming this pair ("22px `<small>` rather than the 30px `<span>`") is what
-    names the size, 26px is what the mockup actually draws it at.
-  */
+  /* The Logins figure, smaller because "N / past 24h" does not fit the plain `span` track. */
 }
 .admin-dashboard-card small {
   font-family: var(--font-display);
@@ -630,10 +550,8 @@ function checkForUpdates() {
   color: var(--color-accent);
   display: block;
   /*
-    "Counter caption" role: the small italic annotation riding along a counter figure -- "/ past
-    24h" here, the "(from → to)" version parenthetical on the Wiki Version card below. Mono,
-    12px, the same caption tone every other kicker/timestamp in the app uses, not a scaled-down
-    echo of the figure's own display face.
+    The annotation riding along a figure ("/ past 24h", the version parenthetical) takes the app's
+    caption tone rather than a scaled-down echo of the figure's own display face.
   */
 }
 .admin-dashboard-card small i {
@@ -645,11 +563,8 @@ function checkForUpdates() {
 }
 .admin-dashboard-card small {
   /*
-    "Status line" role: the Wiki Version card's own status phrase ("Up to date!", "Update
-    available", "Checking version..."), never a numeral even though it shares this `<small>`
-    markup with the Logins card's figure above -- 500 14px/1.4 sans, not the figure's 700/26px
-    display. The extra class (template) is what tells the two apart; this rule out-specifies the
-    plain `small` above it by carrying one more class, regardless of source order.
+    A status phrase, never a numeral, though it shares the `<small>` markup with the figure above:
+    the extra class is what tells the two apart, out-specifying it regardless of source order.
   */
 }
 .admin-dashboard-card small.admin-dashboard-status {
@@ -660,11 +575,8 @@ function checkForUpdates() {
 }
 .admin-dashboard-card small {
   /*
-    Only the mockup's own state ("Up to date!") gets its target colour (`--color-positive`,
-    the aesthetic's own status-positive token -- #177a5e under Cobalt, #3f7a66 under Ledger).
-    "Update available" and "Checking version..." are left on the figure's inherited accent/
-    `.pending` amber below: the spec gives no target for those two, and guessing one is not
-    this task's call to make.
+    Only the up-to-date state has a specified colour; the other two keep the inherited accent, or
+    the `.pending` amber below.
   */
 }
 .admin-dashboard-card small.admin-dashboard-status--positive {
@@ -672,8 +584,8 @@ function checkForUpdates() {
 }
 .admin-dashboard-card small {
   /*
-    Amber itself (#ffc107) is picked to read on the dark surface; on the white card it lands
-    around 1.7:1, so the light theme takes the darker end of the ramp instead.
+    Amber is picked to read on the dark surface and lands around 1.7:1 on the white card, so the
+    light theme takes the darker end of the ramp instead.
   */
 }
 .admin-dashboard-card small.pending {
@@ -683,12 +595,7 @@ function checkForUpdates() {
   color: var(--color-amber);
 }
 .admin-dashboard {
-  /*
-    A counter card's footer: a flat tinted strip ruled off from the figure above it, its actions
-    pushed to the trailing edge and separated by a hairline. The gradient it used to carry was a
-    bevel, which is the one thing Cardinal never draws -- and it left the strip reading as a shadow
-    under the card rather than as part of it.
-  */
+  /* Flat and ruled off from the figure above: a gradient here reads as a shadow under the card. */
 }
 .admin-dashboard .w-card-actions {
   padding: 0;

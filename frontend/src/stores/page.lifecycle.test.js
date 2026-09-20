@@ -12,10 +12,8 @@ beforeEach(() => {
 
 describe('page store: pageUnlock()', () => {
   /**
-   * The password the reader just typed to get in is not the page's stored one, and the response
-   * carries no `password` back to overwrite it with (the API only ever hashes it -- OpenProject
-   * #2232). Unlocking used to leave it sitting in the store, where the next save would have sent it
-   * as a password change; `pagePatch()` clears it the same way `pageLoad` and `pageSave` always did.
+   * The response carries no `password` back to overwrite the typed one with -- left sitting in the
+   * store, the next save sends it as a password change.
    */
   it('clears the typed password and the remove flag once the page is unlocked', async () => {
     const pageStore = usePageStore()
@@ -42,7 +40,7 @@ describe('page store: pageEdit()', () => {
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
     const editorStore = useEditorStore()
-    // -> Already loaded, so pageEdit()'s own fetchConfigs() call doesn't add a second GET to the mock
+    // -> Already loaded, so `pageEdit()`'s own config fetch doesn't add a second GET to the mock
     editorStore.$patch({ configIsLoaded: true })
     API_CLIENT.get.mockReturnValueOnce(stubPageResponse())
 
@@ -157,11 +155,8 @@ describe('page store: pageCreate()', () => {
   })
 
   /*
-   * OpenProject #813: the breadcrumb bar's "Last modified" line now stays mounted through editing
-   * and reads straight off this store, so a page being created has to actually blank these rather
-   * than leave whatever a previous `pageLoad` left standing -- otherwise New Page from an existing
-   * page (or a direct `/_create` visit right after browsing one) would report THAT page's save time
-   * as its own.
+   * The breadcrumb bar's "Last modified" line stays mounted through editing and reads this store,
+   * so New Page from an existing page would otherwise report THAT page's save time.
    */
   it('blanks updatedAt and createdAt, not just whatever the previous page left behind', async () => {
     const siteStore = useSiteStore()
@@ -180,12 +175,10 @@ describe('page store: pageCreate()', () => {
   })
 
   /**
-   * Regression for OpenProject #816: `App.vue`'s router guard reads `editorStore.hasPendingChanges`
-   * on every navigation, including `pageCreate()`'s own un-awaited `router.push()` into `/_create/...`
-   * -- fired here from a call site standing in for the header's New Page menu, mid-edit on another
-   * page. Left un-equalized, that OLD page's dirty state would still read true at the moment of this
-   * navigation and the guard would prompt to discard changes belonging to a session `pageCreate()`
-   * is about to overwrite regardless of the answer.
+   * `App.vue`'s router guard reads `editorStore.hasPendingChanges` on every navigation, including
+   * `pageCreate()`'s own un-awaited push into `/_create/...`. Left un-equalized, the OLD page's
+   * dirty state still reads true then, and the guard prompts to discard changes belonging to a
+   * session `pageCreate()` overwrites regardless of the answer.
    */
   it('starts the new session clean (hasPendingChanges false), even when opened while another page is dirty', async () => {
     const siteStore = useSiteStore()
@@ -204,10 +197,6 @@ describe('page store: pageCreate()', () => {
     expect(editorStore.hasPendingChanges).toBe(false)
   })
 
-  /**
-   * OpenProject #1092: a `format: 'markdown'` import's front-matter tags need somewhere to land --
-   * `tags` used to be hardcoded to `[]` here regardless of what was passed in.
-   */
   it('carries an explicit tags argument through, instead of always starting empty', async () => {
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
@@ -230,12 +219,7 @@ describe('page store: pageCreate()', () => {
     expect(pageStore.tags).toEqual([])
   })
 
-  /**
-   * OpenProject #1792: the page store's `state()` declares no `mode` -- that key belongs to
-   * `editorStore`, which this same call already patches to `mode: 'create'`. A stray
-   * `mode: 'edit'` on the page-store `$patch` used to grow the state with an untyped, unread
-   * property asserting the post-save state at the moment a create session begins.
-   */
+  /** `mode` belongs to `editorStore`, which this same call already patches -- not to this store. */
   it('does not add a mode key to the page store state', async () => {
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
@@ -249,11 +233,9 @@ describe('page store: pageCreate()', () => {
 })
 
 /**
- * OpenProject #1787: `pageDuplicate` called `this.pageCreate({...})` at the end of its try block with
- * no `await` and no `.catch` -- `pageCreate` is itself `async` and rejects readily (its first act is
- * `editorStore.fetchConfigs()`, a network call that rethrows on failure), so the rejection escaped
- * the enclosing try entirely and became an unhandled rejection nobody in `frontend/src` catches,
- * instead of reaching an awaiting caller (`PageActionsCol.vue`'s duplicate handler).
+ * `pageCreate` is itself `async` and rejects readily (its first act fetches the editor configs over
+ * the network), so calling it un-awaited turns the rejection into an unhandled one instead of
+ * something an awaiting caller sees.
  */
 describe('page store: pageDuplicate() (OpenProject #1787)', () => {
   function stubRouter(currentPath = '/_create/markdown') {
@@ -269,9 +251,8 @@ describe('page store: pageDuplicate() (OpenProject #1787)', () => {
     const pageStore = usePageStore()
     pageStore.router = stubRouter()
 
-    // -> First call: the source-page fetch, which succeeds. Second call: `pageCreate`'s own
-    //    `editorStore.fetchConfigs()` reaching for the site config, which fails -- this is the
-    //    rejection that used to vanish as an unhandled rejection instead of reaching this awaiter.
+    // -> First call: the source-page fetch, which succeeds. Second: `pageCreate`'s own
+    //    editor-config fetch, which fails -- the rejection that has to reach this awaiter.
     API_CLIENT.get
       .mockReturnValueOnce(stubPageResponse({ editor: 'markdown', content: 'hello' }))
       .mockReturnValueOnce({ json: vi.fn().mockRejectedValue(new Error('network down')) })
@@ -283,10 +264,9 @@ describe('page store: pageDuplicate() (OpenProject #1787)', () => {
 })
 
 /**
- * A move can now change a page's locale as well as its path (backend task 8), which is why the
- * follow-link is built through `localizedPagePath` rather than as a bare `/${path}`: landing on an
- * unprefixed link to a page that now lives in a non-primary locale round-trips through locale
- * detection and shows whichever translation that picks, not the page just moved.
+ * A move can change a page's locale as well as its path, which is why the follow-link goes through
+ * `localizedPagePath`: an unprefixed link round-trips through locale detection and shows whichever
+ * translation that picks, not the page just moved.
  */
 describe('page store: pageMove()', () => {
   function stubRouter() {
@@ -360,11 +340,8 @@ describe('page store: pageMove()', () => {
   })
 
   /**
-   * OpenProject #1012: a move can change what an `auto`/`mixed` menu generates from the tree behind
-   * an unchanged `navigationId` -- the moved page's new parent, its position among siblings -- with
-   * nothing telling an already-open tab. Confirmed here with `siteStore.nav.currentId` ALREADY equal
-   * to the id being force-refetched, which is exactly the case `fetchNavigation()`'s own "already
-   * showing this menu" gate would otherwise skip.
+   * `siteStore.nav.currentId` is deliberately ALREADY the id being force-refetched, which is
+   * exactly the case `fetchNavigation()`'s own "already showing this menu" gate would skip.
    */
   it("force-refetches the currently viewed page's own nav menu after a move, even though the moved page is a different one entirely", async () => {
     makeMultiLocaleSite()
@@ -386,10 +363,8 @@ describe('page store: pageMove()', () => {
   })
 
   /**
-   * OpenProject #1762: `unwrap()` used to compensate for `boot/api.js` resolving a 400 instead of
-   * throwing. Now that a refusal is a real rejection (a ky `HTTPError`, with the server's message
-   * under `.data.message`), the store must still surface that message on the thrown error's own
-   * `.message` -- callers such as `PageActionsCol.vue` read `err.message` directly.
+   * A refusal is a ky `HTTPError` carrying the server's message under `.data.message`, but callers
+   * such as `PageActionsCol.vue` read `err.message` directly -- so the store has to move it across.
    */
   it('rejects with the server message when the move is refused', async () => {
     makeMultiLocaleSite()
@@ -441,7 +416,6 @@ describe('page store: pageRename()', () => {
     await expect(pageStore.pageRename({ id: 'page-1', title: '' })).rejects.toThrow(
       'Title cannot be empty.'
     )
-    // -> A refused rename must not be applied optimistically.
     expect(pageStore.title).toBe('Old Title')
   })
 })

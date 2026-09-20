@@ -3,13 +3,6 @@ import assert from 'node:assert/strict'
 import { task } from './replication-import.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 
-/**
- * Exercises the task's control flow — including the post-import cache/index side effects, mirroring
- * `import-content.test.ts`'s own coverage of the single-site version this generalizes — against fake
- * `replicationImport`/`sites`/`groups`/`classificationLevels`/`glossary`/`assetServing`/`jobs` models
- * and a fake `addJob`, not a real database. See `task()`'s `deps` parameter.
- */
-
 let wikiHandle: { restore(): void }
 
 after(() => {
@@ -105,34 +98,27 @@ describe('replication-import.task', () => {
   test('reloads every replicated cache and queues one search rebuild per restored site', async () => {
     const { deps, calls } = makeDeps()
 
-    // -> OpenProject #2672: the outcome is returned for the scheduler to log, separately from the
-    //    `setResult` write a follow-up route reads.
     const outcome = await task(payload, 'job-1', deps)
     assert.deepEqual(outcome, { summary: 'restored replication snapshot' })
 
     assert.equal(calls.importSnapshot.length, 1)
     assert.deepEqual(calls.importSnapshot[0], [payload.filePath])
 
-    // -> Every ClusterReloaded cache a snapshot just replaced wholesale is broadcast-reloaded, not
-    //    just reloaded locally.
+    // -> Broadcast, not local: a snapshot replaces every `ClusterReloaded` cache wholesale.
     assert.equal(calls.sitesBroadcastReload, 1)
     assert.equal(calls.groupsBroadcastReload, 1)
     assert.equal(calls.classificationLevelsBroadcastReload, 1)
 
-    // -> Asset path cache dropped wholesale.
     assert.equal(calls.forgetAllPaths, 1)
 
-    // -> Glossary invalidated and a search rebuild queued for every restored site, not just one.
     assert.deepEqual(calls.invalidateCache, ['site-1', 'site-2'])
     assert.deepEqual(calls.addJob, [
       { task: 'rebuildSearchIndex', payload: { siteId: 'site-1' } },
       { task: 'rebuildSearchIndex', payload: { siteId: 'site-2' } }
     ])
 
-    // -> Job result is still recorded, after the side effects.
     assert.deepEqual(calls.setResult, [['job-1', importResult]])
 
-    // -> Upload is cleaned up on success too.
     assert.deepEqual(calls.deleteUpload, [payload.filePath])
   })
 
@@ -158,7 +144,6 @@ describe('replication-import.task', () => {
     assert.deepEqual(calls.addJob, [])
     assert.deepEqual(calls.setResult, [])
 
-    // -> The uploaded working file is still cleaned up on failure, unlike the cache/index side effects.
     assert.deepEqual(calls.deleteUpload, [payload.filePath])
   })
 
@@ -175,7 +160,6 @@ describe('replication-import.task', () => {
     await assert.rejects(() => task(payload, 'job-1', deps), /cache reload failed/)
 
     assert.deepEqual(calls.deleteUpload, [payload.filePath])
-    // -> A side effect failing after a successful import still means the job result was never set.
     assert.deepEqual(calls.setResult, [])
   })
 })

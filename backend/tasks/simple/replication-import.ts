@@ -9,24 +9,14 @@ import { runReplicationPostImport } from '../../helpers/replicationPostImport.ts
 import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
- * Restore a whole-instance snapshot tarball uploaded through `POST
- * /_api/system/replication/import` — the "wipe-and-replace" half of Feature #2437's scheduled
- * replication. See `models/replicationImport.ts` for the manifest shape and the restore itself;
- * this task is only what runs once that restore has actually succeeded, plus upload cleanup.
+ * The wipe-and-replace half of scheduled replication: a whole-instance snapshot uploaded through
+ * `POST /_api/system/replication/import`.
  *
- * `replicationImport.importSnapshot` writes every covered table directly against the database
- * (bypassing each domain model's own write paths, the same way `siteImport.ts#importSite` already
- * does for its narrower scope), so none of the ordinary post-write cache/index hooks fire on their
- * own. This task is what runs them: reloading (and cluster-broadcasting) the three `ClusterReloaded`
- * caches a snapshot just replaced wholesale (`sites`, `groups`, `classificationLevels`), invalidating
- * every site's cached glossary terms and the asset path-resolution cache (a bulk replacement isn't
- * enumerable path-by-path the way a single move is), and queuing — not running inline — a full search
- * reindex per restored site, so the job's own runtime stays bounded to the restore itself.
- *
- * @param deps Real models (and scheduler) by default; overridable so tests can exercise the
- *   post-import side effects without a database. Each has its own default rather than one default for
- *   the whole object, so a test overriding only one dependency still gets the real implementation of
- *   the rest.
+ * `replicationImport.importSnapshot` writes every covered table straight against the database, so
+ * none of the ordinary post-write cache and index hooks fire on their own — running them is what the
+ * rest of this task is for. The asset path cache is dropped wholesale because a bulk replacement is
+ * not enumerable path-by-path the way a single move is, and the search reindex is queued per restored
+ * site rather than run inline so this job's runtime stays bounded to the restore itself.
  */
 export async function task(
   payload: { filePath: string } = { filePath: '' },
@@ -53,17 +43,16 @@ export async function task(
     addJob = (opts) => CARDINAL.scheduler.addJob(opts)
   } = deps
 
-  // -> Announced at `debug` because a wipe-and-replace restore can take minutes. The `try` stays for
-  //    the `finally` that deletes the upload; the failure propagates and the scheduler writes the
-  //    one record for it.
+  // -> Announced at `debug` because a wipe-and-replace restore can take minutes. The `try` exists
+  //    only for the `finally` that deletes the upload; a failure propagates, and the scheduler
+  //    writes the one record for it.
   CARDINAL.logger.debug('storage', 'restoring replication snapshot, wipe-and-replace')
   try {
     const result = await replicationImportDep.importSnapshot(payload.filePath)
 
-    // -> Post-import side effects: only reached once the restore itself has actually succeeded, so a
-    //    failed/partial import never reloads caches as though it had landed. Shared with
-    //    `models/replication.ts#pull()`, the other caller of `importSnapshot()` -- see
-    //    `helpers/replicationPostImport.ts`.
+    // -> Only reached once the restore itself succeeded: a failed or partial import must not reload
+    //    caches as though it had landed. Shared with `models/replication.ts#pull()`, the other
+    //    caller of `importSnapshot()`.
     await runReplicationPostImport({
       sites: sitesDep,
       groups: groupsDep,
@@ -76,8 +65,6 @@ export async function task(
     if (jobId) {
       await jobsDep.setResult(jobId, result)
     }
-    // -> Returned, not logged: the scheduler writes this run's one `info` line, with the job id and
-    //    the duration attached. The `finally` below still runs on the way out.
     return { summary: 'restored replication snapshot' }
   } finally {
     await replicationImportDep.deleteUpload(payload.filePath)

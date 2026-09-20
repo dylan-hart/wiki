@@ -5,13 +5,6 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import { pageWatchEvents as pageWatchEventsTable, users as usersTable } from '../../db/schema.ts'
 import type { PageActor, PageInput } from '../../models/pages.ts'
 
-/**
- * OpenProject #1689: `purgeExpired`'s retention window, exercised through the task wrapper rather
- * than the model directly, since the "Done when" criteria this task file exists to satisfy asks for
- * a co-located task-level test. DB-backed for the same reason `pageviews.test.ts`'s `purgeExpired`
- * case is: the interesting behavior is genuinely a SQL timestamp comparison, not something a mock of
- * the query builder would do anything but re-describe.
- */
 describe('purge-page-watch-events task', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let task: typeof import('./purge-page-watch-events.ts').task
@@ -48,7 +41,6 @@ describe('purge-page-watch-events task', { skip: !hasTestDatabase() }, () => {
 
   test('removes rows past the retention window and keeps recent ones, regardless of delivery state', async () => {
     await fixtures.db.insert(pageWatchEventsTable).values([
-      // -> Old and undelivered: exactly the "SMTP has been down for months" backlog case.
       {
         siteId,
         pageId,
@@ -61,7 +53,6 @@ describe('purge-page-watch-events task', { skip: !hasTestDatabase() }, () => {
         notifyMode: 'digest',
         createdAt: sql`now() - interval '120 days'`
       },
-      // -> Old but delivered/read: age alone must still remove it.
       {
         siteId,
         pageId,
@@ -76,7 +67,6 @@ describe('purge-page-watch-events task', { skip: !hasTestDatabase() }, () => {
         deliveredAt: sql`now() - interval '90 days'`,
         readAt: sql`now() - interval '90 days'`
       },
-      // -> Recent and undelivered: must survive.
       {
         siteId,
         pageId,
@@ -89,7 +79,6 @@ describe('purge-page-watch-events task', { skip: !hasTestDatabase() }, () => {
         notifyMode: 'digest',
         createdAt: sql`now() - interval '1 day'`
       },
-      // -> Recent and delivered: must also survive -- age is what gates this, not delivery state.
       {
         siteId,
         pageId,
@@ -105,7 +94,6 @@ describe('purge-page-watch-events task', { skip: !hasTestDatabase() }, () => {
       }
     ] as any)
 
-    // -> OpenProject #2672: the count is returned for the scheduler to log, not logged here.
     const outcome = await task()
     assert.equal(
       (outcome as { summary: string }).summary,

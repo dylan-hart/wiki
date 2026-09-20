@@ -2,11 +2,9 @@ import OidcAuthentication from './authentication.ts'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
 /**
- * What a branded preset fixes about the generic OIDC module, so its `authentication.ts` doesn't have
- * to re-hardcode `client.discovery`/`buildAuthorizationUrl`/`authorizationCodeGrant` the way
- * `google/authentication.ts` does. `issuer` is a function rather than a string because some providers
- * derive it from another admin-supplied value — Auth0's issuer is `https://{domain}/`, built from the
- * tenant domain the admin enters — while others (Slack, Twitch) can fix it outright.
+ * `issuer` is a function rather than a string because some providers derive it from another
+ * admin-supplied value — Auth0's is `https://{domain}/`, built from the tenant domain the admin
+ * enters — while others (Slack, Twitch) can fix it outright.
  *
  * Every other field is optional and, when set, overrides whatever the admin's own config carries for
  * that key: a preset exists specifically to stop the admin from having to know a scope string or a
@@ -19,24 +17,18 @@ export interface OidcPresetTemplate {
   displayNameClaim?: string
   useDiscovery?: boolean
   /**
-   * Authorization-request parameters a provider needs beyond the generic set, forwarded to
-   * `OidcAuthentication`'s `extraAuthParams` and merged onto the authorization URL as-is. Twitch is
-   * the reason this exists at all: it wants a static `claims` parameter asking for email even under
-   * PKCE. A function form exists for a preset whose extra parameter depends on what the admin
-   * configured — Slack's optional `team` workspace restriction is only sent when a `teamId` was set,
-   * so returning `undefined` there means "nothing extra", not an empty/`"undefined"` query param.
+   * Authorization-request parameters a provider needs beyond the generic set, merged onto the
+   * authorization URL as-is — Twitch wants a static `claims` parameter asking for email even under
+   * PKCE. The function form is for a preset whose extra parameter depends on what the admin
+   * configured, such as Slack's optional `team` restriction: returning `undefined` there means
+   * "nothing extra", not an empty or `"undefined"` query param.
    */
   extraAuthParams?:
     | Record<string, string>
     | ((conf: Record<string, any>) => Record<string, string> | undefined)
 }
 
-/**
- * Merge a preset's fixed template over the admin's config, producing what the generic OIDC module
- * actually needs. Exported standalone (rather than folded into the constructor below) so a preset's
- * template can be asserted against directly, with no network involved — everything downstream of this
- * merge is `OidcAuthentication` itself, already covered by its own behaviour.
- */
+/** Exported rather than folded into the constructor so a preset's template can be asserted. */
 export function buildOidcConfig(
   template: OidcPresetTemplate,
   conf: Record<string, any>
@@ -56,19 +48,9 @@ export function buildOidcConfig(
 }
 
 /**
- * Base class for a branded OIDC preset.
- *
- * A preset's whole `authentication.ts` is meant to be its template plus this:
- *
- *   export default class Auth0Authentication extends OidcPreset {
- *     constructor(strategyId: string, conf: Record<string, any>) {
- *       super(strategyId, conf, { issuer: (c) => `https://${c.domain}/` })
- *     }
- *   }
- *
- * It wraps one `OidcAuthentication`, built once from `buildOidcConfig`, and forwards every call to
- * it — the protocol work (discovery, PKCE, ID token verification, userinfo merge) stays owned by that
- * one module, never copied.
+ * Wraps one `OidcAuthentication`, built once from `buildOidcConfig`, and forwards every call to it,
+ * so the protocol work (discovery, PKCE, ID token verification, userinfo merge) stays owned by that
+ * one module rather than being copied into each branded preset.
  */
 export class OidcPreset {
   strategyId: string

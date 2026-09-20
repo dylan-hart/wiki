@@ -32,12 +32,6 @@ async function mountDialog() {
 }
 
 describe('PasskeyCreateDialog', () => {
-  /*
-    OpenProject #2060: the dialog used to validate by throwing inside `save()` and surfacing the
-    message as a toast -- the one dialog in the app not following the `:rules` + inline-error
-    convention. An invalid entry now fails `WForm#validate()`, which renders the message under the
-    field, and `save()` returns early without ever throwing or calling `notify()`.
-  */
   it('shows an inline field error and does not notify or emit ok when the name is empty', async () => {
     notifyQueue.length = 0
     const wrapper = await mountDialog()

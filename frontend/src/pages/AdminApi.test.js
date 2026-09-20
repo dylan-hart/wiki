@@ -5,12 +5,6 @@ import AdminApi from './AdminApi.vue'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
-/**
- * Covers the site caption line added to each key row (task 622): a key pinned to a site names that
- * site, and an unpinned key (`siteId: null`, instance-wide) reads "All Sites" rather than a blank
- * or broken value -- the same treatment `newKeyFullAccess` already gives a `null` scope just above
- * it in the same list item.
- */
 function mountPage() {
   return mountWithApp(AdminApi, {
     messages: {
@@ -51,8 +45,6 @@ describe('AdminApi key list site caption', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.vm.$nextTick()
 
-    // -> Wiki #2700: a key row is a `WSettingsRow`, so everything the key is scoped by stacks in
-    //    the row's hint rather than as a column of `WItemLabel` captions.
     const captions = wrapper.findAll('.w-settings-row__hint').map((c) => c.text())
     expect(captions.some((c) => c.includes('Docs'))).toBe(true)
   })
@@ -87,14 +79,6 @@ describe('AdminApi key list site caption', () => {
   })
 })
 
-/**
- * Task 2410: coworkers testing the demo went to Admin > API Access expecting to mint an
- * MCP-usable token there and got confused -- a personal token (the credential type MCP actually
- * attributes page authorship to) is only created from Profile > API Access. Covers the note
- * pointing there, and that it opens Profile directly on that section (OpenProject #2532: Profile is
- * a `MainOverlayDialog` entry now, not a routed `/_profile/api` link) -- shown whether or not
- * admin-issued keys already exist, since the confusion applies either way.
- */
 describe('AdminApi personal token note', () => {
   function mountPageWithProfileNote() {
     return mountWithApp(AdminApi, {
@@ -170,11 +154,6 @@ describe('AdminApi personal token note', () => {
     expect(wrapper.text()).toContain('Profile > API Access')
   })
 
-  // -> OpenProject #2744: this note is the actual credential MCP needs (an admin-issued key here
-  //    has no bearing on MCP page-authorship attribution), so it reads as a warning rather than a
-  //    neutral info note -- the unconditional `bg-warning-fill text-ink` pair `InboxReview.vue`'s
-  //    `w-banner` uses, plus the `tabler:alert-triangle` glyph `LocaleSelectorMenu.vue`'s staleness
-  //    badge uses, not the light/dark `bg-dark-5`/`bg-grey-3` info-card treatment.
   it('styles the note as a warning, not a neutral info note', async () => {
     stubApi({
       'api-keys': [],
@@ -200,10 +179,6 @@ describe('AdminApi personal token note', () => {
   })
 })
 
-/**
- * OpenProject #2831: the page header used `tabler:plug-connected`, disagreeing with Profile's own
- * API Access section (`ProfileOverlay.vue`), which uses `tabler:api`.
- */
 describe('AdminApi header icon (OpenProject #2831)', () => {
   it("matches Profile's tabler:api icon", async () => {
     stubApi({
@@ -223,10 +198,8 @@ describe('AdminApi header icon (OpenProject #2831)', () => {
   })
 })
 
-// -> OpenProject #1929: `/dev/api` names a concept this fork invented (there is no such upstream
-//    Wiki.js docs section), so no docs site can describe it -- the help button was deleted rather
-//    than left pointing at a page that does not exist. The Swagger UI button (`href="/_api"`) is
-//    unrelated -- a real backend-served link, not a `docsBase` deep path -- and stays.
+// -> `/dev/api` names a concept this fork invented, so no docs site can describe it. The Swagger UI
+//    button (`href="/_api"`) is a real backend-served link, not a `docsBase` deep path, and stays.
 describe('AdminApi help link', () => {
   it('has no help/docs button', async () => {
     stubApi({

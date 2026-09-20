@@ -31,8 +31,8 @@ describe('extractJsonPathValue', () => {
     test('refuses a filter expression and never evaluates it', () => {
       const data = { a: 1 }
       let evaluated = false
-      // The filter body itself sets `evaluated`, so a thrown-but-still-ran regression is caught the
-      // same way a silently-accepted one would be: `evaluated` must stay false either way.
+      // The probe body sets `evaluated`, so a path that throws only *after* running the filter
+      // fails here too, not just a silently-accepted one.
       ;(globalThis as any).__jsonPathEvalProbe = () => {
         evaluated = true
         return true

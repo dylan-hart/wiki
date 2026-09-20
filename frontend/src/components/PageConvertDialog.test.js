@@ -4,13 +4,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 
 /**
- * The headless round trip itself -- parsing the page's markdown into a copy of the WYSIWYG node
- * set and serializing it back out -- is `@tiptap/markdown` plus the constructs OpenProject
- * #3396/#3397/#3398 already cover with their own round-trip suites (`src/editor/wysiwyg/*.test.js`,
- * `helpers/wysiwygStyleAttrs.test.js`). This suite is about `PageConvertDialog.vue`'s OWN logic --
- * which editor it targets, how it reacts to the guard's verdict, and what it does when Convert is
- * clicked -- so `@tiptap/core`'s `Editor` is replaced with a controllable double rather than
- * exercising real ProseMirror parsing here too.
+ * `@tiptap/core`'s `Editor` is a controllable double here: this suite covers the dialog's own logic
+ * -- which editor it targets and how it reacts to the guard's verdict -- while the markdown round
+ * trip itself has its own suites under `src/editor/wysiwyg/`.
  */
 const roundTripState = vi.hoisted(() => ({ markdown: null, throws: false }))
 
@@ -46,8 +42,7 @@ function mountDialog({ editor = 'markdown', content = '# Hello', path = 'docs/ex
   siteStore.id = 'site-1'
   const editorStore = useEditorStore()
   // -> Already loaded, so `ensureConfigs()` only re-fetches glossary terms -- a call the ambient
-  //    `API_CLIENT` stub answers with `undefined`, which `refreshGlossaryTerms()`'s own try/catch
-  //    already swallows (see its doc comment in `stores/editor.js`).
+  //    `API_CLIENT` stub answers with `undefined`, which `refreshGlossaryTerms()` swallows.
   editorStore.configIsLoaded = true
   editorStore.editors = { markdown: {} }
   useCommonStore()
@@ -76,9 +71,8 @@ describe('PageConvertDialog', () => {
 
   it('shows a checking state while the guard is still running', async () => {
     const { wrapper } = mountDialog()
-    // -> A couple of ticks only: enough for `useDialogComponent()`'s own `onMounted` (itself a
-    //    `nextTick()`) to flip `dialogVisible` and render the panel, not enough for `runGuard()`'s
-    //    awaited `ensureConfigs()` (an async call several microtask hops deeper) to have resolved.
+    // -> Ticks, not `flushPromises()`: enough for `useDialogComponent()`'s `onMounted` to render the
+    //    panel, not enough for `runGuard()`'s awaited `ensureConfigs()` to resolve.
     await nextTick()
     await nextTick()
 

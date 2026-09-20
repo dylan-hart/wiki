@@ -32,7 +32,7 @@ async function mountDialog({ siteId = 'site-1', currentNavigationId = 'nav-1' } 
     global: { plugins: [i18n], stubs: { teleport: true } }
   })
   // -> `useDialogComponent()` mounts the panel hidden and flips `dialogVisible` true on the tick
-  //    after mount (see `composables/dialog.js`), matching `BlockUploadDialog.test.js`'s own pattern.
+  //    after mount.
   await flushPromises()
 
   return { wrapper, siteStore, pageStore }
@@ -56,12 +56,9 @@ describe('PageDeleteDialog', () => {
   })
 
   /**
-   * OpenProject #1012: a deleted page drops out of whatever `auto`/`mixed` menu generated from it,
-   * and any per-page nav override it held is cleaned up server-side
-   * (`navigation.deleteNavForEntries`) -- neither is visible to an already-open tab without this.
-   * Force-refetches whatever menu THIS tab's currently viewed page resolves to
-   * (`pageStore.navigationId`), even though the cache check `fetchNavigation()` applies would
-   * otherwise skip a refetch for an id already cached under the same value.
+   * A deleted page drops out of any `auto`/`mixed` menu generated from it, which an already-open
+   * tab never sees unless the refetch bypasses `fetchNavigation()`'s "this id is already cached"
+   * skip.
    */
   it('force-refetches the sidebar nav after a successful delete, past the "already cached" gate', async () => {
     const { wrapper, siteStore } = await mountDialog({ currentNavigationId: 'nav-1' })

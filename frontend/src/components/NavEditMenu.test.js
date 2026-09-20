@@ -70,9 +70,8 @@ function mountMenu({
     if (url === 'sites/site-1/navigation/pages/page-1/inherited') {
       return { json: vi.fn().mockResolvedValue({ navigationId: 'ancestor-nav' }) }
     }
-    // -> The sidebar's own re-fetch, once `save()` force-refreshes it -- any `.../navigation/<id>`
-    //    not already matched above. Wrapped in the `{ mode, items }` envelope the real endpoint
-    //    returns; `fetchNavigation()` (`stores/site.js`) destructures it, not a bare array.
+    // -> The sidebar's own re-fetch after `save()`. Wrapped in the `{ mode, items }` envelope the
+    //    real endpoint returns; `fetchNavigation()` destructures it rather than taking a bare array.
     if (url.startsWith('sites/site-1/navigation/')) {
       return { json: vi.fn().mockResolvedValue({ mode: 'static', items: SERVER_ITEMS }) }
     }
@@ -97,12 +96,6 @@ describe('NavEditMenu', () => {
   const selectedSegments = (wrapper) =>
     segments(wrapper).filter((b) => b.attributes('aria-checked') === 'true')
 
-  /**
-   * OpenProject #3463 (regression of #2819): suppressing the transition only hid the ANIMATION of
-   * `loadMenuMode()`'s resolve flipping `state.menuMode` from a hardcoded `'static'` default -- the
-   * wrong value (Manual) still showed until the fetch landed. Mounted with the mode fetch still
-   * pending, no segment may be selected and the hint must be empty; only the resolved value selects.
-   */
   it('selects no menu source segment and shows no hint while the mode fetch is pending', async () => {
     let resolveMode
     const { wrapper } = mountMenu({
@@ -123,6 +116,10 @@ describe('NavEditMenu', () => {
     )
   })
 
+  /**
+   * The suppress class only clears on the next `requestAnimationFrame`, so it is still on `<html>`
+   * -- with `state.menuMode` already landed -- right after the load resolves.
+   */
   it("still suppresses transitions around loadMenuMode's own assignment", async () => {
     // -> Drain any frame a previous test's load left queued, or its `remove()` lands mid-test
     await new Promise((resolve) => requestAnimationFrame(resolve))
@@ -248,12 +245,10 @@ describe('NavEditMenu', () => {
   })
 
   /**
-   * OpenProject #1012's fix landed on `NavEditOverlay.vue`'s own Save button, but this popup's own
-   * Save (which persists `mode`/`menuMode` directly, without ever opening the item editor) never
-   * got the same force-refetch -- so a `menuMode` change (or an `override` <-> `overrideExact`
-   * toggle) that resolves to the SAME `navigationId` left the sidebar showing stale items until a
-   * full reload, since `NavSidebar.vue`'s `pageStore.navigationId` watcher only fires on an actual
-   * id change and `fetchNavigation()`'s own cache gate would skip an unchanged id regardless.
+   * A `menuMode` change (or an `override` <-> `overrideExact` toggle) can resolve to the SAME
+   * `navigationId`, and both `NavSidebar.vue`'s `navigationId` watcher and `fetchNavigation()`'s own
+   * cache gate skip an unchanged id -- so this Save must force the refetch, or the sidebar shows
+   * stale items until a full reload.
    */
   it('force-refetches the sidebar nav on save, even when the resolved id is unchanged', async () => {
     const { wrapper, siteStore } = mountMenu()
@@ -269,8 +264,8 @@ describe('NavEditMenu', () => {
 
     const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
     await saveBtn.trigger('click')
-    // -> The default `API_CLIENT.get` mock resolves `SERVER_ITEMS` for any `.../navigation/<id>` --
-    //    no longer `stale` is the proof the gate was bypassed, not just that some request went out.
+    // -> The default `API_CLIENT.get` mock resolves `SERVER_ITEMS`, so no longer holding `stale` is
+    //    the proof the cache gate was bypassed, not just that some request went out.
     await vi.waitUntil(() => siteStore.nav.items[0]?.id === 'fresh')
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
@@ -289,18 +284,13 @@ describe('NavEditMenu', () => {
     expect(siteStore.overlayOpts.mode).toBe('inherit')
   })
 
-  /**
-   * Ledger restyle (Task #2799): the five non-root cascade rows render as radios sharing one
-   * `v-model`, with a `NavCascadeGlyph` per row -- not the three-radio "Menu Source" list the
-   * pre-restyle markup also used, which is a `w-btn-toggle` segmented control now (below).
-   */
   it('renders one radio per non-root cascade mode, off the root', async () => {
     const { wrapper } = mountMenu({ path: 'docs/ingest' })
     await flushPromises()
 
     const radios = wrapper.findAll('[role="radio"]').filter((r) => r.attributes('aria-label'))
-    // -> Five cascade radios plus the three Menu Source segments (also role="radio", part of
-    //    `w-btn-toggle`'s own `radiogroup`) -- filtered down to the cascade group by their labels.
+    // -> The Menu Source segments are `role="radio"` too (`w-btn-toggle`'s own `radiogroup`), so the
+    //    aria-label filter above is what narrows this to the cascade group.
     const cascadeLabels = radios.map((r) => r.attributes('aria-label'))
     expect(cascadeLabels).toEqual([
       'Inherit',
@@ -343,10 +333,6 @@ describe('NavEditMenu', () => {
     })
   })
 
-  /**
-   * Ledger restyle: "Menu Source" is a `w-btn-toggle` segmented control now, not three radios --
-   * still driving the same `state.menuMode` the popup already saved (`menuMode` in the PUT body).
-   */
   it('saves the menu source picked from the segmented control', async () => {
     const { wrapper } = mountMenu()
     await flushPromises()
@@ -355,8 +341,8 @@ describe('NavEditMenu', () => {
       .findAll('button[role="radio"]')
       .find((b) => b.text() === 'Automatic')
     expect(autoSegment).toBeTruthy()
-    // -> Already `auto` from `loadMenuMode`'s own mocked response -- switch to Manual instead, so
-    //    the assertion below proves the control's own click is what drives `state.menuMode`.
+    // -> Already `auto` from the mocked load, so switching to Manual is what makes the assertion
+    //    below proof that the control's own click drives `state.menuMode`.
     const manualSegment = wrapper.findAll('button[role="radio"]').find((b) => b.text() === 'Manual')
     await manualSegment.trigger('click')
 
@@ -375,11 +361,9 @@ describe('NavEditMenu', () => {
   })
 
   /**
-   * OpenProject #2820: `WBtnToggle.vue`'s shared segment styling only suppresses a middle/last
-   * segment's START border -- the group's own two OUTER edges (the first segment's start border,
-   * the last segment's end border) still draw, and here they double up against `.nav-edit-menu`'s
-   * own card border. Scoped fix in `NavEditMenu.vue` alone, asserted via `getComputedStyle` the
-   * same way `GraphClientTypeFilter.test.js` checks a layout property.
+   * `WBtnToggle.vue`'s shared segment styling only suppresses a middle/last segment's START border,
+   * so the group's two OUTER edges still draw and double up against `.nav-edit-menu`'s own card
+   * border. `NavEditMenu.vue` removes them in its own scoped style.
    */
   it("removes the menu source toggle's own outer borders (no double-border with the menu card)", async () => {
     const { wrapper } = mountMenu({ attachTo: document.body })
@@ -404,15 +388,10 @@ describe('NavEditMenu', () => {
   })
 
   /**
-   * OpenProject #2818: `.nav-edit-menu__menu-source-hint` only declared `padding-top`, leaving the
-   * hint text flush against the menu card's border -- unlike its siblings in the same
-   * `.nav-edit-menu__section` (`.nav-edit-menu__section-label` and `.nav-edit-menu__row`), which
-   * both establish 14px horizontal padding as the section's convention. Read back through the real,
-   * compiled `getComputedStyle` (this workspace's `test.css: true` + happy-dom environment actually
-   * runs the SFC's `<style scoped>` block), following `NavSidebar.test.js`'s established pattern for
-   * this exact kind of assertion -- a source-text grep can't tell "14px" apart from "any other
-   * value", which is what this needs to pin down, unlike the border-presence checks that pattern
-   * itself asserts.
+   * 14px horizontal padding is the section's convention, set by the hint's siblings inside
+   * `.nav-edit-menu__section`; a hint declaring only `padding-top` sits flush against the card
+   * border. Read back through a real `getComputedStyle` rather than a source grep, which cannot tell
+   * "14px" apart from any other value.
    */
   it('gives the menu-source hint the same 14px horizontal padding as its section siblings (OpenProject #2818)', async () => {
     const { wrapper } = mountMenu({ attachTo: document.body })
@@ -429,11 +408,10 @@ describe('NavEditMenu', () => {
   })
 
   /**
-   * Cobalt restyle (Task #2800): the Save button's fill is `color="slate"`, resolved as an inline
-   * style `WBtn` sets itself -- the only way `body.body--cobalt`'s own CSS can override it to the
-   * handoff's distinct Cobalt slate-button tone is a class-scoped `!important` rule, so this class
-   * is the one stable anchor that override needs. Not a color/style assertion (jsdom doesn't resolve
-   * the aesthetic's `var()` cascade reliably) -- just proof the anchor survives future edits.
+   * The Save button's fill is an inline style `WBtn` sets itself, so Cobalt can only override it
+   * with a class-scoped `!important` rule -- this class is the anchor that override hangs on. Proof
+   * the anchor survives, not a colour assertion: happy-dom does not resolve the `var()` cascade
+   * through stacked body classes reliably.
    */
   it("keeps the Save button's Cobalt-override class anchor", async () => {
     const { wrapper } = mountMenu()
@@ -445,10 +423,10 @@ describe('NavEditMenu', () => {
 })
 
 /**
- * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
- * the selected cascade-mode radio and the selected "Menu source" toggle segment both drew the same
- * bright light-mode tone against a dark ground. Fixed by resolving `color`/`toggle-color` through
- * `dark.isActive` instead of the static `accent-fill` prop.
+ * `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so the selected
+ * cascade radio and the selected "Menu source" segment would both draw the bright light-mode tone
+ * against a dark ground. Hence `color`/`toggle-color` resolve through `dark.isActive` rather than
+ * the static `accent-fill` prop.
  */
 describe('NavEditMenu accent-fill dark mode (OpenProject #2807)', () => {
   afterEach(() => {
@@ -493,37 +471,25 @@ describe('NavEditMenu accent-fill dark mode (OpenProject #2807)', () => {
 })
 
 /**
- * OpenProject #2902: the unselected "Menu Source" segments drew `--color-ink` -- unchanged between
- * Cobalt light and dark (`tailwind.css`'s `body.body--cobalt.body--dark` block never redefines it)
- * -- against the dark panel behind them, because this file's own `body.body--cobalt ...` rule beat
- * `WBtnToggle.vue`'s correct `:global(body.body--dark .w-btn-toggle__segment[aria-checked='false'])`
- * dark-mode rule on specificity alone. Fixed by scoping this file's rule to `:not(.body--dark)`, so
- * it stops matching under dark mode and the segment falls through to `WBtnToggle.vue`'s own rule
- * instead (`--color-text-dark`, already correct and already Cobalt-dark-aware via tailwind.css).
+ * `NavEditMenu.vue`'s Cobalt rule for unselected segments outranks `WBtnToggle.vue`'s dark-mode rule
+ * on specificity alone, so it is scoped to `:not(.body--dark)` and stops matching under dark mode,
+ * letting the segment fall through to the shared rule's already-dark-aware colour.
  *
- * The selectors below are extracted from each component's own COMPILED `<style scoped>` output
- * (via `vue/compiler-sfc#compileStyleAsync`, `darkModeGlobalSelector.test.js`'s established tool for
- * this exact class of bug) rather than retyped by hand, so a future edit to either rule's selector
- * is what these tests actually exercise -- not a copy that could quietly drift from the source. Which
- * rule WINS the match under each body-class combination is then a plain CSS selector question,
- * answered directly by `Element.matches()` with no layout/paint engine involved -- unlike resolving
- * the final computed `color` would need (a `var()` cascade through stacked body classes isn't
- * reliably resolvable under `happy-dom`; see `cobaltDarkBandTokens.test.js`'s own comment on this).
+ * The selectors are extracted from each component's own COMPILED `<style scoped>` output rather than
+ * retyped, so an edit to either rule's selector is what these tests exercise, not a copy that drifts.
+ * Which rule wins under each body-class combination is then a plain selector question answered by
+ * `Element.matches()` -- no layout engine, and no `var()` cascade for happy-dom to resolve wrongly.
  */
 describe('NavEditMenu menu-source unselected-segment dark-mode contrast (OpenProject #2902)', () => {
   /*
-    `new URL('./x', import.meta.url)` throws `TypeError: The URL must be of scheme file` under this
-    workspace's `happy-dom` environment (see `test/realGridLayout.js`'s own comment on the identical
-    issue) -- resolving via `node:path` off `fileURLToPath` sidesteps it.
+    `new URL('./x', import.meta.url)` throws `TypeError: The URL must be of scheme file` under
+    happy-dom -- resolving via `node:path` off `fileURLToPath` sidesteps it.
   */
   const selfDir = dirname(fileURLToPath(import.meta.url))
 
   /**
-   * Compiles `file`'s `<style scoped>` block for real, splits it into individual rules on `}`, and
-   * returns the selector text of the one rule whose selector contains `selectorMarker` -- i.e. the
-   * exact, real selector that rule actually compiles under, not a hand-copied guess. Throws loudly
-   * if the block is missing or `selectorMarker` doesn't identify exactly one rule, so a rename (or a
-   * marker too loose to disambiguate) shows up as a failing test rather than a silently-wrong match.
+   * Throws when the block is missing or `selectorMarker` does not identify exactly one rule, so a
+   * rename or a marker too loose to disambiguate fails the test rather than matching the wrong rule.
    */
   async function compiledSelectorFor(file, selectorMarker) {
     const source = readFileSync(join(selfDir, file), 'utf-8')

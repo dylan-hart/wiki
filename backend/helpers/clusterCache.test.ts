@@ -3,11 +3,6 @@ import { afterEach, describe, mock, test } from 'node:test'
 import { ClusterReloaded } from './clusterCache.ts'
 import { createEventsStub, installTestWiki } from '../test/mocks.ts'
 
-/**
- * A minimal subclass standing in for the five models that extend `ClusterReloaded`: it declares an
- * event name and counts the reloads it is asked for, which is the whole of what the base class
- * promises to drive.
- */
 class FakeCachedModel extends ClusterReloaded {
   protected readonly reloadEvent = 'reloadFakes'
   reloadCache = mock.fn(async () => {})
@@ -16,10 +11,9 @@ class FakeCachedModel extends ClusterReloaded {
 let wikiHandle: { restore(): void }
 
 /**
- * Installs just the `CARDINAL.events` member `ClusterReloaded` reads, and hands back the INSTALLED
- * stub — not the local one: `createWikiStub` merges an `events` override into its own default rather
- * than replacing it, so a test that later swaps one of these mock functions has to swap it on the
- * object the code under test actually reads.
+ * Returns the INSTALLED stub, not the local one: `createWikiStub` merges an `events` override into
+ * its default rather than replacing it, so a test swapping a mock must swap it on the object the
+ * code under test reads.
  */
 function installEvents() {
   wikiHandle = installTestWiki({ events: createEventsStub() })
@@ -73,8 +67,7 @@ describe('ClusterReloaded', () => {
     await handler()
 
     assert.equal(model.reloadCache.mock.callCount(), 1)
-    // -> The echo rule: answering another instance's event must never emit one back, or the reload
-    //    bounces around the cluster forever.
+    // -> Emitting back would bounce the reload around the cluster forever.
     assert.equal(events.outbound.emit.mock.callCount(), 0)
   })
 

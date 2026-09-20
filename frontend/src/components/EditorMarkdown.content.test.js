@@ -33,17 +33,14 @@ describe('EditorMarkdown insertFootnote (OpenProject #803)', () => {
 
     await clickInsertFootnote(wrapper)
 
-    // -> The cursor is trivially "at the document end" here too (an empty document has nowhere
-    //    else for it to be), which collided the two edit ranges pre-fix the same as the non-empty
-    //    case above.
+    // -> An empty document is trivially the "cursor at the document end" case as well.
     expect(editorState.fakeModel.getValue()).toBe('[^1]\n\n[^1]: ')
   })
 
   it('inserts a marker and a separately-delimited note when the cursor is at the document end', async () => {
     const { wrapper } = await mountEditor('Some text.')
-    // -> Cursor already at the exact end of the document, the same state a real editor is left in
-    //    right after a previous footnote insertion -- and the state that collapsed the two edit
-    //    ranges together before this fix.
+    // -> The state a real editor is left in right after a previous footnote insertion, where the
+    //    marker's and the note's edit ranges can collapse onto the same position.
     editorState.cursorPosition = { lineNumber: 1, column: 'Some text.'.length + 1 }
 
     await clickInsertFootnote(wrapper)
@@ -57,36 +54,28 @@ describe('EditorMarkdown insertFootnote (OpenProject #803)', () => {
 
     await clickInsertFootnote(wrapper)
     /*
-      `insertFootnote` parks the cursor at the end of the note it just wrote (see the function's own
-      doc comment), with no intervening cursor movement -- exactly the real-world trigger from two
-      toolbar clicks in a row. The second marker therefore lands right after the first note, on the
-      note's own line: correct (the marker is inserted "where the cursor is", same as always), and
-      NOT the bug -- the bug was the marker and note text landing concatenated on top of each other
-      with no delimiter at all, because both edit ranges had collapsed onto the same position.
+      `insertFootnote` parks the cursor at the end of the note it just wrote, so the second marker
+      lands right after the first note, on the note's own line -- correct, since a marker goes where
+      the cursor is. What must not happen is marker and note glued together with no delimiter, both
+      edit ranges having collapsed onto the same position.
     */
     await clickInsertFootnote(wrapper)
 
     const value = editorState.fakeModel.getValue()
     expect(value).toBe('Some text.[^1]\n\n[^1]: [^2]\n\n[^2]: ')
-    // -> The actual regression (OpenProject #803): marker and note glued together with no separator,
-    //    e.g. "[^2][^2]: " -- a marker followed immediately by its own note prefix.
     expect(value).not.toMatch(/\[\^2\]\[\^2\]:/)
     expect(value).not.toMatch(/\[\^1\]\[\^1\]:/)
-    // -> Both notes exist, each on its own line, each still resolvable to its marker.
     expect(value).toContain('[^1]: ')
     expect(value).toContain('[^2]: ')
   })
 })
 
 /*
-  `pageStore.pageSave()` (`stores/page.js`) calls `editorStore.contentFlusher()` immediately before
-  reading `content`/`render`, rather than trusting whatever the debounced `onDidChangeModelContent`
-  handler below has synced so far -- see that call site for why (OpenProject #806: a pasted image's
-  `blob:` URL rewrite, applied straight to the Monaco model, could otherwise still be sitting in that
-  500ms debounce window when a save fires). These two tests are the component-side half of that fix:
-  proof the mounted editor actually registers something on `editorStore.contentFlusher`, and clears it
-  again on unmount -- the store-level tests in `stores/page.test.js` only prove `pageSave()` calls
-  whatever is registered, not that this component is the thing registering it.
+  `pageSave()` calls `editorStore.contentFlusher()` immediately before reading `content`/`render`
+  rather than trusting the debounced `onDidChangeModelContent` handler: a pasted image's `blob:` URL
+  rewrite, applied straight to the Monaco model, can otherwise still be sitting in that 500ms window
+  when a save fires. These prove this component is what registers the flusher and clears it again on
+  unmount, which the store-level tests cannot.
 */
 describe('EditorMarkdown content flusher (OpenProject #806)', () => {
   beforeEach(() => {
@@ -99,11 +88,9 @@ describe('EditorMarkdown content flusher (OpenProject #806)', () => {
 
     expect(typeof editorStore.contentFlusher).toBe('function')
 
-    // -> Applied straight to the fake model, the same way `reloadEditorContent`'s `executeEdits` call
-    //    rewrites a pending asset's blob URL -- and, like that edit, not yet synced into the store by
-    //    the debounced change handler (`onDidChangeModelContent` is mocked out in this harness, so it
-    //    never fires at all here; the point is only that the flusher does not depend on it having
-    //    fired).
+    // -> Applied straight to the fake model, the way `reloadEditorContent`'s `executeEdits` rewrites
+    //    a pending asset's blob URL, and never synced by the change handler this harness mocks out:
+    //    the point is that the flusher does not depend on it having fired.
     editorState.fakeModel.applyEdit({
       range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
       text: 'PASTED '

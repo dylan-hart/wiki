@@ -22,50 +22,12 @@ import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
- * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
- * `notifyViaDB()` actually guarantee for a cross-instance event relayed over the `wiki` NOTIFY
- * channel, and whether any current subscriber (`core/config.ts`'s `reloadConfig`,
- * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, — added by OpenProject #966 —
- * `models/groups.ts`/`sites.ts`/`approvalRules.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`,
- * — added by OpenProject #2042 — `models/locales.ts`'s `reloadLocales`, — added by OpenProject
- * #2038 — `models/glossary.ts`'s `invalidateGlossaryCache`, and — added by OpenProject #2030 —
- * `models/classificationLevels.ts`'s `reloadClassificationLevels`) depends on more than
- * that.
+ * Postgres NOTIFY is at-most-once: a message published while nobody is LISTENing is dropped, not
+ * queued, and `helpers/pubsub.ts#createNotifier` mirrors that by doing nothing when there is no
+ * live client. That is an accepted contract, not a gap to close: every boot reloads config and
+ * caches unconditionally — see `dev/multi-instance-verify/README.md`.
  *
- * Postgres NOTIFY has no persistence and no delivery guarantee: a message published while nobody
- * is LISTENing on that channel is dropped by the server, not queued for later delivery. `notifier`
- * (`helpers/pubsub.ts`'s `createNotifier`, wired here as the module-scoped `notifier` in `db.ts`)
- * mirrors that faithfully on the sending side — it reads the live client fresh on every send and
- * does nothing (no throw, no buffering) when there isn't one. Test 1 below exercises exactly that
- * condition: `CARDINAL.dbManager.pubsubClient` being `null`, which is the real state both while the
- * only other instance is down and during this instance's own listener reconnect window
- * (`helpers/pubsub.ts`'s `connectListener`, task 703) after a dropped connection and before the
- * next one lands.
- *
- * OpenProject #2030 added an eighth subscriber, `classificationLevels`'s
- * `reloadClassificationLevels` — same shape as `groups`/`sites`/`approvals`, stubbed and asserted
- * the same way below.
- *
- * A fake `Pool`/`PoolClient` pair stands in for postgres, matching `helpers/pubsub.test.ts`'s
- * fixtures — this is event-bus wiring and delivery-loss semantics, not SQL, so a mock is the right
- * tool rather than a real two-`node backend` harness (also not
- * available in this environment; see `dev/multi-instance-verify/README.md` §8 for what that would
- * look like and why it is not needed to settle this question).
- *
- * **Finding**, expanded on in `dev/multi-instance-verify/README.md`: no subscriber is exposed to a
- * *permanently* missed event, because `index.ts`'s `preBoot()` calls `configSvc.loadFromDb()` and
- * `postBoot()` calls `groups`/`sites`/`locales`/`approvals`/`classificationLevels`
- * `.reloadCache()` unconditionally on every boot — not gated on any notification ever having
- * arrived. An instance that missed a
- * `reloadConfig`/`flushCaches`/`reloadGroups`/`reloadSites`/`reloadApprovals`/`reloadLocales`/`reloadClassificationLevels`
- * notify while it was down (or mid-restart) is fully resynced the moment it comes back, regardless
- * of what it missed. The
- * narrower residual gap is an instance that stays up throughout but loses one specific
- * notification during its own listener's brief reconnect window: nothing re-checks the DB for it
- * independently until the next matching event (another settings save, another manual "flush
- * caches" click) or its own next restart. That gap is judged low-severity and left undocumented in
- * code only via the comments here and in `helpers/pubsub.ts` and `core/db.ts`, rather than closed
- * with a new interval poller — see the README for the full reasoning.
+ * A fake `Pool`/`PoolClient` stands in for postgres: this is event-bus wiring, not SQL.
  */
 
 class FakeClient extends EventEmitter {
@@ -115,22 +77,13 @@ beforeEach(() => {
   loadFromDbMock = mock.fn(async () => true)
   flushCachesMock = mock.fn(async () => {})
   disconnectWebsocketsMock = mock.fn(() => 0)
-  // -> OpenProject #966: `subscribeToNotifications()` also wires `groups`/`sites`/`approvals`
-  //    `.subscribeToEvents()` now (see `core/db.ts`), which is real model code reachable off
-  //    `CARDINAL.models` — stubbed here the same way `configSvc.loadFromDb`/`maintenance.flushCaches`
-  //    already are, so this suite's minimal `CARDINAL` needs a `models` object at all.
-  // -> OpenProject #2042: `locales` joins the same wiring.
+  // -> `subscribeToNotifications()` calls each model's real `subscribeToEvents()` off
+  //    `CARDINAL.models`, so the real singletons are installed with only their local effect stubbed.
   groupsReloadCacheMock = mock.fn(async () => {})
   sitesReloadCacheMock = mock.fn(async () => {})
   approvalsReloadCacheMock = mock.fn(async () => {})
   localesReloadCacheMock = mock.fn(async () => {})
-  // -> OpenProject #2038: `subscribeToNotifications()` also wires `glossary.subscribeToEvents()` now
-  //    (see `core/db.ts`) -- stubbed the same way, though its local effect is a cache delete rather
-  //    than a DB re-fetch, so the stubbed method is `dropLocalCache`, not `reloadCache`.
   glossaryDropLocalCacheMock = mock.fn(() => {})
-  // -> OpenProject #2030: `subscribeToNotifications()` also wires
-  //    `classificationLevels.subscribeToEvents()` now (see `core/db.ts`), stubbed the same way as
-  //    `groups`/`sites`/`approvals`/`locales`.
   classificationLevelsReloadCacheMock = mock.fn(async () => {})
   configSvc.loadFromDb = loadFromDbMock
   maintenance.flushCaches = flushCachesMock
@@ -174,16 +127,14 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     await dbManager.subscribeToNotifications()
     assert.equal(dbManager.pubsubClient, initialClient)
 
-    // -> Simulate the real "nobody is currently listening" state: the only other instance is down,
-    //    or this instance's own listener is mid-reconnect (`connectListener`'s error handler does
-    //    exactly this via `setClient(null)` before a fresh client lands).
+    // -> The real mid-reconnect state: `connectListener`'s error handler nulls the client before a
+    //    fresh one lands.
     dbManager.pubsubClient = null
 
-    // -> Fires synchronously off CARDINAL.events.outbound via onAny(notifyViaDB); must not throw even
-    //    though there is nothing to send it on.
+    // -> Must not throw with nothing to send on.
     await CARDINAL.events.outbound.emit('reloadConfig')
 
-    // -> `createNotifier`'s send() is fire-and-forget internally (queued behind `tail`); wait for it.
+    // -> `createNotifier`'s send() is fire-and-forget internally; wait for it.
     await new Promise((resolve) => setTimeout(resolve, 10))
 
     assert.deepEqual(
@@ -192,8 +143,6 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
       'nothing beyond the initial connect/LISTEN was ever sent on the client that existed before the drop'
     )
 
-    // -> Once a client is available again, the earlier dropped notification is not replayed: it
-    //    was never buffered anywhere, so there is nothing to send.
     const secondClient = new FakeClient()
     dbManager.pubsubClient = secondClient as any
     await new Promise((resolve) => setTimeout(resolve, 10))
@@ -213,25 +162,20 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     await dbManager.subscribeToNotifications()
 
     const received: Array<{ event: string; value: unknown }> = []
-    // -> This build of `emittery` (2.x) hands every listener a `{ name, data }` wrapper, not the
-    //    raw payload, even for a specific `.on(eventName, ...)` — the same shape `notifyViaDB`
-    //    destructures off `onAny`. Matches how the codebase's own subscribers would read it, if
-    //    they read the argument at all (today, neither does).
+    // -> emittery hands every listener a `{ name, data }` wrapper, not the raw payload, even for a
+    //    specific `.on(eventName, ...)`.
     CARDINAL.events.inbound.on('reloadConfig', (evt: any) => {
       received.push({ event: 'reloadConfig', value: evt.data })
     })
 
-    // -> Self-echo: this instance published it, so hearing it back over NOTIFY must not re-trigger it.
     client.emit('notification', {
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-a', event: 'reloadConfig', value: null })
     })
-    // -> `CARDINAL.events.inbound.emit()` (called from `onNotification`) is async and unawaited there,
-    //    matching production; give its listeners a tick before asserting either way.
+    // -> `onNotification` does not await `inbound.emit()`; give its listeners a tick.
     await new Promise((resolve) => setTimeout(resolve, 0))
     assert.deepEqual(received, [])
 
-    // -> A different instance's event is the real case this channel exists for.
     client.emit('notification', {
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'reloadConfig', value: null })
@@ -260,7 +204,6 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'disconnectWebsockets', value: null })
     })
-    // -> OpenProject #966: group/site/approval cache reloads propagate the same way now
     client.emit('notification', {
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'reloadGroups', value: null })
@@ -273,12 +216,10 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'reloadApprovals', value: null })
     })
-    // -> OpenProject #2042: locale cache reloads propagate the same way now
     client.emit('notification', {
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'reloadLocales', value: null })
     })
-    // -> OpenProject #2038: glossary cache invalidation propagates the same way now
     client.emit('notification', {
       channel: 'wiki',
       payload: JSON.stringify({
@@ -287,7 +228,6 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
         value: { siteId: 'site-1' }
       })
     })
-    // -> OpenProject #2030: classification-level cache reloads propagate the same way now
     client.emit('notification', {
       channel: 'wiki',
       payload: JSON.stringify({
@@ -314,23 +254,15 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
 })
 
 /**
- * OpenProject #2205: `queryLogger.logQuery` used to write `JSON.stringify(params)` of the whole
- * bound-parameter array, with no redaction — and a bound parameter routinely carries a credential
- * (`models/settings.ts#updateConfig` binds the whole settings blob, including the API signing
- * key/passphrase and the session secret, as one JSONB parameter). These cases exercise the fix: the
- * emitted line must carry a parameter's shape (count, type, length) but never its value.
- *
- * OpenProject #2663 removed the `sqlLog`/`dev.logQueries` gate that used to sit in front of the
- * call. `logQuery` now emits unconditionally at `debug` on the `sql` scope and the logger's own
- * per-scope threshold decides whether the line survives — which is why redaction has to live inside
- * `logQuery` and not behind any trigger: there is no longer a trigger to hide behind, and the line
- * reaches every connected admin terminal as well as stdout the moment the threshold lets it through.
+ * A bound parameter routinely carries a credential (`models/settings.ts#updateConfig` binds the
+ * whole settings blob, signing key and session secret included, as one JSONB parameter), so the
+ * line may carry a parameter's shape (count, type, length) but never its value. `logQuery` emits
+ * unconditionally and leaves suppression to the logger's per-scope threshold, so the redaction
+ * cannot sit behind a gate.
  */
 describe('queryLogger.logQuery() — bound-parameter redaction', () => {
   let wikiHandle: { restore(): void }
-  // -> The rendered line, as the formatter would see it: the query is the message and the redacted
-  //    parameter descriptor is a field, so both halves have to be in view to assert a value never
-  //    reaches either. Scope `sql` at `debug` since the Phase 2 sweep (#2665).
+  // -> Message and `params` field joined, so one string covers both places a value could leak.
   let sqlCalls: string[]
 
   after(() => {
@@ -353,9 +285,7 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
     })
   })
 
-  // -> A PEM-shaped string (stands in for the API signing key) and a JSON blob carrying a `secret`
-  //    key (stands in for `models/settings.ts`'s `auth` blob) — the two shapes OpenProject #2205
-  //    calls out by name.
+  // -> Stand-ins for the API signing key and for `models/settings.ts`'s `auth` blob.
   const pemLikeParam =
     '-----BEGIN PRIVATE KEY-----\nMIIExampleNotARealKeyMaterialxxxxxxxxxxxxx\n-----END PRIVATE KEY-----'
   const secretBlobParam = {
@@ -376,7 +306,6 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
     assert.ok(!line.includes('super-secret-session-value'), 'session secret value must not appear')
     assert.ok(!line.includes('hunter2-passphrase'), 'passphrase value must not appear')
     assert.ok(!line.includes(JSON.stringify(secretBlobParam)), 'no JSON.stringify of the params')
-    // -> Shape is still useful for debugging: count, and a type/length per parameter.
     assert.match(line, /2 params/)
     assert.match(line, /string\(\d+\)/)
     assert.match(line, /object/)
@@ -395,9 +324,6 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
   })
 
   test('the flag being off does not silence the call — the threshold does that (#2663)', () => {
-    // -> The behaviour change this suite exists to pin: `logQuery` has no gate of its own any more.
-    //    Whether the line is rendered is `core/logger.ts#effectiveLevel`'s decision, asserted over
-    //    in `core/logger.test.ts`; here the only claim is that this call site stopped making it.
     CARDINAL.config.flags.sqlLog = false
 
     queryLogger.logQuery('select 1', [pemLikeParam])
@@ -414,28 +340,19 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
 })
 
 /**
- * OpenProject #2676: `slowQueryMs` — one `warn sql slow query` line per query that reaches the
- * configured threshold, and nothing at all below it or while the threshold is 0 (the shipped
- * default).
+ * A fake `pg` client rather than live Postgres: the behaviour under test is all in
+ * `instrumentSlowQueries`'s wrapper, and a real database would make "80ms is slow, 0ms is not" a
+ * property of the machine running the suite.
  *
- * Driven against a fake `pg` client rather than a live Postgres because the whole of the behaviour
- * is `instrumentSlowQueries`'s wrapper — which call shapes it times, what it measures, and what
- * reaches the line. A real database would add a real duration and take the assertions no further,
- * while making "80ms is slow, 0ms is not" a property of the machine running the suite.
- *
- * The redaction claim is the same one the suite above makes about the firehose, re-asserted here
- * because this is a second route out of the process for the same bound parameters — and a `warn` one
- * that an operator sees at the default `logLevel`, where the `debug` firehose is invisible.
+ * Redaction is re-asserted here because the slow line is a second route out of the process for the
+ * same bound parameters — a `warn` one, visible at the default `logLevel`.
  */
 describe('instrumentSlowQueries() — slowQueryMs (#2676)', () => {
   let wikiHandle: { restore(): void }
   let warnCalls: any[][]
   let debugCalls: any[][]
 
-  /**
-   * A stand-in for a checked-out `pg` client: records the arguments it was called with, settles
-   * after `delayMs`, and honours both of `pg`'s call conventions (promise, and trailing callback).
-   */
+  /** Honours both of `pg`'s call conventions: promise, and trailing callback. */
   function makeFakeClient(behaviour: { delayMs?: number; result?: any; reject?: Error } = {}): any {
     const calls: any[][] = []
     return {
@@ -472,8 +389,7 @@ describe('instrumentSlowQueries() — slowQueryMs (#2676)', () => {
     return fields as Record<string, unknown>
   }
 
-  // -> The two shapes OpenProject #2205 names: a PEM-shaped string and a settings blob carrying a
-  //    secret. Same fixtures as the firehose suite above, deliberately.
+  // -> Same fixtures as the firehose suite above, deliberately.
   const pemLikeParam =
     '-----BEGIN PRIVATE KEY-----\nMIIExampleNotARealKeyMaterialxxxxxxxxxxxxx\n-----END PRIVATE KEY-----'
   const secretBlobParam = {
@@ -623,8 +539,7 @@ describe('instrumentSlowQueries() — slowQueryMs (#2676)', () => {
   test('a submittable (Cursor / QueryStream) is passed straight through, untimed', async () => {
     const cursor = { text: 'select 1', submit() {} }
     const client = makeFakeClient()
-    // -> The fake answers a promise for every call; what matters is that the wrapper returned the
-    //    original call's value without attaching a timer to a stream that has no single duration.
+    // -> Echoes its argument, so identity shows the wrapper returned the original call's value.
     client.query = (...args: any[]) => args[0]
     instrumentSlowQueries(client)
 
@@ -642,24 +557,13 @@ describe('instrumentSlowQueries() — slowQueryMs (#2676)', () => {
     assert.equal(warnCalls.length, 1)
   })
 
-  /*
-    The "not logged twice" claim, as it stands after #2663 removed the `sqlLog` boolean gate: the
-    firehose is a `debug sql` line whose survival is the logger's per-scope threshold decision, and
-    the slow report is a `warn sql` line. Even with the `sql` scope raised to `debug` — the case the
-    Task describes as `sqlLog` being on — a slow query produces exactly ONE line from the slow path,
-    never a second `debug` of its own.
-
-    The two cannot be merged into one, and that is a property of Drizzle rather than a choice made
-    here: `Logger.logQuery` is invoked synchronously immediately BEFORE the query is sent, so the
-    firehose line has already been written by the time this wrapper's timer stops. See
-    `instrumentSlowQueries`'s doc comment.
-  */
   test('with the sql scope at debug as well, the slow path still emits exactly one line', async () => {
     CARDINAL.config.logScopes = { sql: 'debug' }
     const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 1 } })
     instrumentSlowQueries(client)
 
-    // -> The firehose, exactly as Drizzle drives it: before the query runs.
+    // -> As Drizzle drives it: `Logger.logQuery` runs synchronously BEFORE the query is sent, which
+    //    is why the firehose line and the slow line cannot be merged into one.
     queryLogger.logQuery('select "id" from "pages" where "hash" = $1', ['abc'])
     await client.query('select "id" from "pages" where "hash" = $1', ['abc'])
 
@@ -670,12 +574,6 @@ describe('instrumentSlowQueries() — slowQueryMs (#2676)', () => {
   })
 })
 
-/**
- * Task 2270: `dev.dropSchema` must not be honored outside a debug boot, even though the config value
- * itself carries no environment condition -- see `dropSchemaIfDev`'s own doc comment in `core/db.ts`
- * for the full reasoning. A fake `db` (just an `execute` mock.fn, matching this suite's other fakes)
- * stands in for the real Drizzle instance since this is pure guard logic, not SQL.
- */
 describe('dropSchemaIfDev() — CARDINAL.IS_DEBUG guard (task 2270)', () => {
   let executeMock: any
   let warnMock: any
@@ -725,17 +623,9 @@ describe('dropSchemaIfDev() — CARDINAL.IS_DEBUG guard (task 2270)', () => {
 })
 
 /**
- * Task 2249: `init()`'s `new Pool({...})` now carries an explicit `max`, `connectionTimeoutMillis`
- * and (via the `options` connection string, alongside `search_path`) `statement_timeout`, all sourced
- * from `CARDINAL.config.pool` (defaulted in `base.yml`, operator-tunable via `config.yml`). Unset, pg-pool
- * falls back to `max: 10` with no connect or statement bound at all, so a saturated pool or a runaway
- * query blocks its caller forever (`docs/audit-2026-08-24/security/12-infrastructure-ops.md` §2).
- *
- * These exercise real `pg` `Pool`/Postgres behavior against the config values `db.ts#init()` now
- * passes through — a mock of `pg-pool`'s internal checkout queue or Postgres's own timeout enforcement
- * would mostly just restate what's under test rather than verify it, so this is the DB-backed
- * exception the pure-unit-vs-DB-backed testing split carves out. Gated on `DATABASE_URL` like every other
- * DB-backed suite in this file — `npm run test` reports these as skipped without one.
+ * Unset, pg-pool falls back to `max: 10` with no connect or statement bound, so a saturated pool or
+ * a runaway query blocks its caller forever. DB-backed on purpose: a mock of pg-pool's checkout
+ * queue or of Postgres's own timeout enforcement would only restate what is under test.
  */
 describe('main pool bounds (task 2249)', { skip: !hasTestDatabase() }, () => {
   let pool: Pool | undefined
@@ -752,8 +642,6 @@ describe('main pool bounds (task 2249)', { skip: !hasTestDatabase() }, () => {
       connectionTimeoutMillis: 300
     })
 
-    // -> Check out both connections and never release them, saturating the pool exactly the way a
-    //    stuck query or a leaked client would in production.
     const held = await Promise.all([pool.connect(), pool.connect()])
 
     const startedAt = Date.now()
@@ -777,8 +665,7 @@ describe('main pool bounds (task 2249)', { skip: !hasTestDatabase() }, () => {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 1,
-      // -> Mirrors how `db.ts#init()` appends `statement_timeout` to the `options` connection string
-      //    alongside `search_path`, rather than a dedicated pg-pool config key (there isn't one).
+      // -> Set the way `db.ts#init()` sets it: through `options`, alongside `search_path`.
       options: '-c statement_timeout=300'
     })
 
@@ -791,21 +678,13 @@ describe('main pool bounds (task 2249)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
- * OpenProject #2049: `init()` builds `this.pool = new Pool({...})` and, until now, never attached an
- * `error` listener to it. node-postgres emits `error` on the pool whenever a checked-in, idle
- * client's connection fails (a Postgres restart, a failover, an idle timeout) -- `Pool extends
- * EventEmitter`, so an unhandled `error` is re-thrown as an uncaught exception and takes the whole
- * process down, exactly the failure mode `helpers/pubsub.ts`'s `connectListener` already guards
- * against for the dedicated LISTEN clients. This is the same regression-test shape
- * `helpers/pubsub.test.ts` uses for that listener path, aimed at the main pool instead.
+ * node-postgres emits `error` on the pool whenever an idle client's connection fails (a Postgres
+ * restart, a failover), and with no listener that is rethrown as an uncaught exception that takes
+ * the process down.
  *
- * `Pool.prototype.query` is mocked at the `pg` level rather than reaching for a real Postgres
- * connection: `init()`'s own query traffic (`connect()`'s `SELECT 1 + 1;`, then `SHOW
- * server_version;`) both go through `drizzle-orm/node-postgres`'s session, which calls
- * `this.client.query(...)` directly on the pool handed to `createDb()` -- so intercepting
- * `Pool.prototype.query` is enough to run the real `init()` end to end with no `DATABASE_URL` and no
- * network I/O. `workerMode: true` additionally skips `syncSchemas()` (real migrations), which is the
- * only other DB-touching step `init()` takes.
+ * All of `init()`'s own query traffic reaches the pool through `Pool.prototype.query`, so mocking
+ * that runs the real `init()` end to end with no `DATABASE_URL` and no network I/O. `init(true)`
+ * (worker mode) skips the migration step, which would need a real database.
  */
 describe('init() attaches an error listener to the main pool (OpenProject #2049)', () => {
   let wikiHandle: { restore(): void }
@@ -895,10 +774,8 @@ describe('init() attaches an error listener to the main pool (OpenProject #2049)
     assert.equal((fields.error as Error).message, 'Connection terminated unexpectedly')
   })
 
-  // -> OpenProject #2676. `connect` is where slow-query timing gets attached to each new physical
-  //    connection (`instrumentSlowQueries`), so its absence would leave the feature silently inert
-  //    with nothing failing. Asserted here beside the `error` listener because both are wiring
-  //    `init()` does to the pool it just built, and both are otherwise unreachable without one.
+  // -> `connect` is where `instrumentSlowQueries` is attached to each new physical connection; its
+  //    absence would leave slow-query timing silently inert with nothing failing.
   test('the constructed pool has a connect listener registered, for slow-query timing', async () => {
     await dbManager.init(true)
 
@@ -911,10 +788,8 @@ describe('init() attaches an error listener to the main pool (OpenProject #2049)
 })
 
 /**
- * Task 1887 (epic 1878): `subscribeToNotifications()` used to check its client out of `dbManager.pool`
- * -- the same pool application queries run against -- so holding it for the process lifetime silently
- * cost the configured `max` one connection. It must check out of the dedicated `dbManager.listenerPool`
- * instead, and never touch the query pool at all.
+ * A LISTEN client is held for the process lifetime, so checking it out of the query pool would
+ * silently cost the configured `max` one connection.
  */
 describe('subscribeToNotifications() checks out from the dedicated listener pool, not the query pool', () => {
   test('connects via dbManager.listenerPool and never calls dbManager.pool.connect()', async () => {
@@ -923,8 +798,6 @@ describe('subscribeToNotifications() checks out from the dedicated listener pool
     listenerPool.queueClient(client)
     dbManager.listenerPool = listenerPool as any
 
-    // -> Stands in for the main query pool -- application queries would run against this, and
-    //    `subscribeToNotifications()` must never check a client out of it.
     const queryPool = new FakePool()
     dbManager.pool = queryPool as any
 
@@ -941,9 +814,6 @@ describe('shutdown() — OpenProject #2023', () => {
     const order: string[] = []
     const pool = new FakePool()
     const client = new FakeClient()
-    // -> Instrument the two steps shutdown() composes, in the order it must run them: releasing the
-    //    LISTEN client (part of unsubscribeFromNotifications()'s teardown) has to be observed before
-    //    the pool is ended.
     const originalRelease = client.release.bind(client)
     client.release = () => {
       order.push('unsubscribed')
@@ -956,13 +826,8 @@ describe('shutdown() — OpenProject #2023', () => {
     }
     pool.queueClient(client)
     dbManager.pool = pool as any
-    // -> subscribeToNotifications() checks its client out of `listenerPool`, not `pool` (see
-    //    "subscribeToNotifications() checks out from the dedicated listener pool" above) -- left
-    //    unset here, `connectListener` would call `.connect()` on `null` and its `reconnect()` loop
-    //    catches that TypeError like any other connection failure, retrying forever rather than
-    //    surfacing it. Same fake pool/client stands in for both roles: shutdown() ends `dbManager.pool`
-    //    and releases whatever client `dbManager.listenerPool` handed out, and this test only needs to
-    //    observe both of those against the one instrumented pair.
+    // -> One fake pool plays both roles. Left unset, `connectListener`'s `reconnect()` loop would
+    //    catch the `null.connect()` TypeError like any connection failure and retry forever.
     dbManager.listenerPool = pool as any
 
     await dbManager.subscribeToNotifications()
@@ -989,20 +854,14 @@ describe('shutdown() — OpenProject #2023', () => {
 })
 
 /**
- * Task 2041 (epic 2037): `syncSchemas()` now holds a session-scoped advisory lock across its
- * `CREATE SCHEMA` / `CREATE EXTENSION` / `migrate()`, so two instances racing to migrate a fresh
- * database no longer both compute the same non-empty migration set and collide on `relation already
- * exists` — the loser blocks on the lock instead, then re-reads an already-migrated state.
+ * Unlocked, two instances racing to migrate a fresh database both compute the same migration set
+ * and collide on `relation already exists`; under the lock the loser blocks, then re-reads an
+ * already-migrated state. DB-backed because the thing under test is cross-connection
+ * serialization, which a fake `Pool` would only re-describe.
  *
- * DB-backed (real Postgres, real migrations) rather than mocked: the thing under test is genuine
- * cross-connection serialization, which a fake `Pool` would only re-describe, not verify — same
- * reasoning as `helpers/advisoryLock.test.ts`. Gated on `hasTestDatabase()`.
- *
- * This describe nests its own `beforeEach`/`afterEach` rather than relying on a one-time `before()`:
- * the file-level `beforeEach`/`afterEach` above (for the mock-`Pool` NOTIFY tests) unconditionally
- * reset `dbManager.pool` to `null` and stub `globalThis.CARDINAL` before/after *every* test in this file,
- * including these — nested hooks run after the outer `beforeEach` and before the outer `afterEach`,
- * so they are what re-establish real DB state for the duration of each test here.
+ * Nested `beforeEach`/`afterEach` rather than a one-time `before()`: the file-level hooks reset
+ * `dbManager.pool` and the `CARDINAL` global around every test in this file, these included, and
+ * nested hooks run inside them.
  */
 describe('syncSchemas() — advisory lock across DDL and migrate() (task 2041)', () => {
   const skip = hasTestDatabase() ? false : 'requires DATABASE_URL'
@@ -1014,13 +873,10 @@ describe('syncSchemas() — advisory lock across DDL and migrate() (task 2041)',
     if (!hasTestDatabase()) {
       return
     }
-    // -> Guarantees `ltree`/`pg_trgm` already exist somewhere in this database before the race test
-    //    below runs its own `CREATE EXTENSION IF NOT EXISTS` calls: that statement is not atomic
-    //    against another session doing the same thing for the first time concurrently (see
-    //    `test/db.ts`'s `createExtensionsSerialized`), and `node --test` runs other DB-backed suites'
-    //    files in parallel against the same `DATABASE_URL`. `setupTestDb()` creates the extensions
-    //    serialized against every other suite doing the same; its own throwaway schema is dropped
-    //    again immediately.
+    // -> `CREATE EXTENSION IF NOT EXISTS` is not atomic against another session creating the same
+    //    extension for the first time, and other DB-backed files run in parallel against this
+    //    database. `setupTestDb()` creates them serialized (`createExtensionsSerialized`) before
+    //    the race test issues its own; the throwaway schema it made is dropped again at once.
     await setupTestDb()
     await teardownTestDb()
   })
@@ -1032,13 +888,9 @@ describe('syncSchemas() — advisory lock across DDL and migrate() (task 2041)',
     }
     outerWiki = (globalThis as any).CARDINAL
     schema = `test_syncschemas_${randomBytes(6).toString('hex')}`
-    // -> `public` stays on the search path behind the fresh schema, matching both production
-    //    (`core/db.ts#init`'s own Pool `options`) and `test/db.ts`'s `setupTestDb()`: an unqualified
-    //    `CREATE TYPE`/`CREATE TABLE` inside a migration file targets whichever schema is first on
-    //    the connection's search_path, not `CARDINAL.config.db.schema` by name — without this, this
-    //    suite's own migration lands in `public` instead of the fresh schema it thinks it owns, and
-    //    can collide with a same-named type/table another suite (or a leftover prior run) already
-    //    left there.
+    // -> Fresh schema first: an unqualified `CREATE TYPE`/`CREATE TABLE` in a migration targets
+    //    whichever schema leads the connection's search_path, not `CARDINAL.config.db.schema` by
+    //    name. `public` stays behind it because the shared extensions live there.
     pool = new Pool({ connectionString: DATABASE_URL, options: `-c search_path=${schema},public` })
     dbManager.pool = pool
     wikiHandle = installTestWiki({
@@ -1074,9 +926,6 @@ describe('syncSchemas() — advisory lock across DDL and migrate() (task 2041)',
         }
       }
 
-      // -> Confirms a migration genuinely ran (not just that neither call threw) and that the
-      //    concurrent second call did not re-run it: drizzle's migrator inserts one `migrations` row
-      //    per migration file, applied exactly once regardless of how many callers raced for the lock.
       const migrationsCount = await pool.query(
         `SELECT count(*)::int AS count FROM "${schema}".migrations`
       )

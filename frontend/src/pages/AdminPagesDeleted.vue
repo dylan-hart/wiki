@@ -38,9 +38,8 @@
           :loading="state.loading > 0">
           <template #no-data>
             <!--
-              An empty list is the normal starting state -- either nothing has ever been deleted, or
-              every deletion has already been recovered or written over by an unrelated new page at the
-              same path, which is what quietly drops a row off this list on its own.
+              An empty list is the normal starting state: a deletion also drops off this list once it
+              has been recovered, or once an unrelated new page takes its path.
             -->
             <w-banner :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
               {{ t('history.recovery.none') }}
@@ -104,65 +103,38 @@ import { localizedPagePath } from '@/helpers/pagePaths'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 /**
- * Recoverable deletions across the whole site, and the one action there is to take on any of them.
+ * The server hands back only the rows this admin may read the history of, so there is no
+ * partial-access state to explain here: an empty list and a list this admin has no rows in look
+ * identical on purpose.
  *
- * The list itself never has to reason about permissions: the server already filtered it down to rows
- * this admin could read the history of (see `GET .../pages/deleted`), so an empty list and a list this
- * admin genuinely has no rows in look identical here, which is the point -- there is no partial-access
- * state to explain.
- *
- * The server paginates that route with a `versionDate` keyset cursor rather than answering the whole
- * site in one unbounded query (OpenProject #1862) -- `fetchAllRecoverable` below pages through it in a
- * loop so this view still shows the complete list at once, just assembled from several bounded calls
- * rather than one unbounded one. Stop on `nextCursor === null`, never on a short page: the permission
- * filter above can legitimately shrink one page below the requested limit while rows remain.
- *
- * Recovering can answer back in three shapes, and each gets its own handling rather than one generic
- * failure notice:
- *   - success, which routes straight to the page that now exists again;
- *   - `pageDuplicatePath` (409) -- something has since taken the original path -- which reopens the
- *     same tree browser `branchFrom` in `PageHistoryOverlay` uses, so the admin can pick another one;
- *   - `pageInvalidLocale` (400) -- the site no longer serves the locale this page was deleted in --
- *     which offers the locales it currently does instead of dead-ending on the message.
+ * `GET .../pages/deleted` is keyset-paginated on `versionDate`, and `fetchAllRecoverable` pages
+ * through it to show the whole list at once. Stop on `nextCursor === null`, never on a short page --
+ * that permission filter can shrink one page below the requested limit while rows remain.
  */
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
-// ROUTER
-
 const router = useRouter()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('history.recovery.title')
 }))
 
-// DATA
-
 const { state, load } = useAdminSettings({
   i18nPrefix: 'history.recovery',
-  // -> A listing, not a settings form: reading the rows has never raised the full-screen overlay,
-  //    the header's own refresh button shows the progress instead.
+  // -> A listing, not a settings form: the header's refresh button carries the progress, so reading
+  //    the rows does not raise the full-screen overlay.
   overlay: false,
   extraState: {
     rows: [],
-    /** Bare locale codes, from the site's own config -- what the locale picker offers on a 400. */
     activeLocales: []
   },
-  // -> The active locale list travels with the site, not with any one deletion: it is what the
-  //    site accepts NOW, which is the whole reason a stale locale needs a picker at all
+  // -> The locale picker has to offer what the site accepts now, not what the deleted page carried.
   fetch: (siteId) =>
     Promise.all([fetchAllRecoverable(), API_CLIENT.get(`sites/${siteId}?strict=true`).json()]),
   onLoaded: ([rows, site]) => {
@@ -213,17 +185,10 @@ const headers = [
   }
 ]
 
-// METHODS
-
 function authorLabel(row) {
   return row.author?.name || row.author?.email || t('history.unknownAuthor')
 }
 
-/**
- * Every recoverable deletion, assembled from as many bounded pages as the server's `versionDate`
- * cursor takes to exhaust -- see the component doc comment above for why this loops instead of one
- * unbounded call.
- */
 async function fetchAllRecoverable() {
   const rows = []
   let cursor
@@ -250,13 +215,7 @@ function confirmRecover(row) {
   }).onOk(() => recover(row))
 }
 
-/**
- * Recover one row, with whichever path/locale override a previous conflict picked.
- *
- * `overrides` starts empty -- the plain restore, at the path and locale the page was deleted from --
- * and only ever grows: a path conflict adds `path`, a locale conflict adds `locale`, and either can
- * happen on the very first attempt as well as on a retry.
- */
+/** `overrides` accumulates: a path conflict adds `path`, a locale conflict adds `locale`. */
 async function recover(row, overrides = {}) {
   state.loading++
   try {
@@ -267,8 +226,8 @@ async function recover(row, overrides = {}) {
     notify({ type: 'positive', message: t('history.recovery.recoverSuccess') })
     router.push(localizedPagePath(resp.page.path, resp.page.locale, siteStore.localeRouting))
   } catch (err) {
-    // -> ky throws above 400 -- a path a newer page has since taken answers 409, and an invalid
-    //    locale answers 400 with `error: 'pageInvalidLocale'` in the body
+    // -> ky throws for both refusals: a path taken since answers 409, a locale the site no longer
+    //    serves answers 400 with `error: 'pageInvalidLocale'` in the body.
     if (err.response?.status === 409) {
       notify({
         type: 'negative',
@@ -290,12 +249,7 @@ async function recover(row, overrides = {}) {
   }
 }
 
-/**
- * Let the admin pick a path the recreated page can actually land on.
- *
- * The same tree browser `branchFrom` opens in `PageHistoryOverlay`, in the same mode: choosing a new
- * home for a page that already exists elsewhere is exactly what this is, one history entry over.
- */
+/** `duplicatePage` mode: picking a new home for a page whose original path is now occupied. */
 function promptPath(row, overrides) {
   dialog({
     component: defineAsyncComponent(() => import('@/components/TreeBrowserDialog.vue')),
@@ -305,9 +259,6 @@ function promptPath(row, overrides) {
       folderPath: '',
       itemTitle: row.title,
       itemFileName: row.path,
-      // -> The locale the recovery itself will actually use -- an override from a prior locale
-      //    conflict (see `promptLocale`) if one exists, otherwise the locale this page was deleted
-      //    in. Same fallback `recover`'s own conflict message uses just above.
       locale: overrides.locale ?? row.locale
     }
   }).onOk((target) => {
@@ -315,10 +266,6 @@ function promptPath(row, overrides) {
   })
 }
 
-/**
- * Let the admin pick one of the locales this site currently serves, in place of the one this page was
- * deleted in -- which the site no longer does, or the recover call would not have answered 400.
- */
 function promptLocale(row, overrides) {
   const items = state.activeLocales.map((code) => {
     const known = adminStore.locales.find((lc) => lc.code === code)

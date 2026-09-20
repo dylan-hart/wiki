@@ -2,24 +2,16 @@ import { JOB_STATES } from '../../models/jobs.ts'
 import { actorFromRequest } from '../../models/auditLog.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
-/** How large an uploaded replication snapshot may be — a whole instance's worth of asset bytes, not
- *  one site's. Same magnitude as `system/transfer.ts`'s own single-site import ceiling; a snapshot
- *  covering every site is not bounded any lower than that. */
+/** A whole-instance snapshot is bounded no lower than `system/transfer.ts`'s single-site import. */
 const importUploadLimit = 500 * 1024 * 1024
 
 /**
- * Target-side bulk-import API surface for Feature #2437's scheduled replication: accept a
- * whole-instance snapshot archive and wipe-and-replace this instance's data with it.
+ * Mirrors `system/transfer.ts`'s single-site `POST /import` — a raw gzip body, a queued job, a poll
+ * route — for the whole instance. No `enforceApiKeySite` gate: this replaces every site, so there
+ * is no one site to check a key's pin against.
  *
- * Mirrors `system/transfer.ts`'s single-site `POST /import` in shape — a raw gzip body rather than a
- * multipart form, queued as a background job, polled for completion — scoped to the whole instance
- * instead of one site and with no `targetSiteId`/`enforceApiKeySite` gate: this replaces every site,
- * not one an API key could be pinned to. `manage:system` only, deliberately not reachable through a
- * site-scoped API key at all (see `core/http/authHooks.ts`'s API-key site pin — a key pinned to one
- * site has no business wiping every other one).
- *
- * Owns the gzip body parser its upload route needs, same reasoning as `transfer.ts`: `register()` is
- * a real encapsulation boundary, so no other system route sees it.
+ * Owns its gzip body parser: `register()` is an encapsulation boundary, so no other system route
+ * sees it.
  */
 async function routes(app: FastifyInstance) {
   app.addContentTypeParser(
@@ -29,9 +21,6 @@ async function routes(app: FastifyInstance) {
       CARDINAL.models.replicationImport.saveUpload(payload, importUploadLimit)
   )
 
-  /**
-   * IMPORT REPLICATION SNAPSHOT
-   */
   app.post<{ Body: string }>(
     '/replication/import',
     {
@@ -65,9 +54,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> The content-type parser above already streamed the body to disk — validating it (gzip
-      //    magic number, non-empty) as part of that same save, since there is no in-memory buffer
-      //    left here to check. `req.body` is the path it landed at.
+      // -> `req.body` is the path the content-type parser streamed the upload to, having already
+      //    checked its gzip magic number there: no in-memory buffer is left here to validate.
       const filePath = req.body
 
       const added = await CARDINAL.scheduler.addJob({
@@ -93,9 +81,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET REPLICATION IMPORT JOB
-   */
   app.get<{ Params: { jobId: string } }>(
     '/replication/import/:jobId',
     {
@@ -163,8 +148,6 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      // -> Not in history yet: it may simply not have been picked up off the queue by any instance
-      //    yet, which is not the same as not existing (see `Jobs#getPendingEntry`).
       const pending = await CARDINAL.models.jobs.getPendingEntry(req.params.jobId)
       if (!pending || pending.task !== 'replicationImport') {
         return reply.notFound('No such import job.')

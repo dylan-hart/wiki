@@ -1,27 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /*
- * OpenProject #954: `_loadNestedBlocks()` resolves a nested block's import URL through
- * `getBlockImportUrl()` (`../shared/config.js`) rather than a hardcoded `/_blocks/${tag}.js`, so a
- * custom block transcluded via `block-include` resolves for readers too, not just authors. Mocked
- * here rather than stubbed via `fetch` (as `../shared/config.test.js` covers `getBlockImportUrl`
- * itself) so this suite can assert on *which* tag the component asked to resolve, independent of
- * that function's own URL-building logic.
+ * Mocked rather than stubbed through `fetch` so this suite can assert on *which* tag the component
+ * asked to resolve; `getBlockImportUrl`'s own URL building has its own suite.
  */
 vi.mock('../shared/config.js', () => ({
   getBlockImportUrl: vi.fn(async (tag) => `/mock-blocks/${tag}.js`)
 }))
 
 /*
- * OpenProject #1638: the not-found/include-failed messages resolve through `../shared/i18n.js`'s
- * `t()`, which has its own dedicated coverage (`shared/i18n.test.js` -- resolution, English fallback,
- * fetch failure, param interpolation). Mocked here the same way `../shared/config.js` is mocked
- * above, and for the identical reason: this suite is about `connectedCallback`'s own branching, not
- * about re-proving `t()` resolves correctly, and a real `t()` would mean this suite's `_error` state
- * only lands after an actual (failing, since nothing is listening) network round trip -- unlike every
- * other awaited step here, which is a mocked `fetch` promise resolving within a microtask.
- * `vi.hoisted` so `i18nT` is assignable outside the (hoisted) `vi.mock` factory -- later tests assert
- * on its calls and override its resolved value directly.
+ * Mocked too: a real `t()` would land `_error` only after an actual (failing) network round trip,
+ * unlike every other awaited step here. `vi.hoisted` so `i18nT` is assignable outside the hoisted
+ * `vi.mock` factory.
  */
 const i18nT = vi.hoisted(() => vi.fn(async (_key, fallback) => fallback))
 vi.mock('../shared/i18n.js', () => ({ t: i18nT }))
@@ -41,16 +31,14 @@ function stubPage(overrides = {}) {
 }
 
 /**
- * Stubs `fetch` for both hops this block now makes instead of `WIKI_STATE`/`API_CLIENT`: the site
- * lookup (`../shared/site.js`'s `getSiteId`/`getCurrentPage`) and the include route itself.
- * `pathname` stands in for `WIKI_STATE.page.path`/`.locale` -- both are now read off the browser's
- * own address bar rather than a page store this block cannot reach.
+ * Both hops: the site lookup and the include route. `pathname` is what the current page's own path
+ * and locale are read off.
  */
 function stubFetch({
   page = stubPage(),
   pathname = '/current-page',
   locales = { primary: 'en', active: ['en'] },
-  includeResult = 'success' // 'success' | 'notFound' | 'networkError'
+  includeResult = 'success'
 } = {}) {
   window.history.pushState({}, '', pathname)
   return stubSiteFetch({
@@ -67,26 +55,22 @@ function stubFetch({
   })
 }
 
-/** Just the calls to the include route itself, excluding the shared site lookup underneath. */
 function includeCalls(fetchMock) {
   return fetchMock.mock.calls.filter(([url]) => url.includes('/pages/include'))
 }
 
 /**
- * Appends a `<block-include>` and waits for the fetch chain `connectedCallback` always kicks off.
- * `parent`, if given, is an already-mounted `<block-include>` this one nests inside -- the shape
+ * `parent` is an already-mounted `<block-include>` this one nests inside -- the shape
  * `_ancestorPaths()` climbs to find a cycle.
  */
 const mountInclude = ({ path = 'target-page', locale = '', showTitle = false, parent } = {}) =>
   mountBlock('block-include', {
-    // -> `path` as a real HTML attribute, not just a JS property: `_ancestorPaths()` reads a nested
-    //    include's OWN `path` off its ancestor elements via `getAttribute`, the same shape the
-    //    markdown renderer's `::block-include{path="..."}` actually produces.
+    // -> A real HTML attribute, not just a JS property: `_ancestorPaths()` reads an ancestor's own
+    //    `path` via `getAttribute`, the shape `::block-include{path="..."}` produces.
     attrs: { path },
     props: { locale, showTitle },
     parent,
-    // -> `settle: 1`: two fetch hops deep (site -> include), and one macrotask turn drains every
-    //    microtask queued by either.
+    // -> Two fetch hops deep (site -> include); one macrotask turn drains the microtasks of both
     settle: 1
   })
 
@@ -135,11 +119,8 @@ describe('block-include', () => {
   })
 
   /*
-    Regression coverage for OpenProject #957: the picker writes `showTitle="false"` into the page
-    when an author toggles Show Title on and back off (no `default` meant it compared against `''`
-    rather than `false`), and Lit's stock Boolean converter used to read any present attribute —
-    `showTitle="false"` included — as true. Reproduced here the way the picker would leave it: the
-    attribute literally present with the string "false".
+    The picker leaves the attribute present with the string "false" when an author toggles Show
+    Title on and back off, and Lit's stock Boolean converter reads any present attribute as true.
   */
   it('treats the literal attribute showTitle="false" as false', async () => {
     const el = await mountBlock('block-include', {
@@ -167,11 +148,10 @@ describe('block-include', () => {
   it('refuses a cycle through a currently-open ancestor include, case/slash-insensitively', async () => {
     const fetchMock = stubFetch()
     const outer = await mountInclude({ path: '/Ancestor-Page/' })
-    // -> The nested include is appended as a child of the outer one's rendered content
     const inner = await mountInclude({ path: 'ancestor-page', parent: outer })
 
     expect(inner.textContent).toContain('would loop')
-    expect(includeCalls(fetchMock)).toHaveLength(1) // only the outer include fetched
+    expect(includeCalls(fetchMock)).toHaveLength(1)
   })
 
   it('refuses nesting deeper than MAX_DEPTH (3)', async () => {
@@ -180,7 +160,7 @@ describe('block-include', () => {
     for (let i = 0; i < 3; i++) {
       current = await mountInclude({ path: `level-${i}`, parent: current })
     }
-    // -> A 4th level: root page + 3 already-open includes = chain length 4, over MAX_DEPTH (3)
+    // -> Root page + 3 already-open includes = a chain of 4, past MAX_DEPTH
     const tooDeep = await mountInclude({ path: 'level-3', parent: current })
 
     expect(tooDeep.textContent).toContain('nested more than 3 pages deep')
@@ -281,19 +261,12 @@ describe('block-include', () => {
     })
   })
 
-  /*
-   * OpenProject #954: before this fix, `_loadNestedBlocks()` always fetched `/_blocks/${tag}.js`,
-   * which 404s for a custom block -- it has no such flat file, only a per-site
-   * `/_blocks/custom/:siteId/:id.js` route. This mounts a transcluded page whose content brings an
-   * undefined `<block-widget>` element with it and asserts the component resolves that tag through
-   * `getBlockImportUrl()` instead of guessing a URL itself.
-   */
+  /* A custom block's code is served per-site, so a URL guessed from the tag 404s. */
   it("resolves a nested block's import URL through getBlockImportUrl(), not a hardcoded flat path", async () => {
     stubFetch({ page: stubPage({ render: '<p>Text</p><block-widget></block-widget>' }) })
 
     await mountInclude({ path: 'page-with-nested-block' })
-    // -> `_loadNestedBlocks()`'s own `import()` attempt needs a further turn past `mountInclude`'s
-    //    own waits to settle (it rejects, since nothing is actually served at the mocked URL)
+    // -> `_loadNestedBlocks()`'s `import()` needs a turn past `mountInclude`'s own waits to settle
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(getBlockImportUrl).toHaveBeenCalledWith('block-widget')

@@ -1,23 +1,15 @@
 /**
- * One entry per analytics provider this fork ships a backend module for (see
- * `backend/modules/analytics/*\/definition.yml`), keyed by that module's `key`. Each entry's
- * `inject(config)` appends that provider's tracking snippet to `document.head`, parameterized by the
- * provider's own config keys — the same keys its `definition.yml` declares as `props`.
+ * One entry per analytics provider the backend ships a module for
+ * (`backend/modules/analytics/*\/definition.yml`), keyed by that module's `key`; an entry reads the
+ * config keys that module's `definition.yml` declares as `props`.
  *
- * Snippets are the providers' own current loader code (Google's `gtag.js`, GTM's inline loader,
- * Matomo's tracker bootstrap), built as real DOM nodes rather than `innerHTML`'d strings so a
- * config value that happens to contain markup is never parsed as HTML.
- *
- * `boot/analytics.js` is the only caller and knows nothing about any specific provider — it just
- * looks up `site.config.analytics.providers`' keys in here. Adding a fourth provider is a new
- * `backend/modules/analytics/<key>/definition.yml` (discovered automatically by the backend) plus one
- * new entry in this map; the injection logic never changes.
+ * Snippets are built as real DOM nodes rather than `innerHTML`'d strings, so a config value that
+ * happens to contain markup is never parsed as HTML. `boot/analytics.js`, the only caller, knows
+ * nothing about any specific provider, so a fourth one is a new `definition.yml` plus one entry
+ * here and no change to the injection logic.
  */
 
-/**
- * @param {Record<string, string>} attrs Element attributes; `''` marks a boolean attribute present.
- * @param {string} [content] Inline script body, when the snippet isn't just a `src` load.
- */
+/** @param {string} [content] Inline script body, when the snippet isn't just a `src` load. */
 function appendScript(attrs, content) {
   const el = document.createElement('script')
   el.dataset.analyticsProvider = attrs.provider
@@ -33,7 +25,6 @@ function appendScript(attrs, content) {
 }
 
 export const ANALYTICS_PROVIDERS = {
-  /** Google Analytics (GA4) — https://analytics.google.com/ */
   google: {
     inject(config) {
       const propertyTrackingId = config?.propertyTrackingId
@@ -54,7 +45,6 @@ gtag('config', ${JSON.stringify(propertyTrackingId)});`
     }
   },
 
-  /** Google Tag Manager — https://tagmanager.google.com */
   gtm: {
     inject(config) {
       const containerTrackingId = config?.containerTrackingId
@@ -68,7 +58,6 @@ gtag('config', ${JSON.stringify(propertyTrackingId)});`
     }
   },
 
-  /** Matomo — https://matomo.org/ */
   matomo: {
     inject(config) {
       const siteId = config?.siteId

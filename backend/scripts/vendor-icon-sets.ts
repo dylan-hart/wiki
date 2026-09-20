@@ -2,22 +2,16 @@
    outside a booted `CARDINAL`. */
 /*
   Vendors the Tabler icon set from the `@iconify-json/tabler` npm package into
-  `assets/icon-sets/tabler.json` — a full Iconify collection export in exactly the shape
-  `models/icons.ts#sideloadFromDataPath` reads (OpenProject #3043).
+  `assets/icon-sets/tabler.json`, in exactly the shape `models/icons.ts#sideloadFromDataPath` reads.
 
-  Why vendor a merged file rather than have the runtime path read the npm package directly:
-  `@iconify-json/tabler` ships icons and metadata as two separate files (`icons.json`, `info.json`),
-  not the single `{ icons, aliases?, info? }` shape a sideload file is — see the vendored-collection
-  note on `parseSideloadIconCollection`. This script does that one merge, once, so
-  `Icons.init()` -> `sideloadFromDataPath()` reads a plain vendored/exported file no differently
-  than one an operator dropped in by hand.
+  Merged here rather than read from the package at runtime: `@iconify-json/tabler` ships icons and
+  metadata as two files (`icons.json`, `info.json`), not the single `{ icons, aliases?, info? }` shape
+  a sideload file is, so this does that merge once and `sideloadFromDataPath()` reads the result no
+  differently than a file an operator dropped in by hand.
 
-  The output is committed, the same reasoning `frontend/scripts/generate-icons.mjs` documents for its
-  own generated file: a real release doesn't need network access or a build step to have it, and a
-  diff shows exactly what changed when the dependency is bumped. Compact (no pretty-printing) on
-  purpose — this is vendored data, not hand-maintained code, and pretty-printing would roughly double
-  its size for no benefit. `npm run vendor-icons:check` fails if it has drifted out of step with the
-  installed package.
+  The output is committed so a release needs neither network access nor a build step to have it, and
+  a dependency bump shows up as a diff. Compact on purpose — vendored data, where pretty-printing
+  would roughly double the size for no benefit. `npm run vendor-icons:check` fails on drift.
 
   Usage: node scripts/vendor-icon-sets.ts [--check]
 */
@@ -26,17 +20,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IconifyJSON, IconifyInfo } from '@iconify/types'
 
-// `path.join(..., '..')` rather than `new URL('../', import.meta.url)` -- see
-// `frontend/scripts/generate-icons.mjs`'s own note on why the ambient global `URL` is avoided here.
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = path.join(ROOT, 'assets/icon-sets/tabler.json')
 const PACKAGE_DIR = path.join(ROOT, 'node_modules/@iconify-json/tabler')
 
-/**
- * Reads `@iconify-json/tabler`'s `icons.json` + `info.json` and merges them into one full Iconify
- * collection object -- the shape `parseSideloadIconCollection` (and a real
- * `api.iconify.design/<prefix>.json` response) already carries.
- */
 export function buildVendoredTablerCollection(): IconifyJSON {
   const icons = JSON.parse(fs.readFileSync(path.join(PACKAGE_DIR, 'icons.json'), 'utf8'))
   const info: IconifyInfo = JSON.parse(fs.readFileSync(path.join(PACKAGE_DIR, 'info.json'), 'utf8'))

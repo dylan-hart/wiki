@@ -9,14 +9,6 @@ import { pendingProfileSaves } from '@/composables/profileSaving'
 import { mountWithApp } from '../../test/mount.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
-/**
- * OpenProject #3315 (Feature #3314): `ProfilePreferences.vue` is the THEME/TIME/ACCESSIBILITY half
- * of what used to be `ProfileInfo.vue`'s single PREFERENCES/ACCESSIBILITY section, split into its
- * own page. Where a moved suite's own reasoning still applies verbatim, the doc comment is kept and
- * only the WP marker is added; where the coordination note calls out this page's own new
- * responsibility (carrying the identity fields through, patching only its own fields onto
- * userStore), that gets a dedicated describe instead.
- */
 function mountPage() {
   return mountWithApp(ProfilePreferences, {
     messages: {
@@ -50,11 +42,9 @@ const FULL_PROFILE = {
 }
 
 /**
- * `WSelect`'s interactive element is a `<button>` (it opens a menu rather than accepting typed
- * input), so `setValue()` cannot drive it the way `ProfileInfo.test.js` drives its plain `w-input`
- * fields. `w-btn-toggle` is a plain `<button>` too, but a `click` on one of its own segments -- the
- * timeFormat row's "24h" segment here -- is a real, minimal edit that exercises the same
- * `state.config` watcher every other field change does.
+ * Every field on this page is a toggle or a select, so `setValue()` drives none of them -- a
+ * `WSelect` opens a menu rather than accepting typed input. Clicking a `w-btn-toggle` segment is
+ * the smallest real edit available.
  */
 async function toggleTimeFormatTo24h(wrapper) {
   const toggle = wrapper.find('[role="radiogroup"][aria-label="profile.timeFormat"]')
@@ -78,15 +68,6 @@ function mountProfile(profile) {
   }).wrapper
 }
 
-/**
- * OpenProject #2810: row 10 (Profile) of `docs/cobalt-mockup-diff-signoff.md` was never diffed
- * against `ui-redesign-cobalt/Cardinal Wiki - Profile 3x - Cobalt.dc.html`. That diff found the
- * Preferences card's four `w-btn-toggle`s (Time format, Aesthetic, Appearance, Colour vision) all
- * filling their selected segment from `--color-primary` where the mockup's selected-segment fill is
- * the ACCENT role (`ui-redesign-cobalt/HANDOFF.md`'s chrome table, "Accent fill carrying WHITE text
- * ... selected segment", `#c8303c`/5.3:1) -- invisible under Ledger only because its `colorPrimary`
- * and `colorAccent` defaults are identical (`#c14a52`).
- */
 describe('ProfilePreferences against Cardinal Wiki - Profile 3x - Cobalt.dc.html (OpenProject #2810)', () => {
   it('fills every settings-row toggle selection from the segment-selected role', async () => {
     globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
@@ -106,11 +87,9 @@ describe('ProfilePreferences against Cardinal Wiki - Profile 3x - Cobalt.dc.html
       expect(toggle.exists()).toBe(true)
       const selected = toggle.find('[aria-checked="true"]')
       /*
-        `--color-segment-selected`, not `--color-accent` directly: the mockup's ask is "the accent
-        under Cobalt", and the two aesthetics answer it differently -- Ledger fills a selected
-        segment with the site's primary (what `WBtnToggle` has always drawn, and what its own
-        Aesthetic Setting card shows), Cobalt with the accent. The token carries both, so no caller
-        names a tone; `css/cobaltTokens.test.js` pins the two values.
+        `--color-segment-selected`, never `--color-accent` directly: the two aesthetics fill a
+        selected segment differently -- Ledger from the site's primary, Cobalt from the accent -- so
+        the token carries both and no caller names a tone.
       */
       expect(selected.attributes('style')).toContain(
         'background-color: var(--color-segment-selected)'
@@ -120,18 +99,10 @@ describe('ProfilePreferences against Cardinal Wiki - Profile 3x - Cobalt.dc.html
 })
 
 /**
- * OpenProject #3060: Time Format, Aesthetic, Light/Dark Mode and Color Vision Deficiency each wrap
- * their `w-btn-toggle` in a flanking `w-item-section side`, which the shared `WItemSection.vue`
- * responsive stacking (OpenProject #2822/#2823) deliberately excludes -- only two ADJACENT MAIN
- * sections (`.w-item-section--main + .w-item-section--main`) collapse to field-over-value on a
- * narrow row, the same shape Pronouns/Job Title already use. Dropping `side` on these four rows'
- * value section is the whole fix; this asserts the resulting DOM shape rather than re-proving the
- * container-query mechanism itself, which `WItem.responsiveStacking.test.js` already covers in a
- * real browser.
- *
- * OpenProject #3088: Content Width (added later, by Feature #3051 / Task #3068) kept `side` and
- * was left right-aligned and non-stacking, unlike the four rows above -- it joins the same
- * assertion here now that it has been converted too.
+ * `WItemSection.vue`'s responsive stacking collapses only two ADJACENT MAIN sections
+ * (`.w-item-section--main + .w-item-section--main`), never a flanking `side` one, so a toggle row
+ * that wants to stack must put its value in a MAIN section. The container-query mechanism itself is
+ * `WItem.responsiveStacking.test.js`'s to prove in a real browser; this is the DOM shape it needs.
  */
 describe('ProfilePreferences toggle-style fields collapse to field-over-value (OpenProject #3060)', () => {
   it('wraps Time Format/Aesthetic/Appearance/CVD/Content Width in a MAIN section, not a flanking `side` one', async () => {
@@ -155,8 +126,7 @@ describe('ProfilePreferences toggle-style fields collapse to field-over-value (O
       expect(valueSection.classList.contains('w-item-section--side')).toBe(false)
       expect(valueSection.classList.contains('w-item-section--main')).toBe(true)
 
-      // -> Immediately preceded by the label's own MAIN section -- the two-adjacent-MAIN-sections
-      //    shape Pronouns/Job Title already have, which is what the container query keys off.
+      // -> The container query keys off the label's MAIN section immediately preceding it.
       const labelSection = valueSection.previousElementSibling
       expect(labelSection.classList.contains('w-item-section--main')).toBe(true)
     }
@@ -165,14 +135,11 @@ describe('ProfilePreferences toggle-style fields collapse to field-over-value (O
 
 /**
  * The claims above that are MEASUREMENTS rather than class names, checked where a measurement can
- * actually be taken. jsdom runs no layout engine -- `min-h-[34px]` being on an element proves the
- * class is there, not that a 34px field is what renders, and a padding declared in
- * `ProfileOverlay.vue`'s stylesheet is not visible from the markup at all. This reassembles the real
- * thing in a real browser: the app's own compiled Tailwind, plus the SFC styles Vitest injected into
- * this document while mounting, around the markup an actual mount produced.
- *
- * `{ skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT }` for the same reason the two API-key dialog suites take it: `npm ci`
- * installs the Playwright library, not the browser binary.
+ * actually be taken: jsdom runs no layout engine, so `min-h-[34px]` on an element proves the class
+ * is there, not that a 34px field renders, and a padding declared in `ProfileOverlay.vue`'s
+ * stylesheet is not visible from the markup at all. The overlay is mounted alongside for its
+ * stylesheet alone. Skipped without Chromium: `npm ci` installs the Playwright library, not the
+ * browser binary.
  */
 describe(
   'ProfilePreferences settings-row rhythm, real layout (OpenProject #2623)',
@@ -254,11 +221,6 @@ describe(
   }
 )
 
-/**
- * OpenProject #3315: three section bands now -- THEME, TIME, ACCESSIBILITY -- where the old
- * combined page drew PREFERENCES + ACCESSIBILITY (2). Each still runs flush against the row before
- * it, no `mt-*` gap (Task #3220 removed the save bar these used to sit above).
- */
 describe('ProfilePreferences section bands (OpenProject #3315)', () => {
   it('draws THEME, TIME and ACCESSIBILITY, each flush against the row before it', async () => {
     globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
@@ -280,10 +242,9 @@ describe('ProfilePreferences section bands (OpenProject #3315)', () => {
 })
 
 /**
- * OpenProject #3282: save() counts itself on the shared `pendingProfileSaves` module singleton --
- * the auto-save is otherwise silent (Task #3220, no local loading indicator of its own), so this is
- * the only signal the Profile dialog's close button/dismiss guard have that a save is in flight.
- * Mirrors `ProfileInfo.test.js`'s own suite of the same name -- both pages share the singleton.
+ * The auto-save draws no loading indicator of its own, so the shared `pendingProfileSaves` counter
+ * is the only signal the Profile dialog's close button and dismiss guard have that one is in
+ * flight. Both profile pages write to the same singleton.
  */
 describe('ProfilePreferences pendingProfileSaves (OpenProject #3282)', () => {
   beforeEach(() => {
@@ -324,10 +285,9 @@ describe('ProfilePreferences pendingProfileSaves (OpenProject #3282)', () => {
 })
 
 /**
- * OpenProject #3344: `onFieldChange()` calls `save()` directly on every field change with no
- * debounce and nothing sequencing overlapping requests, so two saves fired in quick succession can
- * have their PUT responses land out of order. `save()`'s `saveGeneration` guard drops a response
- * whose call has since been superseded by a newer one, on both the success and the failure branch.
+ * `onFieldChange()` calls `save()` on every field change with no debounce and nothing sequencing
+ * overlapping requests, so two PUTs fired in quick succession can have their responses land out of
+ * order. `save()`'s `saveGeneration` guard drops a superseded response on both branches.
  */
 describe('ProfilePreferences save() drops stale responses across overlapping saves (OpenProject #3344)', () => {
   it('drops a stale SUCCESS response that lands after a newer save already applied its own outcome', async () => {
@@ -365,14 +325,13 @@ describe('ProfilePreferences save() drops stale responses across overlapping sav
     const secondSave = wrapper.vm.save()
     await flushPromises()
 
-    // The second (newer) call's response lands first and applies its own timezone.
+    // The newer call's response lands first.
     resolveSecond({ profile: { ...FULL_PROFILE, timezone: 'America/New_York' } })
     await secondSave
     await flushPromises()
     expect(userStore.timezone).toBe('America/New_York')
 
-    // The first (now stale) call's response lands after -- must be dropped, not overwrite the
-    // newer state.
+    // The older call's response lands after it, and must be dropped rather than overwrite it.
     resolveFirst({ profile: { ...FULL_PROFILE, timezone: 'Europe/London' } })
     await firstSave
     await flushPromises()
@@ -473,12 +432,6 @@ describe('ProfilePreferences save() drops stale responses across overlapping sav
   })
 })
 
-/**
- * OpenProject #3315: this page owns editing the theme/time/accessibility fields now -- the
- * load/send/patch/default shape each one exercises is unchanged from `ProfileInfo.vue`'s own
- * pre-split tests, just mounted on the new page and with the identity fields (name/email/...)
- * carried through unmodified instead of edited.
- */
 describe('ProfilePreferences theme/time fields (moved from ProfileInfo, OpenProject #3315)', () => {
   it('loads and sends the aesthetic choice the same way appearance already works', async () => {
     const wrapper = mountProfile({ ...FULL_PROFILE, aesthetic: 'cobalt' })
@@ -605,9 +558,8 @@ describe('ProfilePreferences theme/time fields (moved from ProfileInfo, OpenProj
 })
 
 /**
- * OpenProject #3315: carries the identity fields (name/firstName/lastName/location/jobTitle/
- * pronouns) through unmodified -- this page renders no control for them, so its own auto-save must
- * not clobber whatever `ProfileInfo.vue` last saved. Mirrors that page's own reciprocal suite.
+ * This page renders no control for the identity fields but PUTs the whole profile object, so its
+ * auto-save must carry them through unchanged or it clobbers what `ProfileInfo.vue` last saved.
  */
 describe('ProfilePreferences carries identity fields through unmodified (OpenProject #3315)', () => {
   const IDENTITY_PROFILE = {
@@ -679,14 +631,9 @@ describe('ProfilePreferences carries identity fields through unmodified (OpenPro
 })
 
 /**
- * Task #3220 (Epic #3219) established the shape: the explicit Save button is gone -- a field change
- * auto-applies, with no toast on success (ambient, the point is removing the need to think about
- * saving at all) but a toast, plus inline error state where it can be pinned to a field, on failure.
- * Task #3320 (Feature #3319) then dropped the debounce entirely for this page: every field here is a
- * toggle or a select, and there is no intermediate "typing" state for either the way there is for a
- * text field, so each one saves as soon as its own change event fires. `ProfileInfo.vue` keeps its
- * own debounce for the text fields it still owns (`ProfileInfo.test.js` covers that one); this page
- * carries no debounce at all any more, which is what the tests below pin.
+ * Every field here is a toggle or a select, with no intermediate "typing" state to debounce, so
+ * each saves the moment its own change event fires. Saving is ambient -- no Save button, no success
+ * toast -- but a failure still raises one, plus inline error state where it can be pinned.
  */
 describe('ProfilePreferences fields save immediately, no debounce (Task #3220/#3320)', () => {
   function findToggle(wrapper, label) {
@@ -769,9 +716,8 @@ describe('ProfilePreferences fields save immediately, no debounce (Task #3220/#3
       expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({ [field]: value })
     }
 
-    // -> The two `w-select`-backed fields (timezone, dateFormat) emit the same `update:model-value`
-    //    event a real pick would; driving them through the DOM's own dropdown is `WSelect.test.js`'s
-    //    job, not this suite's.
+    // -> The two `w-select`-backed fields are driven by the event a real pick emits; driving the
+    //    dropdown itself is `WSelect.test.js`'s job.
     globalThis.API_CLIENT.put.mockClear()
     const dateFormatSelect = wrapper
       .findAllComponents({ name: 'WSelect' })
@@ -873,11 +819,9 @@ describe('ProfilePreferences fields save immediately, no debounce (Task #3220/#3
 })
 
 /**
- * OpenProject #3281: `aesthetic`/`appearance`/`contentWidth`/`cvd` used to mount pre-selected on a
- * hardcoded default (`'site'`/`'none'`), then flash to the real saved value once `users/profile`
- * resolved. `state.config`'s initial value for all four is now `null`, and `WBtnToggle`'s own
- * selection check (`opt.value === modelValue`) is false for every segment when `modelValue` is
- * `null`, so no segment should render selected until the real value lands.
+ * `state.config` starts these four at `null`, and `WBtnToggle`'s selection check
+ * (`opt.value === modelValue`) is false for every segment then -- which is what keeps a hardcoded
+ * default from rendering selected and flashing across once `users/profile` resolves.
  */
 describe('ProfilePreferences theme toggles have no pre-fetch flash (OpenProject #3281)', () => {
   const toggleLabels = [
@@ -938,12 +882,8 @@ describe('ProfilePreferences theme toggles have no pre-fetch flash (OpenProject 
 })
 
 /**
- * OpenProject #3325: two rapid `onFieldChange` calls each fire their own PUT, but nothing sequences
- * the two RESPONSES. Before this fix, whichever response landed last unconditionally overwrote
- * `state.config` (and the fields `userStore.$patch` carries) via `applyProfile()`, even when it was
- * the OLDER of the two in-flight saves -- silently reverting a field the reader had already moved
- * past locally. `saveGeneration` (mirroring `composables/adminSettings.js`'s `load()` guard from
- * Task #3195) drops a save's response once a newer save has started since.
+ * The same `saveGeneration` guard from the reader's side: an older save's response applied through
+ * `applyProfile()` would silently revert a field the reader has already moved past.
  */
 describe('ProfilePreferences guards against stale, out-of-order save() responses (OpenProject #3325)', () => {
   it("keeps the later edit's value when the earlier save's response resolves after the later one", async () => {
@@ -984,22 +924,18 @@ describe('ProfilePreferences guards against stale, out-of-order save() responses
       .findAll('button')
       .find((btn) => btn.text().includes('profile.aestheticCobalt'))
 
-    // -> Save #1: aesthetic -> 'ledger'. Its PUT is now in flight, deliberately left unresolved.
+    // -> Save #1, left deliberately unresolved, then save #2 started over the top of it.
     await ledgerOption.trigger('click')
-    // -> Save #2: aesthetic -> 'cobalt', started before save #1 settled -- the same overlap the
-    //    work package's `onFieldChange` module comment describes as already handled correctly on
-    //    the request side (each PUT carries the field's latest value at send time).
     await cobaltOption.trigger('click')
 
     expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(2)
 
-    // -> Out of order: the NEWER save's (#2) response lands first...
+    // -> Out of order: the newer save's response lands first...
     resolveSecond({ profile: { ...FULL_PROFILE, aesthetic: 'cobalt' } })
     await flushPromises()
     expect(userStore.aesthetic).toBe('cobalt')
 
-    // -> ...then the STALE, older save's (#1) response lands after it. Applying it unconditionally
-    //    (the bug this guards against) would revert `aesthetic` back to 'ledger'.
+    // -> ...then the stale one, which applied unconditionally would revert `aesthetic` to 'ledger'.
     resolveFirst({ profile: { ...FULL_PROFILE, aesthetic: 'ledger' } })
     await flushPromises()
 

@@ -1,38 +1,33 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
 /**
- * Time-based one-time passwords (RFC 6238), as every authenticator app implements them: HMAC-SHA1
- * over a 30-second counter, truncated to 6 digits, keyed by a base32 secret.
+ * Time-based one-time passwords (RFC 6238): HMAC-SHA1 over a 30-second counter, truncated to six
+ * digits, keyed by a base32 secret. Hand-written rather than taken from a package because the
+ * algorithm and the base32 codec it needs are a few dozen lines together.
  *
- * Written here rather than pulled from a package because that is the whole of it — the algorithm is
- * a dozen lines, and the base32 codec it needs is another twenty. The parameters below are not
- * configurable on purpose: they are what an `otpauth://` URI means when it omits them, and an
- * authenticator app that reads a QR code has no way to be told anything else.
+ * The parameters below are deliberately not configurable: they are what an `otpauth://` URI means
+ * when it omits them, and an authenticator app reading a QR code cannot be told anything else.
  */
 
-/** Digits in a generated code. */
 const codeDigits = 6
 
-/** Seconds each code is valid for, before drift is taken into account. */
 const periodSeconds = 30
 
 /**
- * How many periods either side of the current one are accepted, i.e. a code stays usable for ±30s
- * around its own window. Clocks drift, and a user typing six digits routinely crosses a boundary.
+ * Periods either side of the current one that are also accepted. Clocks drift, and a user typing
+ * six digits routinely crosses a window boundary.
  */
 const allowedDrift = 1
 
 /**
- * Bytes of entropy in a generated secret. 20 bytes is the SHA-1 block size and encodes to exactly 32
- * base32 characters with no padding, which is what authenticator apps expect to be handed.
+ * 20 bytes is SHA-1's own digest length and encodes to exactly 32 base32 characters with no
+ * padding, which is what authenticator apps expect to be handed.
  */
 const secretBytes = 20
 
 const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 
-/**
- * Encode bytes as unpadded base32 (RFC 4648), the encoding `otpauth://` URIs use for secrets.
- */
+/** Unpadded base32 (RFC 4648), the encoding `otpauth://` URIs use for secrets. */
 function base32Encode(bytes: Buffer): string {
   let out = ''
   let bits = 0
@@ -53,10 +48,8 @@ function base32Encode(bytes: Buffer): string {
 }
 
 /**
- * Decode an unpadded or padded base32 string. Case-insensitive, and separators a user may have typed
- * are ignored — the secret is also displayed for manual entry, not only scanned.
- *
- * @throws If the value contains a character that is not base32
+ * Case-insensitive, and separators a user may have typed are ignored: the secret is displayed for
+ * manual entry as well as scanned.
  */
 function base32Decode(value: string): Buffer {
   const normalized = value.toUpperCase().replaceAll(/[\s-]/g, '').replaceAll('=', '')
@@ -78,9 +71,6 @@ function base32Decode(value: string): Buffer {
   return Buffer.from(bytes)
 }
 
-/**
- * The code a given secret produces for a given counter value.
- */
 function codeAt(secret: Buffer, counter: number): string {
   const counterBytes = Buffer.alloc(8)
   counterBytes.writeBigUInt64BE(BigInt(counter))
@@ -91,23 +81,14 @@ function codeAt(secret: Buffer, counter: number): string {
   return String(binary % 10 ** codeDigits).padStart(codeDigits, '0')
 }
 
-/**
- * A fresh TOTP secret, base32-encoded.
- */
 export function generateTotpSecret(): string {
   return base32Encode(randomBytes(secretBytes))
 }
 
 /**
- * The `otpauth://` URI an authenticator app reads from the QR code.
- *
- * The label is `issuer:account` and the issuer is repeated as a parameter, which is what apps
- * actually key their entries on. Both are URI-encoded; a wiki title containing a `:` or a `?` would
- * otherwise produce a URI that parses as something else.
- *
- * @param secret Base32 secret, as returned by `generateTotpSecret()`
- * @param account Who the code belongs to, i.e. the user's email
- * @param issuer What it logs into, i.e. the site title
+ * The label is `issuer:account` and the issuer is repeated as a parameter, which is what
+ * authenticator apps actually key their entries on. Both are URI-encoded; a wiki title containing a
+ * `:` or a `?` would otherwise produce a URI that parses as something else.
  */
 export function buildTotpUri({
   secret,
@@ -130,17 +111,9 @@ export function buildTotpUri({
 }
 
 /**
- * Whether a code is one the secret currently produces, allowing for clock drift.
+ * Answers with the matched *counter* rather than a boolean so a caller can record it and refuse a
+ * code whose counter has already been accepted — RFC 6238 §5.2's replay requirement.
  *
- * Compared byte-wise in constant time. That matters less here than for a password — a wrong code is
- * one of a million and expires in seconds — but the comparison is free to get right.
- *
- * Returns the matched *counter*, not just a boolean, so a caller can record it and refuse a code
- * whose counter has already been accepted — the RFC 6238 §5.2 replay requirement. Which of the
- * `allowedDrift` candidate counters matched is exactly the information that requires.
- *
- * @param secret Base32 secret stored for the user
- * @param code The six digits the user typed
  * @returns The counter the code matched, or -1 for no match, anything that is not six digits, or a
  *          secret that will not decode
  */

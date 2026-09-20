@@ -7,12 +7,6 @@ beforeEach(() => {
   setActivePinia(createPinia())
 })
 
-/**
- * Task 500: `pdfExportAvailable` reaches `siteStore` from `applySiteInfo`, which both `loadSite`
- * (`sites/:siteIdorHostname`) and the boot flow (`bootstrap`, which hands over site+flags+session
- * together) call with the same site payload shape — so the export UI can read
- * `siteStore.pdfExportAvailable` regardless of which of the two loaded it.
- */
 function siteInfoFixture(overrides = {}) {
   return {
     id: 'site-1',
@@ -61,12 +55,6 @@ describe('site store: applySiteInfo() pdfExportAvailable', () => {
   })
 })
 
-/**
- * OpenProject #2851/#2852: `isReplicationEnabled` reaches `siteStore` from `applySiteInfo` the same
- * way `pdfExportAvailable` does above -- an instance-wide, boolean, always-server-provided value
- * (`WIKI.config.replication?.isEnabled` on `buildSitePayload()`) that `HeaderNav.vue`'s warning
- * banner reads.
- */
 describe('site store: applySiteInfo() isReplicationEnabled', () => {
   it('adopts isReplicationEnabled: true from the site payload', () => {
     const store = useSiteStore()
@@ -91,11 +79,8 @@ describe('site store: applySiteInfo() isReplicationEnabled', () => {
 })
 
 /**
- * OpenProject #1922: `docsBase` reaches `siteStore` from `applySiteInfo` the same way
- * `pdfExportAvailable` does above -- but, unlike it, the store holds no hardcoded default of its
- * own. Every in-app "view docs" link is built from this value, so it must always come from the
- * server (`WIKI.config.docsBase`, from `backend/base.yml`) rather than a frontend literal that could
- * drift from it.
+ * Every in-app "view docs" link is built from this value, so it must always come from the server
+ * (`CARDINAL.config.docsBase`) rather than a frontend literal that could drift from it.
  */
 describe('site store: applySiteInfo() docsBase', () => {
   it('has no hardcoded default before any site info is applied', () => {
@@ -112,12 +97,6 @@ describe('site store: applySiteInfo() docsBase', () => {
   })
 })
 
-/**
- * OpenProject #2527: `navigationId` reaches `siteStore` from `applySiteInfo` the same way `docsBase`
- * does above -- the site's default menu id (`backend/api/sites.ts`'s `buildSitePayload`, via
- * `WIKI.models.navigation.ensureSiteNav`), what `NavSidebar.vue` and `MainLayout.vue` fall back to
- * on a route with no page-inherited `navigationId` of its own.
- */
 describe('site store: applySiteInfo() navigationId', () => {
   it('has no hardcoded default before any site info is applied', () => {
     const store = useSiteStore()
@@ -140,12 +119,6 @@ describe('site store: applySiteInfo() navigationId', () => {
   })
 })
 
-/**
- * OpenProject #954: `blocksIndex` reaches `siteStore` from `applySiteInfo` the same way
- * `pdfExportAvailable` does above, so `Index.vue`'s block-loading scan can resolve a custom block's
- * `id`/`isCustom` off the store instead of calling the manage:sites-gated `GET /sites/:siteId/blocks`
- * route, which a plain reader is refused.
- */
 describe('site store: applySiteInfo() blocksIndex', () => {
   it('adopts blocksIndex from the site payload', () => {
     const store = useSiteStore()
@@ -164,11 +137,6 @@ describe('site store: applySiteInfo() blocksIndex', () => {
   })
 })
 
-/**
- * Feature #3286 / OpenProject #3303: `commentsProvider` reaches `siteStore` from `applySiteInfo` the
- * same way `blocksIndex` does above -- `PageCommentsEmbed.vue` reads it off `Index.vue` to decide
- * whether to render a vendor embed at all, in place of `PageComments.vue`'s native list.
- */
 describe('site store: applySiteInfo() commentsProvider', () => {
   it('adopts commentsProvider from the site payload', () => {
     const store = useSiteStore()
@@ -218,13 +186,6 @@ describe('site store: applySiteInfo() commentsProvider', () => {
   })
 })
 
-/**
- * Feature #2574/#2577: `pathDisplayCase` reaches `siteStore` from `applySiteInfo`, the same as
- * `pdfExportAvailable`/`blocksIndex` above -- both `loadSite` and `bootstrap` hand it the same
- * payload shape. `applySiteInfo` also kicks off `fetchAcronymMap()` on its own once the setting is
- * on, with no separate call needed at any render site -- see the dedicated `fetchAcronymMap()`
- * describe below for that half.
- */
 describe('site store: applySiteInfo() pathDisplayCase', () => {
   it('adopts pathDisplayCase from the site payload', () => {
     const store = useSiteStore()
@@ -261,11 +222,9 @@ describe('site store: applySiteInfo() pathDisplayCase', () => {
   })
 
   /**
-   * Bug #2599: the acronym map is per-site, so `applySiteInfo` resets both it and its loaded flag
-   * before deciding whether to refetch. Without the reset, `fetchAcronymMap`'s
-   * `acronymMapLoaded && !forceRefresh` early return skips the new site's fetch entirely and site B
-   * renders site A's casing -- and on the `'off'` path, where no fetch runs at all, site A's map
-   * would simply stay put.
+   * Without `applySiteInfo`'s per-site reset, `fetchAcronymMap`'s `acronymMapLoaded &&
+   * !forceRefresh` early return skips the new site's fetch and site B renders site A's casing --
+   * and on the `'off'` path, where no fetch runs at all, site A's map simply stays put.
    */
   describe('site switch (#2599)', () => {
     it('refetches the acronym map for the new site rather than keeping the previous one', async () => {
@@ -366,11 +325,6 @@ describe('site store: fetchAcronymMap()', () => {
   })
 })
 
-/**
- * OpenProject #3046: a fetch/state slice deliberately separate from `fetchTags()`/`tags` — those
- * still answer "every tag in use, all-time", which `PageTags.vue` and `TagsBrowse.vue`/`Search.vue`
- * need untouched. This is the Header Search "Popular Tags" widget's own, narrower list.
- */
 describe('site store: fetchPopularTags()', () => {
   it('populates popularTags from the dedicated endpoint and marks it loaded', async () => {
     const store = useSiteStore()
@@ -567,13 +521,6 @@ describe('site store: fetchExtensionsStatus()', () => {
   })
 })
 
-/**
- * OpenProject #1012: `NavSidebar.vue`'s watcher used to gate this call itself
- * (`newValue !== siteStore.nav.currentId`), which meant nothing else in the app could ever force a
- * refetch of a menu it already had cached -- exactly the situation right after an admin nav edit, a
- * nav copy, or a page create/move/delete changes what a cached id's own items now are. The gate now
- * lives here instead, with a `forceRefresh` escape hatch for every same-tab invalidation caller.
- */
 describe('site store: fetchNavigation()', () => {
   it('fetches and caches the menu for a not-yet-seen id', async () => {
     const store = useSiteStore()
@@ -595,12 +542,6 @@ describe('site store: fetchNavigation()', () => {
     })
   })
 
-  /**
-   * OpenProject #2442: the response's `rootPath`/`rootId` -- the generator's own root for an
-   * `auto`/`mixed` menu, distinct from the locale root a `static` menu's absent values default to
-   * -- land on `nav` the same way `mode`/`items` already do, so `NavSidebar.vue`'s root-level
-   * "create here" action can read them straight off the store.
-   */
   it('stores rootPath/rootId from the response', async () => {
     const store = useSiteStore()
     store.id = 'site-1'
@@ -671,12 +612,8 @@ describe('site store: fetchNavigation()', () => {
   })
 
   /**
-   * OpenProject #1791: `currentId` used to be written only inside the post-await `$patch`, so two
-   * overlapping calls could settle out of order and leave `currentId` naming the wrong menu -- with
-   * the `id === currentId` short-circuit above then preventing the correct menu from ever being
-   * refetched. `inFlightId` is set synchronously before each request and re-checked after it
-   * resolves, so a response for an id that is no longer the most recently requested one is discarded
-   * instead of clobbering the newer menu.
+   * Out-of-order settlement would leave `currentId` naming the wrong menu, and the
+   * `id === currentId` short-circuit would then keep the correct one from ever being refetched.
    */
   it('discards a stale response when an earlier call resolves after a later one', async () => {
     const store = useSiteStore()
@@ -696,7 +633,6 @@ describe('site store: fetchNavigation()', () => {
     const firstCall = store.fetchNavigation('nav-1')
     const secondCall = store.fetchNavigation('nav-2')
 
-    // The later call (nav-2) resolves first; the earlier call (nav-1) resolves last.
     resolveSecond({ mode: 'static', items: [{ id: 'nav-2-item' }] })
     await secondCall
     expect(store.nav.currentId).toBe('nav-2')
@@ -704,7 +640,6 @@ describe('site store: fetchNavigation()', () => {
     resolveFirst({ mode: 'static', items: [{ id: 'nav-1-item' }] })
     await firstCall
 
-    // The stale nav-1 response must not have overwritten the newer nav-2 menu.
     expect(store.nav.currentId).toBe('nav-2')
     expect(store.nav.items).toEqual([{ id: 'nav-2-item' }])
   })
@@ -724,12 +659,9 @@ describe('site store: fetchNavigation()', () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => siteAResponse })
     API_CLIENT.get.mockReturnValueOnce({ json: () => siteBResponse })
 
-    // Two rapid site switches, each kicking off a fetch for that site's nav before the previous one
-    // has resolved.
     const fetchA = store.fetchNavigation('site-a-nav')
     const fetchB = store.fetchNavigation('site-b-nav')
 
-    // Site A's slower response lands after site B's, as it would for a genuinely slower request.
     resolveSiteB({ mode: 'static', items: [{ id: 'site-b-item' }] })
     await fetchB
     resolveSiteA({ mode: 'static', items: [{ id: 'site-a-item' }] })
@@ -741,9 +673,8 @@ describe('site store: fetchNavigation()', () => {
 })
 
 /**
- * Regression coverage for feature 413 ("RTL support end-to-end"), task 716: `locales.active`
- * descriptors must carry a real `isRTL` signal so App.vue can set `dir` on `<html>` without a second
- * request to `/_api/locales`.
+ * `locales.active` descriptors must carry a real `isRTL` signal, so App.vue can set `dir` on
+ * `<html>` without a second request to `/_api/locales`.
  */
 describe('site store: applySiteInfo() locale direction', () => {
   function baseSiteInfo(overrides = {}) {
@@ -809,16 +740,11 @@ describe('site store: applySiteInfo() locale direction', () => {
     ])
   })
 
-  // -> 'still resolves isRTL correctly against a Chrome-shaped Intl.Locale (getTextInfo() method,
-  //    no .textInfo getter)' (feature 413, task 727) moved to site.flaky.test.js (OpenProject
-  //    #2738): it flaked once in CI for an unconfirmed reason, not reproducible locally.
+  // -> The Chrome-shaped `Intl.Locale` case lives in `site.flaky.test.js`, quarantined after an
+  //    unexplained CI flake -- don't re-add it here.
 })
 
-/**
- * OpenProject #1911: Page Data / Page Data Templates was decided OUT (#1890) rather than built out --
- * the dialogs, the disabled rail entry point and this store slot were all dead weight behind an
- * `experimental` flag with no save path. `pageDataTemplates` must not exist on the store any more.
- */
+/** Page Data / Page Data Templates was decided out rather than built, so the slot must stay gone. */
 describe('site store: Page Data removal (#1911)', () => {
   it('does not expose a pageDataTemplates slot', () => {
     const store = useSiteStore()
@@ -828,12 +754,6 @@ describe('site store: Page Data removal (#1911)', () => {
   })
 })
 
-/**
- * OpenProject #2530: `openOverlay(name, opts)` is the one generic entry point for opening any
- * `MainOverlayDialog` overlay with initial state -- `MainOverlayDialog.vue` forwards `overlayOpts` to
- * the mounted component as a prop, so a future overlay (Inbox/Profile) calls this rather than
- * inventing its own store field or action.
- */
 describe('site store: openOverlay()', () => {
   it('sets overlay and overlayOpts together', () => {
     const store = useSiteStore()
@@ -854,10 +774,6 @@ describe('site store: openOverlay()', () => {
   })
 })
 
-/**
- * `openFileManager` is now a thin wrapper over `openOverlay` -- this locks down that its own
- * pre-existing `insertMode` default/shape survived the refactor.
- */
 describe('site store: openFileManager()', () => {
   it('opens the FileManager overlay with insertMode defaulted to false', () => {
     const store = useSiteStore()

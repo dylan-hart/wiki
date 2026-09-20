@@ -3,13 +3,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ANALYTICS_PROVIDERS } from './analyticsProviders'
 
 /*
-  A real <script src> appended to the document is exactly what production wants -- a real load in a
-  real browser. happy-dom refuses that load by design (`enableJavaScriptEvaluation: false` is its
-  test-safe default) and logs a DOMException about it to its own page console rather than silently
-  no-op'ing. `handleDisabledFileLoadingAsSuccess` is happy-dom's own switch for exactly this case --
-  it dispatches `load` instead of logging and dispatching `error`, which is what these assertions
-  actually want to observe: the DOM node's own `src`/`textContent`, not whether the browser's script
-  loader accepted the (refused, in a test) fetch.
+  happy-dom refuses to load a real <script src> by design and logs a DOMException for it.
+  `handleDisabledFileLoadingAsSuccess` makes it dispatch `load` instead, which is all these
+  assertions need: they read the DOM node's own `src`/`textContent`, not whether a script loader
+  accepted the fetch.
 */
 window.happyDOM.settings.handleDisabledFileLoadingAsSuccess = true
 

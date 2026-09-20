@@ -1,10 +1,8 @@
 import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
- * Sweep `<dataPath>/exports/` of tarballs nobody came back to download.
- *
- * A successful download deletes its own file (see `GET /_api/system/export/:jobId/download`), so this
- * only ever finds the ones that were queued and abandoned — still cheap to run daily.
+ * A successful download deletes its own tarball, so this only ever finds ones that were queued and
+ * abandoned — cheap enough to run daily regardless.
  */
 export async function task(): Promise<TaskResult | void> {
   const count = await CARDINAL.models.export.purgeExpired()

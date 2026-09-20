@@ -22,7 +22,7 @@ async function mountDialog(props) {
   return { wrapper, adminStore }
 }
 
-/** Types into the origin entry field and fires its `keyup:enter` custom emit, same as a real Enter key. */
+/** Triggers the native keyup that `WInput` turns into its own `keyup:enter` custom emit. */
 async function addOrigin(wrapper, origin) {
   const originInput = wrapper.findAll('input').at(-1)
   await originInput.setValue(origin)
@@ -68,7 +68,6 @@ describe('BlockCredentialDialog (mode: create)', () => {
     expect(wrapper.vm.state.allowedOrigins).toEqual([])
     expect(wrapper.text()).toContain('admin.blocks.credentialAllowedDomainsInvalid')
 
-    // Fixing the value and retrying succeeds, and the error clears.
     await addOrigin(wrapper, 'https://api.example.com')
     expect(wrapper.vm.state.allowedOrigins).toEqual(['https://api.example.com'])
     expect(wrapper.text()).not.toContain('admin.blocks.credentialAllowedDomainsInvalid')

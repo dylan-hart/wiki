@@ -4,14 +4,6 @@ import { mock } from 'node:test'
 import { task } from './rebuild-embeddings-index.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 
-/**
- * `embedPage` (`tasks/workers/embed-page.ts`) is a cross-task coordination stub as of this task
- * (#3104) — see that file's own doc comment — so this suite treats it as a black box: `CARDINAL.db` is
- * faked the same way `modules/search/shared.test.ts#pageStream()` fakes it, and the assertions are
- * about what THIS task does with the pages `pageStream` hands it (calls `embedPage` once per page,
- * queues nothing else, logs a completion line with the right count), not about what `embedPage`
- * itself does once #3098 lands its real implementation.
- */
 describe('rebuild-embeddings-index task()', () => {
   let wikiHandle: { restore(): void }
 
@@ -23,7 +15,7 @@ describe('rebuild-embeddings-index task()', () => {
     wikiHandle.restore()
   })
 
-  /** Same shape as `modules/search/shared.test.ts#pageStream()`'s own fake — one keyset window. */
+  /** Each array is one keyset window `pageStream` reads. */
   function fakeDb(windows: any[][]) {
     ;(globalThis as any).CARDINAL.db = {
       select: () => ({
@@ -39,9 +31,8 @@ describe('rebuild-embeddings-index task()', () => {
   }
 
   test('logs a completion line reporting how many pages pageStream yielded', async () => {
-    // -> A single window shorter than `pageStream`'s real `REBUILD_BATCH_SIZE` reads as the whole
-    //    set (see `modules/search/shared.test.ts#pageStream()`'s own "stops on the first short
-    //    window" case) -- exactly what a real site smaller than one batch looks like.
+    // -> One window shorter than `REBUILD_BATCH_SIZE` stops the stream, so this is the whole set --
+    //    what a site smaller than one batch looks like.
     fakeDb([[{ id: 'page-a' }, { id: 'page-b' }, { id: 'page-c' }]])
     ;(globalThis as any).CARDINAL.logger.info = mock.fn()
 

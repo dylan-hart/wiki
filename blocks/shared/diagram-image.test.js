@@ -5,11 +5,8 @@ import { _resetSiteCache } from './site.js'
 import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID } from '../test/mount.js'
 
 /**
- * The smallest possible subclass: the two hooks a proxy-backed diagram block has to write.
- *
- * Deliberately not one of the real blocks -- what is under test here is the skeleton they share
- * (the body read, the POST to the proxy, the frame), not either engine's own request shape, which
- * `block-kroki`'s and `block-plantuml`'s own suites already cover.
+ * Deliberately not one of the real blocks: what is under test is the skeleton they share, not either
+ * engine's own request shape, which `block-kroki`'s and `block-plantuml`'s own suites cover.
  */
 class TestDiagramElement extends DiagramImageElement {
   _defaultServer() {
@@ -30,7 +27,6 @@ class TestDiagramElement extends DiagramImageElement {
 }
 customElements.define('test-diagram-image', TestDiagramElement)
 
-/** A subclass folding an extra field into the POST body, the way Kroki's `diagramType` does. */
 class TestExtraBodyDiagramElement extends TestDiagramElement {
   _extraBody() {
     return { flavor: 'fancy' }
@@ -38,13 +34,11 @@ class TestExtraBodyDiagramElement extends TestDiagramElement {
 }
 customElements.define('test-diagram-image-extra', TestExtraBodyDiagramElement)
 
-// -> The `settle` hook: firstUpdated() kicks off _draw() without awaiting it (the POST is
-//    asynchronous), so the state change it produces lands after the first update cycle — `_ready`
-//    is the handle `DiagramImageElement` keeps on that work for exactly this.
+// -> firstUpdated() kicks off _draw() without awaiting it, so the state it produces lands after the
+//    first update cycle; `_ready` is the handle the element keeps on that work.
 const mount = (tag, body, props = {}) =>
   mountBlock(tag, { pre: body, props, settle: (el) => el._ready })
 
-/** A successful proxy response: `data`, defaulting to a tiny SVG, and the `content-type` it answers with. */
 function okResponse(data = '<svg/>', contentType = 'image/svg+xml') {
   return {
     ok: true,

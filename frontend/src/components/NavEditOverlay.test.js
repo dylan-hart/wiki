@@ -42,10 +42,8 @@ const SERVER_ITEMS = [
 function mountOverlay({ isHome = false, navId = null, mode = null, menuMode = null } = {}) {
   setActivePinia(createPinia())
 
-  // -> The real opener (`NavEditMenu.vue`) writes this onto the store, and `MainOverlayDialog.vue`
-  //    forwards it to the mounted overlay as the `overlay-opts` prop below -- mounting directly here
-  //    skips that middleman, so both are set to keep the store's own state realistic (OpenProject
-  //    #2530).
+  // -> The real opener writes this onto the store and `MainOverlayDialog.vue` forwards it as the
+  //    `overlay-opts` prop; mounting directly skips that middleman, so both are set here.
   const overlayOpts = {
     ...(navId && { navId }),
     ...(mode && { mode }),
@@ -66,10 +64,9 @@ function mountOverlay({ isHome = false, navId = null, mode = null, menuMode = nu
     if (url === 'groups') {
       return { json: vi.fn().mockResolvedValue([]) }
     }
-    // -> Both `nav-item-editor`'s own `full: true` fetch and the sidebar-invalidation
-    //    `fetchNavigation()` calls below hit the same `GET .../navigation/:navId` route, which
-    //    always returns the wrapped `{ mode, items }` shape -- `full` only changes which
-    //    visibility-group layer the server resolves, not the response envelope.
+    // -> One fallback covers both `nav-item-editor`'s `full: true` fetch and the
+    //    `fetchNavigation()` calls below: same route, same `{ mode, items }` envelope either way --
+    //    `full` only changes which visibility-group layer the server resolves.
     return { json: vi.fn().mockResolvedValue({ mode: 'static', items: SERVER_ITEMS }) }
   })
 
@@ -85,8 +82,8 @@ function mountOverlay({ isHome = false, navId = null, mode = null, menuMode = nu
 describe('NavEditOverlay', () => {
   it("resolves navId to the page's own id, and PUTs pages/:pageId with mode + items on save", async () => {
     const { wrapper, siteStore, pageStore } = mountOverlay()
-    // -> Settles both the item and group fetches (and the reactive update that re-enables the Save
-    //    button once the editor's own `loading` count drops back to 0), not just their issuing
+    // -> Settles the item and group fetches, and the update that re-enables the Save button once
+    //    the editor's own `loading` count is back to 0 -- not just their issuing
     await flushPromises()
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/page-1', {
@@ -121,15 +118,12 @@ describe('NavEditOverlay', () => {
         ]
       }
     })
-    // -> Refreshes both stores from what the save actually resolved to, exactly as before extraction
     expect(pageStore.navigationMode).toBe('inherit')
     expect(pageStore.navigationId).toBe('nav-x')
   })
 
   it('resolves navId from overlayOpts.navId for an inherited menu, and closes the overlay on save', async () => {
     const { wrapper, siteStore } = mountOverlay({ navId: 'inherited-nav-1', mode: 'inherit' })
-    // -> Settles both the item and group fetches (and the reactive update that re-enables the Save
-    //    button once the editor's own `loading` count drops back to 0), not just their issuing
     await flushPromises()
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/inherited-nav-1', {
@@ -176,10 +170,8 @@ describe('NavEditOverlay', () => {
   })
 
   /**
-   * OpenProject #1012: the reader-facing sidebar (`NavSidebar.vue`) must reflect this save in the
-   * same tab without a reload, even when the save resolves to an id the store already has cached --
-   * exactly the "already showing this menu" case `fetchNavigation()`'s own gate exists for, which is
-   * why this save must force past it.
+   * Without the force, the reader-facing sidebar stays stale in the same tab until a reload:
+   * `fetchNavigation()`'s own gate skips a menu the store is already showing.
    */
   it('force-refetches the sidebar nav on save, even though the resolved id is already cached', async () => {
     const { wrapper, siteStore } = mountOverlay()
@@ -198,15 +190,14 @@ describe('NavEditOverlay', () => {
     await vi.waitUntil(() => siteStore.overlay === '')
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-x')
-    // -> The default `API_CLIENT.get` mock resolves `SERVER_ITEMS` for any id -- no longer `stale`
+    // -> The default `API_CLIENT.get` mock resolves `SERVER_ITEMS` for any id, so no longer `stale`
     //    is the proof the gate was bypassed, not just that some request went out.
     expect(siteStore.nav.items).toEqual(SERVER_ITEMS)
   })
 
   /**
-   * `nav-item-editor`'s "Copy from..." action persists immediately, ahead of this overlay's own Save
-   * button (see `NavItemEditor.vue`'s `copied` event doc comment) -- so the sidebar has to be
-   * invalidated from that event too, not only from `save()`.
+   * `nav-item-editor`'s "Copy from..." action persists immediately, ahead of this overlay's own
+   * Save button, so the sidebar has to be invalidated from that event too, not only from `save()`.
    */
   it("force-refetches the sidebar nav when nav-item-editor emits 'copied'", async () => {
     const { wrapper, siteStore } = mountOverlay({ navId: 'inherited-nav-1', mode: 'inherit' })

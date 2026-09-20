@@ -8,20 +8,14 @@ import { resolvePageRule, type RulePageRef } from '../../helpers/pageRules.ts'
 import type { GroupRule } from '../../models/groups.ts'
 
 /**
- * OpenProject #3393: `write:tags` is a second, independent guardrail on top of OpenProject #3410's
- * `write:pages` both-sides check (`retagPermission.test.ts`) -- checked on the SAME two refs (the
- * page as it stands, and as it would leave), but as its own permission string, so a group can grant
- * `write:pages` without handing every editor the ability to walk a page into or out of a tag-scoped
- * rule's reach. `write:pages` alone passing is not enough here: every fixture below grants
- * `write:pages` everywhere unconditionally, so a refusal in these tests is exclusively the
- * `write:tags` guardrail's doing.
+ * Every fixture grants `write:pages` everywhere, so a refusal in these tests is the `write:tags`
+ * guardrail's doing alone.
  */
 describe('write:tags is required, independently of write:pages, to actually change a page’s tag set (OpenProject #3393)', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
   const OTHER_ID = '33333333-3333-4333-8333-333333333333'
 
-  /** Unconditional write:pages everywhere -- every test below is refused by write:tags alone, never this. */
   const writePagesAnywhere: GroupRule = {
     id: 'write-pages-anywhere',
     name: 'Write pages anywhere',
@@ -33,7 +27,6 @@ describe('write:tags is required, independently of write:pages, to actually chan
     sites: []
   }
 
-  /** Ordinary write:tags everywhere -- the baseline for tests proving the OTHER side of the check. */
   const writeTagsAnywhere: GroupRule = {
     id: 'write-tags-anywhere',
     name: 'Write tags anywhere',
@@ -45,7 +38,6 @@ describe('write:tags is required, independently of write:pages, to actually chan
     sites: []
   }
 
-  /** The tag-scoped write:tags DENY the acceptance criteria is written against. */
   const denyTagConfidential: GroupRule = {
     id: 'deny-tag-confidential',
     name: 'Deny write:tags on confidential',
@@ -294,9 +286,7 @@ describe('write:tags is required, independently of write:pages, to actually chan
       assert.equal(res.statusCode, 200)
       const body = res.json()
       const byId = Object.fromEntries(body.results.map((r: any) => [r.id, r]))
-      // -> PAGE_ID: [] -> ['docs'], a real change, refused for lack of write:tags.
       assert.equal(byId[PAGE_ID].status, 'skipped')
-      // -> OTHER_ID: ['news'] -> ['news', 'docs'], also a real change, refused the same way.
       assert.equal(byId[OTHER_ID].status, 'skipped')
       assert.deepEqual(updateCalls, [])
     })

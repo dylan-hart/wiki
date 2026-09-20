@@ -13,25 +13,15 @@ import { createTestRouter } from '../../test/router.js'
 import { chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
- * The article column's measure -- what `contentWidth: 'measured'` actually renders.
- *
- * The design (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`) writes the article column as a padded
- * box holding a bare `<div style="max-width:720px">`, with no `margin: 0 auto` anywhere in the file:
- * the text stops at 720px but STARTS where the column's padding does, flush with the breadcrumbs and
- * header above it. The app centred it instead (`margin-inline: auto`), which read as a drifting,
- * centre-aligned article on a wide window -- OpenProject #2615.
- *
  * "Left edge at the padding edge, not at (columnWidth - 720) / 2" is a statement about real layout,
  * so nothing short of a real layout engine can answer it: under `happy-dom` (this suite's
  * environment) every `getBoundingClientRect()` comes back zeroed regardless of CSS, and a test
- * asserting on the style string instead would pass just as happily with the `margin-inline` still
+ * asserting on the style string instead would pass just as happily with `margin-inline: auto` still
  * there. So this drives a real headless Chromium page, the way `test/realGridLayout.js` documents.
  *
- * It does NOT go through `buildAppCss()`, though: the rule under test lives in `Index.vue`'s own
- * un-scoped `<style>` block, not in Tailwind's output. The block is read directly out of the SFC --
- * already plain, valid CSS since OpenProject #3254 dropped the Sass pipeline it used to compile
- * through -- so what the browser lays out is the file's real CSS: a rule deleted or renamed in
- * `Index.vue` stops being applied here too, rather than silently passing against a copy.
+ * The CSS is read straight out of `Index.vue`'s own un-scoped `<style>` block rather than built
+ * through `buildAppCss()`, so what the browser lays out is the file's real CSS: a rule deleted or
+ * renamed there stops being applied here too, rather than silently passing against a copy.
  */
 
 const pagesDir = dirname(fileURLToPath(import.meta.url))
@@ -44,18 +34,11 @@ const COLUMN_PADDING_INLINE = 28
 const MEASURE = 720
 
 /*
- * The layout tokens the rules under test resolve through, lifted out of `css/tailwind.css` itself
- * rather than re-typed here.
- *
- * `Index.vue`'s article column states its padding as `var(--article-column-pad)` and its measure's
- * bleed as `var(--content-bleed-default)` -- the Cobalt aesthetic moves the article's whitespace
- * from the column into a card of its own, and a token is what lets one rule express both. Those
- * tokens live in `tailwind.css`, which this test deliberately does not build (see the note above),
- * so without them every `var()` here resolves to nothing and the column measures zero padding.
- *
- * Read from the LEDGER half of the file -- everything before the `body.body--cobalt` block -- since
- * these assertions are about Ledger's own layout. Reading rather than restating is what keeps the
- * test honest: change the token in `tailwind.css` and this fails, where a copied literal would not.
+ * `Index.vue`'s article column states its padding and bleed as tokens declared in `tailwind.css`,
+ * which this test deliberately does not build (see above), so without them every `var()` here
+ * resolves to nothing and the column measures zero padding. Read rather than restated, so changing
+ * a token fails here; from the LEDGER half only -- everything before the `body.body--cobalt` block
+ * -- since these assertions are about Ledger's own layout.
  */
 async function ledgerLayoutTokens() {
   const css = await readFile(join(frontendRoot, 'src', 'css', 'tailwind.css'), 'utf8')
@@ -85,10 +68,8 @@ async function indexPageCss() {
   return (await ledgerLayoutTokens()) + block[1]
 }
 
-/*
- * The article column exactly as `Index.vue`'s template builds it (`:141-155`): the scroll area, the
- * padded body carrying the conditional class, and the `v-html` contents div inside it.
- */
+/* -> Mirrors the article column `Index.vue`'s template builds: the rules under test select on
+      exactly these classes and this nesting. */
 function columnMarkup({ measured }) {
   return (
     `<div style="width:${COLUMN_WIDTH}px">` +
@@ -143,16 +124,14 @@ describe(
       const rect = await measureContents(browser, css, { measured: true })
 
       expect(rect.width).toBe(MEASURE)
-      /* -> The whole point: the leading edge is the column's padding edge... */
       expect(rect.left - rect.bodyLeft).toBe(COLUMN_PADDING_INLINE)
-      /* -> ...and specifically NOT half the leftover, which is what `margin-inline: auto` produced. */
+      /* -> And specifically not half the leftover, which is where `margin-inline: auto` puts it. */
       const centredLeft =
         COLUMN_PADDING_INLINE + (rect.bodyWidth - COLUMN_PADDING_INLINE * 2 - MEASURE) / 2
       expect(centredLeft).toBeGreaterThan(COLUMN_PADDING_INLINE)
       expect(rect.left - rect.bodyLeft).not.toBe(centredLeft)
-      /* -> OpenProject #2835: `.page-contents` itself stays unconstrained (full column width) --
-            only its children are capped -- which is what lets a floated block-infobox use the
-            width the measure reclaims instead of being trapped at 720px with nowhere to float. */
+      /* -> `.page-contents` itself stays unconstrained -- only its children are capped -- so a
+            floated block-infobox can use the width the measure reclaims. */
       expect(rect.contentsWidth).toBe(COLUMN_WIDTH - COLUMN_PADDING_INLINE * 2)
     })
 
@@ -167,13 +146,9 @@ describe(
 )
 
 /*
- * The rule and the class binding have to agree, and both have to spell the same value the store
- * defaults to -- three separate files. A rename that missed one would leave the measure permanently
- * off with nothing failing above, since the real-browser suite drives the class directly.
- *
- * The class binding itself reads a resolved computed rather than `siteStore.theme.contentWidth`
- * directly as of Task #3068 (the per-user override) -- `resolvedContentWidth` is what layers that
- * override on top of the site default, so this is now what the wiring check follows.
+ * The rule, the class binding and the store default have to spell the same value -- three separate
+ * files. A rename that missed one would leave the measure permanently off with nothing failing
+ * above, since the real-browser suite drives the class directly.
  */
 describe('Index.vue measure wiring', () => {
   it('binds `is-measured` off the resolved contentWidth, and the site store still defaults to measured', async () => {
@@ -201,12 +176,10 @@ describe('Index.vue measure wiring', () => {
 })
 
 /*
- * OpenProject #2835: the infobox block floats right (`blocks/block-infobox/component.js`), but as a
- * DOM child of `.page-contents` it can only ever float within whatever box `.page-contents` resolves
- * to -- it can never reach the separate `.page-sidebar` flex column. Capping `.page-contents` itself
- * (the old rule) trapped it at 720px with no reclaimed whitespace to float into; the fix moves the
- * cap onto `.page-contents`'s children, `:not(block-infobox)`, so `.page-contents` stays full-width
- * and only an infobox may use the space between the measure and the real column edge.
+ * The infobox block floats right but, as a DOM child of `.page-contents`, can only float within that
+ * box -- never into the separate `.page-sidebar` column. So the cap sits on `.page-contents`'s
+ * children, `:not(block-infobox)`, rather than on `.page-contents` itself, leaving an infobox the
+ * space between the measure and the real column edge.
  */
 describe('Index.vue measured content excludes block-infobox', () => {
   function infoboxMarkup({ measured }) {
@@ -252,11 +225,8 @@ describe('Index.vue measured content excludes block-infobox', () => {
           }
         })
 
-        /* -> `.page-contents` itself is no longer capped -- the whole point of the fix. */
         expect(rects.contentsWidth).toBeGreaterThan(MEASURE)
-        /* -> An ordinary child still measures at 720px, same as before this change. */
         expect(rects.normalWidth).toBe(MEASURE)
-        /* -> block-infobox is excluded from the cap and keeps its own explicit 900px width. */
         expect(rects.infoboxWidth).toBe(900)
       } finally {
         await page.close()
@@ -265,12 +235,6 @@ describe('Index.vue measured content excludes block-infobox', () => {
   })
 })
 
-/**
- * Feature #3051 / Task #3068: the per-user override, layered on top of the site's own `contentWidth`
- * admin setting rather than replacing it. `resolvedContentWidth` is exercised behaviourally here (the
- * class actually applied under each combination of site setting and user preference), separately from
- * the structural "the source still spells it this way" check above.
- */
 describe('Index.vue contentWidth: per-user override precedence (Task #3068)', () => {
   beforeEach(() => {
     window.matchMedia =

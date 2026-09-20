@@ -3,39 +3,22 @@ import { beforeEach, describe, test } from 'node:test'
 import { validateTrustProxySpec } from './security.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
-// `observeRequest` calls `Temporal.Now.instant()` unconditionally; `ensureTemporal()` polyfills the
-// global for real on this sandbox's Node, which lacks it natively -- see `test/temporal.ts` for why
-// this is needed at all.
+// `observeRequest` calls `Temporal.Now.instant()` unconditionally, and a V8 built without Temporal
+// support has no global for it to reach.
 await ensureTemporal()
 
 /**
- * Unit test for task 833: `Security#observeRequest` is the runtime detector behind
- * `insecureCookieRiskAt` on `GET /system/security`, the diagnostic that warns when this instance
- * sits behind a reverse proxy terminating TLS while `trustProxy` is off, because `request.protocol`
- * never reflects `X-Forwarded-Proto` in that configuration -- see the doc comment on
- * `models/security.ts` for the full mechanism.
- *
- * Trigger condition and behavior are unchanged by task 2109: that task pinned the session cookie's
- * `Secure`/`SameSite`/`__Host-` name unconditionally in `index.ts`, which stopped this specific
- * misdetection from being able to weaken the cookie at all -- but `observeRequest` itself doesn't
- * know or care about the cookie, only about the header/protocol mismatch, so nothing here needed to
- * change. What changed is what the diagnostic *means* once it fires (see `models/security.ts`'s
- * updated doc comment: now it points at `callbackUrl()`/sitemap URL generation still trusting the
- * wrong scheme, not a weakened cookie) -- this suite still just needs to prove the detector itself
- * keeps firing on exactly the same evidence it always did.
- *
- * Exercises the model directly against a minimal `CARDINAL.config.security` stand-in rather than a
- * real Fastify request, since `observeRequest` only ever reads two things: the raw header bag and
- * the `protocol` string Fastify's own `request.protocol` getter would have produced.
+ * Exercised against a minimal `CARDINAL.config.security` stand-in rather than a real Fastify request,
+ * since `observeRequest` only ever reads two things: the raw header bag and the `protocol` string
+ * Fastify's own `request.protocol` getter would have produced.
  */
 describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
   let security: typeof import('./security.ts').security
 
   beforeEach(async () => {
     ;(globalThis as any).CARDINAL = { config: { security: { trustProxy: false } } }
-    // -> Fresh module instance per test: the class holds `insecureCookieRiskAt` as private
-    //    instance state on the one exported singleton, so re-importing (Node's ESM cache would
-    //    normally hand back the same module) is defeated with a cache-busting query string.
+    // -> Fresh module instance per test: `insecureCookieRiskAt` is private instance state on the one
+    //    exported singleton, and a cache-busting query string is what defeats Node's ESM cache.
     ;({ security } = await import(`./security.ts?t=${Math.random()}`))
   })
 
@@ -49,8 +32,7 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
     const seenAt = security.getInsecureCookieRiskAt()
     assert.ok(seenAt, 'expected a timestamp to be recorded')
     // -> Round-trips through Temporal.Instant.from without throwing, i.e. it is the millisecond-
-    //    precision ISO string the rest of the codebase writes (see `getClusterNodes` in
-    //    `api/system/info.ts`), not some other shape.
+    //    precision ISO string the rest of the codebase writes, not some other shape.
     assert.doesNotThrow(() => Temporal.Instant.from(seenAt!))
   })
 
@@ -90,12 +72,6 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
   })
 })
 
-/**
- * Work package 2075(a): `trustProxy` widened from a plain boolean to a trusted-proxy address/CIDR
- * specification. `validateTrustProxySpec` is the round-trip through `@fastify/proxy-addr`'s own
- * `compile()` that `Security#validate` calls for the string form -- see its doc comment for why it is
- * a round-trip rather than a hand-written pattern.
- */
 describe('validateTrustProxySpec', () => {
   test('accepts a single CIDR range', () => {
     assert.equal(validateTrustProxySpec('10.0.0.0/8'), null)
@@ -137,10 +113,8 @@ describe("Security#validate — the widened 'trustProxy' field", () => {
   let security: typeof import('./security.ts').security
 
   beforeEach(async () => {
-    // -> `validate()` merges the patch under test with `getConfig()`'s read of the *whole*
-    //    `security` blob, and checks every field it owns -- `corsMode` a valid enum member being
-    //    the first. A base config with nothing else wrong is what isolates each test below to
-    //    `trustProxy` alone.
+    // -> `validate()` checks every field of the patch merged onto `getConfig()`'s read of the *whole*
+    //    `security` blob, so a base with nothing else wrong is what isolates these to `trustProxy`.
     ;(globalThis as any).CARDINAL = { config: { security: { corsMode: 'OFF' } } }
     ;({ security } = await import(`./security.ts?t=${Math.random()}`))
   })
@@ -176,20 +150,12 @@ describe("Security#validate — the widened 'trustProxy' field", () => {
   })
 })
 
-/**
- * Unit test for WP #2161 (part of #2154): `Security#validate` is what stands between an admin-area
- * save and `CARDINAL.config.security` -- an unknown CSP directive name must be refused here, with a
- * message naming the offending token, rather than reaching `parseCspDirectives` for the first time
- * at request-serving time in `index.ts`. Directive names are validated regardless of `enforceCsp`:
- * a typo'd or invented directive stored while enforcement is off would otherwise resurface,
- * unvalidated, the moment enforcement is later switched on.
- */
 describe('Security#validate CSP directive checks', () => {
   let security: typeof import('./security.ts').security
 
   beforeEach(async () => {
-    // -> A baseline that passes every OTHER validate() check (CORS off, no rate limiting), so each
-    //    test's patch only has to touch the CSP fields it actually cares about.
+    // -> A baseline that passes every OTHER validate() check, so each test's patch only has to touch
+    //    the CSP fields it actually cares about.
     ;(globalThis as any).CARDINAL = {
       config: {
         security: {

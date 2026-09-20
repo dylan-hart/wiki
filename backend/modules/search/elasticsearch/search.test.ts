@@ -21,15 +21,12 @@ import type { SearchPagesParams } from '../../../models/search.ts'
 
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 
-/** The engine config both this file's own suite and the shared contract run against. */
 const ES_CONFIG = { hosts: 'http://localhost:9200', indexName: 'wiki-test', analyzer: 'standard' }
 
 before(() => ensureTemporal())
 
-/** The 28-field superset lives in `test/builders.ts` — see `makeIndexablePage`'s own doc. */
 const fakePage = makeIndexablePage
 
-/** A fake Elasticsearch client: every method a test needs, recording every call it received. */
 function fakeElasticsearchClient() {
   const calls: Record<string, any[]> = {
     indicesExists: [],
@@ -86,7 +83,6 @@ function fakeElasticsearchClient() {
   }
 }
 
-/** A module instance wired to a fake client, bypassing any real Elasticsearch network call. */
 function moduleWithFakeClient() {
   const mod = new ElasticsearchSearchModule()
   const fake = fakeElasticsearchClient()
@@ -95,13 +91,8 @@ function moduleWithFakeClient() {
 }
 
 /**
- * OpenProject #830 (upstream #865, open): the v2 line's Elasticsearch module used to pin its API
- * version to 6.6, an Elasticsearch major that reached end of life in 2019. Task #552 already dropped
- * the whole `apiVersion` selector in favor of targeting a single, current `@elastic/elasticsearch`
- * major -- this pins that as a regression test, so a future dependency
- * bump that drags the pin back down to an old major fails a test instead of silently shipping.
- * `dev/docker-compose.search-test.yml` keeps the smoke-tested server image in step with this same
- * major.
+ * Guards against a dependency bump dragging the client pin back down to an EOL major.
+ * `dev/docker-compose.search-test.yml` keeps the smoke-tested server image on the same major.
  */
 describe('@elastic/elasticsearch client version (OpenProject #830 / upstream #865)', () => {
   test('the pinned client major is current, not the long-EOL 6.x line 2.5.x shipped', () => {
@@ -149,10 +140,8 @@ describe('getTlsOptions()', () => {
 })
 
 /**
- * OpenProject #923: `definition.yml` documents `sniffInterval` as seconds ("Interval in seconds to
- * check for an updated list of nodes..."), but `@elastic/elasticsearch`'s own client option is
- * milliseconds -- a value entered as "300 seconds" was passed straight through and made the client
- * sniff cluster topology every 300ms, a 1000x more aggressive poll than configured.
+ * `definition.yml` documents `sniffInterval` in seconds, but `@elastic/elasticsearch`'s own client
+ * option is milliseconds -- passed straight through, "300 seconds" sniffs every 300ms.
  */
 describe('toSniffIntervalMs()', () => {
   test('multiplies a positive value by 1000 to convert seconds to milliseconds', () => {
@@ -174,9 +163,8 @@ describe('toSniffIntervalMs()', () => {
   })
 })
 
-// -> What this module indexes is `shared.ts`'s `buildSearchDocument` unchanged (it needs none of the
-//    extra fields Algolia's own record carries), so the field-by-field coverage that used to sit here
-//    lives in `modules/search/shared.test.ts` rather than being repeated per engine.
+// -> This module indexes `shared.ts`'s `buildSearchDocument` unchanged, so the field-by-field
+//    coverage lives in `modules/search/shared.test.ts` rather than being repeated per engine.
 
 describe('buildEsQuery()', () => {
   function params(overrides: Partial<SearchPagesParams> = {}): SearchPagesParams {
@@ -295,11 +283,9 @@ describe('batchOperations()', () => {
 })
 
 /**
- * The `ElasticsearchSearchModule` class itself, exercised against a fake Elasticsearch client
- * (`createClient` overridden per instance) rather than a live cluster -- see
- * `moduleWithFakeClient()`. `search`'s real `definitions` are loaded from the actual `definition.yml`
- * files on disk so `getEngineConfig()` resolves this module's config defaults exactly the way the
- * running app would.
+ * Exercised against a fake client rather than a live cluster, but `search`'s real `definitions` are
+ * loaded from the on-disk `definition.yml` files, so `getEngineConfig()` resolves this module's
+ * config defaults exactly the way the running app would.
  */
 describe('ElasticsearchSearchModule', () => {
   const siteId = 'site-1'
@@ -348,10 +334,8 @@ describe('ElasticsearchSearchModule', () => {
 
   test('an index name and analyzer the operator CLEARED fall back to their declared defaults', async () => {
     // -> `getEngineConfig`'s merge only substitutes a declared default for `undefined`, and an
-    //    emptied text field is stored as `''` — so the module completes empty strings itself
-    //    (`shared.ts#fillEmptyStringDefaults`). This is what the per-engine `|| 'wiki'` /
-    //    `|| 'standard'` used to cover; without it the cluster would be asked for an index named `''`
-    //    analyzed by `''`.
+    //    emptied text field is stored as `''` — so without `fillEmptyStringDefaults` the cluster
+    //    would be asked for an index named `''` analyzed by `''`
     const { mod, calls, setIndexExists } = moduleWithFakeClient()
     setIndexExists(false)
     await mod.init(siteId, { hosts: 'http://localhost:9200', indexName: '', analyzer: '' })
@@ -381,11 +365,10 @@ describe('ElasticsearchSearchModule', () => {
     })
 
     /**
-     * The batching and per-locale tally are `test/searchModuleContract.ts`'s to assert, once for
-     * every engine. What is Elasticsearch's alone: the purge is a `deleteByQuery` on a `term` over
-     * this site, the bulk body interleaves one index-meta entry per document (6 entries for 3
-     * pages), and each locale entry reports `dictionary: 'n/a'` — the analyzer is index-wide here,
-     * not per locale.
+     * The batching and per-locale tally belong to the shared contract. Elasticsearch's alone: the
+     * purge is a `deleteByQuery` over this site, the bulk body interleaves one index-meta entry per
+     * document, and each locale reports `dictionary: 'n/a'` — the analyzer is index-wide, not per
+     * locale.
      */
     test("deletes only this site's documents, and bulk-sends meta/document pairs", async () => {
       const { mod, calls } = moduleWithFakeClient()
@@ -421,16 +404,9 @@ describe('ElasticsearchSearchModule', () => {
     })
 
     /**
-     * OpenProject #830 (discussion #5235, ES reindex connection pool exhaustion): a rebuild that read
-     * every page of a large site into memory up front (or prefetched the next page of rows while an
-     * earlier batch's `client.bulk` call was still in flight) would hold postgres connections open for
-     * the whole, potentially slow, duration of talking to Elasticsearch -- exactly the failure mode
-     * this fork's Azure Search `rebuild()` implementation was already built to avoid (see its own
-     * `pageBatch`/`uploadBatch` doc comments). This module's keyset-paginated loop reads one
-     * `PAGE_SIZE` page, awaits its `client.bulk` call to finish, and only then reads the next page --
-     * this pins that ordering: the second `select` must not start until the first `bulk` has settled,
-     * across a large enough page count (501 rows, two iterations of `PAGE_SIZE=500`) to actually
-     * exercise the loop boundary.
+     * Reading every page up front, or prefetching the next page while a `bulk` call is still in
+     * flight, holds postgres connections open for the whole duration of talking to Elasticsearch.
+     * 501 rows puts the assertion across a `PAGE_SIZE` boundary rather than inside one page.
      */
     test('streams sequentially: never reads the next page of rows while a batch upload is still in flight', async () => {
       const { mod, client } = moduleWithFakeClient()
@@ -439,8 +415,8 @@ describe('ElasticsearchSearchModule', () => {
       const originalBulk = client.bulk
       client.bulk = async (args: any) => {
         events.push('bulk-start')
-        // -> A real network round-trip is asynchronous; this makes an overlapping `select` detectable
-        //    instead of the mock's synchronous resolution hiding it.
+        // -> A real round-trip is asynchronous; without the delay the mock resolves synchronously
+        //    and an overlapping `select` would go undetected
         await new Promise((resolve) => setTimeout(resolve, 5))
         events.push('bulk-end')
         return originalBulk(args)
@@ -485,9 +461,8 @@ describe('ElasticsearchSearchModule', () => {
 })
 
 /**
- * The thirteen claims every external engine owes `models/search.ts`, translated into Elasticsearch's
- * own request and response shapes — see `test/searchModuleContract.ts` for what they are and why they
- * live in one place. Everything above this line is Elasticsearch's alone.
+ * The claims every external engine owes `models/search.ts`, translated into Elasticsearch's own
+ * request and response shapes. Everything above this line is Elasticsearch's alone.
  */
 runSearchModuleContract('elasticsearch', {
   config: ES_CONFIG,

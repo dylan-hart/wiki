@@ -10,50 +10,31 @@ import { buildAppCss, chromium, hasChromium, CHROMIUM_TIMEOUT } from '../../test
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #3019 (Feature #3010): cross-viewport/stacking verification of the finished full-bleed
- * Cobalt footer bar -- the one thing neither #3017's (`Index.footerCobalt.test.js`) nor #3018's
- * (`Index.tocFooterClearance.test.js`, `MainLayout.footerClearance.test.js`) own per-file suites
- * prove, since each tests its own file in isolation, at one or two hand-picked viewport widths.
+ * The Cobalt footer bar across a RANGE of viewport widths, and against both overlay drawers open
+ * TOGETHER -- the per-file suites each cover one file in isolation at a hand-picked width.
  *
- * Three things this file adds:
- * 1. The footer stays a full-window-width bar across a RANGE of widths (desktop through narrow), not
- *    only the single 900px fixture `Index.footerCobalt.test.js` measured -- and Ledger's footer stays
- *    unaffected (not full-bleed at all) across that same range.
- * 2. Both overlay drawers (nav + TOC), open TOGETHER with the footer in one combined real fixture --
- *    not each drawer tested against the footer alone -- across several narrow widths. OpenProject
- *    #3032 (reverting #3018 for the nav drawer alone, per Dylan's own direct instruction) splits what
- *    "correct" means between them here: the TOC drawer still stops clear of the bar exactly as
- *    #3018 left it, while the nav drawer now deliberately reaches the true bottom of the screen and
- *    OVERLAPS the bar, drawn above it by a higher z-index instead.
- * 3. The TOC-open corner button (`pages/Index.vue`'s `fixed bottom-0 right-0 z-30` -- the sole
- *    remaining fixed corner button in the page view) does not end up hidden behind the opaque,
- *    higher-z-index footer bar. This is a genuine finding from writing this suite: before this Task's
- *    fix, the button sat entirely inside the footer bar's own painted region with a lower z-index, so
- *    the reader's only way to open the TOC panel on a narrow Cobalt screen disappeared behind it. See
- *    `.toc-open-btn-anchor`'s CSS comment in `Index.vue` for the fix.
+ * The two drawers deliberately differ: the TOC drawer stops clear of the bar, while the nav drawer
+ * reaches the true bottom of the screen and overlaps it, drawn on top by a higher z-index.
  *
- * Real browser, not `jsdom`/`happy-dom`, for the same reason as the two suites above: every assertion
- * here is genuine `position: fixed` box geometry neither DOM emulator's non-existent layout engine can
- * answer.
+ * Real browser: every assertion here is `position: fixed` box geometry neither DOM emulator's
+ * non-existent layout engine can answer.
  */
 
 const frontendRoot = join(import.meta.dirname, '..', '..')
 
 function sfcStyles(relativePath) {
   const source = readFileSync(join(frontendRoot, relativePath), 'utf8')
-  // -> Anchored to the START of a line, not a bare `<style[^>]*>` -- see the sibling suites' own
-  //    comment (`WDrawer.vue`'s `side` prop doc literally contains the substring "<style>").
+  // -> Anchored to the START of a line: `WDrawer.vue`'s `side` prop doc contains the substring
+  //    "<style>", which a bare `<style[^>]*>` would match, swallowing the file into one blob.
   return [...source.matchAll(/^<style[^>]*>([\s\S]*?)^<\/style>/gm)].map((m) => m[1]).join('\n')
 }
 
 function compileSfcStyles(relativePath) {
-  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
-  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
-  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  // -> No compile step: every SFC `<style>` block is plain CSS, native nesting included, which the
+  //    real Chromium below parses as-is.
   return sfcStyles(relativePath)
 }
 
-/** The footer exactly as `Index.vue` renders it -- see `Index.footerCobalt.test.js`'s own comment. */
 function footerHtml() {
   const { wrapper } = mountWithApp(WFooter, {
     slots: { default: '<footer-nav />' },
@@ -78,7 +59,6 @@ function footerHtml() {
   return wrapper.html()
 }
 
-/** The TOC-open corner button exactly as `Index.vue` renders it (template lines ~408-420). */
 function tocOpenBtnHtml() {
   const { wrapper } = mountWithApp(WBtn, {
     props: {
@@ -139,8 +119,8 @@ describe(
     })
 
     /*
-      Desktop through narrow/mobile, deliberately spanning both sides of `$toc-overlay-max`
-      (749.98px) so the same sweep covers the wide-column AND overlay-drawer regimes.
+      Spans both sides of the 749.98px overlay breakpoint, so one sweep covers the wide-column AND
+      the overlay-drawer regime.
     */
     const widths = [1440, 1024, 900, 700, 480, 360]
 
@@ -170,10 +150,8 @@ describe(
       })
 
       it("does not stretch Ledger's footer to the full window (Cobalt-only change)", async () => {
-        // -> A real sibling column (standing in for the nav/TOC sidebar) is what makes this
-        //    assertion meaningful: with no sibling at all, a lone flex child fills 100% of its
-        //    parent regardless of aesthetic, which would pass whether or not Ledger's footer were
-        //    (wrongly) pinned full-bleed too.
+        // -> The sibling column is what makes the assertion meaningful: a lone flex child fills its
+        //    parent regardless of aesthetic, so it would pass even with Ledger's footer full-bleed.
         const html =
           '<div class="page-container flex min-h-0 flex-nowrap items-stretch" style="height: 100%">' +
           '<div style="flex: 0 0 300px"></div>' +
@@ -196,18 +174,14 @@ describe(
         )
 
         expect(result.position).toBe('static')
-        // -> Ledger's footer is a normal-flow block, sized by its own content column (this fixture's
-        //    300px sidebar stand-in taken out of it) -- NOT pinned to the window edges the way
-        //    Cobalt's is, so it must be narrower than the viewport by roughly that column's width.
+        // -> Sized by its own content column, so it must fall short of the viewport by roughly the
+        //    fixture's 300px sidebar stand-in.
         expect(result.width).toBeLessThan(viewport.width - 250)
       })
     })
 
     /*
-      Combined fixture: BOTH overlay drawers open together with the footer, mirroring the real page
-      shell (`MainLayout.vue`'s `.bg-sidebar` + `Index.vue`'s `.page-container`/`.page-sidebar`) rather
-      than either drawer tested against the footer alone, as #3017/#3018's own suites do. Only
-      meaningful below `$toc-overlay-max` (749.98px), where both drawers are `position: fixed`
+      Only meaningful below the 749.98px breakpoint, where both drawers are `position: fixed`
       overlays instead of grid/flex columns.
     */
     describe.each([700, 480, 360])(
@@ -225,9 +199,8 @@ describe(
             '<div style="height: 2000px">nav filler</div>' +
             '</div>' +
             '</aside>' +
-            // -> `WLayout.vue`'s own `:deep(> .w-page-container) { min-height: 0; overflow: auto }`
-            //    reproduced inline -- see `MainLayout.footerClearance.test.js`'s own comment for why
-            //    the raw extracted `<style>` text never runs a Vue SFC's `:deep()` transform.
+            // -> `WLayout.vue`'s `:deep(> .w-page-container)` rule reproduced inline: raw extracted
+            //    `<style>` text never runs an SFC's `:deep()` transform, so that rule cannot apply.
             '<div class="w-page-container" style="min-height: 0; overflow: auto">' +
             '<div class="page-container flex min-h-0 flex-nowrap items-stretch" style="height: 100%">' +
             '<div class="min-w-0 flex-1" style="height: 100%">' +
@@ -266,9 +239,8 @@ describe(
                 tocBottom: document.querySelector('.page-sidebar').getBoundingClientRect().bottom,
                 navZIndex: Number(getComputedStyle(nav).zIndex),
                 footerZIndex: Number(getComputedStyle(footer).zIndex),
-                // -> Which of the nav drawer and the footer bar actually paints on top at a point
-                //    both cover -- the near bottom-left corner, inside the drawer's own width and
-                //    the bar's own height.
+                // -> Which of the two actually paints on top at a point both cover: the near
+                //    bottom-left corner, inside the drawer's width and the bar's height.
                 navIsAboveFooterAtCorner: Boolean(
                   document.elementFromPoint(10, window.innerHeight - 10)?.closest('.bg-sidebar')
                 )
@@ -276,14 +248,7 @@ describe(
             }
           )
 
-          // -> The TOC drawer keeps its own #3018 clearance, unchanged by OpenProject #3032 (which is
-          //    scoped to the NAV drawer alone) -- its own bottom edge still sits at or above the bar's
-          //    top edge.
           expect(result.tocBottom).toBeLessThanOrEqual(result.footerTop + 0.5)
-          // -> The nav drawer, by contrast, now reaches the true bottom of the window rather than
-          //    stopping short of it (OpenProject #3032, reverting #3018's opposite fix for this one
-          //    drawer) -- it and the footer bar genuinely overlap here, at this width, and a higher
-          //    z-index is what keeps the drawer drawn on top rather than painted over.
           expect(result.navBottom).toBeCloseTo(viewport.height, 0)
           expect(result.navZIndex).toBeGreaterThan(result.footerZIndex)
           expect(result.navIsAboveFooterAtCorner).toBe(true)
@@ -305,11 +270,8 @@ describe(
             }
           )
 
-          // -> The button's own bottom edge sits at or above the footer bar's top edge -- it stands
-          //    clear of the bar entirely, the same clearance the two drawers get, rather than being
-          //    painted over by the footer's higher z-index.
           expect(result.btnRect.bottom).toBeLessThanOrEqual(result.footerTop + 0.5)
-          // -> And it still has real, positive height -- clearing the bar didn't also collapse it.
+          // -> Guards against clearing the bar by collapsing the button instead.
           expect(result.btnRect.height).toBeGreaterThan(0)
         })
 
@@ -328,8 +290,7 @@ describe(
             }
           )
 
-          // -> Ledger has no fixed footer bar (`--footer-bar-height: 0`), so the button stays flush
-          //    with the window's own bottom edge exactly as its bare `bottom-0` utility class says.
+          // -> `--footer-bar-height` is 0 in Ledger, so nothing lifts the button off `bottom-0`.
           expect(result.bottom).toBeCloseTo(result.viewportHeight, 0)
         })
       }

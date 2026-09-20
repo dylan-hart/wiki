@@ -1,10 +1,9 @@
 <template>
   <!--
-    A plain select is a <button>: it gets keyboard activation, disabled semantics and focus for
-    free. A filtering one cannot be, because an <input> inside a <button> is invalid and does not
-    receive typing -- so that variant is a <div> and the combobox role moves onto the input. The
-    listbox below is shared by both rather than duplicated. Either way it is the frame that renders
-    that element, since the notched outline and the floated label sit inside it.
+    A plain select is a <button>, for free keyboard activation, disabled semantics and focus. The
+    filtering variant cannot be: an <input> inside a <button> is invalid and receives no typing, so
+    that variant is a <div> with the combobox role on the input. The frame renders whichever one,
+    since the notched outline and the floated label sit around it.
   -->
   <w-field-frame
     ref="frame"
@@ -24,10 +23,6 @@
     :error-message="errorMessage">
     <slot name="prepend" />
 
-    <!--
-      The selection as chips rather than a comma-joined string. Each carries its own remove
-      affordance, so a value can be dropped without reopening the list.
-    -->
     <span v-if="showsChips" class="flex min-w-0 flex-wrap items-center gap-1">
       <w-chip
         v-for="(v, i) of selectedValues"
@@ -41,8 +36,7 @@
 
     <!--
       `outline-none` because the FIELD is what shows focus, with its ring: the user agent's own
-      outline drew a second, black one inside the rounded frame. Placeholder colour matched to
-      WInput's, which this had been leaving to the browser as well.
+      outline drew a second, black one inside the rounded frame.
     -->
     <input
       v-if="useInput"
@@ -70,12 +64,8 @@
       class="min-w-0 flex-1 truncate"
       :class="hasSelection || displayValue ? '' : 'text-text-caption dark:text-text-caption-dark'">
       <!--
-        `selected` lets a caller summarise the selection instead of listing it -- e.g. "3 groups
-        selected" rather than three comma-joined names.
-
-        Empty once the chips above are drawing the selection: the comma-joined text is what chips
-        REPLACE, and rendering both said the same thing twice, side by side. The element stays for
-        the layout -- it is what holds the row open and pushes the dropdown arrow to the end.
+        Empty while the chips above draw the selection -- they REPLACE this text -- but the element
+        stays: it holds the row open and pushes the dropdown arrow to the end.
       -->
       <slot name="selected">{{ showsChips ? '' : displayText }}</slot>
     </span>
@@ -94,10 +84,9 @@
         :aria-multiselectable="multiple || undefined"
         class="py-1">
         <!--
-          The options are plain <div>s, not buttons: focus never leaves the combobox. Keyboard
-          users move a virtual cursor (`aria-activedescendant`) instead, which is the pattern for
-          a listbox whose popup is teleported -- moving real focus into it would take focus out
-          of the control and, on close, leave it on a detached node.
+          Plain <div>s, not buttons: focus stays on the combobox and the keyboard moves a virtual
+          cursor (`aria-activedescendant`) instead. Real focus inside a teleported popup would be
+          left on a detached node once it closes.
         -->
         <div
           v-for="(opt, idx) of filteredOptions"
@@ -118,20 +107,17 @@
           @click.stop="select(opt.value)"
           @mousemove="opt.disable || (activeIndex = idx)">
           <!--
-            A check, not a checkbox. The icon takes the row's own font size unless told otherwise,
-            which made a 14px square that read as a rendering fault rather than a control -- and the
-            row already announces its state by colouring itself. The column is held open when
-            nothing is drawn, so labels line up whatever is selected.
+            A check, not a checkbox: the row already announces its state by colouring itself. The
+            explicit `size` keeps the icon off the row's own font size, which drew a 14px square that
+            read as a rendering fault. The column is held open so labels line up either way.
           -->
           <span v-if="multiple" class="flex w-5 shrink-0 justify-center">
             <w-icon v-if="isSelected(opt.value)" name="tabler:check" size="20px" />
           </span>
           <span class="min-w-0 flex-1">
             <!--
-              `option` customises the row's content only. Selection mechanics (the check and the
-              click handling) stay with the component, so a caller cannot accidentally wire a
-              nested control that toggles twice -- which is what the markup this replaces had to
-              guard against by hand.
+              Row content only: the check and the click handling stay with the component, so a caller
+              cannot wire a nested control that toggles twice.
             -->
             <slot name="option" :opt="opt.raw" :selected="isSelected(opt.value)">
               <span class="block truncate">{{ opt.label }}</span>
@@ -158,25 +144,14 @@ import { fieldProps, useFieldFrame } from '@/composables/fieldFrame'
 import { useDictText } from '@/composables/i18nText'
 
 /**
- * Dropdown select.
- *
- * `options` may be plain values or objects. For objects, `optionValue` / `optionLabel` name the
- * fields to read, and `emitValue` controls whether the model receives the option's value or the
- * whole object -- the same contract the existing markup is written against.
- *
- * Simplification: no free-text filtering or async search. Every current usage picks from a fixed,
- * short list.
- *
  * The label, the notched outline, the hint/error line and the state that colours them are shared
  * with `WInput`, and live in `WFieldFrame.vue` / `composables/fieldFrame.js`. What is here is the
  * selection model, the listbox and the keyboard handling.
  */
 
 /*
- * Same wrapper-root shape as WInput, and the same fix -- see the note there. The real control is
- * the `<button>` for a plain select or the nested `<input>` for the filtering (`useInput`) variant;
- * `$attrs` is bound onto whichever one is actually rendered, never onto the frame's wrapper `<div>`
- * or onto the control element when it is only standing in for the popup's anchor.
+ * `$attrs` belongs on the real control -- the `<button>`, or the nested `<input>` under `useInput` --
+ * never on the frame's wrapper `<div>`. `controlAttrs` below is what both bind.
  */
 defineOptions({ inheritAttrs: false })
 
@@ -193,21 +168,15 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
-  /** Field holding the value, when options are objects. */
   optionValue: {
     type: String,
     default: 'value'
   },
-  /** Field holding the display text, when options are objects. */
   optionLabel: {
     type: String,
     default: 'label'
   },
-  /**
-   * Field holding whether an option is selectable, when options are objects. A disabled option
-   * still shows -- grayed out, not hidden -- but click and keyboard selection skip it, same as a
-   * native `<option disabled>`.
-   */
+  /** A disabled option still shows, greyed out rather than hidden, but selection skips it. */
   optionDisable: {
     type: String,
     default: null
@@ -232,14 +201,13 @@ const props = defineProps({
     default: false
   },
   /**
-   * Renders for a dark surface regardless of the app theme -- the admin sidebar is dark in both
-   * themes, so its controls cannot key off the `dark:` variant.
+   * Dark surface regardless of the app theme: the admin sidebar is dark in both, so its controls
+   * cannot key off the `dark:` variant.
    */
   dark: {
     type: Boolean,
     default: false
   },
-  /** Tighter rows in the dropdown. */
   optionsDense: {
     type: Boolean,
     default: false
@@ -252,36 +220,23 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  /** Falls back to the `common.select.noOptions` dictionary entry when not given. */
   noOptionsLabel: {
     type: String,
     default: null
   },
-  /**
-   * Type to narrow the list.
-   *
-   * Simplification: the component this replaces delegated filtering to the caller through a
-   * `@filter` event and an `update(cb)` callback, so every caller reimplemented the same
-   * case-insensitive substring match over its own list and kept the filtered copy in its own state.
-   * This filters `options` itself, which is what all of them were doing by hand.
-   */
+  /** Type to narrow the list: the field renders an `<input>` and filters `options` itself. */
   useInput: {
     type: Boolean,
     default: false
   },
   /**
-   * Let what has been typed become a value of its own.
-   *
-   * With `useInput`, Enter on a query that matches no highlighted option emits `create` with the
-   * trimmed text instead of closing the popup. The caller decides what that means — adding it to
-   * `options` and to the selection, typically — because only the caller knows whether the thing is
-   * allowed to exist.
+   * Enter on a query matching no highlighted option emits `create` with the trimmed text instead of
+   * closing the popup; only the caller knows whether that value is allowed to exist.
    */
   create: {
     type: Boolean,
     default: false
   },
-  /** Show the selection as removable chips instead of comma-joined text. */
   useChips: {
     type: Boolean,
     default: false
@@ -290,7 +245,7 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Replaces the computed display text outright -- for a summary like "3 locales". */
+  /** Replaces the computed display text -- for a summary like "3 locales". */
   displayValue: {
     type: String,
     default: null
@@ -307,10 +262,10 @@ const resolvedNoOptionsLabel = computed(
 const isOpen = ref(false)
 /** Pointer-over, for the ring: the ring is an inline style, so CSS `:hover` cannot reach it. */
 const isHovered = ref(false)
-/** Index of the option the keyboard cursor is on; -1 when there is none. */
+/** Option the keyboard cursor is on; -1 when there is none. */
 const activeIndex = ref(-1)
 
-// -> A popup closed by any route (click-away, selection, Escape) leaves no stale cursor behind
+// -> Any close route (click-away, selection, Escape) leaves no stale cursor behind
 watch(isOpen, (open) => {
   if (!open) {
     activeIndex.value = -1
@@ -318,10 +273,8 @@ watch(isOpen, (open) => {
 })
 
 const selectId = useId()
-/** What has been typed into the filter, when `useInput`. */
 const query = ref('')
 const input = ref(null)
-/** The frame, which renders the control element this field's `focus()` reaches for. */
 const frame = ref(null)
 
 // -> A stale filter would otherwise still be narrowing the list the next time the popup opens
@@ -331,25 +284,18 @@ watch(isOpen, (open) => {
   }
 })
 
-// COMPUTED
-
 const isDisabled = computed(() => props.disabled)
 
 /**
- * Everything the caller passed through as a plain HTML attribute -- `name`, `data-*`, ... --
- * forwarded onto the real control rather than left stranded on the wrapper. The real control is
- * the frame's `<button>` for a plain select or the nested `<input>` for the `useInput` variant,
- * and both bind this same computed rather than `$attrs` directly: `class`/`style` are carved out
- * because they're handed to the frame as `rootClass`/`rootStyle` instead (see the matching note in
- * `WInput`), and binding either element straight to `$attrs` would land the caller's class on that
- * element a second time, on top of the wrapper.
+ * The caller's plain attributes, forwarded onto the real control rather than stranded on the wrapper.
+ * `class`/`style` are carved out because the frame takes them as `rootClass`/`rootStyle`; binding an
+ * element straight to `$attrs` would land the caller's class on it a second time.
  */
 const controlAttrs = computed(() => {
   const { class: _class, style: _style, ...rest } = attrs
   return rest
 })
 
-/** Options flattened to `{ value, label, raw }`, whatever shape they came in as. */
 const normalizedOptions = computed(() =>
   props.options.map((opt) => {
     if (opt !== null && typeof opt === 'object') {
@@ -357,7 +303,7 @@ const normalizedOptions = computed(() =>
         value: props.emitValue ? opt[props.optionValue] : opt,
         label: String(opt[props.optionLabel] ?? ''),
         disable: props.optionDisable ? Boolean(opt[props.optionDisable]) : false,
-        // -> the untouched option, handed to the `option` slot so callers can read their own fields
+        // -> handed to the `option` slot, so callers can read their own fields
         raw: opt
       }
     }
@@ -365,10 +311,6 @@ const normalizedOptions = computed(() =>
   })
 )
 
-/**
- * What the listbox actually shows. Only `useInput` narrows it -- everything else lists `options`
- * whole, so the popup and the keyboard cursor agree on one list either way.
- */
 const filteredOptions = computed(() => {
   if (!props.useInput || !query.value) {
     return normalizedOptions.value
@@ -378,8 +320,8 @@ const filteredOptions = computed(() => {
 })
 
 /*
-  Keep the keyboard cursor inside the list it is pointing at. Typing narrows the options under it, and
-  a cursor left past the end made Enter read an option that was no longer there.
+  Typing narrows the list under the cursor, and one left past the end made Enter read an option that
+  was no longer there.
 */
 watch(filteredOptions, (options) => {
   if (activeIndex.value >= options.length) {
@@ -396,7 +338,6 @@ const selectedValues = computed(() => {
 
 const hasSelection = computed(() => selectedValues.value.length > 0)
 
-/** Whether the selection is being drawn as chips, which is a different thing from being able to. */
 const showsChips = computed(() => props.useChips && hasSelection.value)
 
 const displayText = computed(() => {
@@ -409,7 +350,6 @@ const displayText = computed(() => {
   return selectedValues.value
     .map((v) => {
       const match = normalizedOptions.value.find((o) => sameValue(o.value, v))
-      // -> mapOptions resolves a bare value back to its label; without it the raw value is shown
       return match && props.mapOptions !== false ? match.label : String(v?.[props.optionLabel] ?? v)
     })
     .join(', ')
@@ -427,9 +367,8 @@ const standoutClass = computed(() => {
 })
 
 /*
-  The field chrome, shared with WInput -- see `composables/fieldFrame.js`. "Active" here is the open
-  dropdown, which is this control's equivalent of focus; `standout` is the variant that draws no
-  frame at all and so takes no floating label either.
+  "Active" here is the open dropdown, this control's equivalent of focus; `standout` draws no frame at
+  all and so takes no floating label either.
 */
 const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = useFieldFrame({
   props,
@@ -438,8 +377,6 @@ const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = us
   hasValue: computed(() => hasSelection.value || Boolean(props.displayValue)),
   hasLeadingAdornment: computed(() => Boolean(slots.prepend)),
   noFrame: computed(() => props.standout),
-  // -> Its own surface, white or the dark panel tone, matching WInput; see the note there
-  //    (readonly's dark class is `dark-3-5`, not `dark-4` -- OpenProject #2816)
   surface: computed(
     () =>
       standoutClass.value ??
@@ -452,13 +389,9 @@ const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = us
 })
 
 /**
- * Everything bound onto the frame's control element.
- *
- * A plain select IS the combobox, so it carries the role, every `aria-*` that goes with it, and the
- * caller's forwarded attrs (`controlAttrs`); the filtering variant's control is an inert `<div>` and
- * hands all of that to its nested `<input>` instead (which binds `controlAttrs` itself), so this
- * spreads it in only for the plain variant -- otherwise a forwarded attribute would land on both
- * elements, which is why each entry below also reads `useInput ? undefined : …`.
+ * A plain select IS the combobox, so it carries the role, its `aria-*` and the forwarded attrs. The
+ * filtering variant's control is an inert `<div>` whose nested `<input>` carries all of that instead,
+ * which is why every entry reads `useInput ? undefined : …` -- otherwise both elements would.
  */
 const controlProps = computed(() => ({
   ...(props.useInput ? {} : controlAttrs.value),
@@ -489,8 +422,6 @@ const controlProps = computed(() => ({
   }
 }))
 
-// METHODS
-
 /** Options are frequently objects rebuilt on each render, so identity comparison is not enough. */
 function sameValue(a, b) {
   if (a === b) {
@@ -506,11 +437,6 @@ function isSelected(value) {
   return selectedValues.value.some((v) => sameValue(v, value))
 }
 
-/**
- * Focuses the real interactive element: the filtering variant's `<input>`, or the plain variant's
- * `<button>` (which the frame renders) -- whichever one the combobox role actually lives on. Same
- * shape as `WInput`'s `focus()`, and the guard against a hidden field.
- */
 function focus() {
   if (props.useInput) {
     input.value?.focus()
@@ -519,24 +445,17 @@ function focus() {
   }
 }
 
-/*
-  Join the enclosing WForm, if there is one, so submitting validates this control too. Optional by
-  design -- plenty of selects in the codebase stand alone.
-*/
 const registerWithForm = inject('wFormRegister', null)
 registerWithForm?.({ validate, focus })
 
 defineExpose({ validate, focus })
 
-// -> A hidden field (e.g. one behind a `v-if` that hasn't mounted yet) leaves both refs null; the
-//    same optional chaining `focus()` uses above is the guard.
 onMounted(() => {
   if (props.autofocus) {
     focus()
   }
 })
 
-/** Display text for a bound value, resolved back through the options where possible. */
 function labelFor(value) {
   const match = normalizedOptions.value.find((o) => sameValue(o.value, value))
   return match ? match.label : String(value?.[props.optionLabel] ?? value)
@@ -548,10 +467,7 @@ function deselect(value) {
   revalidate(props.multiple ? next : (next[0] ?? null))
 }
 
-/**
- * A click anywhere on the filtering variant lands on the input, since the control is a plain div
- * there and only the input is focusable. The button variant just toggles, as before.
- */
+/** The filtering variant's control is an inert div, so a click anywhere on it focuses the input. */
 function onControlClick() {
   if (props.readonly || isDisabled.value) {
     return
@@ -571,7 +487,7 @@ function toggle() {
   isOpen.value = !isOpen.value
 }
 
-/** Brings the active option into view without scrolling the page. */
+/** `block: 'nearest'` brings the option into view without scrolling the page. */
 async function revealActive() {
   await nextTick()
   document.getElementById(optionId(activeIndex.value))?.scrollIntoView({ block: 'nearest' })
@@ -583,9 +499,8 @@ function moveActive(delta) {
   if (count === 0) {
     return
   }
-  // -> Wraps, so ArrowUp from the top lands on the last option. Steps past a disabled option rather
-  //    than landing the cursor on one nothing can select -- bounded by `count` so a list that is
-  //    entirely disabled still terminates instead of looping forever.
+  // -> Wraps, and steps past a disabled option rather than landing on one nothing can select --
+  //    bounded by `count` so an entirely disabled list terminates instead of looping forever.
   let next = activeIndex.value
   for (let i = 0; i < count; i++) {
     next = (next + delta + count) % count
@@ -597,10 +512,7 @@ function moveActive(delta) {
   revealActive()
 }
 
-/**
- * Opens the popup with the cursor on the current selection, so arrowing starts from where the
- * value already is rather than from the top of the list.
- */
+/** Starts the cursor on the current selection, so arrowing continues from the value. */
 function open(startAt) {
   isOpen.value = true
   const selected = filteredOptions.value.findIndex((opt) => isSelected(opt.value))
@@ -608,10 +520,6 @@ function open(startAt) {
   revealActive()
 }
 
-/**
- * Keyboard handling for the combobox, following the listbox pattern: the arrows move a virtual
- * cursor, Enter commits it, Escape abandons it, and Tab leaves the control as it found it.
- */
 function onKeydown(ev) {
   if (isDisabled.value || props.readonly) {
     return
@@ -642,10 +550,10 @@ function onKeydown(ev) {
     case 'Enter':
     case ' ': {
       /*
-        Both would otherwise reach the <button> as a click and toggle the popup shut, discarding
-        the cursor. When open they commit instead; when closed the default click opens as usual.
+        Both would otherwise reach the <button> as a click and toggle the popup shut, discarding the
+        cursor. When closed, the default click opens as usual.
       */
-      // -> Space is a character to a field with a text input, not a commit key: it belongs to the query
+      // -> With a text input, Space is a character in the query rather than a commit key
       if (ev.key === ' ' && props.useInput) {
         return
       }
@@ -657,7 +565,7 @@ function onKeydown(ev) {
         select(filteredOptions.value[activeIndex.value].value)
         return
       }
-      // -> Nothing to commit, so what was typed is the value -- see the `create` prop
+      // -> Nothing highlighted, so what was typed is the value
       const typed = query.value.trim()
       if (props.create && typed) {
         emit('create', typed)
@@ -701,9 +609,8 @@ function select(value) {
 }
 
 /**
- * Re-runs validation after a change, against the incoming value. In 'ondemand' mode nothing is
- * validated up front, but an error already on screen is cleared as soon as the selection satisfies
- * the rules -- leaving it visible while the user fixes the field would be misleading.
+ * In `ondemand` mode nothing is validated up front, but an error already on screen clears as soon as
+ * the selection satisfies the rules -- leaving it up while the field is being fixed would mislead.
  */
 function revalidate(nextValue) {
   if (!props.rules.length) {

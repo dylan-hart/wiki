@@ -6,42 +6,24 @@ import { maySiteAdmin } from '../helpers/siteRules.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
- * Group-wide permissions that carry the block list on their own.
- *
- * Only the ones a group really is granted as a blanket. Writing a page is NOT among them, however much
- * it sounds like it belongs: page permissions come from a group's rules, and are read below.
+ * Group-wide permissions only. `write:pages` does not belong here: page permissions come from a
+ * group's rules, which `mayListBlocks` reads separately.
  */
 const LIST_PERMISSIONS = ['manage:sites', 'manage:system']
 
-/** The page rules that make somebody an author, i.e. able to put a block into a page directly. */
 const AUTHOR_ROLES = ['write:pages', 'manage:pages']
 
 /**
- * Whether this caller has any business seeing which blocks a site has.
- *
- * The list is what the editor's block picker is built from, so it belongs to whoever may put a block
- * into a page. Three ways of being that person:
- *
- *   - an administrator, from the group-wide list above;
- *   - an author, from a page rule that lets them write somewhere on this site;
- *   - anyone an enabled approval rule lets SUGGEST an edit — the guests group included, when a wiki
- *     has opened suggestions to the public. A suggestion is written in the same editor, with the same
- *     picker in it, and refusing the list there leaves the button throwing an error at a reader who
- *     was invited to use it.
- *
- * Asked of the site rather than of a page, because that is what the answer is about: which blocks
- * exist here. Nothing in the reply is page-specific, so a rule anywhere on the site settles it — what
- * may be written WHERE is decided by the page and suggestion routes, as it is for everything else.
- *
- * The route-level permission hook cannot answer any of this: it reads the group-wide list alone, and
- * both writing a page and suggesting an edit are granted by rules instead.
+ * The list feeds the editor's block picker, so it goes to whoever may put a block into a page: an
+ * administrator, an author (any page rule granting an author role), or anyone an enabled approval
+ * rule lets suggest an edit — guests included, since a suggestion is written in the same editor.
+ * Path-blind on purpose: nothing in the reply is page-specific.
  */
 async function mayListBlocks(req: FastifyRequest, siteId: string): Promise<boolean> {
   const actor = CARDINAL.models.groups.actorForRequest(req)
   if (LIST_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
     return true
   }
-  // -> Both of these read cached group rules; only the last resort goes to the database
   if (
     CARDINAL.models.groups
       .rulesForGroups(actor.groupIds)
@@ -58,14 +40,9 @@ async function mayListBlocks(req: FastifyRequest, siteId: string): Promise<boole
   )
 }
 
-/**
- * Blocks API Routes
- */
 async function routes(app: FastifyInstance) {
-  // -> An upload is the raw `component.js` source rather than a multipart form: one file per
-  //    request, exactly like `assets.ts`'s own upload route. The catch-all only claims content types
-  //    nothing else in this plugin parses, so the JSON routes below are unaffected — and it is scoped
-  //    to this plugin instance, not global, the same way `assets.ts`'s and `sites.ts`'s each are.
+  // -> A single upload is the raw `component.js` source. `'*'` only claims content types no other
+  //    parser here does, so the JSON routes are unaffected, and it is scoped to this plugin.
   app.addContentTypeParser(
     '*',
     { parseAs: 'buffer', bodyLimit: CARDINAL.config.security?.uploadMaxFileSize ?? 10485760 },
@@ -74,16 +51,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  // -> UPLOAD CUSTOM BLOCKS (BATCH)'s body carries several files in one request, which the raw-bytes
-  //    approach above has no room for — `@fastify/multipart` claims `multipart/form-data`
-  //    specifically, which Fastify matches ahead of the generic `'*'` parser above regardless of
-  //    registration order (see `api/assets.ts`'s own batch route, and `api/pages/import.ts`, the
-  //    original precedent for this exact combination). `files` is the admin-configurable per-request
-  //    file-count cap (OpenProject #3211/#3231) — resource-exhaustion protection, not a user upload
-  //    quota. Exceeding it trips `@fastify/multipart`'s own `filesLimit` event while iterating
-  //    `req.parts()` below (`FST_FILES_LIMIT`, 413), before the over-the-limit file's bytes are ever
-  //    read into memory. `throwFileSizeLimit: false`, same OpenProject #849 reasoning as the sibling
-  //    batch routes: one oversized file must fail only its own entry, not the whole batch.
+  // -> For the batch route. Fastify matches `multipart/form-data` ahead of the `'*'` parser above
+  //    regardless of registration order. Exceeding `files` raises `FST_FILES_LIMIT` while iterating
+  //    `req.parts()`, before the extra file is read into memory. `throwFileSizeLimit: false` so an
+  //    oversized file fails only its own entry (`part.file.truncated`), not the whole batch.
   await app.register(fastifyMultipart, {
     limits: {
       fileSize: CARDINAL.config.security?.uploadMaxFileSize ?? 10485760,
@@ -92,16 +63,13 @@ async function routes(app: FastifyInstance) {
     throwFileSizeLimit: false
   })
 
-  /**
-   * LIST SITE BLOCKS
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/blocks',
     {
       /*
         No route-level `permissions`: who may see this list comes down to a group's rules, which that
-        hook does not read — and it would refuse an anonymous reader outright, when a wiki that takes
-        public suggestions has invited exactly that reader to use the picker. See `mayListBlocks`.
+        hook does not read — and it would refuse the anonymous reader a wiki taking public
+        suggestions has invited to use the picker. See `mayListBlocks`.
       */
       schema: {
         summary: 'List the blocks available to a site',
@@ -128,42 +96,21 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPLOAD CUSTOM BLOCK
-   */
   app.post<{ Params: { siteId: string } }>(
     '/sites/:siteId/blocks',
     {
       /*
-        Security posture (full review: docs/security/custom-block-upload.md): the AST validator below
-        only constrains the literal `static definition` metadata block — it cannot and does not
-        sandbox the rest of the uploaded source. Everything else in the file is full same-origin
-        JavaScript, imported straight into the app's module graph on every page view that uses the
-        block (`loadBlocks()` — no iframe, Worker or shadow-DOM script boundary). `manage:sites` is
-        therefore the entire security boundary for this route, not a formality alongside some other
-        containment layer — a knowing, not incidental, trust decision: anyone holding `manage:sites`
-        on a site can already inject markup into every page of it, and this route extends that to
-        arbitrary script, wiki-wide, on the next page view of any block using it. `manage:sites` is
-        also the only correct gate available here: it is a closed, group-wide permission
-        and no new, narrower permission name may be invented for this route.
-
-        NOT applied identically on the PUT (enable/disable) and DELETE routes below: those also accept
-        the narrower site-scoped `site:blocks` delegation (`checkSiteAdminAccess()`, backed by
-        `checkSiteAccess()` — per the delegated-per-site-administration decision's §3, which lists
-        `site:blocks` as covering exactly these two routes). That is a deliberate, accepted widening,
-        not an inconsistency: introducing NEW arbitrary script is the more sensitive act, so upload
-        stays gated on `manage:sites` alone one tier tighter than merely enabling, disabling or deleting
-        a block someone with `manage:sites` already put there. Full reconciliation:
-        docs/security/custom-block-upload.md (OpenProject #2128).
+        The AST validation below constrains only the literal `static definition`; the rest of the
+        upload is same-origin JavaScript, imported into the app on every page view that uses the
+        block. `manage:sites` is therefore the entire security boundary. Deliberately one tier
+        tighter than the PUT and DELETE routes, which also accept `site:blocks`: introducing new
+        script is the more sensitive act. See docs/audits/security-reviews/custom-block-upload.md.
       */
       config: {
         permissions: ['manage:sites']
       },
-      // -> A tighter, upload-specific limit than the generic per-caller `/_api/*` ceiling -- once a
-      //    multi-file selection goes through the batch endpoint instead, a rapid burst of single-file
-      //    requests here is the signature of a caller working around that endpoint's own file-count
-      //    cap, not real single-upload usage. See `helpers/rateLimit.ts#limitUploads` (OpenProject
-      //    #3234).
+      // -> Tighter than the generic `/_api/*` ceiling: a burst of single-file requests is a caller
+      //    working around the batch endpoint's file-count cap.
       preHandler: limitUploads,
       schema: {
         summary: 'Upload a custom block',
@@ -206,11 +153,9 @@ async function routes(app: FastifyInstance) {
       }
 
       /*
-        The definition's "block" promises the element renders as `block-{block}` (documented above,
-        and what the frontend's block loader and blockMarkdown()/findBlocks() hardcode) — but nothing
-        upstream of this actually confirms the uploaded code registers that tag. An upload whose
-        define() call names anything else is accepted silently otherwise, and then renders nothing on
-        every page it's used on, with no error anywhere.
+        The definition's "block" promises the element renders as `block-{block}`, which the frontend
+        hardcodes. An upload whose define() call names anything else would render nothing on every
+        page that uses it, with no error anywhere.
       */
       const expectedTag = `block-${definition.block}`
       const definedTag = extractDefinedElementTag(data.toString('utf8'))
@@ -242,18 +187,11 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPLOAD CUSTOM BLOCKS (BATCH)
-   */
   app.post<{ Params: { siteId: string } }>(
     '/sites/:siteId/blocks/batch',
     {
       /*
-        Same security posture as UPLOAD CUSTOM BLOCK above, and for the identical reason: this route
-        introduces arbitrary script into every page that uses whatever it registers, `manage:sites`
-        is the entire boundary, and no narrower permission name may be invented for it. See the full
-        reasoning on the single-file route's `config` above (docs/security/custom-block-upload.md,
-        OpenProject #2128) — unchanged by batching several uploads into one request.
+        `manage:sites` alone, for the reason given on the single-file upload route above.
       */
       config: {
         permissions: ['manage:sites']
@@ -289,12 +227,8 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const results: { fileName: string; ok: boolean; message?: string; block?: unknown }[] = []
-      // -> Tags this batch has already claimed but not yet committed to the database — `isTagTaken()`
-      //    alone would let two files in the SAME request both pass its check (neither is inserted
-      //    yet when the second is checked), so both would attempt to register the same element and
-      //    only the database's own unique index would notice, as a raw 500 rather than a named
-      //    per-file conflict. Tracked here so the second file in a batch is refused with the same
-      //    kind of message the first would get from a pre-existing block, not a crash.
+      // -> Creates are awaited in order, so `isTagTaken()` would refuse an in-batch duplicate too;
+      //    this set is what lets that refusal name the batch rather than the site.
       const claimedTags = new Set<string>()
 
       try {
@@ -332,9 +266,6 @@ async function routes(app: FastifyInstance) {
             continue
           }
 
-          // -> Same promise-vs-reality check the single-file route runs — see its own comment above
-          //    for why nothing upstream of this otherwise confirms the uploaded code registers the
-          //    tag its definition claims.
           const expectedTag = `block-${definition.block}`
           const definedTag = extractDefinedElementTag(source)
           if (definedTag !== expectedTag) {
@@ -382,11 +313,9 @@ async function routes(app: FastifyInstance) {
           }
         }
       } catch (err: any) {
-        // -> The one whole-request failure mode: too many files in this batch, refused by
-        //    `@fastify/multipart` itself at parse time (see the plugin registration comment above,
-        //    and `api/assets.ts`'s identical batch route for the full reasoning behind checking
-        //    both error codes here — confirmed directly against a real listening server, not just
-        //    `inject()`, that a small batch sent in one TCP write can surface either one).
+        // -> Too many files is the one whole-request failure. It surfaces as `FST_FILES_LIMIT`, or
+        //    as `ERR_STREAM_PREMATURE_CLOSE` when the limit trips while an earlier file is still
+        //    buffering and `@fastify/multipart` destroys that stream.
         if (err.code === 'FST_FILES_LIMIT' || err.code === 'ERR_STREAM_PREMATURE_CLOSE') {
           return reply.code(413).send({
             ok: false,
@@ -410,9 +339,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SET SITE BLOCKS STATE
-   */
   app.put<{
     Params: { siteId: string }
     Body: { states: { id: string; isEnabled: boolean; config?: Record<string, any> }[] }
@@ -502,8 +428,8 @@ async function routes(app: FastifyInstance) {
           updated
         }
       } catch (err: any) {
-        // -> A validation failure (e.g. an invalid block-plantuml "server") carries its own status
-        //    code and a message worth showing the admin who typed it; anything else is an actual fault
+        // -> A `CustomError` is a config validation failure carrying its own status and message;
+        //    anything else is an actual fault
         if (err instanceof CustomError) {
           throw err
         }
@@ -516,9 +442,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE CUSTOM BLOCK
-   */
   app.delete<{ Params: { siteId: string; blockId: string } }>(
     '/sites/:siteId/blocks/:blockId',
     {

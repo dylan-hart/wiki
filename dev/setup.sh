@@ -1,18 +1,10 @@
 #!/usr/bin/env bash
 #
-# Clone-to-running setup for the non-devcontainer path.
+# Clone-to-running setup for the non-devcontainer path: four independently-installed workspaces and
+# no root package, so a fresh clone otherwise means four `npm install`s, a config copy and two builds
+# by hand -- the sequence `.devcontainer/app-init.sh` hard-codes for the container path.
 #
-# There are four independently-installed workspaces and no root package, so getting a fresh
-# clone into a state where `node backend` (from the repo root) serves the built UI otherwise
-# means running four `npm install`s, a config copy and two builds by hand -- the same sequence
-# `.devcontainer/app-init.sh` already hard-codes for the container path. This does that for
-# everyone else.
-#
-# Safe to re-run: npm install/npm run build are naturally idempotent, and the config.yml copy
-# is skipped -- never overwritten -- once the file exists.
-#
-# Usage: ./dev/setup.sh   (from anywhere -- the repo root is resolved from this script's own
-# location, not the caller's working directory)
+# Safe to re-run: the installs and builds are idempotent, and an existing config.yml is left alone.
 
 set -euo pipefail
 

@@ -5,22 +5,11 @@ import crypto from 'node:crypto'
 import type { SystemIds } from './types.ts'
 
 /**
- * The `security.cspDirectives`/`security.enforceCsp` values `Settings#init` seeds a fresh
- * instance's DB row with (WP #2158/#2166, part of #2154).
- *
- * Pulled from `config`/`data` -- `CARDINAL.config`/`CARDINAL.data` at call time, i.e. `base.yml` already
- * merged with any `config.yml` override, since `configSvc.init()` runs before `initDbValues()`
- * ever does -- rather than hardcoded like every other field `Settings#init` seeds. Everywhere but a
- * test config this resolves to exactly `base.yml`'s own default (`enforceCsp: false`, the literal
- * `cspDirectives` string documented and tested there): the indirection exists solely so
- * `e2e/config.e2e.yml` can seed `enforceCsp: true` for `e2e/tests/csp.spec.js` without ever
- * touching what a real fresh install ships with. Exported and factored out of the literal `init()`
- * once inserted here so it is a plain function to unit-test, rather than only reachable through a
- * DB-backed `Settings#init` round trip.
- *
- * @param config `CARDINAL.config` -- `base.yml` merged with any `config.yml` override.
- * @param data `CARDINAL.data` -- `base.yml`'s own parsed defaults, consulted only as the fallback for
- * the case nothing upstream set either key at all.
+ * Alone among the fields `Settings#init` seeds, these two come from
+ * `CARDINAL.config`/`CARDINAL.data` (`base.yml` merged with any `config.yml` override, since
+ * `configSvc.init()` runs first) rather than hardcoded: the indirection exists solely so
+ * `e2e/config.e2e.yml` can seed `enforceCsp: true` for the CSP spec without touching what a real
+ * fresh install ships with.
  */
 export function securityCspSeed(
   config: { security?: { cspDirectives?: string; enforceCsp?: boolean } } | undefined,
@@ -33,14 +22,8 @@ export function securityCspSeed(
   }
 }
 
-/**
- * Settings model
- */
 class Settings {
-  /**
-   * Fetch settings from DB
-   * @returns Settings, or `false` when the table is empty
-   */
+  /** `false` means the table is empty, not that the read failed. */
   async getConfig(): Promise<Record<string, any> | false> {
     const settings = await CARDINAL.db.select().from(settingsTable)
     if (settings.length > 0) {
@@ -53,11 +36,6 @@ class Settings {
     }
   }
 
-  /**
-   * Apply settings to DB
-   * @param key Setting key
-   * @param value Setting value object
-   */
   async updateConfig(key: string, value: Record<string, any>): Promise<void> {
     await CARDINAL.db
       .insert(settingsTable)
@@ -65,10 +43,6 @@ class Settings {
       .onConflictDoUpdate({ target: settingsTable.key, set: { value } })
   }
 
-  /**
-   * Initialize settings table
-   * @param ids Generated IDs
-   */
   async init(ids: SystemIds): Promise<void> {
     CARDINAL.logger.debug('config', 'generating the signing certificates')
     const certs = generateSigningCertificates()
@@ -93,10 +67,8 @@ class Settings {
           // -> The installation keypair, carrying its own passphrase. Its one job is signing API
           //    keys (`models/apiKeys.ts`).
           certs,
-          // -> What @fastify/session signs its cookies with, and nothing else. Separate from the
-          //    keypair's passphrase so that either can be rotated without disturbing the other —
-          //    the two utilities that do so are `POST /system/certificates` and
-          //    `POST /system/sessions/invalidate`.
+          // -> What @fastify/session signs its cookies with, exclusively. Kept separate from the
+          //    keypair's passphrase so either can be rotated without disturbing the other.
           secret: crypto.randomBytes(32).toString('hex'),
           rootAdminGroupId: ids.groupAdminId,
           rootAdminUserId: ids.userAdminId,
@@ -140,10 +112,9 @@ class Settings {
         key: 'pageviews',
         value: {
           isEnabled: true,
-          // -> Keys `hashVisitor()`'s HMAC (`models/pageviews.ts`) -- generated fresh here, same as
-          //    `auth.secret` above, and deliberately its own independent value rather than reused
-          //    from it: the two protect different things (session cookies vs. pageview
-          //    pseudonymisation), and sharing one would mean rotating either also breaks the other.
+          // -> Keys `hashVisitor()`'s HMAC (`models/pageviews.ts`). Deliberately its own value
+          //    rather than `auth.secret` reused: the two protect different things, and sharing one
+          //    would make rotating either break the other.
           hashKey: crypto.randomBytes(32).toString('hex')
         }
       },
@@ -152,8 +123,6 @@ class Settings {
         value: {
           corsConfig: '',
           corsMode: 'OFF',
-          // -> See `securityCspSeed`'s own doc comment above for why these two fields, alone in
-          //    this block, are not hardcoded literals.
           ...securityCspSeed(CARDINAL.config, CARDINAL.data),
           disallowIframe: true,
           disallowOpenRedirect: true,

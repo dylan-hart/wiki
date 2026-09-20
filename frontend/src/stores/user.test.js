@@ -51,7 +51,6 @@ describe('user store: canOnSite() / fetchSitePermissions()', () => {
 
     await store.fetchSitePermissions('site-a')
 
-    // -> The whole point: holding `site:theme` on site A must never read as holding it on site B
     expect(store.canOnSite('site:theme', 'site-b')).toBe(false)
   })
 
@@ -68,15 +67,12 @@ describe('user store: canOnSite() / fetchSitePermissions()', () => {
     await store.fetchSitePermissions('site-a')
     expect(store.canOnSite('site:theme', 'site-a')).toBe(true)
 
-    // -> A fetch for a different site starts, and has not resolved yet
     let resolveFetch
     API_CLIENT.get.mockReturnValueOnce({
       json: () => new Promise((resolve) => (resolveFetch = resolve))
     })
     const pending = store.fetchSitePermissions('site-b')
 
-    // -> Neither site reads as granted mid-flight: not the stale site-a answer, and not site-b
-    //    before it has actually arrived
     expect(store.canOnSite('site:theme', 'site-a')).toBe(false)
     expect(store.canOnSite('site:theme', 'site-b')).toBe(false)
 
@@ -168,14 +164,12 @@ describe('user store: fetchPagePermissions() (bug #949, task 995)', () => {
     await store.fetchPagePermissions('some/page')
     expect(store.pagePermissions).toEqual(['write:pages'])
 
-    // -> A fetch for a different path starts, and has not resolved yet
     let resolveFetch
     API_CLIENT.post.mockReturnValueOnce({
       json: () => new Promise((resolve) => (resolveFetch = resolve))
     })
     const pending = store.fetchPagePermissions('other/page')
 
-    // -> Already cleared synchronously, before the response has arrived
     expect(store.pagePermissions).toEqual([])
 
     resolveFetch(['read:pages'])
@@ -210,10 +204,6 @@ describe('user store: applyProfile() / setToGuest()', () => {
     expect(store.permissions).toEqual(['write:pages'])
   })
 
-  /**
-   * Task #3264: `avatarProviderUrl` rides `/whoami`'s response the same way `hasAvatar` does, and
-   * must reset to `null` (not linger from a previous session) once the reader signs out.
-   */
   it('adopts avatarProviderUrl when the response carries one', () => {
     const store = useUserStore()
     store.applyProfile({
@@ -281,11 +271,6 @@ describe('user store: applyProfile() / setToGuest()', () => {
     expect(store.pronouns).toBe('')
   })
 
-  /**
-   * Feature #2753 / Task #2766: `aesthetic` follows the exact same three-value
-   * (`site`/`ledger`/`cobalt`) pass-through `appearance` already gets from `applyProfile()` and
-   * `setToGuest()`.
-   */
   it('adopts a per-user aesthetic override from the session response', () => {
     const store = useUserStore()
     store.applyProfile({ authenticated: true, id: 'abc-123', aesthetic: 'cobalt' })
@@ -309,11 +294,6 @@ describe('user store: applyProfile() / setToGuest()', () => {
     expect(store.aesthetic).toBe('site')
   })
 
-  /**
-   * Feature #3051 / Task #3068: `contentWidth` follows the exact same three-value
-   * (`site`/`measured`/`full`) pass-through `aesthetic` already gets from `applyProfile()` and
-   * `setToGuest()`.
-   */
   it('adopts a per-user contentWidth override from the session response', () => {
     const store = useUserStore()
     store.applyProfile({ authenticated: true, id: 'abc-123', contentWidth: 'full' })
@@ -373,21 +353,10 @@ describe('user store: logout()', () => {
     expect(received).toEqual([{ redirect: '/' }])
   })
 
-  /*
-    Task 468 (feature 362): `NavSidebar.vue`'s watcher only refetches the sidebar menu when the page
-    it lands on carries a DIFFERENT `navigationId` than the one it just left -- true most of the time,
-    but not when App.vue's `logout` handler routes the reader to a redirect target that happens to
-    share the same `navigationId` as the page they were just reading (the site's default menu is the
-    common case). The watcher then never fires, and the sidebar built while authenticated -- including
-    any `visibilityGroups`-restricted item this reader could see a moment ago -- stays on screen after
-    the session has ended. `logout()` forces the refetch itself, unconditionally, rather than relying
-    on the watcher's own diffing.
-  */
   it('forces a navigation refetch against the now-anonymous session, regardless of whether the destination shares the same navigationId', async () => {
     const store = useUserStore()
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
-    // -> The sidebar the reader was looking at when they logged out
     siteStore.nav.currentId = 'nav-1'
     siteStore.nav.items = [
       { id: 'restricted', type: 'link', label: 'Restricted', target: '/secret' }
@@ -397,7 +366,7 @@ describe('user store: logout()', () => {
     API_CLIENT.post.mockReturnValueOnce({
       json: () => Promise.resolve({ redirect: '/some-page' })
     })
-    // -> The re-fetched menu, now built against the guest session: the restricted item is gone
+    // -> The re-fetched menu, built against the guest session: the restricted item is gone
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve({
@@ -446,8 +415,6 @@ describe('user store: formatDate()', () => {
     expect(store.formatDate(null)).toBe('')
   })
 
-  // -> No stored pattern falls back to the locale-default branch, which OpenProject #1881 hoisted its
-  //    `Intl.DateTimeFormat` out of the per-call path -- this is the branch that formatter backs.
   it('falls back to the locale-default numeric pattern when no dateFormat is stored', () => {
     const store = useUserStore()
     store.dateFormat = ''
@@ -457,9 +424,8 @@ describe('user store: formatDate()', () => {
   })
 })
 
-// -> OpenProject #1881: formatTimePart's two `Intl.DateTimeFormat` instances were hoisted to module
-//    scope, keyed by timeFormat -- exercised here through formatDateTime() (formatTimePart itself
-//    isn't exported) so both the 12h and 24h branches keep rendering identical output.
+// -> `formatTimePart` isn't exported, so its 12h/24h branches are exercised through
+//    `formatDateTime()`.
 describe('user store: formatDateTime() time-of-day branches', () => {
   const t = (key, params) => `${params.date} at ${params.time}`
 
@@ -481,7 +447,6 @@ describe('user store: formatDateTime() time-of-day branches', () => {
     expect(store.formatDateTime(t, '2026-03-04T15:30:00Z')).toBe('2026-03-04 at 15:30')
   })
 
-  // -> Guards the hoist itself: the shared formatter instances must not carry state between calls.
   it('produces identical output across repeated calls against the shared formatters', () => {
     const store = useUserStore()
     store.dateFormat = 'YYYY-MM-DD'
@@ -494,14 +459,6 @@ describe('user store: formatDateTime() time-of-day branches', () => {
   })
 })
 
-/*
-  OpenProject #1595: 16 admin/inbox/profile screens hand-rolled their own `toLocaleString()`
-  timestamp formatter (called with an explicit `undefined` locale), which ignored both the stored
-  timezone (the OS zone won instead) and locale (the browser's won instead). All of them are now a
-  drop-in call to formatDateTime() -- three of them (a webhook delivery log, a scheduler run, a
-  security scan report) additionally need seconds, since there the timing itself is the thing being
-  read.
-*/
 describe('user store: formatDateTime()', () => {
   const t = (key, params) => `${params.date} at ${params.time}`
 
@@ -569,8 +526,8 @@ describe('user store: formatDateTime({ seconds })', () => {
 })
 
 describe('user store: formatDateTime({ zone }) / formatDateTime({ seconds, zone })', () => {
-  // -> Kiritimati (UTC+14) so the assertion holds regardless of the test runner's own zone: no real
-  //    CI/dev machine is configured to it, so "the stored zone" and "the browser default" can never
+  // -> Kiritimati (UTC+14) so the assertion holds regardless of the runner's own zone: no real
+  //    machine is configured to it, so "the stored zone" and "the browser default" can never
   //    coincidentally match here the way e.g. UTC sometimes does.
   const STORED_ZONE = 'Pacific/Kiritimati'
   const INSTANT = '2026-03-04T12:00:00Z'

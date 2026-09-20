@@ -1,35 +1,21 @@
 /**
- * Stand-ins for the `CARDINAL` global members a model test rarely cares about.
- *
- * `CARDINAL.cache` and `CARDINAL.events` exist for cross-request and cross-instance concerns — an in-memory
- * cache flushed on demand, an HA propagation bus — that almost no model-layer test is actually
- * exercising. Reaching for the real `LRUCache`/`Emittery` instances the app boots with would work,
- * but it means a test failure two calls deep in a helper this test never meant to touch, and a cache
- * that quietly survives across tests unless something remembers to flush it.
- *
- * The convention: build the smallest object satisfying the methods the code path under test actually
- * calls, typed loosely (`as CardinalGlobal['cache']` / `as CardinalGlobal['events']`) rather than pulled from
- * `lru-cache` or `emittery`. A test whose model DOES care about a cache hit or an emitted event
- * should assert against the stub directly (e.g. `cache.set.mock.calls`) rather than reach past it —
- * that is what makes it a stub and not a bypass.
+ * Reaching for the real `LRUCache`/`Emittery` instances the app boots with would work, but it means
+ * a failure two calls deep in a helper the test never meant to touch, and a cache that quietly
+ * survives across tests. A test that DOES care about a cache hit or an emitted event asserts against
+ * the stub (`cache.set.mock.calls`) rather than reaching past it.
  */
 import path from 'node:path'
 import { mock } from 'node:test'
 import { isPlainObject } from 'es-toolkit/predicate'
 
 /**
- * A `CARDINAL.cache`-shaped stub: enough of `LRUCache`'s surface for code that calls
- * `get`/`set`/`has`/`delete`/`getRemainingTTL`. Note the real surface, not `node-cache`'s: `delete`
- * rather than `del`, and `set(key, value, { ttl })` with milliseconds rather than a positional
- * seconds argument.
+ * Mirrors `LRUCache`'s surface, not `node-cache`'s: `delete` rather than `del`, and
+ * `set(key, value, { ttl })` in milliseconds rather than a positional seconds argument.
  */
 export function createCacheStub(): any {
   const store = new Map<string, unknown>()
-  // -> Real expiry timestamps (ms since epoch), not just a stored `ttl` option: `getRemainingTTL`
-  //    below needs to answer "how much longer does this key have" for real, for any caller that reads
-  //    it to keep a fixed window rather than sliding it forward on every request (the rate-limit
-  //    counter this once backed has since moved to `CARDINAL.models.rateLimits.consume` — OpenProject
-  //    #1700 — but the surface stays faithful for whatever else calls it).
+  // -> Real expiry timestamps, not just the stored `ttl`: `getRemainingTTL` has to answer how much
+  //    longer a key has, for a caller keeping a fixed window rather than sliding it per request.
   const expiresAt = new Map<string, number>()
   return {
     get: mock.fn((key: string) => store.get(key)),
@@ -57,7 +43,6 @@ export function createCacheStub(): any {
   }
 }
 
-/** A `CARDINAL.events`-shaped stub: both buses present, every call a no-op that a test can assert on. */
 export function createEventsStub(): any {
   const bus = () => ({
     emit: mock.fn(),
@@ -69,23 +54,12 @@ export function createEventsStub(): any {
   return { inbound: bus(), outbound: bus() }
 }
 
-/**
- * A `CARDINAL.scheduler`-shaped stub: just `addJob`, recording every call rather than touching the real
- * job queue or worker pool. Enough for model-layer code that queues work (`pages.ts#notifyWatchers`,
- * for one) without a model test having to stand up the scheduler's thread pool and pubsub connection.
- */
 export function createSchedulerStub(): any {
   return {
     addJob: mock.fn(async () => ({ id: 'test-job' }))
   }
 }
 
-/**
- * A `CARDINAL.server`-shaped stub: just `isReady`, defaulting to `true` — a fully booted instance,
- * which is the state every route test other than `helpers/apiReadiness.test.ts`'s own actually cares
- * about. A suite exercising the `postBoot()`-window readiness gate itself overrides this with `{
- * server: { isReady: () => false } }`.
- */
 export function createServerStub(): any {
   return {
     isReady: mock.fn(() => true)
@@ -93,19 +67,10 @@ export function createServerStub(): any {
 }
 
 /**
- * A `CARDINAL.models.groups.checkSiteAdminAccess`-shaped stub, composed from a suite's OWN
- * `actorForRequest` and `checkSiteAccess` stubs exactly as the real method composes the real pair
- * (`models/groups.ts`): the global permission, site-blind, OR the delegated `site:*` one.
- *
- * Five route suites (`api/approvals`, `api/blockCredentials`, `api/blocks`, `api/navigation`,
- * `api/sites`) drive a site-scoped admin gate through their routes and each already stubs those two
- * pieces off its own `x-test-permissions` / `x-test-site-permissions` headers. Composing here rather
- * than in each of them keeps the one thing that must not drift — WHICH of the two answers wins, and
- * in which order — single-sourced against the real method, while leaving each suite's own grant
- * semantics exactly where they were.
- *
- * @param actorForRequest The suite's own `CARDINAL.models.groups.actorForRequest` stand-in
- * @param checkSiteAccess The suite's own `CARDINAL.models.groups.checkSiteAccess` stand-in
+ * Mirrors how `models/groups.ts#checkSiteAdminAccess` composes the real pair — the global
+ * permission, site-blind, OR the delegated `site:*` one — so which of the two answers wins, and in
+ * which order, cannot drift from the real method while each route suite keeps its own grant
+ * semantics.
  */
 export function createSiteAdminAccessStub(
   actorForRequest: (req: any) => { permissions: string[] },
@@ -120,23 +85,10 @@ export function createSiteAdminAccessStub(
 }
 
 /**
- * `error`/`warn`/`info`/`debug` — every level `core/logger.ts` implements, and no more — all no-ops,
- * because a test run should not scroll past the logging of the code it is exercising.
- *
- * Exported (TEST-F1) rather than re-inlined per file: 70 backend test files used to carry their own
- * partial literal (`{ debug }`, `{ warn }`, `{ info, warn, error, debug }`, …), so adding one
- * `CARDINAL.logger.info()` call to a route broke every suite whose stub happened to omit `info` — and
- * failed naming the logger rather than the change.
- *
- * Every level takes the one call shape the real logger does, `(scope, message, fields?)` — the
- * legacy `(msg, context?)` overload went with OpenProject #2668, and a no-op cared about neither
- * anyway. `scope()` answers the stub itself rather than a fresh object, so a child logger a code
- * path builds is silent the same way and `log.scope('x').scope('y').info(…)` cannot run out of
- * stub.
- *
- * A suite that wants to ASSERT on a line replaces the level it cares about
- * (`CARDINAL.logger.warn = mock.fn()`) and asserts on the scope and the fields, never on a rendered
- * string — the rendering is `core/logger.ts`'s business.
+ * Every level `core/logger.ts` implements and no more, so a call site reintroducing a name it never
+ * had throws here rather than in production. A suite that wants to ASSERT on a line replaces the
+ * level it cares about (`CARDINAL.logger.warn = mock.fn()`) and asserts on the scope and the fields,
+ * never on a rendered string — the rendering is `core/logger.ts`'s business.
  */
 export function createSilentLogger(): any {
   const noop = () => {}
@@ -146,18 +98,13 @@ export function createSilentLogger(): any {
 }
 
 /**
- * Deep-merge `source` into `target`, in place.
+ * Deliberately narrower than `es-toolkit`'s `toMerged`, which deep-CLONES its target and merges
+ * arrays index-wise: an override may legitimately carry a live Drizzle instance, a `mock.fn()` whose
+ * call history a test asserts on, or an array meant to stand alone rather than be spliced over a
+ * default.
  *
- * Recurses only where BOTH sides are plain objects; everything else (arrays, class instances, mock
- * functions, `null`) replaces wholesale. Deliberately narrower than `es-toolkit`'s `toMerged`, which
- * deep-CLONES its target and merges arrays index-wise — neither is wanted here, since an override may
- * legitimately carry a live Drizzle instance, a `mock.fn()` whose call history a test asserts on, or
- * an array meant to stand alone rather than be spliced over a default.
- *
- * Copies property DESCRIPTORS, not values: a suite whose stub declares a getter so a module-level
- * variable can steer what a route sees per test (`api/pages.test.ts`'s `get sites()`, which flips
- * `features.collaborativeEditing`) would otherwise have that getter invoked once here and frozen
- * into a snapshot.
+ * Copies property DESCRIPTORS, not values, so a stub's getter — declared to steer what a route sees
+ * per test — is not invoked once here and frozen into a snapshot.
  */
 function mergeInto(target: any, source: Record<string, any>): any {
   for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(source))) {
@@ -175,33 +122,20 @@ function mergeInto(target: any, source: Record<string, any>): any {
 }
 
 /**
- * The `CARDINAL` global a test needs, with every member a test rarely cares about already stubbed.
+ * `models` is deliberately EMPTY: an absent member throwing is coverage that a code path never
+ * reaches for a model it should not, so a suite names exactly the methods it calls. `data.systemIds`
+ * is present but empty so a read answers `undefined` rather than throwing on `undefined.x`; a suite
+ * branching on one of those ids supplies it (the real values live in `base.yml`).
  *
- * Defaults: a silent logger, the `cache`/`events`/`scheduler`/`server` stubs above, and `{}` for `config`,
- * `sites`, `sitesMappings` and `models`. `models` is deliberately EMPTY rather than a populated set —
- * `modules/storage/disk/storage.test.ts` relies on an absent member throwing to prove the module
- * never reaches for one — so a suite names exactly the model methods its code path calls, and an
- * unexpected reach past them still fails loudly.
- *
- * `data.systemIds` is present but empty, so a read like `CARDINAL.data.systemIds.guestsGroupId` answers
- * `undefined` instead of throwing on `undefined.guestsGroupId`; a suite whose code path actually
- * branches on one of those ids supplies it (the real values live in `base.yml`).
- *
- * Overrides are deep-merged (see `mergeInto`), so `{ models: { pages: { … } } }` keeps the logger and
- * the stubs while replacing only what it names. A nested override therefore MERGES into the default
- * rather than replacing it — `{ events: { … } }`, `{ cache: { … } }` and `{ models: { … } }` all
- * come back as the default object with the named keys written over it, so a test asserting on one
- * must read `CARDINAL.events` / `CARDINAL.cache` / `CARDINAL.models.x` rather than holding on to the object
- * literal it passed in. (Arrays, class instances and `mock.fn()`s replace wholesale.)
+ * Overrides are deep-merged, so a test asserting on a nested override must read `CARDINAL.events`
+ * rather than the object literal it passed in.
  */
 export function createWikiStub(overrides: Record<string, any> = {}): CardinalGlobal {
   const stub = {
     IS_DEBUG: false,
     ROOTPATH: process.cwd(),
-    // -> Derived from this file's own location (`backend/test/mocks.ts`), not `process.cwd()`: a
-    //    workspace's tests run with `backend/` as the cwd already, so `path.join(cwd, 'backend')`
-    //    would point at a `backend/backend` that does not exist. Anything doing disk-based module
-    //    loading (`models/search.ts#hasImplementation()`, a module's `definition.yml`) reads this.
+    // -> Not `process.cwd()`: tests already run with `backend/` as the cwd, so joining `backend`
+    //    onto it would point at a `backend/backend` that does not exist.
     SERVERPATH: path.join(import.meta.dirname, '..'),
     INSTANCE_ID: 'test',
     // -> Not `Temporal.Now.instant()`: nothing under test reads `startedAt`, and this file otherwise
@@ -226,13 +160,9 @@ export function createWikiStub(overrides: Record<string, any> = {}): CardinalGlo
 }
 
 /**
- * Install `createWikiStub(overrides)` as the `CARDINAL` global, returning the handle that puts back
- * whatever was there before.
- *
  * Always restore in `after()`/`afterEach()`: `node --test` isolates each matched FILE into its own
  * process, but not each suite within one, so a file that installs a global and walks away leaves it
- * standing for whatever runs next in the same file (see OpenProject #1021). 41 files used to
- * hand-roll the same `previousWiki` capture/assign dance around this.
+ * standing for whatever runs next in the same file.
  */
 export function installTestWiki(overrides: Record<string, any> = {}): { restore(): void } {
   const had = 'CARDINAL' in globalThis

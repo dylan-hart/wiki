@@ -8,7 +8,6 @@ import { extractJsonPathValue } from '../helpers/jsonPath.ts'
 import { isPrivateAddress, originMatchesAllowlist } from '../helpers/network.ts'
 import type { RateLimitPolicy } from './rateLimits.ts'
 
-/** A `block-live-data` instance's props, as posted to the resolve route. */
 export interface LiveDataRequest {
   /** A `blockCredentials` row id. Omitted (or empty) means the endpoint takes no auth header. */
   credentialId?: string | null
@@ -25,65 +24,39 @@ export interface LiveDataResult {
 }
 
 /**
- * Floor on the cache TTL an author's `refreshInterval` is clamped to.
- *
- * Not the author's to lower past this: the endpoint is fetched once per site per cache window no
- * matter how many readers have the block open, but a window under ten seconds stops meaningfully
- * protecting the upstream from a page with several readers on it at once.
+ * Not the author's to lower past: one fetch per site per cache window covers every reader with the
+ * block open, and a window under ten seconds stops meaningfully protecting the upstream.
  */
 const MIN_REFRESH_SECONDS = 10
 const MAX_REFRESH_SECONDS = 24 * 60 * 60
 const DEFAULT_REFRESH_SECONDS = 60
 
-/** How long the upstream request is allowed to hang before this gives up on it. */
 const FETCH_TIMEOUT_MS = 10000
 
 const CACHE_PREFIX = 'liveData:'
 const RATE_LIMIT_PREFIX = 'liveDataRate:'
 
 /**
- * The rate-limit key an uncredentialed resolve is metered under, scoped per site rather than
- * globally: several sites' authors independently polling public endpoints shouldn't share one
- * budget, but there is no credential id to key off for this path (OpenProject #2185 — this path used
- * to skip the limiter entirely).
+ * Per site rather than global: with no credential id to key off, several sites' authors polling
+ * public endpoints would otherwise share one budget.
  */
 function anonymousRateLimitKey(siteId: string): string {
   return `anon:${siteId}`
 }
 
 /**
- * The per-credential fresh-fetch rate limit window and cap (OpenProject #1050).
+ * Caps fresh (cache-miss) fetches attributable to one credential, whatever url/jsonPath each names.
+ * The response cache only collapses repeats of the *same* request, so a caller who has learned a
+ * credential's id — not a secret; it travels in page markdown as a block prop — could otherwise
+ * vary the url or jsonPath every time to always miss it and force unthrottled outbound fetches for
+ * as long as the allowlist accepts the url. The credential-free path shares the cap, keyed per site.
  *
- * The response cache already collapses repeat requests for the *same* site/credential/url/jsonPath
- * onto one upstream fetch per `refreshInterval` — but nothing stopped a caller who has merely learned
- * a credential's id (its allowed origins are not a secret — every admin managing the site can see
- * them, and the id itself travels in plain page markdown as a block prop, readable by anyone with
- * `read:source`) from varying the url or jsonPath on every request to always miss that cache and
- * force a fresh outbound fetch, unthrottled, for as long as the credential's allowlist would accept
- * the url. This caps *that*: total fresh (cache-miss) fetches attributable to one credential,
- * independent of which url/jsonPath each one names. The credential-free path shares the same cap,
- * keyed per site instead of per credential (OpenProject #2185).
- *
- * The cap is sized for legitimate multi-block use, not just one: several distinct `block-live-data`
- * instances can share one credential, each polling its own url/jsonPath as often as the
- * {@link MIN_REFRESH_SECONDS} floor allows -- a dozen such blocks at that floor is already 72
- * fresh fetches/minute. 120/minute leaves headroom above that while still bounding a caller that is
- * deliberately varying the request to bypass the response cache.
- *
- * Counted via `CARDINAL.models.rateLimits.consume` (OpenProject #1700) rather than `CARDINAL.cache`: the
- * counter used to live in the same LRU the response cache, the glossary term map and the locale list
- * all share, so ordinary cache traffic could evict a credential's counter mid-window and silently
- * reset its count. `consume` is durable and keyed per credential, independent of both cache churn and
- * which backend instance in a cluster happens to handle the request -- see `models/rateLimits.ts`.
+ * Sized for legitimate multi-block use: several blocks may share one credential, each polling at the
+ * {@link MIN_REFRESH_SECONDS} floor, so a dozen of them is already 72 fresh fetches a minute.
  */
 const RATE_LIMIT_WINDOW_SECONDS = 60
 const RATE_LIMIT_MAX_PER_WINDOW = 120
-/**
- * How long a credential stays refused once it exceeds {@link RATE_LIMIT_MAX_PER_WINDOW} in one
- * window. Set equal to the window itself: the old cache-backed counter kept incrementing (and
- * throwing) on every request until its window's TTL lapsed, so a ban lasting one full window
- * reproduces that behavior rather than granting an early reprieve.
- */
+/** Equal to the window, so exceeding the cap costs the remainder of it rather than a brief pause. */
 const RATE_LIMIT_POLICY: RateLimitPolicy = {
   max: RATE_LIMIT_MAX_PER_WINDOW,
   windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
@@ -98,11 +71,9 @@ function clampRefreshSeconds(seconds: number | undefined): number {
 }
 
 /**
- * A stable, fixed-width cache key for one site/credential/url/jsonPath combination (OpenProject
- * #2185): `url` and `jsonPath` are author-supplied and otherwise unbounded, so concatenating them raw
- * (as this used to) let an arbitrarily long request grow the cache key without limit — including
- * evicting other entries this same `CARDINAL.cache` instance holds. Hashing collapses either one to a
- * fixed width regardless of input length.
+ * Hashed rather than concatenated raw: `url` and `jsonPath` are author-supplied and unbounded, so an
+ * arbitrarily long request would otherwise grow the key without limit, evicting other entries this
+ * same `CARDINAL.cache` instance holds.
  */
 function buildCacheKey(
   siteId: string,
@@ -117,60 +88,29 @@ function buildCacheKey(
 }
 
 /**
- * Live data model (OpenProject #868)
- *
  * Resolves one `block-live-data` instance's data: an authenticated (or plain) GET against an
  * author-configured URL, narrowed to one field by JSONPath, cached for the author's refresh
- * interval. This is the ONLY place the secret a `blockCredentials` row holds is ever read back out
- * and put to use — as a bearer token on the one outbound request, never returned to the caller.
+ * interval. The ONLY place a `blockCredentials` secret is read back out and used — as a bearer token
+ * on the one outbound request. `resolve()`'s result carries the extracted value and a timestamp and
+ * nothing else, so a reader's browser never sees the credential that produced it.
  *
- * Runs entirely server-side, on the wiki's own connection to the endpoint: `resolve()`'s result never
- * carries anything but the extracted value and when it was fetched, so a reader's browser (and the
- * page's own source, for that matter — this never touches page content) never sees the credential
- * that produced it.
+ * Four independent guards stand between a `write:pages` author and that secret, since `url` is just
+ * a block prop:
  *
- * `url` is author-supplied (a block prop, gated only by `write:pages` — see `helpers/network.ts`'s
- * header comment), so before ever fetching it this resolves the hostname and refuses to proceed if
- * any resolved address is private, loopback, or link-local: otherwise `write:pages` alone would let
- * an author turn this into an SSRF proxy into the wiki's own network, optionally carrying a stored
- * credential's secret along with it.
- *
- * A credential's `allowedOrigins` is a second, independent guard, checked once a `credentialId` is
- * given: even an author who legitimately knows a credential's id may not point it at any URL — only
- * an origin+path-prefix the admin who created that credential explicitly allowed
- * (`helpers/network.ts#originMatchesAllowlist`), and only over `https:` — a credential is never sent
- * in cleartext, regardless of what scheme an allowlist entry itself names (OpenProject #2185,
- * #2198). This is what stops a `write:pages` author from exfiltrating a `manage:sites`-gated secret
- * to a URL (or a path on an otherwise-allowed host) of their own choosing.
- *
- * A per-credential (and, since OpenProject #2185, per-site for the credential-free path) rate limit
- * is a third, independent guard (OpenProject #1050): even though a credentialed request now requires
- * an authenticated caller (OpenProject #2202; see `api/liveData.ts`'s header comment), any reader with
- * an account can still reach this, and a credential's allowlist narrows *where* its secret may be sent
- * but not *how often*. Without this, a caller could vary the url/jsonPath on every request to bypass
- * the response cache and drive unlimited fresh fetches against whatever the allowed origin hosts. See
- * {@link RATE_LIMIT_MAX_PER_WINDOW}. Rate-limit accounting only ever runs against a credential that
- * has already been loaded and has already passed its allowlist and scheme checks — an id that
- * resolves to nothing must not be able to burn down another (or a future) credential's budget.
- *
- * `CARDINAL.config.offline` is a fourth, independent guard (OpenProject #2212), checked immediately after
- * the cache lookup and before anything else on the fresh-fetch path — including the DNS resolution
- * {@link assertNotPrivateAddress} performs. A cache hit is still served (nothing is reached), but a
- * fresh fetch refuses with a 503 rather than reaching out, the same way `diagramRender.ts` gates its
- * PlantUML fetch: an operator who has put the instance in offline mode expects nothing on this path
- * to touch the network at all, not even to resolve a hostname.
+ * 1. **DNS pre-check** — the hostname is resolved up front and refused if any address is private,
+ *    loopback or link-local. Without it, `write:pages` alone turns this into an SSRF proxy into the
+ *    wiki's own network, optionally carrying a stored secret along.
+ * 2. **`allowedOrigins`** — a credential may only be pointed at an origin and path prefix the admin
+ *    who created it allowed, and only over `https:` whatever scheme an allowlist entry itself names.
+ *    This is what stops an author exfiltrating a `manage:sites`-gated secret to a URL of their own.
+ * 3. **Rate limit** — an allowlist narrows *where* a secret may be sent, not *how often*. Accounting
+ *    runs only against a credential that has already passed guards 1 and 2, so an id resolving to
+ *    nothing cannot burn down another credential's budget. See {@link RATE_LIMIT_MAX_PER_WINDOW}.
+ * 4. **`CARDINAL.config.offline`** — checked after the cache lookup and before anything else on the
+ *    fresh-fetch path, the DNS resolution included: an operator in offline mode expects nothing here
+ *    to touch the network, not even to resolve a hostname. A cache hit is still served.
  */
 class LiveData {
-  /**
-   * @throws {CustomError} `Bad Request` (400) for a malformed URL/JSONPath, a bare `$` JSONPath, an
-   *   unmatched JSONPath, a URL resolving to a private/loopback/link-local address, a credentialed
-   *   request whose URL is not `https:`, or a URL outside a given credential's allowed origins,
-   *   `Not Found` (404) for a `credentialId` with no matching row on this site, `Too Many Requests`
-   *   (429) once a credential (or, for a credential-free request, this site) has exceeded its
-   *   fresh-fetch rate limit, `Service Unavailable` (503) when the instance is in offline mode,
-   *   `Bad Gateway` (502) for a network failure, a non-2xx response, or a response body that isn't
-   *   JSON.
-   */
   async resolve(siteId: string, request: LiveDataRequest): Promise<LiveDataResult> {
     let url: URL
     try {
@@ -182,11 +122,9 @@ class LiveData {
       throw new CustomError('Bad Request', 'url must be an http(s) address.', 400)
     }
     if (request.jsonPath.trim() === '$') {
-      // -> `extractJsonPathValue`'s `wrap: true` query returns `results[0]` of whatever a `$` query
-      //    matches, which for the root selector is the entire parsed upstream document -- and `$` is
-      //    the block's own default for this prop (`blocks/block-live-data/component.js`). Refusing it
-      //    here is what stops a host-level fetch allowance from doubling as a whole-document read
-      //    primitive: an author must name the one field they actually want.
+      // -> A root selector returns the entire parsed upstream document, and `$` is the block's own
+      //    default for this prop. Refusing it stops a host-level fetch allowance from doubling as a
+      //    whole-document read primitive.
       throw new CustomError(
         'Bad Request',
         'jsonPath must not be a bare "$", which returns the entire response. Name a specific field, e.g. "$.data.value".',
@@ -220,10 +158,8 @@ class LiveData {
       if (credential === undefined) {
         throw new CustomError('Not Found', 'No such credential on this site.', 404)
       }
-      // -> Checked before the allowlist, and unconditionally -- a credential's `allowedOrigins`
-      //    entries may themselves be `http:` (schema-valid, see `helpers/network.ts`), but a
-      //    credentialed request is never allowed to actually send the secret in cleartext, so this
-      //    is enforced here rather than left as something an admin's allowlist choice controls.
+      // -> Before the allowlist, and unconditional: an `allowedOrigins` entry may itself be `http:`
+      //    (schema-valid), but sending the secret in cleartext is never an admin's choice to make.
       if (url.protocol !== 'https:') {
         throw new CustomError('Bad Request', 'A credentialed request must use https.', 400)
       }
@@ -234,30 +170,24 @@ class LiveData {
           400
         )
       }
-      // -> Only reached once the credential exists and its allowlist/scheme checks both pass, so an
-      //    unresolvable or disallowed credentialId never consumes this credential's rate-limit budget.
+      // -> Must stay after the allowlist and scheme checks, so an unresolvable or disallowed
+      //    credentialId never consumes this credential's rate-limit budget.
       await this.assertWithinRateLimit(request.credentialId)
       headers.Authorization = `Bearer ${credential.secret}`
     } else {
       await this.assertWithinRateLimit(anonymousRateLimitKey(siteId))
     }
 
-    // -> Pins the actual TCP connection to one of the addresses `assertNotPrivateAddress` just
-    //    validated, rather than letting undici resolve the hostname a second time on its own — see
-    //    `createPinnedDispatcher`'s own comment for why a second, unpinned resolution is exploitable
-    //    even though the pre-check above already ran.
     const dispatcher = this.createPinnedDispatcher(validatedAddresses)
     try {
       let response: Response
       try {
-        // -> `redirect: 'error'` rather than the default `'follow'`: a redirect response is never
-        //    resolved by `assertNotPrivateAddress` above, so following one would hand the credential's
-        //    bearer token (and the DNS check itself) to whatever address the *response* names instead
-        //    of the one the author configured — the same SSRF hole the pre-check exists to close,
-        //    reopened one hop later. A malformed or unreachable-by-design redirect target throws here,
-        //    which the catch below reports as the same `Bad Gateway` any other network failure gets.
-        // -> `dispatcher` is an undici-specific extension to `fetch`'s options that Node's own
-        //    (DOM-derived) `RequestInit` type does not declare, hence the cast.
+        // -> `redirect: 'error'`, not the default `'follow'`: a redirect target is never run
+        //    through `assertNotPrivateAddress`, so following one would hand the bearer token to
+        //    whatever address the *response* names — the same SSRF hole, reopened one hop later.
+        //    undici throws on it, which the catch below reports as any other network failure.
+        // -> `dispatcher` is an undici extension to `fetch`'s options that Node's own (DOM-derived)
+        //    `RequestInit` type does not declare, hence the cast.
         response = await fetch(url, {
           headers,
           redirect: 'error',
@@ -301,18 +231,12 @@ class LiveData {
   }
 
   /**
-   * Counts this fresh (cache-miss) fetch against `rateLimitKey`'s rate limit and throws once the
-   * window's cap is exceeded — see the class comment and {@link RATE_LIMIT_MAX_PER_WINDOW}.
-   * `rateLimitKey` is a credential id for a credentialed request, or {@link anonymousRateLimitKey}'s
-   * per-site key for a credential-free one — each is its own independent budget.
+   * `rateLimitKey` is a credential id, or {@link anonymousRateLimitKey}'s per-site key for a
+   * credential-free request — each its own budget.
    *
-   * Delegates to `CARDINAL.models.rateLimits.consume` (OpenProject #1700) — the same durable,
-   * postgres-backed fixed-window limiter `models/hooks.ts#emit()` uses for webhook delivery — rather
-   * than counting in `CARDINAL.cache`. A single upsert reads, rolls over, increments and possibly bans the
-   * row atomically, so this is also safe across a cluster of backend instances sharing one counter per
-   * credential, not just within one process.
-   *
-   * @throws {CustomError} `Too Many Requests` (429) once the count exceeds the cap.
+   * Counted through `CARDINAL.models.rateLimits`, not `CARDINAL.cache`: a durable, postgres-backed
+   * fixed-window counter is immune to cache eviction silently resetting a window mid-flight, and its
+   * single atomic upsert makes one counter per credential correct across a cluster.
    */
   private async assertWithinRateLimit(rateLimitKey: string): Promise<void> {
     const verdict = await CARDINAL.models.rateLimits.consume(
@@ -329,18 +253,12 @@ class LiveData {
   }
 
   /**
-   * Resolves `url`'s hostname and refuses to continue if any address it comes back with is private,
-   * loopback, or link-local — see the class comment. Fails closed: a hostname that cannot be resolved
-   * at all is refused with the same 400 rather than left for the real fetch to fail on its own. That
-   * used to be deliberate ("left for the real fetch to fail on its own"), but `dns.lookup` here and
-   * undici's own resolution for the real fetch are not guaranteed to agree — a transient resolver
-   * failure on this lookup with a *successful* one moments later for the actual fetch would skip the
-   * check entirely, which needs no attacker-controlled DNS to happen (OpenProject #2239).
+   * Fails closed: an unresolvable hostname is refused rather than left for the real fetch to fail
+   * on. This lookup and undici's own are not guaranteed to agree, so a transient resolver failure
+   * here followed by a successful resolution moments later would skip the check entirely — no
+   * attacker-controlled DNS required.
    *
-   * @returns The resolved, validated addresses — reused by {@link createPinnedDispatcher} so the
-   *   connection undici actually opens is pinned to one of these, not resolved a second time.
-   * @throws {CustomError} `Bad Request` (400) when the hostname cannot be resolved, or when any
-   *   resolved address is non-public.
+   * The returned addresses are what {@link createPinnedDispatcher} pins the connection to.
    */
   private async assertNotPrivateAddress(url: URL): Promise<string[]> {
     const hostname = url.hostname.replace(/^\[|\]$/g, '')
@@ -360,37 +278,29 @@ class LiveData {
     return addresses
   }
 
-  /** Broken out so a test can mock it — the same pattern `diagramRender.ts#launchBrowser` uses. */
+  /** Broken out so a test can mock it rather than making a real DNS lookup. */
   private async resolveAddresses(hostname: string): Promise<string[]> {
     const results = await dns.lookup(hostname, { all: true })
     return results.map((result) => result.address)
   }
 
   /**
-   * Builds a per-request undici `Agent` whose connector never resolves the hostname again — its
-   * `connect.lookup` (the same signature and slot `dns.lookup` fills for `net.connect`/`tls.connect`)
-   * ignores whatever the target actually resolves to at connect time and returns only the addresses
-   * `assertNotPrivateAddress` already validated moments earlier.
+   * A per-request undici `Agent` whose `connect.lookup` returns only the addresses
+   * `assertNotPrivateAddress` validated, never resolving the hostname again.
    *
-   * Without this, the fetch below would repeat the hostname lookup itself (undici resolves the
-   * hostname it was given, same as any HTTP client) — a second, independent resolution with no
-   * connection to the one just validated. A nameserver an attacker controls can answer the pre-check's
-   * lookup with a public address and this second one with a private one (classic TTL-0 DNS rebinding);
-   * pinning to the pre-validated set closes that gap by making a second lookup never happen at all.
-   *
-   * @param validatedAddresses IP literals `assertNotPrivateAddress` already confirmed are non-private —
-   *   the only addresses this dispatcher's connector will ever hand back.
+   * Otherwise undici would resolve the hostname itself — a second, independent lookup with no
+   * connection to the validated one. A nameserver an attacker controls can answer the pre-check with
+   * a public address and that one with a private address (TTL-0 DNS rebinding); pinning closes the
+   * gap by making a second lookup never happen.
    */
   private createPinnedDispatcher(validatedAddresses: string[]): Agent {
     return new Agent({ connect: { lookup: this.createPinnedLookup(validatedAddresses) } })
   }
 
   /**
-   * Broken out from {@link createPinnedDispatcher} so a test can call it directly and inspect its
-   * callback behavior, rather than reaching into an undici `Agent` instance's private internals.
-   *
-   * Ignores the hostname it is asked to resolve entirely — the whole point is that this never performs
-   * a real lookup, only ever hands back (a subset of) the addresses it was built with.
+   * Broken out from {@link createPinnedDispatcher} so a test can drive the callback without reaching
+   * into an undici `Agent`'s internals. Ignores the hostname it is asked about entirely: it never
+   * performs a real lookup, only ever hands back a subset of the addresses it was built with.
    */
   private createPinnedLookup(validatedAddresses: string[]) {
     const byFamily = validatedAddresses

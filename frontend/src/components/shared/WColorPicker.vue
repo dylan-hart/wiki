@@ -1,13 +1,9 @@
 <template>
   <div class="w-color-picker w-[240px] select-none">
     <!--
-      Saturation / brightness field
-
-      This field's and the hue rail's `left:` below are colour-space coordinates (saturation 0-100%,
-      hue 0-360°), not a leading/trailing gutter -- reviewed under OpenProject #1590's
-      physical-positioning triage and left physical, the same reasoning `WRange`'s numeric scale
-      gets: a colour gradient reads left-to-right by its own convention, independent of the reading
-      direction.
+      This field's and the hue rail's `left:` are colour-space coordinates (saturation 0-100%, hue
+      0-360°), not a leading/trailing gutter, so they stay physical under RTL: a colour gradient
+      reads left-to-right by its own convention, independent of the reading direction.
     -->
     <div
       ref="fieldEl"
@@ -20,7 +16,6 @@
     </div>
 
     <div class="flex items-center gap-2 p-2">
-      <!-- Hue -->
       <div
         ref="hueEl"
         class="relative h-3 flex-1 cursor-pointer rounded-full"
@@ -55,15 +50,12 @@ import { useDictText } from '@/composables/i18nText'
 import { trackPointerDrag } from '@/helpers/pointerDrag'
 
 /**
- * Hex colour picker: saturation/brightness field, hue rail, and the hex value as text.
+ * Opaque `#rrggbb` only -- the RGBA and named-palette modes the picker this replaces offered have
+ * no reachable use, since every caller stores a plain hex.
  *
- * Simplification: the picker this replaces also offered RGBA and named-palette tabs plus an alpha
- * channel. Everything here stores an opaque `#rrggbb` (site theme colours), so those modes had no
- * reachable use.
- *
- * Hue and saturation are held internally rather than being re-derived from the model on every
- * change: at zero brightness or zero saturation the hex value no longer carries them, so round-
- * tripping through it would snap the cursor back to red as soon as a colour got close to black.
+ * Hue and saturation are held internally rather than re-derived from the model on every change: at
+ * zero brightness or zero saturation the hex value no longer carries them, so round-tripping
+ * through it would snap the cursor back to red as soon as a colour got close to black.
  */
 const props = defineProps({
   /** `#rrggbb` */
@@ -71,7 +63,6 @@ const props = defineProps({
     type: String,
     default: '#000000'
   },
-  /** Accessible name for the hex text field. Falls back to the `common.colorPicker.hexColor` dictionary entry. */
   hexLabel: {
     type: String,
     default: null
@@ -105,7 +96,7 @@ const hueStyle = {
 
 const inputRing = 'w-input-control shadow-[inset_0_0_0_1px_var(--w-input-ring)]'
 
-// -> Track outside edits (a different swatch being picked), but ignore our own emissions
+// -> Take outside edits only; our own emissions come back unchanged and would reset `hsv`
 watch(
   () => props.modelValue,
   (value) => {
@@ -131,7 +122,6 @@ function ratio(event, el, axis) {
   return size === 0 ? 0 : Math.min(1, Math.max(0, offset / size))
 }
 
-/** Wires a press plus the subsequent drag on one of the two surfaces. */
 function drag(ev, el, apply) {
   apply(ev)
   trackPointerDrag(ev, el, apply)
@@ -158,12 +148,9 @@ function onHexInput(ev) {
   if (rgb) {
     commit(rgbToHsv(rgb))
   } else {
-    // -> Reject anything unparseable by restoring the current value
     ev.target.value = hex.value
   }
 }
-
-// -- colour conversion --------------------------------------------------------
 
 function hexToRgb(value) {
   const m = /^#?([\da-f]{6}|[\da-f]{3})$/i.exec(String(value ?? '').trim())

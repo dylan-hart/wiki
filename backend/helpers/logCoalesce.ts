@@ -1,29 +1,18 @@
 /**
  * Fold a burst of identical-in-kind log events into one summary line.
  *
- * The problem this exists for: a credential-guessing run against one address produces one refusal
- * per attempt, and a log that prints every one of them buries everything else that happened while
- * it ran. Printing none of them is worse — the first few are how an operator learns the run is
- * happening at all. So the first few go through as themselves and the rest are counted, with one
- * line at the end of the window saying how many there were.
+ * A credential-guessing run produces one refusal per attempt, and printing every one buries
+ * everything else. Printing none is worse — the first few are how an operator learns the run is
+ * happening at all.
  *
- * Deliberately knows nothing about authentication, rate limits, or the `CARDINAL` global: it takes a
- * key, a window and a callback, and every decision about what a line SAYS belongs to the caller.
- * That is what lets `models/login.ts`'s refusals, `helpers/rateLimit.ts`'s bans and (OpenProject
- * #2675) the mail model's delivery failures share one implementation rather than three.
- *
- * At most one pending summary is held per key — a counter and a timer, nothing about the events
- * themselves — and the timer is `unref()`ed, so a pending summary never keeps the process alive
- * past a shutdown that would otherwise have ended it.
+ * Every decision about what a line SAYS belongs to the caller. The per-key timer is `unref()`ed, so
+ * a pending summary never keeps the process alive past a shutdown.
  */
 
 /**
- * What {@link coalesce} hands its `emit` callback when a window closes with events left folded into
- * it.
- *
  * `total` counts EVERY event seen in the window, the ones that were emitted individually included —
- * it is the number an operator wants ("twenty attempts from this address"), not the remainder. The
- * remainder is `suppressed`, for a caller that would rather phrase it as "and N more".
+ * it is the number an operator wants ("twenty attempts from this address"). The remainder is
+ * `suppressed`.
  */
 export interface CoalesceSummary {
   key: string
@@ -35,8 +24,7 @@ export interface CoalesceSummary {
 export interface CoalesceOptions {
   /**
    * How many events in a window are emitted individually before the rest fold into the summary.
-   *
-   * Three by default: enough for an operator tailing the log to see the shape of what is starting
+   * The default is enough for an operator tailing the log to see the shape of what is starting
    * (which address, which reason) before it collapses into a count.
    */
   threshold?: number
@@ -70,29 +58,22 @@ function flush(key: string): void {
   try {
     entry.emit({ key, total: entry.total, suppressed, windowMs: entry.windowMs })
   } catch {
-    // -> This runs inside a `setTimeout` callback, where a throw is an `uncaughtException` and ends
-    //    the process. A logging helper must not be able to do that, and there is nothing to report
-    //    it to from here — reporting IS what just failed.
+    // -> A throw inside a `setTimeout` callback is an `uncaughtException` and ends the process, and
+    //    there is nothing to report it to — reporting IS what just failed.
   }
 }
 
 /**
- * Count one event against `key`'s current window and say whether the caller should log it.
- *
  * Returns `true` for the first `threshold` events in a window — log those as themselves — and
- * `false` for every one after, which is folded into a summary instead. When the window closes,
- * `emit` is called once with a {@link CoalesceSummary}, and only if anything was actually folded:
- * a window that never passed the threshold has already said everything it had to say.
+ * `false` for every one after. When the window closes, `emit` is called once, and only if anything
+ * was actually folded.
  *
- * The window opens on the first event for a key and closes `windowMs` later, whether or not more
- * arrive; it is not extended by activity. The next event after it closes opens a fresh one.
+ * The window opens on the first event for a key and closes `windowMs` later; it is not extended by
+ * activity. The most recent call's `emit` wins, so a summary reports the context of the last event
+ * folded into it rather than a stale first one.
  *
- * `emit` is remembered per window and the most recent call's callback wins, so a summary reports
- * the context of the last event folded into it rather than a stale first one.
- *
- * A non-positive or non-finite `windowMs` turns coalescing off for that call: every event answers
- * `true` and nothing is ever scheduled. That is the honest behaviour for a misconfigured window —
- * a log that says too much, rather than one that quietly says nothing.
+ * A non-positive or non-finite `windowMs` turns coalescing off: a misconfigured window should
+ * produce a log that says too much, rather than one that quietly says nothing.
  */
 export function coalesce(
   key: string,
@@ -117,13 +98,7 @@ export function coalesce(
   return entry.total <= entry.threshold
 }
 
-/**
- * Drop pending windows without emitting their summaries — one key, or all of them.
- *
- * For tests, which share this module-level map across cases the way `helpers/rateLimit.ts`'s
- * `activeBanMemo` is shared, and for nothing else: production has no reason to discard a summary
- * it has already decided to hold.
- */
+/** For tests only, which share the module-level map across cases. Drops without emitting. */
 export function resetCoalesce(key?: string): void {
   if (key !== undefined) {
     const entry = pending.get(key)

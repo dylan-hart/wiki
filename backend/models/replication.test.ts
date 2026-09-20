@@ -8,10 +8,8 @@ import { installTestWiki } from '../test/mocks.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 /**
- * `tick()` (the due-check driven by the `replicationTick` cron seed, see `models/jobs.ts`) and
- * `pull()` (the actual HTTP pull, run by `tasks/simple/replication-pull.ts`) exercised as pure units
- * -- no database, no real network. `fetch` and `CARDINAL.scheduler.addJob`/`CARDINAL.configSvc.saveToDb` are
- * stubbed, same `installTestWiki` + stubbed-`fetch` shape `tasks/simple/check-version.test.ts` uses.
+ * `tick()` is the due-check driven by the `replicationTick` cron seed; `pull()` is the HTTP pull
+ * `tasks/simple/replication-pull.ts` runs. Both are exercised here with `fetch` stubbed.
  */
 
 let wikiHandle: { restore(): void }
@@ -32,10 +30,6 @@ after(async () => {
   await fs.rm(tempDir, { recursive: true, force: true })
 })
 
-/** The `sites`/`groups`/`classificationLevels`/`glossary`/`assetServing` post-import side-effect
- *  models `pull()` reaches for once a restore succeeds (OpenProject #2517) -- separated out from
- *  `installWiki`'s per-test `models` override so a test can assert against them without repeating
- *  this shape. `restoredSites` mirrors what a successful `sites.getAllSites()` would answer with. */
 const restoredSites = [{ id: 'site-1' }, { id: 'site-2' }]
 let postImportCalls: {
   sitesBroadcastReload: number
@@ -147,7 +141,7 @@ describe('replication.tick', () => {
       isEnabled: true,
       sourceUrl: 'https://prod.example.com',
       bearerToken: 'tok',
-      // Weekly, and we just ran a moment ago -- the next occurrence is days out.
+      // Weekly, and the last run was a moment ago -- the next occurrence is days out.
       cronSchedule: '0 0 * * 0',
       lastRunAt: now.toString({ smallestUnit: 'millisecond' })
     })
@@ -242,11 +236,11 @@ describe('replication.pull', () => {
     assert.equal(importSnapshot.mock.callCount(), 1)
     const filePath = importSnapshot.mock.calls[0]!.arguments[0]
     assert.ok(filePath.endsWith('.tar.gz'))
-    // -> The scratch file is cleaned up once the import has run, whether it succeeded or not.
+    // -> The scratch file is gone once the import has run
     await assert.rejects(fs.access(filePath))
 
-    // -> OpenProject #2517: a scheduled pull must reload the same caches and queue the same
-    //    reindex jobs the manual-upload path already does, once the restore has actually succeeded.
+    // -> A scheduled pull reloads the same caches and queues the same reindex jobs the
+    //    manual-upload path does, once the restore has actually succeeded
     assert.equal(postImportCalls.sitesBroadcastReload, 1)
     assert.equal(postImportCalls.groupsBroadcastReload, 1)
     assert.equal(postImportCalls.classificationLevelsBroadcastReload, 1)

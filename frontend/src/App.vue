@@ -41,30 +41,16 @@ import { useUserStore } from '@/stores/user'
 
 /* global siteConfig */
 
-// DEV TOOLS
-
-/*
-  The dev quick menu, and nothing of it in a release.
-
-  `import.meta.env.DEV` is substituted at build time, so a production build sees `false ? … : null`,
-  drops the branch, and with it the only reference to the dynamic import -- the component is never
-  emitted as a chunk, not merely never rendered. Keep the import inside this expression for that
-  reason: a top-level `import` of it would be bundled however it was guarded afterwards.
-*/
+// Keep the import inside this expression: `import.meta.env.DEV` folds to `false` in a build, which
+// drops the branch and the chunk with it. A top-level import would be bundled regardless.
 const DevQuickMenu = import.meta.env.DEV
   ? defineAsyncComponent(() => import('@/components/DevQuickMenu.vue'))
   : null
 
-// DARK MODE
-
 const dark = useDark()
 const direction = useDirection()
 
-// AESTHETIC (Cobalt: Feature #2753/#2766)
-
 const aesthetic = useAesthetic()
-
-// STORES
 
 const commonStore = useCommonStore()
 const editorStore = useEditorStore()
@@ -73,34 +59,16 @@ const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const i18n = useI18n({ useScope: 'global' })
 
-// ROUTER
-
 const router = useRouter()
-
-// STATE
 
 const state = reactive({
   isInitialized: false
 })
 
-// WATCHERS
-
-/**
- * OpenProject #2956: routes through `applyTheme()` (the #2887 fix, mirrored here) rather than
- * calling `dark.set()` directly. `dark.set()` alone only flips `body--dark`/`body--light`, but the
- * brand CSS custom properties (`--q-header`, `--q-sidebar`, ...) are dark-sensitive too --
- * `resolveAestheticColors()` inside `applyTheme()` below takes the resolved dark state as an
- * argument (Cobalt's header/sidebar deepen one step on dark). Without this, toggling personal
- * appearance left those custom properties stale at whatever `applyTheme()` last resolved -- for
- * Cobalt light specifically, that could be the `:root` `#fff` fallback if no aesthetic-affecting
- * change had happened yet this session, rendering the header bar bright white instead of Cobalt's
- * blue. `applyTheme()` itself resolves dark mode identically to what this watch used to do inline
- * (see its own "-> Dark Mode" block just below), so this is a pure routing change, not new logic.
- */
+// Through `applyTheme()`, not `dark.set()`: the brand CSS custom properties are dark-sensitive too,
+// and `dark.set()` alone only flips the body class.
 watch(
   () => userStore.appearance,
   () => {
@@ -108,19 +76,8 @@ watch(
   }
 )
 
-/**
- * The aesthetic axis's own resolution watch, parallel to the appearance one above -- same
- * `site | ledger | cobalt` three-value resolution, an entirely independent class pair, and no read
- * of the appearance/dark state on either side.
- *
- * Routes through `applyTheme()` (OpenProject #2887) rather than calling `aesthetic.set()` directly:
- * `aesthetic.set()` alone only flips `body--cobalt`/`body--ledger`, but the brand CSS custom
- * properties (`--q-header`, `--q-sidebar`, `--q-primary`, the status colors, ...) are derived from
- * the resolved aesthetic too, via `resolveAestheticColors()` inside `applyTheme()` below. Without
- * this, switching aesthetics flipped the body class instantly but left those custom properties
- * stale until something else happened to recompute them (initial boot, the first router
- * `afterEach`, a `cvd` change, or a reload) -- same shape as the `cvd` watch just below.
- */
+// Likewise not `aesthetic.set()` alone: the brand custom properties derive from the resolved
+// aesthetic too.
 watch([() => userStore.aesthetic, () => siteStore.theme.aesthetic], () => {
   applyTheme()
 })
@@ -134,50 +91,23 @@ watch(
 
 watch(() => commonStore.locale, onInterfaceLocaleChanged)
 
-// LOCALE
-
 /**
- * The locale the CURRENT url addresses in its own leading path segment (`/ar/some/page` -> `ar`), or
- * `null` when it carries none the site recognises -- written by the router guard below on every
- * navigation, read by `applyDocumentLocale()`.
- *
- * A plain binding rather than a `ref`: nothing renders off it, and both of the two paths that lead
- * to it being read (the guard itself, and the interface-locale watcher above) call
- * `applyDocumentLocale()` explicitly rather than reacting to it.
+ * The locale the current url names in its leading path segment (`/ar/some/page` -> `ar`), or `null`
+ * when it names none the site has. Not a `ref`: nothing renders off it, and every reader calls
+ * `applyDocumentLocale()` explicitly.
  */
 let routeLocale = null
 
 /**
- * Write `<html dir>` and `<html lang>` for whatever locale the document currently describes.
+ * Writes `<html dir>`/`<html lang>` for the url's own locale segment when it has one, else the
+ * interface locale. Derived from the url rather than a loaded page's `isRTL` so it also holds for a
+ * "page not found" under `/ar/...`, where no page is ever loaded to ask. Same resolution as
+ * `backend/helpers/appShell.ts#resolveAppShellLocale`, which stamps the served shell.
  *
- * -> Which locale that is (OpenProject #2596)
- * The url's own locale segment when it has one, and the reader's interface locale otherwise. A
- * locale-prefixed url names the translation being addressed, which is what the document IS -- and
- * that stays true whether or not a page happens to exist at the path: a "page not found" screen
- * under `/ar/...` is still Arabic-addressed text a reader reads, so it reads right-to-left. Deriving
- * it from the url rather than from a loaded page's own `isRTL` is what makes that hold for a 404
- * destination, where nothing is ever loaded to ask -- the defect this fixes, in which picking an RTL
- * locale from `LocaleSelectorMenu.vue` on a path with no page behind it pushed `/ar/<path>` and left
- * the document on `dir="ltr" lang="en"` for good.
- *
- * `routeLocale` is only ever one of `siteStore.locales.active`'s own codes (`parseLocalePrefix`
- * matches against exactly that list, and answers with the code as the site spells it), so an
- * arbitrary leading segment -- `/xx/some/page` -- cannot set either attribute to something the site
- * does not have. It falls through to the interface locale, i.e. changes nothing.
- *
- * This is the same resolution `backend/helpers/appShell.ts#resolveAppShellLocale` already performs
- * server-side to stamp the pre-hydration shell, so on a locale-prefixed url this write now CONFIRMS
- * the served html rather than overwriting it a tick later.
- *
- * Synchronous, and deliberately not part of `applyLocale()`'s awaited body: the guard calls that one
- * un-awaited and `router.afterEach` removes `.init-loading` as soon as navigation resolves, so a
- * reader would otherwise see the outgoing (or default LTR) layout for as long as the locale strings
- * take to fetch -- exactly the flash `index.html`'s static `lang="en"` needs correcting.
- *
- * `direction.set()` rather than a bare `setAttribute()`: this runs on every navigation, not once at
- * boot, so a component mounted across navigations (`PageHeader.vue`'s review-queue menu, via
- * `composables/direction.js`) needs a reactive read of whatever this last resolved to, not a stale
- * one from whenever it happened to first mount.
+ * Synchronous, and not part of `applyLocale()`'s awaited body: the guard calls that one un-awaited,
+ * so the reader would see the wrong direction for as long as the locale strings take to fetch.
+ * `direction.set()` rather than a bare `setAttribute()`, so a component that stays mounted across
+ * navigations reads the direction reactively (`composables/direction.js`).
  */
 function applyDocumentLocale() {
   const locale = routeLocale ?? commonStore.locale
@@ -186,48 +116,24 @@ function applyDocumentLocale() {
   document.documentElement.setAttribute('lang', locale)
 }
 
-/**
- * The interface locale changed (the admin header's own language switcher, or the router guard's
- * not-an-active-locale correction below).
- *
- * Both halves re-run: the ui strings, always -- and the document attributes, which follow this same
- * locale on any url that does not name one of its own.
- */
 function onInterfaceLocaleChanged(locale) {
   applyDocumentLocale()
   applyLocale(locale)
 }
 
 /**
- * Locale codes with an `applyLocale()` call currently in flight, each mapped to the promise that
- * call returned.
- *
- * `App.vue` drives locale changes through two independent triggers -- the `watch(() =>
- * commonStore.locale, applyLocale)` below, and the direct call in the router guard after its
- * correction block -- and both can fire for the same locale within a microtask of each other (the
- * guard's `commonStore.setLocale()` call is exactly what the watcher above reacts to). Without this,
- * `applyLocale` has no way to know a fetch for the same locale is already underway, and issues a
- * second `GET locales/:code/strings` before the first has set `i18n.locale.value` (the only thing an
- * `i18n.availableLocales.includes()` check up front could have caught). Keyed by locale, not a single
- * in-flight flag, so a change to a *different* locale mid-fetch is never held up by this.
+ * In-flight `applyLocale()` calls, by locale. The `commonStore.locale` watcher and the router
+ * guard's direct call can both fire for the same locale within a microtask (the guard's
+ * `setLocale()` is what the watcher reacts to), and each would otherwise fetch the strings. Keyed by
+ * locale so a switch to a different locale mid-fetch is not held up.
  */
 const localeApplyPromises = new Map()
 
 async function applyLocale(locale) {
-  /*
-    -> Interface strings only
-    `<html dir>`/`lang` are `applyDocumentLocale()`'s, above, and are written synchronously by the
-    router guard before this is ever called -- they answer a different question (which translation
-    the document addresses) than this one does (which language the chrome is drawn in), and must not
-    wait on this function's awaited fetch. See that function's own comment.
-  */
-
-  // -> Already the active locale, with its strings loaded: nothing left for either trigger to do.
   if (i18n.locale.value === locale && i18n.availableLocales.includes(locale)) {
     return
   }
 
-  // -> A call for this same locale is already fetching strings -- ride that one instead of a second.
   const inFlight = localeApplyPromises.get(locale)
   if (inFlight) {
     return inFlight
@@ -248,17 +154,10 @@ async function applyLocale(locale) {
     i18n.locale.value = locale
 
     /*
-      -> Eager-load the `en` fallback dictionary
-      `messages: {}` at i18n init (boot/i18n.js) plus the block above -- which only ever loads
-      messages for the locale being switched TO -- means `en`'s own message bag stays empty forever
-      on a site whose active locale isn't `en`. vue-i18n's `fallbackLocale: 'en'` then has nothing to
-      fall back TO, so any key missing from the active locale (true of ~32% of keys even for a
-      "complete" shipped translation, and the whole dictionary for an unrecognised code -- see
-      `fetchLocaleStrings()`'s array guard) renders as its raw dotted path instead of English.
-
-      Fired fire-and-forget, same reasoning as the dir/lang attributes above: nothing downstream of
-      this function needs to wait on it, and it's a no-op once `en` is already loaded (either from a
-      previous call here, or because `en` was itself the active locale).
+      -> The `en` fallback dictionary
+      Only the locale being switched to is loaded above, so without this vue-i18n's
+      `fallbackLocale: 'en'` has an empty bag to fall back to and a key the active locale lacks
+      renders as its raw dotted path. Not awaited: nothing downstream needs it.
     */
     if (locale !== 'en' && !i18n.availableLocales.includes('en')) {
       commonStore
@@ -279,77 +178,42 @@ async function applyLocale(locale) {
   }
 }
 
-// THEME
-
 async function applyTheme() {
-  // -> Dark Mode
   if (userStore.appearance === 'site') {
     dark.set(siteStore.theme.dark)
   } else {
     dark.set(userStore.appearance === 'dark')
   }
 
-  // -> Aesthetic (Cobalt: Feature #2753/#2766) -- fully independent of dark mode above
   const resolvedAesthetic =
     userStore.aesthetic === 'site' ? siteStore.theme.aesthetic : userStore.aesthetic
   aesthetic.set(resolvedAesthetic)
 
-  /*
-    -> CSS Vars
-
-    The four brand colours go through `resolveAestheticColors` first: a stored value the
-    administrator never actually picked (it is still some aesthetic's own default) follows the
-    RESOLVED aesthetic, so a reader who chose Cobalt for themselves gets Cobalt's indigo header and
-    sidebar rather than Ledger's near-white ones under Cobalt's own sidebar text tones. A colour
-    genuinely chosen in AdminTheme is passed through untouched -- see the helper's own comment.
-  */
   const brand = resolveAestheticColors(resolvedAesthetic, siteStore.theme, dark.isActive)
   setCssVar('primary', userStore.getAccessibleColor('primary', brand.colorPrimary))
   setCssVar('secondary', userStore.getAccessibleColor('secondary', siteStore.theme.colorSecondary))
   setCssVar('accent', userStore.getAccessibleColor('accent', brand.colorAccent))
   setCssVar('header', userStore.getAccessibleColor('header', brand.colorHeader))
   setCssVar('sidebar', userStore.getAccessibleColor('sidebar', brand.colorSidebar))
-  /*
-    The four status colours are fixed rather than site-configurable, but -- unlike `primary`/`accent`/
-    `header`/`sidebar` above -- they still follow the resolved aesthetic
-    (`helpers/aestheticDefaults.js#aestheticStatusColors()`, OpenProject #2814) rather than site
-    config, and still go through `setCssVar` so the colour-vision-deficiency remapping reaches them.
-    They come off `brand` rather than a second call: `resolveAestheticColors` folds them in, so one
-    resolution answers for every `--q-*` this function writes.
-    Cardinal's positive and negative TEXT tones -- the darker half of each pair -- because both are
-    drawn under a white label here (a toast, a solid button); the brighter fills they pair with are
-    `--color-positive-fill` / `--color-negative-fill`, which nothing resolves through this path.
-    Ledger's values are kept equal to `css/tailwind.css`'s `:root`, and pinned in
-    `helpers/accessibility.test.js`.
-  */
   setCssVar('positive', userStore.getAccessibleColor('positive', brand.colorPositive))
   setCssVar('negative', userStore.getAccessibleColor('negative', brand.colorNegative))
   setCssVar('info', userStore.getAccessibleColor('info', brand.colorInfo))
   setCssVar('warning', userStore.getAccessibleColor('warning', brand.colorWarning))
 
-  // -> Fonts
   applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)
 
-  // -> Injected CSS
   applyInjectCss(siteStore.theme.injectCSS)
 
-  // -> Injected HTML
   applyInjectHead(siteStore.theme.injectHead)
   applyInjectBody(siteStore.theme.injectBody)
 
-  // -> Highlight.js Theme
   await applyCodeBlocksTheme()
 }
 
 /**
- * Every highlight.js theme the admin area offers, as loaders that fetch one on demand.
- *
- * `?inline` hands back the stylesheet as a STRING rather than injecting it: these have to be scoped to
- * the page content before they are applied (see below), which cannot be done to a stylesheet the
- * bundler has already added to the document. `**` covers the `base16/` family, since that is how the
- * admin's list names half of its options.
- *
- * Only the theme in use is ever fetched; the rest sit in the build as assets nobody asks for.
+ * `?inline` yields each stylesheet as a string rather than injecting it: it has to be scoped to the
+ * page content before it is applied. `**` covers the `base16/` family. Only the theme in use is
+ * ever fetched.
  */
 const HLJS_THEMES = import.meta.glob('../node_modules/highlight.js/styles/**/*.min.css', {
   query: '?inline',
@@ -357,17 +221,12 @@ const HLJS_THEMES = import.meta.glob('../node_modules/highlight.js/styles/**/*.m
 })
 
 /**
- * Paint code blocks in the theme chosen under Admin → Theme.
- *
- * The stylesheet is wrapped in `.page-contents { ... }` and applied through CSS nesting, for two
- * reasons: a highlight.js theme is written as bare `.hljs*` rules that would otherwise reach every
- * code sample in the interface, and nesting lifts its selectors to the same weight as the fallback
- * palette in `_page-contents.css` -- so this one wins on being applied later, which is exactly the
- * relationship wanted. With no theme chosen, nothing is injected and that fallback is what shows.
+ * The theme is wrapped in `.page-contents { ... }` and applied through CSS nesting: its bare
+ * `.hljs*` rules would otherwise reach every code sample in the interface, and nesting lifts them to
+ * the same weight as the fallback palette in `_page-contents.css`, so this one wins by being applied
+ * later. With no theme chosen nothing is injected and that fallback shows.
  */
 async function applyCodeBlocksTheme() {
-  // -> Cleared up front rather than only on the way in: the stylesheet loads asynchronously, and
-  //    leaving the previous theme painted until the new one arrives is what this always did
   replaceHeadStyle('hljs-theme', null)
 
   // -> A colour-vision-deficient palette cannot be honoured per theme, so it takes a neutral one
@@ -378,15 +237,12 @@ async function applyCodeBlocksTheme() {
 
   const load = HLJS_THEMES[`../node_modules/highlight.js/styles/${desiredHljsTheme}.min.css`]
   if (!load) {
-    // -> A name the admin area offers that highlight.js does not ship; the fallback palette stands in
     log.warn('site', `highlight.js does not ship the ${desiredHljsTheme} code blocks theme`)
     return
   }
 
   replaceHeadStyle('hljs-theme', `.page-contents {\n${await load()}\n}`)
 }
-
-// INIT SITE STORE
 
 if (typeof siteConfig !== 'undefined') {
   siteStore.$patch({
@@ -397,19 +253,9 @@ if (typeof siteConfig !== 'undefined') {
 }
 
 /**
- * Everything the app has to know before it can draw: which site it is on, which system flags are set,
- * and who is asking.
- *
- * The three have endpoints of their own, and are still asked separately where they change on their
- * own — the admin area saves flags, a login changes who is asking. This is the load, where all three
- * are wanted at once and none of them is known yet.
- *
- * A failure leaves the stores at their safe, *loaded* defaults (guest user, flags off, no site)
- * rather than whatever partial state a half-finished patch might leave, and hands the error back to
- * the caller (the route guard below) — which turns it into a redirect to the matching `/_error/*`
- * screen via `bootstrapFailureRedirectFor`, distinguishing "no site at this hostname" from "site
- * disabled" the same way `bootstrap.ts` does. Nothing downstream (nav, theme application) should have
- * to handle a null site while that screen is showing, which the safe defaults below are for.
+ * The site, the system flags and the session in one request: everything the app needs before it can
+ * draw. A failure leaves the stores at their safe *loaded* defaults (guest, flags off, no site), so
+ * nothing downstream handles a half-patched state while the `/_error/*` screen shows.
  *
  * @returns What was caught, or `null` on success.
  */
@@ -431,12 +277,8 @@ async function loadBootstrap() {
   }
 }
 
-// ROUTE GUARDS
-
-/** Set once the Markdown editor settings prefetch below has fired -- see its own doc comment. */
 let hasPrefetchedMarkdownSettings = false
 
-/** True while the discard-unsaved-changes prompt below is open -- see its own doc comment. */
 let isUnsavedChangesPromptOpen = false
 
 router.beforeEach(async (to, from) => {
@@ -444,52 +286,22 @@ router.beforeEach(async (to, from) => {
 
   /*
     -> Unsaved editor changes
-    Every ROUTER navigation vector -- breadcrumbs, side nav, search results, browser back/forward --
-    goes through here uniformly, rather than patching each call site. `to.path !== from.path` excludes
-    a query-string-only change (e.g. a hash or filter) on the page already being edited, which is not
-    "leaving" it. On confirm, the editor is put back to its inactive shape -- the same one
-    `PageHeader.vue`'s own `discardChanges` patches to -- so whatever the destination route is does not
-    inherit a stale "an editor is open" flag; unlike that handler, there is no page state to revert
-    here, since the destination is about to load its own.
+    Every router navigation goes through here, rather than patching each call site. `to.path !==
+    from.path` excludes a query- or hash-only change on the page being edited.
 
-    `hasPendingChanges` alone, not `isActive && hasPendingChanges` (OpenProject #1129): Page
-    Properties can make the page dirty -- e.g. an edited tag list -- with no editor ever opened, via
-    its own `pageStore.$subscribe` bumping `lastChangeTimestamp` regardless of `isActive`
-    (`PagePropertiesDialog.vue`/`PageTags.vue`). The old `isActive &&` requirement missed that case
-    entirely, letting a reader edit tags, navigate away, and lose the edit with no warning at all.
-    `isActive` on its own adds nothing `hasPendingChanges` doesn't already cover -- `pageLoad()` (and
-    every other place that opens a fresh editing session) equalizes both timestamps as its baseline,
-    so an active-but-untouched editor already reads `hasPendingChanges: false`; `isActive ||
-    hasPendingChanges` was tried first and rejected, since it warns on simply having opened an editor
-    with nothing typed into it yet, a real regression a still-passing sibling test in `App.test.js`
-    catches.
+    `hasPendingChanges` alone, not `isActive && ...`: Page Properties can dirty the page (an edited
+    tag list) with no editor open. Not `isActive || ...` either: that prompts on an editor that was
+    opened and never typed into.
 
-    NOT covered: typing a new address into the bar, following an external link, or closing the tab --
-    each of those is a page unload, not a router navigation, and `beforeEach` never fires for it. The
-    `beforeunload` handler below covers that gap, gated on the same condition.
-
-    `pageStore.pageCreate()`'s own un-awaited `router.push()` into `/_create/...` (the header's New
-    Page menu, mid-edit) is not a special case here: it synchronously re-patches `editorStore` --
-    including equalizing these same two timestamps for the fresh session it is opening -- before this
-    guard ever gets a turn to run, so `hasPendingChanges` already reads false for that navigation by
-    the time this condition is checked. See the comment at that patch for why the ordering holds.
+    A page unload (address bar, external link, tab close) never reaches `beforeEach`; the
+    `beforeunload` handler below covers it.
   */
   if (editorStore.hasPendingChanges && to.path !== from.path) {
     /*
-      A second navigation -- a double click, or one fired while the dialog above is still up --
-      reaches this guard before the first one's `await` resolves: vue-router only cancels a
-      superseded navigation once every `beforeEach` in the queue (this one included) settles, so
-      there is no built-in protection against two of these racing each other and resolving
-      independently against the same `editorStore`. Blocked outright rather than stacking a second
-      prompt, which is a decision this guard already knows the answer to once the first is showing.
-
-      `commonStore.routerLoading` is deliberately left untouched here. This navigation does not own
-      it -- the FIRST navigation's prompt is still open and is what actually set it true -- so
-      clearing it here would tell the UI loading finished while the reader still has an unanswered
-      dialog in front of them. `router.afterEach` below fires for this aborted navigation too (not
-      only for a completed one), so its own `isUnsavedChangesPromptOpen` check is what actually
-      guards against it clearing this on this navigation's behalf; whichever way the first prompt
-      resolves is what clears it for real.
+      A second navigation (a double click, or one fired while the prompt is up) reaches this guard
+      before the first one's `await` resolves: vue-router cancels a superseded navigation only once
+      every `beforeEach` settles. Blocked outright rather than stacking a second prompt.
+      `routerLoading` is left alone: the first navigation's still-open prompt owns it.
     */
     if (isUnsavedChangesPromptOpen) {
       return false
@@ -512,22 +324,12 @@ router.beforeEach(async (to, from) => {
       isUnsavedChangesPromptOpen = false
     }
     if (!confirmed) {
-      /*
-        Cleared explicitly rather than left to `router.afterEach`: that hook still fires for this
-        aborted navigation (with a `failure` argument), and by now `isUnsavedChangesPromptOpen` is
-        already back to `false` (the `finally` above ran first), so it would clear this too -- just
-        one tick later than doing it here. Set here anyway so the UI doesn't wait even that long.
-      */
+      // -> `afterEach` fires for this aborted navigation too and would clear it a tick later
       commonStore.routerLoading = false
       return false
     }
-    /*
-      The two timestamps are equalized here too, not just `isActive` (OpenProject #1129 follow-on):
-      this guard's own gate is `hasPendingChanges` alone now, so leaving them unequal after a
-      confirmed discard would have the very next navigation immediately re-prompt for a discard that
-      already happened, since nothing else resets them until the destination page's own `pageLoad()`
-      runs. Same baseline-reset shape `pageStore.pageLoad()`/`pageSave()`/`pageCreate()` already use.
-    */
+    // -> Both timestamps equalized, not just `isActive`: the gate above is `hasPendingChanges`, so
+    //    unequal ones would re-prompt on the next navigation for a discard already made
     const discardedAt = Temporal.Now.instant()
     editorStore.$patch({
       isActive: false,
@@ -538,12 +340,7 @@ router.beforeEach(async (to, from) => {
     })
   }
 
-  /*
-    -> Site info, system flags and the session
-    One request for the three of them: none touches the database, so what they cost is the round trip,
-    and a full load paid it three times over before it could draw anything. Asked once — a guest is an
-    answer like any other, so this does not run again on the way to the next page.
-  */
+  // -> Asked once: a guest is an answer like any other, so this does not run again on the next page
   if (!siteStore.id || !flagsStore.loaded || !userStore.profileLoaded) {
     const bootstrapError = await loadBootstrap()
     const bootstrapFailureRoute =
@@ -555,18 +352,11 @@ router.beforeEach(async (to, from) => {
 
   /*
     -> Markdown editor preferences, prefetched
-    A one-time head start for `EditorMarkdown.vue`'s own mount, which reads whatever landed here (or
-    fetches it itself, if this hasn't resolved yet, or never ran at all) rather than depending on it --
-    so a guest, a click fast enough to win the race, or this request simply failing all still work,
-    just without it. `userStore.profileLoaded` is what this actually waits on -- true the moment
-    `loadBootstrap()` above has ever resolved once, whichever navigation that was -- not the bootstrap
-    branch itself, so this fires on the very next navigation even on a route that skipped it entirely.
-    Not awaited: the earliest possible moment -- session start, in the background, while the reader is
-    doing anything else -- is also the only one that reliably beats an "Edit" click, and awaiting it
-    here would instead delay every navigation on the one it actually runs on for no reason. `.catch`
-    rather than a `try`/`catch` around an `await`, for the same reason it is not awaited -- nothing
-    here is in a position to react to the failure, only to keep it from becoming an unhandled
-    rejection.
+    A head start for `EditorMarkdown.vue`'s mount, which fetches them itself when this has not landed
+    -- so a guest, a lost race or a failed request all still work. Gated on `profileLoaded` rather
+    than placed in the bootstrap branch above, so it fires even on a navigation that skipped that.
+    Not awaited: it would only delay this navigation. The `.catch` just keeps a failure from becoming
+    an unhandled rejection.
   */
   if (!hasPrefetchedMarkdownSettings && userStore.profileLoaded) {
     hasPrefetchedMarkdownSettings = true
@@ -579,11 +369,9 @@ router.beforeEach(async (to, from) => {
 
   /*
     -> Page extensions
-    A path ending in one of the extensions the site's content is written in addresses the page
-    underneath it, so `/foo/bar.md` is `/foo/bar`. The server redirects a request that reaches it, but
-    a link inside a page is followed by the router alone -- which is what this is for. Below the
-    bootstrap above, since that is where the site's extensions come from. A `/_` route is the app
-    itself rather than a page, and is left alone as it is by the server.
+    `/foo/bar.md` addresses `/foo/bar`. The server redirects a request that reaches it, but a link
+    inside a page is followed by the router alone. Below the bootstrap, which is where the site's
+    extensions come from. A `/_` route is the app itself rather than a page.
   */
   const withoutExtension = to.path.startsWith('/_')
     ? null
@@ -594,16 +382,9 @@ router.beforeEach(async (to, from) => {
 
   /*
     -> Locale prefix
-    A site with more than one active locale can address each in a page URL's own leading segment
-    (`/fr/some/page`), which is a content decision, not a UI one -- distinct from `commonStore.locale`
-    below, which is the interface language and persists across pages regardless of which translation is
-    being read. Resolved into `pageStore.locale` so it is there before the page itself arrives: a `/_` route
-    is the app itself rather than a page, same as the extension check above, so it has no path segment
-    to read one from -- `resolveRouteLocale` falls back to a `?locale=` query instead (only `/_create`
-    ever sets one; see `pageStore.pageCreate`), and then to the site's primary same as an ordinary path
-    whose leading segment isn't one of the site's active codes. `Index.vue`'s own route watcher does
-    the matching strip of the segment off the path it hashes to look the page up -- this only resolves
-    which locale that lookup asks for.
+    The url's leading segment (`/fr/some/page`) names the translation to ask the server for -- a
+    content decision, distinct from `commonStore.locale`, the interface language. Resolved here so
+    `pageStore.locale` is set before the page itself arrives.
   */
   if (siteStore.useLocales) {
     pageStore.locale = resolveRouteLocale(
@@ -616,15 +397,10 @@ router.beforeEach(async (to, from) => {
 
   /*
     -> Document locale
-    The same leading segment again, but as the answer to a different question: `pageStore.locale`
-    above is which translation to ASK the server for, this is which one the document in front of the
-    reader is written in, i.e. what `<html dir>`/`lang` describe. Kept as the raw
-    `parseLocalePrefix` result rather than reusing `pageStore.locale`, because that one cannot tell a
-    path with no locale segment (`/some/page`, resolved to the site's primary) apart from one that
-    names the primary explicitly (`/en/some/page`) -- and only the second of those is the url
-    ADDRESSING a locale. With no segment, the document follows the interface locale instead, which is
-    what every `/_`-prefixed route (the admin area, the editors, the profile) does and what
-    `applyDocumentLocale()` falls back to.
+    The raw `parseLocalePrefix` result rather than `pageStore.locale`: that one cannot tell a path
+    with no locale segment (`/some/page`, resolved to the primary) from one naming the primary
+    explicitly (`/en/some/page`), and only the second is the url addressing a locale. With no
+    segment the document follows the interface locale, as every `/_` route does.
   */
   routeLocale = siteStore.useLocales
     ? (parseLocalePrefix(
@@ -633,40 +409,25 @@ router.beforeEach(async (to, from) => {
       )?.locale ?? null)
     : null
 
-  // -> Locale
   if (!commonStore.locale || !siteStore.locales.active.some((l) => l.code === commonStore.locale)) {
     commonStore.setLocale(siteStore.locales.primary)
   }
   applyDocumentLocale()
   applyLocale(commonStore.locale)
 
-  /*
-    -> Page Permissions
-    Not fetched here any more: what this reader may do at a path comes back with the page itself, so
-    a page view is one request rather than two. What is left is the routes that are not a page —
-    dropping the last page's permissions on the way out of the page view, which takes no request at
-    all. A path with no page behind it has nothing to carry them, and asks in `pages/Index.vue`.
-  */
+  // -> Page permissions arrive with the page itself; a route that is not a page only drops the
+  //    last page's
   if (to.path.startsWith('/_')) {
     userStore.$patch({ pagePermissions: [] })
   }
 })
 
 /*
-  -> Unsaved editor changes, browser-level (OpenProject #818, condition fixed for #1129)
-  The router guard above only fires for an in-SPA navigation -- typing a new address into the bar,
-  following an external link, closing the tab, or refreshing is a page unload instead, which
-  `beforeEach` never sees (see the comment on that guard). `beforeunload` is the only hook that does,
-  and unlike the router guard it cannot show the app's own confirm dialog: the listener cannot be
-  `async` and returning a promise does not pause the unload, so the native browser-owned prompt is the
-  only one available for this path. Every evergreen browser also ignores the custom string and shows
-  its own fixed wording -- a long-standing anti-phishing measure against a page dressing up its dialog
-  as something else -- but `returnValue` still has to be set to a truthy value, since that (not the
-  string itself) is what tells the browser to prompt at all. `editor.unsavedWarning` in `en.json` was
-  minted for exactly this and sat unused until now.
-
-  `hasPendingChanges` alone, matching the router guard above -- see its comment for why `isActive`
-  was dropped rather than OR'd in.
+  -> Unsaved editor changes, browser-level
+  A page unload never reaches `beforeEach`, and `beforeunload` cannot show the app's own dialog: the
+  listener cannot be async, so the browser's native prompt is the only one available. Browsers ignore
+  the custom string, but `returnValue` must still be truthy -- that is what makes them prompt at all.
+  Same `hasPendingChanges` gate as the router guard.
 */
 window.addEventListener('beforeunload', (e) => {
   if (editorStore.hasPendingChanges) {
@@ -676,26 +437,12 @@ window.addEventListener('beforeunload', (e) => {
   }
 })
 
-// GLOBAL EVENTS HANDLERS
-
 EVENT_BUS.on('logout', ({ redirect } = {}) => {
-  /*
-    OpenProject #1360/#2208 (2026-08-24 security audit §2): `redirect` is a group's `redirectOnLogout`
-    (validated server-side on the way in, but checked again here as defence in depth against a row
-    written before that validation existed). This used to accept ANY `scheme://` prefix
-    (`/^[a-z][a-z0-9+.-]*:\/\//i`), which `javascript://%0aalert(1)` also satisfies — the `//` reads
-    as a JS line comment once the browser decodes the newline, so `window.location.assign()` on it
-    executed the payload. `isFollowableRedirectTarget` looks at what scheme actually resolved, not
-    just "does this look like `scheme://…`".
-  */
+  // -> `redirect` is a group's `redirectOnLogout`: validated server-side, checked again here as
+  //    defence in depth, since `window.location.assign()` would execute a `javascript:` target
   const target = redirect && isFollowableRedirectTarget(redirect) ? redirect : '/'
-  /*
-    A group or the site can send logged out users to another site entirely, which the router cannot
-    navigate to — and leaving the wiki means there is no point notifying anyone either. Told apart by
-    shape now that `target` is already validated: a rooted path (the only other shape
-    `isFollowableRedirectTarget` accepts) is same-origin and the router's; anything else is a
-    complete http(s) address to a real elsewhere.
-  */
+  // -> A validated target is either a rooted path, which is the router's, or a full http(s)
+  //    address the router cannot navigate to -- and leaving the wiki, there is nobody to notify
   if (!target.startsWith('/')) {
     window.location.assign(target)
     return
@@ -711,8 +458,6 @@ EVENT_BUS.on('applyTheme', () => {
   applyTheme()
 })
 
-// LOADER
-
 router.afterEach(() => {
   if (!state.isInitialized) {
     state.isInitialized = true
@@ -720,15 +465,9 @@ router.afterEach(() => {
     document.querySelector('.init-loading').remove()
   }
   /*
-    `afterEach` fires for an ABORTED navigation too, not only a completed one -- with `failure` set,
-    but it still fires synchronously as soon as `beforeEach` returns `false`. That includes the
-    reentrancy guard above returning `false` for a second navigation blocked by an already-open
-    discard prompt: that resolves (and reaches here) well before the FIRST navigation's own prompt
-    does, while `isUnsavedChangesPromptOpen` is still true. Clearing `routerLoading` here would be
-    this SECOND, already-discarded navigation reporting the FIRST one's still-pending load as
-    finished. Skip it in that case and let the first navigation's own settling -- confirmed (falls
-    through to a normal completion, its own `afterEach`) or cancelled (the explicit clear above) --
-    be what actually clears it.
+    `afterEach` fires for an aborted navigation too. A second navigation blocked by the open discard
+    prompt lands here while the first one's load is still pending, and must not report it finished;
+    the first navigation's own settling clears `routerLoading`.
   */
   if (isUnsavedChangesPromptOpen) {
     return
@@ -737,13 +476,9 @@ router.afterEach(() => {
 })
 
 /*
-  `beforeEach` sets `routerLoading = true` and `afterEach` above is what clears it -- but Vue Router
-  does not run `afterEach` when a navigation ERRORS (as opposed to being aborted/cancelled, which
-  `afterEach` DOES still fire for -- see its own comment above). A lazily-imported route chunk
-  failing to load (a redeploy that changed the built asset's hash out from under a tab that already
-  had the app open) or an exception thrown inside a guard lands in `router.onError` instead, and
-  with no handler registered anywhere, the header spinner spins forever with nothing telling the
-  reader why (OpenProject #951).
+  Vue Router does not run `afterEach` when a navigation errors (as opposed to being aborted). A
+  lazily-imported route chunk failing to load after a redeploy, or a guard throwing, lands here
+  instead -- and without this the header spinner spins forever.
 */
 router.onError((err) => {
   commonStore.routerLoading = false

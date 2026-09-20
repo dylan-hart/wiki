@@ -7,33 +7,23 @@ import { listSourceFiles } from '../../test/sourceFiles.js'
 
 /**
  * `.w-section-header` -- the band that opens a card, a settings group or a side-panel section -- is
- * the app's one section rhythm: a 34px strip with its text 16px in from the edge, then `14px 16px` of
- * body under it (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`).
+ * the app's one section rhythm, and it drifts whenever a call site writes its metrics down a second
+ * time in its own numbers.
  *
- * The recurring review note through both re-skin passes was "odd padding not matching the mockups",
- * and every instance of it was the same shape: a call site restating the band's own metrics in its
- * own numbers -- eleven dialog headers drawing the band at `px-4 py-2`, a page paying for its top
- * spacing out of the band's `padding-top`, a body inset at `px-5` under a heading inset at 16px. The
- * numbers only ever drifted apart because they were written down twice.
- *
- * So this guards the rhythm from both ends. The measurement is a real headless Chromium page,
- * because a computed height is a measured thing and neither `jsdom` nor `happy-dom` runs a layout
- * engine (see `test/realGridLayout.js`). The source scan is what the measurement cannot do: three
- * synthetic container shapes cannot notice a fourth real file re-tuning the band next month.
+ * Guarded from both ends. The measurement needs a real headless Chromium page, because a computed
+ * height is a measured thing and neither `jsdom` nor `happy-dom` runs a layout engine. The source
+ * scan is what the measurement cannot do: a handful of synthetic shapes cannot notice some other
+ * file re-tuning the band.
  */
 
 const srcRoot = join(import.meta.dirname, '..')
 
-/** The design's numbers, in one place, so a failure names what it expected and where that came from. */
 const BAND_HEIGHT = 34
 const BAND_INSET = 16
 const BAND_TRAILING_GAP = 14
 
-/**
- * The container shapes the app actually puts a band in, each reduced to the markup that makes it
- * that shape. The last one is the box that pads itself and hands the inset back through
- * `--w-section-bleed`; its band's edges have to land on the outer container's, not 16px inside them.
- */
+// The container shapes the app really puts a band in, each reduced to the markup that makes it that
+// shape -- the last being the one that pads itself and hands the inset back via `--w-section-bleed`.
 const SHAPES = [
   {
     name: 'first child of an unpadded card (WCard + WCardHeader -- AdminGeneral, EditorRedirect)',
@@ -146,11 +136,8 @@ describe(
 
     it('reaches its container edges, whether that container pads itself or not', () => {
       measured.forEach((band, index) => {
-        /*
-         * A bleeding band's own inline margin cancels its parent's padding exactly, so its edges land
-         * on the OUTER container's -- which is the whole point of the band being full-bleed, and the
-         * thing every hand-written `-mx-4` was reaching for.
-         */
+        // A bleeding band's own inline margin cancels its parent's padding exactly, so its edges
+        // land on the OUTER container's -- what a hand-written `-mx-4` is reaching for.
         expect({ shape: SHAPES[index].name, start: band.insetStart, end: band.insetEnd }).toEqual({
           shape: SHAPES[index].name,
           start: 0,
@@ -165,11 +152,8 @@ describe(
   }
 )
 
-/*
- * The band's metrics are written down once, in `css/tailwind.css`. These two scans are what stops a
- * second copy appearing: the first catches a padding utility on the element itself (`px-4 py-2`,
- * `pt-4`), the second catches a component stylesheet re-tuning the class.
- */
+// The band's metrics are written down once, in `css/tailwind.css`; these scans are what stops a
+// second copy appearing.
 describe("no call site restates the band's own metrics", () => {
   const sources = listSourceFiles(srcRoot, {
     ext: ['.vue'],
@@ -177,13 +161,9 @@ describe("no call site restates the band's own metrics", () => {
   })
 
   /**
-   * Both scans read an SFC with its comments taken out first. Every file in this codebase explains
-   * itself at length, and several of those explanations name the very thing being looked for: a
-   * block comment mentioning `.w-section-header`, sitting directly above an unrelated
-   * `.w-card-section` rule that does set padding, is a match for any regex that has to span from a
-   * class name to the next brace. Verified, not guessed -- `PagePropertiesDialog.vue` and
-   * `pages/Index.vue` both failed this scan on their prose alone before the strip went in, and a
-   * comment mentioning the band is exactly what this Task's own diff added more of.
+   * Comments come out first, or the scans match prose: a block comment mentioning
+   * `.w-section-header` directly above an unrelated rule that does set padding satisfies any regex
+   * spanning from a class name to the next brace. Real files have failed on their prose alone.
    */
   const withoutComments = (file) =>
     readFileSync(file, 'utf8')
@@ -202,11 +182,7 @@ describe("no call site restates the band's own metrics", () => {
     const offenders = []
     for (const file of sources) {
       const text = withoutComments(file)
-      /*
-       * Every element whose class list mentions the band, plus every `<w-card-header ...>` opening
-       * tag (its root carries the class), matched against the padding utilities Tailwind spells --
-       * `p-`, `px-`, `py-`, `pt-`, `pb-`, `ps-`, `pe-`, and their `sm:`/`dark:`-prefixed forms.
-       */
+      // `<w-card-header>` is in scope too: its own root element carries the band class.
       const elements = [
         ...text.matchAll(/class="[^"]*\bw-section-header\b[^"]*"/g),
         ...text.matchAll(/<w-card-header\b[^>]*>/g)
@@ -224,10 +200,9 @@ describe("no call site restates the band's own metrics", () => {
     for (const file of sources) {
       const text = withoutComments(file)
       /*
-       * A `.w-section-header { ... }` rule anywhere in an SFC's style block. Margin is allowed and
-       * expected -- a band cancels its container's inset, and suppresses its own trailing gap where
-       * the container's own gap already provides it -- but padding IS the band's height and text
-       * inset, which is the thing that has to stay identical everywhere.
+       * Margin is allowed and expected -- a band cancels its container's inset, and suppresses its
+       * own trailing gap where the container already provides one -- but padding IS the band's
+       * height and text inset, the thing that has to stay identical everywhere.
        */
       for (const rule of text.matchAll(/\.w-section-header[^{}]*\{([^{}]*)\}/g)) {
         const padding = rule[1].match(/(?:^|[\s;])padding[a-z-]*\s*:/g)

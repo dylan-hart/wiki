@@ -1,16 +1,10 @@
 <template>
   <div>
     <!--
-      The gap was on the outer element, which is a plain block and has nothing to space: the chips ran
-      into each other. Its own wrapping flex row, so the field below still starts on a line of its own.
+      The chips get their own wrapping flex row rather than the outer block's: `gap` needs a flex
+      container, and the field below still has to start on a line of its own.
     -->
     <div class="flex flex-wrap items-center gap-1" v-if="pageStore.tags?.length > 0">
-      <!--
-        A tag is a hairline box on the surface, not a filled pill: the design gives it a white plate
-        with a slate label and puts the accent on the `#` alone
-        (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`'s Tags rail). Filled slate chips read as five
-        buttons, and the accent is reserved for the live edge -- which a tag is not.
-      -->
       <w-chip
         class="page-tag"
         size="sm"
@@ -26,9 +20,8 @@
       </w-chip>
     </div>
     <!--
-      Entry only: no `use-chips`, because the selection is already shown as the chips above and having
-      it in the field as well said the same thing twice. `create` is what lets a tag that does not
-      exist yet be typed in; the suggestions are filtered by WSelect itself, from what is typed.
+      Entry only: no `use-chips`, because the selection is already drawn as the chips above. `create`
+      is what lets a tag that does not exist yet be typed in.
     -->
     <w-select
       class="mt-4"
@@ -60,8 +53,6 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// PROPS
-
 const props = defineProps({
   edit: {
     type: Boolean,
@@ -69,29 +60,18 @@ const props = defineProps({
   }
 })
 
-// ROUTER
-
 const router = useRouter()
-
-// STORES
 
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// DATA
-
 const state = reactive({
-  /** Every tag on the site, as suggestions. WSelect narrows these against what is typed. */
   tags: [],
   loading: false
 })
-
-// WATCHERS
 
 pageStore.$subscribe(() => {
   if (props.edit) {
@@ -110,8 +90,8 @@ watch(
       await siteStore.fetchTags()
       state.tags = siteStore.tags.map((t) => t.tag)
     } catch (err) {
-      // -> Suggestions are a convenience: without them the field still adds tags, so this is a warning
-      //    rather than a failure, and the spinner must not be left running either way
+      // -> Suggestions are a convenience: the field still adds tags without them, so warn rather
+      //    than fail
       notify({
         type: 'warning',
         message: t('editor.props.tagsFailed'),
@@ -124,14 +104,7 @@ watch(
   { immediate: true }
 )
 
-// METHODS
-
-/**
- * Add whatever was typed, as one tag or as several.
- *
- * A comma or a semicolon separates tags, so a list can be pasted in one go. Each new one joins the
- * suggestions too, so re-typing it offers a match rather than looking unknown.
- */
+/** Commas and semicolons separate tags, so a whole list can be pasted in one go. */
 function createTag(val) {
   const tags = val
     .split(/[,;]+/)
@@ -154,12 +127,8 @@ function createTag(val) {
 }
 
 /**
- * Browse the site for everything carrying this tag, via the dedicated tag-browse page
- * (OpenProject #987) rather than `/_search`'s `#tag` query token -- a reader following a tag wants a
- * faceted browse they can narrow with further tags, not a text search that happens to start with one.
- *
- * Only reachable in view mode -- WChip emits `click` only while `clickable`, which the editing chips
- * are not, their control being the remove button instead.
+ * The dedicated tag-browse page rather than `/_search`'s `#tag` query token: a reader following a tag
+ * wants a faceted browse they can narrow with further tags, not a text search that starts with one.
  */
 function browseTag(tag) {
   router.push({ path: '/_tags', query: { tags: tag } })
@@ -171,10 +140,7 @@ function removeTag(tag) {
 </script>
 
 <style>
-/*
-  The tag plate, at the design's own metrics: a hairline box on the surface, 12px Barlow in the
-  chrome tone, with the `#` carrying the only colour on it.
-*/
+/* A hairline box on the surface rather than a filled pill, with the `#` carrying the only colour. */
 .page-tag {
   padding: 3px 8px;
   font-size: 12px;
@@ -193,22 +159,15 @@ function removeTag(tag) {
   }
 
   /*
-    Cobalt draws a tag as a filled pill rather than Ledger's hairline outline (`Tags 3x - Cobalt`
-    mockup). The radius already comes from `WChip`'s own unconditional `--radius-pill`
-    (OpenProject #2767, see `WChip.vue`'s own comment); only the fill/border/ink need a Cobalt
-    override here, since Ledger's own `--color-tag-chip-bg` default is `transparent` (an outline
-    chip) while the rule above paints an opaque `var(--color-surface)` plate instead -- swapping it outright
-    would visibly change Ledger, so this stays additive (OpenProject #2774).
+    Cobalt draws a tag as a filled pill rather than Ledger's hairline outline; the radius already
+    comes from `WChip`'s own unconditional `--radius-pill`. Additive rather than a swap of the rule
+    above: Ledger's `--color-tag-chip-bg` default is `transparent`, so rewriting the base rule in
+    terms of the token would visibly change Ledger.
 
-    `font-weight: 500` is one of the four Cobalt/Ledger role swaps documented in
-    `ui-iteration-cobalt-typography/cobalt-typography.md` §4.3: Ledger's tag stays 400 (a hairline
-    outline reads fine at body weight), but Cobalt's filled tint needs the extra step to keep the
-    label legible against it -- a weight change, not a size or line-height one, so it stays
-    Cobalt-scoped rather than moving into the base rule above. It is declared here rather than left
-    to `tailwind.css`'s shared `body.body--cobalt .w-chip` rule alone (OpenProject #2969) because
-    `PageTags.test.js`'s own weight assertion mounts this component in isolation, with no
-    `tailwind.css` loaded -- restating the declaration is what keeps that test meaningful rather than
-    accidentally-passing.
+    Cobalt's filled tint needs `font-weight: 500` to keep the label legible, where Ledger's outline
+    reads fine at 400. Declared here rather than left to `tailwind.css`'s shared
+    `body.body--cobalt .w-chip` rule because `PageTags.test.js` mounts this component with no
+    `tailwind.css` loaded.
   */
   body.body--cobalt & {
     border-color: var(--color-tag-chip-border);
@@ -232,10 +191,8 @@ function removeTag(tag) {
   }
 
   /*
-    Cobalt's filled pill carries no `#` at all -- not merely a recoloured one (`Tags 3x - Cobalt`
-    mockup, `cobalt-typography.md` §3's "Tags and revision" role table). `aria-hidden="true"` on the
-    span already keeps it out of the accessibility tree in both aesthetics, so hiding it visually
-    here loses nothing a reader relies on.
+    Cobalt's filled pill carries no `#` at all, not merely a recoloured one. `aria-hidden="true"` on
+    the span already keeps it out of the accessibility tree either way, so hiding it loses nothing.
   */
   body.body--cobalt & {
     display: none;

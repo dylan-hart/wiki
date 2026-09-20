@@ -8,23 +8,15 @@
 </template>
 
 <script setup>
-/**
- * A band within a `WCard`. Provides the standard padding and nothing else.
- */
 defineProps({
-  /** Native `id`, e.g. for a caller that scrolls a specific section into view by id. */
   id: {
     type: String,
     default: null
   },
   /**
-   * Row layout, for sections that sit side by side.
-   *
-   * Carries no padding of its own, matching the section this replaces. A horizontal section wraps
-   * other sections, and each of those already pads itself, so padding here adds to theirs rather
-   * than replacing it: the `px-4` it started with is why the icon in every notice banner sat 32px
-   * from the card edge instead of 16px. Zero is also what lets a horizontal card put an image flush
-   * against its edge.
+   * Row layout, for sections that sit side by side. It carries no padding of its own: it wraps
+   * other sections, which already pad themselves, so any padding here adds to theirs instead of
+   * replacing it. Zero is also what lets a horizontal card put an image flush against its edge.
    */
   horizontal: {
     type: Boolean,

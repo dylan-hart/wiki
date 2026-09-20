@@ -43,15 +43,7 @@
     </div>
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12 lg:col-span-6">
-        <!-- ----------------------- -->
-        <!-- Experience -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.login.experience')">
-          <!--
-            The background image spans the row under both the text and the buttons, which is what
-            `WSettingsRow`'s `preview` slot is for -- the same shape `AdminGeneral`'s logo and
-            favicon rows use.
-          -->
           <w-settings-row
             control-width="auto"
             icon="tabler:photo"
@@ -149,16 +141,9 @@
         </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-6">
-        <!-- ----------------------- -->
-        <!-- Providers -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.login.providers')">
-          <!--
-            A drag-ordered list, not a stack of settings: the rows are reordered by the handle at
-            their leading edge and each names a provider rather than a setting, so they stay
-            `WItem`s inside a plain section under the strip. Forcing a 34px plate in front of a drag
-            handle would put two leading affordances on one row.
-          -->
+          <!-- Plain `WItem`s, not settings rows: a leading icon plate in front of the drag handle
+               would put two leading affordances on one row. -->
           <w-card-section class="admin-login-providers">
             <w-sortable
               :list="state.providers"
@@ -219,32 +204,18 @@ import { isSharpAvailable } from '@/helpers/siteImages'
 
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// ACCESS
-// -> Task #684: gates this page behind `site:login` (or `manage:sites`), redirecting away from a
-//    site the caller may not administer. See `composables/siteAdminAccess.js`.
 useSiteAdminAccess('site:login')
-
-// STORES
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.login.title')
 }))
 
-// DATA
-
-/**
- * Fallbacks for keys a site may not have stored yet, so that every control renders with a defined
- * value. Must mirror the `auth` defaults used by the backend when creating a site.
- */
+/** Must mirror the `auth` defaults the backend writes when it creates a site. */
 function defaultConfig() {
   return {
     autoLogin: false,
@@ -262,12 +233,11 @@ const { state, load, save } = useAdminSettings({
   extraState: {
     invalidCharsRegex: /^[^<>"]+$/,
     providers: [],
-    // -> Whether this site has a background of its own, i.e. whether there is anything to clear. The
-    //    preview always renders: without one it shows the default the login page falls back to.
+    // -> Whether there is a background to clear; the preview renders either way, falling back to
+    //    the default login image
     hasBg: false,
-    // -> Drives the "requires Sharp" indicator on the background uploader. Starts false rather than
-    //    true so a slow or failed `system/extensions` call understates the warning instead of crying
-    //    wolf while it's still unknown.
+    // -> Starts false so a slow or failed `system/extensions` call understates the "requires Sharp"
+    //    warning rather than crying wolf while it is still unknown
     sharpMissing: false
   },
   fetch: (siteId) =>
@@ -293,7 +263,6 @@ const { state, load, save } = useAdminSettings({
           welcomeRedirect: config.welcomeRedirect ?? '/',
           logoutRedirect: config.logoutRedirect ?? '/'
         },
-        // -> Order comes from the current position in the drag-sortable list
         authStrategies: state.providers.map((provider, index) => ({
           id: provider.id,
           order: index,
@@ -308,8 +277,6 @@ const sortableOptions = {
   animation: 150
 }
 
-// COMPOSABLES (site images)
-
 const {
   upload: uploadBg,
   clear: clearBg,
@@ -321,17 +288,12 @@ const {
   loading: toRef(state, 'loading')
 })
 
-// METHODS
-
 function updateAuthPosition(ev) {
   const item = state.providers.splice(ev.oldIndex, 1)[0]
   state.providers.splice(ev.newIndex, 0, item)
 }
 
-// MOUNTED
-
-// -> Site-independent, so this runs once on mount rather than on every `load()` (which re-runs per
-//    site switch). Drives the "requires Sharp" indicator on the background uploader.
+// -> Site-independent, so it runs once on mount rather than on every per-site `load()`
 onMounted(async () => {
   state.sharpMissing = !(await isSharpAvailable())
 })

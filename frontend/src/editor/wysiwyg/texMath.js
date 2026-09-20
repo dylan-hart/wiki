@@ -3,28 +3,20 @@ import katex from 'katex'
 import { Node, mergeAttributes } from '@tiptap/core'
 
 /**
- * Inline and display TeX for the WYSIWYG editor -- `$x^2$` and `$$x^2$$` -- ported from
- * `renderers/modules/markdown-it-tex.js`'s own `TEX_INLINE`/`TEX_DISPLAY` regexes (see that file's
- * doc comments for the currency-guard reasoning: `$5`, `$10` and the rest of ordinary prose must
- * never be read as a formula) onto `@tiptap/markdown`'s `marked`-based tokenizer, and re-anchored
- * with `^` since `marked` always hands a tokenizer the remaining source starting exactly where its
- * own `start()` said a candidate begins, rather than the sticky-regex/`state.pos` style
- * `markdown-it` inline rules use.
+ * `^`-anchored because `marked` hands a tokenizer the remaining source starting exactly where its
+ * own `start()` said a candidate begins, rather than the sticky-regex style `markdown-it` inline
+ * rules use. The inline pattern's surrounding guards keep ordinary prose (`$5`, `$10`) from being
+ * read as a formula.
  *
- * Modeled as ONE node, `texMath`, with a `display` attr -- not two separate node types -- because
- * that is what the backend renderer itself does: both delimiters are the SAME `tex_math` inline
- * token there (`texMath()`'s own `display` flag), never a block-level construct, so `$$...$$` can
- * sit mid-paragraph exactly like `$...$` does. Mirroring that keeps the editor and the published
- * page agreeing on what these constructs even are.
+ * One node with a `display` attr, not two node types, because the renderer treats both delimiters
+ * as the same inline token: `$$...$$` can sit mid-paragraph exactly like `$...$` does.
  */
 const TEX_INLINE = /^\$(?!\$)(?=\S)((?:\\.|[^\\$])+?)(?<=\S)\$(?!\d)/
 const TEX_DISPLAY = /^\$\$([\s\S]*?)\$\$/
 
 /**
- * Renders a formula's KaTeX HTML, or a small inline error string when it fails to typeset -- the
- * same "say why, don't vanish" treatment `texMathError` gives on the published page, but plain text
- * here since this only ever lands inside a `title`/`data-*` attribute or a NodeView's own text node,
- * never raw page HTML that a sanitizer has to reason about.
+ * A formula that fails to typeset says so rather than vanishing. The message is plain text, not the
+ * published page's markup, because it only ever lands in an attribute or a NodeView's text node.
  */
 function renderFormula(formula, display) {
   const trimmed = (formula || '').trim()

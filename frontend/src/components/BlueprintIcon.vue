@@ -21,24 +21,11 @@
 import { computed } from 'vue'
 
 /**
- * The icon at the head of a settings row.
- *
- * Cardinal draws it as a square hairline plate on paper with a monochrome line glyph inside, in the
- * chrome tone -- the treatment the primitives sheet's "section header & row" and the profile
- * overlay's info rows both use (`ui-redesign/Cardinal Wiki - Primitives 3x.dc.html`).
- *
- * What it replaces: a rounded blue-tinted avatar holding one of ~148 colourful `ultraviolet-*`
- * illustrations, which is where the admin area's last remaining 2.x-era artwork lived. Two props
- * went with them. `hueRotate` tinted a coloured asset by rotating its hue -- meaningless against a
- * glyph that draws in `currentColor` -- and the avatar's own `color`/`textColor` pair, which chose
- * between a light-blue and a dark-grey fill and is now the plate.
- *
  * `icon` is an ordinary Iconify reference (`tabler:key`), not an asset name assembled here: a name
  * built by concatenation is invisible to `scripts/generate-icons.mjs`'s scanner, so it would resolve
- * at runtime through `/_icons` instead of being inlined at build time -- see `WIcon`'s own header.
+ * at runtime through `/_icons` instead of being inlined at build time.
  */
 const props = defineProps({
-  /** An Iconify reference, e.g. `tabler:key`. */
   icon: {
     type: String,
     default: ''
@@ -51,50 +38,40 @@ const props = defineProps({
     type: String,
     default: null
   },
-  /** Two or three letters in place of a glyph, for a row identified by a code rather than a thing. */
+  /** Two or three letters drawn in place of the glyph. */
   text: {
     type: String,
     default: null
   },
   /**
-   * Renders the plate alone, without the `WItemSection` wrapper.
+   * Renders the plate alone, without the `WItemSection` wrapper. That wrapper is a `WItem`-ism: it
+   * gives a list row's leading column its 56px width and 16px trailing gutter, right inside a
+   * `WItem` and wrong anywhere the plate is one flex child laying out its own gap (`WSettingsRow`).
+   * Pass this rather than overriding `.w-item-section--avatar` from outside.
    *
-   * That wrapper is a `WItem`-ism: it is what gives a list row's leading column its 56px width and
-   * 16px trailing gutter, which is exactly right inside a `WItem` and wrong anywhere the plate is
-   * one flex child among others laying out their own gap. `WSettingsRow` is the latter -- the
-   * Cardinal settings row is a 34px plate and a 14px gap, so the section's own metrics would show up
-   * as a 33px gap instead. Pass this rather than overriding `.w-item-section--avatar` from outside.
-   *
-   * The two branches in the template are written out in full, contents and all, rather than as one
-   * body under a conditional wrapper. Each has to be a SINGLE root: a dozen callers pass
-   * `class="self-start"`, which reaches the plate only through attribute fallthrough, and Vue drops
-   * a fallthrough attribute on a fragment root with nothing but a dev warning. That also rules out
-   * an explanatory comment as a template-level sibling here -- `@vitejs/plugin-vue` PRESERVES
-   * template comments in dev (it strips them for `vite build`), so one would make this a fragment in
-   * dev only, which is the environment a developer actually looks at. Hence this note living here.
+   * The two template branches are written out in full rather than as one body under a conditional
+   * wrapper, because each has to be a SINGLE root: callers pass `class` through attribute
+   * fallthrough, and Vue drops a fallthrough attribute on a fragment root with nothing but a dev
+   * warning. That also rules out a template-level comment here -- `@vitejs/plugin-vue` PRESERVES
+   * template comments in dev (it strips them for `vite build`), so one would make this a fragment
+   * in dev only, which is the environment a developer actually looks at.
    */
   standalone: {
     type: Boolean,
     default: false
   },
   /**
-   * The smaller of the two plates the design draws: 28px rather than 34px.
-   *
-   * A menu opened at the pointer takes it (`PageNewMenu.vue`, in `contextMenu` mode) -- "a menu at
-   * the finger should not be taller than the tree it covers", per handoff 2's own screen notes. A
-   * boolean rather than a free-form `size`, because the design names exactly these two plates and
-   * nothing should be able to introduce a third by passing a number.
-   *
-   * Off by default, so every settings row -- which is most of this component's call sites -- keeps
-   * the 34px the primitives sheet measures.
+   * The smaller of the two plates the design draws, for a menu opened at the pointer
+   * (`PageNewMenu.vue`, in `contextMenu` mode). A boolean rather than a free-form `size`, because
+   * the design names exactly two plates and nothing should introduce a third by passing a number.
+   * Off by default, so every settings row -- most of this component's call sites -- keeps the
+   * larger one.
    */
   compact: {
     type: Boolean,
     default: false
   }
 })
-
-// COMPUTED
 
 const textMode = computed(() => props.text !== null)
 
@@ -108,8 +85,8 @@ const indicatorDot = computed(() => {
 
 <style scoped>
 /*
-  34px is the primitives sheet's own measurement, and the glyph inside it is half that -- which is
-  what leaves the plate reading as a frame rather than as a border drawn tight around an icon.
+  The glyph is half the plate, which is what leaves the plate reading as a frame rather than as a
+  border drawn tight around an icon.
 */
 .blueprint-icon {
   position: relative;
@@ -126,8 +103,8 @@ const indicatorDot = computed(() => {
 }
 
 /*
-  The pointer-anchored variant. 28px with a 15px glyph -- the same ratio held a little tighter, which
-  is what the design draws rather than a proportional scale of the 34px plate.
+  The pointer-anchored variant: the same ratio held a little tighter, as the design draws it, rather
+  than a proportional scale of the base plate.
 */
 .blueprint-icon--compact {
   width: 28px;
@@ -142,10 +119,10 @@ const indicatorDot = computed(() => {
 }
 
 /*
-  Cobalt draws the plate as a rounded, backgroundless outline in the saturated accent colour rather
-  than Ledger's hairline-on-paper frame -- `--color-accent-strong` is already redefined per Cobalt
-  mode (light/dark), so this one rule resolves correctly in both without a separate dark override,
-  and it wins the specificity tie against the dark rule above for `body--cobalt.body--dark`.
+  Cobalt draws the plate as a rounded, backgroundless outline in the saturated accent rather than
+  Ledger's hairline-on-paper frame. `--color-accent-strong` is already redefined per Cobalt mode, so
+  one rule covers both -- and declared after the dark rule, it wins the specificity tie for
+  `body--cobalt.body--dark`.
 */
 :global(body.body--cobalt .blueprint-icon) {
   border-radius: var(--radius-mark);
@@ -154,7 +131,6 @@ const indicatorDot = computed(() => {
   color: var(--color-accent-strong);
 }
 
-/* -> A code rather than a glyph: mono, because that is what Cardinal sets every short code in */
 .blueprint-icon__text {
   font-family: var(--font-mono);
   font-size: 11px;

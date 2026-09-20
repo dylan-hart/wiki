@@ -2,15 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { applyKeywordHighlight, clearKeywordHighlight } from './renderedContent'
 
-/**
- * OpenProject #2541 (Feature #2539): the in-page keyword highlight/find pass that wraps every
- * literal, case-insensitive substring match of a keyword in a new `<mark data-keyword-highlight>`
- * element -- a `TreeWalker` walk over the rendered content's text nodes, deliberately NOT a raw
- * string regex/replace against the HTML (see the file header of `renderedContent.js` and the WP's
- * own description for why: matching inside tag attributes, URLs, or markup `enhanceRenderedContent`
- * already injected).
- */
-
 function setContent(html) {
   const root = document.createElement('div')
   root.innerHTML = html
@@ -52,7 +43,6 @@ describe('applyKeywordHighlight', () => {
 
     expect(matches).toHaveLength(3)
     expect(root.querySelectorAll('mark[data-keyword-highlight]')).toHaveLength(3)
-    // -> Order is document order, left to right
     expect(root.textContent).toBe('cat cat cat')
   })
 
@@ -107,11 +97,9 @@ describe('applyKeywordHighlight', () => {
     const first = applyKeywordHighlight(root, 'foxes')
     expect(first.matches).toHaveLength(1)
 
-    // -> A second pass over unchanged content, as an unrelated re-render might trigger
     const second = applyKeywordHighlight(root, 'foxes')
     expect(second.matches).toHaveLength(1)
     expect(root.querySelectorAll('mark[data-keyword-highlight]')).toHaveLength(1)
-    // -> Still a single, non-nested mark -- not a mark wrapping a mark
     expect(root.querySelectorAll('mark[data-keyword-highlight] mark')).toHaveLength(0)
   })
 

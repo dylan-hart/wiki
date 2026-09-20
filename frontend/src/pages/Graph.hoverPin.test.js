@@ -2,15 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { mountGraph } from './graphFixtures.js'
 
-/*
- * OpenProject #2924: hovering a node pins its `fx`/`fy` to its current position (freezing it
- * against the simulation for the hovered duration), and un-hovering -- whether onto empty canvas
- * or straight onto a different node -- clears the previously-hovered node's `fx`/`fy` back to
- * `null` so it rejoins the simulation. The existing `applyHoverPushImpulse` outward-push behavior
- * on other nodes (OpenProject #2748's own `Graph.hitTest.test.js` covers the underlying hit test)
- * must keep working unchanged alongside the pin. OpenProject #2931 adds the third release path:
- * the pointer leaving the canvas element entirely, where no further `mousemove` can fire.
- */
 describe('Graph.vue hover pin (OpenProject #2924)', () => {
   it('pins the hovered node fx/fy to its current x/y on hover start', async () => {
     const wrapper = await mountGraph()
@@ -47,7 +38,7 @@ describe('Graph.vue hover pin (OpenProject #2924)', () => {
     expect(nodeA.fx).toBe(500)
     expect(nodeA.fy).toBe(500)
 
-    // -> Far from every node: `findNodeAt` resolves to null, which is the hover-end case.
+    // -> Far from every node, so `findNodeAt` resolves to null: the hover-end case.
     await wrapper.find('canvas').trigger('mousemove', { clientX: 0, clientY: 5000 })
 
     expect(wrapper.vm.hoveredNode).toBeNull()
@@ -93,8 +84,8 @@ describe('Graph.vue hover pin (OpenProject #2924)', () => {
     expect(nodeA.fx).toBe(500)
     expect(nodeA.fy).toBe(500)
 
-    // -> The pointer exits the canvas element's bounds while still over the node: no further
-    //    `mousemove` fires on the canvas, so `mouseleave` is the only event that can release it.
+    // -> The pointer exits the canvas while still over the node: no further `mousemove` fires, so
+    //    `mouseleave` is the only event that can release the pin.
     await wrapper.find('canvas').trigger('mouseleave')
 
     expect(wrapper.vm.hoveredNode).toBeNull()
@@ -134,8 +125,6 @@ describe('Graph.vue hover pin (OpenProject #2924)', () => {
 
     expect(wrapper.vm.hoveredNode).toBe(nodeA)
     expect(nodeA.fx).toBe(500)
-    // -> The pushed-away node's velocity is nudged away from the hovered node -- it is not itself
-    //    pinned, only nudged, so its fx/fy stay unset.
     expect(nodeB.fx == null).toBe(true)
     expect(nodeB.fy == null).toBe(true)
     expect(nodeB.vx !== 0 || nodeB.vy !== 0).toBe(true)
@@ -154,9 +143,8 @@ describe('Graph.vue hover pin (OpenProject #2924)', () => {
     await wrapper.find('canvas').trigger('mousemove', { clientX: 500, clientY: 500 })
     expect(nodeA.fx).toBe(500)
 
-    // -> Move `nodeA` (as the simulation would between ticks) and re-hover the SAME point/node --
-    //    the pin must not be refreshed to the new x/y, since the no-op guard on an unchanged
-    //    hover target skips the whole branch.
+    // -> Move `nodeA` as the simulation would between ticks, then re-hover the SAME node: the
+    //    unchanged-target guard skips the branch, so the pin keeps its original x/y.
     nodeA.x = 501
     nodeA.y = 501
     await wrapper.find('canvas').trigger('mousemove', { clientX: 500, clientY: 500 })

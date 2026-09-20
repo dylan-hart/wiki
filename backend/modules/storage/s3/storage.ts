@@ -14,16 +14,9 @@ import { blobStorageModule } from '../blobBase.ts'
 
 /**
  * S3-compatible blob storage — AWS S3, DigitalOcean Spaces, or any other S3-compatible endpoint,
- * selected by the `mode` prop `definition.yml` declares (`aws` / `do` / `custom`). Folds what 2.5.x
- * split across three module directories (`s3`, `s3generic`, `digitalocean` — all subclasses of the
- * shared `S3CompatibleStorage` in `s3/common.js`) into the one client-construction branch below.
- *
- * Only assets are handled: this target's `definition.yml` excludes `pages` from
- * `contentTypes.defaultTypesEnabled` and declares `versioning.isSupported: false`, so unlike 2.5.x's
- * S3 module there is no `created`/`updated`/`renamed`/`deleted` page lifecycle to port — just the
- * asset side (`assetUploaded`/`assetDeleted`/`assetRenamed`, named to match the write-path dispatch
- * contract `models/storage.ts` documents) plus `exportAll`, all of which `blobStorageModule` provides
- * from the driver below.
+ * selected by the `mode` prop `definition.yml` declares (`aws` / `do` / `custom`). Assets only:
+ * `definition.yml` excludes `pages` from `contentTypes.defaultTypesEnabled` and declares
+ * `versioning.isSupported: false`, so there is no page lifecycle to serve here.
  */
 
 /** DigitalOcean Spaces' endpoint shape: one hostname per region, not a separately configured URL. */
@@ -32,10 +25,9 @@ function doEndpoint(region: string): string {
 }
 
 /**
- * A `custom` mode endpoint as configured. `sslEnabled` is an override, not just a fallback: turning
- * it off is expected to force `http://` even if the endpoint field still reads `https://…`, since
- * that toggle is the whole reason it exists. Left on (the default), an explicit scheme in the field
- * is kept as typed; a bare host gets `https://` added.
+ * `sslEnabled` is an override, not just a fallback: turning it off forces `http://` even when the
+ * endpoint field still reads `https://…`, since that toggle is the whole reason it exists. Left on,
+ * an explicit scheme is kept as typed and a bare host gets `https://` added.
  */
 export function resolveCustomEndpoint(config: Record<string, any>): string {
   const raw = String(config.endpoint ?? '').trim()
@@ -46,11 +38,6 @@ export function resolveCustomEndpoint(config: Record<string, any>): string {
   return /^https?:\/\//i.test(raw) ? raw : `https://${host}`
 }
 
-/**
- * Build the S3 client for a target's config, branching on `mode` exactly as `definition.yml` declares
- * it: `aws` uses `awsRegion` against the real AWS endpoints, `do` uses `doRegion` against the
- * DigitalOcean Spaces endpoint shape, `custom` uses the endpoint/SSL/path-style/bucket-endpoint props.
- */
 export function buildClient(config: Record<string, any>): S3Client {
   const credentials = { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey }
 
@@ -64,23 +51,18 @@ export function buildClient(config: Record<string, any>): S3Client {
 
   if (config.mode === 'custom') {
     return new S3Client({
-      // -> SigV4 signing needs a region even against a non-AWS endpoint; the SDK has no "regionless"
-      //    mode. Unlike AWS/DO, this isn't an arbitrary routing hint — the signature is cryptographically
-      //    bound to it, and a self-hosted S3-compatible server (Garage's `s3_region`, for example)
-      //    validates the signed region against its own configured one, so this must be user-configurable
-      //    rather than a fixed literal. The `|| 'us-east-1'` fallback (not just `definition.yml`'s own
-      //    default) matters here too: `models/storage.ts#buildConfig` fills it for any config read
-      //    through the model layer, but this function is also called directly (tests, and any future
-      //    caller) with a bare config object, and the SDK throws "Region is missing" outright rather
-      //    than resolving anything on its own when the field is undefined.
+      // -> SigV4 signing needs a region even against a non-AWS endpoint, and the signature is
+      //    cryptographically bound to it — a self-hosted S3-compatible server (Garage's
+      //    `s3_region`) validates the signed region against its own — so it must stay
+      //    user-configurable rather than a fixed literal. The fallback is not redundant with
+      //    `definition.yml`'s default: this is also called with a bare config that never went
+      //    through `models/storage.ts#buildConfig`, and the SDK throws "Region is missing" outright.
       region: config.region || 'us-east-1',
       endpoint: resolveCustomEndpoint(config),
       forcePathStyle: Boolean(config.s3ForcePathStyle),
-      // -> Whether `endpoint` already addresses this one bucket rather than the provider's root API —
-      //    the SDK's own name (`bucketEndpoint`) for the concept `definition.yml` calls
-      //    `s3BucketEndpoint` (a holdover from the identically-named AWS SDK v2 option). This is what
-      //    changes how the client builds request URLs for a single-bucket endpoint; it does not
-      //    change the object key this module computes, which stays the same either way.
+      // -> Whether `endpoint` already addresses this one bucket rather than the provider's root
+      //    API. The SDK's name for what `definition.yml` calls `s3BucketEndpoint`; it changes how
+      //    the client builds request URLs, never the object key this module computes.
       bucketEndpoint: Boolean(config.s3BucketEndpoint),
       credentials
     })
@@ -90,7 +72,6 @@ export function buildClient(config: Record<string, any>): S3Client {
   return new S3Client({ region: config.awsRegion, credentials })
 }
 
-/** Whether an S3 error means "no such bucket" rather than something else (bad credentials, network). */
 export function isBucketNotFound(err: any): boolean {
   return (
     err?.$metadata?.httpStatusCode === 404 ||
@@ -100,15 +81,11 @@ export function isBucketNotFound(err: any): boolean {
 }
 
 /**
- * Verify the configured bucket exists and this target can reach it — matching 2.5.x's `init()`, which
- * called `headBucket()` before anything else. Where reasonable, a missing bucket is created rather
- * than treated as a hard failure: 2.5.x's `definition.yml` phrased the prop as "the unique bucket name
- * to create", so a target pointed at a bucket that doesn't exist yet is meant to work on first
- * activation, not require the admin to have created it out of band first.
- *
- * Every failure — reaching the bucket, or creating it — is rethrown as a plain `Error` with a message
- * built from the SDK's own, so it reaches the admin UI through `executeAction`'s existing
- * `catch (err) { reply.badRequest(err.message) }` rather than surfacing as an unhandled SDK exception.
+ * A missing bucket is created rather than treated as a hard failure: the bucket prop names a bucket
+ * *to create*, so a target is meant to work on first activation without the admin having created it
+ * out of band. Every failure is rethrown as a plain `Error` carrying the SDK's message, so it
+ * reaches the admin UI through `executeAction`'s `reply.badRequest(err.message)` rather than
+ * surfacing as an unhandled SDK exception.
  */
 export async function ensureBucket(client: S3Client, config: Record<string, any>): Promise<void> {
   const bucket = config.bucket
@@ -141,10 +118,9 @@ export async function ensureBucket(client: S3Client, config: Record<string, any>
   }
 }
 
-/** Only `aws` mode may set a `StorageClass` — `storageTier` is gated `if: mode eq aws` in
- *  `definition.yml`, but `models/storage.ts`'s `buildConfig()` still fills every prop with its
- *  default regardless of that UI-only gate, so `do`/`custom` targets carry a leftover `storageTier`
- *  value that must never be sent as their `StorageClass`. */
+/** `storageTier`'s `if: mode eq aws` in `definition.yml` is a UI-only gate: `models/storage.ts`'s
+ *  `buildConfig()` fills every prop with its default regardless, so a `do`/`custom` target carries a
+ *  leftover `storageTier` that must never be sent as its `StorageClass`. */
 export function storageClassFor(config: Record<string, any>): StorageClass | undefined {
   return config.mode === 'aws' && config.storageTier
     ? (config.storageTier as StorageClass)
@@ -152,21 +128,18 @@ export function storageClassFor(config: Record<string, any>): StorageClass | und
 }
 
 /**
- * A key as `CopySource` needs it: every path segment percent-encoded, but the `/` separators between
- * them left literal. `encodeURIComponent` alone also encodes `/` to `%2F`, which is fine for a flat
- * key but corrupts every key with a folder in it — and `keyFor` always prefixes with `<siteId>/`, so
- * that is every key this module ever builds. Caught only by `storage.emulated.test.ts`'s real S3
- * server: `aws-sdk-client-mock` asserts the exact string this function used to produce, so a wrong but
- * internally-consistent value passed that suite regardless of whether a real bucket could resolve it.
+ * Every path segment percent-encoded, the `/` separators between them left literal.
+ * `encodeURIComponent` alone also encodes `/` to `%2F`, which corrupts every key with a folder in it
+ * — and `keyFor` always prefixes `<siteId>/`, so that is every key this module builds. Only a real
+ * S3 server catches a wrong value here; a mock asserts whatever string this produces.
  */
 export function encodeCopySourceKey(key: string): string {
   return key.split('/').map(encodeURIComponent).join('/')
 }
 
 /**
- * What this module's driver hands `blobBase.ts` as its client: unlike Azure's `ContainerClient` or
- * GCS's `Bucket`, an `S3Client` carries no bucket of its own — every command names one — so the
- * activated pair is the client plus the bucket its target is configured against.
+ * Unlike Azure's `ContainerClient` or GCS's `Bucket`, an `S3Client` carries no bucket of its own —
+ * every command names one — so what `blobBase.ts` activates is the client plus that bucket.
  */
 interface S3Target {
   client: S3Client
@@ -196,9 +169,8 @@ const s3Storage = blobStorageModule<S3Target>({
   },
   async copy({ client, bucket }, sourceKey, destinationKey, config) {
     // -> `CopySource` always needs the bucket prefixed and the key encoded, regardless of
-    //    `s3BucketEndpoint`: the parameter addresses the source object directly rather than being
-    //    resolved against the client's own endpoint routing. 2.5.x hit exactly this omission as
-    //    upstream #3745 ("S3 copyObject usage - Missing bucket name").
+    //    `s3BucketEndpoint`: it addresses the source object directly rather than being resolved
+    //    against the client's own endpoint routing.
     await client.send(
       new CopyObjectCommand({
         Bucket: bucket,

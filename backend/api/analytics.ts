@@ -1,12 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
-/**
- * Analytics API Routes
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST ANALYTICS MODULES
-   */
   app.get(
     '/analytics/modules',
     {

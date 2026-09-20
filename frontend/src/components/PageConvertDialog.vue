@@ -107,55 +107,31 @@ import Typography from '@tiptap/extension-typography'
 import { common, createLowlight } from 'lowlight'
 
 /**
- * Editor conversion dialog with a render-equality guard (OpenProject #3399).
+ * Markdown and wysiwyg share `'markdown'` storage (`backend/models/pages.ts#EDITOR_CONTENT_TYPES`),
+ * so converting between them never rewrites `content`. What can change is whether the WYSIWYG node
+ * set expresses the markdown losslessly, which is what the guard checks: round-trip the stored
+ * markdown through a headless copy of that node set, render both texts with the site's own
+ * `MarkdownRenderer`, and refuse anything but identical output. The backend route re-checks only
+ * that the row is still convertible, so this guard is the whole of the lossiness decision.
  *
- * Reachable from the page actions "..." menu for a page currently in the `markdown` or `wysiwyg`
- * editor (`PageActionsCol.vue`), converting it to whichever of the two it is NOT currently in.
- * Markdown and wysiwyg have shared `'markdown'` storage since #3395
- * (`backend/models/pages.ts#EDITOR_CONTENT_TYPES`), so converting between them never rewrites
- * `content` -- what can genuinely change is whether the WYSIWYG editor's own Tiptap node set can
- * losslessly express it, which is exactly what the guard below checks: parse the page's stored
- * markdown into a headless copy of that same node set, serialize it back out, and render BOTH the
- * original and the round-tripped markdown with the site's own `MarkdownRenderer` (the identical
- * pipeline `EditorMarkdown.vue`/`renderers/headless.js` use). Identical output either way is safe
- * to flip; anything else is refused, with the first differing markdown line shown, rather than
- * silently converted (the backend route this calls trusts that this check already ran and re-checks
- * only that the row is still in a convertible state -- see `backend/models/pages.ts#convertEditor`).
- *
- * The extension set below mirrors `EditorWysiwyg.vue`'s own (non-collaborative) `buildExtensions()`
- * -- deliberately a second copy rather than an import from that component, which this dialog reads
- * but does not touch (this round's batch coordination note, OpenProject #3399/#3405). A headless
- * `Editor` (no `element` given) never mounts into the document -- see `@tiptap/core`'s own test
- * suite for the same construction with no DOM.
+ * The extension list below is deliberately a second copy of `EditorWysiwyg.vue`'s rather than an
+ * import from it. A headless `Editor` (no `element`) never mounts into the document.
  */
-
-// EMITS
 
 defineEmits([...dialogComponentEmits])
 
-// DIALOG
-
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
-
-// STORES
 
 const commonStore = useCommonStore()
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// COMPUTED
-
-/** The editor this page will move TO -- the other one of the pair, whichever it is in now. */
 const targetEditor = computed(() => (pageStore.editor === 'wysiwyg' ? 'markdown' : 'wysiwyg'))
 
 const targetEditorName = computed(() => t(`admin.editors.${targetEditor.value}Name`))
-
-// STATE
 
 const state = reactive({
   checking: true,
@@ -167,10 +143,7 @@ const state = reactive({
 
 let lowlight = null
 
-/**
- * The same (non-collaborative) extension list `EditorWysiwyg.vue#buildExtensions(null)` builds --
- * see this file's own header comment for why it is a second copy rather than a shared import.
- */
+/** Mirrors `EditorWysiwyg.vue#buildExtensions(null)` -- the two must stay in step. */
 function buildExtensions() {
   lowlight ??= createLowlight(common)
   return [
@@ -214,9 +187,8 @@ function buildExtensions() {
 }
 
 /**
- * The first source line at which two markdown texts diverge -- shown to the reader as "here is
- * what the WYSIWYG editor's round trip would change", which is a great deal more actionable than
- * the rendered HTML the pass/fail decision itself is made from.
+ * The pass/fail decision is made on rendered HTML; the reader is shown the markdown line instead,
+ * which is far more actionable.
  */
 function firstDifferingLine(a, b) {
   const linesA = (a ?? '').split('\n')
@@ -230,18 +202,12 @@ function firstDifferingLine(a, b) {
   return null
 }
 
-/** Set once the dialog unmounts, so `runGuard()`'s awaited `ensureConfigs()` cannot write into a
- *  torn-down component's state after the fact. */
+/** Keeps `runGuard()`'s awaited `ensureConfigs()` from writing into a torn-down component's state. */
 let destroyed = false
 
-/**
- * The render-equality guard itself: parse the page's current markdown into a headless copy of the
- * WYSIWYG editor's node set, serialize it back out, and compare what the site's own markdown
- * renderer makes of each. Runs once, on open.
- */
 async function runGuard() {
-  // -> `ensureConfigs()`, not a bare check: also refreshes the glossary term list this dialog's
-  //    extension list reads, same as `ImportBatchPageDialog.vue`/`PageHistoryOverlay.vue`.
+  // -> `ensureConfigs()`, not a bare check: it also refreshes the glossary terms the extension list
+  //    below reads.
   await editorStore.ensureConfigs()
   if (destroyed) {
     return
@@ -259,9 +225,8 @@ async function runGuard() {
     })
     roundTripped = headless.getMarkdown()
   } catch {
-    // -> Could not even be parsed into the target node set -- definitely not safe to convert. `null`
-    //    rather than leaving `roundTripped` at its `original` default: that would compare equal below
-    //    and wrongly read as a pass.
+    // -> `null`, not the `original` default: leaving it would compare equal below and read as a
+    //    pass, when in fact the target node set could not parse the content at all.
     roundTripped = null
   } finally {
     headless?.destroy()
@@ -276,8 +241,6 @@ async function runGuard() {
   state.firstDifference = state.canConvert ? null : firstDifferingLine(original, roundTripped ?? '')
   state.checking = false
 }
-
-// METHODS
 
 async function convert() {
   state.converting = true
@@ -294,8 +257,6 @@ async function convert() {
   }
   state.converting = false
 }
-
-// LIFECYCLE
 
 onMounted(() => {
   runGuard()

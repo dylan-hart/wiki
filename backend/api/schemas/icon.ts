@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * ICON SET - An Iconify icon set added to this wiki
-   */
   app.addSchema({
     $id: 'IconSet',
     type: 'object',
@@ -20,8 +17,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'A disabled set is not searchable and takes on no new icons, but the icons already stored for it keep being served so that published content does not break.'
       },
-      // Deliberately loose: published as-is by the upstream Iconify collections API, which this
-      // instance does not control the shape of.
       info: {
         type: 'object',
         additionalProperties: true,
@@ -43,9 +38,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * AVAILABLE ICON SET - A set offered upstream, whether or not it is added here
-   */
   app.addSchema({
     $id: 'AvailableIconSet',
     type: 'object',

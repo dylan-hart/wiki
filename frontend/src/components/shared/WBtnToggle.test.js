@@ -24,10 +24,9 @@ describe('WBtnToggle', () => {
   })
 
   /*
-   * "A segmented control rounds only its outer edges (`rounded-s-control` / `rounded-e-control`),
-   * never each segment" (`css/tailwind.css`'s Cobalt shape-token comment) -- `0` under Ledger
-   * (unchanged from before this task), a real value under Cobalt (`body.body--cobalt`, OpenProject
-   * #2767/#2772). The logical `-s-`/`-e-` corners keep this correct under RTL.
+   * A segmented control rounds only its outer edges, never each segment; `--radius-control` is `0`
+   * under Ledger and a real value under Cobalt. The logical `-s-`/`-e-` corners keep this correct
+   * under RTL.
    */
   it('rounds only the outer edges of the strip, off --radius-control', () => {
     const wrapper = mount(WBtnToggle, { props: { modelValue: 1, options: OPTIONS } })

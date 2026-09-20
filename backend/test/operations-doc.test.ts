@@ -1,15 +1,3 @@
-/**
- * Structural checks on `docs/operations.md` (task 1985, folded together with Feature #1900 /
- * Epic #1892's earlier, narrower version of the same document during a branch merge).
- *
- * Two kinds of assertion here, mirroring `release-checklist-doc.test.ts`:
- *  - Structural: the doc actually covers the sections the task requires (backup scope, restore
- *    order, upgrade, troubleshooting) and names the real config keys/permissions it describes.
- *  - Drift guard: the `<dataPath>` subdirectories the doc claims a running instance populates are
- *    checked against the actual model source that writes to them, so the doc cannot silently go
- *    stale the moment a model starts (or stops) writing to a `<dataPath>` subdirectory it doesn't
- *    already mention.
- */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -18,7 +6,6 @@ import path from 'node:path'
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const OPERATIONS_MD = path.join(REPO_ROOT, 'docs/operations.md')
 
-/** `<dataPath>` subdirectory -> a backend source file that references it via `CARDINAL.config.dataPath`. */
 const DATA_PATH_SUBDIRS: Record<string, string> = {
   locales: 'backend/models/locales.ts',
   'cache/icons': 'backend/models/icons.ts',
@@ -62,8 +49,6 @@ describe('docs/operations.md — operations reference', () => {
     }
 
     test('does not claim any dataPath subdirectory beyond the ones models actually populate', () => {
-      // Every fenced-off dataPath subdir row in the backup-scope table should be one of the known
-      // ones above -- this guards against a stale/renamed entry sneaking back in.
       const tableRowPattern = /`<dataPath>\/([a-z/]+)`/g
       const mentioned = new Set<string>()
       let match: RegExpExecArray | null
@@ -159,8 +144,7 @@ describe('docs/operations.md — operations reference', () => {
 
     test('documents the line shape and the two rendered field keys', () => {
       assert.match(raw, /key=value/)
-      // -> `ms` is humanised and `error` carries the Error itself; both are renderer behaviour an
-      //    operator reads off the line, not call-site formatting.
+      // -> Both are renderer behaviour an operator reads off the line, not call-site formatting.
       assert.match(raw, /in 528ms/)
       assert.match(raw, /error="/)
     })
@@ -204,9 +188,6 @@ describe('docs/operations.md — operations reference', () => {
     })
 
     test('presents logScopes as a live config key, not a planned one', () => {
-      // -> The inverse of the assertion this replaced: per-scope thresholds landed in OpenProject
-      //    #2663, so `base.yml` declaring the key is what makes the doc's claim true, and the doc
-      //    must no longer read as forward-looking.
       const logsSection = raw.slice(raw.indexOf('## Logs'), raw.indexOf('## Metrics'))
       assert.ok(logsSection.includes('logScopes'), 'the Logs section must document logScopes')
       assert.doesNotMatch(
@@ -267,8 +248,6 @@ describe('docs/operations.md — operations reference', () => {
     })
 
     test('states the mount covers the whole of /wiki/data, not just content/', () => {
-      // The image's VOLUME was deliberately widened from a content/-only mount (Epic #1892) --
-      // the doc should say so, not describe the old, narrower shape.
       assert.match(raw, /whole of `?\/wiki\/data`?/i)
     })
 
@@ -344,10 +323,8 @@ describe('admin.utilities.exportExclusions hint references a real doc (OpenProje
   })
 
   test('the doc path it names actually exists in the repo', () => {
-    // Parse the referenced path out of the hint itself, rather than hardcoding
-    // 'docs/operations.md' here -- a future edit that points the hint at a different (or
-    // misspelled) path should fail this check, not silently pass because the assertion was
-    // pinned to the string this test happened to be written against.
+    // Parsed out of the hint rather than hardcoded, so an edit that points the hint at a different
+    // or misspelled path fails here instead of passing against a pinned string.
     const match = hint.match(/\bdocs\/[\w/-]+\.md\b/)
     assert.ok(
       match,

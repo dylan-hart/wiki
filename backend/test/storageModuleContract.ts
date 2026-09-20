@@ -5,43 +5,24 @@ import { DIRECT_ACCESS_TTL_SECONDS } from '../modules/storage/blobBase.ts'
 import type { StorageModule, StorageTarget } from '../models/storage.ts'
 
 /**
- * The asset lifecycle every cloud blob storage module owes `models/storage.ts`, run once per module
- * (TEST-F6).
+ * The asset lifecycle every cloud blob storage module owes `models/storage.ts`, run once per module.
  *
- * `s3`, `azure` and `gcs` each restated these claims in their own file, against three different
- * SDK-mocking stories — `aws-sdk-client-mock` patching `S3Client.prototype.send`, and `mock.method`
- * on `ContainerClient`/`BlockBlobClient` and on `Bucket`/`File`. The claims themselves are decided by
- * `modules/storage/blobBase.ts`, which all three now share: the site-scoped object key, the fetch-
- * then-write of `assetUploaded` (and its no-op when the asset is already gone), the copy-then-remove
- * of `assetRenamed`, the same copy-then-remove keyed on the folder instead of the name for
- * `assetMoved` (OpenProject #3384), `exportAll`'s `contentTypes` filter, and `getDirectUrl`'s short
- * TTL.
+ * `blobBase.test.ts` proves the shared implementation against a fake driver; what this runner adds
+ * is that each module's real SDK callbacks carry the same behaviour out to the real client objects.
+ * What stays in a module's own `storage.test.ts` is everything genuinely about its cloud: client
+ * construction and endpoint/mode branching, bucket or container activation and how each reports a
+ * failure, and each SDK's own copy/tier quirks.
  *
- * `blobBase.test.ts` proves that shared half against a fake driver — what THIS runner adds is that
- * each module's real SDK callbacks carry the same behaviour out to the real client objects, which no
- * fake driver can show. What stays in a module's own `storage.test.ts` is everything genuinely about
- * its cloud: client construction and endpoint/mode branching, bucket or container activation and how
- * each reports a failure, S3's `CopySource` encoding and its per-mode `StorageClass` rules, Azure's
- * `deleteSnapshots`, GCS's `apiEndpoint` handling.
- *
- * `sftp`, `git`, `disk` and `db` are not blob targets and do not run this: their capabilities
- * genuinely differ (`assetDelivery`, `versioning`, `sync`), and none of them is built on
- * `blobStorageModule`.
+ * `sftp`, `git`, `disk` and `db` are not blob targets, are not built on `blobStorageModule`, and do
+ * not run this.
  */
 
-/** The site-scoped keys, bodies and options one module actually handed its SDK. */
 export interface StorageSdkStub {
-  /** The module under test, now driven by the armed SDK stub. */
   module: StorageModule
-  /** Every object write, in call order. */
   puts(): { key: string; body: string; mimeType: string; storageTier?: string }[]
-  /** Every object delete, by key, in call order. */
   removes(): string[]
-  /** Every server-side copy, in call order. */
   copies(): { sourceKey: string; destinationKey: string }[]
   /**
-   * What a direct-access URL this module produced actually addresses and how long it lasts.
-   *
    * Takes the URL because two of the three sign it locally and hand back a real one to parse, while
    * GCS's `getSignedUrl` is an SDK call whose request is what carries the key and the expiry — so
    * only the module itself knows where to read them from.
@@ -50,13 +31,11 @@ export interface StorageSdkStub {
 }
 
 export interface StorageContractOptions {
-  /** A fresh target per test, so a module's per-target activation cache never leaks between cases. */
+  /** Fresh per test: a module's per-target activation cache must not leak between cases. */
   makeTarget(configOverrides?: Record<string, any>): StorageTarget
-  /** Arm this module's SDK stub for one test and hand back the module plus the readers. */
   stubSdk(): StorageSdkStub
 }
 
-/** One asset, as `CARDINAL.models.assets.streamAll` yields it to `exportAll`. */
 function streamedAsset(overrides: Record<string, any> = {}) {
   return {
     id: 'a1',
@@ -70,11 +49,6 @@ function streamedAsset(overrides: Record<string, any> = {}) {
   }
 }
 
-/**
- * Emit the ten-test asset-lifecycle contract for one blob storage module.
- *
- * @param name The module's key, which every generated test name is prefixed with.
- */
 export function runStorageModuleContract(name: string, options: StorageContractOptions): void {
   const { makeTarget, stubSdk } = options
 
@@ -82,9 +56,8 @@ export function runStorageModuleContract(name: string, options: StorageContractO
     let wikiHandle: { restore(): void }
 
     before(() => {
-      // -> Its own `CARDINAL`, rather than reaching into whatever the module's suite installed: what a
-      //    contract test stages (`getContent`'s one answer, `streamAll`'s yields) must not depend on
-      //    another test in the same file having left the global in a particular state.
+      // -> Its own `CARDINAL`, not whatever the module's suite installed: what a contract test stages
+      //    must not depend on another test in the same file leaving the global in some state.
       wikiHandle = installTestWiki({
         models: {
           assets: {
@@ -99,7 +72,6 @@ export function runStorageModuleContract(name: string, options: StorageContractO
       wikiHandle.restore()
     })
 
-    /** Stage the one asset body `assetUploaded` will fetch for this test. */
     function stageContent(content: unknown): void {
       ;(CARDINAL.models.assets.getContent as any).mock.mockImplementationOnce(async () => content)
     }
@@ -178,7 +150,6 @@ export function runStorageModuleContract(name: string, options: StorageContractO
       ])
     })
 
-    /** A server-side copy, then the source removed once it has landed — never a download/re-upload. */
     test(`${name}: assetRenamed removes the source key once the copy has landed`, async () => {
       const sdk = stubSdk()
       const target = makeTarget()
@@ -210,7 +181,6 @@ export function runStorageModuleContract(name: string, options: StorageContractO
       ])
     })
 
-    /** A server-side copy, then the source removed once it has landed — never a download/re-upload. */
     test(`${name}: assetMoved removes the source key once the copy has landed`, async () => {
       const sdk = stubSdk()
       const target = makeTarget()
@@ -290,9 +260,8 @@ export function runStorageModuleContract(name: string, options: StorageContractO
     })
 
     /**
-     * Minutes, not hours: generated per request for one browser to fetch immediately, never something
-     * meant to be bookmarked — `blobBase.ts#DIRECT_ACCESS_TTL_SECONDS`, shared so all three targets
-     * behave the same from the admin's point of view.
+     * Minutes, not hours: generated per request for one browser to fetch immediately, never
+     * something meant to be bookmarked.
      */
     test(`${name}: getDirectUrl expires within the shared direct-access TTL`, async () => {
       const sdk = stubSdk()

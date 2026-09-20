@@ -4,19 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import iconsRoutes from './icons.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * OpenProject #931: `GET /sets`, `GET /search`, `GET /sets/:prefix/icons` and `POST /materialize`
- * used to declare route-level `config.permissions: PICKER_PERMISSIONS`, a list that mixed
- * `write:pages`/`manage:pages` (page-rule permissions) in with `manage:sites`/`manage:system`
- * (group-wide ones). `config.permissions` is enforced by a
- * hook that only ever reads the group-wide session list — it silently reduced the check to
- * `manage:sites`/`manage:system` alone, refusing every ordinary author write access had been
- * granted to through a page rule. `mayUseIconPicker()` now checks in-handler instead, the same
- * `No route-level permissions:` pattern `api/blocks.ts`'s `mayListBlocks()` uses.
- *
- * Unit-level, no database: `CARDINAL.models.icons`/`groups` are stubbed the same way
- * `blocks.test.ts`'s site-scoped delegation suite stubs `CARDINAL.models.blocks`/`groups`.
- */
 describe('icons picker permissions (task #931)', () => {
   let getSetsCalls = 0
   let searchIconsCalls = 0
@@ -40,11 +27,7 @@ describe('icons picker permissions (task #931)', () => {
     return refs.filter(() => false)
   }
 
-  /**
-   * Stand-in for `groups.actorForRequest`/`mayHoldPermissionSomewhere`: `x-test-permissions` is the
-   * group-wide list, `x-test-rule-roles` is what a page rule grants (comma-separated), mirroring how
-   * `mayUseIconPicker()` consults both.
-   */
+  /** `x-test-permissions` is the group-wide list; `x-test-rule-roles` what a page rule grants. */
   function actorForRequest(req: any) {
     const header = req.headers['x-test-permissions']
     const permissions = typeof header === 'string' ? header.split(',').filter(Boolean) : []
@@ -56,9 +39,8 @@ describe('icons picker permissions (task #931)', () => {
   before(async () => {
     app = await buildTestApp({
       routes: iconsRoutes,
-      // -> `mayHoldPermissionSomewhere` is rebound per request, from the `x-test-rule-roles` header
-      //    this suite grants page-rule roles through; returning `undefined` leaves the request's own
-      //    session alone.
+      // -> Rebinds `mayHoldPermissionSomewhere` per request, since it never sees `req` itself;
+      //    returning `undefined` leaves the session alone.
       session: (req: any) => {
         CARDINAL.models.groups.mayHoldPermissionSomewhere = (
           actor: { permissions: string[] },
@@ -78,9 +60,7 @@ describe('icons picker permissions (task #931)', () => {
           icons: { getSets, searchIcons, listSetIcons, materializeIcons },
           groups: {
             actorForRequest,
-            // -> Overridden per-request by the `session` hook above, which is what actually reads
-            //    `x-test-rule-roles` -- this placeholder only exists so the shape is present before
-            //    the hook runs at all.
+            // -> Placeholder: the `session` hook above rebinds this per request.
             mayHoldPermissionSomewhere: () => false
           }
         }
@@ -143,8 +123,6 @@ describe('icons picker permissions (task #931)', () => {
   })
 
   test('write:pages granted only through a page rule (absent from the group-wide list) may use every picker route', async () => {
-    // -> No `x-test-permissions` at all: the group-wide list is empty. Only the rule-roles header
-    //    grants anything, exactly like an ordinary author whose write access comes from a page rule.
     const headers = { 'x-test-rule-roles': 'write:pages' }
     assert.equal((await app.inject({ method: 'GET', url: '/sets', headers })).statusCode, 200)
     assert.equal(
@@ -187,13 +165,8 @@ describe('icons picker permissions (task #931)', () => {
 })
 
 /**
- * `POST /sideload` (OpenProject #2939/#2946): a `manage:system`-only trigger for
- * `CARDINAL.models.icons.sideloadFromDataPath()`, letting an admin rescan `<dataPath>/icons/` for a
- * dropped-in icon set collection file against a running instance without a restart. Mirrors
- * `locales.test.ts`'s own `POST /sideload` suite, including its `session: 'header', permissions:
- * true` harness setup — needed because this route (unlike the picker routes above) enforces the
- * real `config.permissions` preHandler rather than the in-handler `mayUseIconPicker()` check, so it
- * gets its own `buildTestApp` instance instead of reusing the describe block's.
+ * Its own `buildTestApp` instance: unlike the picker routes above, `POST /sideload` is gated by the
+ * real `config.permissions` preHandler, which needs `session: 'header', permissions: true`.
  */
 describe('icons sideload route (task #2946)', () => {
   const sideloadResult = {

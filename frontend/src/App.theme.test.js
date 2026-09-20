@@ -1,20 +1,16 @@
 // @vitest-environment-options {"settings":{"enableJavaScriptEvaluation":true,"suppressInsecureJavaScriptEnvironmentWarning":true,"disableCSSFileLoading":true,"handleDisabledFileLoadingAsSuccess":true}}
 //
-// Two happy-dom defaults get in the way here, same reasoning as the two helper suites this mirrors:
+// Two happy-dom defaults get in the way here:
 //   - `enableJavaScriptEvaluation` (off by default) is required for the injectHead/injectBody
-//     `<script>` assertions below to actually run the script (`helpers/injectHtml.test.js`).
+//     `<script>` assertions below to actually run the script.
 //   - `disableCSSFileLoading` + `handleDisabledFileLoadingAsSuccess` quiet the `NetworkError`/
 //     `NotSupportedError` noise from `applyFonts()`'s real `<link rel="stylesheet">` elements, which
-//     have nothing to fetch from in this test run (`helpers/fonts.test.js`).
+//     have nothing to fetch from in this test run.
 //
-// This suite is the layer those two, and `helpers/injectCss.test.js`, don't cover: that `App.vue`'s
-// `applyTheme()` actually WIRES each site-theme setting to its helper with the right field, on a path
-// a real admin save takes (the `EVENT_BUS` `'applyTheme'` event `AdminTheme.vue`'s `save()` fires —
-// see `helpers/injectHtml.test.js`'s "unrelated applyTheme() trigger" framing). A helper working in
-// isolation doesn't prove `applyTheme()` still calls it, still passes the field it means to, or still
-// calls it on every repeat trigger without piling up duplicate DOM nodes — which is exactly the shape
-// of bug this feature started from (a saved setting with zero rendered effect). Every assertion below
-// is written to fail if that wiring regresses, not merely to prove the helper module works.
+// The layer the per-helper suites don't cover: that `applyTheme()` WIRES each site-theme setting to
+// its helper with the right field, on the `EVENT_BUS` path a real admin save takes. A helper working
+// in isolation doesn't prove `applyTheme()` still calls it, still passes the field it means to, or
+// still calls it on every repeat trigger without piling up duplicate DOM nodes.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -27,14 +23,9 @@ import { createTestRouter } from '../test/router.js'
 let currentWrapper
 
 /**
- * Mounts the real `App.vue` against a fresh pinia + a memory router already settled on `/`, so
- * `applyTheme()` can be driven through the same `EVENT_BUS` event a real admin save fires, without
- * booting bootstrap fetches, real routes, or the router's own first-navigation init path.
- *
  * The router navigates to `/` and resolves BEFORE `App` is mounted, so `App.vue`'s own
- * `router.afterEach` guard (registered when its `<script setup>` runs, i.e. at mount) never actually
- * fires here — it would otherwise try to remove a `.init-loading` element this test harness has no
- * reason to render. Theme application is triggered explicitly instead, below.
+ * `router.afterEach` guard (registered when its `<script setup>` runs, i.e. at mount) never fires
+ * here. Theme application is triggered explicitly instead, below.
  */
 async function mountApp() {
   setActivePinia(createPinia())
@@ -52,9 +43,8 @@ async function mountApp() {
 }
 
 /**
- * Fires the same `EVENT_BUS` event `AdminTheme.vue`'s `save()` fires, then lets `applyTheme()`'s
- * trailing `await applyCodeBlocksTheme()` settle — `EVENT_BUS.emit()` itself does not await its
- * listener.
+ * The same `EVENT_BUS` event `AdminTheme.vue`'s `save()` fires. `EVENT_BUS.emit()` does not await
+ * its listener, hence the tick for `applyTheme()`'s trailing `await applyCodeBlocksTheme()`.
  */
 async function triggerApplyTheme() {
   EVENT_BUS.emit('applyTheme')
@@ -73,12 +63,6 @@ afterEach(() => {
   document.documentElement.style.removeProperty('--font-sans')
 })
 
-/**
- * Regression coverage for feature 413 ("RTL support end-to-end"), task 716: `App.vue`'s
- * `applyLocale()` must set `dir`/`lang` on `<html>` for the active locale, and must do so
- * immediately -- ahead of `router.afterEach` removing `.init-loading` -- rather than waiting on the
- * (possibly slow, possibly never-resolving in this test) locale-strings fetch.
- */
 beforeEach(() => {
   setActivePinia(createPinia())
   // -> Mirrors index.html's structure: router.afterEach() unconditionally removes this element
@@ -125,7 +109,6 @@ describe('App.vue applyTheme()', () => {
       const container = document.head.querySelector('#theme-inject-head')
       expect(container).not.toBeNull()
       expect(container.querySelector('meta[name="probe-head"]')).not.toBeNull()
-      // -> The concrete side effect a re-created, actually-executed <script> performs
       expect(window.__appInjectHeadProbe).toBe(42)
     } finally {
       delete window.__appInjectHeadProbe
@@ -168,7 +151,6 @@ describe('App.vue applyTheme()', () => {
     expect(styleEl).not.toBeNull()
     expect(styleEl.textContent).toContain('.page-contents')
     expect(styleEl.textContent).toContain('Montserrat')
-    // -> contentFont must not leak into the app-wide font the same call cycle also touches
     expect(document.documentElement.style.getPropertyValue('--font-sans')).toBe('')
   })
 
@@ -186,13 +168,9 @@ describe('App.vue applyTheme()', () => {
   })
 
   /*
-    Regression coverage for upstream requarks/wiki #2408 (closed): head/body code injection ran only
-    on content pages, never on the auth/login screen, so an admin's analytics snippet or site-wide
-    banner silently vanished for every visitor who hadn't logged in yet. There is no per-page
-    injection call to gate here -- `applyTheme()` lives on `App.vue` itself, one level above
-    `<router-view>`, and every route (including `/login`) mounts underneath it -- so this proves the
-    site-wide behaviour holds by actually navigating to a non-content route rather than by reading
-    the source.
+    `applyTheme()` lives on `App.vue` itself, one level above `<router-view>`, so there is no
+    per-page injection call to gate: the site-wide behaviour is proved by actually navigating to a
+    non-content route rather than by reading the source.
   */
   it('injectHead/injectBody/injectCSS apply on the /login route, not just content pages', async () => {
     setActivePinia(createPinia())

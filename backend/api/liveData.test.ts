@@ -5,12 +5,7 @@ import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import liveDataRoutes from './liveData.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * A unit-level test of the route's own wiring — the shared site preHandler, the block-enabled gate,
- * response pass-through — with `CARDINAL.sites`/`models.blocks`/`models.liveData` stubbed rather than a real database or
- * network call. `models/liveData.test.ts` proves `resolve()` itself (caching, credential resolution,
- * JSONPath extraction, upstream error handling).
- */
+/** The route's own wiring only; `models/liveData.test.ts` covers `resolve()` itself. */
 describe('POST /sites/:siteId/live-data/resolve', () => {
   const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'
 
@@ -31,8 +26,8 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
   let app: FastifyInstance
 
   before(async () => {
-    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
-    //    plugin-only app has to register it to answer that case the way the real app does.
+    // -> The unknown-site 404 lives in `siteEnabledPreHandler`, not in the route, so a plugin-only
+    //    app has to register it.
     const guardedRoutes: FastifyPluginAsync = async (instance) => {
       instance.addHook('preHandler', siteEnabledPreHandler)
       await instance.register(liveDataRoutes)
@@ -40,10 +35,6 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
 
     app = await buildTestApp({
       routes: guardedRoutes,
-      // -> This unit test registers no session plugin (see the class comment: it stubs the route's
-      //    own collaborators, not the app's auth stack), so an authenticated caller is simulated by
-      //    a test-only header translated into the same `req.session`/`req.apiKey` shape the real
-      //    hooks populate.
       session: (req: any) => {
         if (req.headers['x-test-api-key'] === 'true') {
           req.apiKey = { id: 'test-key', permissions: [] }

@@ -14,17 +14,8 @@ import type { PageActor, PageInput } from '../../../models/pages.ts'
 import type { GroupRule } from '../../../models/groups.ts'
 
 /**
- * Task #561 moved every bit of postgres full-text logic (`dictionaryForLocale`, `searchPages` ->
- * `query`, `rebuildIndex` -> `rebuild`, `indexPage` -> the `created`/`updated` hooks, and the
- * `ts_headline`/`ts_filter`/`totalHits` SQL underneath all of it) out of `models/search.ts` and into
- * this module, verbatim. `models/search.test.ts` covers the dispatcher's resolution/delegation with a
- * fake engine; this suite is the one that actually runs the moved SQL, so a mistake made while moving
- * it — a dropped condition, a flipped weight, a broken `totalHits` count — fails a real query against
- * a real database rather than only failing to typecheck.
- *
- * `created`/`updated` write to `pages.ts` through `try/catch` and only ever log a failure (see the
- * doc comment on `indexPage` in `search.ts`), so a broken query in there would not throw and would
- * not fail `models/pages.test.ts` either — searching for the content after the fact, as this suite
+ * `created`/`updated` index through a `try/catch` that only logs a failure, so a broken query there
+ * throws nothing and fails no other suite — searching for the content afterwards, as this suite
  * does, is what actually exercises it.
  */
 describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
@@ -68,13 +59,6 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(result.results[0]!.title, 'The Wandering Kangaroo')
   })
 
-  /**
-   * OpenProject #830 (upstream #2914, "Search Only Searches The Name of Pages"): `indexPage()`/
-   * `rebuild()` weight `searchContent` into `p.ts` at weight `C`, below title (`A`) and description
-   * (`B`), but they weight it IN -- so a term present only in the body, nowhere in the title or
-   * description, must still be found. This is the acceptance test for that: the query term below
-   * ("wallaby") appears only in the page body, not in its title or its (absent) description.
-   */
   test('a created page is findable by body content that appears in neither its title nor its description', async () => {
     await pagesModel.createPage(
       fixtures.siteId,
@@ -83,9 +67,8 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
         title: 'Field Guide',
         content:
           '# Field Guide\n\nThis chapter describes the wallaby, a marsupial native to Australia.',
-        // -> `searchContent` is derived from `render` (the editor's HTML), not from `content` (its
-        //    markdown source) -- see `models/pages.ts#createPage`'s `postProcess()` call. A real
-        //    editor always sends both together, so this is what a genuine save looks like.
+        // -> `searchContent` is derived from `render`, not from `content`, so a fixture that set
+        //    only the markdown source would index nothing
         render:
           '<h1>Field Guide</h1><p>This chapter describes the wallaby, a marsupial native to Australia.</p>'
       }),
@@ -131,12 +114,11 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    // -> Matches on the title, which the password does not cover
     const byTitle = await searchModel.query({ siteId: fixtures.siteId, query: 'wombat' })
     assert.equal(byTitle.totalHits, 1)
     assert.equal(byTitle.results[0]!.highlight, null)
 
-    // -> The password-covered body never surfaces the page at all, per `hideProtectedContent`
+    // -> Terms only in the password-covered body never surface the page at all
     const byBody = await searchModel.query({ siteId: fixtures.siteId, query: 'biscuits' })
     assert.equal(byBody.totalHits, 0)
   })
@@ -158,11 +140,9 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * `movePage` can re-home a page into another locale, and which dictionary builds a page's `ts` is
-   * decided by that locale — so a page moved from `en` to `fr` has to be re-indexed, or it stays
-   * stemmed by the wrong language and quietly stops matching the way its neighbours in `fr` do. This
-   * is what the `previousLocale` argument on `renamed()` exists for, and the assertion is against the
-   * vector itself rather than a query, since a wrong stemmer degrades matching rather than breaking it.
+   * Which dictionary builds a page's `ts` is decided by its locale, so a page moved from `en` to
+   * `fr` has to be re-indexed or it stays stemmed by the wrong language. Asserted against the vector
+   * itself rather than a query, since a wrong stemmer degrades matching rather than breaking it.
    */
   test('a page moved into another locale is re-indexed with that locale dictionary', async () => {
     // -> `les`/`des` are french stopwords and english ordinary words, so the two dictionaries produce
@@ -174,8 +154,8 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       pageInput({ path: 'docs/locale-move', locale: 'en', title, content, render: content }),
       actor
     )
-    // -> The same content already living in `fr`: whatever this one's vector is, the moved page's has
-    //    to end up identical, since neither path nor locale is weighted into `ts`
+    // -> The oracle: the same content already living in `fr`. Neither path nor locale is weighted
+    //    into `ts`, so the moved page's vector has to end up identical to this one's
     const reference = await pagesModel.createPage(
       fixtures.siteId,
       pageInput({ path: 'docs/locale-reference', locale: 'fr', title, content, render: content }),
@@ -219,13 +199,9 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #830 (upstream #6541, permission-filtered instant-search suggestions): the endpoint
-   * behind the header's live preview (`GET /sites/:siteId/pages/search`) is this same `query()` --
-   * `api/pages/read.ts` passes it the requester's `accessActor` and nothing else narrows the result set for
-   * an anonymous or under-privileged caller. So a match this actor has no `read:pages` access to must
-   * never come back in `results`, not merely be excluded from the `suggestion` -- the "did you mean"
-   * suggestion test below covers the latter already; this covers the former, which is what a reader
-   * would actually see fill the instant-search dropdown.
+   * The header's instant-search dropdown is this same `query()`, passed the requester's actor and
+   * nothing else narrowing the result set — so a denied match must be absent from `results` itself,
+   * not merely excluded from `suggestion`, which the "did you mean" tests below cover.
    */
   test('query() never returns a page the actor has no read:pages access to', async () => {
     await pagesModel.createPage(
@@ -233,7 +209,7 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       pageInput({ path: 'docs/numbat', title: 'Numbat Habits' }),
       actor
     )
-    /** No groups and no `manage:system` -- `groups.checkAccess()` denies every page permission. */
+    /** No groups and no `manage:system`: `checkAccess()` denies every page permission. */
     const blockedActor: PageActor = { id: fixtures.userId, groupIds: [], permissions: [] }
 
     const asBlocked = await searchModel.query({
@@ -243,27 +219,15 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
     assert.equal(asBlocked.totalHits, 0)
     assert.deepEqual(asBlocked.results, [])
-    // -> The window function counted the row postgres matched; the rules filter then dropped it from
-    //    this page, so the corrected total is no longer exact -- see OpenProject #2006.
+    // -> The rules filter dropped a row postgres matched, so the total is no longer exact
     assert.equal(asBlocked.totalHitsApproximate, true)
 
-    // -> Sanity check: the same query against the same page finds it once access is not blocked
     const unfiltered = await searchModel.query({ siteId: fixtures.siteId, query: 'numbat' })
     assert.equal(unfiltered.totalHits, 1)
-    // -> Nothing was dropped by the rules filter here (no `actor` was even passed), so the total is exact
+    // -> No actor to filter against, so nothing is dropped and the total is exact
     assert.equal(unfiltered.totalHitsApproximate, false)
   })
 
-  /**
-   * OpenProject #2151: `totalHits` used to be `COUNT(*) OVER()` over the *unfiltered* text query,
-   * adjusted only by what `checkAccess` dropped from the single page already fetched — so a match
-   * outside that page, which the actor could never actually read, still inflated the count. This is
-   * most visible at `limit: 1`: three pages share the term below, but the actor may read only one of
-   * them, so `visible` (what `checkAccess` actually lets them see) is the true readable-matches
-   * count. The old arithmetic reported 2 or 3 there (`windowCount(3) - rows.length(1) +
-   * visible.length(0 or 1)`, depending only on which single row postgres's LIMIT happened to return)
-   * — always more than the one page this actor may see.
-   */
   test('totalHits never exceeds what the actor may actually read, even at limit: 1', async () => {
     const readablePath = 'docs/bilby-public'
     await pagesModel.createPage(
@@ -282,9 +246,7 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    // -> A group whose only rule grants `read:pages` on exactly `readablePath` — nothing grants it
-    //    on the other two, and nothing is granted by default (see `helpers/pageRules.ts`), so a
-    //    guest-like actor in only this group can read that one page and none of the others.
+    // -> Nothing is granted by default, so this one ALLOW rule is the actor's entire read access
     const [restrictedGroup] = await fixtures.db
       .insert(groupsTable)
       .values({
@@ -322,8 +284,6 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(atLimitOne.results.length, 1)
     assert.equal(atLimitOne.results[0]!.path, readablePath)
 
-    // -> Same actor, no `limit` narrowing the page fetched — the count must still reflect only the
-    //    one page they may read, not all three matches.
     const unpaged = await searchModel.query({
       siteId: fixtures.siteId,
       query: 'bilby',
@@ -335,24 +295,19 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       [readablePath]
     )
 
-    // -> Sanity check: the unrestricted actor sees all three
     const unrestricted = await searchModel.query({ siteId: fixtures.siteId, query: 'bilby' })
     assert.equal(unrestricted.totalHits, 3)
   })
 
-  /**
-   * `suggestTitle()` (`pg_trgm` similarity) is private on this module and reachable only through
-   * `query()`'s own `suggestion` field — see the doc comment on `suggestTitle` for why a "did you
-   * mean" is capped to the same visibility rules as the search itself.
-   */
+  /** `suggestTitle()` is private; `query()`'s `suggestion` field is the only way in. */
   describe('"did you mean" suggestions', () => {
     let readerActor: PageActor
     let blockedActor: PageActor
 
     before(async () => {
-      /** `manage:system` short-circuits `groups.checkAccess()`, which is all a read-access actor needs here. */
+      /** `manage:system` short-circuits `checkAccess()`. */
       readerActor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
-      /** No groups and no `manage:system` — `checkAccess()` denies every page permission for this actor. */
+      /** No groups and no `manage:system`: `checkAccess()` denies every page permission. */
       blockedActor = { id: fixtures.userId, groupIds: [], permissions: [] }
 
       await pagesModel.createPage(
@@ -396,7 +351,6 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const result = await searchModel.query({
         siteId: fixtures.siteId,
         query: 'Onboardign Gude',
-        // -> No groups and no `manage:system`, so the group rule engine denies every path
         actor: blockedActor
       })
       assert.equal(result.totalHits, 0)
@@ -405,15 +359,9 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2010: `query()` used to run a single `LIMIT`/`OFFSET` window against raw rows and
-   * filter denied ones out afterward — so a page could come back smaller than `limit` even though a
-   * later raw row (already earmarked for the NEXT page) would have filled it. For a reader whose page
-   * rules deny only part of a matching set, that meant every page shrank and the true boundary between
-   * "seen" and "not yet seen" results drifted from what a plain `offset += limit` walk assumed. The
-   * fix over-fetches a candidate window from the top of the (deterministic) result order, filters it,
-   * and slices the requested page out of the filtered array — this is what proves that: walking
-   * `offset` forward in `limit`-sized steps for a restricted reader returns full pages (until matches
-   * run out), with no result repeated and none skipped.
+   * A reader whose page rules deny part of a matching set must still get full, non-overlapping
+   * pages when walking `offset` forward in `limit`-sized steps — the property the over-fetch loop
+   * in `query()` exists to provide.
    */
   describe('paging stability for a restricted reader', () => {
     let readerActor: PageActor
@@ -442,11 +390,10 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
         }
       ]
       /*
-        Written directly rather than through `groups.updateGroup()`: that method's guest-role
-        clamping reads `CARDINAL.data.systemIds.guestsGroupId`, which the DB-backed test fixture's
-        minimal `CARDINAL` (`test/db.ts`) never populates -- out of scope for this module's own suite to
-        add. `reloadCache()` is the same in-memory refresh `updateGroup()` itself triggers, so
-        `checkAccess()` sees these rules exactly as it would after a real admin edit.
+        Written directly rather than through `groups.updateGroup()`: its guest-role clamping reads
+        `CARDINAL.data.systemIds.guestsGroupId`, which the DB-backed fixture never populates.
+        `reloadCache()` is the same in-memory refresh `updateGroup()` triggers, so `checkAccess()`
+        sees these rules exactly as it would after a real admin edit.
       */
       await fixtures.db
         .update(groupsTable)
@@ -459,8 +406,8 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     test('pages stay full and non-overlapping across offsets when part of the match set is denied', async () => {
-      // -> 12 pages sharing one tag, titled so alphabetical order is predictable; every third one
-      //    (03, 06, 09, 12) lives under the denied branch. 8 of the 12 survive the reader's rules.
+      // -> Titled so alphabetical order is predictable; every third page lives under the denied
+      //    branch, leaving 8 of the 12 visible to this reader
       for (let i = 1; i <= 12; i++) {
         const isHidden = i % 3 === 0
         await pagesModel.createPage(
@@ -490,19 +437,15 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const page2 = await fetchPage(limit, limit)
       const page3 = await fetchPage(limit * 2, limit)
 
-      // -> Full pages while visible matches remain (8 visible total: 3 + 3 + 2), never a page shrunk
-      //    below `limit` just because a denied row happened to fall inside its raw window.
+      // -> Never shrunk below `limit` just because a denied row fell inside the raw window
       assert.equal(page1.results.length, 3)
       assert.equal(page2.results.length, 3)
       assert.equal(page3.results.length, 2)
 
       const seenPaths = [...page1.results, ...page2.results, ...page3.results].map((r) => r.path)
 
-      // -> No repeats
       assert.equal(new Set(seenPaths).size, seenPaths.length)
-      // -> No hidden-branch page ever surfaces
       assert.ok(seenPaths.every((p) => !p.startsWith('docs/hidden/')))
-      // -> Nothing skipped: exactly the 8 open-branch pages, none missing
       assert.deepEqual(
         seenPaths.sort(),
         Array.from({ length: 12 }, (_, idx) => idx + 1)
@@ -513,10 +456,8 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     /**
-     * Forces the over-fetch loop to grow past its initial margin: 32 denied rows sort before 4
-     * visible ones (`H` < `V`), so the first candidate window (`limit + OVERFETCH_MARGIN` = well
-     * under 32) comes back with zero surviving rows and has to be widened before the first page can
-     * be filled at all.
+     * 32 denied rows sort before 4 visible ones (`H` < `V`), so the first candidate window comes
+     * back with nothing surviving and the loop has to widen it before a page can be filled at all.
      */
     test('the candidate window grows when the initial margin is not enough', async () => {
       for (let i = 1; i <= 32; i++) {
@@ -563,14 +504,9 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
 describe('db search module query() siteId threading (task 678)', () => {
   /**
-   * Regression test for task 678: `query()`'s actor-scoped results filter runs each row through
-   * `CARDINAL.models.groups.checkAccess`, but the inline page ref it built never carried `siteId` — so a
-   * rule scoped to one site (task 671) could not distinguish this site's results from another's.
-   * `siteId` is already in `query()`'s enclosing scope; this only proves it reaches the
-   * `checkAccess` call made over the filtered rows. Mock-based rather than DB-backed, since this is
-   * a pure wiring check — `models/search.ts`'s original `searchPages()` carried an equivalent test
-   * before task #561 moved the implementation here (see the module doc comment above); this replaces
-   * it at the new location rather than leaving it pointed at code that no longer exists.
+   * Mock-based rather than DB-backed: a site-scoped rule cannot tell one site's results from
+   * another's unless the page ref handed to `checkAccess` carries `siteId`, and proving it reaches
+   * that call is a pure wiring check with no SQL in it.
    */
 
   let checkAccessCalls: any[] = []
@@ -628,11 +564,9 @@ describe('db search module query() siteId threading (task 678)', () => {
 
 describe('db search module query() totalHitsApproximate (OpenProject #2006)', () => {
   /**
-   * Mock-based, same reasoning as the "siteId threading" suite above: whether `totalHitsApproximate`
-   * is set is decided entirely by comparing the row count before and after the `checkAccess` filter,
-   * with no SQL of its own to exercise against a real database -- so a fake two-row response plus a
-   * controllable `checkAccess` is enough to cover both branches fast, leaving the "does this actually
-   * happen against real page rules" case to the DB-backed suite above.
+   * Mock-based, same reasoning as the suite above: `totalHitsApproximate` is decided purely by
+   * comparing row counts either side of the `checkAccess` filter, so a fake two-row response covers
+   * both branches faster than real page rules would. The DB-backed suite covers those.
    */
   function rowFixtures() {
     return [

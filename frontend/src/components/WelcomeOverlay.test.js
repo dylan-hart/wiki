@@ -15,11 +15,6 @@ import { useUserStore } from '@/stores/user'
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 
-/**
- * Regression coverage for task 799: with exactly one editor enabled, "Create the Homepage" used to
- * still require opening a one-item menu and clicking its only entry. It should instead call
- * `pageStore.pageCreate` directly, skipping the menu.
- */
 async function mountOverlay({ editors = {}, experimental = false, overlayOpts } = {}) {
   setActivePinia(createPinia())
 
@@ -49,11 +44,6 @@ async function mountOverlay({ editors = {}, experimental = false, overlayOpts } 
   return { wrapper, pageStore }
 }
 
-/**
- * OpenProject #2530: `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it
- * mounts as this prop -- WelcomeOverlay has no use for it, but must still declare it, or the value
- * falls through onto this component's rendered DOM root as a stray attribute.
- */
 describe('WelcomeOverlay overlayOpts prop (OpenProject #2530)', () => {
   it('declares overlayOpts as a prop, so it does not fall through onto the rendered DOM root', async () => {
     const { wrapper } = await mountOverlay({ overlayOpts: { unused: true } })
@@ -68,7 +58,6 @@ describe('WelcomeOverlay: create homepage button', () => {
   it('calls pageCreate directly, skipping the menu, when exactly one editor is enabled', async () => {
     const { wrapper, pageStore } = await mountOverlay({ editors: { markdown: true } })
 
-    // -> No menu should even be in the DOM when there is nothing to pick between
     expect(wrapper.findComponent({ name: 'WMenu' }).exists()).toBe(false)
 
     await wrapper.find('button.w-btn').trigger('click')
@@ -112,16 +101,9 @@ describe('WelcomeOverlay: create homepage button', () => {
 })
 
 /**
- * OpenProject #2499: `.welcome` was hardcoded to a light theme (white radial-gradient background,
- * `#eee` border, `var(--color-grey-9)` text) with no `body--dark` branch at all, so the overlay
- * rendered as a bright, jarring full-screen light panel even in dark mode. Fixed by adding a
- * `.body--dark &` branch, the same additive pattern `Login.vue`'s structurally similar full-screen
- * `.auth` screen already uses.
- *
- * Asserted against the source text rather than a computed style: jsdom's CSS engine does not
- * reliably resolve a compound `.body--dark &` selector the way a real browser would, so a
- * `getComputedStyle` assertion here would not actually prove the rule is wired up (see
- * `PageToc.test.js` for the same source-based-assertion precedent on a different SCSS fix).
+ * Asserted against the source text rather than a computed style: the DOM stand-in's CSS engine does
+ * not reliably resolve a compound `.body--dark .welcome` selector the way a real browser would, so a
+ * `getComputedStyle` assertion would not actually prove the rule is wired up.
  */
 describe('WelcomeOverlay: dark mode', () => {
   const source = readFileSync(

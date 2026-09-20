@@ -1,15 +1,3 @@
-/**
- * Structural checks on `docs/mcp-getting-started.md` (OpenProject #2434 — the MCP server had zero
- * discoverability: it was built and tested, but nothing told a user how to mint a token and call it).
- *
- * Two kinds of assertion, mirroring `backend/test/operations-doc.test.ts`:
- *  - Structural: the doc covers what the work package's resolved scope requires — minting a token,
- *    the HTTP transport's endpoint path, the available tools, and site-scoping behavior.
- *  - Drift guard: the tool names the doc documents are read back against `backend/mcp/tools/index.ts`'s
- *    real `registerAllTools()` call list, and the endpoint path against `backend/core/http/routes.ts`'s
- *    real mount — so the doc cannot silently list a tool that no longer exists, miss one that was
- *    added, or point at a stale path.
- */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -21,14 +9,12 @@ const TOOLS_INDEX_PATH = path.join(REPO_ROOT, 'backend/mcp/tools/index.ts')
 const ROUTES_PATH = path.join(REPO_ROOT, 'backend/core/http/routes.ts')
 const README_PATH = path.join(REPO_ROOT, 'README.md')
 
-/** Every `register*Tool(...)` call inside `registerAllTools()`, in source order. */
 function realToolRegistrationCalls(): string[] {
   const raw = fs.readFileSync(TOOLS_INDEX_PATH, 'utf8')
   const body = raw.slice(raw.indexOf('export function registerAllTools'))
   return [...body.matchAll(/register(\w+)Tool\(server, getCtx\)/g)].map((m) => m[1])
 }
 
-/** The actual `mcp-tool-name` string each `mcp/tools/*.ts` file registers with the SDK. */
 function realToolNames(): string[] {
   const toolsDir = path.join(REPO_ROOT, 'backend/mcp/tools')
   const names: string[] = []
@@ -101,10 +87,8 @@ describe('docs/mcp-getting-started.md — MCP onboarding guide', () => {
   test('the documented tool list matches registerAllTools() 1:1, not a stale subset', () => {
     const registered = realToolRegistrationCalls()
     assert.ok(registered.length > 0, 'expected registerAllTools() to register at least one tool')
-    // -> Every function registerAllTools() calls has a real source file behind it (realToolNames()
-    //    would otherwise be shorter than this list), and every discovered tool name is documented
-    //    above — together these two assertions guarantee the doc's table has exactly as many rows
-    //    as the server actually registers, with no manual count to keep in sync by hand.
+    // -> Paired with the test above (every discovered name is documented), matching these two
+    //    counts is what makes the doc's table exactly as long as what the server registers.
     assert.equal(
       registered.length,
       realToolNames().length,

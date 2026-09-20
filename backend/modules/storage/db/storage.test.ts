@@ -26,25 +26,15 @@ import {
 } from '../../../test/db.ts'
 
 /**
- * Exercises `purge()` against a real Postgres instance rather than a mocked `CARDINAL.db` chain, because
- * what it has to get right is SQL correctness — that the `WHERE id IN (...)` update reaches only the
- * assets a governing direct-access target actually covers, and that only the `data`/`preview` columns
- * move, never the row's other metadata or its `tree` entry. A mock of the query builder would only
- * prove that the code calls what it calls, not that the SQL it builds does the right thing.
+ * `purge()` runs against a real Postgres instance rather than a mocked `CARDINAL.db` chain because
+ * what it has to get right is SQL correctness — that the update reaches only the assets a governing
+ * direct-access target actually covers, and that only the `data`/`preview` columns move, never the
+ * row's other metadata or its `tree` entry. A mock of the query builder would prove only that the
+ * code calls what it calls.
  *
- * `CARDINAL.models.storage.getSiteTargets` is stubbed per test via `t.mock.method` — the one piece of
- * this that is genuinely config, not SQL, and `assetServing.governingTargetFrom()`'s own predicate
- * already has its coverage in `models/assetServing.test.ts` — so each test controls exactly which
- * targets exist without needing real storage module definitions loaded from disk (OpenProject #3375).
- *
- * Skipped unless `DATABASE_URL` is set. Uses `test/db.ts`'s `setupTestDb()`/`teardownTestDb()` — the
- * same fresh, fully-migrated, per-run schema every other DB-backed suite in this repo uses — rather
- * than hand-rolling a `Pool` against whatever happens to already be sitting in the target database's
- * `public` schema. The latter used to be exactly what this file did (mirroring the same bug
- * `models/contentSync.test.ts` was already fixed for, OpenProject #1639/#1650): against a genuinely
- * fresh database — a freshly-spun-up CI service container, or a first local run — `public` has no
- * tables at all, so every query failed with `relation "sites" does not exist` rather than testing
- * anything.
+ * `CARDINAL.models.storage.getSiteTargets` is stubbed per test — the one piece of this that is
+ * genuinely config, not SQL — so each test controls exactly which targets exist without needing real
+ * storage module definitions loaded from disk.
  */
 const skip = hasTestDatabase() ? false : 'requires DATABASE_URL (a Postgres instance)'
 
@@ -63,8 +53,8 @@ before(async () => {
   siteId = fixtures.siteId
   userId = fixtures.userId
 
-  // -> `dropCachedContent()`'s `cachePath` getter reads both of these; pointed at a throwaway temp
-  //    directory so this test never touches a real instance's file cache.
+  // -> `dropCachedContent()`'s `cachePath` getter reads both; a throwaway temp directory keeps this
+  //    test away from a real instance's file cache.
   CARDINAL.ROOTPATH = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-db-storage-test-'))
   CARDINAL.config.dataPath = '.'
 
@@ -83,9 +73,8 @@ after(async () => {
 })
 
 /**
- * Inserts a tree entry plus its matching `assets` row — the two share an id, mirroring what
- * `models/assets.ts`'s `upload()` does — with real `data`/`preview` bytes so a purge has something to
- * null out.
+ * The tree entry and the `assets` row share an id, mirroring `models/assets.ts`'s `upload()`, and
+ * carry real `data`/`preview` bytes so a purge has something to null out.
  */
 async function makeAsset(
   forSiteId: string,
@@ -117,11 +106,9 @@ async function makeAsset(
 }
 
 /**
- * Runs `fn` against a fresh, throwaway site of its own, dropped again afterward — for a test that
- * asserts an aggregate `{ purged, skipped }` count, which the shared `siteId` fixture cannot: every
- * other test in this file that touches `siteId` leaves its own assets behind (a purge nulls bytes, it
- * does not delete the row), so a second aggregate-count test against the same site would be counting
- * whatever earlier tests happened to leave there too.
+ * A fresh throwaway site per call, for a test asserting an aggregate `{ purged, skipped }` count: a
+ * purge nulls bytes without deleting rows, so a count against the shared `siteId` fixture would
+ * include whatever earlier tests left behind.
  */
 async function withTestSite<T>(fn: (testSiteId: string) => Promise<T>): Promise<T> {
   const [site] = await CARDINAL.db
@@ -131,18 +118,15 @@ async function withTestSite<T>(fn: (testSiteId: string) => Promise<T>): Promise<
   try {
     return await fn(site.id)
   } finally {
-    // -> Any asset `fn` created still references this site (`assets_siteId_sites_id_fkey`), so it has
-    //    to go first — `assets` before `tree`, matching the FK direction `makeAsset()`'s own inserts
-    //    (via `tree.addAsset` then a direct `assetsTable` insert) created in.
+    // -> FK order: an asset row references the site (`assets_siteId_sites_id_fkey`), as does its
+    //    tree entry, so the site goes last.
     await CARDINAL.db.delete(assetsTable).where(eq(assetsTable.siteId, site.id))
     await CARDINAL.db.delete(treeTable).where(eq(treeTable.siteId, site.id))
     await CARDINAL.db.delete(sitesTable).where(eq(sitesTable.id, site.id))
   }
 }
 
-/** A fully-covering, enabled direct-access target — the shape `governingTargetFrom` picks over `db`
- *  for any asset, regardless of kind/size, so a purge against it behaves like the pre-#3375 "purge
- *  everything" default. */
+/** Covers any asset whatever its kind or size, so `governingTargetFrom` picks it over `db`. */
 function fullCoverageDirectAccessTarget(forSiteId: string): StorageTarget {
   return makeStorageTarget('s3', {
     siteId: forSiteId,
@@ -172,9 +156,8 @@ test(
     const purgedAsset = await makeAsset(siteId, `purge-me-${Date.now()}.png`)
     const untouchedAsset = await makeAsset(otherSiteId, `leave-me-${Date.now()}.png`)
 
-    // -> A stale path resolution, as if `/_files/` had resolved this asset before the purge — proves
-    //    `purge()` calls `forgetAllPaths()` rather than leaving a request re-serve a cached `hasPreview:
-    //    true` for an asset that no longer has one.
+    // -> A stale path resolution, as if `/_files/` had resolved this asset before the purge: proves
+    //    a later request cannot re-serve a cached `hasPreview: true` for bytes that are now gone.
     assetServing.pathCache.set(`${siteId}:${purgedAsset.fileName}`, {
       asset: { hasPreview: true } as any,
       cachedAt: Date.now()
@@ -190,12 +173,10 @@ test(
       'expected purge to clear the cached path resolutions'
     )
 
-    // -> Content is gone
     assert.equal(await assets.getContent(purgedAsset.id), null)
     const thumbnail = await assets.getThumbnail(purgedAsset.id)
     assert.equal(thumbnail, null)
 
-    // -> Metadata and the tree entry both survive
     const metadata = await assets.getAsset(siteId, purgedAsset.id)
     assert.ok(metadata, 'expected the asset row to still exist')
     assert.equal(metadata!.fileName.startsWith('purge-me-'), true)
@@ -211,7 +192,6 @@ test(
     assert.equal(treeRow.fileName, purgedAsset.fileName)
     assert.equal(treeRow.type, 'asset')
 
-    // -> A different site's asset is untouched
     assert.notEqual(await assets.getContent(untouchedAsset.id), null)
     const otherContent = await assets.getContent(untouchedAsset.id)
     assert.equal(otherContent!.data.toString(), 'data')
@@ -223,9 +203,8 @@ test(
   { skip },
   async (t) => {
     await withTestSite(async (testSiteId) => {
-      // -> Only the `db` target itself is configured (the common, out-of-the-box case): no
-      //    direct-access target exists at all, so every asset's bytes stay right where they are —
-      //    nulling them here would be exactly the unrecoverable OpenProject #3375 data loss.
+      // -> Only the `db` target itself, the out-of-the-box case: with no direct-access target
+      //    anywhere, the db holds the only copy, so nulling bytes here would be unrecoverable.
       t.mock.method(CARDINAL.models.storage, 'getSiteTargets', async () => [
         makeStorageTarget(DB_MODULE, { siteId: testSiteId, isEnabled: true })
       ])
@@ -247,9 +226,7 @@ test(
   { skip },
   async (t) => {
     await withTestSite(async (testSiteId) => {
-      // -> An S3 target configured for images only (no `documents`/`others`/`large`) — matches how an
-      //    admin would actually scope a direct-access target rather than a target that happens to
-      //    cover everything, which the "nulls out ... every asset" test above already exercises.
+      // -> Scoped to images only, the way an admin would actually scope a direct-access target.
       t.mock.method(CARDINAL.models.storage, 'getSiteTargets', async () => [
         makeStorageTarget('s3', {
           siteId: testSiteId,

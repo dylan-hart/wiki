@@ -5,49 +5,34 @@ import type { SourceRecord } from '../connector.ts'
  * `mapSiteSettings` — site title/theme/branding/locale/mail
  *
  * A pure transform: no DB access, no side effects. Takes a parsed dump of a 2.5.x install's
- * `settings` table rows and produces (a) a `sites.config` JSONB patch, deep-mergeable onto
- * `Sites.createSite`'s own defaults the exact same way that method already merges an explicit
- * `config` argument — `toMerged(defaults, config)` (`backend/models/sites.ts:90-195`, `es-toolkit`) —
- * and (b) the subset of rows that belong on 3.0's instance-wide `settings` table instead, one entry
- * per row key, each itself `toMerged`-mergeable onto that row's own default
- * (`backend/models/settings.ts`'s `Settings.init()`).
+ * `settings` table rows and produces (a) a `sites.config` JSONB patch, deep-mergeable via
+ * `toMerged(defaults, patch)` onto `Sites.createSite`'s own defaults, and (b) the subset of rows
+ * belonging on 3.0's instance-wide `settings` table instead, one entry per row key, each mergeable
+ * the same way onto that row's own `Settings.init()` default. `phases/settings.ts` owns reading a
+ * source and doing the merge for real; this module only computes what to merge.
  *
- * `phases/settings.ts` owns reading a source and calling `toMerged` for real; this module only
- * computes what to merge.
- *
- * Scope, per `docs/migration/2.5x-settings-auth-storage-field-mapping.md` (the field-by-field spec
- * that is the source of every mapping below):
+ * What lands where (`docs/migration/2.5x-settings-auth-storage-field-mapping.md` is the
+ * field-by-field spec behind every mapping):
  *
  * - `sites.config`: `title`, `description` (from 2.x `seo.description`), `company`,
  *   `contentLicense`, `logoUrl`, `theme` (only the sub-fields with a 3.0 destination — colors and
  *   fonts have no 2.x source and are therefore never present in the patch), `locales.primary` (from
  *   2.x `lang.code`).
- * - instance-wide `settings`: `mail` (near-verbatim rename-free copy) and `security` (2.x's
- *   `security.*`, including its two polarity-inverted booleans, folded together with 2.x's
- *   `uploads.*` — which the field-mapping doc's biggest surprise moves onto this same 3.0 `security`
- *   row, not onto the identically-named but unrelated `sites.config.uploads`).
+ * - instance-wide `settings`: `mail` (a rename-free copy) and `security` — 2.x's `security.*`,
+ *   including its two polarity-inverted booleans, folded together with 2.x's `uploads.*`, which
+ *   moves onto this same 3.0 `security` row rather than the identically-named but unrelated
+ *   `sites.config.uploads`.
  *
- * Everything else the field-mapping doc catalogs (`features`, `robots`, `footerExtra`,
- * `pageExtensions`, `auth.autoLogin`/`hideLocal`, `enforce2FA`, the `loginBg` asset, `api`, the
- * `auth` certs/secret settings row, `flags`, `metrics`) is out of this task's named scope — either a
- * sibling mapper's concern (`./authentication.ts`, `./storage.ts`) or left, same as the doc itself
- * does, as documented NO DESTINATION / follow-up scope.
- *
- * A 2.x key that is absent from `rows` altogether (a source that never wrote it — the doc's `mail`
- * "never configured" example is the task description's own worked case) is never synthesized here:
- * an absent key means an absent field/section in the returned patch, so a downstream `toMerged`
- * leaves 3.0's own default completely alone rather than being overwritten with an empty string.
+ * A 2.x key absent from `rows` altogether is never synthesized: an absent key means an absent
+ * field/section in the returned patch, so the downstream `toMerged` leaves 3.0's own default alone
+ * rather than overwriting it with an empty string.
  */
 
 /**
- * One row as read from a 2.5.x install's `settings` table: `key`/`value`
- * (`docs/migration/2.5x-source-schema.md`'s `## settings` section — the third column, `updatedAt`,
- * carries nothing this mapper needs). `value` is exactly what a raw row carries: 2.x's own
- * `configSvc.saveToDb()` wraps every non-plain-object value as `{ v: <value> }`
- * (`server/core/config.js`, vendored under `docs/migration/vendor/2x-settings/`) and stores plain
- * objects (`mail`, `theming`, `lang`, `seo`, `security`, `uploads`, ...) unwrapped — `./shared.ts`'s
- * `unwrapKnexValue()` undoes exactly that, mirroring the identical unwrap 3.0's own
- * `Settings.getConfig()` already does (`backend/models/settings.ts`).
+ * One row as read from a 2.5.x install's `settings` table. `value` is exactly what a raw row carries:
+ * 2.x wraps every non-plain-object value as `{ v: <value> }` and stores plain objects (`mail`,
+ * `theming`, `lang`, `seo`, `security`, `uploads`, ...) unwrapped — `./shared.ts`'s
+ * `unwrapKnexValue()` undoes that.
  */
 export interface SiteSettingsSourceRow extends SourceRecord {
   key: string
@@ -55,13 +40,9 @@ export interface SiteSettingsSourceRow extends SourceRecord {
 }
 
 export interface SiteSettingsMapping {
-  /** Deep-mergeable via `toMerged(defaults, siteConfigPatch)` onto `Sites.createSite`'s default
-   * `config` object. Only ever carries fields this source actually supplied. */
   siteConfigPatch: Record<string, any>
-  /** One entry per instance-wide 3.0 `settings` row this source's data affects, each itself
-   * deep-mergeable via `toMerged(defaults, patch)` onto that row's own `Settings.init()` default.
-   * A key is present here only when the source had at least one field for that row — see the module
-   * doc comment on why an absent source key must not appear here even as `{}`. */
+  /** A key is present only when the source supplied at least one field for that row — never `{}`,
+   * which would merge over nothing but still read as "this source configured it". */
   instanceSettings: {
     mail?: Record<string, any>
     security?: Record<string, any>
@@ -84,9 +65,8 @@ const MAIL_FIELDS = [
   'dkimPrivateKey'
 ] as const
 
-/** 2.x `security.*` field name -> 3.0 `settings.security.*` field name. `securityOpenRedirect` and
- * `securityIframe` also need their boolean polarity inverted — handled separately, not through this
- * table, since a rename table has nowhere to express "and negate it". */
+/** 2.x `security.*` field name -> 3.0 `settings.security.*` field name. The two polarity-inverted
+ * booleans are handled separately: a rename table has nowhere to express "and negate it". */
 const SECURITY_RENAMES: Record<string, string> = {
   securityReferrerPolicy: 'enforceSameOriginReferrerPolicy',
   securityTrustProxy: 'trustProxy',
@@ -101,12 +81,8 @@ const SECURITY_INVERTED_RENAMES: Record<string, string> = {
   securityIframe: 'disallowIframe'
 }
 
-/** 2.x `uploads.*` field name -> 3.0 `settings.security.*` field name — the field-mapping doc's
- * "biggest scope surprise": these move tables (2.x `uploads` -> 3.0 `security`), not just names.
- * 2.x's `maxFiles` has no 3.0 counterpart to map to — `uploadMaxFiles` was a dead setting nothing
- * enforced (OpenProject #1360/#2152/#2174, 2026-08-24 security audit), deleted rather than kept as
- * inert config a fresh 3.0 install has no use for. `scanSVG` maps straight across: `uploadScanSVG`
- * is enforced (OpenProject #2170), so a migrated instance's existing choice carries over.
+/** 2.x `uploads.*` field name -> 3.0 `settings.security.*` field name: these move tables, not just
+ * names. 2.x's `maxFiles` is absent here deliberately — 3.0 has no `uploadMaxFiles` to map it onto.
  */
 const UPLOADS_TO_SECURITY_RENAMES: Record<string, string> = {
   maxFileSize: 'uploadMaxFileSize',

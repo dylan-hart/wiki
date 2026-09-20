@@ -3,15 +3,6 @@ import { describe, test } from 'node:test'
 import { toMerged } from 'es-toolkit/object'
 import { mapSiteSettings, type SiteSettingsSourceRow } from './site-settings.ts'
 
-/**
- * `mapSiteSettings` scope (task 764): only the fields the task description names —
- * title/description/company/contentLicense/logoUrl/theme(dark/tocPosition/injectCSS/injectHead/
- * injectBody)/locales.primary on the `sites.config` side, and `mail` + `security` (folding in 2.x's
- * `uploads.*`) on the instance-wide `settings` side. Every other 2.x key documented in
- * `docs/migration/2.5x-settings-auth-storage-field-mapping.md` is out of scope for this mapper
- * (either NO DESTINATION, or owned by a sibling task — auth strategies by 765, storage by 767).
- */
-
 describe('mapSiteSettings', () => {
   test('an empty source produces an empty patch — everything falls through to 3.0 defaults', () => {
     const result = mapSiteSettings([])
@@ -100,8 +91,7 @@ describe('mapSiteSettings', () => {
   })
 
   test('an install-time-default (never configured) mail row is still copied verbatim, field-by-field', () => {
-    // The exact shape server/setup.js inserts at install time, before an admin ever visits the mail
-    // settings screen — every field present, all still at their blank/default value.
+    // The shape 2.x's `server/setup.js` inserts at install time: every field present, all blank.
     const rows: SiteSettingsSourceRow[] = [
       {
         key: 'mail',
@@ -138,8 +128,8 @@ describe('mapSiteSettings', () => {
       dkimKeySelector: '',
       dkimPrivateKey: ''
     })
-    // `defaultBaseURL` is new in 3.0 with no 2.x source — must never appear in the patch, so
-    // toMerged(defaults, patch) leaves 3.0's own default value in place.
+    // `defaultBaseURL` has no 2.x source: it must stay out of the patch so `toMerged` leaves 3.0's
+    // own default in place.
     assert.equal('defaultBaseURL' in instanceSettings.mail!, false)
   })
 
@@ -203,15 +193,10 @@ describe('mapSiteSettings', () => {
     const rows: SiteSettingsSourceRow[] = [
       {
         key: 'uploads',
-        // -> `maxFiles` has no 3.0 destination (`security.uploadMaxFiles` was removed as a dead key
-        //    that nothing ever enforced; OpenProject #2174) and is expected to be dropped, not mapped.
-        //    `scanSVG` does map across -- `uploadScanSVG` is enforced in 3.0 (OpenProject #2170).
         value: { maxFileSize: 5242880, scanSVG: false, forceDownload: false }
       }
     ]
     const { instanceSettings } = mapSiteSettings(rows)
-    // -> `maxFiles` is 2.x-only: `uploadMaxFiles` was a dead 3.0 setting nothing enforced
-    //    (OpenProject #1360/#2152/#2174) and has been deleted, so there is nowhere for it to land.
     assert.deepEqual(instanceSettings.security, {
       uploadMaxFileSize: 5242880,
       uploadScanSVG: false,
@@ -264,10 +249,10 @@ describe('mapSiteSettings', () => {
 
       const mergedSite = toMerged(siteDefaults, siteConfigPatch)
       assert.equal(mergedSite.title, 'Acme Wiki')
-      assert.equal(mergedSite.company, '') // untouched sibling field
+      assert.equal(mergedSite.company, '')
       assert.equal(mergedSite.theme.injectCSS, '.a{}')
-      assert.equal(mergedSite.theme.colorPrimary, '#1976D2') // untouched sibling theme field
-      assert.equal(mergedSite.theme.dark, false) // untouched sibling theme field
+      assert.equal(mergedSite.theme.colorPrimary, '#1976D2')
+      assert.equal(mergedSite.theme.dark, false)
       assert.deepEqual(mergedSite.locales, {
         primary: 'en',
         active: ['en'],
@@ -277,7 +262,7 @@ describe('mapSiteSettings', () => {
 
       const mergedMail = toMerged(mailDefaults, instanceSettings.mail ?? {})
       assert.equal(mergedMail.host, 'smtp.acme.test')
-      assert.equal(mergedMail.defaultBaseURL, 'https://wiki.example.com') // untouched, no 2.x source
+      assert.equal(mergedMail.defaultBaseURL, 'https://wiki.example.com')
     }
   )
 })

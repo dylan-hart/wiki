@@ -2,18 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import { compress, decompressRaw } from './compress.js'
 
-/**
- * OpenProject #3173: `compress.js`'s own suite, added alongside `decompressRaw` -- the module was
- * previously the one file under `shared/` without a co-located test, exercised only as a side effect
- * of `block-kroki`/`block-plantuml`'s own suites.
- */
 describe('shared/compress.js', () => {
   describe('compress()', () => {
     it('deflates with a zlib header for format "deflate"', async () => {
       const bytes = await compress(new TextEncoder().encode('hello world'), 'deflate')
 
-      // -> A zlib-wrapped deflate stream starts with a two-byte header, 0x78 being the standard
-      //    "deflate, 32K window" CMF byte pako/zlib both write.
+      // -> 0x78 is zlib's standard "deflate, 32K window" CMF byte; a raw stream has no header.
       expect(bytes[0]).toBe(0x78)
     })
 

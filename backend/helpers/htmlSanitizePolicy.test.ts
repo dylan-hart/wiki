@@ -11,12 +11,8 @@ import { installTestWiki } from '../test/mocks.ts'
 import type { RenderPermissions } from './htmlSanitizePolicy.ts'
 
 /*
- * The policy half of what a save runs through: `sanitizeOptions()` fed straight to `sanitize-html`,
- * with no `postProcess` pipeline around it (that half lives in `models/rendering.test.ts`). Nothing
- * here reaches the database, and the one real dependency is `CARDINAL.models.blocks.definitions` --
- * `blockAllowances()` reads it to widen the allowlist per enabled block. None of these cases is about
- * a block, so the manifest is empty and every call passes an empty enabled set: what they are about is
- * the static tag/attribute/style allowlists underneath it.
+ * `blockAllowances()` reads `CARDINAL.models.blocks.definitions`. No case here is about a block, so
+ * the manifest is empty; the `postProcess` half lives in `models/rendering.test.ts`.
  */
 const wiki = installTestWiki({
   models: {
@@ -28,13 +24,8 @@ const wiki = installTestWiki({
 after(() => wiki.restore())
 
 /**
- * What the model's own `sanitize()` used to be: `sanitizeOptions()` fed straight to `sanitize-html`.
- *
- * The model no longer carries that wrapper -- `postProcess` calls `sanitizeOptions()` directly so its
- * two passes share one options object, and nothing but this file ever wanted the one-shot form.
- *
- * `permissions` is `Partial` because these tests only ever name the flag under test: `sanitizeOptions`
- * reads each one for truthiness, so an omitted flag behaves exactly like `false`.
+ * `permissions` is `Partial` so a test names only the flag under test: `sanitizeOptions` reads each
+ * one for truthiness, so an omitted flag behaves exactly like `false`.
  */
 function sanitize(
   html: string,
@@ -53,19 +44,15 @@ function sanitize(
 }
 
 /**
- * Sanitization is what a page's HTML has to survive to be stored -- and since Task 624
- * (`renderers/markdown.js`'s `$…$`/`$$…$$` TeX authoring) resolves straight to literal KaTeX
- * HTML/MathML at render time, that markup is now something a real page can carry, not just something
- * `block-katex` draws inside a shadow root the sanitiser never sees.
+ * Inline `$…$`/`$$…$$` TeX resolves to literal KaTeX HTML/MathML at render time, so a stored page
+ * carries that markup through the sanitiser -- unlike `block-katex`, which draws inside a shadow
+ * root the sanitiser never sees.
  */
 
 describe('sanitizeOptions -- KaTeX MathML from inline TeX authoring', () => {
   test('keeps the accent/variant/thickness attributes KaTeX writes onto MathML tags', () => {
-    // -> A minimal stand-in for what `katex.renderToString({ output: 'htmlAndMathml' })` actually
-    //    emits for `\vec{v}`, `\binom{n}{k}` and a variant-styled identifier -- real output, trimmed
-    //    to the four attributes this test exists to protect (see the task's PR description for the
-    //    full battery that found them: `mover:accent`, `munder:accentunder`, `mfrac:linethickness`,
-    //    `mi:mathvariant` all silently dropped before `BASE_ALLOWED_ATTRIBUTES` named them).
+    // -> Real `katex.renderToString({ output: 'htmlAndMathml' })` output for `\vec{v}`,
+    //    `\binom{n}{k}` and a variant-styled identifier, trimmed to the attributes under test.
     const html =
       '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics>' +
       '<mover accent="true"><mi>v</mi><mo>⃗</mo></mover>' +
@@ -85,25 +72,11 @@ describe('sanitizeOptions -- KaTeX MathML from inline TeX authoring', () => {
 })
 
 /*
-  Task 629's audit: verify the allowlist against each engine's *actual* output rather than trusting
-  what is already declared, using mhchem (`\ce{}`/`\pu{}`) specifically because chemical notation
-  exercises MathML shapes a plain algebraic formula does not -- `mpadded`, `mphantom` and `msub` used
-  together for the isotope/coefficient overlap trick, `mo[stretchy][minsize]` for the reaction arrow,
-  and `mstyle[scriptlevel][displaystyle]` wrapping a unit fraction.
-
-  These two strings are captured byte-for-byte from a real `katex.renderToString(source, { output:
-  'htmlAndMathml' })` run with `katex/contrib/mhchem` loaded (the same import `block-katex/component.js`
-  makes) -- not reconstructed by hand. Both come back from sanitization with their `<math>…</math>`
-  identical to the byte, so this records a clean audit result, not a fix: every tag and attribute
-  mhchem's MathML writer uses was already covered by what Task 624 added.
-
-  mhchem is NOT wired into `renderers/markdown.js`'s literal `$…$`/`$$…$$` path today -- only plain
-  `katex` is imported there, so `\ce{}` in inline TeX currently throws ("Undefined control sequence")
-  and falls to the error panel, same as any other unrecognised command. This test is not exercising a
-  path that is live in the app; it is insurance for the allowlist itself, which is live (the plain-
-  algebra MathML this same sanitiser sees every time an author writes `$x^2$` uses many of the same
-  tags). If a later task wires mhchem into the literal path -- or `\ce{}` support becomes part of
-  "Engine Selection" -- this confirms the allowlist will not need touching to carry it.
+  mhchem exercises MathML shapes a plain algebraic formula does not: `mpadded`/`mphantom`/`msub` for
+  the isotope/coefficient overlap, `mo[stretchy][minsize]` for the reaction arrow,
+  `mstyle[scriptlevel][displaystyle]` around a unit fraction. Both strings are captured byte-for-byte
+  from a real `katex.renderToString(source, { output: 'htmlAndMathml' })` run with
+  `katex/contrib/mhchem` loaded, not reconstructed by hand.
 */
 describe('sanitizeOptions -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () => {
   test('keeps every tag and attribute a real \\ce{} render writes into MathML', () => {
@@ -143,13 +116,9 @@ describe('sanitizeOptions -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () => {
 })
 
 /**
- * OpenProject #1360/#2180 (2026-08-24 security audit §3): `style` was in `BASE_ALLOWED_ATTRIBUTES`
- * unconditionally, with no declaration-level filtering — `sanitizeHtml`'s `allowedStyles` was simply
- * never passed, so any CSS survived verbatim on any element regardless of `write:styles`. An author
- * without the permission could write `style="position:fixed;inset:0;z-index:999"` and cover the
- * whole viewport from inside ordinary page content, since nothing about a scroll container's own
- * ancestor chain clips a `position: fixed` box. `permissions: {}` throughout (no `styles: true`) is
- * the author-without-`write:styles` case these tests are about.
+ * The threat: nothing clips a `position: fixed` box, so `position:fixed;inset:0;z-index:999` would
+ * cover the whole viewport from inside ordinary page content. `permissions: {}` is the
+ * author-without-`write:styles` case.
  */
 describe('sanitizeOptions -- allowedStyles (OpenProject #2180)', () => {
   test('drops position:fixed, inset and z-index for an author without write:styles', () => {
@@ -159,8 +128,7 @@ describe('sanitizeOptions -- allowedStyles (OpenProject #2180)', () => {
     assert.doesNotMatch(clean, /position:\s*fixed/)
     assert.doesNotMatch(clean, /inset/)
     assert.doesNotMatch(clean, /z-index/)
-    // -> Not a blanket style strip: an unrelated, harmless declaration on the very same attribute
-    //    survives, proving this is allowlist filtering rather than a `style`-attribute-wide gate.
+    // -> Filtering is per declaration, not a strip of the whole `style` attribute.
     assert.match(clean, /color:\s*red/)
   })
 
@@ -185,18 +153,14 @@ describe('sanitizeOptions -- allowedStyles (OpenProject #2180)', () => {
     assert.doesNotMatch(clean, /opacity/)
     assert.doesNotMatch(clean, /pointer-events/)
     assert.doesNotMatch(clean, /content/)
-    // -> `top` alone (no `position: fixed`) is inert layout-wise and is real KaTeX output, so it
-    //    survives.
+    // -> `top` without `position: fixed` is inert, and KaTeX emits it.
     assert.match(clean, /top:\s*1em/)
   })
 
   test('keeps every declaration a real katex.renderToString({ output: "html" }) run emits', () => {
     /*
-      Captured from a real KaTeX 0.16 `renderToString('\\frac{a}{b} + x^2 - \\sqrt{y}', { output:
-      'html' })` run (frontend/blocks dependency; not importable from backend, so the exact
-      declarations are reproduced here as a fixture) -- the same style the audit asked this task to
-      validate against, covering fractions, roots, exponents, and the negative-em offsets KaTeX
-      relies on throughout.
+      Captured from a real `katex.renderToString('\\frac{a}{b} + x^2 - \\sqrt{y}', { output: 'html' })`
+      run. KaTeX is a frontend/blocks dependency, not importable from backend, hence a fixture.
     */
     const declarations = [
       'height:1.0404em;vertical-align:-0.345em;',
@@ -243,12 +207,6 @@ describe('sanitizeOptions -- allowedStyles (OpenProject #2180)', () => {
   })
 })
 
-/**
- * OpenProject #2183: `sanitizeOptions()` now passes `allowedStyles` to `sanitize-html`, gating which inline
- * `style` *declarations* survive (not just whether the attribute itself is present) on `write:styles`
- * -- `position: fixed` with no clipping ancestor is what lets an author without the permission cover
- * the viewport or hide content from readers while it stays in the source and search index.
- */
 describe('sanitizeOptions -- allowedStyles gates inline CSS by write:styles (OpenProject #2183)', () => {
   test('drops position/inset/z-index declarations for an author without write:styles, keeping an unrelated color declaration', () => {
     const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
@@ -273,8 +231,6 @@ describe('sanitizeOptions -- allowedStyles gates inline CSS by write:styles (Ope
   })
 
   test('keeps the KaTeX-sized safe properties for an author without write:styles, so no formula loses its layout', () => {
-    // -> The shape KaTeX actually writes onto formula spans: sizing, fine positioning within a
-    //    relatively-positioned ancestor, and colour -- none of it needs `write:styles` to render.
     const html =
       '<span style="height: 0.8em; width: 1.2em; margin-right: 0.05em; ' +
       'padding-left: 0.1em; top: -0.3em; left: 0.02em; vertical-align: -0.2em; ' +
@@ -300,14 +256,8 @@ describe('sanitizeOptions -- allowedStyles gates inline CSS by write:styles (Ope
   })
 
   /**
-   * OpenProject #3398: the WYSIWYG editor's text-colour/highlight-colour/text-align marks
-   * serialize to `style="…"` declarations that were already on `ALLOWED_STYLES` before this WP
-   * (`color`, `background-color`, `text-align`), so an author without `write:styles` keeps them
-   * on round-trip -- confirmed directly here rather than only inferred from the KaTeX-sized test
-   * above. `font-family` is deliberately NOT on that allowlist, so the fourth mark this WP covers
-   * is the one that does NOT survive for such an author: that is the "safe subset the sanitizer
-   * already permits" the work package's own acceptance criteria describes, not a gap this WP left
-   * unfixed.
+   * `font-family` is deliberately not on `ALLOWED_STYLES`: of the WYSIWYG editor's `style="…"`
+   * marks, it is the one an author without `write:styles` loses on round-trip.
    */
   test("keeps the WYSIWYG editor's colour/highlight/align declarations for an author without write:styles, but drops font-family", () => {
     const html =
@@ -331,14 +281,6 @@ describe('sanitizeOptions -- allowedStyles gates inline CSS by write:styles (Ope
   })
 })
 
-/**
- * OpenProject #2458 (part of Feature #2418's "Admin-configurable allowed URL schemes for page
- * links"): the categorical block. A site's admin-configured `allowedUrlSchemes` setting (wired
- * through by #2459, see the describe below) must never be able to smuggle `javascript:`, `vbscript:`,
- * or a non-img `data:` back into the sanitizer's allowlist. These tests exercise `mergeAllowedSchemes()`
- * directly (the one function allowed to produce `allowedSchemes`/`allowedSchemesByTag`) and
- * `sanitizeOptions()`'s threading of it.
- */
 describe('mergeAllowedSchemes -- categorical block (OpenProject #2458)', () => {
   test('refuses javascript, vbscript and data regardless of case, whitespace or a trailing colon', () => {
     const merged = mergeAllowedSchemes([
@@ -432,12 +374,6 @@ describe('sanitizeOptions -- additionalSchemes threading (OpenProject #2458)', (
   })
 })
 
-/*
- * OpenProject #2459 (Feature #2418's Scope): a site's admin-configured `allowedUrlSchemes` is wired
- * into `allowedSchemes`/`allowedSchemesByTag.img` here, additive to the hardcoded `ALLOWED_SCHEMES`
- * floor -- never a replacement for it, and never able to smuggle in the categorically blocked
- * schemes `#2458` owns enforcing canonically.
- */
 describe('sanitizeOptions -- admin-configured allowedUrlSchemes (OpenProject #2459)', () => {
   function sanitizeWithSchemes(html: string, allowedUrlSchemes: string[]): string {
     return sanitizeHtml(
@@ -494,8 +430,7 @@ describe('sanitizeOptions -- admin-configured allowedUrlSchemes (OpenProject #24
   test('"data" in config does not widen the img allowance beyond what is already unconditional', () => {
     const clean = sanitizeWithSchemes('<img src="data:image/png;base64,AAAA">', ['data'])
 
-    // -> Already allowed for img regardless of config -- proving the denylist entry is a no-op here,
-    //    not that it silently broke the pre-existing allowance
+    // -> `data:` on img is allowed regardless of config; the denylist entry must not break that
     assert.match(clean, /src="data:image\/png;base64,AAAA"/)
   })
 
@@ -527,12 +462,9 @@ describe('sanitizeOptions -- admin-configured allowedUrlSchemes (OpenProject #24
 })
 
 /*
- * OpenProject #2911: the exact wording/markup a permission-gated `<iframe>`/`<script>`/`<style>` is
- * replaced with. `applyPermissionPlaceholders`'s wiring into a real sanitize pass is covered at the
- * `postProcess` level in `models/rendering.test.ts` -- what belongs here is that this pure string
- * stays pinned to the same shape a `> [!CAUTION]` GitHub-style admonition renders
- * (`renderers/modules/github-alerts.js`'s `caution` kind), since the frontend's own copy of this
- * function has no import path back to this one to guarantee the two agree.
+ * Pins the exact string: the frontend keeps its own copy of this function (`renderers/markdown.js`)
+ * with no import path back to this one, and both must match what a `> [!CAUTION]` admonition
+ * renders.
  */
 describe('gatedContentPlaceholder (OpenProject #2911)', () => {
   test('names the missing permission inside a "caution"-classed admonition', () => {

@@ -7,11 +7,6 @@ import { paginate } from '../helpers/pagination.ts'
 import type { JobState } from './jobs.ts'
 import type { RateLimitPolicy } from './rateLimits.ts'
 
-/**
- * The events a webhook can subscribe to, as offered by the admin area.
- *
- * See {@link EMITTED_EVENTS} for which of these something in the server actually fires today.
- */
 export const HOOK_EVENTS = [
   'page:create',
   'page:edit',
@@ -37,15 +32,8 @@ export const HOOK_EVENTS = [
 export type HookEvent = (typeof HOOK_EVENTS)[number]
 
 /**
- * The events something in the server actually emits today.
- *
- * Kept as an explicit list rather than inferred from the prefix, since a new entry in
- * {@link HOOK_EVENTS} does not necessarily have an `emit()` call wired up yet. Add an event here when
- * you add its `emit()` call.
- *
- * `comment:*`'s `emit()` calls live in `models/comments.ts`'s `create`/`update`/`delete`, matching
- * `page:*`/`asset:*` (OpenProject #1923 moved these out of `api/comments.ts`, the one route-layer
- * exception to that convention).
+ * Explicit rather than derived from {@link HOOK_EVENTS}: an entry there does not necessarily have
+ * an `emit()` call wired up yet. Add an event here when you add its `emit()` call.
  */
 export const EMITTED_EVENTS: HookEvent[] = [
   'page:create',
@@ -69,10 +57,8 @@ export const EMITTED_EVENTS: HookEvent[] = [
   'page:classification-changed'
 ]
 
-/** A webhook as exposed by the API. */
 export type Hook = typeof hooksTable.$inferSelect
 
-/** One recorded attempt to deliver an event to a webhook. */
 export interface HookDelivery {
   event: string
   state: JobState
@@ -83,20 +69,16 @@ export interface HookDelivery {
   completedAt: Date | null
 }
 
-/** One page of a webhook's delivery history, with the total matching the filter. */
 export interface HookDeliveryPage {
   total: number
   deliveries: HookDelivery[]
 }
 
-/** How long a remote endpoint has to answer before the delivery counts as failed. */
 const DELIVERY_TIMEOUT = 15000
 
 /**
- * Defaults for the per-webhook delivery rate limit, used until an operator configures their own and
- * whenever a stored value is missing or unusable. Sixty a minute is far more than any of the events
- * this fires on legitimately produces in a burst, and is what stands between one busy hook and either
- * the remote endpoint or the shared job queue being flooded by it.
+ * Sixty a minute far exceeds any legitimate burst of these events, and is what keeps one busy hook
+ * from flooding either its endpoint or the shared job queue.
  */
 const WEBHOOK_RATE_LIMIT_DEFAULTS: RateLimitPolicy = {
   max: 60,
@@ -104,12 +86,7 @@ const WEBHOOK_RATE_LIMIT_DEFAULTS: RateLimitPolicy = {
   banSeconds: 60
 }
 
-/**
- * The configured policy for `emit()`'s per-hook rate limit.
- *
- * Same fallback shape as `helpers/rateLimit.ts#authPolicy()`: every field falls back on its own, and
- * the two durations are stored as an operator wrote them (`1m`, `5m`) rather than as raw seconds.
- */
+/** The two durations are stored as an operator wrote them (`1m`, `5m`), not as raw seconds. */
 function webhookRateLimitPolicy(): RateLimitPolicy {
   const scheduler = CARDINAL.config.scheduler ?? {}
   const max = Number(scheduler.webhookRateLimitMax)
@@ -127,14 +104,11 @@ function webhookRateLimitPolicy(): RateLimitPolicy {
 }
 
 /**
- * POST a JSON body, with control over certificate validation.
- *
  * `node:https` rather than `fetch`: a webhook may legitimately point at an endpoint with a
  * self-signed certificate, and per-request TLS options are not expressible through fetch.
  *
- * Exported so `api/hooks.ts` can reuse it for `POST /hooks/test` — a synthetic delivery to a URL
- * that need not belong to any saved webhook (or even be valid yet), so it has no `hookId` to look up
- * and must not go through `deliver()`, which reads and writes a persisted hook's state.
+ * Exported for the test-delivery route, whose target need not belong to any saved webhook and so
+ * cannot go through `deliver()`, which reads and writes a persisted hook's state.
  */
 export function postJson(
   url: string,
@@ -162,12 +136,10 @@ export function postJson(
           ...(authHeader ? { authorization: authHeader } : {})
         },
         timeout: DELIVERY_TIMEOUT,
-        // -> Not a blanket TLS bypass: `acceptUntrusted` is a per-webhook admin opt-in
-        // (`acceptUntrusted` column, default false) an admin must explicitly set on that one
-        // webhook, and it only ever applies when the target is already `https:`. Intentional, for
-        // webhook targets on self-signed/internal certs — see docs/decisions/
-        // 2026-09-17-webhook-accept-untrusted-tls-opt-in.md. (Flagged by scanners grepping for
-        // `rejectUnauthorized: false`, e.g. Semgrep's bypass-tls-verification rule.)
+        // -> Not a blanket TLS bypass: `acceptUntrusted` is a per-webhook admin opt-in, default
+        // false, applying only when the target is already `https:`, for receivers on
+        // self-signed/internal certs. Semgrep's bypass-tls-verification flags the literal — see
+        // docs/decisions/2026-09-17-webhook-accept-untrusted-tls-opt-in.md.
         ...(target.protocol === 'https:' && acceptUntrusted ? { rejectUnauthorized: false } : {})
       },
       (res) => {
@@ -185,24 +157,16 @@ export function postJson(
 }
 
 /**
- * Hooks model
- *
- * Webhooks POST a JSON body to a remote endpoint when something happens. Delivery goes through the
- * scheduler rather than the request that triggered it: a slow or broken endpoint must not delay a
- * user's action, and the scheduler already provides retries and a place to see failures.
+ * Delivery goes through the scheduler rather than the request that triggered it: a slow or broken
+ * endpoint must not delay a user's action, and the scheduler already provides retries and a place
+ * to see failures.
  */
 class Hooks {
-  /**
-   * Every webhook, newest first
-   */
   async getHooks(): Promise<Hook[]> {
     const results = await CARDINAL.db.select().from(hooksTable).orderBy(desc(hooksTable.createdAt))
     return results
   }
 
-  /**
-   * A single webhook, or null if there is no such webhook
-   */
   async getHookById(id: string): Promise<Hook | null> {
     const results = await CARDINAL.db
       .select()
@@ -213,24 +177,9 @@ class Hooks {
   }
 
   /**
-   * A webhook's delivery history, most recently started first.
-   *
-   * Backed by `jobHistory` — `deliver()` runs as the `dispatchWebhook` task and every attempt is
-   * already recorded there, so this reads that log rather than keeping a second one. Paginated the
-   * same way `models/jobs.ts#getHistory()` paginates: `total` counts every matching row, `deliveries`
-   * is capped at `limit`, so a caller can tell it is looking at a truncated view.
-   *
-   * Retention is `jobHistory`'s own — `scheduler.historyExpiration` (~25h by default), purged by the
-   * same `cleanJobHistory` task as every other job. Deliberately not given its own longer-lived
-   * retention: the durable signal for "is this webhook healthy" is `hooks.state` /
-   * `hooks.lastErrorMessage`, which this table has nothing to do with and which never expires. This
-   * history is recent-attempts diagnostics on top of that — a window onto the last day or so of
-   * retries — not an audit log, so the shared retention is the right default. A longer-lived history
-   * would need its own config knob and cleanup path (not a reason to duplicate this table); revisit
-   * if that diagnostic window in practice proves too short.
-   *
-   * @param hookId Which webhook's deliveries to return
-   * @param limit Caps the rows returned
+   * Backed by `jobHistory` rather than a second log of its own, so retention is `jobHistory`'s:
+   * recent-attempts diagnostics, not an audit log. The durable "is this webhook healthy" signal is
+   * `hooks.state` / `hooks.lastErrorMessage`, which never expires.
    */
   async getDeliveryHistory(
     hookId: string,
@@ -262,11 +211,6 @@ class Hooks {
     return { total, deliveries: rows }
   }
 
-  /**
-   * Create a webhook. It starts out pending: no event has reached it yet.
-   *
-   * @returns The new webhook's ID
-   */
   async createHook(values: {
     name: string
     events: string[]
@@ -275,7 +219,7 @@ class Hooks {
     includeContent?: boolean
     acceptUntrusted?: boolean
     authHeader?: string
-    // -> Null (or omitted) means "all sites" — see the column comment in `db/schema.ts`
+    // -> Null (or omitted) means every site
     siteId?: string | null
   }): Promise<string> {
     const result = await CARDINAL.db
@@ -296,12 +240,8 @@ class Hooks {
   }
 
   /**
-   * Update a webhook.
-   *
-   * Changing where or what it sends resets the state to pending: the previous outcome says nothing
-   * about the new configuration.
-   *
-   * @returns Whether a webhook was updated
+   * Changing where or what a webhook sends resets its state to pending: the previous outcome says
+   * nothing about the new configuration.
    */
   async updateHook(id: string, patch: Record<string, any>): Promise<boolean> {
     const values: Record<string, any> = { ...patch, updatedAt: sql`now()` }
@@ -313,34 +253,18 @@ class Hooks {
     return (result.rowCount ?? 0) > 0
   }
 
-  /**
-   * Delete a webhook
-   *
-   * @returns Whether a webhook was deleted
-   */
   async deleteHook(id: string): Promise<boolean> {
     const result = await CARDINAL.db.delete(hooksTable).where(eq(hooksTable.id, id))
     return (result.rowCount ?? 0) > 0
   }
 
   /**
-   * Queue a delivery for every webhook subscribed to an event.
+   * Never throws, so it is safe to call inline from a request handler: a webhook problem must not
+   * fail the action that triggered it.
    *
-   * Safe to call from anywhere, including request handlers: it only writes jobs, and it never throws
-   * — a webhook problem must not fail the action that triggered it.
-   *
-   * @param siteId Which site the event happened on, or `null` for an event with no site context
-   *                (`user:join`/`user:login`/`user:logout` — users are global entities). A hook
-   *                scoped to one site (`hooks.siteId` set) only fires for that exact site; a hook
-   *                scoped to every site (`hooks.siteId` null) always fires. This means a site-scoped
-   *                hook deliberately does NOT receive a `siteId: null` event: "no site context" is not
-   *                a wildcard match against a specific site, the same way a site-scoped API key's
-   *                permissions don't extend to an action that has no page/site context either.
-   * @param data Event-specific payload. `metadata` and `content` are stripped per webhook, according
-   *             to what each one asked for.
-   * @returns How many webhook deliveries were queued. Does not count the email fan-out below — see
-   *          {@link notifyEmailSubscribers} — which is an independent channel with its own count
-   *          nobody outside this method has ever needed to know.
+   * @param siteId `null` for an event with no site context (`user:*` — users are global entities).
+   *               A hook scoped to one site deliberately does NOT receive those: "no site context"
+   *               is not a wildcard match.
    */
   async emit(
     event: HookEvent,
@@ -365,10 +289,8 @@ class Hooks {
       for (const hook of subscribed) {
         const verdict = await CARDINAL.models.rateLimits.consume(`webhook:${hook.id}`, policy)
         if (!verdict.allowed) {
-          // -> Admission decision, not a delivery outcome: the hook's persisted `state` describes
-          //    what happened to an attempted delivery (pending/success/error), and this delivery was
-          //    never attempted. A warn line is the only trace of it, same as the queueing failure
-          //    below.
+          // -> Admission decision, not a delivery outcome: the hook's persisted `state` describes an
+          //    attempted delivery, and this one never was
           CARDINAL.logger.warn(
             'hooks',
             'webhook is over its delivery rate limit, skipping delivery',
@@ -389,9 +311,8 @@ class Hooks {
         }
         const added = await CARDINAL.scheduler.addJob({
           task: 'dispatchWebhook',
-          // -> The instance travels with the job because the delivery does not happen here: it runs
-          //    in a worker thread, whose `INSTANCE_ID` names the thread rather than the wiki, and
-          //    what a subscriber wants to know is which instance the event came from
+          // -> The instance travels with the job: delivery runs in a worker thread, whose
+          //    `INSTANCE_ID` names the thread rather than the wiki a subscriber wants named
           payload: { hookId: hook.id, event, data: payload, instance: CARDINAL.INSTANCE_ID }
         })
         if (added?.id) {
@@ -402,25 +323,17 @@ class Hooks {
       CARDINAL.logger.warn('hooks', 'queueing the webhook deliveries failed', { event, error: err })
     }
 
-    // -> A further, independent fan-out for the same event — see `notifyEmailSubscribers`'s own doc
-    //    comment for why it is separate from (and cannot affect) the webhook queueing above.
     await this.notifyEmailSubscribers(event, siteId, data)
 
     return queued
   }
 
   /**
-   * Queue an email notification job for every user subscribed (`CARDINAL.models.users
-   * .listEmailSubscribers`) to this event type — the email half of `emit()`'s fan-out, alongside the
-   * webhook queueing above. Independent of it on purpose: a broken webhook lookup must not stop a
-   * subscribed user from being emailed, and vice versa, so each has its own `try`/`catch` rather than
-   * sharing one — the same "safe to call from anywhere, never throws" contract `emit()` itself
-   * documents.
+   * Its own `try`/`catch` rather than sharing `emit()`'s: a broken webhook lookup must not stop a
+   * subscribed user being emailed, or the reverse.
    *
-   * Resolves the subscriber list once, here, and hands the resolved ids to the job — never re-queries
-   * at delivery time — matching `models/pages.ts#notifyWatchers`'s convention for
-   * `notifyPageWatchers` (see that job's own doc comment for why: an event's context can be gone by
-   * the time a queued job actually runs, e.g. a delete).
+   * The subscriber list is resolved here and handed to the job rather than re-queried at delivery
+   * time, when the event's context can be gone (a delete, say).
    */
   private async notifyEmailSubscribers(
     event: HookEvent,
@@ -450,13 +363,11 @@ class Hooks {
   }
 
   /**
-   * Deliver one event to one webhook, recording the outcome on the webhook.
+   * Runs as the `dispatchWebhook` task in a worker thread, so everything it needs comes from the job
+   * or the database — `instance` is whichever instance queued the delivery, not the thread making
+   * it.
    *
-   * Called by the `dispatchWebhook` task, which runs in a worker thread — so everything it needs
-   * comes from the job or the database, and `instance` in particular is the one that queued the
-   * delivery rather than whatever thread is making it.
-   *
-   * Throws on failure so that the scheduler retries it.
+   * Throws on failure so the scheduler retries.
    */
   async deliver({
     hookId,
@@ -509,7 +420,6 @@ class Hooks {
         event,
         error: err
       })
-      // -> Rethrown so the job fails and the scheduler retries with its usual backoff
       throw err
     }
   }
@@ -518,29 +428,12 @@ class Hooks {
 export const hooks = new Hooks()
 
 /**
- * Tell the outside world that a page or an asset changed: webhooks first, then storage targets.
+ * Webhook emit, then storage dispatch, both awaited in that order: the triggering write must not
+ * resolve until both have.
  *
- * Ten write paths across `models/pages.ts` and `models/assets.ts` — create, edit, rename, delete and
- * the folder-cascade delete, for each of the two content kinds — each ended with the same pair of
- * awaited calls carrying near-identical payloads. What actually differs between the two calls is
- * small and fixed: a webhook may be given `metadata` (whatever a subscriber asked to be told beyond
- * the identity of the thing that changed), while a storage dispatch may be given the couple of extra
- * columns a target needs to classify the content (`kind`/`fileSize`).
- *
- * A module function rather than a method on `Hooks`, because both call sites are other models and
- * both of their test suites stand `CARDINAL.models.hooks` up as a bare `{ emit }` stub — a method here
- * would not exist on those stubs, while this reads `CARDINAL.models.hooks.emit` and
- * `CARDINAL.models.storage.dispatch` at call time, exactly as the inlined copies did.
- *
- * Both calls are awaited in this order, deliberately: `assets.test.ts` asserts that an upload does
- * not resolve until both have. The payloads are what external consumers actually receive, so they are
- * assembled here to be byte-identical to what each site sent before (`pages.test.ts` and
- * `assets.test.ts` assert them field for field) — `data` carries its own `siteId` in its own
- * position rather than having one spliced in here.
- *
- * @param data The shared payload, sent as-is to both
- * @param extra.metadata Merged into the webhook payload only, as `metadata`
- * @param extra.dispatchExtra Merged into the storage-dispatch payload only
+ * A module function rather than a method on `Hooks`, because both call sites are other models whose
+ * test suites stand `CARDINAL.models.hooks` up as a bare `{ emit }` stub — a method here would not
+ * exist on those stubs, while this reads `CARDINAL.models.hooks.emit` at call time.
  */
 export async function announce(
   event: HookEvent,

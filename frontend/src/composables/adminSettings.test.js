@@ -10,23 +10,13 @@ import { useAdminSettings } from './adminSettings.js'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/*
-  The composable is the load/save skeleton the admin settings pages share, so what is asserted here is
-  the orchestration around a page's own `fetch`/`commit`: the loading gauge and the full-screen
-  overlay, the three toasts and their keys, the merge over `defaults()`, the site-switch watcher and
-  the "am I editing the site I'm browsing" gate on `onSavedCurrentSite`.
-*/
-
 const I18N_PREFIX = 'admin.general'
 
 /**
  * `useAdminSettings` calls `useI18n()`, `onMounted()` and two stores, so it needs a real component
- * instance -- this mounts a harness whose only job is to run the composable and hand back what it
- * returned, alongside the stores the caller may want to drive.
- *
- * `siteId` is applied before the composable runs, so the mounted load a real page gets is the only
- * thing that has happened by the time a test starts: the site watcher does not also fire. Everything
- * the mount did is cleared before the test's own call, so counts are the test's own.
+ * instance. `siteId` is applied before the composable runs, so the mounted load is the only thing
+ * that has happened by the time a test starts -- the site watcher does not also fire -- and
+ * everything the mount did is cleared, so counts are the test's own.
  */
 async function mountComposable({ siteId = null, messages = {}, ...opts } = {}) {
   const i18n = createTestI18n(messages)
@@ -177,7 +167,6 @@ describe('useAdminSettings() load', () => {
     })
 
     const pending = api.load()
-    // -> The reader toggles something before this in-flight load's response ever lands.
     api.state.config.dark = true
     resolveFetch({ colorPrimary: '#000', dark: false })
     await pending
@@ -206,7 +195,7 @@ describe('useAdminSettings() load', () => {
     await pending
 
     expect(api.state.active).toEqual(['en', 'fr'])
-    // -> Neither the superseded mount call nor the edited call ever applies its response
+    // -> The mount's own call shares this promise, and was superseded -- so neither applies.
     expect(onLoaded).not.toHaveBeenCalled()
   })
 
@@ -227,9 +216,8 @@ describe('useAdminSettings() load', () => {
     })
 
     const pending = api.load()
-    // -> The reader edits an extraState field -- not state.config -- before this in-flight load's
-    //    response ever lands. Before the fix, snapshotTracked() only ever compared state.config for
-    //    a page configuring both, so this edit went undetected and the response below was applied.
+    // -> An `extraState` edit, not a `state.config` one: the tracked snapshot has to cover both
+    //    when a page configures both, or this edit goes undetected and the response is applied.
     api.state.active = ['en', 'fr']
     resolveFetch({ colorPrimary: '#000' })
     await pending
@@ -254,9 +242,8 @@ describe('useAdminSettings() load', () => {
           resolveSecond = resolve
         })
       )
-    // -> No siteId yet, so mount fires no fetch of its own (the "no site selected" guard) -- the
-    //    watcher below is this test's own first `load()` call, its second an explicit one, so their
-    //    order (and which fetch call each gets) is unambiguous.
+    // -> No siteId yet, so the mount fires no fetch of its own -- the watcher below is this test's
+    //    first `load()` call, making which fetch call each gets unambiguous.
     const { api, adminStore } = await mountComposable({
       defaults: () => ({ colorPrimary: '#FFF' }),
       fetch
@@ -267,8 +254,7 @@ describe('useAdminSettings() load', () => {
     expect(fetch).toHaveBeenCalledTimes(1)
 
     const second = api.load()
-    // -> The second call resolves first; the first call's response arrives after and must not
-    //    overwrite it.
+    // -> The second call resolves first; the first's response lands after and must not win.
     resolveSecond({ colorPrimary: '#0F0' })
     await second
     expect(api.state.config).toEqual({ colorPrimary: '#0F0' })
@@ -431,8 +417,7 @@ describe('useAdminSettings() save', () => {
     const ok = await api.save()
 
     // -> The commit itself went through and its success toast was already raised, but the page has
-    //    something left undone -- so `save()` answers false and the failure is reported, rather than
-    //    the page carrying on as if everything had landed.
+    //    something left undone, so it must not carry on as if everything had landed.
     expect(ok).toBe(false)
     expect(onSavedCurrentSite).not.toHaveBeenCalled()
     expect(notifyQueue.at(-1)).toMatchObject({

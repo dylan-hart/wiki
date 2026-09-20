@@ -6,42 +6,25 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #2969 ("Add Cobalt typography regression tests"), Epic #2968 ("Cobalt typography
- * role-table conformance sweep"). Pins down `ui-iteration-cobalt-typography/cobalt-typography.md`
- * §7's own test spec, written against that document's role table (§3) and its four role swaps (§4):
- * outside those four, Cobalt is required to move colour ONLY -- every type role's family, size,
- * weight, line-height and letter-spacing has to be identical to Ledger's, and identical again between
- * Cobalt light and Cobalt dark (§5: "dark restates colours only").
+ * Cobalt moves colour ONLY: outside the named role swaps, every type role's family, size, weight,
+ * line-height and letter-spacing is identical to Ledger's, and identical again between Cobalt light
+ * and Cobalt dark.
  *
- * This file intentionally makes almost no assertion about what a role's ABSOLUTE metrics are -- the
- * round of sibling work packages that land alongside this one (#2973-#2984) are what set those
- * values, several of them by rewriting `em`-relative rules to the absolute px the handoff calls for,
- * and hard-coding today's numbers here would just make this suite the next thing that goes stale. What
- * IS pinned, per §7, is the INVARIANT: same metrics across aesthetic and mode, except at the four named
- * role-swap seams, where the Cobalt-specific values ARE asserted literally, off the spec table.
+ * That INVARIANT is what is pinned here -- deliberately almost no assertion about a role's ABSOLUTE
+ * metrics, which are owned by the rules themselves and would make this suite the next thing to go
+ * stale. Only at the role-swap seams, where the two aesthetics are allowed to differ in more than
+ * colour, are Cobalt's own values asserted literally.
  */
-
-// ---------------------------------------------------------------------------------------------
-// Source-scan: the two `body.body--cobalt` / `body.body--cobalt.body--dark` token blocks in
-// `tailwind.css` never restate a `--font-*` custom property or set a literal font-size/font-weight/
-// line-height/letter-spacing/text-transform declaration (§2 -- extends `cobaltTokens.test.js`'s
-// source-scan pattern to the typography half of the same constraint).
-// ---------------------------------------------------------------------------------------------
 
 const CSS_PATH = join(dirname(fileURLToPath(import.meta.url)), 'tailwind.css')
 const cssSource = readFileSync(CSS_PATH, 'utf-8')
 
 /**
- * Every top-level `${selector} { ... }` block in `source`, found by brace-depth counting rather
- * than `cobaltTokens.test.js`'s `indexOf('\n}')` shortcut. `body.body--cobalt` and
- * `body.body--cobalt.body--dark` are each declared MORE THAN ONCE in `tailwind.css` -- a typography
- * token pair (~L762/~L989) and at least two unrelated pairs further down (block/tabs tokens,
- * infobox/spoiler/checklist/index/countdown/live-data/gallery tokens) -- so this scans every
- * occurrence rather than assuming the first is the only one, per the round-2 coordination note's own
- * warning about the second block. A descendant compound like `body.body--cobalt .w-chip { ... }` is
- * NOT one of these blocks (the literal `body.body--cobalt {` search requires the brace immediately
- * after, with only whitespace between), which is deliberate: §4's role swaps are expected to live on
- * selectors like that one, not inside the bare token block.
+ * `body.body--cobalt` and `body.body--cobalt.body--dark` are each declared MORE THAN ONCE in
+ * `tailwind.css`, so every occurrence is collected rather than assuming the first is the only one.
+ * A descendant compound like `body.body--cobalt .w-chip { ... }` is deliberately not one of these
+ * blocks -- the selector string requires the brace right after -- because role swaps are expected to
+ * live on selectors like that, not inside the bare token block.
  */
 function blocksFor(source, selector) {
   const blocks = []
@@ -74,11 +57,9 @@ const lightBlocks = blocksFor(cssSource, 'body.body--cobalt {')
 const darkBlocks = blocksFor(cssSource, 'body.body--cobalt.body--dark {')
 
 /*
-  A literal declaration only -- the property name has to start right at a declaration boundary
-  (`{`, `;` or a newline, plus optional indentation), never partway through a longer custom property
-  name. Without that anchor, `--infobox-name-font-size: 15px;` or `--checklist-summary-font: 400
-  12.5px var(--font-sans);` (both real, legitimate declarations already in this file's non-typography
-  Cobalt blocks) would read as violations of the very properties they merely happen to end with.
+  Anchored to a declaration boundary so the property name cannot match partway through a longer
+  custom property name: `--infobox-name-font-size: 15px;` is a legitimate declaration in these same
+  Cobalt blocks, and would otherwise read as a violation of the property it happens to end with.
 */
 const forbiddenPropRe =
   /(?:^|[;{\n])[ \t]*(font-size|font-weight|line-height|letter-spacing|text-transform)[ \t]*:/gi
@@ -117,10 +98,6 @@ describe('tailwind.css body.body--cobalt / body.body--cobalt.body--dark blocks s
   )
 })
 
-// ---------------------------------------------------------------------------------------------
-// Real browser: extends `_page-contents.test.js`'s `measure()` pattern to the ten roles §7 names.
-// ---------------------------------------------------------------------------------------------
-
 describe(
   'Cobalt typography -- real browser (§7)',
   { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
@@ -128,15 +105,11 @@ describe(
     let browser
 
     /*
-      One sample of each of the ten roles §7 names, all on one page so a single `measure()` call
-      covers every one of them. The four content roles (h1/h2/p/code/pre code) sit inside
-      `.page-contents`, the article stylesheet's own root class; the four shared-component roles
-      (`.w-btn`, `.w-section-header`, `.w-badge`, `.w-chip`) are reconstructed as the exact classes
-      each component's own template renders for its default/base variant -- the same technique
-      `sectionHeaderRhythm.test.js` uses for `.w-section-header` itself -- since `buildAppCss()`
-      compiles `tailwind.css` alone and cannot mount a real SFC. `.w-chip` is rendered at
-      `size="sm"` (`SIZES.sm` = `12px`), matching `PageTags.vue`'s own tag-chip call site and the
-      §4.3 role swap this element is standing in for.
+      One sample of every measured role on one page, so a single `measure()` call covers them all.
+      `buildAppCss()` compiles `tailwind.css` alone and cannot mount an SFC, so the shared-component
+      roles are hand-reconstructed as the exact classes each component's template renders for its
+      base variant -- keep them in step with those templates. `.w-chip` stands in for the tag-chip
+      role swap, so it carries `PageTags.vue`'s own `size="sm"` (12px).
     */
     const SAMPLE = `
       <article class="page-contents">
@@ -167,12 +140,7 @@ describe(
       return { appCss, contentCss }
     }
 
-    /**
-     * The five typographic properties §7 names, for each of the ten roles, in one condition
-     * (`cobalt`/`dark` booleans stack on `<body>` exactly as `composables/aesthetic.js` does).
-     * `liNumeral` reads the numbered-step circle's `::before`, the same technique
-     * `_page-contents.test.js`'s own numbered-list "real browser" describe uses.
-     */
+    // The two booleans stack as body classes exactly as `composables/aesthetic.js` does.
     async function measure({ dark: darkMode = false, cobalt = false } = {}) {
       const { appCss, contentCss } = stylesheets
       const page = await browser.newPage()
@@ -244,13 +212,10 @@ describe(
       await browser?.close()
     })
 
-    // -> The five properties §7 lists, read off a measured role
     const METRIC_KEYS = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing']
     const pick = (entry) => Object.fromEntries(METRIC_KEYS.map((key) => [key, entry[key]]))
 
-    // -> Every role §7 names, except the two of them that are §4 role swaps
     const NON_SWAP_ROLES = ['h1', 'h2', 'p', 'code', 'preCode', 'btn', 'sectionHeader', 'badge']
-    // -> §4.2 (numbered steps) and §4.3 (tag chips) -- the two role swaps this element list reaches
     const SWAP_ROLES = ['liNumeral', 'chip']
 
     it('measures all ten roles in all three conditions', () => {
@@ -274,11 +239,6 @@ describe(
       }
     })
 
-    /*
-      The two role swaps this element list reaches (§4.2, §4.3): asserted against the spec table's
-      OWN Cobalt values, per §7, rather than against Ledger's -- a swap role is precisely the one
-      place the two aesthetics are allowed to differ in more than colour.
-    */
     describe('§4 role swaps -- Cobalt-specific values, not equality with Ledger', () => {
       it('numbered-step numeral (§4.2): 600 11px/24px mono, a 24px disc, white on the accent', () => {
         expect(cobaltLight.liNumeral.fontFamily).toMatch(/mono/i)
@@ -287,12 +247,10 @@ describe(
         expect(cobaltLight.liNumeral.lineHeight).toBe('24px')
         expect(cobaltLight.liNumeral.width).toBe('24px')
         expect(cobaltLight.liNumeral.height).toBe('24px')
-        // -> A white numeral in both modes -- the disc's own fill is what carries the accent, not
-        //    the digit, per the locked dark-theme rule (`_page-contents.css`'s own comment on it)
+        // -> The disc's fill carries the accent, not the digit, so the numeral is white in both
+        //    modes and the fill is the one thing this role swap lets differ between them.
         expect(cobaltLight.liNumeral.color).toBe('rgb(255, 255, 255)')
         expect(cobaltDark.liNumeral.color).toBe('rgb(255, 255, 255)')
-        // -> `--color-heading-h2` light / `#3d6df7` dark -- the disc itself is the one thing this
-        //    role swap lets differ between modes, since it carries the swap's own colour, not text
         expect(cobaltLight.liNumeral.backgroundColor).not.toBe(cobaltDark.liNumeral.backgroundColor)
       })
 
@@ -304,11 +262,8 @@ describe(
       })
     })
 
-    /*
-      §7's last two bullets, swept across every measured role in every condition rather than pinned
-      to one -- a blanket invariant, not a per-role assertion, is what stops a THIRTEENTH element some
-      future role table entry adds from being the one nobody remembered to check.
-    */
+    // Swept across every role in every condition rather than pinned per role, so a role added to
+    // the list later is covered without anyone remembering to add an assertion for it.
     describe('type-family invariants, swept across every measured role', () => {
       const stripQuotes = (family) => family.replace(/["']/g, '')
       const isBarlowCondensed = (family) => stripQuotes(family).startsWith('Barlow Condensed')

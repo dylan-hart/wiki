@@ -6,11 +6,7 @@ import { useBlockLocale } from './blockLocale.js'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * `useBlockLocale()` needs an active i18n instance (`useI18n()` throws outside one), so each case
- * mounts a throwaway host component rather than calling the composable bare -- the same reason
- * `BlockPropsForm.test.js` exercises it through the real component instead of in isolation.
- */
+/** `useI18n()` throws outside an active instance, so each case mounts a throwaway host. */
 function mountHost(messages) {
   const i18n = createTestI18n(messages)
   let blockText

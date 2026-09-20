@@ -4,10 +4,6 @@ import './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-/**
- * Appends a `<block-gallery>` carrying `body` as its light-DOM content (the way the wiki's own
- * markdown renderer leaves it — one address per line) and waits for Lit's first render.
- */
 const mountGallery = (body = '') => mountBlock('block-gallery', { text: body })
 
 describe('block-gallery', () => {

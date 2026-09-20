@@ -12,12 +12,9 @@ import {
 import { computeHighlightedNodeIds } from './graphFilters.js'
 
 /**
- * Real canvas pixel output isn't asserted anywhere in this suite (a project-wide limitation --
- * `Graph.rendering.test.js`'s own doc comment). These functions are plain, taking `ctx` as a
- * parameter rather than reaching for one, so a fake `ctx` recording which drawing calls happened
- * (and with what `fillStyle`/`strokeStyle`/`globalAlpha` at the time) is enough to verify both the
- * light/dark color choice (OpenProject #2412) and the highlight/dim logic (OpenProject #2480)
- * without a real canvas.
+ * No real canvas pixels are asserted anywhere here. These functions take `ctx` as a parameter, so a
+ * recorder of which drawing calls happened -- and of `fillStyle`/`strokeStyle`/`globalAlpha` at the
+ * time -- is enough for the color and highlight/dim decisions this suite is about.
  */
 function makeCtx() {
   const ctx = {
@@ -37,9 +34,8 @@ function makeCtx() {
     fill: vi.fn(),
     fillText: vi.fn(),
     strokeText: vi.fn(),
-    // -> Every character exactly `CHAR_WIDTH_PX` wide regardless of the font, so a suite can state
-    //    "this title is 8 characters, this node holds 5" as arithmetic instead of depending on a
-    //    real font's metrics. `drawLabels()`'s truncation (OpenProject #2593) is the only caller.
+    // -> Every character exactly `CHAR_WIDTH_PX` wide regardless of font, so truncation assertions
+    //    are arithmetic rather than dependent on a real font's metrics.
     measureText: vi.fn((text) => ({ width: String(text).length * CHAR_WIDTH_PX })),
     closePath: vi.fn(),
     save: vi.fn(),
@@ -93,8 +89,8 @@ describe('drawClusterHulls (OpenProject #3340)', () => {
     const fillStyles = []
     ctx.fill.mockImplementation(() => fillStyles.push(ctx.fillStyle))
     const clusters = [
-      // -> Each entry's own `color` is a distinct, real palette slot -- if the neutral override
-      //    were broken, this would fail by drawing the group's own categorical color instead.
+      // -> Each entry's own `color` is a real palette slot, so a broken neutral override fails here
+      //    by drawing the group's own categorical color instead.
       { level: 2, color: '#eda100', circle: { x: 0, y: 0, r: 30 } },
       { level: 3, color: '#4a3aa7', circle: { x: 0, y: 0, r: 20 } }
     ]
@@ -106,9 +102,6 @@ describe('drawClusterHulls (OpenProject #3340)', () => {
     const ctx = makeCtx()
     const drawnLevels = []
     ctx.arc.mockImplementation((x, y, r) => drawnLevels.push(r))
-    // -> Deliberately out of level order (3, 1, 2) -- a Map/array producer makes no ordering
-    //    guarantee, so this asserts `drawClusterHulls()` sorts explicitly rather than trusting
-    //    input order.
     const clusters = [
       { level: 3, color: '#000', circle: { x: 0, y: 0, r: 3 } },
       { level: 1, color: '#000', circle: { x: 0, y: 0, r: 1 } },
@@ -180,16 +173,14 @@ describe('drawNodes (OpenProject #2480)', () => {
 
     drawNodes(ctx, nodes, radiusFor, new Set(['en:match']))
 
-    // -> One fill per node, in order: the match at full strength, the non-match dimmed.
     expect(fillAlphas).toEqual([1, expect.any(Number)])
     expect(fillAlphas[1]).toBeLessThan(1)
     expect(fillAlphas[1]).toBeGreaterThan(0)
 
-    // -> Exactly one ring stroke -- the matching node only.
     expect(ctx.stroke).toHaveBeenCalledTimes(1)
 
-    // -> Alpha is always reset to 1 once every node has been drawn, so a later, unrelated draw call
-    //    (edges, hulls) sharing the same ctx never inherits a stale dimmed value.
+    // -> Alpha resets once every node is drawn, so a later draw sharing the same ctx (edges, hulls)
+    //    never inherits a stale dimmed value.
     expect(ctx.globalAlpha).toBe(1)
   })
 
@@ -203,12 +194,10 @@ describe('drawNodes (OpenProject #2480)', () => {
     const fillAlphas = []
     ctx.fill.mockImplementation(() => fillAlphas.push(ctx.globalAlpha))
 
-    // -> `highlightedIds` rings the anchor (e.g. a resolved `?path=` focus node), but `dimmingIds`
-    //    is explicitly empty (no keyword filter active) -- nothing should dim.
+    // -> Positionally: `highlightedIds` rings the anchor, `dimmingIds` is explicitly empty.
     drawNodes(ctx, nodes, radiusFor, new Set(['en:anchor']), null, new Set())
 
     expect(fillAlphas).toEqual([1, 1])
-    // -> The ring still strokes for the anchor -- only the dimming decision changed.
     expect(ctx.stroke).toHaveBeenCalledTimes(1)
   })
 
@@ -247,7 +236,6 @@ describe('drawNodes: root node marker (OpenProject #2563)', () => {
 
     drawNodes(ctx, nodes, radiusFor)
 
-    // -> Exactly one ring stroke -- the root node only, not the plain synthetic folder node.
     expect(ctx.stroke).toHaveBeenCalledTimes(1)
     expect(ctx.strokeStyle).toBe('#ff4081')
   })
@@ -273,8 +261,8 @@ describe('drawNodes: root node marker (OpenProject #2563)', () => {
     drawNodes(ctx, nodes, radiusFor, new Set(['en:']))
 
     expect(ctx.stroke).toHaveBeenCalledTimes(2)
-    // -> Root ring strokes first (its own color), then the highlight ring overwrites strokeStyle
-    //    with its own -- the last stroke call's color is what a final read of strokeStyle sees.
+    // -> Last writer wins on a trailing `strokeStyle` read: the highlight ring strokes after the
+    //    root ring.
     expect(ctx.strokeStyle).toBe('#ffd600')
   })
 
@@ -302,7 +290,6 @@ describe('drawNodes: hovered-node tint', () => {
 
     drawNodes(ctx, [hovered, other], radiusFor, null, hovered)
 
-    // -> The hovered node fills twice (its own color, then the tint); the other node once.
     expect(fillStyles).toEqual(['#888', 'rgba(255, 255, 255, 0.3)', '#888'])
   })
 
@@ -327,12 +314,9 @@ describe('drawNodes: hovered-node tint', () => {
 })
 
 /**
- * OpenProject #3364 (corrected scope): `selectedId`/`selectedRingColor` ring the node
- * `pages/Graph.vue`'s `selectedNodeId` computed names -- a pure mirror of a SIDEBAR click, never a
- * canvas one -- compared by composite id (unlike `hoveredNode` above, which compares by object
- * identity), and drawn strictly OUTSIDE the anchor/keyword `HIGHLIGHT_RING_COLOR` ring so both can
- * survive on the same node. A ring only -- no label treatment, unlike the first (reverted) attempt
- * at this Task.
+ * `selectedId` is compared by composite id, unlike `hoveredNode` above which compares by object
+ * identity, and its ring draws strictly outside the anchor/keyword one so both survive on the same
+ * node.
  */
 describe('drawNodes: selected-node ring (OpenProject #3364)', () => {
   it('rings the node matching selectedId with the caller-resolved selectedRingColor', () => {
@@ -373,11 +357,10 @@ describe('drawNodes: selected-node ring (OpenProject #3364)', () => {
     const strokeStyles = []
     ctx.stroke.mockImplementation(() => strokeStyles.push(ctx.strokeStyle))
 
-    // -> `en:a` is both the anchor/keyword match (highlightedIds) AND the selection.
+    // -> `en:a` is both the `highlightedIds` match and the selection.
     drawNodes(ctx, nodes, radiusFor, new Set(['en:a']), null, null, 'en:a', '#e4676b')
 
     expect(ctx.stroke).toHaveBeenCalledTimes(2)
-    // -> The existing yellow anchor ring first, then the selected ring in its own distinct color.
     expect(strokeStyles).toEqual(['#ffd600', '#e4676b'])
   })
 
@@ -388,9 +371,8 @@ describe('drawNodes: selected-node ring (OpenProject #3364)', () => {
     const fillAlphas = []
     ctx.fill.mockImplementation(() => fillAlphas.push(ctx.globalAlpha))
 
-    // -> `dimmingIds` left `undefined` (not `null`) so it falls back to `highlightedIds`, same
-    //    default every other "keyword search active, this node isn't the match" test in this file
-    //    relies on.
+    // -> `dimmingIds` is `undefined`, not `null`, so it falls back to `highlightedIds` and the
+    //    node dims.
     drawNodes(
       ctx,
       nodes,
@@ -408,16 +390,14 @@ describe('drawNodes: selected-node ring (OpenProject #3364)', () => {
   })
 })
 
-/** A node big enough to hold a label inside it: at the `10px` base font, `insideNodeTextWidth(20,
- *  10)` is `2 * sqrt(400 - 25) * 0.9`, about `34.9px` -- eight `CHAR_WIDTH_PX` characters. */
+/** Big enough to hold a label inside it: at the `10px` base font, `insideNodeTextWidth(20, 10)` is
+ *  `2 * sqrt(400 - 25) * 0.9`, about `34.9px` -- eight `CHAR_WIDTH_PX` characters. */
 const LABELLED_NODE_RADIUS = 20
 const labelRadiusFor = () => LABELLED_NODE_RADIUS
 
-/** The `minRadius` `drawLabels()` now requires (OpenProject #2993) -- stands in for `Graph.vue`'s own
- *  `MIN_NODE_RADIUS`. Deliberately equal to `LABELLED_NODE_RADIUS` above: a node drawn at exactly its
- *  own floor has `labelBaseFontFor()`'s `nodeGrowth` clamp at `1`, so it draws at the plain, unscaled
- *  `LABEL_BASE_FONT_PX` -- every pre-#2993 assertion in this file that assumed a flat `10px` base font
- *  stays correct unchanged once this is threaded through. */
+/** Stands in for `Graph.vue`'s `MIN_NODE_RADIUS`. Deliberately equal to `LABELLED_NODE_RADIUS`:
+ *  a node at exactly its own floor clamps `labelBaseFontFor()`'s `nodeGrowth` to `1`, so every
+ *  assertion here that assumes a flat `10px` base font holds. */
 const MIN_RADIUS = 20
 
 describe('drawLabels', () => {
@@ -439,10 +419,7 @@ describe('drawLabels', () => {
   })
 
   it('draws labels regardless of zoom scale -- there is no zoom-linked visibility cutoff any more (OpenProject #3027)', () => {
-    // -> Every one of these used to be hidden outright: 0.5 and 0.59 sat below the old 0.6
-    //    threshold, and 0.05 sits far below even the 0.6 -> 0.75 -> 1.1 values this constant was
-    //    ever tuned to (OpenProject #2593, #2292, #1287/#1288). Now scale never suppresses the
-    //    label layer -- only a node's own too-small-to-fit-any-text cutoff (`fitLabel()`) can.
+    // -> Only a node's own too-small-to-fit-any-text cutoff (`fitLabel()`) suppresses a label.
     for (const testScale of [0.05, 0.5, 0.59, 0.6, 0.7]) {
       const ctx = makeCtx()
       drawLabels(ctx, nodes, labelRadiusFor, testScale, false, undefined, MIN_RADIUS)
@@ -452,13 +429,9 @@ describe('drawLabels', () => {
 })
 
 /**
- * OpenProject #2593: the title moved from beside the node (`node.x + radius + LABEL_GAP`, unclipped
- * and untruncated) to inside its own circle, centered and cut to fit.
- *
- * What these can and cannot show: happy-dom's canvas is a call recorder, so "the halo stroked in the
- * surface color at the right width before the ink filled over it" is assertable, and "the resulting
- * text is legible on a mid-tone metric-colored fill" is NOT -- that judgement needs a human looking
- * at a real graph, the same caveat #2582's ring constants carry.
+ * happy-dom's canvas is a call recorder, so "the halo stroked in the surface color at the right
+ * width before the ink filled over it" is assertable while "the text is legible over a mid-tone
+ * metric-colored fill" is not -- that needs a human looking at a real graph.
  */
 describe('drawLabels inside the node (OpenProject #2593)', () => {
   const scale = 1
@@ -486,7 +459,6 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
     expect(text).not.toBe(node.title)
     expect(text.endsWith('…')).toBe(true)
     expect(node.title.startsWith(text.slice(0, -1))).toBe(true)
-    // -> Fits the node, and is the LARGEST prefix that does: one more character would not.
     const maxWidth = 2 * Math.sqrt(LABELLED_NODE_RADIUS ** 2 - 25) * 0.9
     expect(text.length * CHAR_WIDTH_PX).toBeLessThanOrEqual(maxWidth)
     expect((text.length + 1) * CHAR_WIDTH_PX).toBeGreaterThan(maxWidth)
@@ -505,8 +477,8 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
     const ctx = makeCtx()
     const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }
 
-    // -> A radius below half the 10px font height leaves no text box of that height any width at
-    //    all, so the cutoff falls out of the geometry rather than out of a copied radius constant.
+    // -> Below half the 10px font height no text box of that height has any width at all, so the
+    //    cutoff falls out of the geometry rather than a copied radius constant.
     drawLabels(ctx, [node], () => 4, scale, false, undefined, MIN_RADIUS)
 
     expect(ctx.fillText).not.toHaveBeenCalled()
@@ -593,8 +565,8 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
       MIN_RADIUS
     )
 
-    // -> Both halo, both fill: the mechanism is deliberately blind to the fill underneath, which is
-    //    the whole reason it is a halo rather than a per-node contrast-switched ink.
+    // -> The halo is deliberately blind to the fill underneath -- that is why it is a halo rather
+    //    than a per-node contrast-switched ink.
     expect(ctx.strokeText).toHaveBeenCalledTimes(2)
     expect(ctx.fillText).toHaveBeenCalledTimes(2)
   })
@@ -612,7 +584,7 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
     drawLabels(ctx, nodes, labelRadiusFor, scale, false, undefined, MIN_RADIUS)
     expect(ctx.measureText).not.toHaveBeenCalled()
 
-    // -> A different drawn font size is a different answer, so it must measure again.
+    // -> A different drawn font size is a different cache key.
     ctx.measureText.mockClear()
     drawLabels(ctx, nodes, labelRadiusFor, 8, false, undefined, MIN_RADIUS)
     expect(ctx.measureText).toHaveBeenCalled()
@@ -632,11 +604,8 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
 })
 
 /**
- * OpenProject #2993: a real node's own base font now scales up with its drawn radius, at half the
- * node's own relative growth rate over `minRadius` -- so a real graph's smallest and largest ranked
- * nodes (drawn at `MIN_NODE_RADIUS`/`MAX_NODE_RADIUS`, `Graph.vue`) label at `10px`/`32.5px`
- * respectively. `ctx.font` is asserted directly rather than through `fitLabel()`'s truncation output,
- * since that is the one property this formula actually decides.
+ * `ctx.font` is asserted directly rather than through `fitLabel()`'s truncation output, since the
+ * font size is the one property `labelBaseFontFor()` actually decides.
  */
 describe('drawLabels: font scales with node radius (OpenProject #2993)', () => {
   const scale = 1
@@ -656,8 +625,7 @@ describe('drawLabels: font scales with node radius (OpenProject #2993)', () => {
     const ctx = makeCtx()
     const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }
 
-    // -> 2x growth over minRadius (nodeGrowth) -> labelScale 1 + 0.5 * (2 - 1) = 1.5 -> 15px base,
-    //    well under the LABEL_MAX_EFFECTIVE_FONT_PX zoom cap at this scale.
+    // -> nodeGrowth 2 -> labelScale 1 + 0.5 * (2 - 1) = 1.5 -> 15px, under the zoom cap here.
     drawLabels(ctx, [node], () => MIN_RADIUS * 2, scale, false, undefined, MIN_RADIUS)
 
     expect(ctx.font).toBe('15px sans-serif')
@@ -667,8 +635,7 @@ describe('drawLabels: font scales with node radius (OpenProject #2993)', () => {
     const ctx = makeCtx()
     const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }
 
-    // -> A slightly-zoomed-out scale keeps LABEL_MAX_EFFECTIVE_FONT_PX's cap (32px at scale 1) from
-    //    masking the uncapped 32.5px this test is actually about.
+    // -> Zoomed slightly out so the 32px cap at scale 1 does not mask the uncapped 32.5px.
     drawLabels(ctx, [node], () => MIN_RADIUS * 5.5, 0.9, false, undefined, MIN_RADIUS)
 
     expect(ctx.font).toBe('32.5px sans-serif')
@@ -678,8 +645,7 @@ describe('drawLabels: font scales with node radius (OpenProject #2993)', () => {
     const ctx = makeCtx()
     const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }
 
-    // -> At scale 1 the zoom cap is LABEL_MAX_EFFECTIVE_FONT_PX itself (32px), below the 32.5px this
-    //    node's radius would otherwise scale its base font to.
+    // -> At scale 1 the cap is 32px, below the 32.5px this radius would otherwise scale to.
     drawLabels(ctx, [node], () => MIN_RADIUS * 5.5, 1, false, undefined, MIN_RADIUS)
 
     expect(ctx.font).toBe('32px sans-serif')
@@ -741,9 +707,8 @@ describe('paintGraph', () => {
   it('forwards its dark flag into both drawEdges and drawLabels', () => {
     const ctx = makeCtx()
     const canvas = { width: 100, height: 100 }
-    // -> The edge layer's own color has to be read AT ITS STROKE, not off `ctx` afterwards: since
-    //    OpenProject #2593 the label layer sets `strokeStyle` too (its halo), so a trailing read
-    //    would see the last writer rather than the layer this is about.
+    // -> Read AT the stroke, not off `ctx` afterwards: the label layer's halo sets `strokeStyle`
+    //    too, so a trailing read would see the last writer rather than the edge layer.
     const edgeStrokeStyles = []
     ctx.stroke.mockImplementation(() => edgeStrokeStyles.push(ctx.strokeStyle))
     paintGraph({
@@ -757,8 +722,6 @@ describe('paintGraph', () => {
       minRadius: MIN_RADIUS,
       dark: true
     })
-    // -> Edge layer ran with dark's stroke color, label layer with dark's fill color -- proof the
-    //    one `dark` flag paintGraph() takes actually reaches both layers, not just one of them.
     expect(edgeStrokeStyles).toEqual(['rgba(200, 200, 200, 0.35)'])
     expect(ctx.fillStyle).toBe('#e8e8e8')
   })
@@ -817,9 +780,8 @@ describe('paintGraph (OpenProject #3364)', () => {
     const canvas = { width: 100, height: 100 }
     const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]
 
-    // -> Read AT the stroke call, not off `ctx` afterwards -- `drawLabels`'s own halo stroke runs
-    //    after `drawNodes` in `paintGraph`'s sequence and would otherwise overwrite `strokeStyle`,
-    //    same reason the pre-existing "forwards its dark flag" test above reads this way.
+    // -> Read AT the stroke: `drawLabels`'s halo runs after `drawNodes` and overwrites
+    //    `strokeStyle`.
     const strokeStyles = []
     ctx.stroke.mockImplementation(() => strokeStyles.push(ctx.strokeStyle))
 
@@ -837,7 +799,7 @@ describe('paintGraph (OpenProject #3364)', () => {
     })
 
     expect(strokeStyles).toEqual(['#e4676b'])
-    // -> No label treatment: the plain fill color, never bolded/recolored.
+    // -> Selection gets no label treatment: the plain fill color, never recolored.
     expect(ctx.fillStyle).toBe('#333')
   })
 

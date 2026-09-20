@@ -1,11 +1,10 @@
 /**
- * The images a site has of its own — its logo, its favicon and the backdrop of its login page.
- *
- * Uploading one is the same exchange whichever it is, and the accepted formats have to agree with
- * what the endpoint checks, so both live here rather than in each admin view that offers an upload.
+ * A site's logo, favicon and login backdrop upload through the same exchange, and the accepted
+ * formats have to agree with what the endpoint checks — so both live here rather than in each admin
+ * view that offers an upload.
  */
 
-/** What the endpoint accepts, mirroring the formats it recognizes from the bytes themselves. */
+/** Must agree with the endpoint, which recognizes these formats from the bytes themselves. */
 export const SITE_IMAGE_TYPES = [
   'image/svg+xml',
   'image/png',
@@ -14,11 +13,6 @@ export const SITE_IMAGE_TYPES = [
   'image/gif'
 ]
 
-/**
- * Ask for an image file.
- *
- * @returns The chosen file, or null if the picker was dismissed
- */
 export function pickSiteImage() {
   return new Promise((resolve) => {
     const input = document.createElement('input')
@@ -32,19 +26,14 @@ export function pickSiteImage() {
 }
 
 /**
- * Whether a chosen file is one the endpoint will take. The picker's filter is a suggestion the user
- * can override, and the server checks the bytes anyway; asking here beats a 415 with nothing to
- * explain it.
+ * The picker's filter is only a suggestion the user can override, and the server checks the bytes
+ * anyway; asking here beats a 415 with nothing to explain it.
  */
 export function isAcceptedSiteImage(file) {
   return SITE_IMAGE_TYPES.includes(file.type)
 }
 
-/**
- * Replace one of a site's images.
- *
- * @param kind One of `logo`, `favicon` or `loginBg`
- */
+/** @param kind One of `logo`, `favicon` or `loginBg` */
 export async function uploadSiteImage(siteId, kind, file) {
   // -> The image is the request body itself: the endpoint takes the raw file, not a form
   await API_CLIENT.put(`sites/${siteId}/images/${kind}`, {
@@ -55,9 +44,6 @@ export async function uploadSiteImage(siteId, kind, file) {
   }).json()
 }
 
-/**
- * Remove one of a site's images, leaving the built-in default in its place.
- */
 export async function clearSiteImage(siteId, kind) {
   await API_CLIENT.delete(`sites/${siteId}/images/${kind}`).json()
 }
@@ -67,11 +53,8 @@ export async function clearSiteImage(siteId, kind) {
  * resized and re-encoded or stored as-is. Site-independent, so a page asks once on mount rather than
  * on every load.
  *
- * A failed or slow `system/extensions` call answers `true`: the callers use this to raise a "this
- * needs Sharp" indicator, and understating a warning while its answer is still unknown beats crying
- * wolf over an unrelated request failure.
- *
- * @returns {Promise<boolean>}
+ * A failed or slow call answers `true`: callers use this to raise a "this needs Sharp" indicator, and
+ * understating a warning while the answer is unknown beats crying wolf over an unrelated failure.
  */
 export async function isSharpAvailable() {
   try {

@@ -9,34 +9,23 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { ProviderProfile } from '../../models/authentication.ts'
 
 /**
- * How long a redirect login may take before its callback is refused.
- *
- * Long enough for somebody to be asked for a password and a second factor at the provider, short
- * enough that a `state` left lying around in a URL somewhere is no longer worth anything.
+ * Long enough to be asked for a password and a second factor at the provider, short enough that a
+ * `state` left lying around in a URL is soon worthless.
  */
 const AUTH_FLOW_MINUTES = 15
 
 /**
- * Where a provider sends the browser back, as an absolute URL.
- *
- * Built from the request rather than stored, so an instance reachable on more than one hostname keeps
- * working — but it has to match what the administrator registered with the provider, which is why the
- * admin area shows this exact shape on the strategy's page.
+ * Built from the request rather than stored, so an instance reachable on more than one hostname
+ * keeps working. It has to match what the administrator registered with the provider.
  */
 function callbackUrl(req: FastifyRequest, strategyId: string): string {
   return `${req.protocol}://${req.host}/_api/auth/${strategyId}/callback`
 }
 
 /**
- * The login screen, carrying what went wrong.
- *
- * A redirect login fails at the provider or on the way back, where there is no request left to answer
- * with an error — so the browser is sent to the login screen with a code it can put in front of the
- * user, and `redirect` is preserved so that a successful second attempt still lands where the first
- * one was going.
- *
- * Exported for `./site.ts`, whose email-verification route is the one redirect-shaped failure
- * outside this provider flow and answers with the same login-screen error vocabulary.
+ * A redirect login fails where there is no request left to answer with an error, so the browser is
+ * sent to the login screen with a code. `redirect` is preserved so a successful second attempt
+ * still lands where the first was going.
  */
 export function loginErrorUrl(redirect: string, code: string): string {
   const params = new URLSearchParams({ error: code })
@@ -46,11 +35,6 @@ export function loginErrorUrl(redirect: string, code: string): string {
   return `/login?${params.toString()}`
 }
 
-/**
- * Carries the redirect a failed callback should land on, alongside the error code — thrown by
- * `matchCallbackFlow()` and caught at each callback route's top level, so neither has to repeat the
- * flow-validation logic to get an error redirect right.
- */
 class CallbackFlowError extends Error {
   redirect: string
   code: string
@@ -63,14 +47,8 @@ class CallbackFlowError extends Error {
 }
 
 /**
- * Check an incoming callback against the flow this session started, and consume it — shared by the
- * GET and POST `/auth/:strategyId/callback` routes, which differ only in where `state` and the
- * provider's own error (if any) travel: query string parameters for every OAuth2/OIDC-shaped
- * provider, form fields for SAML. See `AuthFlow.state` in `models/authentication.ts` for how each
- * protocol threads `state` through in the first place.
- *
- * @throws `CallbackFlowError` — `ERR_LOGIN_EXPIRED` for a callback with no matching, unexpired flow
- *         behind it; `ERR_LOGIN_FAILED` when the provider itself reported an error
+ * `state` arrives as a query parameter from an OAuth2/OIDC-shaped provider and as `RelayState` from
+ * SAML — see `AuthFlow.state` in `models/authentication.ts`.
  */
 function matchCallbackFlow(
   req: FastifyRequest,
@@ -81,11 +59,6 @@ function matchCallbackFlow(
 ): { flow: NonNullable<FastifyRequest['session']['authFlow']>; redirect: string } {
   const flow = req.session.authFlow
   const redirect = flow?.redirect ?? '/'
-  /*
-    Everything about the answer is checked against the flow this session started. A callback that
-    arrives with no flow behind it, for another strategy, with a different `state`, or long after the
-    login began is not this session's login — and is refused without anything being spent further.
-  */
   if (
     !flow ||
     flow.strategyId !== strategyId ||
@@ -115,12 +88,6 @@ function matchCallbackFlow(
   return { flow, redirect }
 }
 
-/**
- * The rest of a callback once its flow has checked out: resolve the profile through the module, then
- * find-or-create and log the account in. Shared by the GET and POST callback routes, which differ only
- * in what they have to hand the module's `profile()` — an authorization `code` and full querystring
- * for GET, the parsed form `body` for POST.
- */
 async function finishProviderLogin(
   req: FastifyRequest,
   reply: FastifyReply,
@@ -134,8 +101,7 @@ async function finishProviderLogin(
     return reply.redirect(loginErrorUrl(redirect, 'ERR_LOGIN_FAILED'))
   }
 
-  // -> Declared outside the `try` so the `catch` below can still name whoever the provider said this
-  //    was, even though the failure it is reporting happened after `profile()` resolved.
+  // -> Outside the `try` so the `catch` can still name whoever the provider said this was
   let profile: ProviderProfile | undefined
   try {
     const resolvedProfile: ProviderProfile = await instance.profile({
@@ -155,11 +121,10 @@ async function finishProviderLogin(
       req
     )
     /*
-      `result.redirect` is a group's `redirectOnLogin`/`redirectOnFirstLogin` value (OpenProject
-      #1360/#2208, 2026-08-24 security audit) -- validated at write time by `api/groups.ts`'s update
-      route, but checked again here as defence in depth against a row written before that validation
-      existed (a direct DB write, or a 2.5.x import). `redirect` (the flow's own return path, already
-      validated at #1035 below) is the fallback either way.
+      `result.redirect` is a group's `redirectOnLogin`/`redirectOnFirstLogin`. `api/groups.ts`
+      validates it at write time; checked again here as defence in depth against a row written
+      another way (a direct DB write, a 2.5.x import). The flow's own `redirect` is validated when
+      the login starts.
     */
     const target =
       result.redirect &&
@@ -172,15 +137,9 @@ async function finishProviderLogin(
       `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
     )
     /*
-      OpenProject #3200: the one place a failed provider callback reaches the audit log -- everything
-      from `profile()` itself failing (no identity was ever asserted) through `loginWithProvider()`
-      refusing an otherwise-valid profile (unlinked account, disallowed email, inactive user, a 2FA/
-      change-password continuation that could not be issued, ...) lands here, since a redirect-based
-      strategy has no single earlier choke point the way the local strategy's `str.authenticate()`
-      catch does. Follows the same `{ id: null, name: <best available identifier>, ip }` shape as that
-      catch: no local user is ever resolved at this layer, even for a failure that happened deep
-      inside an existing account's login, so `profile.email` (when the module got that far) is the
-      best identifier there is.
+      The one place a failed provider callback reaches the audit log: a `profile()` failure and a
+      `loginWithProvider()` refusal both land here. No local user is resolved at this layer, so
+      `profile.email` (when the module got that far) is the best identifier there is.
     */
     await CARDINAL.models.auditLog.record({
       event: 'login.failed',
@@ -194,15 +153,7 @@ async function finishProviderLogin(
   }
 }
 
-/**
- * The external identity-provider login flow: sending a browser off to the provider, and the two
- * shapes of callback it can come back through (a GET redirect, or a SAML POST). The flow state and
- * the error-redirect vocabulary both halves share live here too.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * START A REDIRECT LOGIN
-   */
   app.get<{
     Params: { strategyId: string }
     Querystring: { siteId?: string; redirect?: string }
@@ -253,35 +204,20 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('There is no such login provider.')
       }
 
-      // -> `strict`, so an unmatched hostname stays the empty string this has always recorded rather
-      //    than becoming the `*` catch-all's id: the flow records which site the login was started
-      //    from, and "none identified" is a meaningful answer here
+      // -> `strict`: the flow records which site the login was started from, and for an unmatched
+      //    hostname "none identified" is the meaningful answer, not the `*` catch-all's id
       const siteId = req.query.siteId ?? siteIdForHostname(req.hostname, { strict: true }) ?? ''
       const flow = {
         strategyId: strategy.id,
         siteId,
-        // -> 24 bytes = 192 bits, at or above what each of these was given before
         state: randomToken(24),
         nonce: randomToken(24),
-        // -> 48 bytes = 384 bits / 64 base64url characters — matches both the entropy and the
-        //    string length this field was given before, which RFC 7636's PKCE verifier length
-        //    (43-128 chars, unreserved-character alphabet) comfortably allows
+        // -> 48 bytes = 64 base64url characters, inside RFC 7636's 43-128 character verifier length
         codeVerifier: randomToken(48),
-        /*
-          SAML only: an XML NCName-safe id (must not start with a digit) for the outbound
-          AuthnRequest — ignored by every other module's `authorizationUrl()`, the same way SAML
-          ignores `nonce`/`codeVerifier`. Generated here, ahead of the request being built, so it can
-          be written onto the session first and read back by `finishProviderLogin()` below once the
-          identity provider answers — see `AuthFlow.authnRequestId` in `models/authentication.ts`.
-          The leading `_` guarantees the digit-safe first character regardless of what follows; 30
-          bytes = 240 bits, at or above what this field was given before.
-        */
+        // -> SAML only. An XML NCName must not start with a digit, hence the leading `_`. See
+        //    `AuthFlow.authnRequestId` in `models/authentication.ts` for why it is generated here.
         authnRequestId: `_${randomToken(30)}`,
-        // -> Only a path on this wiki (or, with `security.disallowOpenRedirect` off, a complete
-        //    https:// URL): an open redirect is how a login page is turned into a lure, and
-        //    `startsWith('/')` alone let `//evil.example` and `/\evil.example` both through, since a
-        //    browser resolves either as protocol-relative to whatever host follows (OpenProject
-        //    #1360/#2208, 2026-08-24 security audit).
+        // -> An open redirect is how a login page is turned into a lure
         redirect: isFollowableRedirectTarget(req.query.redirect, {
           allowAbsolute: absoluteRedirectsAllowed()
         })
@@ -302,8 +238,8 @@ async function routes(app: FastifyInstance) {
         CARDINAL.models.flags.authDebug(
           `Redirecting to ${strategy.module} provider for strategy ${strategy.id} from ${req.ip}`
         )
-        // -> A module answers with a URL to redirect to, or — see `SamlAuthorizationResult` — an HTML
-        //    page with a form that submits itself, for a provider whose request has to travel as a POST
+        // -> A module answers with a URL, or — see `SamlAuthorizationResult` — a self-submitting
+        //    HTML form, for a provider whose request has to travel as a POST
         return typeof authorization === 'string'
           ? reply.redirect(authorization)
           : reply.type('text/html').send(authorization.html)
@@ -318,14 +254,11 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * FINISH A REDIRECT LOGIN
-   */
   app.get<{
     Params: { strategyId: string }
     Querystring: {
       code?: string
-      /** CAS's equivalent of `code` — see `AuthFlowCallback.ticket` in `models/authentication.ts`. */
+      /** CAS's equivalent of `code`. */
       ticket?: string
       state?: string
       error?: string
@@ -382,15 +315,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * FINISH A REDIRECT LOGIN (FORM POST)
-   *
-   * The POST counterpart of the callback above, for a provider that answers with a form submission
-   * rather than a redirect. SAML is the reason this exists: its response is delivered as a browser POST
-   * carrying `SAMLResponse` and `RelayState` — see `AuthFlow.state` in `models/authentication.ts` for
-   * why `RelayState` is where `state` travels for SAML specifically, and why CAS needs no equivalent
-   * route at all.
-   */
   app.post<{
     Params: { strategyId: string }
     Body: { SAMLResponse?: string; RelayState?: string }
@@ -400,7 +324,6 @@ async function routes(app: FastifyInstance) {
       config: {
         publicAccess: true
       },
-      // -> A callback is a password check by another name: whatever it carries decides who is logged in
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Finish a login at an identity provider (form POST)',

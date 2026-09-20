@@ -5,13 +5,6 @@ import classificationLevelsRoutes from './classificationLevels.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * DB-backed route test (OpenProject #1079): a real Fastify instance with `app.inject`, gating
- * verified through the real `preHandler` hook rather than a stub of `CARDINAL.models.classificationLevels`
- * -- what this proves is the CRUD routes actually reach the real model and are gated by
- * `manage:system` (create/update/reorder/delete) while listing is public-access, matching
- * `api/groups.test.ts`'s own DB-backed pattern for the same reason.
- */
 describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let app: FastifyInstance
   let fixtures: TestFixtures
@@ -22,9 +15,7 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
     ;({ classificationLevels: levelsModel } = await import('../models/classificationLevels.ts'))
     await levelsModel.reloadCache()
 
-    // -> The REAL `preHandler` permission hook (`core/http/authHooks.ts`), reading a session seeded
-    //    from a test header rather than a real cookie. No `wiki`: `setupTestDb()` already installed
-    //    the real one, and these routes run against it.
+    // -> No `wiki`: `setupTestDb()` already installed the real one; these routes run against it.
     app = await buildTestApp({
       routes: classificationLevelsRoutes,
       ajv: true,
@@ -39,9 +30,8 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
   })
 
   const asAdmin = { 'x-test-permissions': JSON.stringify(['manage:system']) }
-  // -> An authenticated caller holding SOMETHING, just not what the route asks for: that is the 403
-  //    case. A request carrying no session at all is a 401 instead, which is the real hook's answer
-  //    and is not what these two tests are about.
+  // -> Holding something, just not what the route asks for, is the 403 case; no session at all
+  //    would be a 401 instead.
   const asUnprivileged = { 'x-test-permissions': JSON.stringify(['read:pages']) }
 
   test('GET / needs no permission at all and lists the seeded defaults', async () => {
@@ -71,8 +61,8 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
       method: 'POST',
       url: '/',
       headers: asAdmin,
-      // -> `sortOrder` is accepted by the JSON schema (extra properties aren't rejected) but has no
-      //    effect (OpenProject #1651) -- the model always appends after the current max instead.
+      // -> `sortOrder` passes the JSON schema (extra properties aren't rejected) but has no effect:
+      //    the model always appends after the current max.
       payload: { name: 'Confidential', sortOrder: 999 }
     })
     assert.equal(res.statusCode, 200)
@@ -115,9 +105,7 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
   })
 
   test('DELETE /:id removes an unused level once authorized', async () => {
-    // -> The "last level"/"in use" guards themselves are `models/classificationLevels.test.ts`'s job
-    //    (they are model invariants, not routing) -- this route test only needs to prove a normal
-    //    delete actually reaches the model and answers 200.
+    // -> The "last level"/"in use" refusals are model invariants, covered by the model's own suite.
     const created = (
       await app.inject({
         method: 'POST',

@@ -10,15 +10,10 @@ import {
 import { defaultLocale } from '../../helpers/localeRouting.ts'
 import { actorFrom, mayOnPage } from '../../helpers/pageAccess.ts'
 
-/**
- * The two file-upload routes that convert a document to Markdown, and -- because `register()` is a
- * real encapsulation boundary -- the body parsers they need, which no other page route now sees.
- */
 async function routes(app: FastifyInstance) {
-  // -> IMPORT PAGE's body is the uploaded file's raw bytes, not a multipart form or JSON — the same
-  //    approach `api/assets.ts` uses for asset uploads. The catch-all only claims content types
-  //    nothing else in this file parses; registered here rather than on the whole `pages` resource,
-  //    so the sibling sub-plugins' JSON routes never see it at all (API-F5).
+  // -> The single-file import's body is the file's raw bytes, not a multipart form or JSON.
+  //    Registered in this sub-plugin rather than on the whole `pages` resource, so the sibling
+  //    sub-plugins' JSON routes never see the catch-all.
   app.addContentTypeParser(
     '*',
     { parseAs: 'buffer', bodyLimit: MAX_IMPORT_SIZE },
@@ -27,20 +22,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  // -> IMPORT PAGES (BATCH)'s body carries several files in one request, which the raw-bytes approach
-  //    above has no room for — `@fastify/multipart` claims `multipart/form-data` specifically, which
-  //    Fastify matches ahead of the generic `'*'` parser above regardless of registration order.
-  //    `throwFileSizeLimit: false` (OpenProject #849 fix): the default `true` makes an oversized
-  //    file's `toBuffer()` reject as documented below, but the plugin ALSO latches that rejection as
-  //    `lastError` and replays it out of `req.files()`'s own iterator on the very next `for await`
-  //    step — even one that only advances past files already handled — which turned "one bad file
-  //    fails independently" into "one oversized file 413s the whole batch, however many files came
-  //    after it converted fine". Disabled, a stream still stops accepting bytes past the limit and
-  //    `file.file.truncated` still flips true; the route below reads that flag itself instead of
-  //    trusting `toBuffer()` to throw.
-  //    `fields: MAX_IMPORT_BATCH_FILES` (OpenProject #1209): one optional `formats` text field per
-  //    `files` entry, interleaved file-then-its-format by the frontend, lets a caller override a
-  //    single file's autodetected format without giving every field in the batch one.
+  // -> The batch import's body is `multipart/form-data`, which Fastify matches ahead of the generic
+  //    `'*'` parser regardless of registration order.
+  //    `throwFileSizeLimit: false`: with the default, the plugin latches an oversized file's
+  //    rejection and replays it from the parts iterator on its next step, 413ing the whole batch.
+  //    Disabled, the stream still stops at the limit and sets `file.truncated`, read by the route.
+  //    `fields`: one optional `formats` text field per file.
   await app.register(fastifyMultipart, {
     limits: {
       fileSize: MAX_IMPORT_SIZE,
@@ -50,9 +37,6 @@ async function routes(app: FastifyInstance) {
     throwFileSizeLimit: false
   })
 
-  /**
-   * IMPORT PAGE CONTENT
-   */
   app.post<{
     Params: { siteId: string }
     Querystring: { fileName: string; format?: string; path: string; locale?: string }
@@ -62,7 +46,7 @@ async function routes(app: FastifyInstance) {
       /*
         No route-level `permissions`: that hook reads the group-wide list, and page permissions are
         granted by a group's RULES, addressed by the path the converted content would be saved to.
-        Checked against that path below, exactly like CREATE PAGE in `api/pages/write.ts`.
+        Checked against that path below.
       */
       schema: {
         summary: 'Convert an uploaded file to Markdown',
@@ -144,9 +128,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * IMPORT PAGES (BATCH)
-   */
   app.post<{
     Params: { siteId: string }
     Querystring: { path: string; locale?: string }
@@ -154,8 +135,8 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/pages/import/batch',
     {
       /*
-        No route-level `permissions`: same reasoning as IMPORT PAGE CONTENT above — `write:pages` is
-        granted by a group's page RULES, checked in the handler against the declared `path`.
+        No route-level `permissions`: `write:pages` is granted by a group's page RULES, checked in
+        the handler against the declared `path`.
       */
       schema: {
         summary: 'Convert several uploaded files to Markdown in one request',
@@ -212,27 +193,14 @@ async function routes(app: FastifyInstance) {
       }
 
       /*
-        Read every part off the request before converting any file: `req.parts()` is a streaming
-        iterator over the one multipart body, and its next part is only available once the current
-        one has been consumed (`@fastify/busboy`'s own constraint) — so buffering has to happen one
-        part at a time, in the order they arrived, before conversion can run in parallel below.
-        `req.files()` won't do here since it skips field parts entirely, and a per-file format
-        override (OpenProject #1209) travels as a `formats` field the frontend interleaves right
-        after its own file — the last-pushed upload is always the one it belongs to. A file's
-        oversize is checked via `file.truncated` after `toBuffer()` resolves, not by catching a
-        throw — see the `throwFileSizeLimit: false` comment on the plugin registration above for why
-        letting an oversized file throw here would still fail the whole batch anyway.
+        Every part is buffered before any file converts: `req.parts()` streams the one multipart
+        body, and its next part is available only once the current one is consumed. `req.files()`
+        would skip the `formats` fields, each of which belongs to the upload pushed just before it.
+        Oversize is read from `file.truncated` rather than caught — see `throwFileSizeLimit` above.
 
-        `MAX_IMPORT_BATCH_BYTES` bounds the total across every file combined (OpenProject #2204):
-        `fileSize`/`MAX_IMPORT_SIZE` above only cap ONE file, so nothing previously stopped
-        `MAX_IMPORT_BATCH_FILES` maximum-size files (~500 MB) from all being resident as `Buffer`s at
-        once. Tripping it discards whatever had been buffered so far and stops accepting more —
-        atomically refusing the whole request rather than converting the files that fit before the
-        ceiling was crossed, which is what keeps this a hard cap rather than a soft one an attacker
-        could still push past by spreading a large batch across many small file reads. The rest of
-        the body is still drained (each further file read and immediately discarded, never buffered)
-        rather than abandoned mid-stream, which would otherwise leave the connection holding
-        unconsumed bytes.
+        `MAX_IMPORT_BATCH_BYTES` bounds all files combined, since `fileSize` caps only one. Tripping
+        it refuses the whole request rather than converting the files that fit, and the rest of the
+        body is still read and discarded so the connection is not left holding unconsumed bytes.
       */
       const uploads: (
         | { fileName: string; data: Buffer; formatOverride: string }

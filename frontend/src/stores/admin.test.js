@@ -53,20 +53,17 @@ describe('admin store: versionStatus / isVersionLatest', () => {
 
   it('compares semver-aware rather than string-aware for a prerelease/patch pair', () => {
     const store = useAdminStore()
-    // -> A plain string compare would call '3.0.0-alpha.1' >= '3.0.0-alpha.10' true (lexicographic
-    //    '1' > '1' ties, then string compare stops), but semver correctly ranks alpha.10 higher.
     store.info.currentVersion = '3.0.0-alpha.1'
     store.info.latestVersion = '3.0.0-alpha.10'
 
     expect(store.versionStatus).toBe('outdated')
 
-    // -> Same pair reversed: current genuinely is ahead
     store.info.currentVersion = '3.0.0-alpha.10'
     store.info.latestVersion = '3.0.0-alpha.1'
 
     expect(store.versionStatus).toBe('latest')
 
-    // -> A patch bump that a naive string compare ('3.0.9' vs '3.0.10') would rank the wrong way
+    // -> The pair a string compare ranks the wrong way: '3.0.10' < '3.0.9' lexicographically
     store.info.currentVersion = '3.0.10'
     store.info.latestVersion = '3.0.9'
 
@@ -110,16 +107,9 @@ describe('admin store: fetchSites()', () => {
 })
 
 /**
- * OpenProject #1732: none of adminStore's four fetch actions had a try/catch, so a rejection --
- * a 401 on an expired session, a 5xx -- propagated out of the action instead of being handled. In
- * AdminLayout.vue's onMounted, that meant a rejected `fetchSites()` skipped the subsequent
- * `fetchInfo()` call entirely (leaving the dashboard's version/counter fields silently at "n/a"
- * with nothing explaining why), and the two un-awaited calls (`fetchLocales`,
- * `fetchClassificationLevels`) produced unhandled promise rejections with no listener anywhere in
- * the app to catch them.
- *
- * Each action now wraps its body in a try/catch that notifies and leaves its slice at the default
- * from the store's `state()` initializer, rather than rejecting.
+ * Callers (`AdminLayout.vue`'s mount) chain these actions and leave two of them un-awaited, so a
+ * rejection has to be swallowed into a notification: rejecting would skip the rest of the chain and
+ * raise unhandled rejections nothing in the app listens for.
  */
 describe('admin store: fetch actions error path', () => {
   describe('fetchLocales()', () => {
@@ -205,8 +195,8 @@ describe('admin store: fetch actions error path', () => {
         throw new Error('unauthorized')
       })
 
-      // -> AdminLayout.vue's onMounted awaits fetchSites() bare, then goes on to call fetchInfo();
-      //    that only happens if this await resolves instead of rejecting.
+      // -> Mirrors AdminLayout.vue's onMounted: a bare `await fetchSites()` that must resolve, or
+      //    the `fetchInfo()` after it never runs
       await store.fetchSites()
       API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ usersTotal: 3 }) })
       await store.fetchInfo()

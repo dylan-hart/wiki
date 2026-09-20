@@ -13,9 +13,8 @@
       </w-card-section>
       <w-form ref="guestForm" class="py-2" @submit="submit">
         <!--
-          No `self-start` on these icons. A field's control carries a symmetric `my-2` -- room for the
-          floated label, matched underneath precisely so the box stays centred on the control -- so
-          letting both sections centre in the row is what lines the icon up with the field.
+          No `self-start` on these icons: a field's control carries a symmetric `my-2`, so letting
+          both sections centre in the row is what lines the icon up with the field.
         -->
         <w-item>
           <blueprint-icon icon="tabler:address-book" />
@@ -74,44 +73,28 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { guestEmailRules, guestNameRules } from '@/helpers/guestIdentity'
 
 /**
- * Who is suggesting this edit, asked of a reader with no account.
- *
- * A logged in author is already known, so this never opens for one. For everybody else it is the only
- * record of where the suggestion came from, which is what lets a reviewer answer them.
+ * Never opens for a logged in author, who is already known. For everybody else what it collects is
+ * the only record of where the suggestion came from, and so the only way a reviewer can answer.
  */
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptName.value
 })
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   name: '',
   email: ''
 })
 
-// REFS
-
 const guestForm = ref(null)
 const iptName = ref(null)
 
-// VALIDATION RULES
-
 const nameValidation = guestNameRules(t)
 const emailValidation = guestEmailRules(t)
-
-// METHODS
 
 async function submit() {
   if (!(await guestForm.value.validate(true))) {

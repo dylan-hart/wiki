@@ -20,7 +20,7 @@ import { paginate } from '../helpers/pagination.ts'
 import { HOOK_EVENTS, type HookEvent } from './hooks.ts'
 import type { SystemIds } from './types.ts'
 
-/** The essential user fields, mirroring the `UserCore` API schema. */
+/** Mirrors the `UserCore` API schema. */
 export type UserCore = Pick<
   typeof usersTable.$inferSelect,
   | 'id'
@@ -36,13 +36,12 @@ export type UserCore = Pick<
   | 'lastLoginAt'
 >
 
-/** One page of users, with the total matching the filter rather than the page size. */
+/** `total` counts every user matching the filter, not the page size. */
 export interface UserPage {
   total: number
   users: UserCore[]
 }
 
-/** A user and when they last signed in — all `getRecentLogins()` discloses. */
 export interface RecentLogin {
   id: string
   name: string
@@ -51,11 +50,8 @@ export interface RecentLogin {
 }
 
 /**
- * A migrated provider-fallback account still waiting on its password reset — all
- * `getFallbackAccounts()` discloses. `providerKey` is the original 2.x `providerKey` verbatim
- * (`'google'`, `'ldap'`, a legacy CAS key, …), preserved by
- * `migration/importers/users-groups.ts#createProviderFallbackUserConverter` purely for this kind of
- * admin visibility — see that function's doc comment.
+ * `providerKey` is the original 2.x `providerKey` verbatim (`'google'`, `'ldap'`, a legacy CAS key,
+ * …), preserved by the users/groups importer purely for this kind of admin visibility.
  */
 export interface FallbackAccount {
   id: string
@@ -66,7 +62,7 @@ export interface FallbackAccount {
 }
 
 /**
- * The subset of user fields that may be modified. `isSystem` is deliberately absent.
+ * `isSystem` is deliberately absent.
  *
  * `name`, `firstName`, `lastName` and `nameLocallyEdited` are interpreted rather than written
  * through verbatim — see {@link Users.updateUser}, the one place the derivation invariant lives.
@@ -78,7 +74,7 @@ export interface UserPatch {
   /**
    * Normally left out: `updateUser()` maintains it. Set it explicitly only to override that — a
    * provider sign-in writing claim-sourced names passes `false` so filling an empty half does not
-   * mark the account as locally authored (Tasks #2640/#2641).
+   * mark the account as locally authored.
    */
   nameLocallyEdited?: boolean
   email?: string
@@ -89,13 +85,10 @@ export interface UserPatch {
 }
 
 /**
- * The knowledge graph view's five persisted controls (OpenProject #2854) -- `Graph.vue`'s
- * `groupBy`/`sizeBy`/`sizeCountMode`/`pageviewsWindow`/`pageviewClientTypes` refs, stored verbatim
- * under `prefs.graph`. Unlike the flat string prefs above, this one is always saved and read back as
- * one whole object -- `Graph.vue` merges all five into a single PATCH whenever any of them change,
- * so there is no per-key merge to do here (see `profilePrefsKeys`/`updateProfile` below, which treat
- * it exactly like any other prefs key: absent from the patch leaves it untouched, present replaces
- * it wholesale).
+ * The knowledge graph view's persisted controls, stored verbatim under `prefs.graph`. Unlike the
+ * flat string prefs, this one is saved and read back as one whole object -- `Graph.vue` merges every
+ * control into a single PATCH whenever any of them change, so there is no per-key merge to do here:
+ * absent from a patch leaves it untouched, present replaces it wholesale.
  */
 export interface GraphPrefs {
   groupBy?: string
@@ -105,20 +98,12 @@ export interface GraphPrefs {
   clientTypes?: string[]
 }
 
-/**
- * The icon picker's one persisted control -- `IconPickerDialog.vue`'s `state.setFilter`, stored
- * verbatim under `prefs.iconPicker`. Same treatment as {@link GraphPrefs}: absent from a patch
- * leaves it untouched, present replaces it wholesale (there is only the one key, so "wholesale" and
- * "merged" coincide here).
- */
+/** Stored verbatim under `prefs.iconPicker`, with the same treatment as {@link GraphPrefs}. */
 export interface IconPickerPrefs {
   set?: string
 }
 
-/**
- * The self-service view of a user, flattening the `meta` and `prefs` blobs into the fields the
- * profile page shows. Mirrors the `UserProfile` API schema.
- */
+/** The `meta` and `prefs` blobs flattened out; mirrors the `UserProfile` API schema. */
 export interface UserProfile {
   id: string
   name: string
@@ -126,11 +111,7 @@ export interface UserProfile {
   lastName: string
   email: string
   hasAvatar: boolean
-  /**
-   * The provider-reported avatar URL cached by {@link Users.syncAvatarFromProvider}, or `null` when
-   * none has ever been synced. Only a fallback: `hasAvatar` wins whenever both are set, per that
-   * method's own precedence rule.
-   */
+  /** Only a fallback: an uploaded avatar (`hasAvatar`) wins whenever both are set. */
   avatarProviderUrl: string | null
   location: string
   jobTitle: string
@@ -141,21 +122,18 @@ export interface UserProfile {
   appearance: string
   aesthetic: string
   /**
-   * Per-user content-width preference (Feature #3051 / Task #3068): `'site'` (default) inherits the
-   * site's own `contentWidth` admin setting, or `'measured'`/`'full'` forces that reader's own choice
-   * on every page they view, overriding whatever the site currently has configured -- the same
-   * three-value shape `aesthetic` uses for the site-default-with-override pattern.
+   * `'site'` inherits the site's own `contentWidth` admin setting; `'measured'`/`'full'` force this
+   * reader's choice on every page, overriding it -- the same three-value site-default-with-override
+   * shape `aesthetic` uses.
    */
   contentWidth: string
   cvd: string
   locale: string
-  /** Absent for a user who has never saved a graph view preference. */
   graph?: GraphPrefs
-  /** Absent for a user who has never saved an icon picker set-filter preference. */
   iconPicker?: IconPickerPrefs
 }
 
-/** The fields a user may change on its own profile. Notably not the email, nor any admin flag. */
+/** What a user may change on its own profile: notably not the email, nor any admin flag. */
 export interface UserProfilePatch {
   name?: string
   firstName?: string
@@ -176,22 +154,18 @@ export interface UserProfilePatch {
 }
 
 /**
- * One boolean per event type a user may opt into receiving an email for (Feature #2425). Keyed by
- * {@link HookEvent} rather than a separate vocabulary, since `#2481` (extending webhook dispatch to
- * also emit email) fires against exactly this same event list -- a subscriber map with its own set
- * of names would need translating between the two at delivery time for no benefit.
+ * Keyed by {@link HookEvent} rather than a vocabulary of its own: email dispatch fires against
+ * exactly that event list, so a separate set of names would need translating at delivery time.
  */
 export type NotificationSubscriptions = Record<HookEvent, boolean>
 
 /**
- * The three name columns a profile save may carry. Unlike the two lists below they are real columns,
- * not `meta`/`prefs` members, and they are passed straight through to {@link Users.updateUser} —
- * which is the sole owner of the derive-unless-authored rule and is what decides what `name` ends up
- * being (Feature #2608).
+ * Real columns, unlike the two `meta`/`prefs` lists below, and passed straight through to
+ * {@link Users.updateUser} — the sole owner of the derive-unless-authored rule, and what decides
+ * what `name` ends up being.
  */
 const profileNameKeys = ['name', 'firstName', 'lastName'] as const
 
-/** The `meta` keys the profile owns, and the `prefs` keys it owns. */
 const profileMetaKeys = ['location', 'jobTitle', 'pronouns'] as const
 const profilePrefsKeys = [
   'timezone',
@@ -206,23 +180,13 @@ const profilePrefsKeys = [
   'iconPicker'
 ] as const
 
-/**
- * The square, in pixels, an avatar is resized to. The profile page and the account menu both display
- * one at 180px; nothing displays one larger.
- */
+/** Nothing displays an avatar larger than this. */
 const avatarSize = 180
 
 /**
- * The display name a pair of authored name halves derives to (Feature #2608).
- *
- * This is the whole rule: `` `${firstName} ${lastName}`.trim() ``. A mononym — an account with an
- * empty `lastName` — derives to its first name alone, and an account with neither half derives to
- * the empty string, which is what a federated account whose provider issued no name at all gets
- * until someone fills one in.
- *
- * Exported because it is the ONE place a display name is composed. A call site that writes
- * `` `${first} ${last}` `` of its own is the drift this function exists to prevent — the three
- * columns are only guaranteed to agree because every write goes through here.
+ * The ONE place a display name is composed. A call site writing `` `${first} ${last}` `` of its own
+ * is the drift this exists to prevent — the three name columns are only guaranteed to agree because
+ * every write goes through here.
  */
 export function deriveDisplayName(firstName: string, lastName: string): string {
   return `${firstName} ${lastName}`.trim()
@@ -232,20 +196,10 @@ export function deriveDisplayName(firstName: string, lastName: string): string {
  * Resolve the four name columns for an INSERT. The update-path counterpart is
  * {@link Users.updateUser}, which has a stored row to reconcile against and so cannot share this.
  *
- * Callers hand over whatever they have — two halves, a single display name, or both:
- *
- * - **Halves only** (what the profile, admin-create and admin-edit forms submit, Task #2642): `name`
- *   is derived and the row is NOT marked locally edited, so it keeps tracking later half edits.
- * - **A single name only** (a federated provider that issues one string, and nothing else): stored
- *   verbatim, with both halves empty and the row marked locally edited — there is nothing for it to
- *   be derived from, so it is authored by definition. Splitting such a string into halves is Task
- *   #2641's, deliberately not done here.
- * - **Both**: the halves are stored as given and `name` is stored as given. The row is marked
- *   locally edited only when the given `name` is not what those halves derive to. Note this is a
- *   value comparison *at the moment of the write*, which is a different thing from the re-login
- *   inference Feature #2608's scope rules out: a sign-in consults the stored boolean and never
- *   re-compares. It is what lets a caller pass a name alongside the halves it already derives from
- *   (`init()`'s seeded accounts) without the row being born "authored".
+ * A single `name` with no halves is authored by definition — there is nothing for it to be derived
+ * from — and no split is guessed at here. Passing both marks the row authored only when the given
+ * `name` is not what the halves derive to, which is what lets a caller pass a name alongside the
+ * halves it already derives from (`init()`'s seeded accounts) without the row being born authored.
  */
 export function resolveNameFields(input: {
   name?: string
@@ -267,17 +221,11 @@ export function resolveNameFields(input: {
 }
 
 /**
- * One local-provider user row, as an insert value.
+ * One local-provider user row, as an insert value. Shared by `createUser()`, `importLocalUser()` and
+ * `init()`'s seeded administrator, which cannot call each other: reusing `createUser` would
+ * double-hash `importLocalUser`'s already-hashed password, and `init` runs before
+ * `CARDINAL.data.systemIds` exists.
  *
- * The same literal — a six-key local auth entry, the three `meta` fields, the five `prefs` fields —
- * was written out three times: `createUser()`, `importLocalUser()` and `init()`'s seeded
- * administrator. They cannot call each other (`importLocalUser`'s doc comment explains why reusing
- * `createUser` would double-hash an already-hashed password, and `init` runs before
- * `CARDINAL.data.systemIds` exists), but they can share the shape they all write.
- *
- * `meta`/`prefs` fall back through the caller's value, then the instance-wide user defaults an
- * administrator can change, then a literal — the chain `createUser` and `importLocalUser` already
- * used, and the values `base.yml` seeds those defaults with, which is what `init()` wrote by hand.
  * `createdAt`/`updatedAt`/`lastLoginAt` left undefined are omitted by drizzle, so the columns take
  * their own defaults rather than being written as a literal.
  */
@@ -285,11 +233,10 @@ function localUserRow(input: {
   id?: string
   strategyId: string
   email: string
-  /** Omitted when the caller has the two halves below instead — see {@link resolveNameFields}. */
   name?: string
   firstName?: string
   lastName?: string
-  /** Already hashed — nothing here calls `bcrypt.hash()`; every caller hashes (or carries) its own. */
+  /** Nothing here calls `bcrypt.hash()`; every caller hashes (or carries) its own. */
   passwordHash: string
   mustChangePassword: boolean
   isActive: boolean
@@ -349,11 +296,9 @@ function localUserRow(input: {
 }
 
 /**
- * Selection shared by the list / detail queries. Never includes `auth` or `passkeys`.
- *
- * Exported for `models/groups.ts#getGroupUsers`, which pages the same ten columns off a join onto
- * this table — it had them written out a second time, which is exactly the kind of copy that drifts
- * the day a column is added to one list and not the other.
+ * Never includes `auth` or `passkeys`. Exported for `models/groups.ts#getGroupUsers`, which pages
+ * the same columns off a join onto this table, so a column added to the projection is added once
+ * rather than in two lists that drift.
  */
 export const userSelection = {
   id: usersTable.id,
@@ -372,17 +317,13 @@ export const userSelection = {
 }
 
 /**
- * What `importLocalUser()` resolves with — the email-collision policy (see that method's doc) is
- * part of the return value, not just a thrown error, so a bulk import can report *why* a record
- * didn't land instead of treating a collision as an unhandled failure.
+ * An email collision is part of the return value rather than a thrown error, so a bulk import can
+ * report *why* a record didn't land instead of treating it as an unhandled failure.
  */
 export type ImportLocalUserResult =
   | { status: 'created'; id: string }
   | { status: 'skipped'; reason: 'email-collision'; existingId: string }
 
-/**
- * Users model
- */
 class Users {
   async getByEmail(email: string) {
     const res = await CARDINAL.db
@@ -399,18 +340,12 @@ class Users {
   }
 
   /**
-   * Fetch the users who logged in most recently, most recent first.
+   * Identity and the moment only — this answers a dashboard panel readable by anyone in the admin
+   * area, a tier below the `read:users` the user list itself needs, so it deliberately carries none
+   * of the account state `getUsers()` selects.
    *
-   * Identity and the moment only — this answers a dashboard panel readable by anyone in the admin area,
-   * which is a tier below the `read:users` that the user list itself needs, so it deliberately carries
-   * none of the account state `getUsers()` selects.
-   *
-   * An account that has never logged in has no place in the answer rather than trailing the end of it,
-   * hence the `isNotNull`. System accounts are excluded because the guest is one: nothing signs in as
-   * it, and a `lastLoginAt` on it would be an artefact rather than a visit.
-   *
-   * @param limit How many to return
-   * @returns The most recent logins, newest first
+   * System accounts are excluded because the guest is one: nothing signs in as it, and a
+   * `lastLoginAt` on it would be an artefact rather than a visit.
    */
   async getRecentLogins({ limit = 10 }: { limit?: number } = {}): Promise<RecentLogin[]> {
     return CARDINAL.db
@@ -427,25 +362,13 @@ class Users {
   }
 
   /**
-   * Fetch every migrated provider-fallback account that has not yet relinked via SSO — the report
-   * `docs/migration/migration-runbook.md`'s Step 3 used to send an administrator to run by hand
-   * directly against Postgres.
+   * Every migrated provider-fallback account that has not yet relinked via SSO.
    *
    * Gated on the SAME two conditions `models/login.ts#clearMigratedFallbackLocalAuth` clears
    * together: the local-strategy auth entry's `mustChangePwd` AND `migratedFallbackProvider` both
    * present. `mustChangePwd` alone would also catch a genuine local account an administrator forced
-   * a password reset on; `migratedFallbackProvider` alone cannot occur without `mustChangePwd` (only
-   * `createProviderFallbackUserConverter` ever writes it, always alongside `mustChangePwd: true`),
-   * but requiring both keeps this query's intent legible on its own without relying on that
-   * invariant holding forever.
-   *
-   * Reads `auth` by its JSONB path directly rather than through `describeLinkedProviders()`
-   * (`getUserDetail()`'s helper): that reshapes the CURRENT session's provider list for a single
-   * user, and has no "which users" filter to give it — this is the reverse question, asked across
-   * every account at once.
-   *
-   * @returns Every pending fallback account, oldest-created first (the accounts that have been
-   *   waiting on a reset the longest surface first)
+   * a password reset on; `migratedFallbackProvider` alone cannot occur without `mustChangePwd`, but
+   * requiring both keeps this query's intent legible without relying on that invariant holding.
    */
   async getFallbackAccounts(): Promise<FallbackAccount[]> {
     const localStrategyId = CARDINAL.data.systemIds.localAuthId
@@ -466,13 +389,6 @@ class Users {
       .orderBy(usersTable.createdAt)
   }
 
-  /**
-   * Fetch a page of users, optionally filtered by name or email
-   *
-   * @param filter Matched literally against name and email, case-insensitively
-   * @param assignableToGroupId Keep only the users that may be assigned to this group
-   * @returns The page of users plus the total number matching the filter
-   */
   async getUsers({
     filter = '',
     assignableToGroupId = '',
@@ -491,7 +407,7 @@ class Users {
     }
     if (assignableToGroupId) {
       // -> Members of the group have nothing left to assign, and system users (the guest account)
-      //    have a fixed membership that `POST /groups/:id/users/:id` refuses to change
+      //    have a fixed membership the group-assignment route refuses to change
       conditions.push(eq(usersTable.isSystem, false))
       conditions.push(
         notExists(
@@ -522,14 +438,9 @@ class Users {
   }
 
   /**
-   * Fetch a single user with the groups it belongs to and the authentication providers linked to it.
-   *
    * The stored `auth` blob is keyed by strategy ID and holds secrets, so it is reshaped into a list
    * of providers carrying only state (`isPasswordSet`, `isTfaSetup`) — never the password hash or
    * the TFA secret.
-   *
-   * @param id User ID
-   * @returns The user, or null if no such user exists
    */
   async getUserDetail(id: string) {
     const results = await CARDINAL.db
@@ -565,11 +476,7 @@ class Users {
     }
   }
 
-  /**
-   * Create a new user, authenticated against the local strategy.
-   *
-   * @returns The new user's ID
-   */
+  /** Create a new user, authenticated against the local strategy. */
   async createUser({
     name,
     firstName,
@@ -580,10 +487,7 @@ class Users {
     mustChangePassword = false,
     isVerified = true
   }: {
-    /**
-     * The display name. Optional: a caller with the two halves below instead lets it derive
-     * ({@link resolveNameFields}), which is what the admin-create and self-registration forms do.
-     */
+    /** Optional: a caller with the two halves below instead lets it derive ({@link resolveNameFields}). */
     name?: string
     firstName?: string
     lastName?: string
@@ -593,28 +497,24 @@ class Users {
     mustChangePassword?: boolean
     /**
      * Defaults to true: an administrator creating the account vouches for the address, and login
-     * rejects unverified users with `ERR_USER_NOT_VERIFIED` — which no email can currently clear.
+     * rejects unverified users with `ERR_USER_NOT_VERIFIED`, which no email can currently clear.
      */
     isVerified?: boolean
   }): Promise<string> {
     const localStrategyId = CARDINAL.data.systemIds.localAuthId
-    // -> Resolved here as well as inside `localUserRow` (the call is idempotent) purely so the
-    //    `user:join` hook below reports the display name that was actually stored, rather than the
-    //    `undefined` a halves-only caller passed for it.
+    // -> Resolved here too (the call is idempotent) so the `user:join` hook below reports the
+    //    display name that was actually stored, not the `undefined` a halves-only caller passed.
     const names = resolveNameFields({ name, firstName, lastName })
-    // -> Hashed before the transaction opens rather than inside it: bcrypt is CPU-bound, not a query,
-    //    and there is no reason to hold the checked-out connection idle while it runs.
+    // -> Hashed before the transaction opens: bcrypt is CPU-bound, not a query, and there is no
+    //    reason to hold the checked-out connection idle while it runs.
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS)
 
-    // -> The insert and its group assignment must land together or not at all (OpenProject #1607): a
-    //    `setUserGroups` failure after the insert had already committed used to leave a user row with
-    //    no memberships behind a 500, and the administrator's retry hit the email-uniqueness conflict
-    //    instead of anything informative.
+    // -> The insert and its group assignment must land together or not at all: a `setUserGroups`
+    //    failure after a committed insert leaves a user row with no memberships behind a 500, and
+    //    the administrator's retry hits the email-uniqueness conflict instead of anything useful.
     const userId = await CARDINAL.db.transaction(async (tx) => {
       const result = await tx
         .insert(usersTable)
-        // -> `meta`/`prefs` left to `localUserRow`, which seeds them from the instance-wide user
-        //    defaults an administrator can change
         .values(
           localUserRow({
             strategyId: localStrategyId,
@@ -641,9 +541,8 @@ class Users {
       `Created user ${userId} <${email.toLowerCase()}> in ${groups.length} group(s), mustChangePwd: ${mustChangePassword}, verified: ${isVerified}`
     )
 
-    // -> No site context: an account is a global entity, not one the wiki can attribute to a site. A
-    //    hook scoped to one site must not fire on every join instance-wide just because there is no
-    //    site to compare against, so `null` here, not the first/current site.
+    // -> No site context: an account is global, not attributable to a site, and a hook scoped to
+    //    one site must not fire on every join instance-wide for want of a site to compare against.
     await CARDINAL.models.hooks.emit('user:join', null, {
       userId,
       metadata: {
@@ -656,56 +555,21 @@ class Users {
   }
 
   /**
-   * Create a local-provider user during a 2.5.x -> 3.0 import (Feature 414, Task 728), carrying an
-   * already-hashed password over verbatim instead of hashing a plaintext one.
+   * Create a local-provider user during a 2.5.x -> 3.0 import, carrying the source's already-hashed
+   * password over verbatim. It cannot reuse `createUser()`, which bcrypt-hashes whatever string it
+   * is handed: re-hashing an existing hash produces a value that can never match the original
+   * plaintext, locking every imported account out of its own password.
    *
-   * ## Why this can't reuse `createUser()`
-   * `createUser()` calls `bcrypt.hash(password, BCRYPT_ROUNDS)` on whatever string it receives. A 2.5.x
-   * local-provider `users.password` column is already a bcryptjs hash at 12 rounds — hashing it
-   * again would produce a value that can never match the original plaintext, silently locking every
-   * imported local account out of its own password. This method takes `passwordHash` and writes it
-   * straight into `auth[localStrategyId].password`; nothing in its body calls `bcrypt.hash()`.
+   * An email collision (`users.email` is unique) is skipped and flagged rather than thrown or
+   * silently overwritten, so a partial import is always reported rather than picking a winner
+   * quietly. The check-then-insert leaves a narrow race window, so a unique violation from the
+   * insert itself is downgraded to the same skip — a same-email race is a collision, not a schema
+   * error.
    *
-   * ## Email-collision policy — explicit decision: skip-and-flag
-   * `users.email` is unique (`db/schema.ts`). Importing into a non-empty 3.0 install (an
-   * administrator's own account, or a previous partial/retried import run) can therefore collide.
-   * The policy here is **skip-and-flag**: on collision this returns `{ status: 'skipped', reason:
-   * 'email-collision', existingId }` instead of throwing or silently overwriting the existing
-   * account. "Never a silent partial import" rules out picking a winner without saying so; the
-   * caller (the users/groups importer engine) is responsible for turning this into a reported
-   * `skipped` record rather than swallowing it. The check-then-insert has a narrow race window
-   * (another writer between the check and this insert), so a `23505` unique-violation from the
-   * insert itself is downgraded to the same skip result as a backstop, rather than surfaced as a
-   * generic `conflicted` failure — a same-email race is still a collision, not a schema error.
-   *
-   * ## 2FA carryover — explicit decision: NOT carried over, always reset
-   * 2.5.x `tfaIsActive`/`tfaSecret` are deliberately **not** accepted by this method at all (there is
-   * no parameter for them) — every imported local account starts with 2FA off
-   * (`tfaIsActive: false`, `tfaSecret: ''`) and can re-enroll after import. A TOTP secret is tied to
-   * whichever authenticator app instance the user already enrolled on the source install; carrying
-   * it over as "active" either (a) silently disables real 2FA protection if the secret is stale or
-   * was rotated since, giving a false sense of security, or (b) if it still matches, moves a secret
-   * across an infrastructure boundary (old install -> new install) without the user's awareness or
-   * re-consent. Feature 414's framing does not mention re-notifying users or forcing 2FA
-   * re-enrollment post-import, so resetting is the safer default until a real product decision says
-   * otherwise — that decision is out of this task's scope, not silently assumed away.
-   *
-   * ## Carried-over state — explicit decision: read from the source, never assumed (Task 1847)
-   * `isActive`, `meta` (`location`/`jobTitle`/`pronouns`), `prefs`
-   * (`timezone`/`dateFormat`/`timeFormat`/`appearance`/`cvd`) and the three timestamps
-   * (`createdAt`/`updatedAt`/`lastLoginAt`) all have a `docs/migration/2.5x-to-3.0-mapping.md`
-   * "direct" mapping and are accepted as parameters here rather than hardcoded. `isActive` in
-   * particular defaults to `false` (matching the column's own default) rather than `true` when the
-   * caller omits it: a 2.x account an administrator deliberately deactivated must not be silently
-   * recreated as active. `meta`/`prefs` are merged field-by-field over the pre-existing defaults
-   * (including `CARDINAL.config.userDefaults`) so a caller — or the existing test suite — that omits
-   * some or all of them keeps the prior behavior. The three timestamps are left `undefined` when not
-   * given, which drizzle resolves to each column's own default (`defaultNow()` for
-   * `createdAt`/`updatedAt`, `NULL` for `lastLoginAt`) rather than inserting a literal `NULL`/`now()`
-   * value here.
-   *
-   * @returns `{ status: 'created', id }`, or `{ status: 'skipped', reason: 'email-collision',
-   * existingId }` when a user with this email already exists.
+   * 2FA is deliberately not carried over and has no parameter here: a TOTP secret is bound to the
+   * authenticator the user enrolled on the source install, so importing it as active either
+   * protects nothing (if it was rotated since) or moves a secret across installs without the user's
+   * re-consent. Imported accounts re-enroll.
    */
   async importLocalUser({
     name,
@@ -724,23 +588,20 @@ class Users {
     lastLoginAt
   }: {
     /**
-     * The 2.5.x source's single `name` column. A source with no separated halves to give simply omits
-     * the two below, and the account is imported with an authored display name — no split is guessed
-     * at here (Feature #2608 rejects name parsing on an account this instance owns).
+     * The 2.5.x source's single `name` column. A source with no separated halves omits the two
+     * below and the account is imported with an authored display name — no split is guessed at.
      */
     name?: string
     firstName?: string
     lastName?: string
     email: string
-    /** The source install's already-hashed local password (bcryptjs, 12 rounds) — copied verbatim. */
     passwordHash: string
-    /** Target-install group UUIDs, already remapped through the source-id -> target-UUID map built
-     * while importing groups (see `migration/importers/users-groups.ts`). */
+    /** Target-install group UUIDs, already remapped from source ids by the groups importer. */
     groups?: string[]
     mustChangePassword?: boolean
     isVerified?: boolean
-    /** Whether the source account was active. Always read from the source — see this method's doc.
-     * Defaults to `false` (never `true`) when the caller has no source value to give. */
+    /** Defaults to `false`, never `true`: a deliberately deactivated 2.x account must not come back
+     * active when the caller has no source value to give. */
     isActive?: boolean
     meta?: { location?: string; jobTitle?: string; pronouns?: string }
     prefs?: {
@@ -750,9 +611,8 @@ class Users {
       appearance?: string
       cvd?: string
     }
-    /** Source `createdAt`/`updatedAt`/`lastLoginAt`, carried over verbatim so an imported account's
-     * "member since" reflects the source install, not the import date. Omitted fields fall back to
-     * the column's own default rather than being written as a literal value. */
+    /** Carried over so an imported account's "member since" reflects the source install, not the
+     * import date. Omitted, each falls back to its column's own default. */
     createdAt?: Date
     updatedAt?: Date
     lastLoginAt?: Date
@@ -765,8 +625,7 @@ class Users {
     }
 
     const localStrategyId = CARDINAL.data.systemIds.localAuthId
-    // -> Resolved here as well as inside `localUserRow` (the call is idempotent) so the `user:join`
-    //    hook below reports the display name that was actually stored — same reason as `createUser()`.
+    // -> Idempotent re-resolve, so the `user:join` hook below reports the stored display name.
     const names = resolveNameFields({ name, firstName, lastName })
     let result
     try {
@@ -792,8 +651,6 @@ class Users {
         )
         .returning({ id: usersTable.id })
     } catch (err: any) {
-      // -> See the collision-policy note above: a race between the pre-check and this insert still
-      //    surfaces as the same skip result, not a generic thrown failure.
       if (isUniqueViolation(err)) {
         return { status: 'skipped', reason: 'email-collision', existingId: '' }
       }
@@ -821,32 +678,22 @@ class Users {
   }
 
   /**
-   * Update a user's own fields. Group membership is handled by `setUserGroups()`.
+   * Group membership is handled by `setUserGroups()`.
    *
-   * ## The `name` derivation invariant (Feature #2608)
+   * The ONE place an update reconciles `name` against `firstName`/`lastName`; the insert-side
+   * counterpart is {@link resolveNameFields}. Every write path that changes a name goes through
+   * here, so the three columns cannot silently disagree:
    *
-   * This method is the ONE place an update reconciles `name` against `firstName`/`lastName`; the
-   * insert-side counterpart is {@link resolveNameFields}. Every write path that changes a name goes
-   * through here — `updateProfile()`, `applyUserUpdate()` (and therefore `PUT /users/:userId`), and
-   * the provider sign-in paths — so the three columns cannot silently disagree.
+   * - A half edit carrying no `name` re-derives `name`, unless the row is already marked
+   *   `nameLocallyEdited`, in which case the authored name stands and only the halves move.
+   * - An explicit `name` is stored verbatim and sets that marker, so a hand-authored display name
+   *   survives every later half edit. A `name` that is exactly what the halves derive to clears the
+   *   marker instead, which is what stops a form submitting all three fields marking every account
+   *   it touches.
+   * - A caller may pass `nameLocallyEdited` itself to override both rules — the seam a provider
+   *   sign-in uses to fill an empty half without it counting as a local edit.
    *
-   * - A patch that changes `firstName` and/or `lastName` and carries **no** `name` **re-derives**
-   *   `name` from the resulting pair — unless the row is already marked `nameLocallyEdited`, in
-   *   which case the authored name stands and only the two halves move.
-   * - A patch carrying an explicit `name` stores it verbatim and **sets** `nameLocallyEdited`,
-   *   because a hand-authored display name must survive every later half edit. Writing a `name`
-   *   that is exactly what the halves derive to clears the marker instead — that is the same write
-   *   as "put this account back on derivation", and it is what stops a form that always submits all
-   *   three fields from marking every account it touches.
-   * - A caller may pass `nameLocallyEdited` itself to override both rules. That is the seam a
-   *   provider sign-in uses (Tasks #2640/#2641): it fills an empty half with `false`, so filling a
-   *   gap from a claim never counts as a local edit.
-   *
-   * A patch touching none of the three fields does not read the row at all — the common case
-   * (`isVerified`, `prefs`, `meta`, …) still costs exactly one statement.
-   *
-   * @param patch Fields to change — must not be empty
-   * @returns Whether a user was updated
+   * A patch touching none of the three fields does not read the row at all.
    */
   async updateUser(id: string, patch: UserPatch, db: WikiDbOrTx = CARDINAL.db): Promise<boolean> {
     const values: Record<string, any> = { ...patch, updatedAt: sql`now()` }
@@ -867,13 +714,12 @@ class Users {
   }
 
   /**
-   * The name half of {@link Users.updateUser}, split out only to keep that method readable — it is
-   * not a second owner of the rule and nothing else calls it. Mutates `values` in place.
+   * Split out of {@link Users.updateUser} only for readability — not a second owner of the rule.
+   * Mutates `values` in place.
    *
-   * The current row is read on the caller's own `db` handle, so a call inside an open transaction
-   * (`applyUserUpdate()`) sees that transaction's uncommitted state rather than the pre-transaction
-   * row. A user that has since been deleted simply leaves `values` alone: the `UPDATE` that follows
-   * matches nothing and `updateUser()` answers `false`, which is what it already did.
+   * Reads the current row on the caller's own `db` handle, so a call inside an open transaction
+   * sees that transaction's uncommitted state. A since-deleted user leaves `values` alone: the
+   * `UPDATE` that follows matches nothing.
    */
   private async reconcileNameValues(
     id: string,
@@ -910,12 +756,8 @@ class Users {
   }
 
   /**
-   * The profile of a single user, as shown on its own profile page.
-   *
    * `meta` and `prefs` are free-form blobs, so every field is defaulted here rather than trusted to
    * be present — a user created before a given key existed simply has none.
-   *
-   * @returns The profile, or null if no such user exists
    */
   async getProfile(id: string): Promise<UserProfile | null> {
     const user = await this.getById(id)
@@ -935,8 +777,7 @@ class Users {
       location: meta.location ?? '',
       jobTitle: meta.jobTitle ?? '',
       pronouns: meta.pronouns ?? '',
-      // -> An empty time zone / date format means "whatever the client resolves", which is what the
-      //    profile page falls back to
+      // -> Empty means "whatever the client resolves", which is what the profile page falls back to
       timezone: prefs.timezone ?? '',
       dateFormat: prefs.dateFormat ?? '',
       timeFormat: prefs.timeFormat ?? '12h',
@@ -944,29 +785,20 @@ class Users {
       aesthetic: prefs.aesthetic ?? 'site',
       contentWidth: prefs.contentWidth ?? 'site',
       cvd: prefs.cvd ?? 'none',
-      // -> An empty locale means "no preference recorded" — mail resolves such a user's messages in
-      //    `en`, the same fallback `models/locales.ts#resolveString`'s server-side string resolver
-      //    uses for an unset or unknown locale.
+      // -> Empty means "no preference recorded" — mail then resolves in `en`, the same fallback
+      //    `models/locales.ts#resolveString` uses for an unset or unknown locale.
       locale: prefs.locale ?? '',
-      // -> No forced default here, unlike every field above: a user who has never saved a graph
-      //    preference gets no `graph` key at all, and `Graph.vue` is the one place that decides what
-      //    each of the five controls falls back to when unset (OpenProject #2853's own corrected
-      //    defaults, applied there rather than duplicated here).
+      // -> No forced default, unlike every field above: `Graph.vue` is the one place that decides
+      //    what each control falls back to when unset, rather than it being duplicated here.
       graph: prefs.graph as GraphPrefs | undefined,
-      // -> No forced default, same reasoning as `graph` above: a user who has never saved one gets
-      //    no `iconPicker` key at all, and `IconPickerDialog.vue` is the one place that decides
-      //    what the set filter falls back to when unset.
+      // -> Same reasoning as `graph`: `IconPickerDialog.vue` owns the unset fallback.
       iconPicker: prefs.iconPicker as IconPickerPrefs | undefined
     }
   }
 
   /**
-   * A user's own settings for one editor.
-   *
    * Kept under `prefs.editors[editor]` so each editor owns its own blob and adding a second one
    * needs no migration. The shape is whatever that editor saves; this only guarantees an object.
-   *
-   * @returns The saved settings, or `{}` for a user who has never saved any
    */
   async getEditorSettings(id: string, editor: string): Promise<Record<string, any>> {
     const user = await this.getById(id)
@@ -978,12 +810,8 @@ class Users {
   }
 
   /**
-   * Replace a user's settings for one editor.
-   *
    * Merges at both levels for the same reason `updateProfile` does: another editor's settings, and
    * every other preference, have to survive one editor saving its own.
-   *
-   * @returns The saved settings, or null if no such user exists
    */
   async setEditorSettings(
     id: string,
@@ -1001,18 +829,10 @@ class Users {
   }
 
   /**
-   * Which `HookEvent`s this user asked to be emailed about — the storage half of the per-user,
-   * per-event-type email notification toggle (`models/hooks.ts#Hooks.emit()` is the trigger half:
-   * see its `notifyEmailSubscribers()`). Kept at `prefs.notifications.events`, the same
-   * per-feature-blob-under-`prefs` shape `getEditorSettings`/`setEditorSettings` use for
-   * `prefs.editors[editor]` — no migration needed to add or change it, and it costs nothing beyond
-   * a jsonb read. Empty (opt-in, not opt-out) for a user who has never set a preference.
-   *
-   * OpenProject #2482 owns the settings UI this backs; the storage shape here is deliberately the
-   * minimal thing `emit()`'s trigger extension needs to have something real to query, not a
-   * finished preferences feature.
-   *
-   * @returns The subscribed events, or `[]` for a user who has none set or does not exist
+   * The storage half of the per-user email notification toggle; `models/hooks.ts#Hooks.emit()` is
+   * the trigger half. Kept at `prefs.notifications.events`, the same per-feature-blob-under-`prefs`
+   * shape `getEditorSettings` uses — no migration needed to add or change it. Empty for a user who
+   * has never set a preference: subscription is opt-in, not opt-out.
    */
   async getEmailNotificationEvents(id: string): Promise<HookEvent[]> {
     const user = await this.getById(id)
@@ -1027,14 +847,9 @@ class Users {
   }
 
   /**
-   * Replace a user's set of subscribed event types, merging into `prefs` the same way
-   * `setEditorSettings` merges into `prefs.editors` — every other preference (including a
-   * different editor's own settings) survives untouched.
-   *
-   * Silently drops anything not in `HOOK_EVENTS`: this is a closed vocabulary (see
-   * `models/hooks.ts`), not free text a caller can extend by typo.
-   *
-   * @returns The saved (filtered) list, or null if no such user exists
+   * Merges into `prefs` the same way `setEditorSettings` does, so every other preference survives
+   * untouched. Silently drops anything not in `HOOK_EVENTS`: a closed vocabulary, not free text a
+   * caller can extend by typo.
    */
   async setEmailNotificationEvents(id: string, events: string[]): Promise<HookEvent[] | null> {
     const user = await this.getById(id)
@@ -1054,16 +869,11 @@ class Users {
   }
 
   /**
-   * Every active, non-system user subscribed to email notifications for one event type — the
-   * subscriber half of `Hooks.emit()`'s email fan-out (see that method's `notifyEmailSubscribers()`).
-   * Reads the same `prefs.notifications.events` array {@link setEmailNotificationEvents} writes, via
-   * `jsonb_exists()` (the function form of jsonb's `?` containment operator, spelled out so it reads
-   * unambiguously next to Drizzle's own `${}` parameter placeholders rather than risking the bare
-   * operator being misread as one).
+   * `jsonb_exists()` is the function form of jsonb's `?` containment operator, spelled out so it is
+   * not misread as one of Drizzle's own `${}` parameter placeholders.
    *
-   * Deliberately instance-wide, with no site or page-permission filtering: a webhook subscription
-   * (what this mirrors) isn't scoped to what its owner can read either — see this feature's own
-   * scope notes for why that's a known simplification here, not an oversight.
+   * Deliberately instance-wide, with no site or page-permission filtering: a webhook subscription,
+   * which this mirrors, isn't scoped to what its owner can read either. A known simplification.
    */
   async listEmailSubscribers(event: HookEvent): Promise<{ id: string }[]> {
     return CARDINAL.db
@@ -1079,17 +889,13 @@ class Users {
   }
 
   /**
-   * A user's own per-event-type email notification subscriptions (Feature #2425), as the boolean
-   * map the profile UI and `UserNotificationSubscriptions` schema deal in. A thin adapter over
-   * {@link getEmailNotificationEvents} rather than a second storage location -- `#2481`'s
-   * `Hooks.emit()` already reads that array (via {@link listEmailSubscribers}), so a competing
-   * `prefs.eventSubscriptions` blob would leave this settings page changing something the trigger
-   * side never looks at. Always returns a fully populated map over every {@link HOOK_EVENTS} entry
-   * rather than only the events a user has actually subscribed to -- opting in is explicit, so an
-   * event the user has never set, or one added to `HOOK_EVENTS` after they last saved, both default
-   * to `false` here rather than being silently absent from the response.
+   * An adapter over {@link getEmailNotificationEvents} rather than a second storage location:
+   * `Hooks.emit()` already reads that array, so a competing `prefs.eventSubscriptions` blob would
+   * leave this settings page changing something the trigger side never looks at.
    *
-   * @returns The full subscription map, or null if no such user exists
+   * The map is always fully populated over {@link HOOK_EVENTS} -- opting in is explicit, so an
+   * event never set, or one added to `HOOK_EVENTS` since the user last saved, reads `false` rather
+   * than being silently absent.
    */
   async getNotificationSubscriptions(id: string): Promise<NotificationSubscriptions | null> {
     const user = await this.getById(id)
@@ -1105,16 +911,9 @@ class Users {
   }
 
   /**
-   * Merge a patch into a user's per-event-type email notification subscriptions, translating the
-   * boolean-map patch the route accepts into the subscribed-event array
-   * {@link setEmailNotificationEvents} actually stores.
-   *
-   * Only the keys present in `patch` change; every other event type -- including one the caller
-   * simply didn't send -- is left as it was. `patch` is trusted to carry only known
-   * {@link HookEvent} keys: the route schema (`UserNotificationSubscriptionsUpdate`) is what
-   * actually rejects an unknown one, so this only ever writes keys `HOOK_EVENTS` already lists.
-   *
-   * @returns The full, freshly merged subscription map, or null if no such user exists
+   * Only the keys present in `patch` change; an event type the caller simply didn't send is left
+   * as it was. `patch` is trusted to carry only known {@link HookEvent} keys -- the route schema
+   * `UserNotificationSubscriptionsUpdate` is what rejects an unknown one.
    */
   async setNotificationSubscriptions(
     id: string,
@@ -1148,12 +947,9 @@ class Users {
   }
 
   /**
-   * Update a user's own profile fields, merging into the `meta` and `prefs` blobs rather than
-   * replacing them — an administrator's notes and any key this endpoint does not expose must survive
-   * a user saving its profile.
+   * Merges into the `meta` and `prefs` blobs rather than replacing them — an administrator's notes
+   * and any key this endpoint does not expose must survive a user saving its profile.
    *
-   * @param patch Fields to change; omitted ones are left as they are
-   * @returns The updated profile, or null if no such user exists
    * @throws `ERR_INVALID_LOCALE` for a non-empty `locale` that names no installed locale
    */
   async updateProfile(id: string, patch: UserProfilePatch): Promise<UserProfile | null> {
@@ -1162,9 +958,8 @@ class Users {
       return null
     }
 
-    // -> Validated against the installed catalogue rather than a static enum, same reasoning as the
-    //    timezone check in `api/users/profile.ts` — the valid set is only known at runtime. An empty string
-    //    clears the preference (falls back to `en` when mail resolves it), so it skips the check.
+    // -> Validated against the installed catalogue rather than a static enum: the valid set is only
+    //    known at runtime. An empty string clears the preference, so it skips the check.
     if (patch.locale !== undefined && patch.locale !== '') {
       const known = (await CARDINAL.models.locales.getLocales()).some(
         (lc: any) => lc.code === patch.locale
@@ -1187,9 +982,9 @@ class Users {
       }
     }
 
-    // -> The three name fields are handed to `updateUser` untouched: it is the one owner of the
-    //    derive-unless-authored rule (Feature #2608), so this method neither derives nor decides
-    //    whether the profile's own display-name edit counts as authoring.
+    // -> Name fields go to `updateUser` untouched: it is the one owner of the
+    //    derive-unless-authored rule, so this method neither derives nor decides what counts as
+    //    authoring.
     const values: UserPatch = { meta, prefs }
     for (const key of profileNameKeys) {
       if (patch[key] !== undefined) {
@@ -1202,13 +997,9 @@ class Users {
   }
 
   /**
-   * A user's avatar, with the type its bytes say it is.
-   *
    * The type is sniffed rather than stored: an avatar written while Sharp was installed is a JPEG,
-   * one written without it is whatever was uploaded, and nothing records which. Unrecognizable bytes
-   * are reported as JPEG, which is what every avatar stored by 2.x is.
-   *
-   * @returns The avatar, or null if this user has none
+   * one written without it is whatever was uploaded, and nothing records which. Unrecognizable
+   * bytes are reported as JPEG, which is what every avatar stored by 2.x is.
    */
   async getAvatar(userId: string): Promise<{ data: Buffer; mime: string } | null> {
     const rows = await CARDINAL.db
@@ -1224,11 +1015,8 @@ class Users {
   }
 
   /**
-   * The sha1 hash of a user's avatar, without reading the blob itself — selects only the `hash`
-   * column, kept in step with `data` by every write in `setAvatar`. Lets a conditional request
-   * (ETag) be answered without pulling the avatar back out of the database.
-   *
-   * @returns The hash, or null if this user has no avatar
+   * Lets a conditional request (ETag) be answered without pulling the avatar blob back out of the
+   * database.
    */
   async getAvatarHash(userId: string): Promise<string | null> {
     const rows = await CARDINAL.db
@@ -1240,19 +1028,16 @@ class Users {
   }
 
   /**
-   * Replace a user's avatar.
-   *
-   * Normalized to a square JPEG when the Sharp extension is installed — an avatar is displayed at one
-   * small size, so there is no reason to keep a multi-megabyte original around. Without Sharp the
-   * uploaded bytes are stored as they came in, which is why reading one sniffs the type.
+   * Normalized to a square JPEG when the Sharp extension is installed — an avatar is displayed at
+   * one small size, so there is no reason to keep a multi-megabyte original around. Without Sharp
+   * the uploaded bytes are stored as they came in, which is why reading one sniffs the type.
    *
    * @param data The uploaded image, already known to be one of the supported formats
    */
   async setAvatar(userId: string, data: Buffer): Promise<void> {
     const normalized = (await resizeImageToSquareJpeg(data, avatarSize)) ?? data
-    // -> Kept in step with `data` on every write -- `hash` is NOT NULL with no default, and this is
-    //    the same sha1-hex digest `controllers/user.ts` computes from the blob for its ETag, so a
-    //    future hash-only reader agrees with what a full blob read would have produced.
+    // -> The same sha1-hex digest `controllers/user.ts` computes from the blob for its ETag, so a
+    //    hash-only reader agrees with what a full blob read would have produced.
     const hash = crypto.createHash('sha1').update(normalized).digest('hex')
     await CARDINAL.db
       .insert(userAvatars)
@@ -1264,9 +1049,6 @@ class Users {
       .where(eq(usersTable.id, userId))
   }
 
-  /**
-   * Remove a user's avatar, leaving it to be rendered as initials again.
-   */
   async clearAvatar(userId: string): Promise<void> {
     await CARDINAL.db.delete(userAvatars).where(eq(userAvatars.id, userId))
     await CARDINAL.db
@@ -1276,22 +1058,14 @@ class Users {
   }
 
   /**
-   * Sync a provider-reported avatar onto the user row.
+   * The one shared write path every provider integration calls into to record an avatar picked up
+   * at login, so none of them implement their own caching or precedence logic. It does no fetching:
+   * the caller resolves the URL -- the provider's own, or one pointing at a locally re-hosted copy
+   * it made itself -- and this only caches it onto `users.avatarProviderUrl`.
    *
-   * The one shared write path every provider integration -- OAuth/OIDC (Google, GitHub, Microsoft,
-   * generic OIDC) and LDAP/SAML's `mappingPicture` -- calls into to record an avatar picked up at
-   * login, so none of them implement their own caching or precedence logic (Feature #3208). A
-   * caller hands this whatever URL it resolved: the provider's own picture URL, or one pointing at a
-   * locally re-hosted copy it made itself -- this method does no fetching of its own, it only caches
-   * the URL it is given onto `users.avatarProviderUrl`.
-   *
-   * A manually-uploaded avatar always wins: this is a no-op whenever the user already has one
-   * (`hasAvatar`, set exclusively by `setAvatar()`/`clearAvatar()`, the manual-upload route), so a
-   * provider login can never silently replace what the user chose to upload themselves. It is also a
-   * no-op for a blank/whitespace-only URL, which is how a caller says its provider reported none.
-   *
-   * @returns Whether the sync was applied (`false` for a manual-avatar no-op, a missing user, or an
-   *   empty `pictureUrl`)
+   * A manually-uploaded avatar always wins, so this is a no-op whenever `hasAvatar` is set: a
+   * provider login can never silently replace what the user chose to upload. A blank or
+   * whitespace-only URL is also a no-op, which is how a caller says its provider reported none.
    */
   async syncAvatarFromProvider(
     userId: string,
@@ -1307,7 +1081,6 @@ class Users {
       .where(eq(usersTable.id, userId))
       .limit(1)
     if (!rows[0] || rows[0].hasAvatar) {
-      // -> Missing user, or a manually-uploaded avatar already in place -- never overwritten.
       return false
     }
     await CARDINAL.db
@@ -1318,8 +1091,8 @@ class Users {
   }
 
   /**
-   * The groups a user belongs to, by name. Only the identity of each group — never its permissions or
-   * page rules, which a user has no business reading about itself.
+   * Identity only — never a group's permissions or page rules, which a user has no business
+   * reading about itself.
    */
   async getUserGroups(userId: string): Promise<Array<{ id: string; name: string }>> {
     return CARDINAL.db
@@ -1331,9 +1104,8 @@ class Users {
   }
 
   /**
-   * The groups a user does NOT belong to, by name. Only the identity of each group — same shape as
-   * `getUserGroups()` — for the profile page's admin-gated "other groups" section; never member count
-   * or any other metadata.
+   * Identity only, like `getUserGroups()` — never member count or any other metadata — for the
+   * profile page's admin-gated "other groups" section.
    */
   async getNonMemberGroups(userId: string): Promise<Array<{ id: string; name: string }>> {
     return CARDINAL.db
@@ -1350,9 +1122,6 @@ class Users {
       .orderBy(groupsTable.name)
   }
 
-  /**
-   * The IDs of the groups a user belongs to
-   */
   async getUserGroupIds(userId: string): Promise<string[]> {
     const rows = await CARDINAL.db
       .select({ groupId: userGroups.groupId })
@@ -1364,15 +1133,11 @@ class Users {
   /**
    * Replace a user's group membership with exactly the given groups.
    *
-   * Unknown group IDs are ignored rather than failing the whole update, so that a stale client does
-   * not block an otherwise valid save. So is a membership that may not exist — see
-   * `groups.guestMembershipViolation`: this is the one call that sets every group at once, and it is
-   * reached from creating a user, editing one, and enrolling one that an identity provider has just
-   * sent. Dropping what may not be granted keeps all three honest without any of them having to know
-   * about the guests group.
-   *
-   * @param db The ambient `CARDINAL.db`, or a transaction handle to join — e.g. `createUser()` passes its
-   * own open transaction so the membership rows commit (or roll back) atomically with the user row.
+   * Unknown group IDs are ignored rather than failing the whole update, so a stale client does not
+   * block an otherwise valid save. So is a membership that may not be granted — see
+   * `groups.guestMembershipViolation`: this is the one call that sets every group at once, reached
+   * from creating a user, editing one, and enrolling one an identity provider has just sent, so
+   * dropping here keeps all three honest without any of them knowing about the guests group.
    */
   async setUserGroups(
     userId: string,
@@ -1390,9 +1155,9 @@ class Users {
       })
     }
     /*
-      The guest account keeps the membership it was seeded with whatever was asked for: it is the one
-      user whose groups are not an administrator's to set, and an empty list would otherwise leave
-      anonymous access resolving against no rules at all.
+      The guest account keeps the membership it was seeded with whatever was asked for: its groups
+      are not an administrator's to set, and an empty list would leave anonymous access resolving
+      against no rules at all.
     */
     if (user?.isSystem) {
       return
@@ -1407,14 +1172,12 @@ class Users {
         : []
     const wantedIds = wanted.map((g: any) => g.id)
 
-    // -> One transaction: `userGroups` has no soft-replace path, so a plain delete-then-insert left a
-    //    window where a concurrent single-membership grant landing in between could make the insert's
-    //    conflict on the composite primary key fail outright, or a dropped connection could leave the
-    //    user in no groups at all -- no admin access, no page rules -- with the caller's error saying
-    //    nothing about membership having been wiped. `reassignContent` above draws this same boundary.
-    //    Transacting on `db` (not the ambient `CARDINAL.db`) is what lets `createUser()`'s own open
-    //    transaction be joined rather than raced by a second, independent one -- drizzle nests it as a
-    //    savepoint when `db` is already a transaction handle.
+    // -> One transaction: `userGroups` has no soft-replace path, so an unwrapped delete-then-insert
+    //    leaves a window where a concurrent grant makes the insert fail on the composite primary
+    //    key, or a dropped connection leaves the user in no groups at all -- no admin access, no
+    //    page rules -- with the caller's error saying nothing about membership having been wiped.
+    //    Transacting on `db`, not the ambient `CARDINAL.db`, is what lets a caller's own open
+    //    transaction be joined rather than raced: drizzle nests it as a savepoint.
     await db.transaction(async (tx) => {
       await tx.delete(userGroups).where(eq(userGroups.userId, userId))
       if (wantedIds.length > 0) {
@@ -1426,21 +1189,13 @@ class Users {
   }
 
   /**
-   * Apply a profile patch, group membership, and/or local auth-flag changes to a user in one
-   * transaction, clearing that user's sessions when required — the atomic replacement for
-   * `PUT /users/:userId`'s previously separate calls to `updateUser`, `setUserGroups`,
-   * `setUserAuthFlags` and `sessions.clearSessionsFromUser` (OpenProject #1609). A failure partway
-   * through no longer leaves an earlier write in this sequence committed behind a 500.
+   * One transaction, so a failure partway through leaves no earlier write in the sequence committed
+   * behind a 500.
    *
    * The route keeps its pre-flight guards (duplicate email, system-user protection, `manage:system`
-   * escalation, last-root-admin) outside this method, and still calls `auditLog.record()` itself
-   * afterwards — that call cannot throw (`models/auditLog.ts`) and carries `patch`/`groups`/`auth` as
-   * it was asked for, not as this method interpreted it, so it has no reason to join the transaction.
-   *
-   * @param id The user being updated
-   * @param patch Profile fields to change; omitted or empty skips the profile write entirely
-   * @param groups The new group membership; `undefined` leaves membership unchanged
-   * @param authFlags Local-strategy flags to set; `undefined` leaves them unchanged
+   * escalation, last-root-admin) outside this method, and calls `auditLog.record()` itself
+   * afterwards — that call cannot throw and records what was asked for, not what this method made
+   * of it, so it has no reason to join the transaction.
    */
   async applyUserUpdate(
     id: string,
@@ -1464,15 +1219,12 @@ class Users {
       if (authFlags !== undefined) {
         await CARDINAL.models.userCredentials.setUserAuthFlags(id, authFlags, tx)
       }
-      // -> Mirrors the route's original condition: a deactivation or a membership change must end any
-      //    open session now, the same way `models/sessions.ts#clearSessionsFromUser` documents.
       if (patch?.isActive === false || groups !== undefined) {
         await CARDINAL.models.sessions.clearSessionsFromUser(id, tx)
       }
-      // -> OpenProject #2094: a `resetPwd` (or other) token minted before deactivation would
-      //    otherwise still be redeemable afterwards -- `afterLoginChecks()` refuses the login it
-      //    would end in, but not before `resetPassword()` has already rewritten the password hash.
-      //    See `clearKeysFromUser`'s own doc comment.
+      // -> A `resetPwd` (or other) token minted before deactivation would otherwise stay redeemable
+      //    afterwards: `afterLoginChecks()` refuses the login it ends in, but only once
+      //    `resetPassword()` has already rewritten the password hash.
       if (patch?.isActive === false) {
         await CARDINAL.models.userCredentials.clearKeysFromUser(id, tx)
       }
@@ -1480,24 +1232,14 @@ class Users {
   }
 
   /**
-   * Bulk-reassign every page and asset `fromUserId` authored to `toUserId`, in one transaction.
+   * `pageEditSubmissions.authorId` also references `users.id` with no `onDelete` and blocks
+   * `deleteUser()`'s foreign key check the same way, but is deliberately left alone: an open page
+   * edit suggestion has no "reassign" remedy, only approve/reject (`models/approvals.ts`). So this
+   * clears that violation for authored/created/owned pages and authored assets only.
    *
-   * `pages.authorId`/`creatorId`/`ownerId` and `assets.authorId` are reassigned here, but they are
-   * NOT the only columns referencing `users.id` with no `onDelete` cascade or `set null` (see
-   * `db/schema.ts`) -- `pageEditSubmissions.authorId` has no `onDelete` either, and blocks
-   * `deleteUser()`'s foreign key check exactly the same way. This method does not touch it: an open
-   * page edit suggestion has no "reassign" remedy, only approve/reject (`models/approvals.ts`), so
-   * clearing it is a different operation, not a fourth column added to the two `UPDATE`s below.
-   * Reassigning what this method DOES cover clears deleteUser()'s foreign key violation for a user
-   * who authored, created, or owns any page, or authored any asset -- it does not by itself clear an
-   * open page edit suggestion still naming them as author.
-   *
-   * A single page can carry `fromUserId` in more than one of its three columns at once (e.g. as both
-   * author and owner), so `pages` is updated with one statement that repoints only the columns that
-   * actually match, rather than three separate statements that would each report the same page as
-   * touched.
-   *
-   * @returns How many pages and assets were reassigned
+   * A single page can carry `fromUserId` in more than one of its three columns at once, so `pages`
+   * is updated with one statement repointing only the columns that match, rather than three that
+   * would each report the same page as touched.
    */
   async reassignContent(
     fromUserId: string,
@@ -1542,20 +1284,15 @@ class Users {
   }
 
   /**
-   * Delete a user.
-   *
    * Group assignments cascade, but sessions, keys and the avatar do not — they are login/profile
-   * artifacts, so they are cleared here rather than blocking the delete. Open edit submissions
-   * (`pageEditSubmissions.authorId`) are discarded here too rather than nulled: the column is
-   * nullable and could survive as an anonymous suggestion, but that would silently change what the
-   * submission is instead of removing what belonged to the deleted account. References from
-   * authored content (pages, assets) have no cascade either and will make this throw, which is
-   * deliberate: the delete is refused rather than silently orphaning content.
+   * artifacts, so they are cleared here rather than blocking the delete. Open edit submissions are
+   * discarded rather than nulled: the column is nullable and one could survive as an anonymous
+   * suggestion, but that silently changes what the submission is instead of removing it. References
+   * from authored content (pages, assets) have no cascade either and make this throw, deliberately
+   * — the delete is refused rather than silently orphaning content.
    *
-   * Everything runs in one transaction so a delete refused by that foreign-key conflict leaves the
-   * user's sessions, keys and avatar intact rather than having already destroyed them.
-   *
-   * @returns Whether a user was deleted
+   * One transaction, so a delete refused by that foreign-key conflict leaves the sessions, keys and
+   * avatar intact rather than already destroyed.
    */
   async deleteUser(id: string): Promise<boolean> {
     return CARDINAL.db.transaction(async (tx) => {
@@ -1572,31 +1309,22 @@ class Users {
     CARDINAL.logger.debug('config', 'seeding the default users')
 
     const adminEmail = process.env.ADMIN_EMAIL ?? 'admin@example.com'
-    // -> `ADMIN_PASS` unset (or empty, matching the previous `||` fallback's own semantics) used to
-    //    mean "seed the fixed default password `12345678`" -- a credential every zero-config install
-    //    shared, and the one this OpenProject #3141 / `docs/audits/2026-09-13-gtm-11-pitfalls-audit.md`
-    //    §B4 exists to remove. A fresh instance now gets its own random, unguessable one instead,
-    //    generated once here and never derived from -- or reconstructable from -- anything else the
-    //    instance stores. 18 random bytes is 144 bits of entropy, comfortably past the local
-    //    strategy's own `minLength: 8` password floor (`api/users/admin.ts`, `api/users/profile.ts`),
-    //    and `base64url` has none of `+`/`/`/`=` to trip a naive copy-paste.
+    // -> No fixed default password: that would be one credential every zero-config install shares.
+    //    This one is generated here and derivable from nothing else the instance stores. 18 random
+    //    bytes is 144 bits of entropy, comfortably past the local strategy's own `minLength: 8`
+    //    floor, and `base64url` has none of `+`/`/`/`=` to trip a naive copy-paste.
     const generatedPassword = process.env.ADMIN_PASS
       ? undefined
       : crypto.randomBytes(18).toString('base64url')
     const adminPassword = process.env.ADMIN_PASS || generatedPassword!
 
     if (generatedPassword) {
-      // -> Must render no matter what `logLevel`/`logScopes` an operator has configured: this is the
-      //    ONLY place this password is ever shown, so a filtered-out line here seeds an account nobody
-      //    can log into. `error` is the one level `core/logger.ts#effectiveLevel` never gates out
-      //    (`LEVELS.indexOf('error') === 0`, so no configured threshold hides it) -- chosen over a raw
-      //    stderr write (the `index.ts` boot-refusal precedent) because `CARDINAL.logger` already exists
-      //    by the time `init()` runs here (`core/config.ts#loadFromDb` logs through it immediately
-      //    before calling this), so there is no pre-logger window to work around. Printing the
-      //    password itself is a deliberate exception to "identifiers, never identities" (root
-      //    CLAUDE.md's Logging section, which already carves out the seeded admin email for the same
-      //    reason) -- it is the one and only credential the operator has for this account at this
-      //    point.
+      // -> At `error` because it must render whatever `logLevel`/`logScopes` an operator configured:
+      //    this is the ONLY place the password is ever shown, so a filtered-out line seeds an
+      //    account nobody can log into, and `error` is the one level
+      //    `core/logger.ts#effectiveLevel` never gates out. Printing the credential is a deliberate
+      //    exception to the "identifiers, never identities" logging rule -- it is the only one the
+      //    operator has for this account.
       CARDINAL.logger.error(
         'config',
         'seeded a one-time admin password -- copy it now, it will not be shown again',
@@ -1607,13 +1335,13 @@ class Users {
     await CARDINAL.db.insert(usersTable).values([
       localUserRow({
         id: ids.userAdminId,
-        // -> `CARDINAL.data.systemIds` is not populated yet at seeding time, so the local strategy's id
-        //    comes from the ids being seeded rather than from that global
+        // -> `CARDINAL.data.systemIds` is not populated yet at seeding time, so the local
+        //    strategy's id comes from the ids being seeded rather than from that global
         strategyId: ids.authModuleId,
         email: adminEmail,
-        // -> A mononym: `firstName` alone derives `name` to 'Administrator' and leaves the row
-        //    unmarked, so an administrator who later fills in a real first and last name gets the
-        //    display name re-derived rather than being stuck behind an "authored" marker.
+        // -> A mononym: `firstName` alone derives `name` and leaves the row unmarked, so an
+        //    administrator who later fills in real halves gets the display name re-derived rather
+        //    than being stuck behind an "authored" marker.
         firstName: 'Administrator',
         passwordHash: await bcrypt.hash(adminPassword, BCRYPT_ROUNDS),
         mustChangePassword: !process.env.ADMIN_PASS,
@@ -1654,19 +1382,16 @@ class Users {
   }
 
   /**
-   * Mark a session authenticated for `user` — the one place every login path (local, provider,
-   * passkey, and the 2FA / password-change continuations) ends up, via `afterLoginChecks`.
+   * The one place every login path (local, provider, passkey, and the 2FA / password-change
+   * continuations) ends up, via `afterLoginChecks`.
    *
-   * Regenerates the session id first (task 2115 / WP 2105 §4, session fixation): without this, an
-   * attacker who can plant a session id on a victim before they log in — `saveUninitialized: false`
-   * does not prevent it, since two public pre-login endpoints already force a store write and a
-   * `Set-Cookie` (`POST /sites/:siteId/auth/passkey/challenge` and `GET /auth/:strategyId/authorize`
-   * in `api/auth/site.ts`) — ends up sharing the victim's now-authenticated session once they
-   * do. `@fastify/session#regenerate()` mints a fresh session id and store row and reassigns it onto
-   * `req.session` in place, so every read of `req.session` after this line — in this method, and
-   * back up the call chain in `afterLoginChecks` — already sees the regenerated one. Nothing needs
-   * carrying across: the only things a pre-login session ever holds (`authFlow`, `passkeyLogin`) are
-   * already cleared by their own callers once the ceremony they were for finishes.
+   * Regenerates the session id first, against session fixation: `saveUninitialized: false` does not
+   * stop an attacker planting a session id on a victim before they log in, since two public
+   * pre-login endpoints already force a store write and a `Set-Cookie`.
+   * `@fastify/session#regenerate()` reassigns the fresh session onto `req.session` in place, so
+   * every later read — here and back up the call chain — sees the regenerated one. Nothing needs
+   * carrying across: a pre-login session only ever holds `authFlow`/`passkeyLogin`, both cleared by
+   * their own callers once the ceremony finishes.
    */
   async updateSession(user: any, req: any): Promise<void> {
     await req.session.regenerate()

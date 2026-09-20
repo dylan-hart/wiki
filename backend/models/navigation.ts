@@ -18,20 +18,14 @@ import type { TreeItemType } from './tree.ts'
 import type { AccessActor } from './groups.ts'
 
 /**
- * Who a menu rewrite is attributed to in the content lifecycle log (OpenProject #2674).
- *
- * An optional field rather than a required argument, deliberately: an unswept caller is then a line
- * reading `user=system` rather than a compile error, and the write itself never depended on knowing
- * who asked for it. `authorId` is the actor's own id, never an e-mail address.
+ * Who a menu rewrite is attributed to in the content lifecycle log. Optional rather than required,
+ * deliberately: an unswept caller is then a line reading `user=system` rather than a compile error.
+ * `authorId` is the actor's own id, never an e-mail address.
  */
 export interface NavigationWriteActor {
   authorId?: string | null
 }
 
-/**
- * The `user=` field every `nav` lifecycle line carries. `system` stands in for a write with no actor
- * behind it.
- */
 function actorFields(authorId?: string | null): { user: string } {
   return { user: authorId || 'system' }
 }
@@ -46,20 +40,12 @@ export const NAVIGATION_MODES = [
 export type NavigationMode = (typeof NAVIGATION_MODES)[number]
 
 /**
- * Where a navigation row's items come from -- `navigation.mode` in the schema. `static` (the
- * default, and the only value any row had before this feature) is hand-authored items exactly as
- * `setNavItems` already works; `auto` and `mixed` are resolved by `getNav`, which walks the tree via
- * `generateFromTree` instead of (`auto`) or alongside (`mixed`) the stored `items`.
+ * Where a navigation row's items come from: hand-authored (`static`), a tree walk (`auto`), or the
+ * two merged (`mixed`). Resolved by `getNav`.
  */
 export const NAVIGATION_SOURCE_MODES = ['static', 'auto', 'mixed'] as const
 export type NavigationSourceMode = (typeof NAVIGATION_SOURCE_MODES)[number]
 
-/**
- * How `copyNav` merges cloned items into the target menu.
- *
- * `replace` overwrites the target's `items` outright; `append` pushes the cloned items onto whatever
- * is already there, matching 2.5.x's "copy from locale" merge behavior.
- */
 export const NAV_COPY_MODES = ['replace', 'append'] as const
 export type NavCopyMode = (typeof NAV_COPY_MODES)[number]
 
@@ -70,43 +56,34 @@ export interface NavigationItem {
   icon?: string
   target?: string
   /**
-   * `generated` items only: the raw tree path this item belongs to, no locale prefix (e.g.
-   * `docs/setup`). Distinct from `target`, which is locale-prefixed and only ever set on a page
-   * row. Never stored — computed fresh by `generateFromTree` on every read, same as `generated`
-   * itself.
+   * `generated` items only, never stored: the raw tree path, no locale prefix (e.g. `docs/setup`).
+   * Distinct from `target`, which is locale-prefixed and only ever set on a page row.
    */
   path?: string
   /**
    * `generated` items only: the tree-row id of the folder CONTAINING this item — `null` at locale
-   * root. Needed because folder creation (`POST /sites/:siteId/tree/folders`) addresses its parent
-   * by id while page creation addresses its target by path (`path` above) — this surfaces what
-   * each one needs, not a third addressing scheme.
+   * root. Folder creation addresses its parent by id while page creation addresses its target by
+   * `path` above, so both are surfaced rather than a third addressing scheme.
    */
   folderId?: string | null
   /**
-   * `generated` items only: true when the tree row behind this item is a folder, regardless of
-   * whether it currently has any generated `children` — a boundary folder (its own navigation
-   * override) and a genuinely empty folder (OpenProject #2515) both carry no `children` but are
-   * still folders, not pages, on the frontend's icon. Never stored — computed fresh by
-   * `generateFromTree` on every read, same as `path`/`folderId`/`generated`.
+   * `generated` items only, never stored: true for a folder even with no generated `children` — a
+   * boundary folder and a genuinely empty one both carry none, but are still folders, not pages.
    */
   isFolder?: boolean
   openInNewWindow?: boolean
-  /** A link with children only: whether the sidebar shows its submenu already open. */
   expandByDefault?: boolean
   visibilityGroups?: string[]
   children?: NavigationItem[]
   /**
-   * `mixed` menus only: where a stored (manually-authored) top-level item sits relative to the
-   * generated tree-walk items it is merged with -- see the merge-rule comment on `getNav`. Meaningless
-   * on a `static` or `auto` menu, and on a nested (`children`) item, since placement is only ever
-   * decided at the top level.
+   * `mixed` menus only: where a stored item sits relative to the generated items it is merged with.
+   * Meaningless on a `static` or `auto` menu, and on a nested (`children`) item, since placement is
+   * only ever decided at the top level.
    */
   pinned?: 'before' | 'after'
   /**
-   * Set by `getNav` (never stored) on every item -- and nested child -- that came from `generateFromTree`
-   * rather than the row's own `items` column, on an `auto` or `mixed` menu. Absent on a `static` menu's
-   * items, and on a `mixed` menu's stored items, since neither is ever generated. See `markGenerated`.
+   * Set by `getNav`, never stored: this item (or nested child) came from `generateFromTree` rather
+   * than the row's own `items`. Absent on a `static` menu, and on a `mixed` menu's stored items.
    */
   generated?: boolean
 }
@@ -115,15 +92,12 @@ export interface UpdateNavigationResult {
   navigationMode: NavigationMode
   navigationId: string | null
   /**
-   * The resolved navigation row's own `mode` (static/auto/mixed) -- present only when `updateNavigation`
-   * was called with a `menuMode`, in which case it echoes back what was just written. Absent (not
-   * `undefined`-but-stale) when the call left `navigation.mode` untouched, since a caller that didn't
-   * send `menuMode` may not otherwise know the row's current source mode.
+   * The resolved row's own source mode, echoed back only when `updateNavigation` was called with a
+   * `menuMode` -- absent, rather than stale, when the call left `navigation.mode` untouched.
    */
   mode?: NavigationSourceMode
 }
 
-/** One tree entry whose navigation mode overrides what it would otherwise inherit. */
 export interface NavigationOverride {
   id: string
   type: TreeItemType
@@ -135,18 +109,16 @@ export interface NavigationOverride {
   navigationId: string | null
 }
 
-/** An item is visible when it names no group, or names one the viewer belongs to. */
 function isVisibleTo(item: NavigationItem, userGroups: string[]): boolean {
   const groups = item.visibilityGroups ?? []
   return groups.length < 1 || groups.some((g) => userGroups.includes(g))
 }
 
 /**
- * Whether this actor holds `write:pages` or `manage:pages` over a folder path -- the two
- * permissions that let someone actually add a page there (OpenProject #2515). Used only to decide
- * whether an otherwise-empty folder is a genuine dead end for THIS actor, or an empty container
- * they could populate right now. A folder carries no tags/classification of its own -- same
- * treatment `helpers/pageAccess.ts#mayOnFolder` gives it.
+ * Whether this actor could actually add a page under a folder path -- what decides whether an
+ * otherwise-empty folder is a genuine dead end for them or a container they could populate right
+ * now. A folder carries no tags/classification of its own, the same treatment
+ * `helpers/pageAccess.ts#mayOnFolder` gives it.
  */
 function actorMayPopulate(
   actor: AccessActor,
@@ -162,37 +134,28 @@ function actorMayPopulate(
 }
 
 /**
- * The `CARDINAL.cache` key `getGeneratedTree` caches `generateFromTree`'s output under (OpenProject
- * #1825) -- one per menu per locale per `accessKey` (see `actorAccessKey` below), scoped to the site
- * so `invalidateCache` can drop a whole site's worth without touching another site's warm entries.
+ * One cache entry per menu per locale per `accessKey`, scoped to the site so `invalidateCache` can
+ * drop a whole site's worth without touching another site's warm entries.
  */
 function navCacheKey(siteId: string, navId: string, locale: string, accessKey: string): string {
   return `nav:${siteId}:${navId}:${locale}:${accessKey}`
 }
 
 /**
- * A stable string capturing exactly the parts of an `AccessActor` that `checkAccess(actor,
- * 'read:pages', ...)` can vary its answer on -- what `generateFromTree`'s per-candidate `read:pages`
- * filter (OpenProject #2155) actually reads off the actor it is given. Two actors that hash to the
- * same key are guaranteed interchangeable for every `read:pages` decision `generateFromTree` makes,
- * so caching its result under this key (OpenProject #1825) can never hand one actor a tree walk that
+ * A stable string capturing exactly the parts of an `AccessActor` that a `read:pages` `checkAccess`
+ * can vary its answer on. Two actors hashing to the same key are interchangeable for every decision
+ * `generateFromTree` makes, so caching its walk under this key can never hand one actor a tree that
  * was really filtered for a different one.
  *
- * `null` (an `unfiltered` read -- see `getNav`'s own `unfiltered` doc) gets its own fixed key: the
- * walk it produces skips the `read:pages` check entirely, which no real actor's key could ever
- * collide with by chance (every real key carries a `groupIds:`/`admin:` prefix this doesn't).
- *
- * In practice this buckets tightly: almost every anonymous visitor is the same guests actor with no
- * scope, no classification allow-set and no site pin, so they all share one cache entry -- the
- * caching win this feature exists for. A signed-in reader with their own groups gets their own
- * entry, correctly, rather than being served (or serving) another actor's filtered view.
+ * `null` (an `unfiltered` read) gets its own fixed key: that walk skips the `read:pages` check
+ * entirely, and every real key carries a `groupIds:`/`admin:` prefix this one cannot collide with.
  */
 function actorAccessKey(actor: AccessActor | null): string {
   if (!actor) {
     return 'unfiltered'
   }
-  // -> Mirrors `Groups#checkAccess`'s own short-circuit: an actor holding `manage:system` skips the
-  //    rule engine entirely, so nothing else about it can change the answer.
+  // -> `checkAccess` short-circuits on `manage:system`, so nothing else about such an actor can
+  //    change the answer.
   if (actor.permissions.includes('manage:system')) {
     return 'admin'
   }
@@ -206,14 +169,10 @@ function actorAccessKey(actor: AccessActor | null): string {
 }
 
 /**
- * Marks a `generateFromTree` result (and every nested child of it) as `generated`, recursively.
- *
- * What lets an `auto`/`mixed` editor (Task 464's `NavItemEditor.vue`) tell a tree-walk item apart from
- * a hand-authored one in the single combined list `getNav` returns -- without it, editing a `mixed`
- * menu and saving back everything on screen would freeze a snapshot of the generated items into the
- * stored `items` column, exactly the footgun documented on `getNav` above. Applied only in `getNav`,
- * not on `generateFromTree`'s own result, since "generated" is a property of how `getNav` is presenting
- * an item to a caller, not of the tree walk itself.
+ * What lets an `auto`/`mixed` editor tell a tree-walk item apart from a hand-authored one in the
+ * single combined list `getNav` returns -- without it, editing a `mixed` menu and saving back
+ * everything on screen would freeze a snapshot of the generated items into the stored `items`
+ * column.
  */
 function markGenerated(items: NavigationItem[]): NavigationItem[] {
   return items.map((item) => ({
@@ -224,14 +183,11 @@ function markGenerated(items: NavigationItem[]): NavigationItem[] {
 }
 
 /**
- * Deep-clone a menu's items for `copyNav`, giving every item — top-level and nested child alike — a
- * fresh id, since the sortable list frontend keys its drag-and-drop state on `id` and the source and
- * target menus must not share one.
- *
- * `visibilityGroups` is left as-is on purpose: groups are instance-wide, so the reference copied over
- * from the source item is still correct on the target, whatever site or locale it belongs to. `target`
- * (the link itself) is copied unrewritten too — pointing it at the right page in the destination
- * locale/site is a known best-effort limitation here, same as 2.5.x's own "copy from locale".
+ * Deep-clone a menu's items for `copyNav` with a fresh id on every item: the sortable list frontend
+ * keys its drag-and-drop state on `id`, so source and target must not share one. `visibilityGroups`
+ * is left as-is — groups are instance-wide, so the reference stays correct on the target — and
+ * `target` is copied unrewritten, since repointing it at the right page in the destination
+ * locale/site is a known best-effort limitation.
  */
 function cloneItemsWithFreshIds(items: NavigationItem[]): NavigationItem[] {
   return items.map((item) => ({
@@ -242,21 +198,18 @@ function cloneItemsWithFreshIds(items: NavigationItem[]): NavigationItem[] {
 }
 
 /**
- * Protocols a navigation item's `target` may use, beyond a same-origin rooted path: `mailto:`/`tel:`
- * are legitimate menu destinations with no script-execution risk, alongside plain `http:`/`https:`.
+ * Protocols a navigation item's `target` may use beyond a same-origin rooted path: `mailto:`/`tel:`
+ * are legitimate menu destinations with no script-execution risk.
  */
 const NAV_TARGET_PROTOCOLS = ['http:', 'https:', 'mailto:', 'tel:'] as const
 
 /**
- * Whether one item's own `target` (its `children`, if any, are the caller's to recurse into
- * separately) is safe to store. An empty/absent target is fine — a `header`/`separator` item, or a
- * `link` nobody has pointed anywhere yet.
+ * Whether one item's own `target` is safe to store; its `children` are the caller's to recurse into
+ * separately. An empty/absent target is fine — a `header`/`separator` item, or a `link` nobody has
+ * pointed anywhere yet.
  *
- * Exported (alongside `assertValidNavItems`/`sanitizeNavItemTargets` below) purely so
- * `navigation.test.ts` can exercise this validation directly as a pure unit test, rather than only
- * indirectly through a DB-backed `setNavItems`/`copyNav` round trip -- see this repo's own testing
- * convention for preferring a pure test over a database one wherever the thing under test does not
- * actually require SQL orchestration to verify.
+ * Exported, like `assertValidNavItems`/`sanitizeNavItemTargets` below, so the validation can be
+ * exercised as a pure unit test rather than only through a DB-backed round trip.
  */
 export function isValidNavItemTarget(target: string | undefined): boolean {
   if (target === undefined || target === '') {
@@ -266,14 +219,11 @@ export function isValidNavItemTarget(target: string | undefined): boolean {
 }
 
 /**
- * Refuse a menu whose items — at any depth — carry a `target` that is not `isValidNavItemTarget`.
- * OpenProject #1360/#2208 §3, 2026-08-24 security audit: a `site:navigation` holder (a delegated,
- * non-administrator permission) can otherwise store `javascript:...` as an item's target, which runs
- * for any reader who clicks the sidebar entry it renders as. Called from every write path —
- * `setNavItems` (the two `PUT` routes) and `copyNav` — so a poisoned source menu cannot be
- * reintroduced onto a clean target through a copy either.
- *
- * @throws {CustomError} 400, naming the offending item, on the first invalid target found
+ * Refuse a menu whose items — at any depth — carry a `target` that is not `isValidNavItemTarget`: a
+ * `site:navigation` holder is a delegated, non-administrator permission, and could otherwise store
+ * `javascript:...` as an item's target, which runs for any reader who clicks the sidebar entry it
+ * renders as. Called from every write path, so a poisoned source menu cannot be reintroduced onto a
+ * clean target through a copy either.
  */
 export function assertValidNavItems(items: NavigationItem[]): void {
   for (const item of items) {
@@ -290,11 +240,10 @@ export function assertValidNavItems(items: NavigationItem[]): void {
 }
 
 /**
- * Recursively blank any `target` that fails `isValidNavItemTarget`, leaving the rest of the item (and
- * its children) intact. Used by `copyNav` rather than `assertValidNavItems`'s hard refusal: the items
- * it clones were written by `cloneItemsWithFreshIds` from whatever the source menu already holds,
- * which may predate this validation existing at all — dropping just the poisoned target lets the copy
- * still succeed instead of failing the whole operation over data this route did not itself accept.
+ * Blank any `target` that fails `isValidNavItemTarget`, leaving the rest of the item intact. Used
+ * by `copyNav` rather than `assertValidNavItems`'s hard refusal: the source menu may predate this
+ * validation existing at all, and dropping just the poisoned target lets the copy still succeed
+ * instead of failing the whole operation over data this route did not itself accept.
  */
 export function sanitizeNavItemTargets(items: NavigationItem[]): NavigationItem[] {
   return items.map((item) => ({
@@ -305,25 +254,21 @@ export function sanitizeNavItemTargets(items: NavigationItem[]): NavigationItem[
 }
 
 /**
- * Navigation model
- *
  * A navigation menu is a row of `items` keyed by its own id: a tree entry that overrides the menu
  * below it, addressed by that entry's own id, or — for the site-wide menu every page falls back to —
- * a row identified not by id (a real random uuid, meaningless on its own) but by the `(siteId,
- * locale)` pair it belongs to, since a site with more than one active locale needs one such menu per
- * locale. The home page of a given locale edits that locale's site menu rather than one of its own.
+ * a row identified not by id (a random uuid, meaningless on its own) but by the `(siteId, locale)`
+ * pair it belongs to, since a site with more than one active locale needs one such menu per locale.
+ * The home page of a given locale edits that locale's site menu rather than one of its own.
  *
  * Which menu a page gets is decided when the mode is saved rather than when the page is rendered:
- * every tree entry carries the resolved `navigationId` — the menu row's real id either way — so
- * drawing a sidebar is one lookup.
+ * every tree entry carries the resolved `navigationId`, so drawing a sidebar is one lookup.
  */
 class Navigation {
   /**
    * Every `getGeneratedTree` cache key issued for a site, so `invalidateCache` can drop them all
-   * without asking `CARDINAL.cache` to enumerate its own keys -- the shared `LRUCache` holds entries for
-   * other models too, and the test-only stub in `test/mocks.ts` has no `keys()` at all. In-memory and
-   * per-instance, same as `CARDINAL.cache` itself: nothing here needs to survive a restart or be visible
-   * to another instance in an HA deployment.
+   * without asking `CARDINAL.cache` to enumerate its own keys -- the shared `LRUCache` holds other
+   * models' entries too, and the test-only stub has no `keys()` at all. Per-instance, same as the
+   * cache itself: nothing here needs to survive a restart or be visible to another instance.
    */
   private cacheKeysBySite = new Map<string, Set<string>>()
 
@@ -331,44 +276,23 @@ class Navigation {
    * The resolved items of one menu — hand-authored, tree-generated, or both, depending on the row's
    * `mode`.
    *
-   * `static` returns the stored `items` unchanged, exactly as before this feature. `auto` ignores
-   * `items` entirely and returns a fresh `generateFromTree` walk instead. `mixed` computes both and
-   * combines them into a single list (see the merge-rule comment below) rather than the two-view
-   * `Main Menu`/`Browse` toggle 2.5.x used, which is the source of real user confusion this feature
-   * deliberately does not reproduce.
+   * `unfiltered` never suppresses generation, so a full read of an `auto`/`mixed` menu is the
+   * generated preview an editor needs, not just whatever happens to be stored. It skips both
+   * filtering passes — visibility groups, and the per-candidate `read:pages` check threaded into
+   * `generateFromTree` — since the preview an authorized editor asked for shows the whole structure
+   * being edited, regardless of the caller's OWN page-level access. That preview is NOT safe to
+   * read back verbatim and re-save through `setNavItems`: saving it as-is freezes a snapshot of the
+   * generated items into the stored `items` column, so an editor has to keep the two apart itself.
    *
-   * `unfiltered` never changes whether generation runs, so a `full=true` read of an `auto`/`mixed`
-   * menu is the generated preview an editor needs to show, not just whatever happens to be stored.
-   * It DOES control two filtering passes now (OpenProject #2155, previously just the one): the
-   * visibility-group pass at the end, and (threaded into `generateFromTree`) the `read:pages` check
-   * every generated candidate is run through — both skipped under `unfiltered`, since the "full"
-   * preview an authorized editor asked for is meant to show the whole structure being edited,
-   * regardless of the caller's OWN page-level access, the same reasoning that already applied to
-   * visibility groups. Note for whoever builds `mixed` editing (task 464): that preview is not safe
-   * to read back verbatim and re-save through `setNavItems` — it contains generated items alongside
-   * the stored ones, and saving it as-is would freeze a snapshot of the generated items into the
-   * stored `items` column. The editor needs to keep the two apart itself (e.g. only ever writing
-   * back the subset it loaded as stored), not rely on this method to do it.
-   *
-   * @param siteId The site the menu is expected to belong to. Scopes the read the same way
-   *               `setNavItems`/`copyNav`'s writes already do — a row belonging to another site
-   *               answers as not-found rather than being handed back (OpenProject #941).
+   * @param siteId Scopes the read the same way `setNavItems`/`copyNav`'s writes do — a row from
+   *               another site answers as not-found rather than being handed back.
    * @param id Menu id — a tree entry id, or a site-wide menu's own row id (see `ensureSiteNav`)
-   * @param actor Who is reading (OpenProject #2155) — required, not optional: a `static` menu's
-   *              hand-authored items were never gated by page rules (they carry their own
-   *              `visibilityGroups`, checked below via `isVisibleTo`), but a generated (`auto`/
-   *              `mixed`) entry comes straight off the tree and has to be checked against
-   *              `read:pages` the same way `tree.browse()` would, or an anonymous visitor on a menu
-   *              switched to `auto`/`mixed` sees the title, path and icon of every published,
-   *              browsable page in the tree — including ones a path, tag or classification DENY
-   *              keeps them out of. An anonymous request is the guests actor, never an absence of
-   *              one.
-   * @param userGroups Groups the viewer belongs to. Items limited to other groups are dropped, at both
-   *                   levels, unless `unfiltered` is set.
-   * @param unfiltered Return every item regardless of visibility, which is what editing one needs —
-   *                   an editor previewing an `auto`/`mixed` menu needs to see the full generated
-   *                   structure to edit it, the same reasoning `visibilityGroups` filtering already
-   *                   used here, so this also skips the per-entry `read:pages` check below.
+   * @param actor Required, not optional: a generated entry comes straight off the tree and must be
+   *              checked against `read:pages` the same way `tree.browse()` would, or an anonymous
+   *              visitor on an `auto`/`mixed` menu sees the title, path and icon of every
+   *              published, browsable page in the tree — including ones a path, tag or
+   *              classification DENY keeps them out of. An anonymous request is the guests actor,
+   *              never an absence of one.
    */
   async getNav(
     siteId: string,
@@ -416,13 +340,9 @@ class Navigation {
         combined = generated
       } else {
         /*
-          Merge rule for `mixed`, per this feature's brief: a single combined list rather than 2.5.x's
-          two-view toggle, with placement decided per stored item via `pinned` rather than a single
-          fixed prepend-or-append rule -- a menu author can pin a "Home" link before the generated
-          section and leave everything else to fall in after it, in the same list. An item with no
-          `pinned` (or any value other than 'before') defaults to 'after', so a `mixed` menu with no
-          pinning at all behaves as "generated items, then whatever is stored" -- the least surprising
-          default, and the same shape `auto` already has plus manual items tacked on.
+          A single combined list rather than 2.5.x's two-view toggle, with placement decided per
+          stored item via `pinned` rather than one fixed prepend-or-append rule -- an author can pin
+          a "Home" link before the generated section and leave everything else to fall in after it.
         */
         const before = items.filter((item) => item.pinned === 'before')
         const after = items.filter((item) => item.pinned !== 'before')
@@ -443,22 +363,15 @@ class Navigation {
   }
 
   /**
-   * A menu row's own source mode (`static`/`auto`/`mixed`), with no item resolution -- what
-   * `NavEditMenu.vue`'s mode selector (Task 464) asks before it has anything to PUT, so it can
-   * preselect the option that is actually stored rather than always defaulting to `static`. `static`
-   * for a menu with no row AT ALL yet, same fallback `getNav` uses -- deliberately independent of the
-   * schema's own column default (`auto`, since OpenProject #2745), because every real navId reaching
-   * this method was already created up front via `ensureSiteNav`/`ancestorNavId` (which DOES pick up
-   * that column default for a genuinely new row); this fallback only fires for the narrower,
-   * defensive case of an id with no row behind it at all.
+   * A menu row's own source mode, with no item resolution -- what a mode selector asks before it
+   * has anything to PUT. Falls back to `static` for an id with no row AT ALL, deliberately
+   * independent of the schema's own column default: every real navId reaching this method was
+   * created up front via `ensureSiteNav`/`ancestorNavId`, which DO pick up that default.
    *
-   * @param siteId Required (OpenProject #2127/#2135), scoping the lookup the same way every
-   *               neighbouring method here (`getNav()`, `setNavItems()`, `copyNav()`) already does --
-   *               without it, a `site:navigation` delegate on one site could learn whether an
-   *               arbitrary navigation row on ANOTHER site is `static`/`auto`/`mixed`, since the
-   *               route's own authorization is checked against the site in the URL while this read
-   *               was not.
-   * @param id Menu id -- a tree entry id, or a site id for the site-wide menu
+   * @param siteId Required, scoping the lookup the same way every neighbouring method here does --
+   *               without it, a `site:navigation` delegate on one site could learn the source mode
+   *               of an arbitrary navigation row on ANOTHER site, since the route authorizes
+   *               against the site in the URL while this read would not.
    */
   async getMode(siteId: string, id: string): Promise<NavigationSourceMode> {
     const rows = await CARDINAL.db
@@ -471,24 +384,16 @@ class Navigation {
 
   /**
    * The generator's own root -- a decoded path and the tree id of the folder living there -- for a
-   * menu id, independent of `getNav`'s item resolution and its actor-scoped filtering (OpenProject
-   * #2442).
+   * menu id, independent of `getNav`'s item resolution and its actor-scoped filtering.
    *
-   * What the nav sidebar's own root-level "create here" action needs to target the right place: for
-   * an `auto`/`mixed` menu that belongs to a page/folder-level override (see
-   * `resolveGeneratorRoot`'s own doc comment), the generator's root is that override's OWN section
-   * root, not the locale root -- so a hardcoded `base-path=""` / `parentId: null` (right only for a
-   * site-wide menu) pointed a folder or page created from that action at the wrong place. `rootId` is
-   * `null` at the site/locale root, same as it always was there, since there is no folder entry to
-   * name.
+   * What the nav sidebar's root-level "create here" action needs to target the right place: for an
+   * `auto`/`mixed` menu belonging to a page/folder-level override, the generator's root is that
+   * override's OWN section root, not the locale root, so a hardcoded empty path / `parentId: null`
+   * (right only for a site-wide menu) creates in the wrong place. `rootId` is `null` at the
+   * site/locale root, where there is no folder entry to name.
    *
-   * Meaningless for a `static` menu (nothing is generated) but resolves anyway rather than refusing
-   * -- the one caller (`NavSidebar.vue`'s root-level create menu) only renders for an `auto`/`mixed`
-   * menu in the first place and simply has no use for these values otherwise.
-   *
-   * @param siteId The site the menu is expected to belong to, scoping the read the same way `getNav`
-   *               already does.
-   * @param id Menu id -- a tree entry id, or a site-wide menu's own row id (see `ensureSiteNav`)
+   * Meaningless for a `static` menu but resolves anyway rather than refusing -- the caller only
+   * renders for an `auto`/`mixed` menu and simply has no use for these values otherwise.
    */
   async getNavRoot(
     siteId: string,
@@ -507,12 +412,10 @@ class Navigation {
       )
       return { rootPath: decodeTreePath(rootFolderPath) ?? '', rootId: rootFolderId }
     } catch (err: any) {
-      // -> A menu id naming neither a stored row nor a real tree entry -- `getNav`'s own `!row`
-      //    branch already answers an empty item list for this case rather than throwing, so this
-      //    mirrors it instead of rejecting the same `Promise.all` the API route runs it alongside.
-      //    Narrowed to `resolveGeneratorRoot`'s own `getEntry()` failure (OpenProject #2442's
-      //    "nonexistent menu id returns an empty list rather than throwing" contract), not every
-      //    error -- a genuine DB fault still surfaces.
+      // -> A menu id naming neither a stored row nor a real tree entry answers an empty item list
+      //    in `getNav` too, so mirror that rather than rejecting the same `Promise.all` the API
+      //    route runs this alongside. Narrowed to `getEntry()`'s own failure, not every error -- a
+      //    genuine DB fault still surfaces.
       if (err?.name === 'navInvalidPage') {
         return { rootPath: '', rootId: null }
       }
@@ -521,19 +424,16 @@ class Navigation {
   }
 
   /**
-   * The scope a `getNav` generation call walks from, for a given menu row -- resolved the same way
-   * `updateNavigation` already resolves `ownNavId`/`ancestorId`: a row carrying its own `locale` (see
-   * the schema comment on `navigation.locale`) is a site-wide default, and maps to the site root
-   * (empty `folderPath`) in that locale; a row with no `locale` of its own belongs to a tree entry
-   * instead, and maps to THAT ENTRY'S OWN `folderPath` (its parent folder, not a path built from its
-   * own name) and locale, exactly as stored on it. A menu therefore always generates the section it
-   * sits alongside -- its siblings -- not its own subtree, which is also why an override on a leaf
-   * page resolves to a sensible (non-empty) root.
+   * The scope a `getNav` generation call walks from. A row carrying its own `locale` is a site-wide
+   * default and maps to the site root (empty `folderPath`) in that locale; a row with no `locale`
+   * belongs to a tree entry instead, and maps to THAT ENTRY'S OWN `folderPath` -- its parent
+   * folder, not a path built from its own name. A menu therefore always generates the section it
+   * sits alongside, its siblings, not its own subtree, which is also why an override on a leaf page
+   * resolves to a sensible (non-empty) root.
    *
-   * `rootFolderId` is the tree id of the folder living at `rootFolderPath` (`null` at the site root,
-   * where there is no folder entry to resolve) -- what a TOP-LEVEL generated item's own `folderId`
-   * should be (OpenProject #2442; see `generateFromTree`'s `parentFolderId` param), and what
-   * `getNavRoot` hands the frontend as `rootId` for the same reason.
+   * `rootFolderId` is the tree id of the folder living at `rootFolderPath`, `null` at the site root
+   * where there is no folder entry to resolve -- what a TOP-LEVEL generated item's own `folderId`
+   * should be (see `generateFromTree`'s `parentFolderId`).
    */
   private async resolveGeneratorRoot(
     siteId: string,
@@ -549,13 +449,6 @@ class Navigation {
     return { rootFolderPath, rootFolderId, locale: entry.locale }
   }
 
-  /**
-   * The tree id of the folder living at an encoded ltree path, or `null` at the site root (empty
-   * path), where there is no folder entry to resolve. `resolveGeneratorRoot`'s own helper --
-   * `splitPath` (exported from `tree.ts`) turns the encoded path into the `(folderPath, fileName)`
-   * pair that addresses the folder entry itself, the same way `TreeModel#getFolder`'s path branch
-   * does.
-   */
   private async folderIdForPath(
     siteId: string,
     locale: string,
@@ -586,13 +479,10 @@ class Navigation {
    * by default. Returns its row id — never the site id, and not stable to guess at, since it is a
    * plain `defaultRandom()` uuid — so a caller always gets this from here rather than assuming it.
    *
-   * Created empty on demand: a site made before this row existed, a locale activated since, or a menu
-   * that was never edited, has nothing stored, and an absent menu is an empty one rather than an
-   * error. Idempotent: identified by `(siteId, locale)`, not by id, so calling it again for the same
-   * site and locale returns the same row instead of creating a second one.
-   *
-   * Deliberately does not set `mode` -- the schema default (`auto`, since OpenProject #2745; `static`
-   * before it) is what every row created here should get.
+   * Created empty on demand, since an absent menu is an empty one rather than an error, and
+   * idempotent: identified by `(siteId, locale)`, not by id, so calling it again for the same site
+   * and locale returns the same row instead of creating a second one. Deliberately leaves `mode`
+   * unset -- the schema default is what every row created here should get.
    */
   async ensureSiteNav(siteId: string, locale: string): Promise<string> {
     const inserted = await CARDINAL.db
@@ -617,11 +507,7 @@ class Navigation {
    *
    * Deliberately just the site-wide default, not every override: `listOverrides` already covers
    * per-page/per-folder menus, and copying one of those across sites isn't a use case this covers.
-   *
-   * Reads `siteId`'s active locales from the cached site config rather than taking them as a
-   * parameter, same as `defaultLocale` in `helpers/localeRouting.ts` reaching into `CARDINAL.sites` directly —
-   * a site with none configured (or one this instance doesn't know about) resolves to an empty list
-   * rather than an error, since there is nothing to enumerate.
+   * A site with no active locales configured resolves to an empty list rather than an error.
    */
   async siteRoots(siteId: string): Promise<{ locale: string; navigationId: string }[]> {
     const activeLocales: string[] = CARDINAL.sites[siteId]?.config?.locales?.active ?? []
@@ -634,17 +520,13 @@ class Navigation {
   }
 
   /**
-   * Drop the menus belonging to tree entries that no longer exist.
+   * Drop the menus belonging to tree entries that no longer exist: a menu is keyed by the id of the
+   * entry that owns it, so deleting a page or a folder would otherwise leave its menu behind with
+   * nothing able to reach it. A site-wide menu is identified by `(siteId, locale)` rather than by
+   * belonging to a tree entry, so it is not at risk here.
    *
-   * A menu is keyed by the id of the entry that owns it, so deleting a page or a folder would
-   * otherwise leave its menu behind with nothing able to reach it. A site-wide menu is identified by
-   * `(siteId, locale)` rather than by belonging to a tree entry, so it is not at risk here.
-   *
-   * @param siteId Site the removed entries belonged to — scopes the generated-tree cache eviction
-   *               (OpenProject #1825) this triggers; not used to filter the delete itself, which
-   *               already trusts the caller-supplied ids the same way it did before this parameter
-   *               existed.
-   * @param ids Tree entry ids being removed
+   * @param siteId Scopes the generated-tree cache eviction only; the delete itself trusts the
+   *               caller-supplied ids.
    */
   async deleteNavForEntries(siteId: string, ids: string[]): Promise<void> {
     if (ids.length < 1) {
@@ -655,14 +537,11 @@ class Navigation {
   }
 
   /**
-   * Every tree entry in a site whose navigation mode overrides what it would otherwise inherit.
-   *
    * A flat scan against `tree`, not a walk of the hierarchy: `navigationMode` and `folderPath` are
-   * both indexed, so filtering on the former and ordering by the latter is a cheap indexed scan
-   * rather than something that needs `ancestorNavId`'s ltree-ancestry logic, which answers a
-   * different question (the single nearest override above one entry, not every entry that overrides).
+   * both indexed, and `ancestorNavId`'s ltree-ancestry logic answers a different question anyway —
+   * the single nearest override above one entry, not every entry that overrides.
    *
-   * @param locale Restrict to entries in this locale. Every locale when omitted.
+   * @param locale Every locale when omitted.
    */
   async listOverrides(
     siteId: string,
@@ -695,23 +574,14 @@ class Navigation {
   }
 
   /**
-   * `generateFromTree`'s result, cached under `CARDINAL.cache` (OpenProject #1825) -- the actual expensive
-   * part of resolving an `auto`/`mixed` menu (one query per folder level, each carrying a correlated
-   * `EXISTS`; F folders means F+1 queries with nothing cached). Cached BEFORE `getNav`'s `userGroups`
-   * visibility pass, deliberately: `visibilityGroups` filtering only ever narrows the row's own
-   * hand-authored `items`, never the generated portion this caches, so it is safe to apply after a
-   * cache hit the same way it always ran after a fresh walk.
+   * `generateFromTree`'s result, cached -- the expensive part of resolving an `auto`/`mixed` menu
+   * (one query per folder level, each carrying a correlated `EXISTS`).
    *
-   * The `read:pages` filter (OpenProject #2155) `generateFromTree` runs per candidate is a different
-   * story -- ITS answer genuinely varies by actor, so the cache key folds in `actorAccessKey(actor)`
-   * rather than being actor-blind: two actors that key the same (in practice, almost every anonymous
-   * visitor) share one warm entry, and one that keys differently gets, and can only ever get, its own
-   * -- never another actor's filtered walk. Caching `combined` (post-merge, for a `mixed` menu) or
-   * anything after the `userGroups` filter would still leak a `visibilityGroups`-restricted stored
-   * item between viewers regardless of the key, so caching only the generated portion, before that
-   * filter runs, stays load-bearing.
-   *
-   * @param actor Threaded straight through to `generateFromTree` -- `null` for an `unfiltered` read.
+   * Only the generated portion is cached, and only BEFORE `getNav`'s `userGroups` visibility pass:
+   * caching `combined` or anything after that filter would leak a `visibilityGroups`-restricted
+   * stored item between viewers. The per-candidate `read:pages` filter genuinely varies by actor,
+   * so the key folds in `actorAccessKey(actor)` rather than being actor-blind -- actors that key
+   * the same share one warm entry, and one that keys differently can only ever get its own.
    */
   private async getGeneratedTree(
     siteId: string,
@@ -744,18 +614,13 @@ class Navigation {
   }
 
   /**
-   * Drops every cached generated-tree entry for a site — every `auto`/`mixed` menu's walk, not just
-   * one `navId`. A single write can change what more than one menu's walk would return: a folder or
-   * page anywhere in the tree feeds every ancestor menu whose root sits above it (each level's
-   * `holdsVisiblePages` `EXISTS` is itself sensitive to what changed below it), not only the menu
-   * keyed to the entry that changed directly -- so this trades precision for correctness rather than
-   * trying to compute exactly which `navId`s a given write touched.
+   * Drops every cached generated-tree entry for a site, not just one `navId`: a folder or page
+   * anywhere in the tree feeds every ancestor menu whose root sits above it, since each level's
+   * `holdsVisiblePages` `EXISTS` is sensitive to what changed below it. Precision traded for
+   * correctness rather than computing exactly which `navId`s a given write touched.
    *
-   * Public because the cache this guards is fed from write paths outside this model —
-   * `models/tree.ts`'s folder/page create/rename/delete paths and `models/pages.ts`'s
-   * publish/icon/title changes call this too, the same cross-model shape
-   * `models/glossary.ts#invalidateCache` already establishes for `deletePage`/`deleteOrphaned`
-   * (OpenProject #870).
+   * Public because the cache it guards is also fed from write paths in `models/tree.ts` and
+   * `models/pages.ts`, the same cross-model shape `models/glossary.ts#invalidateCache` establishes.
    */
   invalidateCache(siteId: string): void {
     const keys = this.cacheKeysBySite.get(siteId)
@@ -769,52 +634,23 @@ class Navigation {
   }
 
   /**
-   * Build a menu by walking the tree instead of reading a hand-authored `items` row — the `auto` /
-   * `mixed` navigation source modes this feature adds. Called from `getNav` via `resolveGeneratorRoot`,
-   * which is what picks `rootFolderPath`/`locale` for a given menu id.
+   * Build a menu by walking the tree instead of reading a hand-authored `items` row — the `auto`
+   * and `mixed` source modes. Queries `tree`/`pages` under `rootFolderPath` the same way
+   * `tree.browse()` lists a folder, and orders candidates by the same folders-then-title
+   * comparator; `asset` entries are never considered.
    *
-   * Queries `tree`/`pages` under `rootFolderPath` the same way `tree.browse()` lists a folder: joined
-   * on `pages` for `isBrowsable`/`publishState`/`icon`, a folder with no visible descendant page
-   * dropped via the same `EXISTS` pattern (`holdsVisiblePages`) UNLESS this actor holds
-   * `write:pages`/`manage:pages` on that folder's own path -- or `actor` is `null` (an unfiltered
-   * read) -- in which case it is kept as a childless leaf: it's a dead end for a reader, but an empty
-   * container waiting to be used for someone who could actually populate it right now, e.g. the
-   * author who just created it (OpenProject #2515). `asset` entries are never considered, and
-   * candidates are ordered by the same folders-then-title comparator `browse()` uses
-   * (`compareFoldersFirst`, factored out of `tree.ts` for exactly this reuse).
-   *
-   * Sub-boundary rule, per the feature brief: an entry whose own `navigationMode` is `hide` or
-   * `hideExact` is dropped from the walk outright — for the recursive `hide` that silently drops
-   * everything below it too, since nothing below a row that was never added is ever walked. An entry on
-   * `override` or `overrideExact` is still included, as a leaf: its own subtree is a menu of its own
-   * (edited separately through the normal override/manual-items path), so the walk does not recurse
-   * into it.
-   *
-   * `actor` (OpenProject #2155): each candidate is also checked against `read:pages` — a page with its
-   * own tags/classification, a folder with neither (same treatment `helpers/pageAccess.ts#mayOnFolder` gives a
-   * folder) — the same permission a direct tree browse or page read already enforces, which this walk
-   * had never asked before. A denied row is dropped outright rather than merely hidden from its own
-   * subtree, so a DENY over a branch hides the branch without ever querying below it — the recursive
-   * short-circuit `tree.ts` documents for the same rule. A non-boundary folder that recurses to zero
-   * remaining children (every descendant denied individually, even though `holdsVisiblePages` found at
-   * least one browsable/published page down there) is dropped too, mirroring that same dead-end rule
-   * for a folder left with nothing visible under it — `null` skips this entirely, which is what
-   * `getNav`'s `unfiltered` read passes, matching how that read already skips `visibilityGroups`
-   * filtering for the same "the editor needs to see the real generated structure" reason.
+   * Sub-boundary rule: an entry on `override`/`overrideExact` is included, but as a leaf — its own
+   * subtree is a menu of its own, edited separately — so the walk does not recurse into it. A
+   * denied or hidden row is dropped outright rather than merely hidden from its own subtree, so a
+   * DENY over a branch hides the branch without ever querying below it.
    *
    * @param rootFolderPath Encoded ltree path of the folder whose contents this builds a menu from —
    *                        empty at the site root, exactly what `tree.browse()` calls `encodedPath`.
    * @param actor Who is asking, or `null` to skip the `read:pages` check entirely (an `unfiltered`
    *              read).
-   * @param depth How many folder levels below `rootFolderPath` this call already is. Callers always
-   *              start at 0; recursion stops past the same `MAX_DEPTH` `tree.ts` enforces elsewhere.
    * @param parentFolderId The tree id every item THIS call returns stamps onto its own `folderId` --
    *                        the folder `rootFolderPath` itself names, `null` only at the true site
-   *                        root. `getGeneratedTree` resolves the initial call's value from
-   *                        `resolveGeneratorRoot`'s own `rootFolderId` (OpenProject #2442; it used to
-   *                        default this to `null` unconditionally, which was wrong for a
-   *                        page/folder-level override's own top level); every recursive call below
-   *                        passes its own `row.id` on, unchanged from before.
+   *                        root; every recursive call below passes its own `row.id` on.
    */
   private async generateFromTree(
     siteId: string,
@@ -828,9 +664,8 @@ class Navigation {
       return []
     }
 
-    // -> Literally the same subquery `tree.browse()` runs, now that it is one function (its own doc
-    //    comment carries the reasoning); the alias suffix only keeps the two from colliding if a future
-    //    statement ever carries both.
+    // -> The same subquery `tree.browse()` runs; the alias suffix only keeps the two from colliding
+    //    if a future statement ever carries both.
     const holdsVisiblePages = holdsVisiblePagesUnder(rootFolderPath, true, 'NavGen')
 
     const rows = await CARDINAL.db
@@ -842,9 +677,8 @@ class Navigation {
         icon: pagesTable.icon,
         navigationMode: treeTable.navigationMode,
         holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean),
-        // -> Only ever populated for a page row (the left-join's page-side columns), which is all
-        //    `read:pages`'s tag/classification axes ever need -- a folder carries neither of its own,
-        //    same treatment `helpers/pageAccess.ts#mayOnFolder` gives it.
+        // -> Null for a folder row (the left join): a folder carries no tags/classification of its
+        //    own, the same treatment `helpers/pageAccess.ts#mayOnFolder` gives it.
         tags: pagesTable.tags,
         classification: pagesTable.classification
       })
@@ -867,10 +701,8 @@ class Navigation {
 
     const candidates = rows
       // -> An empty folder is a dead end for a reader who could never add anything there -- but not
-      //    for an actor who holds write:pages/manage:pages on that path (who could populate it right
-      //    now, e.g. the author who just created it -- OpenProject #2515), nor for an unfiltered read
-      //    (the nav editor's own full-structure preview, which by the same reasoning already skips
-      //    the `read:pages` filter below).
+      //    for an actor who could populate it right now, nor for an unfiltered read (the nav
+      //    editor's full-structure preview, which by the same reasoning skips the filter below).
       .filter(
         (row) =>
           row.type !== 'folder' ||
@@ -883,13 +715,11 @@ class Navigation {
             parentPath ? `${parentPath}/${row.fileName}` : row.fileName
           )
       )
-      // -> Dropped outright, and -- for the recursive `hide` -- everything below it along with it,
-      //    since nothing below a row that was never added is ever walked
+      // -> For the recursive `hide`, everything below goes too: nothing below a row that was never
+      //    added is ever walked
       .filter((row) => !(['hide', 'hideExact'] as NavigationMode[]).includes(row.navigationMode))
-      // -> OpenProject #2155: the `read:pages` gate itself. `null` (an `unfiltered` read) skips it
-      //    entirely, same as the `visibilityGroups` pass in `getNav` does for that read. A folder
-      //    carries no tags/classification of its own -- same treatment `helpers/pageAccess.ts#mayOnFolder`
-      //    gives it -- so only a page row's real values narrow a TAG/TAGALL/CLASSIFICATION rule.
+      // -> `null` (an `unfiltered` read) skips the `read:pages` gate entirely, same as the
+      //    `visibilityGroups` pass in `getNav` does for that read.
       .filter((row) => {
         if (!actor) {
           return true
@@ -912,12 +742,10 @@ class Navigation {
 
     const built = await Promise.all(
       candidates.map(async (row): Promise<NavigationItem | null> => {
-        // -> The `read:pages` check itself already ran in the `candidates` filter above, per
-        //    candidate -- this only needs the same path string again, for `target:` below.
         const path = parentPath ? `${parentPath}/${row.fileName}` : row.fileName
 
-        // -> Only a folder has descendants to walk; a page is always a leaf here regardless of its own
-        //    mode, since `override`/`overrideExact` only matters where there is a subtree to stop at
+        // -> A page is always a leaf here whatever its own mode: `override`/`overrideExact` only
+        //    matters where there is a subtree to stop at
         const isFolder = row.type === 'folder'
         const isBoundary =
           isFolder &&
@@ -928,17 +756,12 @@ class Navigation {
             ? await this.generateFromTree(siteId, childFolderPath, locale, actor, depth + 1, row.id)
             : []
 
-        // -> A non-boundary folder that recursed to nothing is a dead end just like an empty folder
-        //    is at the SQL layer above (`holdsVisiblePages`) -- the difference is this one can only
-        //    happen once `actor` is filtering individual descendants out one by one, since
-        //    `holdsVisiblePages` already guarantees at least one browsable/published page exists
-        //    somewhere below. Drop it rather than emit a folder link with nowhere to go.
-        //
-        //    The `row.holdsVisiblePages` guard (OpenProject #2515) keeps this distinct from a
-        //    genuinely empty folder that only survived the candidate filter above via
-        //    `actorMayPopulate`/an unfiltered read: that one has nothing to recurse into either, but
-        //    it is not a dead end for this actor -- it is an empty container they could add to right
-        //    now, so it stays as a childless leaf instead of being dropped here too.
+        // -> A non-boundary folder that recursed to nothing is a dead end: drop it rather than emit
+        //    a folder link with nowhere to go. Only reachable once `actor` is filtering descendants
+        //    out one by one, since `holdsVisiblePages` already guarantees a browsable page
+        //    below -- which is why that guard is here: a genuinely empty folder that survived the
+        //    candidate filter via `actorMayPopulate`/an unfiltered read is a container this actor
+        //    could add to right now, so it stays as a childless leaf.
         if (isFolder && !isBoundary && children.length === 0 && row.holdsVisiblePages) {
           return null
         }
@@ -951,9 +774,9 @@ class Navigation {
           folderId: parentFolderId,
           ...(isFolder && { isFolder: true }),
           ...(row.icon && { icon: row.icon }),
-          // -> Prefixes the locale only when the site's routing rules call for it
-          //    (`localizedPagePath`), matching how `NavItemEditor.vue`'s manual page-picker builds a
-          //    link target, so a generated item and a hand-picked one render identically on the frontend
+          // -> Locale-prefixed only when the site's routing rules call for it, matching how the
+          //    manual page-picker builds a link target, so a generated item and a hand-picked one
+          //    render identically on the frontend
           ...(row.type === 'page' && {
             target: localizedPagePath(path, locale, locales)
           }),
@@ -969,16 +792,12 @@ class Navigation {
    * Write a menu's items directly, addressed by the id of the row that already holds it.
    *
    * No page or mode resolution, unlike `updateNavigation` — the caller already knows which row it
-   * means, because it read the id off the thing it is editing: a site-wide default's own row id (from
-   * `ensureSiteNav`, or `GET /sites/:siteId/navigation/default` for a caller with no db access of its
-   * own) or an override's `navigationId` from `listOverrides`. That is what the admin-launched menu
-   * editor (Task 433) saves against, as opposed to the page-context editor, which still goes through
+   * means, because it read the id off the thing it is editing. That is what the admin-launched menu
+   * editor saves against, as opposed to the page-context editor, which still goes through
    * `updateNavigation` so that saving from an inheriting page can repoint at the ancestor it inherits
    * from.
    *
-   * @param navId The row to write to — a site-wide default's own id, or a tree entry id belonging to
-   *              this site
-   * @param authorId Who asked for it, for the lifecycle log line alone — see `NavigationWriteActor`.
+   * @param authorId For the lifecycle log line alone — see `NavigationWriteActor`.
    */
   async setNavItems(
     siteId: string,
@@ -987,9 +806,8 @@ class Navigation {
     { authorId }: NavigationWriteActor = {}
   ): Promise<void> {
     assertValidNavItems(items)
-    // -> `locale` comes along on a select this method already makes: it is set only for a site-wide
-    //    default row (null for a tree-entry override — see `db/schema.ts`), which is exactly the
-    //    distinction the log line wants to draw, and reading it here costs nothing.
+    // -> `locale` is set only on a site-wide default row (null for a tree-entry override), which is
+    //    exactly the distinction the log line below wants to draw.
     const existing = await CARDINAL.db
       .select({ id: navigationTable.id, locale: navigationTable.locale })
       .from(navigationTable)
@@ -997,8 +815,7 @@ class Navigation {
       .limit(1)
     if (existing.length < 1) {
       // -> Refuse a navId that names neither an existing menu row of this site nor one of its own
-      //    tree entries, rather than silently creating a floating navigation row nothing else ever
-      //    reaches
+      //    tree entries, rather than silently creating a floating navigation row nothing can reach
       await this.getEntry(siteId, navId)
     }
 
@@ -1008,10 +825,9 @@ class Navigation {
       .onConflictDoUpdate({ target: navigationTable.id, set: { items } })
     this.invalidateCache(siteId)
 
-    // -> The content lifecycle line (OpenProject #2674). A menu is what the whole site navigates by,
-    //    so a rewrite of one is worth an `info` line even though it is not a page — and it is
-    //    emitted from the model so the admin menu editor and the page-context editor
-    //    (`updateNavigation` below) read the same in the log.
+    // -> A menu is what the whole site navigates by, so a rewrite of one is worth an `info` line
+    //    even though it is not a page. Emitted from the model, not the route, so the admin menu
+    //    editor and the page-context editor (`updateNavigation` below) read the same in the log.
     CARDINAL.logger.info('nav', 'updated', {
       site: siteId,
       nav: navId,
@@ -1022,30 +838,16 @@ class Navigation {
   }
 
   /**
-   * Copy one menu's items onto another, addressed by id exactly like `setNavItems` — the caller
-   * already knows both rows, whether that's a same-site "copy from locale" or a genuinely cross-site
-   * copy (`sourceSiteId` and `targetSiteId` differ).
+   * Copy one menu's items onto another, addressed by id exactly like `setNavItems` — a same-site
+   * "copy from locale" or a genuinely cross-site copy.
    *
-   * Reads the source's raw, unfiltered items (the same shape `getNav(..., { unfiltered: true })`
-   * returns — an editor copying a menu needs every item, not just what the requester's own groups can
-   * see), deep-clones them with a fresh id on every item so the sortable list frontend's `id`-keyed
-   * drag state never collides between source and target, and either overwrites the target's items
-   * (`replace`) or pushes the clones onto whatever the target already has (`append`, matching 2.5.x's
-   * "copy from locale" merge behavior).
+   * Reads the source's raw, unfiltered items: an editor copying a menu needs every item, not just
+   * what the requester's own groups can see. An UNSAFE item `target` (`javascript:` and friends) is
+   * stripped rather than carried over, so a source menu poisoned before this validation existed, or
+   * one written straight to the database, cannot be reintroduced onto a clean target this way.
    *
-   * `visibilityGroups` travels over unchanged — groups are instance-wide, so a group reference from
-   * the source site/locale is still valid on the target. A safe item `target` (a rooted path or a
-   * complete `http(s)`/`mailto`/`tel` target) is copied unrewritten: repointing it against the
-   * destination locale/site is a known best-effort limitation, same as 2.5.x. An UNSAFE one
-   * (`javascript:` and friends — see `isValidNavItemTarget` above) is stripped rather than carried
-   * over (OpenProject #1360/#2208/#2217), so a source menu poisoned before this validation existed,
-   * or one written straight to the database, cannot be reintroduced onto a clean target this way.
-   *
-   * @param sourceSiteId Site the source row belongs to — the same as `targetSiteId` for a same-site
-   *                      "copy from locale", different for a cross-site copy
-   * @param sourceId The source row's own id
-   * @param targetSiteId Site the target row belongs to — always the path's `:siteId` from the route
-   * @param targetId The target row's own id
+   * @param mode `append` pushes the clones onto whatever the target already has, matching 2.5.x's
+   *             "copy from locale" merge behavior; `replace` overwrites the target's items.
    */
   async copyNav({
     sourceSiteId,
@@ -1091,10 +893,9 @@ class Navigation {
 
     await CARDINAL.db.update(navigationTable).set({ items }).where(eq(navigationTable.id, targetId))
 
-    // -> The third way a menu gets rewritten, and the same line the other two emit (OpenProject
-    //    #2674) -- the target really does navigate differently afterwards, so it must not be the one
-    //    rewrite invisible in the log. `from` names where the items came from, which is the whole of
-    //    what distinguishes this from an ordinary save.
+    // -> The same line the other two write paths emit -- the target really does navigate
+    //    differently afterwards, so a copy must not be the one rewrite invisible in the log. `from`
+    //    is the whole of what distinguishes it from an ordinary save.
     CARDINAL.logger.info('nav', 'updated', {
       site: targetSiteId,
       nav: targetId,
@@ -1105,7 +906,6 @@ class Navigation {
     })
   }
 
-  /** The tree entry a navigation change is addressed to. */
   private async getEntry(siteId: string, pageId: string) {
     const entries = await CARDINAL.db
       .select()
@@ -1126,9 +926,8 @@ class Navigation {
    * Public so `TreeModel#addEntry` can resolve a new or moved page's `navigationId` from its
    * folder ancestry at insert time, rather than defaulting it to the site-wide menu.
    *
-   * @param siteId Site the entry belongs to, since paths are only unique within one
-   * @param locale Locale the entry belongs to — an ancestor override in a different locale that
-   *               happens to share the same path is not this entry's ancestor
+   * @param locale An ancestor override in a different locale that happens to share the same path is
+   *               not this entry's ancestor
    * @param folderPath Encoded ltree path of the folder holding the entry, empty at the site root
    */
   async ancestorNavId(siteId: string, locale: string, folderPath: string): Promise<string | null> {
@@ -1158,7 +957,6 @@ class Navigation {
    * `navigationId` on the entry already answers this for a page that IS inheriting, but only for one:
    * the navigation editor asks before anything is saved, so that a page can edit the menu it shows
    * without being opened on the ancestor that owns it, and so that it can tell there is one to edit.
-   *
    * Null when the nearest ancestor hides the sidebar, which leaves nothing to inherit.
    */
   async inheritedNavId(siteId: string, pageId: string): Promise<string | null> {
@@ -1167,26 +965,22 @@ class Navigation {
   }
 
   /**
-   * Set how a page decides its sidebar, and optionally the menu itself.
+   * Set how a page decides its sidebar, and optionally the menu itself. Two things move: the entry
+   * records its own mode and the menu it resolves to, and — when the change alters what descendants
+   * inherit — every entry below it that is still on `inherit` is repointed, stopping at any that
+   * overrides or hides in between.
    *
-   * Two things move here. The entry records its own mode and the menu it resolves to, and — when the
-   * change alters what descendants inherit — every entry below it that is still on `inherit` is
-   * repointed, stopping at any that overrides or hides in between.
+   * `mode` is the entry's cascade setting (`NavigationMode`, deciding WHICH menu a page's sidebar
+   * resolves to). `menuMode` is a different axis entirely: the resolved menu ROW's own `mode`
+   * column (`NavigationSourceMode`, deciding whether that menu's items are hand-authored,
+   * tree-generated, or both). The two can change independently in the same call, which is why they
+   * are separate parameters rather than one being folded into the other.
    *
-   * `mode` here is the entry's cascade setting (`inherit`/`override`/`overrideExact`/`hide`/
-   * `hideExact` — `NavigationMode`, deciding WHICH menu a page's sidebar resolves to). `menuMode` is a
-   * different axis entirely: the resolved menu ROW's own `mode` column (`static`/`auto`/`mixed` —
-   * `NavigationSourceMode`, deciding whether that menu's items are hand-authored, tree-generated, or
-   * both — see `getNav`). The two can change independently of each other in the same call, which is
-   * why they are separate parameters rather than one being folded into the other.
-   *
-   * @param items When given, the menu the mode resolves to, replacing whatever was there — this
-   *              entry's own, or the one it inherits when the mode is `inherit`
-   * @param menuMode When given, the resolved menu row's own `mode` (`static`/`auto`/`mixed`),
-   *                 replacing whatever it already had — set on the same target row `items` would
-   *                 write to (`ancestorId` under `inherit`, `ownNavId` otherwise), independent of
-   *                 whether `items` is also given.
-   * @param authorId Who asked for it, for the lifecycle log line alone — see `NavigationWriteActor`.
+   * @param items The menu the mode resolves to, replacing whatever was there — this entry's own, or
+   *              the one it inherits when the mode is `inherit`
+   * @param menuMode Written to the same target row `items` would (`ancestorId` under `inherit`,
+   *                 `ownNavId` otherwise), independent of whether `items` is also given.
+   * @param authorId For the lifecycle log line alone — see `NavigationWriteActor`.
    */
   async updateNavigation({
     siteId,
@@ -1204,9 +998,8 @@ class Navigation {
   } & NavigationWriteActor): Promise<UpdateNavigationResult> {
     const entry = await this.getEntry(siteId, pageId)
 
-    // -> Whatever this change resolves to, `inherit` ultimately falls back to this entry's locale's
-    //    site menu, and a site created before that row existed — or a locale activated since — does
-    //    not have one yet
+    // -> `inherit` ultimately falls back to this entry's locale's site menu, and a site created
+    //    before that row existed — or a locale activated since — does not have one yet
     const siteNavId = await this.ensureSiteNav(siteId, entry.locale)
 
     const folderPath = entry.folderPath ?? ''
@@ -1224,10 +1017,10 @@ class Navigation {
 
     if (items || menuMode) {
       /*
-        Which menu the items (and/or menuMode) belong to is the mode's answer, not the entry's: a page
-        that inherits shows a menu belonging to an ancestor, so editing the sidebar from that page edits
-        THAT menu rather than starting one of its own that nothing would point at. For the root home
-        page the two are the same id — the site-wide menu is what it inherits and what it owns.
+        Which menu the items belong to is the mode's answer, not the entry's: a page that inherits
+        shows a menu belonging to an ancestor, so editing the sidebar from that page edits THAT menu
+        rather than starting one of its own that nothing would point at. For the root home page the
+        two are the same id.
       */
       const targetNavId = mode === 'inherit' ? ancestorId : ownNavId
       if (!targetNavId) {
@@ -1245,14 +1038,11 @@ class Navigation {
         set.mode = menuMode
       }
       /*
-        A brand-new row's own `mode` is menuMode when given, else `static` when items are being
-        saved -- items with no explicit mode are always a hand-authored menu, and the bare schema
-        default (`auto`, since OpenProject #2745) would otherwise make `getNav()` ignore them
-        entirely in favor of a page-tree-generated menu (OpenProject #2796). This only affects the
-        INSERT branch: an existing row's mode is left alone unless `menuMode` is explicitly given
-        (see `set` above), and a bare mode switch with neither `items` nor `menuMode` never reaches
-        this block at all, so `ensureSiteNav`'s "no items at all defaults to auto" behavior is
-        unregressed.
+        Items with no explicit mode are always a hand-authored menu, and the bare schema default
+        (`auto`) would otherwise make `getNav()` ignore them entirely in favor of a tree-generated
+        menu. INSERT branch only: an existing row's mode is left alone unless `menuMode` is
+        explicitly given, and a bare mode switch with neither reaches this block at all, so
+        `ensureSiteNav`'s "no items at all defaults to auto" behavior still holds.
       */
       const insertMode = menuMode ?? (items ? 'static' : undefined)
       await CARDINAL.db
@@ -1267,13 +1057,11 @@ class Navigation {
     }
 
     /*
-      `override`/`overrideExact` always point `tree.navigationId` at `ownNavId` below, whether or not
-      THIS call is also writing items -- the FK on `tree.navigationId` (db/migrations/
-      20260825202930_main) means that row has to actually exist first. The block above only creates
-      it when `items`/`menuMode` was given; a bare mode switch (an editor toggling a page to
-      `override` before ever touching its sidebar) reaches here with neither, so ensure the row on
-      its own. `onConflictDoNothing` is what keeps this a no-op once the row is real -- either from
-      the block above in this same call, or from an earlier one -- rather than clobbering its items.
+      `override`/`overrideExact` always point `tree.navigationId` at `ownNavId` below, and the FK on
+      that column means the row has to actually exist first. The block above only creates it when
+      `items`/`menuMode` was given; a bare mode switch (an editor toggling a page to `override`
+      before ever touching its sidebar) reaches here with neither, so ensure the row on its own.
+      `onConflictDoNothing` keeps this a no-op once the row is real, rather than clobbering items.
     */
     if ((mode === 'override' || mode === 'overrideExact') && !(items || menuMode)) {
       await CARDINAL.db
@@ -1282,7 +1070,7 @@ class Navigation {
         .onConflictDoNothing()
     }
 
-    // -> A mode that stops applying below this entry hands its descendants back to the ancestor
+    // -> Only an entry that WAS cascading has descendants to hand back to the ancestor below
     const wasCascading = ['override', 'hide'].includes(entry.navigationMode)
 
     let navId: string | null = null
@@ -1329,10 +1117,9 @@ class Navigation {
 
     if (cascadeTo !== undefined) {
       // -> Everything below that still inherits, except what sits under a nearer override or hide,
-      //    which owns its own subtree. The boundary paths (the ltree concat that decides what
-      //    counts as "under" a boundary) are collected once into a CTE rather than recomputed by a
-      //    correlated NOT EXISTS on every candidate row — same boundary set, same containment
-      //    predicate, evaluated per boundary instead of per row.
+      //    which owns its own subtree. The boundary paths are collected once into a CTE rather than
+      //    recomputed by a correlated NOT EXISTS on every candidate row — same boundary set, same
+      //    containment predicate, evaluated per boundary instead of per row.
       await CARDINAL.db.execute(sql`
         WITH boundaries AS (
           SELECT (tc."folderPath" || tc."fileName") AS "boundaryPath"
@@ -1358,16 +1145,14 @@ class Navigation {
       `)
     }
 
-    // -> Whatever changed above -- items, menuMode, or just the entry's own cascade mode -- can alter
-    //    what a generated menu's tree walk returns (a `navigationMode` flip changes whether
-    //    `generateFromTree` treats this entry as a boundary, hidden, or an ordinary walked node), so
-    //    every cached menu for the site is dropped rather than trying to name just the affected ones
+    // -> A `navigationMode` flip changes whether `generateFromTree` treats this entry as a
+    //    boundary, hidden, or an ordinary walked node, so every cached menu for the site is dropped
+    //    rather than trying to name just the affected ones
     this.invalidateCache(siteId)
 
-    // -> Same line `setNavItems` emits (OpenProject #2674), from the other editor. `page` and `mode`
-    //    are what this path knows and that one does not: the sidebar was edited from a page, and the
-    //    page's own cascade setting may have moved with it. `items` is absent for a bare mode switch,
-    //    which writes no items at all.
+    // -> Same line `setNavItems` emits, from the other editor. `page` and `mode` are what this path
+    //    knows and that one does not: the sidebar was edited from a page, and the page's own
+    //    cascade setting may have moved with it. `items` is absent for a bare mode switch.
     CARDINAL.logger.info('nav', 'updated', {
       site: siteId,
       ...(navId ? { nav: navId } : {}),

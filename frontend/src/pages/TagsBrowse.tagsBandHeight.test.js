@@ -7,19 +7,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
-  OpenProject #2717: `TagsBrowse.vue`'s "Browse by tags" band (`.w-section-header`) sat at the shared
-  34px section-header height while `.sidebar-actions` (`MainLayout.vue`, `height: 38px`) beside it
-  sits at the same vertical position -- so the two bands' bottom hairlines landed on different lines.
-  Same class of defect as #2613 (the breadcrumb band vs. the same `.sidebar-actions` row), fixed the
-  same way: a page-local `min-height` override rather than raising the shared class. #2861 later
-  raised `.sidebar-actions` again, to 41px, for its three-cell locale|browse|top restructure -- this
-  page's override follows it to the same 41px to keep the two bands' bottom hairlines on one line.
+  `TagsBrowse.vue`'s "Browse by tags" band carries a page-local `min-height` override rather than
+  raising the shared `.w-section-header` height: it has to track `.sidebar-actions`
+  (`MainLayout.vue`), which sits at the same vertical position, so the two bands' bottom hairlines
+  land on one line.
 
-  Measured in a real headless Chromium, for the reason `test/realGridLayout.js` and #2613's own suite
-  document at length: neither `jsdom` nor `happy-dom` runs a layout engine, so `getBoundingClientRect()`
-  there comes back zeroed regardless of what the CSS says. The rules under test are read from the
-  two SFCs' own `<style>` text, not retyped as literals here, so a regression that moves
-  the band back to 34px (or removes the local override) fails this test rather than passing it.
+  Measured in a real headless Chromium -- neither `jsdom` nor `happy-dom` runs a layout engine, so
+  `getBoundingClientRect()` there comes back zeroed regardless of what the CSS says. Both rules are
+  read from the SFCs' own `<style>` text rather than retyped as literals here.
 */
 
 const selfDir = dirname(fileURLToPath(import.meta.url))
@@ -45,10 +40,9 @@ describe(
       browser = await chromium.launch()
 
       /*
-        `buildAppCss()` is the app's real `tailwind.css` -- needed for `.w-section-header`'s own
-        rules (this page's override only adds `min-height`, it does not restate the band's fill,
-        padding or border) as well as Tailwind's preflight (`box-sizing: border-box`, which is what
-        keeps each band's 1px `border-bottom` inside its declared height rather than on top of it).
+        The app's real `tailwind.css` is needed for `.w-section-header`'s own rules -- this page's
+        override only adds `min-height` -- and for Tailwind's preflight `box-sizing: border-box`,
+        which keeps each band's 1px `border-bottom` inside its declared height rather than on top.
       */
       const [appCss, tagsCss, layoutCss] = await Promise.all([
         buildAppCss(),
@@ -59,10 +53,8 @@ describe(
       const page = await browser.newPage()
       try {
         /*
-          The two bands as the app actually renders them: `.sidebar-actions` is the top strip of the
-          sidebar column, `.tags-browse .w-section-header` the top strip of the content column beside
-          it -- `align-items: flex-start` keeps each box at its own natural height instead of the row
-          stretching both to the taller one, which would hide the very difference being measured.
+          `align-items: flex-start` keeps each box at its own natural height: stretching both to the
+          taller one would hide the very difference being measured.
         */
         await page.setContent(
           '<!doctype html><html><head><style>' +

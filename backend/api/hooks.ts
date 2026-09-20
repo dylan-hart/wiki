@@ -19,7 +19,8 @@ interface HookTestBody {
 }
 
 /**
- * Reject what the admin area's own validation rejects, so the API is not the looser of the two
+ * Rejects exactly what `WebhookEditDialog.vue`'s form validation rejects (`hookUrlValidation` for
+ * the URL), so neither side is the looser. Keep the two in sync.
  */
 function invalidReason(body: HookBody, { partial }: { partial: boolean }): string | null {
   if (body.name !== undefined && !/^[^<>"]+$/.test(body.name)) {
@@ -51,13 +52,7 @@ function invalidReason(body: HookBody, { partial }: { partial: boolean }): strin
   return null
 }
 
-/**
- * Webhooks API Routes
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST WEBHOOKS
-   */
   app.get(
     '/',
     {
@@ -83,9 +78,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST AVAILABLE EVENTS
-   */
   app.get(
     '/events',
     {
@@ -124,9 +116,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET WEBHOOK
-   */
   app.get<{ Params: { hookId: string } }>(
     '/:hookId',
     {
@@ -163,11 +152,8 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST WEBHOOK DELIVERY HISTORY
-   */
   // -> `limit` is non-optional: the querystring schema declares a `default` for it, and fastify's
-  //    AJV runs with `useDefaults`, so a missing param is filled in before the handler sees it.
+  //    AJV runs with `useDefaults`.
   app.get<{ Params: { hookId: string }; Querystring: { limit: number } }>(
     '/:hookId/deliveries',
     {
@@ -234,9 +220,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SEND TEST EVENT
-   */
   app.post<{ Body: HookTestBody }>(
     '/test',
     {
@@ -315,9 +298,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE WEBHOOK
-   */
   app.post<{ Body: HookBody }>(
     '/',
     {
@@ -327,7 +307,6 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Create a new webhook',
         tags: ['Webhooks'],
-        // -> The same shape as an update, with the three fields a webhook cannot exist without
         body: {
           allOf: [{ $ref: 'HookInput#' }, { type: 'object', required: ['name', 'events', 'url'] }]
         },
@@ -355,8 +334,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> `siteId` here is a body field, not `req.params.siteId`, and this route is `manage:system`
-      //    only -- no `enforceApiKeySite()` call; see `helpers/apiKeySite.ts`'s doc comment for why.
+      // -> A body `siteId` on a `manage:system`-only route: deliberately no `enforceApiKeySite()`
+      //    call -- see `helpers/apiKeySite.ts`.
       const invalid = invalidReason(req.body, { partial: false })
       if (invalid) {
         return reply.badRequest(invalid)
@@ -381,9 +360,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE WEBHOOK
-   */
   app.put<{ Params: { hookId: string }; Body: HookBody }>(
     '/:hookId',
     {
@@ -427,7 +403,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> Same body-`siteId`, `manage:system`-only shape as CREATE above -- see the comment there.
+      // -> No `enforceApiKeySite()` call, as on create.
       if (!(await CARDINAL.models.hooks.getHookById(req.params.hookId))) {
         return reply.notFound('Webhook does not exist.')
       }
@@ -463,9 +439,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE WEBHOOK
-   */
   app.delete<{ Params: { hookId: string } }>(
     '/:hookId',
     {

@@ -3,15 +3,6 @@ import assert from 'node:assert/strict'
 import { authSecretSigner } from './authSecretSigner.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
-/**
- * Pure unit coverage for the live-secret signer (OpenProject #2172): no `CARDINAL` global beyond the one
- * property under test (`config.auth.secret`), no database. `sign()`/`unsign()` are required to read
- * `CARDINAL.config.auth.secret` at CALL time rather than close over a value handed to them once — this is
- * what lets `models/sessions.ts#rotateSecret()` take effect on a still-running instance without a
- * restart (OpenProject #2172). The DB-backed round trip through the real
- * `rotateSecret()` (delete every session row + swap `CARDINAL.config.auth.secret`) is `models/sessions.test.ts`'s
- * job; this file locks down the signer mechanism itself.
- */
 describe('authSecretSigner', () => {
   beforeEach(() => {
     installTestWiki({ config: { auth: { secret: 'a-very-first-secret-value' } } })
@@ -27,9 +18,7 @@ describe('authSecretSigner', () => {
   test('changing CARDINAL.config.auth.secret is picked up on the very next call — no re-registration', () => {
     const signedUnderOldSecret = authSecretSigner.sign('session-id-two')
 
-    // -> Simulates what `rotateSecret()` does to this instance directly, and what
-    //    `core/config.ts#loadFromDb()` does to every OTHER instance in response to the `reloadConfig`
-    //    event it fans out: `CARDINAL.config` is replaced wholesale, not mutated in place.
+    // -> Both `rotateSecret()` and `loadFromDb()` replace `CARDINAL.config` wholesale, not in place.
     CARDINAL.config = { auth: { secret: 'a-brand-new-rotated-secret' } }
 
     const afterRotation = authSecretSigner.unsign(signedUnderOldSecret)
@@ -41,7 +30,7 @@ describe('authSecretSigner', () => {
   })
 
   test('a value signed AFTER rotation verifies under the new secret', () => {
-    authSecretSigner.sign('throwaway') // old secret still in effect here
+    authSecretSigner.sign('throwaway')
     CARDINAL.config = { auth: { secret: 'yet-another-rotated-secret' } }
 
     const signedUnderNewSecret = authSecretSigner.sign('session-id-three')

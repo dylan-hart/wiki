@@ -1,15 +1,10 @@
 import { workerData } from 'node:worker_threads'
 
 /**
- * Fixture for `core/schedulerWorkerCapabilities.test.ts` (OpenProject #3124).
- *
- * `worker.ts` itself cannot be imported by a test — it boots a whole minimal `CARDINAL`, reads config
- * off disk and constructs its own async handler at import time — so this is the same one-line read
- * it uses to settle `CARDINAL.capabilities`, run in a real thread. What it proves is the half a pure
- * source scan cannot: that piscina's `workerData` option actually carries a `capabilities` object
- * into the worker thread's `node:worker_threads` module, the transport `core/scheduler.ts`'s pool
- * construction now uses for it (mirroring `test/fixtures/workerIdentityWorker.ts`'s proof for
- * `parentInstanceId`).
+ * `worker.ts` cannot be imported by a test — it boots a minimal `CARDINAL`, reads config off disk
+ * and builds its handler at import time — so this repeats the one read it uses to settle
+ * `CARDINAL.capabilities`, in a real thread. It proves the half a source scan cannot: that piscina's
+ * `workerData` really does carry `capabilities` into the thread's `node:worker_threads` module.
  */
 const capabilities = (workerData as { capabilities?: unknown } | null)?.capabilities
 

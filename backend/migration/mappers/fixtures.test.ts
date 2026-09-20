@@ -9,32 +9,15 @@ import { ensureTemporal } from '../../test/temporal.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 
 /**
- * Task 768 — "Fixture tests and docs/variances.md entries for the confirmed gaps".
+ * Drives all three mappers off standalone JSON fixtures under `./fixtures/`, each shaped like a real
+ * 2.5.x table dump — the `{ v: <value> }` wrapper a raw-Postgres row carries on `settings.value` and
+ * on `authentication.domainWhitelist`/`autoEnrollGroups` included. Each is asserted against the
+ * *exact* resulting 3.0 shape rather than spot-checked fields, so any change to a mapper's output
+ * shape surfaces here even where the narrower per-mapper suites do not reach.
  *
- * Unlike `site-settings.test.ts`/`authentication.test.ts`/`storage.test.ts` (tasks 764/765/767),
- * which build their source rows inline as object literals to exercise one behavior at a time, this
- * suite drives all three mappers off small standalone JSON fixtures under `./fixtures/`, each shaped
- * exactly like a real 2.5.x table dump (per `docs/migration/2.5x-source-schema.md`'s column types and
- * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s field-by-field spec) — the
- * `{ v: <value> }` wrapper on `settings.value` and on `authentication.domainWhitelist`/
- * `autoEnrollGroups` included, exactly as a raw-Postgres-sourced row actually carries them (see both
- * mapper modules' doc comments). Each fixture is run through its mapper end to end and asserted
- * against the *exact* resulting 3.0 shape (`assert.deepEqual` under `node:assert/strict`, i.e.
- * `deepStrictEqual` — full object, not a subset), not just spot-checked fields, so a change to any
- * mapper that alters its output shape shows up here even if it doesn't happen to touch whichever
- * narrower case the other test files already assert on.
- *
- * The behaviors the task names explicitly are each covered by a fixture row:
- *   - `2.5x-authentication-source-a.json`'s `github` row: `domainWhitelist` → `allowedEmailRegex`
- *     (wrapped-array → anchored, escaped, case-folded regex).
- *   - `2.5x-authentication-source-a.json`'s `firebase` row: an unsupported 2.x auth provider (no
- *     `backend/modules/authentication/firebase/` directory) — reported, not silently dropped.
- *   - `2.5x-storage.json`'s `dropbox` row: an unsupported 2.x storage module (no
- *     `backend/modules/storage/dropbox/` directory) — same "no destination yet, report it" shape.
- *
- * Both authentication source fixtures are still mapped here, but as two independent runs: an import
- * consolidates exactly one 2.5.x source into one fresh 3.0 instance, so there is no cross-source
- * conflict policy left to exercise (spec D5).
+ * The two authentication source fixtures are mapped as two independent runs: an import consolidates
+ * exactly one 2.5.x source into one fresh 3.0 instance, so there is no cross-source conflict policy
+ * to exercise.
  */
 
 const FIXTURES_DIR = path.join(import.meta.dirname, 'fixtures')
@@ -60,10 +43,6 @@ before(async () => {
 after(() => {
   wikiHandle.restore()
 })
-
-// ---------------------------------------------------------------------------
-// settings fixture -> mapSiteSettings
-// ---------------------------------------------------------------------------
 
 describe('fixture: 2.5x-settings.json -> mapSiteSettings', () => {
   test('produces the exact sites.config patch and instance-wide settings patches', async () => {
@@ -103,20 +82,17 @@ describe('fixture: 2.5x-settings.json -> mapSiteSettings', () => {
         dkimPrivateKey: ''
       },
       security: {
-        // renamed, same polarity
         enforceSameOriginReferrerPolicy: true,
         trustProxy: false,
         enforceHsts: false,
         hstsDuration: 15552000,
         enforceCsp: false,
         cspDirectives: '',
-        // renamed AND polarity-inverted: source had both flags `true`
+        // renamed AND polarity-inverted: the source has both flags `true`
         disallowOpenRedirect: false,
         disallowIframe: false,
-        // moved tables: 2.x `uploads.*` -> 3.0 `settings.security.*`. `uploads.maxFiles` in the
-        // fixture has no 3.0 destination (`security.uploadMaxFiles` was removed — dead key, never
-        // enforced anywhere; OpenProject #2174) and is dropped rather than mapped. `scanSVG` maps
-        // straight across, since `uploadScanSVG` is enforced in 3.0 (OpenProject #2170).
+        // 2.x `uploads.*` moves here; the fixture's `uploads.maxFiles` has no 3.0 destination and is
+        // dropped rather than mapped.
         uploadMaxFileSize: 200,
         uploadScanSVG: true,
         forceAssetDownload: false
@@ -124,10 +100,6 @@ describe('fixture: 2.5x-settings.json -> mapSiteSettings', () => {
     })
   })
 })
-
-// ---------------------------------------------------------------------------
-// authentication fixtures -> mapAuthenticationRows, multi-source consolidation
-// ---------------------------------------------------------------------------
 
 describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRows', () => {
   async function resolver() {
@@ -149,7 +121,6 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
     assert.equal(resultA.results.length, 3)
     assert.equal(resultB.results.length, 2)
 
-    // -- source A: local
     assert.deepEqual(resultA.results[0], {
       sourceKey: 'local',
       module: 'local',
@@ -166,7 +137,6 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
       }
     })
 
-    // -- source A: github — the domainWhitelist -> allowedEmailRegex conversion this task names
     assert.deepEqual(resultA.results[1], {
       sourceKey: 'github',
       module: 'github',
@@ -178,8 +148,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         selfRegistration: false,
         autoProvision: false,
         allowedEmailRegex: '^[^@]+@(acme\\.com|acme\\.org)$',
-        // -> Always empty: `settings` runs before `users`, so no group has been imported yet and the
-        //    2.x integer ids have nothing to remap onto (see `mappers/authentication.ts`).
+        // -> Always empty: `settings` runs before `users`, so the 2.x integer group ids have nothing
+        //    imported yet to remap onto.
         autoEnrollGroups: [],
         config: {
           clientId: 'gh-client-a',
@@ -190,17 +160,14 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
       }
     })
 
-    // -- source A: firebase — the unsupported-auth-provider path this task names: no 3.0 `firebase`
-    // module directory, reported rather than dropped silently, no row written. (Originally written
-    // against `ldap`, which gained a backend/modules/authentication/ldap/ directory after this task
-    // was authored — see Feature 354 — so the fixture was updated to a provider still unsupported.)
+    // -> There is no `backend/modules/authentication/firebase/` directory, so the row is reported
+    //    rather than silently dropped, and nothing is written.
     assert.equal(resultA.results[2].status, 'unsupported')
     assert.equal(resultA.results[2].sourceKey, 'firebase')
     assert.equal(resultA.results[2].module, 'firebase')
     assert.equal(resultA.results[2].row, undefined)
     assert.match(resultA.results[2].message!, /firebase/)
 
-    // -- source B: local
     assert.deepEqual(resultB.results[0], {
       sourceKey: 'local',
       module: 'local',
@@ -217,7 +184,6 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
       }
     })
 
-    // -- source B: oidc-beta
     assert.deepEqual(resultB.results[1], {
       sourceKey: 'oidc-beta',
       module: 'oidc',
@@ -243,18 +209,12 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
           emailClaim: 'email',
           allowUnverifiedEmail: false,
           displayNameClaim: 'name',
-          // -> Not part of the 2.x source row either (OpenProject #2640 added these two, so an
-          //    imported strategy picks up the OpenID Connect standard claim names).
+          // -> Every prop the 2.x source row does not carry lands at its `definition.yml` default,
+          //    so an imported strategy is shaped like a freshly-created one.
           firstNameClaim: 'given_name',
           lastNameClaim: 'family_name',
-          // -> Not part of the 2.x source row either (Feature #3208 added this default as part of
-          //    avatar-sync) -- an imported OIDC strategy gets it at its definition.yml default, same
-          //    as a freshly-created one.
           pictureClaim: 'picture',
           logoutURL: '',
-          // -> Not part of the 2.x source row at all (OpenProject #826 added these props after this
-          //    fixture was authored) -- an imported OIDC strategy gets them at their definition.yml
-          //    defaults, group mapping off, same as a freshly-created one.
           mapGroups: false,
           groupsClaim: 'groups',
           groupsScope: ''
@@ -263,10 +223,6 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
     })
   })
 })
-
-// ---------------------------------------------------------------------------
-// storage fixture -> mapStorageRow, the no-destination-yet path
-// ---------------------------------------------------------------------------
 
 describe('fixture: 2.5x-storage.json -> mapStorageRow', () => {
   async function resolver() {
@@ -320,9 +276,8 @@ describe('fixture: 2.5x-storage.json -> mapStorageRow', () => {
       maxDeletePercent: 50,
       gitBinaryPath: ''
     })
-    // -> git's fixture mode ('sync') is one of its own supportedModes, and its cron syncInterval
-    //    ('*/15 * * * *', every 15 minutes) is one of the two convertible shapes -- both map through,
-    //    nothing left to report as dropped.
+    // -> 'sync' is one of git's own supportedModes and the fixture's cron syncInterval is a
+    //    convertible shape, so both map through and nothing is reported as dropped.
     assert.equal(result.update!.values.syncMode, 'sync')
     assert.equal(result.update!.values.scheduleOverride, 'PT15M')
     assert.equal(result.droppedFields, undefined)

@@ -18,27 +18,20 @@
 import { computed } from 'vue'
 
 /**
- * The "Sidebar for this page" cascade-mode glyph (`NavEditMenu.vue`'s Ledger restyle,
- * ui-redesign-nav/HANDOFF.md §1): three stacked bars reading top-to-bottom as parent / this page /
- * descendants, coloured per the cascade `mode` the row they sit in represents. One small SVG
- * component per the handoff's own instruction, rather than an `icon` name -- the bar states
- * (filled/outlined/dashed, per bar) have no Iconify equivalent.
- *
- * It is reused unchanged across every mode row; only `mode` (and, at the root, `root`) change what
- * gets drawn. It is not the same glyph as the item editor overlay's own header icon (`NavEditOverlay
- * .vue`, Task #2801) -- that one is a different surface reusing the same three-bar "language" in
- * spirit, per the handoff, not this component.
+ * The cascade-mode glyph: three stacked bars reading top-to-bottom as parent / this page /
+ * descendants, coloured per the cascade `mode` the row they sit in represents. Hand-drawn SVG rather
+ * than an `icon` name because the per-bar states (filled/outlined/dashed) have no Iconify
+ * equivalent.
  */
 const props = defineProps({
-  /** The cascade mode this row represents. */
   mode: {
     type: String,
     required: true,
     validator: (v) => ['inherit', 'override', 'overrideExact', 'hide', 'hideExact'].includes(v)
   },
   /**
-   * Whether this row is one of the root page's own two modes (Show / Hide) -- those affect the
-   * whole glyph, since there is no ancestor to draw a distinct "parent" bar for.
+   * The root page has only Show / Hide, and both act on the whole glyph, since there is no ancestor
+   * to draw a distinct "parent" bar for.
    */
   root: {
     type: Boolean,
@@ -46,8 +39,7 @@ const props = defineProps({
   }
 })
 
-// -> The three bars, top to bottom: parent, this page, descendants -- fixed geometry, independent
-//    of mode. Matches the handoff's own coordinates (viewBox 20x20, height 3.5, stroke-width 1.2).
+// -> Top to bottom: parent, this page, descendants -- fixed geometry, independent of mode.
 const BAR_LAYOUT = [
   { x: 1.5, y: 1.5, width: 17 },
   { x: 5.5, y: 8.25, width: 13 },
@@ -60,9 +52,6 @@ const BAR_LAYOUT = [
     'slate'  -- filled slate, inherit's own PARENT bar only (the thing being inherited FROM)
     'dashed' -- outlined, dashed: a hidden row
     'plain'  -- outlined, solid: untouched by this mode
-
-  See the handoff's own table (ui-redesign-nav/HANDOFF.md §1) for the mode -> bar-state mapping this
-  encodes.
 */
 const MODE_BARS = {
   inherit: ['slate', 'plain', 'plain'],
@@ -72,7 +61,6 @@ const MODE_BARS = {
   hideExact: ['plain', 'dashed', 'plain']
 }
 
-// -> At the root there is no parent to draw separately: Show/Hide act on the whole glyph.
 const ROOT_MODE_BARS = {
   inherit: ['accent', 'accent', 'accent'],
   hide: ['dashed', 'dashed', 'dashed']
@@ -85,7 +73,7 @@ const bars = computed(() => {
 </script>
 
 <style scoped>
-/* The 28px hairline plate the glyph sits on -- matches `BlueprintIcon`'s own 34/28px plates. */
+/* The hairline plate the glyph sits on -- matches `BlueprintIcon`'s own plates. */
 .nav-cascade-glyph {
   display: flex;
   flex: none;
@@ -103,9 +91,8 @@ const bars = computed(() => {
 }
 
 /*
-  Cobalt (ui-redesign-nav/HANDOFF.md §1): 30px, radius 8px, no border -- the shadow (`--shadow-card`,
-  #2767) substitutes for the hairline the same way every Cobalt card material drops its border for a
-  shadow elsewhere in this file's sibling `.nav-edit-menu`.
+  Under Cobalt the shadow substitutes for the hairline, the same way every Cobalt card material drops
+  its border for a shadow.
 */
 :global(body.body--cobalt .nav-cascade-glyph) {
   width: 30px;
@@ -143,10 +130,8 @@ const bars = computed(() => {
 
 /*
   Cobalt's "inherit" row draws its parent bar in the cobalt identity blue rather than a desaturated
-  slate (handoff: "inherit: parent bar filled slate (#64789f Ledger, #1f4fd6 Cobalt)") -- reusing
-  `--color-accent-strong`, #2767's exact value for this role, rather than `--color-slate-soft` (which
-  #2767 leaves at its Ledger value under Cobalt, since a slate tone is still correct everywhere else
-  `--color-slate-soft` is used).
+  slate, so it reuses `--color-accent-strong` rather than `--color-slate-soft` -- which keeps its
+  Ledger value under Cobalt, a slate tone still being correct everywhere else it is used.
 */
 :global(body.body--cobalt .nav-cascade-glyph__bar--slate) {
   fill: var(--color-accent-strong);

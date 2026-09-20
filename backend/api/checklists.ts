@@ -2,22 +2,8 @@ import { actorFrom, mayOnPage, requireReadablePage } from '../helpers/pageAccess
 import type { FastifyInstance } from 'fastify'
 
 /**
- * Checklist Run Log API Routes (OpenProject #869)
- *
- * Backs `block-checklist`: who checked which item of a checklist, and when. A run log, not editorial
- * content — distinct from page edit history and from the Approvals publish workflow, neither of which
- * this touches.
- *
- * Both `read:pages` and `write:pages` here are the existing page-rule permissions —
- * nothing new is invented. Every GET below is gated on `read:pages` alone,
- * already enforced by `requireReadablePage()` itself (`helpers/pageAccess.ts` — it 404s unless the
- * caller holds it) — unlike `api/comments.ts`, which layers a SECOND, different permission
- * (`read:comments`) on top, there is no separate "may view this run log" permission to check here, so
- * nothing does. `write:pages` on the POST route IS a second, different check, and stays explicit for
- * exactly that reason. Checking an item additionally requires a real, authenticated actor:
- * `write:pages` alone is not enough, because a run log with no identity to attribute a check to would
- * defeat the entire point of the feature. That mirrors `api/approvals.ts`'s `reviewerFor`, which
- * denies guests the same way where an account is genuinely required.
+ * Backs `block-checklist`: who checked which item of a checklist, and when. A run log, not
+ * editorial content — it touches neither page history nor the approvals workflow.
  */
 const blockKeyParam = {
   type: 'object',
@@ -40,20 +26,11 @@ const executionIdParam = {
   required: ['siteId', 'pageId', 'blockKey', 'executionId']
 }
 
-/**
- * Checklists API Routes
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST CHECKLIST RUN HISTORY
-   */
   app.get<{ Params: { siteId: string; pageId: string; blockKey: string } }>(
     '/sites/:siteId/pages/:pageId/checklist/:blockKey/executions',
     {
-      /*
-        No route-level `permissions`: `read:pages` is a page-rule permission, decided per page below —
-        same pattern as `api/comments.ts`'s list route.
-      */
+      // No route-level `permissions`: `read:pages` is a page-rule permission, decided per page.
       schema: {
         summary: 'List a checklist block’s run history',
         description:
@@ -81,9 +58,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET LATEST CHECKLIST EXECUTION
-   */
   app.get<{ Params: { siteId: string; pageId: string; blockKey: string } }>(
     '/sites/:siteId/pages/:pageId/checklist/:blockKey/executions/latest',
     {
@@ -97,13 +71,9 @@ async function routes(app: FastifyInstance) {
         params: blockKeyParam,
         response: {
           /*
-            No schema-validated shape here, deliberately: fast-json-stringify (fastify's response
-            serializer) does not support a top-level `$ref` alongside `nullable`/`oneOf` for a
-            response that is sometimes the referenced object and sometimes bare `null` -- verified
-            directly, both a `{ $ref, nullable: true }` response (silently serializes `null` as `{}`)
-            and `oneOf: [{ $ref }, { type: 'null' }]` (throws `TypeError` on the object case) fail in
-            this exact shape. `ChecklistExecution#` in the description is what a caller reads either
-            way; response 200 is left unvalidated rather than serialized wrong.
+            Deliberately unvalidated: fast-json-stringify cannot express "a `$ref` object or bare
+            `null`" at the top level — `{ $ref, nullable: true }` serializes `null` as `{}`, and
+            `oneOf: [{ $ref }, { type: 'null' }]` throws on the object case.
           */
           200: {
             description: 'The most recently started execution as `ChecklistExecution#`, or null'
@@ -122,9 +92,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET ONE CHECKLIST EXECUTION
-   */
   app.get<{ Params: { siteId: string; pageId: string; blockKey: string; executionId: string } }>(
     '/sites/:siteId/pages/:pageId/checklist/:blockKey/executions/:executionId',
     {
@@ -148,9 +115,8 @@ async function routes(app: FastifyInstance) {
         return reply
       }
       const execution = await CARDINAL.models.checklists.getExecutionDetail(req.params.executionId)
-      // -> Belt and suspenders: an id from a different page/block must 404 exactly like one that does
-      //    not exist, rather than leaking another checklist's run log to a reader who can only read
-      //    THIS page.
+      // -> The lookup is by id alone: one from another page or block must 404 like a missing one,
+      //    not leak that run log to a reader who can only read THIS page.
       if (
         !execution ||
         execution.pageId !== page.id ||
@@ -162,19 +128,13 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CHECK OFF AN ITEM
-   */
   app.post<{
     Params: { siteId: string; pageId: string; blockKey: string }
     Body: { itemKey: string; itemCount: number }
   }>(
     '/sites/:siteId/pages/:pageId/checklist/:blockKey/items',
     {
-      /*
-        No route-level `permissions`: `write:pages` is a page-rule permission, decided per page below
-        — same pattern as `api/comments.ts`'s POST route.
-      */
+      // No route-level `permissions`: `write:pages` is a page-rule permission, decided per page.
       schema: {
         summary: 'Check off a checklist item',
         description:

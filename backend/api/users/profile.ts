@@ -11,10 +11,8 @@ import type {
   UserProfilePatch
 } from '../../models/users.ts'
 
-/** How large an avatar upload may be, before any resizing. */
 const avatarUploadLimit = 2 * 1024 * 1024
 
-/** A group's identity only -- no member count, no permissions. Shared by both halves of `GET /profile/groups`. */
 const GROUP_IDENTITY_SCHEMA = {
   type: 'object',
   properties: {
@@ -28,28 +26,13 @@ const GROUP_IDENTITY_SCHEMA = {
   }
 }
 
-/**
- * The user the session belongs to, or null when the request is not from a logged in user.
- *
- * The `/profile` routes are session-authenticated rather than permission-gated: every logged in user
- * may read and change its own profile, and no permission expresses that.
- *
- * Exported for `./admin.ts`, whose delete route asks the same question ("is the caller deleting
- * themselves?") about a request that is NOT behind this file's `requireSessionUser` hook and so has
- * to handle the null answer itself.
- */
 export function sessionUserIdOrNull(req: FastifyRequest): string | null {
   return req.session?.authenticated && req.session.user?.id ? req.session.user.id : null
 }
 
 /**
- * Refuse a request carrying no logged in session, before any handler in this sub-plugin runs.
- *
- * Every one of these routes opened with the same four lines -- `const userId = sessionUserId(req)`,
- * then `if (!userId) return reply.unauthorized()` -- 21 identical copies (API-F5). As a `preHandler`
- * it runs at exactly the point in the lifecycle those did: after body/querystring validation, so a
- * malformed request still answers 400 first, and after the app-level route-permission hook. The 401
- * body is unchanged, since `reply.unauthorized()` is called with no message here too.
+ * A `preHandler`, so it runs after schema validation: a malformed anonymous request answers 400,
+ * not 401.
  */
 async function requireSessionUser(req: FastifyRequest, reply: FastifyReply) {
   if (!sessionUserIdOrNull(req)) {
@@ -57,23 +40,14 @@ async function requireSessionUser(req: FastifyRequest, reply: FastifyReply) {
   }
 }
 
-/**
- * The user this request's session belongs to.
- *
- * Non-null by construction rather than by a check: every route in this sub-plugin sits behind
- * `requireSessionUser`, which has already answered 401 for a session-less request by the time any
- * handler runs.
- */
+/** Non-null by construction: every route in this sub-plugin sits behind `requireSessionUser`. */
 function sessionUserId(req: FastifyRequest): string {
   return sessionUserIdOrNull(req)!
 }
 
 /**
- * Whether self-service profile editing is enabled on the site being browsed.
- *
- * It is a per-site feature: an instance whose user data comes from an external identity provider turns
- * it off. The site is resolved from the request hostname, which is how the admin flag is scoped; an
- * unresolvable hostname leaves the feature at its default.
+ * A per-site feature, turned off where user data comes from an external identity provider. An
+ * unresolvable hostname leaves it enabled.
  */
 async function isProfileEditable(req: FastifyRequest): Promise<boolean> {
   const site = await siteForHostname(req.hostname)
@@ -81,11 +55,8 @@ async function isProfileEditable(req: FastifyRequest): Promise<boolean> {
 }
 
 /**
- * Whether the profile Groups tab's "other groups" section is enabled on the site being browsed.
- *
- * Off by default: unlike `isProfileEditable`, an unresolvable site does NOT fall back to enabled --
- * naming every group's identity to every logged in user is only ever done because an administrator
- * explicitly opted in, never as a default.
+ * Unlike `isProfileEditable`, an unresolvable site does NOT fall back to enabled: naming every
+ * group to every logged in user happens only on an administrator's explicit opt-in.
  */
 async function isShowOtherGroupsEnabled(req: FastifyRequest): Promise<boolean> {
   const site = await siteForHostname(req.hostname)
@@ -93,20 +64,15 @@ async function isShowOtherGroupsEnabled(req: FastifyRequest): Promise<boolean> {
 }
 
 /**
- * The signed-in user's own account: profile, avatar, groups, editor settings, personal access keys,
- * password, 2FA and passkeys.
- *
- * Nothing here is permission-gated -- these routes are SESSION-authenticated, since every logged in
- * user may read and change their own account and no permission expresses that. That single condition
- * is the `requireSessionUser` hook below, registered once for the whole sub-plugin rather than
- * repeated as the same four lines at the top of all 21 handlers (API-F5).
+ * No route-level permissions: these routes are session-authenticated. Every logged in user may read
+ * and change their own account, and no permission expresses that; `requireSessionUser` is that one
+ * condition.
  */
 async function routes(app: FastifyInstance) {
   app.addHook('preHandler', requireSessionUser)
 
-  // -> An avatar upload is the raw image rather than a multipart form: one file, no fields, and no
-  //    dependency to add. Registered inside this plugin, so every other route keeps rejecting an
-  //    image body outright.
+  // -> An avatar upload is the raw image rather than a multipart form: one file, no fields.
+  //    Registered inside this plugin, so every other route keeps rejecting an image body outright.
   app.addContentTypeParser(
     [...imageMimeTypes],
     { parseAs: 'buffer', bodyLimit: avatarUploadLimit },
@@ -115,9 +81,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET OWN PROFILE
-   */
   app.get(
     '/profile',
     {
@@ -148,9 +111,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE OWN PROFILE
-   */
   app.put<{ Body: UserProfilePatch }>(
     '/profile',
     {
@@ -203,10 +163,8 @@ async function routes(app: FastifyInstance) {
 
       const patch: UserProfilePatch = {}
       for (const key of [
-        // -> All three name fields are passed through untouched. `models/users.ts#updateUser` is the
-        //    one owner of the derive-unless-authored rule (Feature #2608): a save carrying only the
-        //    two halves re-derives the display name, and one carrying a `name` that differs from
-        //    what they derive to is what authors it.
+        // -> The name fields pass through untouched: `models/users.ts#updateUser` alone owns the
+        //    derive-unless-authored rule.
         'name',
         'firstName',
         'lastName',
@@ -226,10 +184,8 @@ async function routes(app: FastifyInstance) {
           patch[key] = req.body[key]
         }
       }
-      // -> Handled separately from the loop above: every key in it is a plain string, but `graph`
-      //    (OpenProject #2854) and `iconPicker` are objects, and TypeScript cannot correlate
-      //    `UserProfilePatch[key]` with `req.body[key]` across a union of keys whose value types
-      //    actually differ.
+      // -> Outside the loop above: `graph` and `iconPicker` are objects, and TypeScript cannot
+      //    correlate `patch[key]` with `req.body[key]` across keys whose value types differ.
       if (req.body.graph !== undefined) {
         patch.graph = req.body.graph
       }
@@ -242,9 +198,7 @@ async function routes(app: FastifyInstance) {
       if (patch.name !== undefined && !/^[^<>"]+$/.test(patch.name)) {
         throw new CustomError('userProfileInvalidName', 'Invalid User Name')
       }
-      // -> An empty half is legitimate (a mononym has no surname, and clearing a first name is how a
-      //    user hands the display name back to an authored value), so only a non-empty one is checked
-      //    for the characters the display name has always refused.
+      // -> An empty half is legitimate (a mononym has no surname): only a non-empty one is checked.
       for (const half of [patch.firstName, patch.lastName]) {
         if (half !== undefined && half !== '' && !/^[^<>"]+$/.test(half)) {
           throw new CustomError('userProfileInvalidName', 'Invalid User Name')
@@ -286,9 +240,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPLOAD OWN AVATAR
-   */
   app.put(
     '/profile/avatar',
     {
@@ -326,8 +277,7 @@ async function routes(app: FastifyInstance) {
       if (!Buffer.isBuffer(data) || data.length < 1) {
         throw new CustomError('userAvatarEmpty', 'No image was sent.')
       }
-      // -> The declared content type got the request this far; what the bytes actually are is what
-      //    decides, since they are what gets stored and served back
+      // -> The bytes decide, not the declared content type: they are what gets stored and served
       if (!detectImageMime(data)) {
         throw new CustomError(
           'userAvatarInvalidImage',
@@ -346,9 +296,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CLEAR OWN AVATAR
-   */
   app.delete(
     '/profile/avatar',
     {
@@ -392,13 +339,9 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
-   * GET OWN GROUPS
-   *
-   * A user may see which groups it belongs to without holding `read:groups`, which would expose every
-   * group on the instance. When the site being browsed has `features.showOtherGroups` enabled, the
-   * response also names the groups the caller does NOT belong to -- gated here, at the source, rather
-   * than always fetching the full roster and trusting the frontend to hide the non-member half: that
-   * would defeat this route's entire reason for existing (see above), the moment the setting is off.
+   * A user may see its own groups without `read:groups`, which would expose every group on the
+   * instance. The non-member half is gated here, at the source, rather than always fetched and left
+   * for the frontend to hide.
    */
   app.get(
     '/profile/groups',
@@ -451,13 +394,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST OWN PERSONAL ACCESS TOKENS
-   *
-   * Self-service, mirroring `GET /api-keys` but scoped to `WHERE userId = <this session>` — a regular
-   * user has no `manage:system`, so it cannot reach the admin listing. See `models/apiKeys.ts`'s doc
-   * comment for what makes a personal token different from an admin-issued key.
-   */
   app.get(
     '/profile/api-keys',
     {
@@ -483,14 +419,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE OWN PERSONAL ACCESS TOKEN
-   *
-   * No `groups` field, unlike the admin-issued form: a personal token always carries exactly the
-   * creating user's own current permissions, resolved live on every request rather than picked here —
-   * see `models/apiKeys.ts`'s doc comment for why. `scope` can still narrow it, and `siteId` still pin
-   * it, exactly like an admin-issued key (Feature 395).
-   */
   app.post<{
     Body: {
       name: string
@@ -565,8 +493,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      // -> The same name/site/classification checks the admin-issued route makes, in the same order
-      //    and with the same messages — only the noun differs
+      // -> The admin-issued route's own checks and messages; only the noun differs
       const invalid = validateApiKeyInput(req.body, 'Token')
       if (invalid) {
         return reply.badRequest(invalid)
@@ -597,11 +524,8 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
-   * REVOKE OWN PERSONAL ACCESS TOKEN
-   *
-   * `revokeKeyForUser` scopes the update to `WHERE userId = <this session>`, so a keyId belonging to
-   * someone else — or to an admin-issued key with no owner — comes back 404, the same answer as a
-   * keyId that does not exist at all. Nothing here can revoke another user's token or an admin key.
+   * Someone else's token, or an admin-issued key with no owner, answers the same 404 as a keyId
+   * that does not exist.
    */
   app.post<{ Params: { keyId: string } }>(
     '/profile/api-keys/:keyId/revoke',
@@ -660,13 +584,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET OWN EDITOR SETTINGS
-   *
-   * Per-user and per-editor, e.g. whether the markdown editor opens with its preview pane showing.
-   * Session-scoped like the rest of `/profile`, so it needs no permission of its own: a user can
-   * only ever read its own.
-   */
   app.get<{ Params: { editor: string } }>(
     '/profile/editor-settings/:editor',
     {
@@ -697,9 +614,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE OWN EDITOR SETTINGS
-   */
   app.put<{ Params: { editor: string }; Body: Record<string, any> }>(
     '/profile/editor-settings/:editor',
     {
@@ -747,13 +661,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET OWN NOTIFICATION SUBSCRIPTIONS
-   *
-   * Feature #2425: which event types email the logged in user when they fire on this instance's
-   * existing webhook-dispatch triggers. Session-scoped like the rest of `/profile`, since a user can
-   * only ever read or change its own.
-   */
   app.get(
     '/profile/notifications',
     {
@@ -780,9 +687,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE OWN NOTIFICATION SUBSCRIPTIONS
-   */
   app.put<{ Body: Partial<NotificationSubscriptions> }>(
     '/profile/notifications',
     {
@@ -818,13 +722,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET OWN AUTHENTICATION METHODS
-   *
-   * What the profile's authentication page is built from: the providers linked to the account and the
-   * passkeys registered against it. Session-scoped like the rest of `/profile` — a user can only ever
-   * see its own, and no permission expresses that.
-   */
   app.get(
     '/profile/auth',
     {
@@ -897,9 +794,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CHANGE OWN PASSWORD
-   */
   app.put<{ Body: { strategyId: string; currentPassword: string; newPassword: string } }>(
     '/profile/password',
     {
@@ -956,9 +850,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * TURN OWN PASSWORD LOGIN ON OR OFF
-   */
   app.put<{ Body: { strategyId: string; isEnabled: boolean } }>(
     '/profile/password-login',
     {
@@ -1014,13 +905,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * START OWN 2FA SETUP
-   *
-   * Two steps, because the server cannot know the secret reached the user's authenticator until the
-   * user proves it did: this hands out a QR code and a continuation token, and `PUT` activates the
-   * secret once a code generated from it comes back.
-   */
   app.post<{ Body: { strategyId: string } }>(
     '/profile/tfa',
     {
@@ -1062,8 +946,8 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const userId = sessionUserId(req)
 
-      // -> The site names the entry in the user's authenticator app, and is the one being browsed
-      //    rather than one the client names: nothing else about this request is client-chosen either
+      // -> The site names the entry in the user's authenticator app: the one being browsed, never
+      //    one the client names
       const site = await siteForHostname(req.hostname)
 
       try {
@@ -1085,9 +969,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * FINISH OWN 2FA SETUP
-   */
   app.put<{ Body: { strategyId: string; continuationToken: string; securityCode: string } }>(
     '/profile/tfa',
     {
@@ -1150,9 +1031,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * TURN OWN 2FA OFF
-   */
   app.delete<{ Params: { strategyId: string } }>(
     '/profile/tfa/:strategyId',
     {
@@ -1190,14 +1068,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * VIEW REMAINING RECOVERY CODE COUNT
-   *
-   * Never re-displays a code, used or not — only how many of the original set are still good, so the
-   * profile page can nudge a user running low toward regenerating before they are locked out.
-   *
-   * No route-level permissions: self-scoped by session, same as the rest of `/profile/tfa*`.
-   */
   app.get<{ Querystring: { strategyId: string } }>(
     '/profile/tfa/recovery-codes',
     {
@@ -1244,9 +1114,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REGENERATE RECOVERY CODES
-   */
   app.post<{ Body: { strategyId: string } }>(
     '/profile/tfa/recovery-codes',
     {
@@ -1295,9 +1162,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * START REGISTERING A PASSKEY
-   */
   app.post(
     '/profile/passkeys/challenge',
     {
@@ -1346,9 +1210,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * FINISH REGISTERING A PASSKEY
-   */
   app.post<{ Body: { name: string; registrationResponse: Record<string, any> } }>(
     '/profile/passkeys',
     {
@@ -1409,9 +1270,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REMOVE A PASSKEY
-   */
   app.delete<{ Params: { passkeyId: string } }>(
     '/profile/passkeys/:passkeyId',
     {

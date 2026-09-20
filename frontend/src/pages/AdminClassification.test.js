@@ -11,8 +11,7 @@ import { stubApi } from '../../test/mocks.js'
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
   dialog: vi.fn(() => ({ onOk: vi.fn() })),
-  // -> `.onOk(cb)` runs `cb` at once rather than waiting on a real confirmation dialog's own click --
-  //    matches AdminGlossary.test.js's mocking of the same composable.
+  // -> `.onOk(cb)` runs `cb` at once rather than waiting on a real dialog's own click
   confirm: vi.fn(() => ({ onOk: (cb) => cb() }))
 }))
 
@@ -20,11 +19,6 @@ beforeEach(() => {
   notifyQueue.splice(0, notifyQueue.length)
 })
 
-/**
- * OpenProject #1731: `createLevel()` posts and awaits with its trigger button live throughout --
- * unlike every other write on this page, nothing blocked a second click from firing a second
- * identical POST before the first round trip (and its `load()` refresh) completed.
- */
 function mountPage() {
   return mountWithApp(AdminClassification, {
     messages: {
@@ -39,7 +33,6 @@ function findNewLevelButton(wrapper) {
   return wrapper.findAll('button').find((btn) => btn.text().includes('New Level'))
 }
 
-/** Lets the page's own `onMounted(() => load())` round trip settle before a test drives it. */
 async function flush(wrapper) {
   await wrapper.vm.$nextTick()
   await Promise.resolve()
@@ -49,8 +42,8 @@ async function flush(wrapper) {
 describe('AdminClassification', () => {
   it('issues exactly one POST when the New Level button is clicked twice synchronously', async () => {
     API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
-    // -> Never resolves within this test, so the first click's round trip is still in flight when
-    //    the second click fires -- exactly the window the double-submit guard has to hold shut.
+    // -> Never resolves, so the first click's round trip is still in flight when the second fires --
+    //    exactly the window the double-submit guard has to hold shut.
     API_CLIENT.post.mockReturnValue({ json: () => new Promise(() => {}) })
 
     const wrapper = mountPage()
@@ -59,10 +52,9 @@ describe('AdminClassification', () => {
     const newLevelBtn = findNewLevelButton(wrapper)
     expect(newLevelBtn).toBeTruthy()
 
-    // -> `trigger()` dispatches its DOM event synchronously before returning a `nextTick()` promise,
-    //    so calling it twice before awaiting either dispatches both clicks back-to-back with no
-    //    render cycle in between -- the guard has to hold on `state.isLoading` itself, not on the
-    //    button's `disabled` attribute having had a chance to catch up.
+    // -> `trigger()` dispatches synchronously before returning its `nextTick()` promise, so two
+    //    calls before awaiting either land back-to-back with no render in between: the guard has to
+    //    hold on `state.isLoading`, not on the button's `disabled` attribute catching up.
     const firstClick = newLevelBtn.trigger('click')
     const secondClick = newLevelBtn.trigger('click')
     await firstClick
@@ -95,14 +87,6 @@ describe('AdminClassification', () => {
   })
 })
 
-/**
- * OpenProject #1789: `WItem.vue` declares `disabled`, not `disable`, so the template's
- * `:disable="row.count === 0"` landed as an inert non-standard attribute -- clicking a zero-count
- * row still ran `openReport()` and opened an empty drill-down. `openReport()` itself now guards on
- * `row.count === 0` as belt-and-braces, alongside the template's rename to `:disabled` (covered by
- * `WItem.test.js`'s own click-blocking assertions).
- */
-
 const DRILLDOWN_REPORT = [
   { levelId: 'l1', name: 'Public', count: 0 },
   { levelId: 'l2', name: 'Internal', count: 3 }
@@ -128,7 +112,6 @@ describe('AdminClassification: openReport()', () => {
     const wrapper = await mountReportPage()
 
     const rows = wrapper.findAll('.w-item')
-    // -> First row is the zero-count level, per DRILLDOWN_REPORT above
     await rows[0].trigger('click')
 
     expect(dialog).not.toHaveBeenCalled()
@@ -168,12 +151,6 @@ function mountAdminClassification(levels = LEVELS, report = REPORT) {
   return mountWithApp(AdminClassification, { stores: { site: { id: 'site-1' } } }).wrapper
 }
 
-/**
- * OpenProject #1776: these mutation sites all sit behind a `try`/`catch` that reports
- * `apiErrorMessage(err)`, but until `boot/api.js` throws on a 400 (#1758) that catch only fires for a
- * network failure or a non-400 status -- these tests exercise it with exactly that shape, plus the
- * literal 400-envelope shape the two changes together are meant to produce, via a rejected `.json()`.
- */
 describe('AdminClassification: load()', () => {
   it('lists every level and report row from the server', async () => {
     const wrapper = mountAdminClassification()
@@ -247,11 +224,6 @@ describe('AdminClassification: move()', () => {
 })
 
 describe('AdminClassification: deleteLevel()', () => {
-  // -> The WP #1754/#1776 worked case: deleting the last classification level throws
-  //    `classificationLastLevel` (`backend/models/classificationLevels.ts`), a 400 -- today that
-  //    resolves rather than throws (`boot/api.js`'s `throwHttpErrors`, flipped only by #1758), so the
-  //    reject here is standing in for what a real 400 will look like once that lands; the assertion is
-  //    on the catch this component already has, not on the enabling change.
   it("shows the server's message and leaves the level in the list instead of closing silently", async () => {
     const wrapper = mountAdminClassification([LEVELS[0]], [REPORT[0]])
     await flushPromises()
@@ -288,14 +260,7 @@ describe('AdminClassification: deleteLevel()', () => {
   })
 })
 
-/**
- * OpenProject #2039: `deleteLevel()` used to call `confirm({ title, message })` with no `cancel`,
- * `color`, or `okLabel` -- a one-button, primary-blue prompt for an irreversible delete, identical in
- * appearance to a safe confirmation. It now matches the reference treatment (`AdminIcons.vue`'s
- * `confirmDeleteSet()`): `persistent: true, cancel: true, color: 'negative', okLabel:
- * t('common.actions.delete')`. `confirm` is mocked file-wide (above), so this asserts on the call
- * itself rather than on `openDialogs`, which the mock never populates.
- */
+/** `confirm` is mocked file-wide, so this asserts on the call rather than on `openDialogs`. */
 describe('AdminClassification deleteLevel confirmation', () => {
   it('opens a negative-coloured, cancelable, delete-labelled confirmation', async () => {
     const wrapper = mountAdminClassification()
@@ -316,11 +281,7 @@ describe('AdminClassification deleteLevel confirmation', () => {
   })
 })
 
-/**
- * OpenProject #1671: the rename field's `autofocus` attribute on `<w-input>` never did anything --
- * `WInput.vue` exposes no such prop, so the field stayed unfocused until the reader clicked into it
- * themselves. `startRename()` now focuses it itself, via the `focus()` method `WInput.vue` exposes.
- */
+/** `WInput` exposes no `autofocus` prop, so that attribute would be inert. */
 describe('AdminClassification rename focus', () => {
   it('focuses the rename field once it appears, without an inert autofocus attribute', async () => {
     const LEVEL = { id: 'lvl-1', name: 'Internal', sortOrder: 0 }

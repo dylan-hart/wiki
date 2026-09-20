@@ -8,7 +8,6 @@ import { BlockTabsElement } from './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-/** Builds `<block-tabs>` around N `<block-tab>` panels, the shape the block reads from its light DOM. */
 const mountTabs = (panels, props = {}) =>
   mountBlock('block-tabs', {
     props,
@@ -101,7 +100,6 @@ describe('block-tabs', () => {
     )
 
     const panels = [...el.querySelectorAll('block-tab')]
-    // -> Clamped to the last real tab, not left pointing past the end
     expect(panels[1].style.display).toBe('block')
     expect(stripButtons(el).some((b) => b.classList.contains('is-active'))).toBe(true)
   })
@@ -121,7 +119,6 @@ describe('block-tabs', () => {
     strip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
     strip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
     await el.updateComplete
-    // -> Wraps from 0 back to the last tab
     expect(el.active).toBe(2)
   })
 
@@ -132,27 +129,19 @@ describe('block-tabs', () => {
     ])
     const target = el.querySelectorAll('block-tab')[1].querySelector('p')
 
-    // -> Dispatched ON the node inside the second panel: CustomEvent sets `event.target` to it, and
-    //    the handler resolves which panel contains that node.
+    // -> Dispatched ON the node inside the panel: the handler resolves the panel from `event.target`
     target.dispatchEvent(new CustomEvent('block-reveal', { bubbles: true }))
     await el.updateComplete
 
     expect(el.active).toBe(1)
   })
 
-  /*
-   * OpenProject #1768: `_loadIcons` used to `await` each tab's `fetchIcon` in sequence and call
-   * `requestUpdate()` after every one -- a strip with several icons re-rendered once per icon
-   * instead of once for the whole batch. It now fetches them all via `Promise.all`, matching
-   * `block-index`'s `_loadIcons`, and updates once.
-   */
   it('fetches every tab icon concurrently and triggers a single update', async () => {
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true, text: async () => '<svg>icon</svg>' })
     vi.stubGlobal('fetch', fetchSpy)
 
-    // -> Built by hand rather than through `mountTabs`, so both the spy and the handle on
-    //    `_loadIcons`' own promise are in place *before* `connectedCallback` fires `_collectTabs`'
-    //    (fire-and-forget) call to it — the one this test is actually about.
+    // -> Built by hand rather than through `mountTabs`, so the spy and the handle on `_loadIcons`'
+    //    own promise are in place *before* `connectedCallback` fires its fire-and-forget call to it
     const el = document.createElement('block-tabs')
     for (const [index, icon] of [
       'mdi:tabs-first-1768',
@@ -172,9 +161,8 @@ describe('block-tabs', () => {
 
     document.body.appendChild(el)
     await el.updateComplete
-    // -> The first render is already accounted for above (triggered by `_collectTabs` setting the
-    //    reactive `_tabs` property, not by `_loadIcons`); clear it so only `_loadIcons`' own
-    //    `requestUpdate()` call(s) are counted below.
+    // -> The first render comes from `_collectTabs` setting `_tabs`, not from `_loadIcons`; clear it
+    //    so only `_loadIcons`' own `requestUpdate()` calls are counted
     updateSpy.mockClear()
     await loadIconsPromise
 
@@ -184,7 +172,6 @@ describe('block-tabs', () => {
       '<svg>icon</svg>',
       '<svg>icon</svg>'
     ])
-    // -> Exactly one `requestUpdate()` call for the whole batch, not one per icon.
     expect(updateSpy).toHaveBeenCalledTimes(1)
 
     vi.unstubAllGlobals()
@@ -193,12 +180,9 @@ describe('block-tabs', () => {
   describeDarkMode(() => mountTabs([{ label: 'First', content: 'One' }]))
 
   /**
-   * OpenProject #2874: `static get styles()` drops its own hardcoded Ledger/Cobalt-blind defaults
-   * (a grey border, a Quasar-blue active tab, a card drop shadow) in favour of the `--tabs-*` custom
-   * properties `frontend/src/css/tailwind.css` declares (OpenProject #2860) -- structure, ARIA and
-   * keyboard behaviour stay exactly as tested above. Read out of the source rather than the mounted
-   * shadow root: jsdom does not run layout/paint, so a `var(--tabs-active-fg)` resolving to a real
-   * colour is not something `getComputedStyle` can confirm here either way.
+   * Asserted against the source text rather than the mounted shadow root: jsdom runs no
+   * layout/paint, so `getComputedStyle` cannot confirm a `var(--tabs-*)` resolving to a real value
+   * either way.
    */
   describe('Ledger/Cobalt custom-property theming (OpenProject #2874)', () => {
     const source = readFileSync(path.join(import.meta.dirname, 'component.js'), 'utf8')
@@ -209,8 +193,6 @@ describe('block-tabs', () => {
 
       expect(marks).not.toBeNull()
       expect(marks.getAttribute('aria-hidden')).toBe('true')
-      // -> A sibling of .tabs, not a descendant -- .tabs clips to its own radius under Cobalt, and a
-      //    mark positioned outside that frame would be clipped away with it if nested inside
       expect(marks.nextElementSibling.classList.contains('tabs')).toBe(true)
     })
 
@@ -240,13 +222,11 @@ describe('block-tabs', () => {
       ]) {
         expect(source).toContain(`var(${token})`)
       }
-      // -> The corner marks' colour is the shared --block-* namespace (#2860), not a --tabs-* one of
-      //    its own -- tabset-block.md gives the marks no colour token besides display: on/off
+      // -> The marks' colour is shared across blocks, so it is in the --block-* namespace
       expect(source).toContain('var(--block-mark-color)')
 
-      // -> None of #2874's own removal list survives: the q-primary fallback, the two literal
-      //    gradients, the border-top transparent trick the cap shadow replaces, and any `:host([dark])`
-      //    override block (theming now comes from the body-level tokens alone, in both themes)
+      // -> No hardcoded fallbacks: a Quasar-blue active tab, literal gradients, the transparent
+      //    border-top the cap shadow replaces, or a `:host([dark])` block of local overrides
       expect(source).not.toContain('--q-primary')
       expect(source).not.toContain('linear-gradient(to bottom')
       expect(source).not.toMatch(/border-top:\s*3px solid transparent/)
@@ -254,8 +234,7 @@ describe('block-tabs', () => {
     })
 
     it('declares no local --tabs-* fallback values of its own any more', () => {
-      // -> Every :host block in the stylesheet is `{ display: block; }` alone -- the whole
-      //    property set comes from tailwind.css now, inherited from <body>
+      // -> The whole property set is inherited from <body>, declared in tailwind.css
       const hostBlocks = [...source.matchAll(/:host\s*{([^}]*)}/g)].map((m) => m[1])
       expect(hostBlocks.length).toBeGreaterThan(0)
       for (const block of hostBlocks) {

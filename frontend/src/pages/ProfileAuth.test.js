@@ -10,10 +10,9 @@ import { pendingProfileSaves } from '@/composables/profileSaving'
 import { dialog } from '@/composables/dialog'
 
 /*
-  OpenProject #3282's write-action tests below need `confirm(...).onOk(cb)` to fire its callback
-  immediately rather than waiting on a real, rendered WConfirmDialog -- the same mocking idiom
-  `GlossaryImportDialog.test.js` already uses for the same reason. None of this file's other tests
-  click into a menu item that reaches `confirm()`/`dialog()`, so mocking both file-wide is safe.
+  The write-action tests need `confirm(...).onOk(cb)` to fire its callback immediately rather than
+  wait on a rendered WConfirmDialog. No other test here clicks into a menu item that reaches
+  `confirm()`/`dialog()`, so mocking both file-wide is safe.
 */
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -25,14 +24,6 @@ vi.mock('@simplewebauthn/browser', () => ({
   browserSupportsWebAuthn: vi.fn(() => true),
   startRegistration: vi.fn(() => Promise.resolve({ id: 'cred-1' }))
 }))
-
-/**
- * OpenProject #1874: `GET /users/profile/tfa/recovery-codes` (`backend/api/users/profile.ts`) was a
- * finished, tested route with no caller -- `ProfileAuth.vue` only ever POSTed the same path to
- * regenerate. This locks in the fetch-and-display: the count is pulled once the auth methods load,
- * only for a local-strategy method with 2FA active, and rendered as an "N of M remaining" line with
- * a visibly distinct nudge once the remaining ratio drops to the low-count threshold.
- */
 
 const MESSAGES = {
   profile: {
@@ -64,7 +55,6 @@ const MESSAGES = {
   }
 }
 
-/** A single local auth method, 2FA active by default -- override `config` to vary it. */
 function localAuthMethod(config = {}) {
   return {
     authId: 'auth-local',
@@ -97,11 +87,9 @@ async function mountPage({ authMethods, recoveryCodesResponse }) {
 }
 
 /**
- * OpenProject #3282: each of ProfileAuth's 5 write actions counts itself on the shared
- * `pendingProfileSaves` module singleton (what gates the Profile dialog's close button/dismiss
- * guard), alongside `loading.show()`/`loading.hide()`. Each test overrides the relevant
- * `API_CLIENT` method with a manually-resolved promise so the in-flight count is observable before
- * the request settles.
+ * `pendingProfileSaves` is the shared module singleton gating the Profile dialog's close button, so
+ * every write action has to count itself on it. Each test hands the relevant `API_CLIENT` method a
+ * manually-resolved promise, which is what makes the in-flight count observable at all.
  */
 describe('ProfileAuth pendingProfileSaves (OpenProject #3282)', () => {
   beforeEach(() => {
@@ -120,9 +108,8 @@ describe('ProfileAuth pendingProfileSaves (OpenProject #3282)', () => {
       })
     )
 
-    // -> disableTfa() itself returns nothing (its async work runs inside confirm()'s mocked onOk
-    //    callback, uncaptured), so the in-flight/settled states are observed via flushPromises()
-    //    rather than by awaiting disableTfa()'s own return value.
+    // -> `disableTfa()` returns nothing: its async work runs inside `confirm()`'s mocked `onOk`
+    //    callback, so `flushPromises()` is the only handle on the in-flight and settled states.
     wrapper.vm.disableTfa('auth-local')
     await flushPromises()
     expect(pendingProfileSaves.value).toBe(1)
@@ -297,17 +284,10 @@ describe('ProfileAuth recovery-code count', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('recovery codes remaining')
-    // -> The rest of the auth method row still rendered fine
     expect(wrapper.text()).toContain('Local')
   })
 })
 
-/**
- * OpenProject #2701 -- the section on the settings pattern. Two cards (the auth methods, the
- * passkeys), a row per entry, the provider's own logo on the plate rather than a generic glyph, and
- * everything the row has to say about itself -- the password-login state, the recovery-code count --
- * in the one hint column under the label instead of in two separate side sections.
- */
 describe('ProfileAuth on the settings pattern', () => {
   it('draws the auth methods as settings rows, each plated with its own provider logo', async () => {
     const wrapper = await mountPage({
@@ -316,8 +296,7 @@ describe('ProfileAuth on the settings pattern', () => {
     })
 
     const rows = wrapper.findAll('.w-settings-row')
-    // -> One auth method; `mountPage` stubs no passkeys, and the passkeys card is only drawn when
-    //    there is one to put in it
+    // -> `mountPage` stubs no passkeys, and that card is only drawn when there is one to put in it.
     expect(rows).toHaveLength(1)
     expect(rows[0].find('.w-settings-row__label').text()).toBe('Local')
     expect(rows[0].find('.blueprint-icon img').attributes('src')).toBe('ultraviolet-local.svg')
@@ -371,14 +350,9 @@ describe('ProfileAuth on the settings pattern', () => {
 })
 
 /**
- * OpenProject #2741: the local-strategy actions menu's icons were hardcoded `text-blue-7` /
- * `text-negative`, with no dark-mode counterpart — unlike every other themed surface in the app.
- *
- * Tailwind's global stylesheet is never imported under Vitest (see `vitest.config.js`'s own note on
- * what it does and does not mirror from the real build), so a `getComputedStyle` assertion cannot
- * observe whether the `dark:` utility actually paints a different colour — only that the literal
- * class is present on the rendered icon. This matches the same classList-membership convention
- * `PageHistoryOverlay.test.js`'s `text-accent-dark` assertion already uses for the same reason.
+ * Tailwind's global stylesheet is never imported under Vitest, so a `getComputedStyle` assertion
+ * cannot observe whether a `dark:` utility paints a different colour — only that the literal class
+ * is present on the rendered icon.
  */
 async function mountActionsMenu(config) {
   stubApi({
@@ -391,9 +365,8 @@ async function mountActionsMenu(config) {
   const { wrapper } = mountWithApp(ProfileAuth, { messages: MESSAGES })
   await flushPromises()
 
-  // -> WMenu's real trigger click listener is attached to the enclosing button natively, so a
-  //    plain click on it opens the (teleported-but-inline-stubbed) menu content -- see
-  //    `AccountMenu.test.js` for the same idiom.
+  // -> WMenu attaches its trigger listener to the enclosing button natively, so a plain click on
+  //    it opens the (teleported-but-inline-stubbed) menu content.
   await wrapper.find('[aria-label="Actions"]').trigger('click')
 
   return wrapper
@@ -410,9 +383,6 @@ function expectBlueDarkPair(wrapper, iconName) {
 
 describe('ProfileAuth actions menu icons stay legible in dark mode (OpenProject #2741)', () => {
   it('pairs every text-blue-7 icon with dark:text-blue-4 (2FA enabled, password login enabled)', async () => {
-    // -> isTfaSetup + isPasswordLoginEnabled true renders: changePassword, disableTfa,
-    //    regenerateRecoveryCodes, disablePasswordLogin -- covering `tabler:key` (twice) and
-    //    `tabler:fingerprint`.
     const wrapper = await mountActionsMenu()
 
     expectBlueDarkPair(wrapper, 'tabler:key')
@@ -424,10 +394,8 @@ describe('ProfileAuth actions menu icons stay legible in dark mode (OpenProject 
   })
 
   it('pairs every text-blue-7 icon with dark:text-blue-4 (2FA disabled, password login disabled)', async () => {
-    // -> isTfaSetup + isPasswordLoginEnabled false switches to: setupTfa, enablePasswordLogin --
-    //    covering the `tabler:fingerprint`/`tabler:arrow-forward-up` pair the first mount cannot
-    //    reach, since it and the first case's `disableTfa`/`disablePasswordLogin` are v-if/v-else
-    //    siblings that never render together.
+    // -> A second mount, because these menu items and the ones above are v-if/v-else siblings that
+    //    never render together.
     const wrapper = await mountActionsMenu({ isTfaSetup: false, isPasswordLoginEnabled: false })
 
     expectBlueDarkPair(wrapper, 'tabler:fingerprint')

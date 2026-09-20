@@ -7,11 +7,8 @@ import { playerStyles, VideoEmbedElement } from './video-embed.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
- * The smallest possible subclass: the two hooks every video block has to write, and nothing else.
- *
- * Deliberately not one of the real blocks -- what is under test here is the shell they all inherit
- * (the size computation, the frame, the two error branches), not any provider's URL grammar, which
- * each block's own `component.test.js` already covers.
+ * Deliberately not one of the real blocks: what is under test is the shell they all inherit, not any
+ * provider's URL grammar, which each block's own `component.test.js` already covers.
  */
 class TestEmbedElement extends VideoEmbedElement {
   _providerName() {
@@ -68,7 +65,7 @@ class TestEmbedCodeElement extends VideoEmbedElement {
 }
 customElements.define('test-video-embed-code', TestEmbedCodeElement)
 
-/** The other shared shell, for the dark-mode comparison below. Adds nothing of its own. */
+/** The other shared shell, for the dark-mode comparison below. */
 class TestDiagramElement extends DiagramImageElement {}
 customElements.define('test-diagram-image', TestDiagramElement)
 
@@ -78,7 +75,6 @@ describe('shared/video-embed.js: playerStyles', () => {
   it('styles the frame box and the frame itself, leaving the error box to errorBox', () => {
     expect(playerStyles.cssText).toContain('.player')
     expect(playerStyles.cssText).toContain('iframe')
-    // -> `.error`'s own box comes from `./styles.js`; only the gap below it is here
     expect(playerStyles.cssText).toContain('margin-bottom: 16px')
     expect(playerStyles.cssText).not.toContain('color-mix')
   })
@@ -224,16 +220,11 @@ describe('shared/video-embed.js: VideoEmbedElement', () => {
 
 /*
  * The two shared shells disagree about dark mode on purpose, and the disagreement is invisible from
- * either one on its own -- so it is pinned here, in one place, rather than being inferred from which
- * blocks happen to have a dark-mode suite.
- *
- * `DiagramImageElement` constructs a `DarkMode` controller for every block that inherits it, because
- * its own styles key off `:host([dark])` (the sheet a drawing sits on draws its border differently in
- * the two themes). `VideoEmbedElement` constructs none: a video frame is an opaque provider iframe on
- * a black box, and there is nothing in `playerStyles` for a `dark` attribute to change. So
- * `block-youtube` and `block-m365-video`, which add nothing, never get the attribute at all, while
- * `block-vimeo` and `block-dailymotion` construct their own controller for the one border they draw
- * -- see each of those four suites for the per-block half of this.
+ * either one on its own. `DiagramImageElement` constructs a `DarkMode` controller for every block
+ * that inherits it, because its own styles key off `:host([dark])`; `VideoEmbedElement` constructs
+ * none, because a video frame is an opaque provider iframe on a black box with nothing in
+ * `playerStyles` for a `dark` attribute to change. `block-vimeo` and `block-dailymotion` construct
+ * their own for the one border they draw.
  */
 describe('shared: which shell constructs a DarkMode controller', () => {
   afterEach(resetBlockDom)

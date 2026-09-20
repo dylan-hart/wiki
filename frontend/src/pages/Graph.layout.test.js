@@ -4,19 +4,12 @@ import { isReactive } from 'vue'
 import { drawLabels, LABEL_GAP } from './graphDraw.js'
 import { mountGraph } from './graphFixtures.js'
 
-/*
- * OpenProject #1837/#2296/#2297: what stays out of deep reactivity, which of `relayout()`/
- * `repaint()` rebuilds what, and how cluster circles and labels size themselves off each node's own
- * drawn radius rather than a flat constant.
- */
 describe('Graph.vue layout, reactivity and repaint', () => {
   it('keeps node/edge arrays and node objects out of deep reactivity (OpenProject #1837)', async () => {
     const wrapper = await mountGraph()
 
-    // -> The arrays handed to `forceSimulation`/`forceLink` are `shallowRef`s, and every node/edge
-    //    inside them is `markRaw()`'d as it's built -- neither the arrays nor their contents should
-    //    ever become a Vue reactive proxy, since d3-force writes `x`/`y`/`vx`/`vy` on every node on
-    //    every tick and nothing renders off these values reactively (canvas-only).
+    // -> d3-force writes `x`/`y`/`vx`/`vy` on every node each tick and nothing renders off them
+    //    reactively (canvas-only), so the arrays are `shallowRef`s and their contents `markRaw()`d.
     expect(isReactive(wrapper.vm.nodes)).toBe(false)
     expect(isReactive(wrapper.vm.edges)).toBe(false)
     expect(isReactive(wrapper.vm.allNodes)).toBe(false)
@@ -36,8 +29,8 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     const quadtreeBeforeRepaint = wrapper.vm.nodeQuadtree
     const clustersBeforeRepaint = wrapper.vm.clusters
     wrapper.vm.repaint()
-    // -> A pure repaint must not touch layout-derived state -- same references, not just equal
-    //    content, since `relayout()` always produces a brand new quadtree/clusters array.
+    // -> Identity, not content: `relayout()` always produces a new quadtree/clusters array, so
+    //    `toBe` is what distinguishes a repaint that left them alone.
     expect(wrapper.vm.nodeQuadtree).toBe(quadtreeBeforeRepaint)
     expect(wrapper.vm.clusters).toBe(clustersBeforeRepaint)
 
@@ -49,8 +42,8 @@ describe('Graph.vue layout, reactivity and repaint', () => {
   it('the zoom handler only repaints; the simulation tick handler relayouts then repaints (OpenProject #1837)', async () => {
     const wrapper = await mountGraph()
 
-    // -> Exercises the zoom-only path the way `attachZoom()`'s `.on('zoom', ...)` callback does
-    //    (set the transform, repaint) rather than driving a real DOM zoom gesture through jsdom.
+    // -> Mimics `attachZoom()`'s zoom callback (set the transform, repaint); jsdom cannot drive a
+    //    real zoom gesture.
     const quadtreeBeforeZoom = wrapper.vm.nodeQuadtree
     const clustersBeforeZoom = wrapper.vm.clusters
     wrapper.vm.zoomTransform = { k: 2, x: 5, y: 5 }
@@ -58,9 +51,8 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     expect(wrapper.vm.nodeQuadtree).toBe(quadtreeBeforeZoom)
     expect(wrapper.vm.clusters).toBe(clustersBeforeZoom)
 
-    // -> The actual registered 'tick' listener, retrieved off the live simulation the same
-    //    get-form way -- confirms `startSimulation()` really wired both steps together, not just
-    //    that `relayout`/`repaint` behave correctly called by hand.
+    // -> The listener `startSimulation()` actually registered, rather than calling
+    //    `relayout`/`repaint` by hand: the wiring is what is under test.
     const tickListener = wrapper.vm.simulation.on('tick')
     expect(typeof tickListener).toBe('function')
     tickListener()
@@ -71,9 +63,8 @@ describe('Graph.vue layout, reactivity and repaint', () => {
   it("sizes the fallback circle off the largest member node's edge, not just its centre (OpenProject #2296)", async () => {
     const wrapper = await mountGraph()
 
-    // -> Distinct `folder` values put A and B in separate groups, each a single-node fallback-
-    //    circle case (`maxDist` from centroid is 0) -- including a group of exactly one node at
-    //    maximum radius, per the Done-when.
+    // -> Distinct `folder` values make each node its own group: the single-node fallback-circle
+    //    case, where `maxDist` from the centroid is 0.
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
     nodeA.folder = 'group-a'
@@ -91,8 +82,8 @@ describe('Graph.vue layout, reactivity and repaint', () => {
 
     wrapper.vm.computeClusters()
 
-    // -> A is now the top of the graph's own observed range (OpenProject #2561's min/max lerp is
-    //    normalized against the current graph, not an absolute count) -- pinned at MAX_NODE_RADIUS.
+    // -> Radii lerp across the graph's own observed range, not an absolute count, so A sits at
+    //    MAX_NODE_RADIUS.
     expect(wrapper.vm.radiusFor(nodeA)).toBe(110)
     const clusterA = wrapper.vm.clusters.find((c) => c.key === 'group-a')
     expect(clusterA.circle).toBeDefined()
@@ -104,8 +95,7 @@ describe('Graph.vue layout, reactivity and repaint', () => {
 
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
-    // -> A third node so this group has >=3 members -- OpenProject #2836 retired the convex-hull
-    //    path entirely, so a >=3-node group now takes the same circle case as a 1-2 node group.
+    // -> A third member: a >=3-node group takes the same circle case as a smaller one, no hull.
     const nodeC = { ...nodeB, path: 'c' }
     wrapper.vm.nodes.push(nodeC)
 
@@ -133,18 +123,16 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     const cx = (nodeA.x + nodeB.x + nodeC.x) / 3
     const cy = (nodeA.y + nodeB.y + nodeC.y) / 3
     const distToNodeA = Math.hypot(nodeA.x - cx, nodeA.y - cy)
-    // -> A flat 16px padding would fall short here since nodeA's radius (pinned at MAX_NODE_RADIUS,
-    //    110, as the graph's sole non-zero node) far exceeds it -- this only passes once the
-    //    circle's radius is pushed out by A's own radius too.
+    // -> A flat padding constant falls far short of nodeA's MAX_NODE_RADIUS: this only passes once
+    //    the circle grows by each member's own radius.
     expect(clusterC.circle.r).toBeGreaterThan(distToNodeA + wrapper.vm.radiusFor(nodeA))
   })
 
   it("includes a nested folder node as a member of its parent folder's circle (OpenProject #3355)", async () => {
     const wrapper = await mountGraph()
 
-    // -> Folder B nested inside Folder A, plus a real page directly in Folder A -- the WP's own
-    //    acceptance example. `groupBy` defaults to 'folder', so both should end up members of the
-    //    same 'A' circle.
+    // -> `groupBy` defaults to 'folder', so the nested folder node and the page sitting directly
+    //    in A both belong to the same 'A' circle.
     const pageA = wrapper.vm.nodes.find((node) => node.path === 'a')
     pageA.folder = 'A'
     pageA.x = 0
@@ -164,8 +152,7 @@ describe('Graph.vue layout, reactivity and repaint', () => {
 
     const clusterA = wrapper.vm.clusters.find((c) => c.key === 'A')
     expect(clusterA).toBeDefined()
-    // -> The centroid sits between pageA and folderB (0 and 200) -- proof folderB was actually
-    //    folded into the circle as a member, not still silently excluded.
+    // -> A centroid midway between the two x positions is what proves folderB counted as a member.
     expect(clusterA.circle.x).toBeCloseTo(100)
   })
 
@@ -181,32 +168,26 @@ describe('Graph.vue layout, reactivity and repaint', () => {
 
     const radiusA = wrapper.vm.radiusFor(nodeA)
     const radiusB = wrapper.vm.radiusFor(nodeB)
-    // -> The fixture's two nodes have different contributor counts, so their radii differ. That
-    //    used to be what proved the OUTSIDE offset tracked each node's own radius (OpenProject
-    //    #2297's `node.x + radius + LABEL_GAP`); it now proves the opposite -- the label position
-    //    no longer moves with the radius at all, because it is inside the circle.
+    // -> The fixture's two nodes have different contributor counts, so their radii differ: a label
+    //    drawn at the node center is distinguishable from one offset past the edge.
     expect(radiusA).not.toBe(radiusB)
 
     wrapper.vm.ctx.fillText.mockClear()
-    // -> `minRadius` (7th arg, OpenProject #2993) mirrors `Graph.vue`'s current `MIN_NODE_RADIUS`,
-    //    20 -- a `<script setup>`-local const with no export, so hardcoding the value here is the
-    //    same established tradeoff `Graph.sizing.test.js` already documents for the same constant.
+    // -> `Graph.vue`'s `MIN_NODE_RADIUS` is a `<script setup>`-local const with no export, so the
+    //    `minRadius` argument is hardcoded to mirror it.
     drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 1.2, false, undefined, 20)
 
     const callA = wrapper.vm.ctx.fillText.mock.calls.find(([text]) => text === nodeA.title)
     expect(callA.slice(1)).toEqual([nodeA.x, nodeA.y])
     expect(callA[1]).not.toBe(nodeA.x + radiusA + LABEL_GAP)
 
-    // -> Whether the smaller node labels at all depends on the radius floor (a sibling Task retunes
-    //    it), so this asserts the invariant rather than the count: EVERY real label that draws
-    //    draws at its own node's center. `graphDraw.test.js` covers the too-small-to-label cutoff
-    //    directly, with a radius it controls itself.
+    // -> Asserts the invariant over every drawn label rather than a count: whether the smaller node
+    //    labels at all depends on the radius floor. `graphDraw.test.js` covers that cutoff.
     for (const [text, x, y] of wrapper.vm.ctx.fillText.mock.calls) {
       const node = wrapper.vm.nodes.find(
         (candidate) => (candidate.title ?? candidate.path) === text
       )
-      // -> Synthetic folder hubs deliberately keep the outside placement (asserted below), so this
-      //    invariant is about real nodes only.
+      // -> Synthetic hubs deliberately keep the outside placement, asserted separately below.
       if (node.synthetic) {
         continue
       }
@@ -221,9 +202,8 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     const radius = wrapper.vm.radiusFor(synthetic)
 
     wrapper.vm.ctx.fillText.mockClear()
-    // -> `minRadius` is irrelevant here (`drawLabels()` skips it entirely for `node.synthetic`
-    //    nodes), but the call is updated to the current signature anyway to avoid the same stale-4-
-    //    arg drift the sibling test above just had (OpenProject #3025).
+    // -> `drawLabels()` ignores `minRadius` for synthetic nodes; it is passed anyway so the call
+    //    stays at the full current signature.
     drawLabels(wrapper.vm.ctx, [synthetic], wrapper.vm.radiusFor, 1.2, false, undefined, 20)
 
     const [call] = wrapper.vm.ctx.fillText.mock.calls

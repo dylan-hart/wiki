@@ -4,14 +4,9 @@ import { approvalRules } from './approvalRules.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
 /**
- * One schema for the whole file rather than one per describe (TEST-F14): every `setupTestDb()` call
- * is a `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same
- * fixture. Anything a describe needs on top of that stays in its own `before()`.
- *
- * The `hasTestDatabase()` guard below is what a per-describe `{ skip }` cannot do for a FILE-level
- * hook: `describe(..., { skip })` skips the describe's own hooks and tests, but a root `before()`
- * runs regardless, so without this an unset `DATABASE_URL` would report every describe skipped AND
- * still throw out of the hook. Same shape as `models/contentSync.test.ts`'s own file-level fixture.
+ * The guard inside the file-level hook is what a per-describe `{ skip }` cannot do: a root
+ * `before()` runs even when every describe is skipped, so without it an unset `DATABASE_URL` throws
+ * out of the hook.
  */
 let fixtures: TestFixtures
 
@@ -29,12 +24,7 @@ after(async () => {
   await teardownTestDb()
 })
 
-/**
- * OpenProject #966: same fix, and the same reasoning, as `models/groups.ts`'s
- * `groups.broadcastReload` suite — `createRule`/`updateRule`/`deleteRule` used to call
- * `reloadCache()` directly, refreshing only this instance's own cache. See that suite's doc comment
- * for the full writeup; this one just re-proves the wiring for the approvals model.
- */
+// A mutator that reloads its own cache instead of broadcasting leaves every other instance stale.
 describe('approvalRules.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let approvalsModel: typeof import('./approvals.ts').approvals
 

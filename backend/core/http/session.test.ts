@@ -7,19 +7,9 @@ import { installTestWiki } from '../../test/mocks.ts'
 import { SESSION_COOKIE_NAME_INSECURE } from '../../helpers/security.ts'
 
 /**
- * OpenProject #2569: the RTL e2e failures traced to `@fastify/session`'s `onSend` hook calling
- * `session.save()` -- a full async round trip through `sessionStoreAdapter()` -- on EVERY request
- * carrying an already-established session, even a plain `GET` whose handler never touches
- * `req.session` (`GET /_api/locales/en/strings`, `publicAccess: true`). That happens because
- * `rolling` defaults to `true`, and `@fastify/session`'s own `shouldSaveSession()` is
- * `rollingSessions || request.session.isModified()` -- so an unmodified session's read-only GET
- * still forces the store write. The async write races the reply's own completion; `rolling: false`
- * (`session.ts`) is the fix, verified here through the REAL `registerSession()` (same options
- * `index.ts` boots with), not a hand-rolled re-registration.
- *
- * A `session.save()` call is observed indirectly through the store's own `set()` -- exactly the
- * call `@fastify/session#Session.prototype.save()` makes -- rather than by trying to spy on the
- * library's internals directly.
+ * Guards `rolling: false` (`session.ts`): with the default `true`, `@fastify/session` writes the
+ * store on every request carrying a session, modified or not. A `session.save()` is observed
+ * through the store's own `set()` -- the call it makes -- rather than by spying on the library.
  */
 describe('registerSession: session-store writes (OpenProject #2569)', () => {
   let restoreWiki: () => void
@@ -36,8 +26,8 @@ describe('registerSession: session-store writes (OpenProject #2569)', () => {
     const handle = installTestWiki({
       config: {
         auth: { secret: 'a'.repeat(32) },
-        // -> Plain HTTP `.inject()` -- `cookieSecure: false` is what makes `@fastify/session`
-        //    actually emit the cookie at all, matching `helpers/security.test.ts`'s own reasoning.
+        // -> Over plain-HTTP `.inject()`, `@fastify/session` only emits the cookie at all with
+        //    `cookieSecure: false`.
         security: { cookieSecure: false }
       },
       models: {

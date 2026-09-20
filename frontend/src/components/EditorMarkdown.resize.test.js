@@ -9,8 +9,8 @@ const EditorMarkdown = (await import('./EditorMarkdown.vue')).default
 
 const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, initialContent)
 
-/** Stands a real layout up for the divider drag: happy-dom returns all-zero
- *  `getBoundingClientRect()`s, so each pane's geometry has to be mocked before a drag means anything. */
+/** happy-dom returns all-zero `getBoundingClientRect()`s, so each pane's geometry has to be mocked
+ *  before a drag means anything. */
 function mockRect(el, { left, width }) {
   vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
     left,
@@ -25,7 +25,6 @@ function mockRect(el, { left, width }) {
   })
 }
 
-/** Drags the divider from `down` to `move` and hands back the preview pane to assert on. */
 async function dragDivider(wrapper, { down, move }) {
   const divider = wrapper.find('.editor-markdown-divider')
   await divider.trigger('pointerdown', { clientX: down, pointerId: 1 })
@@ -34,14 +33,10 @@ async function dragDivider(wrapper, { down, move }) {
 }
 
 /*
-  OpenProject #804 follow-up: `onDividerPointerDown`'s `dragSign` was inverted, so dragging the
-  divider toward the preview pane GREW it and dragging away SHRANK it -- backwards in both of the
-  two layouts the divider has to handle (normal LTR, where the preview sits to the right of the
-  divider, and an RTL mirror, where it sits to the left). These tests stand each layout up with
-  mocked `getBoundingClientRect()`s (happy-dom, this workspace's Vitest environment, returns all-zero
-  rects otherwise) and drag in both directions, asserting the resulting `--preview-width` moved the
-  correct way in each -- rather than only re-asserting the sign formula itself, which would pass
-  right back on the pre-fix code if copied from it by mistake.
+  The divider has to handle two layouts -- normal LTR, preview to the right of the divider, and an
+  RTL mirror, preview to the left -- and `dragSign` must come out the right way round in both. Each
+  layout is stood up with mocked rects and dragged both ways, asserting the pane's resulting width
+  rather than the sign formula itself, which an inverted implementation would satisfy too.
 */
 describe('EditorMarkdown resize divider drag direction (OpenProject #804 follow-up)', () => {
   beforeEach(() => {
@@ -49,10 +44,9 @@ describe('EditorMarkdown resize divider drag direction (OpenProject #804 follow-
   })
 
   /*
-    Each assertion mounts its own editor: `state.previewWidth` (and so the pointer-down's own
-    `dragStartWidthPx`) carries over from one drag to the next on the same instance, which would make
-    a second drag's expected width depend on the first drag's result instead of the fixed 500px rect
-    below -- a fresh mount is what keeps each `toBe` an easy, self-contained arithmetic check.
+    Each assertion mounts its own editor: `state.previewWidth` (and so `dragStartWidthPx`) carries
+    over from one drag to the next on the same instance, which would make a second drag's expected
+    width depend on the first drag's result instead of the fixed 500px rect below.
   */
   it('shrinks the preview when dragging toward it, in normal (preview-on-the-right) layout', async () => {
     const { wrapper } = await mountEditor('Some text.')
@@ -65,7 +59,6 @@ describe('EditorMarkdown resize divider drag direction (OpenProject #804 follow-
     mockRect(divider.element, { left: 600, width: 4 })
     mockRect(preview.element, { left: 604, width: 500 })
 
-    // Dragging right -- toward the preview -- should shrink it.
     const updatedPreview = await dragDivider(wrapper, { down: 600, move: 650 })
     expect(previewFlexWidth(updatedPreview)).toBe(450)
   })
@@ -80,7 +73,6 @@ describe('EditorMarkdown resize divider drag direction (OpenProject #804 follow-
     mockRect(divider.element, { left: 600, width: 4 })
     mockRect(preview.element, { left: 604, width: 500 })
 
-    // Dragging left -- away from the preview -- should grow it.
     const updatedPreview = await dragDivider(wrapper, { down: 600, move: 550 })
     expect(previewFlexWidth(updatedPreview)).toBe(550)
   })
@@ -96,7 +88,6 @@ describe('EditorMarkdown resize divider drag direction (OpenProject #804 follow-
     mockRect(divider.element, { left: 500, width: 4 })
     mockRect(mid.element, { left: 504, width: 600 })
 
-    // Dragging left -- toward the preview -- should shrink it.
     const updatedPreview = await dragDivider(wrapper, { down: 500, move: 450 })
     expect(previewFlexWidth(updatedPreview)).toBe(450)
   })
@@ -111,26 +102,17 @@ describe('EditorMarkdown resize divider drag direction (OpenProject #804 follow-
     mockRect(divider.element, { left: 500, width: 4 })
     mockRect(mid.element, { left: 504, width: 600 })
 
-    // Dragging right -- away from the preview -- should grow it.
     const updatedPreview = await dragDivider(wrapper, { down: 500, move: 550 })
     expect(previewFlexWidth(updatedPreview)).toBe(550)
   })
 })
 
 /*
-  OpenProject #809: dragging the divider down past `PREVIEW_HIDE_THRESHOLD_PX` used to leave
-  `state.previewWidth` at the tiny in-drag value for the whole close animation, only restoring the
-  real pre-drag width in `onPreviewAfterLeave` -- after the pane had already finished animating shut,
-  so the fix was invisible until the next open. `onDividerPointerUp` now commits the restore
-  synchronously, before the close even begins.
-  happy-dom implements no real CSS transitions (`getComputedStyle` reports no transition-duration),
-  so the leaving element is torn down immediately rather than lingering through a `leave-active`
-  state -- there is no way to assert on the pane's rendered width *during* the close animation here.
-  What IS asserted, without needing a live browser: the DATA the animation would read from is correct
-  by the time the pane starts leaving, proven the same way `onPreviewAfterLeave` used to prove its own
-  restore worked -- reopening afterwards lands back at the pre-drag width, not the near-zero one the
-  drag ended on. Whether the animation itself visually covers the right distance, with no earlier pop,
-  is a live-browser concern outside what this suite can see.
+  Dragging past `PREVIEW_HIDE_THRESHOLD_PX` hides the pane, and `onDividerPointerUp` restores the
+  pre-drag width synchronously, before the close begins, so the animation reads the right distance.
+  happy-dom implements no real CSS transitions, so a leaving element is torn down immediately rather
+  than lingering through `leave-active`: the rendered width *during* the close cannot be asserted
+  here, only that reopening lands back at the pre-drag width and not the near-zero one.
 */
 describe('EditorMarkdown drag-to-hide restores the pre-drag width (OpenProject #809)', () => {
   beforeEach(() => {
@@ -147,26 +129,22 @@ describe('EditorMarkdown drag-to-hide restores the pre-drag width (OpenProject #
     mockRect(divider.element, { left: 600, width: 4 })
     mockRect(preview.element, { left: 604, width: 500 })
 
-    // First drag: settle the pane at a known, deliberately-large width and release ABOVE the hide
-    // threshold, so it persists as `state.previewWidth` -- this is the "actual set width" the
-    // second drag below must be judged against.
+    // First drag: settle at a known width, released ABOVE the hide threshold so it persists as
+    // `state.previewWidth` -- the width the second drag must be judged against.
     preview = await dragDivider(wrapper, { down: 600, move: 650 })
     await divider.trigger('pointerup', { clientX: 650, pointerId: 1 })
     expect(previewFlexWidth(wrapper.find('.editor-markdown-preview'))).toBe(450)
 
-    // Second drag: well past `PREVIEW_HIDE_THRESHOLD_PX` (100), all the way down to a sliver --
-    // the drag-to-hide path.
+    // Second drag: well past `PREVIEW_HIDE_THRESHOLD_PX`, down to a sliver -- the drag-to-hide path.
     divider = wrapper.find('.editor-markdown-divider')
     preview = await dragDivider(wrapper, { down: 600, move: 1000 })
     expect(previewFlexWidth(preview)).toBeLessThan(100)
     await divider.trigger('pointerup', { clientX: 1000, pointerId: 1 })
 
-    // The pane is gone -- happy-dom's leave completes immediately with no real transition to wait on.
     expect(wrapper.find('.editor-markdown-preview').exists()).toBe(false)
 
-    // Reopen via the toolbar's own show button. Pre-fix, this came back at whatever the drag left
-    // `state.previewWidth` on (~near zero); it must instead come back at the 450px the pane actually
-    // had set before this second drag started.
+    // Reopen via the toolbar's show button: it must come back at the 450px the pane had set before
+    // the second drag, not the near-zero width that drag ended on.
     const showButton = wrapper
       .findAllComponents(WBtn)
       .find((candidate) => candidate.props('icon') === 'tabler:layout-columns')

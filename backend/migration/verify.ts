@@ -1,33 +1,20 @@
 /**
- * Post-import verification — Feature 421 task 748.
+ * Post-import verification. Two independent checks, both meant to run after a real (non-dry-run)
+ * migration:
  *
- * Two independent checks, both meant to run after a real (non-dry-run) migration:
+ * 1. **Record-count reconciliation**: source vs. 3.0 destination per entity, plus — where a dry-run
+ *    report was captured with `--report-file` — the live totals against what that report predicted
+ *    per phase. The latter is the stronger signal: a bare source-vs-destination mismatch can simply
+ *    mean the source changed between the two runs.
+ * 2. **Content-integrity spot-check**: hash-compare a sample of pages' raw source bodies against the
+ *    destination's stored `pages.content`, catching the truncation or encoding corruption a row
+ *    count cannot see. `content`, never `render`: `createPage()` recomputes the render via
+ *    `CARDINAL.models.rendering.postProcess()`, so a render-vs-render hash would mismatch on
+ *    essentially every real page; `content` is the one field it stores unmodified.
  *
- * 1. **Record-count reconciliation**: for each entity type the harness knows about, count what the
- *    source reports and what actually landed at the 3.0 destination, and flag any mismatch. Also,
- *    where a dry-run report (`--report-file`, task 744) was captured before the run, cross-check the
- *    live totals against what that report predicted per phase — a genuine surprise (the live count
- *    disagreeing with what the dry run itself said it would do) is a stronger signal than a bare
- *    source-vs-destination mismatch, which could just mean the source changed between runs.
- * 2. **Content-integrity spot-check**: for a sample of pages (random or explicit), hash-compare the
- *    source's raw body against the destination's stored `pages.content`, to catch truncation/encoding
- *    corruption that a row-count match alone would never reveal (a page that imported "successfully"
- *    but with its body cut off half way through still counts as 1 row either side). Deliberately
- *    `content`, not `render`: `createPage()` never stores the render it was given verbatim — it
- *    recomputes one via `CARDINAL.models.rendering.postProcess()` (sanitize, cheerio transforms,
- *    re-serialize), so a render-vs-render hash comparison would report a mismatch for essentially
- *    every real page. `content` is the one field `createPage()` stores unmodified.
- *
- * Every entity generator this reads through `SourceConnector` is real against a `PostgresSourceConnector`
- * source, now that Features 414/416/418/420 have landed — the whole-branch reset this file is part of
- * built genuine write paths for every phase against that connector kind. `ExportBundleSourceConnector`
- * is the one that still stubs most of them out with `NotYetImplementedError` (`users`/`groups`/
- * `settings`/`comments`/`assets` — export-bundle write support is explicitly out of this plan's scope,
- * see `tasks/migrate.ts`'s own module doc), which is exactly the case this module was built to handle
- * honestly rather than assume away: a `NotYetImplementedError` is caught and reported as
- * `'not_implemented'` for that entity rather than crashing the whole verification run, so a verify run
- * against a bundle source still produces a real report for whatever it *can* read (`pages`/`pageHistory`/
- * `tags`/`navigation`) instead of failing outright.
+ * `ExportBundleSourceConnector` stubs most entity generators out with `NotYetImplementedError`. That
+ * is caught and reported as `'not_implemented'` for the entity rather than aborting, so a verify run
+ * against a bundle source still reports on whatever it can read.
  */
 
 import { createHash } from 'node:crypto'
@@ -41,13 +28,7 @@ import type { MigrationPhaseId } from './context.ts'
 import type { SourceConnector, SourceRecord } from './connector.ts'
 import type { PhaseReport } from './report.ts'
 
-// ----------------------------------------
-// Entities
-// ----------------------------------------
-
-/** Every entity type reconciled by row count. `navigation` is included even though no phase gives it
- * a 1:1 countable entity of its own (see `ENTITY_OWNING_PHASE` below): the source and destination
- * counts are still worth comparing directly. */
+/** `navigation` is here despite owning no phase entity: the two row counts are still comparable. */
 export const VERIFY_ENTITIES = [
   'users',
   'groups',
@@ -59,28 +40,15 @@ export const VERIFY_ENTITIES = [
 ] as const
 export type VerifyEntity = (typeof VERIFY_ENTITIES)[number]
 
-/** Which current `MigrationPhase` (see `phases/index.ts`) reads a given entity as its own dedicated,
- * 1:1-countable `PhaseEntity` — this is what lets a live count be cross-checked against a captured
- * dry-run `PhaseReport.found`. `undefined` means no phase owns it *this way*, either because nothing
- * reads it yet or because a phase reads it but cannot report a matching per-record count for it (see
- * below).
+/** Which phase reads an entity as a dedicated, 1:1-countable `PhaseEntity`, which is what makes a
+ * live count comparable to a captured dry-run `PhaseReport.found`. `undefined` means no phase owns it
+ * *that way*, and mapping such an entity to a phase anyway would compare two different quantities:
  *
- * `pageHistory`/`tags` are `undefined`, not `'content'`: `phases/content.ts` gives neither one its
- * own entity — both are merged into `StagedPage`
- * (`content-staging.ts`'s merge-join for history, its denormalized-tags-on-page-rows design for tags),
- * so there is no separate `readEntity()` count for either any more (`content.ts`'s own doc comment:
- * "there is no separate raw connector.pageHistory()/connector.tags() read left at the phase level to
- * report a count for"). Summing `sourceCounts.pageHistory`/`sourceCounts.tags` into `content`'s
- * `liveFound` would compare a raw per-row connector count against a `PhaseReport.found` that never
- * counted either of them at all — not an off-by-one, a completely different quantity.
- *
- * `navigation` is `undefined` for a related but distinct reason: `phases/content.ts`'s `navigation`
- * entity *does* read every `connector.navigation()` row (via `extractNavigation`), but that entity is
- * a one-record sentinel (`{ key: 'site-navigation' }`) whose `classify` drains the real navigation rows internally
- * and always reports exactly 1 to `readEntity()`'s count, regardless of how many navigation rows the
- * source actually has (`report.ts`'s own doc comment on this). There is therefore still no 1:1
- * `VerifyEntity` count to compare against `PhaseReport.found` for it — its constant contribution is
- * handled separately, via `PHASE_FOUND_SENTINEL_OFFSET` below, not by owning `navigation` here. */
+ * - `pageHistory`/`tags`: `phases/content.ts` merges both into `StagedPage`, so no separate
+ *   `readEntity()` count for either exists to be part of `content`'s `found`.
+ * - `navigation`: the phase's `navigation` entity is a one-record sentinel whose `classify` drains
+ *   the real rows internally and always reports exactly 1. That constant is handled by
+ *   `PHASE_FOUND_SENTINEL_OFFSET` instead. */
 export const ENTITY_OWNING_PHASE: Record<VerifyEntity, MigrationPhaseId | undefined> = {
   users: 'users',
   groups: 'users',
@@ -91,38 +59,20 @@ export const ENTITY_OWNING_PHASE: Record<VerifyEntity, MigrationPhaseId | undefi
   navigation: undefined
 }
 
-/** Constant amount to add to a phase's summed `ENTITY_OWNING_PHASE`-owned live counts before comparing
- * against its captured dry-run `PhaseReport.found` — for a phase-level sentinel record that
- * `readEntity()` counts but that has no corresponding `VerifyEntity` of its own (see
- * `ENTITY_OWNING_PHASE`'s doc comment on `navigation`). `content` is the one case today: its
- * `site-navigation` sentinel always contributes exactly 1 to `found`. Without this offset,
- * `compareAgainstDryRunReports` reports a spurious mismatch on every real content-phase run, purely
- * from this constant, not a real data problem. */
+/** Added to a phase's summed live counts before comparing against `PhaseReport.found`, for a sentinel
+ * record `readEntity()` counts but that has no `VerifyEntity`. Without it every content-phase run
+ * reports a spurious mismatch off this constant alone. */
 const PHASE_FOUND_SENTINEL_OFFSET: Partial<Record<MigrationPhaseId, number>> = {
   content: 1
 }
 
 /**
- * Two more entities land in a phase's real `PhaseReport.found`, that — unlike `navigation`'s constant
- * sentinel above — genuinely vary per run and so cannot be handled as a fixed offset:
- *
- * - `userGroups`: the `users` phase's third entity (`phases/users.ts`, `dependsOn: ['groups', 'users']`
- *   implicitly via strict entity-drain order), one record per source membership — derived the exact same
- *   way that entity's own `source` does, `deriveUserGroupsFromEmbeddedGroups(source.users())` re-
- *   expanding each user row's embedded `groups: [{id, name}]` array. There is no `SourceConnector
- *   .userGroups()` method to read this off directly (see that function's own doc comment) and no
- *   `VerifyEntity` for it either — `ENTITY_OWNING_PHASE` only accounts for `users`+`groups`, so a real
- *   `users`-phase `PhaseReport.found` (`groups + users + userGroups`) was undercounted by exactly the
- *   membership count on every source where any user belongs to any group, which is effectively always.
- * - `comments`: the `assets` phase's second entity, read directly off `SourceConnector.comments()` — a
- *   real generator, but never added to `VERIFY_ENTITIES` (see
- *   that array's own doc comment: record-count reconciliation and this phase-found comparison are
- *   different concerns). A real `assets`-phase `PhaseReport.found` (`assets + comments`) was
- *   undercounted by the comment count on every source with at least one comment.
- *
- * `countPhaseOnlySourceCounts()` computes both once per verify run, the same way `countSourceEntities()`
- * computes `SourceEntityCounts` once — `compareAgainstDryRunReports()` takes the result as a second
- * input rather than re-deriving it, so it stays a pure function of already-computed counts.
+ * Two more entities count into a phase's `PhaseReport.found` that — unlike `navigation`'s sentinel —
+ * vary per run and so cannot be a fixed offset, and that have no `VerifyEntity` of their own:
+ * `userGroups` (the `users` phase's third entity, one record per source membership, with no
+ * `SourceConnector.userGroups()` to read it off directly) and `comments` (the `assets` phase's
+ * second entity). Omitting either undercounts that phase's `liveFound` on essentially every real
+ * source, reported as a spurious mismatch.
  */
 export interface PhaseOnlySourceCounts {
   userGroups: number | 'not_implemented'
@@ -134,8 +84,6 @@ const PHASE_ONLY_SOURCE_OWNING_PHASE: Record<keyof PhaseOnlySourceCounts, Migrat
   comments: 'assets'
 }
 
-/** A source-side count, or `'not_implemented'` when that entity's generator is still a
- * `NotYetImplementedError` stub. */
 export type SourceEntityCounts = Record<VerifyEntity, number | 'not_implemented'>
 
 async function countAsyncIterable(iterable: AsyncIterable<unknown>): Promise<number> {
@@ -146,10 +94,8 @@ async function countAsyncIterable(iterable: AsyncIterable<unknown>): Promise<num
   return count
 }
 
-/** Counts one source entity's records, resolving to `'not_implemented'` rather than aborting the whole
- * verify run when the generator is still a stub. A `NotYetImplementedError` is caught whether thrown
- * synchronously as the generator method is called or from inside the async iteration itself — both are
- * real shapes across the two connectors. */
+/** `body` is a thunk so a `NotYetImplementedError` is caught whether the generator method throws it
+ * synchronously on the call or from inside the iteration — both shapes occur across the connectors. */
 async function countOrNotImplemented(
   body: () => AsyncIterable<unknown>
 ): Promise<number | 'not_implemented'> {
@@ -164,11 +110,9 @@ async function countOrNotImplemented(
 }
 
 /**
- * Counts the two phase-report entities `VERIFY_ENTITIES`/`countSourceEntities()` do not cover — see
- * `PhaseOnlySourceCounts`'s own doc comment for why each needs its own derivation. `userGroups` reads
- * `source.users()` a second time (once here, once inside `countSourceEntities()`'s own `users` count) —
- * the same accepted "two full reads of `users`" tradeoff `phases/users.ts`'s own `userGroups` entity
- * makes, since this table is never in the same volume class as `pages`/`assetData`.
+ * `userGroups` reads `source.users()` a second time (`countSourceEntities()` already read it once) —
+ * the same accepted tradeoff `phases/users.ts` makes, since `users` is never in the volume class of
+ * `pages`/`assetData`.
  */
 export async function countPhaseOnlySourceCounts(
   source: SourceConnector
@@ -182,10 +126,8 @@ export async function countPhaseOnlySourceCounts(
 }
 
 /**
- * Counts every record `source` reports for each of `VERIFY_ENTITIES`, exhausting each generator in
- * turn. A generator that is still a stub resolves to `'not_implemented'` for that entity rather than
- * aborting the rest — mirrors `phases/define-phase.ts`'s `readEntity`, which this deliberately does not
- * import: that helper also drives dry-run classification this module has no need for.
+ * Mirrors `phases/define-phase.ts`'s `readEntity` rather than importing it: that helper also drives
+ * dry-run classification, which verification has no use for.
  */
 export async function countSourceEntities(source: SourceConnector): Promise<SourceEntityCounts> {
   const result = {} as SourceEntityCounts
@@ -195,16 +137,10 @@ export async function countSourceEntities(source: SourceConnector): Promise<Sour
   return result
 }
 
-// ----------------------------------------
-// Destination counts
-// ----------------------------------------
-
 export type DestinationEntityCounts = Record<VerifyEntity, number>
 
-/** Counts each entity type at the 3.0 destination, scoped to one site — `users`/`groups` are 3.0
- * global tables (no `siteId` column at all, see `db/schema.ts`), so `siteId` is accepted for every
- * entity for a uniform call shape but is only actually applied as a filter where the table has the
- * column. */
+/** Every method takes `siteId` for a uniform call shape, but `users`/`groups` are global 3.0 tables
+ * with no `siteId` column, so it is only applied as a filter where the table has one. */
 export interface DestinationCounter {
   users(siteId: string): Promise<number>
   groups(siteId: string): Promise<number>
@@ -212,20 +148,15 @@ export interface DestinationCounter {
   pageHistory(siteId: string): Promise<number>
   tags(siteId: string): Promise<number>
   assets(siteId: string): Promise<number>
-  /** Sum of `navigation.items.length` across every navigation row for the site — "entries" per the
-   * task description, not "menus". Top-level items only: a nested `NavigationItem.children` entry is
-   * not flattened in, matching how the source connector's own doc describes `navigation()` as one
-   * entry per row/expanded key, not a recursive walk. */
+  /** Counts entries, not menus: top-level `navigation.items` summed across the site's rows, with
+   * nested `children` deliberately not flattened in, matching what `SourceConnector.navigation()`
+   * yields. */
   navigation(siteId: string): Promise<number>
 }
 
-/** Builds the real, `WikiDb`-backed `DestinationCounter`. A test builds its own fake implementing this
- * same interface instead of standing up a database — same pattern `phases.test.ts`'s fake
- * `SourceConnector` already uses in this codebase. */
 export function createDestinationCounter(db: WikiDb): DestinationCounter {
   return {
     async users() {
-      // Global table, no siteId column — see the interface doc above.
       return db.$count(users)
     },
     async groups() {
@@ -237,10 +168,8 @@ export function createDestinationCounter(db: WikiDb): DestinationCounter {
     async pageHistory(siteId) {
       return db.$count(pageHistory, eq(pageHistory.siteId, siteId))
     },
-    // -> The `tags` table (`db/schema.ts`) is a dead leftover nothing in `backend/` ever writes to
-    //    (see `models/tags.ts`'s own doc comment) — the real tag list lives in `pages.tags`, so the
-    //    destination count is derived the same way `models/tags.ts#getTags` derives it: DISTINCT tags
-    //    unnested across the site's pages.
+    // -> Nothing in `backend/` writes the `tags` table; the real tag list lives in `pages.tags`, so
+    //    this derives the count the way `models/tags.ts#getTags` does.
     async tags(siteId) {
       const result = await db.execute(sql`
         SELECT COUNT(DISTINCT tag)::int AS count
@@ -263,8 +192,6 @@ export function createDestinationCounter(db: WikiDb): DestinationCounter {
   }
 }
 
-/** Runs every `DestinationCounter` method for `siteId` and packages the results the same shape
- * `countSourceEntities` returns, so the two are directly comparable. */
 export async function countDestinationEntities(
   counter: DestinationCounter,
   siteId: string
@@ -276,10 +203,6 @@ export async function countDestinationEntities(
   return result
 }
 
-// ----------------------------------------
-// Reconciliation
-// ----------------------------------------
-
 export type EntityCountStatus = 'match' | 'mismatch' | 'source_not_implemented'
 
 export interface EntityCount {
@@ -289,15 +212,11 @@ export interface EntityCount {
   status: EntityCountStatus
 }
 
-/** Per-entity expected `destinationCount - sourceCount`, accounting for rows the importer
- * deliberately does not carry over one-to-one rather than treating every such case as a mismatch.
- * `groups` is the one nonzero case: 3.0 seeds three system groups — Administrators, Users, Guests
- * (`models/groups.ts:404,422,440`) — against 2.x's two (Administrators id 1, Guests id 2), both of
- * which the importer skips as `isSystem` (`importers/users-groups.ts:798,870`), so a flawless import
- * always lands the destination exactly one group above the source. `users` deliberately stays 0: 3.0's
- * own seeded admin (`isSystem: false`) and Guest (`isSystem: true`, `models/users.ts:1535,1553-1556`)
- * net out against 2.x's two skipped system users on a fresh single-site import, so giving it a nonzero
- * delta (or filtering destination system rows instead) would break that currently-matching case. */
+/** Expected `destinationCount - sourceCount` per entity, so a row the importer deliberately does not
+ * carry one-to-one is not reported as a mismatch. `groups` is the one nonzero case: 3.0 seeds three
+ * system groups against 2.x's two, both of which the importer skips as `isSystem`, so a flawless
+ * import always lands exactly one group above the source. `users` stays 0 because 3.0's seeded admin
+ * and Guest net out against 2.x's two skipped system users on a fresh single-site import. */
 const EXPECTED_COUNT_DELTA: Record<VerifyEntity, number> = {
   users: 0,
   groups: 1,
@@ -308,13 +227,9 @@ const EXPECTED_COUNT_DELTA: Record<VerifyEntity, number> = {
   navigation: 0
 }
 
-/** Per-entity source-vs-destination reconciliation — task 748's first check. A `'not_implemented'`
- * source count is reported as-is rather than as a mismatch: there is nothing to compare against yet,
- * and calling that a failure would make every run against an `ExportBundleSourceConnector` source fail
- * on `users`/`groups`/`assets` alone (still stubs there — see the module doc comment), which is not a
- * real data problem. A match requires `destinationCount - sourceCount` to equal that entity's
- * `EXPECTED_COUNT_DELTA`, not
- * bare equality — see its doc comment for why `groups` alone expects a nonzero difference. */
+/** A `'not_implemented'` source count is reported as-is, not as a mismatch: nothing to compare is not
+ * a data problem, and calling it a failure would fail every run against a bundle source outright. A
+ * match is `destinationCount - sourceCount === EXPECTED_COUNT_DELTA[entity]`, not bare equality. */
 export function compareEntityCounts(
   sourceCounts: SourceEntityCounts,
   destinationCounts: DestinationEntityCounts
@@ -338,37 +253,20 @@ export type PhaseComparisonStatus = 'match' | 'mismatch' | 'live_not_implemented
 
 export interface PhaseReportComparison {
   phase: MigrationPhaseId
-  /** `PhaseReport.found` from the captured dry-run report, summed if more than one report line names
-   * the same phase (should not happen in practice — `runMigration` never runs a phase twice — but
-   * summing rather than taking the last is the safer default for a hand-edited or concatenated file). */
+  /** Summed when more than one report line names the same phase. `runMigration` never runs a phase
+   * twice, but summing beats taking the last for a hand-edited or concatenated report file. */
   reportFound: number
-  /** Sum of the live source counts for every entity this phase owns (`ENTITY_OWNING_PHASE`), plus that
-   * phase's `PHASE_FOUND_SENTINEL_OFFSET` if any, or `null` if any owned entity is still
-   * `'not_implemented'` — a phase's `PhaseReport.found` is one aggregate number across all its
-   * entities (and sentinels), so a genuine per-entity comparison against it is not possible; this is
-   * the closest apples-to-apples total. */
+  /** Live source counts for every entity the phase owns plus its `PHASE_FOUND_SENTINEL_OFFSET`, or
+   * `null` if any owned entity is `'not_implemented'`. The closest apples-to-apples total there is:
+   * `PhaseReport.found` is one aggregate across all of a phase's entities and sentinels. */
   liveFound: number | null
   status: PhaseComparisonStatus
 }
 
 /**
- * Cross-checks each phase's live entity totals against what a previously captured dry-run report
- * (`--report-file`, task 744) said it found — task 748's "surfacing any discrepancy against the
- * dry-run report captured before the run". Deliberately phase-level, not entity-level: `PhaseReport`
- * only carries one `found` total per phase (e.g. the `content` phase's `found` is its `pages` entity's
- * count plus its `site-navigation` sentinel's constant 1 — see `ENTITY_OWNING_PHASE`'s and
- * `PHASE_FOUND_SENTINEL_OFFSET`'s doc comments — not `pages` + `pageHistory` + `tags`, which is what
- * this compared before content staging folded both of those into `pages`), so that is
- * the finest grain this comparison can honestly make.
- *
- * `phaseOnlyCounts` folds in `userGroups`/`comments` (whole-branch review Critical #2 fix) — real,
- * run-varying counts `ENTITY_OWNING_PHASE`/`VERIFY_ENTITIES` cannot express, unlike
- * `PHASE_FOUND_SENTINEL_OFFSET`'s fixed constant. Without this, the `users` phase's `liveFound` (just
- * `groups + users`) undercounted a real `PhaseReport.found` (`groups + users + userGroups`) by exactly
- * the membership count on essentially every real source, and the `assets` phase's `liveFound` (just
- * `assets`) undercounted its own real `found` (`assets + comments`) by the comment count on any source
- * with at least one — both reported as a spurious `'mismatch'`, not a real data problem. See
- * `PhaseOnlySourceCounts`'s own doc comment for the full trace.
+ * Phase-level, not entity-level: `PhaseReport` carries one `found` total per phase, so that is the
+ * finest grain this comparison can honestly make. A pure function of already-computed counts —
+ * `phaseOnlyCounts` is passed in rather than re-derived here.
  */
 export function compareAgainstDryRunReports(
   sourceCounts: SourceEntityCounts,
@@ -416,14 +314,8 @@ export function compareAgainstDryRunReports(
   })
 }
 
-// ----------------------------------------
-// Content-integrity spot-check
-// ----------------------------------------
-
-/** SHA-256 of the given text, treating `null`/`undefined` as empty — a page with no content yet and a
- * page whose content is genuinely `''` hash identically, which is the right call here: this check is
- * about whether two present bodies match, not about presence itself (a missing page is its own
- * `'source_missing'`/`'destination_missing'` status below). */
+/** `null`/`undefined` hashes as `''`: this check is about whether two present bodies match, and a
+ * missing page is already its own `'source_missing'`/`'destination_missing'` status. */
 export function hashContent(content: string | null | undefined): string {
   return createHash('sha256')
     .update(content ?? '')
@@ -431,10 +323,9 @@ export function hashContent(content: string | null | undefined): string {
 }
 
 /**
- * Reservoir sampling (Algorithm R): picks exactly `min(size, itemCount)` items uniformly at random
- * from a stream of unknown length in one pass, without buffering the whole stream — the content
- * spot-check's default mode reads a live `AsyncIterable<SourceRecord>` this way rather than collecting
- * every page just to throw most of them away.
+ * Reservoir sampling (Algorithm R): exactly `min(size, itemCount)` items, uniformly at random, from
+ * a stream of unknown length in one pass — so the spot-check never buffers every page just to throw
+ * most of them away.
  */
 export class ReservoirSampler<T> {
   private readonly size: number
@@ -472,46 +363,29 @@ export type SpotCheckStatus =
   | 'source_not_implemented'
 
 export interface SpotCheckEntry {
-  /** The 2.x source path, unnormalized — what a caller passed via `--sample-paths` or what the
-   * source reported, not the folded 3.0 tree path actually used to look up the destination row (see
-   * `runContentSpotCheck`). */
+  /** The raw 2.x source path, not the folded 3.0 tree path the destination row was looked up by. */
   path: string
   status: SpotCheckStatus
-  /** Both hashes are of `pages.content` (the raw, unrendered body `createPage` stores verbatim) on
-   * their respective side — never `pages.render`, which 3.0's `rendering.postProcess` derives
-   * through sanitization/cheerio/icon-handling and so is never byte-identical to the 2.x source's own
-   * `render`, even for a page that imported perfectly. */
   sourceHash?: string
   destinationHash?: string
 }
 
 export interface SpotCheckOptions {
   siteId: string
-  /** Explicit paths to check instead of a random sample — `--sample-paths`. Takes priority over
-   * `sampleSize` when given, per the task description ("or a specific list via --sample-paths"). */
+  /** Takes priority over `sampleSize` when given. */
   paths?: string[]
-  /** Random sample size when `paths` is not given. Defaults to 20 per the task description. */
   sampleSize?: number
-  /** Injectable RNG for `ReservoirSampler`, defaulting to `Math.random` — a test passes a seeded
-   * generator for a deterministic sample instead of asserting on `Math.random`'s real output. */
+  /** Injectable so a test gets a deterministic sample instead of asserting on `Math.random`. */
   rng?: () => number
 }
 
-/** Looks up one destination page's stored body by the natural key an importer would key on (`siteId`,
- * `locale`, `path` — the same key `phases/content.ts`'s `existingEntry` checks against
- * `CARDINAL.models.tree.getEntryAt()`; `path` is the already-normalized 3.0 tree path, not the raw 2.x one
- * — see `runContentSpotCheck`). Returns `undefined` when no such page exists at the destination. */
+/** `path` must be the already-normalized 3.0 tree path, not the raw 2.x one. */
 export type DestinationPageLookup = (
   siteId: string,
   locale: string,
   path: string
 ) => Promise<{ content: string | null } | undefined>
 
-/** Builds the real, `WikiDb`-backed `DestinationPageLookup`. Reads `pages.content`, not
- * `pages.render` — `createPage` (`models/pages.ts`) stores `content` verbatim from the import input,
- * while `render` is derived by `rendering.postProcess` (sanitize, cheerio, `stripEditorArtifacts`,
- * icon handling, `anchorHeadings`, re-serialize) and so is never a faithful copy of anything on the
- * 2.x side. */
 export function createDestinationPageLookup(db: WikiDb): DestinationPageLookup {
   return async (siteId, locale, path) => {
     const [row] = await db
@@ -527,10 +401,8 @@ function pagePath(record: SourceRecord): string | undefined {
   return typeof record.path === 'string' ? record.path : undefined
 }
 
-/** Normalizes a raw 2.x source path into the 3.0 tree path an import would have actually placed it
- * at — the same `normalizeMigratedPath` fold (lowercase, `_` → `-`) `page-import.ts` applies to
- * every imported page. Returns `undefined` when the path doesn't normalize to anything valid (in
- * which case the page was never importable in the first place, so there is nothing to look up). */
+/** `undefined` when the path does not normalize to anything valid — such a page was never importable
+ * in the first place, so there is nothing to look up. */
 function destinationLookupPath(rawPath: string): string | undefined {
   const normalized = normalizeMigratedPath(rawPath)
   return 'reason' in normalized ? undefined : normalized.path
@@ -545,24 +417,12 @@ function pageContent(record: SourceRecord): string | null {
 }
 
 /**
- * Runs the content-integrity spot-check: for each sampled source page, hash-compares its raw body
- * (2.x `pages.content`, which 3.0's `createPage` stores verbatim into `pages.content` — see
- * `SpotCheckEntry`'s doc for why this is `content` and not `render`) against the destination page's
- * own stored `content`, to catch truncation or encoding corruption a plain row-count match cannot
- * reveal. The destination lookup uses the path *after* running it through the same
- * `normalizeMigratedPath` fold every import applies (`path-normalization.ts`) — the raw 2.x `path`
- * looked up unnormalized would miss any page whose path had an uppercase letter or an underscore,
- * since those are exactly what the fold rewrites before the page is ever written to the 3.0 tree.
+ * The destination lookup applies the same `normalizeMigratedPath` fold every import does: looked up
+ * raw, any 2.x path carrying an uppercase letter or an underscore would miss, since those are
+ * exactly what the fold rewrites before the page is written to the 3.0 tree.
  *
- * When `options.paths` is given, this reads every source page once, picks out exactly those paths (a
- * miss is reported as `'source_missing'`), and reports a synthetic path for any explicitly-requested
- * path never found. Otherwise it reservoir-samples `options.sampleSize` (default 20) pages uniformly
- * at random while reading the source exactly once.
- *
- * `source.pages()` being a `NotYetImplementedError` stub — real against both connectors today, but a
- * theoretical concern for any future `SourceConnector` implementation this module has no visibility
- * into — reports as a single `'source_not_implemented'` entry rather than throwing, the same honest,
- * non-crashing pattern the rest of this module and `phases/define-phase.ts` follow.
+ * Either mode reads the source exactly once — `options.paths` picks those paths out of the stream,
+ * otherwise a reservoir sample is built as it goes.
  */
 export async function runContentSpotCheck(
   source: SourceConnector,
@@ -630,10 +490,6 @@ export async function runContentSpotCheck(
   return entries
 }
 
-// ----------------------------------------
-// Pass/fail summary
-// ----------------------------------------
-
 export type VerifyOutcome = 'pass' | 'incomplete' | 'fail'
 
 export interface VerifySummaryInput {
@@ -672,10 +528,9 @@ function outcomeOf(
 }
 
 /**
- * Renders the pass/fail summary — plain text, meant to be pasted directly into the cutover runbook's
- * verification step (task 751). `'incomplete'` (distinct from `'fail'`) covers every entity/phase/page
- * whose source generator is still a stub: today that is everything, honestly, until Features
- * 414/416/418/420 land — this is not a failure of the migration, it is "nothing to verify yet".
+ * Plain text, meant to be pasted into the cutover runbook's verification step. `'incomplete'` is
+ * distinct from `'fail'`: it covers every entity, phase or page whose source generator is a stub,
+ * which is "nothing to verify yet", not a failed migration.
  */
 export function formatVerifySummary(input: VerifySummaryInput): VerifySummary {
   const { entityCounts, phaseComparisons, spotCheck } = input

@@ -17,11 +17,8 @@ import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
 /**
- * Regression test: `<blueprint-icon indicator ...>` (a bare attribute, no `:` binding) always sends
- * the empty string as the `indicator` prop, which `BlueprintIcon`'s `indicatorDot` computed treats
- * as truthy same as any other value — so the "requires Sharp" warning showed unconditionally,
- * whether or not Sharp was actually installed. The fix fetches `GET /_api/system/extensions` on
- * mount and only passes a truthy `indicator` when the `sharp` entry reports `!isInstalled`.
+ * A bare `indicator` attribute binds the empty string, which `BlueprintIcon` treats as truthy —
+ * which is why `''`, not `true`, is what "indicator shown" asserts as below.
  */
 async function mountPage(extensionsResponse) {
   stubApi({ 'system/extensions': extensionsResponse })
@@ -35,12 +32,9 @@ async function mountPage(extensionsResponse) {
 }
 
 /**
- * Regression coverage for Task 588: `defaultConfig()` used to seed a `defaults.timezone` /
- * `dateFormat` / `timeFormat` sub-object that rendered no control in the template, was dropped by
- * `save()` before it ever reached the API, and had no backend counterpart (per-user timezone/date/time
- * preferences live in `ProfileInfo.vue` instead). Removing that dead scaffolding must not change what
- * `save()` actually sends — this mounts the real page, loads a fixture site through it, and asserts
- * the `PUT /_api/sites/:id` body still carries every field the admin UI is responsible for, unchanged.
+ * Every field this page is responsible for. `defaults.timezone`/`dateFormat`/`timeFormat` are
+ * absent on purpose: those are per-user preferences owned by `ProfileInfo.vue`, with no site-level
+ * control or backend counterpart.
  */
 const FIXTURE_SITE = {
   id: 'site-1',
@@ -72,9 +66,9 @@ const FIXTURE_SITE = {
 }
 
 async function mountLoaded() {
-  // -> `manage:sites` satisfies `useSiteAdminAccess('site:general')`'s GLOBAL_FALLBACKS check on its
-  //    own, so it skips its site-scoped `fetchSitePermissions` network call entirely -- otherwise
-  //    that call, not `load()`'s, would consume the single `mockReturnValueOnce` below.
+  // -> `manage:sites` satisfies `useSiteAdminAccess('site:general')`'s GLOBAL_FALLBACKS check on
+  //    its own, skipping the site-scoped `fetchSitePermissions` request that would otherwise
+  //    consume the single `mockReturnValueOnce` below instead of `load()`'s.
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_SITE) })
 
@@ -132,15 +126,10 @@ describe('AdminGeneral — Sharp availability indicator', () => {
 })
 
 /**
- * Task 749: the preview toolbar (~lines 331-347) and the favicon preview row (~lines 396-403) render
- * their `<img>` from `adminStore.currentSiteId` directly but their title text from
- * `state.config.title` / `state.config.logoText` -- form state that only refreshes once `load()`'s
- * `GET sites/:id` response comes back. Switching sites updates the store synchronously, so for the
- * span between that and `load()` resolving, the preview showed the NEW site's logo/favicon image
- * next to the OLD site's title -- a genuine mismatched-preview bug, not just a fleeting repaint,
- * because `loading.show()`'s overlay only appears after a 500ms delay and most responses are faster
- * than that. The fix keys the image off `state.config.id` instead, so image and text are always
- * swapped in the same atomic `state.config = ...` assignment.
+ * The preview's image and its title text must come from the same source: `adminStore.currentSiteId`
+ * updates synchronously on a site switch while `state.config` only catches up when `load()`
+ * resolves, so keying the image off the store would paint the new site's logo beside the old site's
+ * title. The 500ms delay before `loading.show()`'s overlay appears leaves that visible.
  */
 describe('AdminGeneral — preview toolbar across a site switch', () => {
   async function mountWithTwoSites() {
@@ -195,12 +184,11 @@ describe('AdminGeneral — preview toolbar across a site switch', () => {
     const logoImgBefore = wrapper.find('.bg-header img')
     expect(logoImgBefore.attributes('src')).toContain('site-a')
 
-    // Switch sites -- `sites/site-b?strict=true` deliberately left unresolved above.
+    // `sites/site-b?strict=true` is left unresolved above, pinning the switch mid-flight.
     adminStore.currentSiteId = 'site-b'
     await wrapper.vm.$nextTick()
 
-    // Still mid-flight: the preview must show ONE consistent site, not site B's image glued to
-    // site A's title.
+    // Either site is acceptable here; a mix of the two is not.
     const logoImgDuring = wrapper.find('.bg-header img')
     const titleDuring = wrapper.text()
     if (logoImgDuring.attributes('src').includes('site-b')) {
@@ -209,7 +197,6 @@ describe('AdminGeneral — preview toolbar across a site switch', () => {
       expect(logoImgDuring.attributes('src')).toContain('site-a')
     }
 
-    // Resolve site B's load -- now both image and title must agree on site B.
     pending.resolveSiteB({
       id: 'site-b',
       title: 'Site B',
@@ -270,11 +257,7 @@ describe('AdminGeneral save() field round-trip', () => {
     })
   })
 
-  /**
-   * Task #3274: `security.embedAllowedOrigins` round-trips through the same comma-separated-string
-   * UX `allowedUrlSchemes`/`pageExtensions` already use, and is lowercased/deduped the same way --
-   * matching the backend schema (`api/schemas/site.ts`), which only accepts a lowercase origin.
-   */
+  // -> `api/schemas/site.ts` only accepts lowercase origins, so the page must normalise before PUT.
   it('parses the embed-allowed-origins field as a trimmed, lowercased, deduped array', async () => {
     const wrapper = await mountLoaded()
 
@@ -300,25 +283,17 @@ describe('AdminGeneral save() field round-trip', () => {
 })
 
 /**
- * Regression coverage for the save handler's post-save reload decision.
- *
- * Before this fix, saving ANY change to the currently-administered site unconditionally called
- * `siteStore.loadSite(window.location.hostname)` -- including a hostname rename, at which point
- * `window.location.hostname` is exactly the OLD hostname `updateSite()`'s `reloadCache()` already
- * dropped from `WIKI.sitesMappings`. That call would then silently resolve against whatever site
- * (if any) now claims the old hostname, or throw -- either way `siteStore` ends up mismatched with
- * no warning. The fix: detect the rename and skip that stale reload, notifying the admin instead.
+ * After a hostname rename, `window.location.hostname` is the OLD hostname, which the server has
+ * already dropped from its site mappings — so reloading `siteStore` from it resolves against some
+ * other site or throws. The save handler must skip that reload and warn instead.
  */
 
 let currentWrapper = null
 afterEach(() => {
   currentWrapper?.unmount()
   currentWrapper = null
-  // -> `notify()`'s queue is a module-level singleton (by design -- there is one toast stack for
-  //    the whole app), so it survives across tests in this file unless cleared explicitly. Left in
-  //    place, a later test's IDENTICAL "saved successfully" toast dedupes onto an earlier test's
-  //    entry (bumping its `count` in place) rather than appending a new one, which reorders what
-  //    `.at(-1)` sees.
+  // -> One toast stack for the whole app, so the queue survives between tests: an identical toast
+  //    would dedupe onto the previous test's entry instead of appending, breaking `.at(-1)`.
   notifyQueue.splice(0)
 })
 
@@ -330,9 +305,7 @@ async function mountRenamePage() {
   adminStore.currentSiteId = 'site-1'
   siteStore.id = 'site-1'
   const loadSiteSpy = vi.spyOn(siteStore, 'loadSite').mockResolvedValue()
-  // -> `manage:sites` satisfies `useSiteAdminAccess('site:general')`'s GLOBAL_FALLBACKS check on its
-  //    own, same as `mountLoaded()` above, so it skips the site-scoped `fetchSitePermissions` network
-  //    call that would otherwise consume the `mockReturnValueOnce`s each test sets up below.
+  // -> Skips `fetchSitePermissions`, which would otherwise eat each test's `mockReturnValueOnce`.
   const userStore = useUserStore()
   userStore.permissions = ['manage:sites']
 
@@ -422,17 +395,14 @@ describe('AdminGeneral save() hostname-rename handling', () => {
     await setHostnameAndSave(wrapper, 'same.example.com')
 
     expect(loadSiteSpy).toHaveBeenCalledWith(window.location.hostname)
-    // -> The success toast from the save itself is the LAST thing notified in this branch -- no
-    //    warning toast follows it, unlike the rename case above.
+    // -> No warning toast follows the save's own, unlike the rename case above.
     expect(notifyQueue.at(-1)?.type).toBe('positive')
   })
 })
 
 /**
- * OpenProject #947: `load()` ran `await API_CLIENT.get(...)` bare between `loading.show()`/
- * `loading.hide()`, unlike every sibling admin page's own `load()` -- a network blip, 403, or
- * restarting backend left the full-screen blocking overlay stuck up forever with the error only in
- * the console.
+ * An unguarded `await` between `loading.show()` and `loading.hide()` leaves the full-screen
+ * blocking overlay up forever on any rejection, with the error only in the console.
  */
 describe('AdminGeneral load() error handling (OpenProject #947)', () => {
   beforeEach(() => {
@@ -454,10 +424,8 @@ describe('AdminGeneral load() error handling (OpenProject #947)', () => {
       router,
       stores: { admin: { currentSiteId: 'site-1' }, user: { permissions: ['manage:sites'] } }
     })
-    // -> `loading.show()`'s own 500ms delay -- see `composables/loading.js` -- has to actually
-    //    elapse for `isActive` to ever flip `true` at all; advancing past it is what would have
-    //    caught the overlay stuck on `true` forever pre-fix, since a bare, unguarded `await` never
-    //    reaches the matching `loading.hide()` below it.
+    // -> `loading.show()` only flips `isActive` after a 500ms delay, so the timers have to be
+    //    advanced past it or the assertion below passes without the overlay ever having been up.
     await vi.advanceTimersByTimeAsync(600)
 
     expect(loadingIsActive.value).toBe(false)

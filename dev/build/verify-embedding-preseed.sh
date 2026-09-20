@@ -1,26 +1,16 @@
 #!/usr/bin/env bash
 # Builds the production image from `dev/build/Dockerfile` and confirms the local embedding model
-# `backend/scripts/preseed-embedding-model.ts` bakes in at build time (OpenProject #3324) actually
-# loads with ZERO network access from inside a throwaway container -- the concrete claim this feature
-# rests on, proven directly rather than assumed from "the build step ran without erroring."
+# `backend/scripts/preseed-embedding-model.ts` bakes in at build time actually loads with ZERO
+# network access from inside a throwaway container, rather than assuming it from "the build step ran
+# without erroring."
 #
-# Deliberately narrower than `dev/build/verify-sandboxed-puppeteer.sh`: no Postgres, no full app boot,
-# no `/_ready` poll. Loading the embedding pipeline (`helpers/embeddings.ts#getExtractor`'s own
-# construction) needs neither a database nor the HTTP server -- it is pure local ONNX inference once
-# the cache is warm -- so re-running the exact same pre-seed script the Dockerfile already ran, this
-# time with `--network none`, is a direct, sufficient proof: it can only succeed a second time by
-# reading files already on disk.
+# Deliberately narrower than `dev/build/verify-sandboxed-puppeteer.sh`: no Postgres, no full app
+# boot, no `/_ready` poll. Loading the embedding pipeline needs neither -- it is pure local ONNX
+# inference once the cache is warm -- so producing an embedding under `--network none` can only
+# succeed by reading files already on disk.
 #
-# Note on the work package's "capability flag true" acceptance-criterion wording:
 # `CARDINAL.capabilities.semanticSearch` (`backend/core/pgvectorBootstrap.ts`) is pgvector-only and
-# independent of this model, so it is not what this script checks -- it would already read `true` on
-# any instance with a working pgvector extension, pre-seeded or not. What this script proves instead
-# is the thing that actually depends on the pre-seed: the feature-extraction pipeline for
-# `Xenova/all-MiniLM-L6-v2` loads, and produces a real 384-length embedding, with no outbound network
-# access at all.
-#
-# Usage:
-#   ./dev/build/verify-embedding-preseed.sh
+# independent of this model, so it is deliberately not what this checks.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

@@ -6,16 +6,6 @@ import { queue } from '@/composables/notify'
 
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * Task 605 verification pass: `GET /_api/system/info` (`system.ts:77-216`) surfaces `isSchedulerHealthy`
- * and `upgradeCapable`, and neither was rendered anywhere in the app — not on this page, and not (unlike
- * `loginsPastDay`, `activeWorkers`, `instancesTotal`, `webhooksTotal`, `groupsTotal`, `usersTotal`,
- * which turned out to already be covered by `AdminDashboard.vue`'s stat tiles) on any other admin page
- * either. Both are genuine dashboard-worthy signals — a scheduler that stopped renewing its cron lock is
- * an operational problem, and whether an update companion is present belongs right next to the
- * version/upgrade card — so they were added to the "Cardinal.js" card here instead of being left as
- * response-schema dead weight.
- */
 function mountPage() {
   return mountWithApp(AdminSystem, {
     attachTo: document.body,
@@ -99,12 +89,6 @@ describe('AdminSystem diagnostics fields', () => {
   })
 })
 
-/**
- * OpenProject #947: `load()` ran `await API_CLIENT.get('system/info')` bare between `loading.show()`
- * and `loading.hide()`, unlike every sibling admin page's own `load()` -- a network blip, 403, or
- * restarting backend left the full-screen blocking overlay stuck up forever with the error only in
- * the console.
- */
 describe('AdminSystem load() error handling (OpenProject #947)', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -121,10 +105,8 @@ describe('AdminSystem load() error handling (OpenProject #947)', () => {
     })
 
     const wrapper = mountPage()
-    // -> `loading.show()`'s own 500ms delay -- see `composables/loading.js` -- has to actually elapse
-    //    for `isActive` to ever flip `true` at all; advancing past it is what would have caught the
-    //    overlay stuck on `true` forever pre-fix, since a bare, unguarded `await` never reaches the
-    //    matching `loading.hide()` below it.
+    // -> `loading.show()` has a 500ms delay of its own, so `isActive` never flips `true` until it
+    //    elapses: without advancing past it an overlay stuck up forever would still read as `false`.
     await vi.advanceTimersByTimeAsync(600)
 
     expect(loadingIsActive.value).toBe(false)
@@ -134,13 +116,6 @@ describe('AdminSystem load() error handling (OpenProject #947)', () => {
   })
 })
 
-/**
- * WP #2653 (rebrand: user-facing strings): this page carries two of the fork's few remaining
- * hardcoded product names -- the left card's own header, and the first line of the block
- * `copySysInfo()` puts on the clipboard for pasting into a bug report. Both are read by a person, so
- * both are pinned here; the version number beside the second one is what makes it worth asserting as
- * a whole line rather than as a bare substring.
- */
 describe('AdminSystem product name (WP #2653)', () => {
   const originalClipboard = navigator.clipboard
 

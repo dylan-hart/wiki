@@ -75,29 +75,16 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 /**
- * Glossary JSON import (OpenProject #1114, review feedback #1207): replaces the old bare OS file
- * picker (`browser-fs-access`'s `fileOpen()`) with a dialog the admin can actually see and edit
- * before committing to it -- a Monaco JSON editor that is directly editable/pasteable AND accepts a
- * dropped or browsed-for `.json` file, matching `ImportBatchPageDialog.vue`'s dropzone convention and
- * `EditorCode.vue`'s Monaco boot pattern (the `cardinaljs` theme, `monaco.editor.create`).
- *
- * The whole-glossary replace semantics are unchanged from the old flow: submitting still POSTs
- * straight to `sites/:siteId/glossary/import`, which replaces the ENTIRE live glossary immediately
- * (no staging through "Save Glossary") -- the confirm() below exists for exactly that reason.
+ * Submitting replaces the ENTIRE live glossary immediately, with no staging through "Save
+ * Glossary" -- which is what the confirm() below exists for.
  */
 
 /**
- * How long the client gives the import request, in milliseconds -- past `ky`'s own 10s default.
- *
- * There's no file conversion here (this dialog only ever sends already-parsed JSON), but
- * `models/glossary.ts`'s `importTerms` resolves every term's `path` to a page with its own database
- * lookup, one at a time rather than batched -- a large glossary (hundreds or thousands of terms,
- * plausible for a real wiki's export) can add up past ky's default well before the request itself has
- * failed.
+ * Past `ky`'s own 10s default: the server resolves every term's `path` to a page with its own
+ * database lookup, one at a time, so a glossary of thousands of terms outruns that default long
+ * before the request has actually failed.
  */
 const GLOSSARY_IMPORT_TIMEOUT = 60 * 1000
-
-// PROPS
 
 const props = defineProps({
   siteId: {
@@ -106,26 +93,17 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
 
-// DIALOG
-
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
-
-// I18N
 
 const { t } = useI18n()
 
 /*
   Monaco cannot read the design-token layer (`defineTheme()` takes plain hex, not `var()`), so the
-  aesthetic is applied by registering both themes and switching between them -- see
-  `helpers/monacoTheme.js`.
+  aesthetic is applied by registering both themes and switching between them.
 */
 const aesthetic = useAesthetic()
-
-// STATE
 
 const state = reactive({
   isDraggingOver: false,
@@ -135,8 +113,6 @@ const state = reactive({
 let editor
 const monacoRef = ref(null)
 const fileIpt = ref(null)
-
-// METHODS
 
 function pickFile() {
   fileIpt.value?.click()
@@ -210,10 +186,8 @@ function submit() {
       })
       onDialogOK()
     } catch (err) {
-      // -> A client-side `TimeoutError` while the server is still genuinely working through a large
-      //    term list must not read like a real failure -- the whole-glossary replace has already
-      //    started (or finished) server-side, and retrying blind risks nothing new but is confusing.
-      //    Same distinction `AdminExtensions.vue`'s `install()` draws for `INSTALL_TIMEOUT`.
+      // -> A client-side timeout is not a failed import: the whole-glossary replace has already
+      //    started server-side, so this must not read like something to blindly retry.
       if (isTimeoutError(err)) {
         notify({
           type: 'negative',
@@ -233,11 +207,7 @@ function submit() {
   })
 }
 
-// MOUNTED
-
 onMounted(() => {
-  // -> Same theme `EditorCode.vue` defines, redefined here rather than shared: only one editor
-  //    instance is ever mounted at a time, so there is nothing to deduplicate against.
   defineMonacoThemes(monaco, {
     base: 'vs-dark',
     inherit: true,

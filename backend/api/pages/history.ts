@@ -6,13 +6,7 @@ import {
   requireReadablePage
 } from '../../helpers/pageAccess.ts'
 
-/**
- * A page's past: its version history, and the deletions still recoverable from it.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * PAGE HISTORY
-   */
   app.get<{
     Params: { siteId: string; pageId: string }
     Querystring: { limit?: number; cursor?: string }
@@ -69,13 +63,11 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * PAGE HISTORY VERSION
-   */
   app.get<{ Params: { siteId: string; pageId: string; versionId: string } }>(
     '/sites/:siteId/pages/:pageId/history/:versionId',
     {
-      // -> Checked per page below, for the same reason as the history list above
+      // -> No route-level `permissions`: `read:history` is a page permission, checked against this
+      //    page in the handler
       schema: {
         summary: 'Get a single version of a page',
         description:
@@ -126,20 +118,13 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETED PAGES (RECOVERABLE)
-   */
   app.get<{ Params: { siteId: string }; Querystring: { limit?: number; cursor?: string } }>(
     '/sites/:siteId/pages/deleted',
     {
       /*
         No route-level `permissions`: that hook reads the group-wide list, and `read:history` is a
         page permission granted by a rule. Checked per row below instead, against the path, locale,
-        tags and classification each deletion happened at — a caller sees only the deletions they
-        could have read the history of; the rest are left out rather than answered as a whole-list
-        403. `author.email` is never populated on these rows: `read:history` here is granted per row
-        by whatever the caller could read, not `read:users`/`manage:users`, so it must not double as
-        a way to learn another user's address.
+        tags and classification each deletion happened at.
       */
       schema: {
         summary: 'List recoverable deletions',
@@ -176,9 +161,7 @@ async function routes(app: FastifyInstance) {
           cursor: req.query.cursor
         }
       )
-      // -> Built once per request rather than once per row -- `mayOnPage()` rebuilds it internally
-      //    on every call. See `graph.ts`'s graph route and `tree.ts`'s `visibleTreeItems()` for the
-      //    same shape.
+      // -> Built once per request: `mayOnPage()` would rebuild it for every row
       const actor = CARDINAL.models.groups.actorForRequest(req)
       return {
         items: items.filter((row) =>
@@ -195,9 +178,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * RECOVER DELETED PAGE
-   */
   app.post<{
     Params: { siteId: string; versionId: string }
     Body: { path?: string; locale?: string }
@@ -205,12 +185,9 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/pages/deleted/:versionId/recover',
     {
       /*
-        No route-level `permissions`: that hook reads the group-wide list, and `write:pages`/
-        `read:pages`/`read:source` are page permissions granted by a rule. Checked in the handler
-        against TWO refs: the SOURCE path/locale the version was deleted from (must be readable, since
-        `recoverDeletedPage` rebuilds title, content, tags, relations and scripts from it) and the
-        TARGET path/locale — the override when given, otherwise the same source path/locale — which
-        must be writable.
+        No route-level `permissions`: that hook reads the group-wide list, and these are page
+        permissions granted by a rule. The handler checks two refs: the SOURCE the version was
+        deleted from must be readable, and the TARGET (the override, else the source) writable.
       */
       schema: {
         summary: 'Recover a deleted page',
@@ -266,13 +243,9 @@ async function routes(app: FastifyInstance) {
       if (!version) {
         return reply.notFound('No deleted version exists with this id.')
       }
-      // -> OpenProject #2168: a source-side check, ahead of the destination one below. Holding
-      //    `write:pages` on where the page is going back to says nothing about being allowed to read
-      //    what it actually contained -- without this, a caller who was denied `read:pages`/
-      //    `read:source` at the path it was deleted from could still recover it into anywhere they
-      //    hold `write:pages`, reading and republishing source they were never allowed to read.
-      //    Checked against the version's OWN tags/classification, not the target's: what is being
-      //    read here is the deleted content itself, at the path/locale it actually lived at.
+      // -> `write:pages` on the target says nothing about reading what the version contains, and
+      //    recovery republishes its source. Checked against the version's OWN tags/classification:
+      //    that is where the content being read lived.
       const source = {
         path: version.path,
         locale: version.locale,

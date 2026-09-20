@@ -8,25 +8,18 @@
     :aria-label="t('common.header.moreActions')">
     <w-menu ref="menu" class="translucent-menu" anchor="bottom right" self="top right">
       <!--
-        Every row's icon takes its colour as a literal `text-*` class rather than through `WIcon`'s
-        `color` prop, which builds `text-${color}` at runtime: Tailwind generates a utility only for a
-        class name it can find as literal text in the source, so a constructed one resolves to nothing
-        and the icon falls back to the menu's own ink. `color="positive"` happens to work because that
-        string is written literally elsewhere in the app; `color="amber"` and `color="blue-4"` are not,
-        and rendered black. The colours themselves match the buttons these rows stand in for.
+        Row icons take their colour as a literal `text-*` class, not `WIcon`'s `color` prop, which
+        builds `text-${color}` at runtime: Tailwind generates a utility only for a class name it can
+        find as literal text in the source, so a constructed one falls back to the menu's own ink.
       -->
       <w-list padding style="min-width: 250px">
-        <!--
-          Who is signed in. The account button this stands in for led with the same two lines, and
-          nothing else in the phone header says whose session this is.
-        -->
+        <!-- Nothing else in the phone header says whose session this is -->
         <template v-if="userStore.authenticated">
           <w-item>
             <w-item-section avatar>
               <w-avatar v-if="userStore.hasAvatar" size="32px">
                 <img :src="`/_user/current/avatar`" :alt="userStore.name" />
               </w-avatar>
-              <!-- -> A manual upload always wins; the provider-synced picture is only a fallback (Task #3264) -->
               <w-avatar v-else-if="userStore.avatarProviderUrl" size="32px">
                 <img :src="userStore.avatarProviderUrl" :alt="userStore.name" />
               </w-avatar>
@@ -40,13 +33,10 @@
           <w-separator class="my-2" />
         </template>
         <!--
-          A submenu, because New Page is a choice of editor rather than a single action -- the same
-          choice, from the same component, as the header button on a wide screen. It anchors to this row
-          because `WMenu` takes the nearest `.w-item` as its trigger.
-
-          `hide-asset-btn` because this menu has a File Manager row of its own directly below, and
-          `@new-page` closes this menu once the submenu has acted: the editor opens behind it otherwise,
-          with the menu still floating over it.
+          A submenu, because New Page is a choice of editor rather than a single action. It anchors to
+          this row because `WMenu` takes the nearest `.w-item` as its trigger. `hide-asset-btn` because
+          the File Manager row below already offers it; `@new-page` closes this menu once the submenu
+          has acted, or it floats over the editor it just opened.
         -->
         <w-item v-if="userStore.can(`write:pages`)" clickable>
           <w-item-section avatar>
@@ -59,10 +49,9 @@
           <page-new-menu hide-asset-btn @new-page="close" />
         </w-item>
         <!--
-          -> Whoever may put a file somewhere: `write:assets` outright, or `write:pages` for an author
-             whose rules cover the pages but not the assets beside them, since the editor sends them
-             here to insert an image. Every folder and every file is checked again by the endpoints
-             behind the manager, which answer per path, so this decides only whether the door is shown.
+          -> `write:pages` counts too, for an author whose rules cover the pages but not the assets
+             beside them, since the editor sends them here to insert an image. The endpoints behind
+             the manager check every path again, so this decides only whether the door is shown.
         -->
         <w-item v-if="canUseFileManager" clickable @click="openFileManager">
           <w-item-section avatar>
@@ -71,13 +60,9 @@
           <w-item-section>{{ t('fileman.title') }}</w-item-section>
         </w-item>
         <!--
-          OpenProject #2024/#2531: kept in step with the wide-viewport button's own destination and
-          glyph (`HeaderNav.vue`) -- the Inbox overlay's Watching tab, `tabler:inbox` -- rather than
-          the old `/_inbox` redirect into the now-deleted Messages stub. This is the same affordance
-          as that button, just collapsed below 900px, so the two must never draw different glyphs
-          (OpenProject #2619: both said `tabler:bell` after `InboxOverlay` moved to `tabler:inbox`,
-          and both comments claimed the agreement they had lost -- `inboxGlyph.test.js` now asserts
-          the equality against `InboxOverlay.vue` for this row and that button together).
+          The same affordance as `HeaderNav.vue`'s badged button, collapsed below 900px: destination
+          and glyph must stay equal to it and to `InboxOverlay.vue`'s Watching tab, or the header's
+          inbox icon depends on window width. `inboxGlyph.test.js` asserts that equality.
         -->
         <w-item v-if="userStore.authenticated" clickable @click="openInbox">
           <w-item-section avatar>
@@ -91,14 +76,12 @@
           </w-item-section>
           <w-item-section>{{ t('common.header.admin') }}</w-item-section>
         </w-item>
-        <!-- -> Only once there is something above it to divide from the account rows below: a guest whose
-                rules grant nothing but reading has none of the four, and the menu opened on a rule with
-                blank space over it and Login alone underneath -->
+        <!-- -> A guest whose rules grant nothing but reading has none of the rows above, and would
+                otherwise open the menu on blank space over a rule with Login alone underneath -->
         <w-separator v-if="hasActionRows" class="my-2" />
         <!--
-          The account rows, flattened into this list rather than opened as a second submenu: they are two
-          plain actions, and the panel they live in on a wide screen is 300px of card -- wider than this
-          menu is on the screens it exists for.
+          The account rows are flattened into this list rather than opened as a second submenu: two
+          plain actions, and the wide-screen panel they live in is wider than this menu ever is.
         -->
         <template v-if="userStore.authenticated">
           <w-item clickable @click="openProfile">
@@ -114,8 +97,6 @@
             <w-item-section>{{ t('common.header.logout') }}</w-item-section>
           </w-item>
         </template>
-        <!-- -> The header's Login button is one of the ones this menu stands in for, so a guest has to
-                find it in here -->
         <w-item v-else clickable to="/login" @click="close">
           <w-item-section avatar>
             <w-icon name="tabler:login" class="text-primary" />
@@ -137,38 +118,26 @@ import { useUserStore } from '@/stores/user'
 import PageNewMenu from '@/components/PageNewMenu.vue'
 
 /**
- * The phone header's overflow menu: one button standing in for every action the bar shows as its own
- * icon on a wide screen -- New Page, File Manager, Inbox, Administration, and the account.
- *
- * Rendered only below 900px; see `HeaderNav`. The rows repeat the permission tests the buttons they
- * replace make, rather than being handed a list, so the two cannot drift apart.
+ * Rendered only below 900px (`HeaderNav.vue`), standing in for the action buttons the wide bar draws
+ * individually. Each row repeats the permission test of the button it replaces rather than being
+ * handed a list.
  */
-
-// STORES
 
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// REFS
-
 const menu = ref(null)
-
-// COMPUTED
 
 const canUseFileManager = computed(
   () => userStore.can('write:assets') || userStore.can('write:pages')
 )
 
 /**
- * Whether any row is shown above the account group, which is what decides the rule between the two.
- *
- * Restates the test each of those four rows makes rather than a shorter equivalent — `canUseFileManager`
- * already implies the New Page row's permission today, but a row added or a test changed up there would
- * otherwise leave this behind, and the failure is silent.
+ * Restates each row's own test rather than a shorter equivalent — `canUseFileManager` already implies
+ * the New Page row's permission today, but a row added or a test changed up there would otherwise
+ * leave this behind, and the failure is silent.
  */
 const hasActionRows = computed(
   () =>
@@ -178,14 +147,10 @@ const hasActionRows = computed(
     userStore.can('access:admin')
 )
 
-// METHODS
-
 /**
- * Dismiss the menu.
- *
- * Every row calls it, rather than the menu carrying `auto-close`: that closes on ANY click inside,
- * including the New Page row -- which would take the submenu's trigger out of the document in the same
- * tick it was pressed.
+ * Every row calls this rather than the menu carrying `auto-close`: that closes on ANY click inside,
+ * including the New Page row -- taking the submenu's trigger out of the document in the same tick it
+ * was pressed.
  */
 function close() {
   menu.value?.hide()
@@ -193,7 +158,7 @@ function close() {
 
 /*
   Closed before the manager opens: it is a full-screen overlay, and a menu teleported to the body
-  outranks it -- so the menu would be left floating over the panel it had just opened.
+  outranks it, so the menu would float over the panel it had just opened.
 */
 function openFileManager() {
   close()
@@ -217,8 +182,8 @@ function logout() {
 </script>
 
 <style>
-/* -> Where the button gets its colour, so it carries no `color` prop: `WBtn` emits an inline `color`, */
-/*    which would outrank this rule. Matches `.account-avbtn`, the button it stands in for. */
+/* -> Here rather than a `color` prop: `WBtn` emits that as an inline style, which would outrank */
+/*    this rule. Matches `.account-avbtn`, the button it stands in for. */
 .header-actions-btn {
   color: rgba(255, 255, 255, 0.75);
 }

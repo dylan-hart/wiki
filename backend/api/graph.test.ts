@@ -16,8 +16,7 @@ import type { PageActor, PageInput } from '../models/pages.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 function makeRow(overrides: Partial<GraphPageRow> = {}): GraphPageRow {
-  // -> `id` defaults to `path` (not a fixed constant) so a test giving several rows distinct
-  //    `path`s for free also gets them distinct `id`s, without every call site having to say so.
+  // -> `id` defaults to `path`, so rows given distinct paths get distinct ids for free.
   const path = overrides.path ?? 'docs/intro'
   return {
     id: path,
@@ -92,9 +91,6 @@ describe('assembleGraph', () => {
     assert.deepEqual(result.edges, [{ source: 'en:a', target: 'en:b', type: 'link' }])
   })
 
-  // -> OpenProject #1621/#1626: translations share `path` by design, so a node's id must be
-  //    `${locale}:${path}`, not the bare path -- otherwise the `en` and `fr` copies of the same path
-  //    collapse into one node/edge target.
   test('keys nodes by the composite locale:path id, so same-path translations stay distinct', () => {
     const rows = [
       makeRow({ path: 'docs/intro', locale: 'en', title: 'Intro' }),
@@ -104,7 +100,6 @@ describe('assembleGraph', () => {
     const result = assembleGraph(rows, () => true)
 
     assert.deepEqual(result.nodes.map((n) => n.id).sort(), ['en:docs/intro', 'fr:docs/intro'])
-    // -> Both nodes keep the same display `path` -- only `id` disambiguates them.
     assert.deepEqual(
       result.nodes.map((n) => n.path),
       ['docs/intro', 'docs/intro']
@@ -175,11 +170,6 @@ describe('assembleGraph', () => {
     )
   })
 
-  // -> OpenProject #1626: translations share a `path` by design (the locale-translation-linking
-  //    decision), so the composite `${locale}:${path}` id is
-  //    what actually distinguishes an `en` page from its `fr` twin at the same path -- and what a
-  //    link/relation target must resolve against, or an `en` page's link would count as visible
-  //    when only a `fr`-locale page occupies that path.
   test('gives same-path translations distinct ids, and does not link across locales', () => {
     const rows = [
       makeRow({ id: 'page-en', path: 'docs/intro', locale: 'en', links: ['docs/only-in-fr'] }),
@@ -193,20 +183,12 @@ describe('assembleGraph', () => {
       result.nodes.map((n) => n.id).sort(),
       ['en:docs/intro', 'fr:docs/intro', 'fr:docs/only-in-fr'].sort()
     )
-    // -> The `en` and `fr` copies of `docs/intro` are distinct nodes, not one collapsed onto the
-    //    other -- both keep the same display `path`.
     assert.equal(new Set(result.nodes.map((n) => n.id)).size, result.nodes.length)
     assert.ok(result.nodes.every((n) => n.path === 'docs/intro' || n.path === 'docs/only-in-fr'))
-    // -> `en:docs/intro` links to `docs/only-in-fr`, which only exists in `fr` -- no edge, because
-    //    the link resolves against the source row's own locale (`en`), not any locale holding the
-    //    path.
+    // -> The `en` page's link resolves within `en`, where `docs/only-in-fr` does not exist.
     assert.deepEqual(result.edges, [])
   })
 
-  // -> OpenProject #1126: a CLASSIFICATION rule must be able to hide a page from the graph, the same
-  //    way it already hides it from direct view, search and the sitemap. `canRead` here stands in
-  //    for `mayOnPage()`, which resolves a CLASSIFICATION DENY against `row.classification` -- so
-  //    this only holds if `classification` actually reaches the predicate on every row.
   test("canRead sees each row's classification, so a CLASSIFICATION-based DENY can hide it", () => {
     const rows = [
       makeRow({ path: 'open', classification: 'level-public' }),
@@ -221,8 +203,6 @@ describe('assembleGraph', () => {
     )
   })
 
-  // -> OpenProject #1217: node.classification is the resolved display name, not the raw id --
-  //    `classificationName` stands in for `CARDINAL.models.classificationLevels.byId(id)?.name`.
   test("resolves each node's classification id through the classificationName accessor", () => {
     const rows = [makeRow({ path: 'a', classification: 'level-restricted' })]
 
@@ -257,8 +237,6 @@ describe('assembleGraph', () => {
 
   const ZERO_TOTAL_CONTRIBUTORS = { editor: 0, mcp: 0, all: 0 }
 
-  // -> OpenProject #1141: node.contributors is the resolved edit-volume counts, not looked up by
-  //    the test itself -- `contributorsFor` stands in for `pageHistory.contributorCountsForGraph()`.
   test("resolves each node's contributor counts through the contributorsFor accessor, keyed by id", () => {
     const rows = [makeRow({ path: 'a', id: 'page-a' }), makeRow({ path: 'b', id: 'page-b' })]
     const pageAContributors = { editor: 3, mcp: 1, all: 4, total: { editor: 5, mcp: 2, all: 7 } }
@@ -302,8 +280,6 @@ describe('assembleGraph', () => {
     last2yr: ZERO_PAGEVIEW_WINDOW
   }
 
-  // -> OpenProject #1140: node.pageviews is the resolved page-visit-volume counts, not looked up by
-  //    the test itself -- `pageviewsFor` stands in for `pageviews.countsForGraph()`.
   test("resolves each node's pageview counts through the pageviewsFor accessor, keyed by id", () => {
     const rows = [makeRow({ path: 'a', id: 'page-a' }), makeRow({ path: 'b', id: 'page-b' })]
     const pageAViews = {
@@ -350,9 +326,6 @@ describe('assembleGraph', () => {
     assert.deepEqual(result.nodes[0]!.pageviews, ZERO_PAGEVIEWS)
   })
 
-  // -> OpenProject #1863: `contributors`/`pageviews` dominate the per-node payload and most readers
-  //    of the default view never look at them, so they're gated behind `includeSizing` (the route's
-  //    `?sizing=` querystring, `Boolean`-cast) -- omitted as KEYS, not merely zeroed, when unwanted.
   describe('includeSizing gate', () => {
     test('omits both contributors and pageviews keys entirely when includeSizing is false', () => {
       const rows = [makeRow({ path: 'a' })]
@@ -402,13 +375,6 @@ describe('assembleGraph', () => {
   })
 })
 
-/**
- * DB-backed route test for `GET /sites/:siteId/graph` (OpenProject #2269): the caching, cold-rebuild
- * authentication gate, and the pageviews-disabled short-circuit, all of which need a real route, a
- * real permission check and a real database to exercise honestly -- `assembleGraph`'s own pure-unit
- * tests above cover node/edge assembly, not any of this. Same `req.session`-via-hook shape as
- * `api/comments.admin.test.ts`.
- */
 describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let app: FastifyInstance
@@ -423,11 +389,9 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
     ;({ pages: pagesModel } = await import('../models/pages.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
-    // -> `mayOnPage`'s anonymous path resolves the actor's groups through `CARDINAL.data.systemIds
-    //    .guestsGroupId` (`models/groups.ts#groupIdsForRequest`) -- `setupTestDb()` leaves `CARDINAL.data`
-    //    empty, so an anonymous request needs this set, with the fixture group standing in as
-    //    "guests" and granted `read:pages` site-wide through a real rule (not the group-wide
-    //    `permissions` column, which page-rule checks never consult).
+    // -> An anonymous request resolves its groups through `systemIds.guestsGroupId`, which
+    //    `setupTestDb()` leaves unset. The fixture group stands in as "guests", granted `read:pages`
+    //    through a real rule: page-rule checks never consult the `permissions` column.
     CARDINAL.data.systemIds = { guestsGroupId: fixtures.groupId }
     const guestRule: GroupRule = {
       id: 'guest-read-rule',
@@ -445,11 +409,7 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
       .where(eq(groupsTable.id, fixtures.groupId))
     await groupsModel.reloadCache()
 
-    // -> `buildTestApp` installs the REAL error handler, which is what shapes a thrown
-    //    `reply.unauthorized()`/`notFound()` into the `{ ok, error, statusCode, message }` the
-    //    route's `401`/`403` `ApiError` responses expect. Without it, `reply.unauthorized()` fails
-    //    schema serialization instead of answering 401 (`ok` is a required property `ApiError#`
-    //    declares). No `wiki`: `setupTestDb()` already installed the real one.
+    // -> No `wiki`: `setupTestDb()` already installed the real one.
     app = await buildTestApp({ routes: graphRoutes, session: () => testSession })
   })
 
@@ -474,10 +434,8 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
     testSession = {
       authenticated: true,
       user: { id: fixtures.userId },
-      // -> `fixtures.groupId` is what `before()` above granted `read:pages` site-wide through a real
-      //    rule -- an authenticated session's `groupIds` come straight from `session.groups`
-      //    (`models/groups.ts#groupIdsForRequest`), not re-resolved from the database, so a session
-      //    naming no group here would have no page-rule permission at all and never see the page.
+      // -> An authenticated session's group ids come straight from `session.groups`, never the
+      //    database: without the group `before()` granted `read:pages`, it would see no page.
       groups: [fixtures.groupId],
       permissions: []
     }
@@ -495,10 +453,6 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
     testSession = {
       authenticated: true,
       user: { id: fixtures.userId },
-      // -> `fixtures.groupId` is what `before()` above granted `read:pages` site-wide through a real
-      //    rule -- an authenticated session's `groupIds` come straight from `session.groups`
-      //    (`models/groups.ts#groupIdsForRequest`), not re-resolved from the database, so a session
-      //    naming no group here would have no page-rule permission at all and never see the page.
       groups: [fixtures.groupId],
       permissions: []
     }
@@ -544,20 +498,16 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
         groups: [fixtures.groupId],
         permissions: []
       }
-      // -> `?sizing=visits` (OpenProject #1863): without it `includeSizing` is false and the route
-      //    omits `pageviews` from every node entirely (see `includeSizing gate` above), which isn't
-      //    what this test is checking -- it wants the per-node `pageviews` object itself to be
-      //    genuinely all-zero, not merely absent.
+      // -> Without `?sizing=` the route omits `pageviews` from every node; this wants it present and
+      //    all-zero, not merely absent.
       const res = await app.inject({
         method: 'GET',
         url: `/sites/${fixtures.siteId}/graph?sizing=visits`
       })
       assert.equal(res.statusCode, 200)
 
-      // -> countsForGraph is still called once (the route calls it unconditionally) but its own
-      //    early return means it never reaches the database -- see `models/pageviews.test.ts`'s
-      //    dedicated no-database assertion for that half; here what matters is the end-to-end
-      //    result, every node's `pageviews` staying all-zero.
+      // -> Still called once -- the route calls it unconditionally; its own early return is what
+      //    never reaches the database.
       assert.equal(countsForGraph.mock.calls.length, 1)
       const node = res.json().nodes.find((n: any) => n.path === page.path)
       assert.ok(node)
@@ -573,19 +523,10 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
     }
   })
 
-  // -> OpenProject #1587 §2 / #1612: the shared cache (#2269) fetches its bundle once with
-  //    `publicOnly: false` and narrows it per caller (see `api/graph.ts#routes`'s route handler,
-  //    just above `assembleGraph`) rather than re-querying `publicOnly` per request -- so this
-  //    exercises that narrowing end-to-end through the real cached route, not just the model-level
-  //    filter the next `describe` below covers directly.
   test('a draft page reaches an authenticated warm-cache caller but not a later anonymous one', async () => {
     testSession = {
       authenticated: true,
       user: { id: fixtures.userId },
-      // -> `fixtures.groupId` is what `before()` above granted `read:pages` site-wide through a real
-      //    rule -- an authenticated session's `groupIds` come straight from `session.groups`
-      //    (`models/groups.ts#groupIdsForRequest`), not re-resolved from the database, so a session
-      //    naming no group here would have no page-rule permission at all and never see the page.
       groups: [fixtures.groupId],
       permissions: []
     }
@@ -613,17 +554,9 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
 })
 
 /**
- * OpenProject #1612: `listAllForGraph`'s own `publicOnly` filter -- not `assembleGraph`'s `canRead`,
- * which only ever expressed permission ("may this reader see the page"), never publication state
- * ("has this page even been published, and did its author mark it browsable"). An unauthenticated
- * caller (`publicOnly: true`) must never get a draft node back from the model layer at all -- run
- * against a real database because the filter lives in the SQL `WHERE` (`pageIsVisible`,
- * `models/tree.ts`), not in application code a mock of the query builder could stand in for.
- *
- * `isBrowsable: false` is excluded either way, authenticated or not: `pageIsVisible`'s own doc
- * comment is explicit that this column "applies either way -- it is the author saying 'not in the
- * tree', not an access rule", matching what `tree.browse()`/`tree.listPages()` already do for a
- * logged-in reader. Only `publishState` is gated by `publicOnly`.
+ * Against a real database because the filter lives in the SQL `WHERE` (`pageIsVisible`), not in
+ * application code. `isBrowsable: false` is excluded for every caller -- it is the author saying
+ * "not in the tree", not an access rule; only `publishState` is gated by `publicOnly`.
  */
 describe('listAllForGraph publication filtering (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -729,15 +662,7 @@ describe('listAllForGraph publication filtering (DB-backed)', { skip: !hasTestDa
   })
 })
 
-/**
- * OpenProject #1864: `GET /sites/:siteId/graph`'s permission filter used to call `mayOnPage(req, ...)`
- * per row, which rebuilds the actor internally on every call. It now hoists
- * `CARDINAL.models.groups.actorForRequest(req)` once per request (`tree.ts`'s `visibleTreeItems()`
- * shape) and calls `checkAccess(actor, ...)` per row directly.
- *
- * Exercised at the route/HTTP level rather than through `assembleGraph()`'s pure predicate, since
- * the hoisting only exists at the call site inside the route handler.
- */
+/** At the route level, not through `assembleGraph()`: the hoisting exists only in the handler. */
 describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (OpenProject #1864)', () => {
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
 
@@ -765,9 +690,6 @@ describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (
     checkAccess = mock.fn(
       (_actor: unknown, _permission: string, page: { path: string }) => page.path !== 'secret'
     )
-    // -> `createWikiStub`'s own `CARDINAL.cache` stub backs this: the route reads and writes the graph
-    //    bundle through it (`helpers/graphCache.ts`), so `loadGraphData` needs somewhere to look
-    //    before it will ever call `listAllForGraph` et al.
     const wiki = {
       models: {
         pages: {
@@ -822,10 +744,8 @@ describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (
     await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/graph` })
 
     assert.equal(actorForRequest.mock.calls.length, 1)
-    // -> Three rows in the fixture -- checkAccess is still called per row, only actor construction
-    //    is hoisted.
+    // -> Still once per row: only actor construction is hoisted.
     assert.equal(checkAccess.mock.calls.length, 3)
-    // -> Every checkAccess call reuses the exact same actor object actorForRequest returned once.
     const actor = actorForRequest.mock.calls[0]!.result
     for (const call of checkAccess.mock.calls) {
       assert.equal(call.arguments[0], actor)
@@ -833,11 +753,8 @@ describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (
   })
 })
 
-// -> OpenProject #1866: the node cap, and the truncated/totalNodes signal that lets a client tell
-//    the reader a graph view is partial rather than silently attempting a layout it cannot finish.
 describe('assembleGraph node cap', () => {
-  /** `n` rows with zero-padded paths, so lexicographic order (what the cap sorts by) matches
-   *  numeric order -- makes "which rows survive" trivial to assert on. */
+  /** Zero-padded paths, so the lexicographic order the cap sorts by matches numeric order. */
   function makeManyRows(n: number): GraphPageRow[] {
     return Array.from({ length: n }, (_, i) => makeRow({ path: `p${String(i).padStart(6, '0')}` }))
   }
@@ -886,8 +803,7 @@ describe('assembleGraph node cap', () => {
       fromOrdered.nodes.map((n) => n.path),
       fromShuffled.nodes.map((n) => n.path)
     )
-    // -> The lexicographically-first GRAPH_NODE_CAP paths, specifically -- not just "some stable
-    //    subset". Confirms the sort key is `path`, not e.g. insertion order surviving a stable sort.
+    // -> The lexicographically-first paths specifically, not merely some stable subset.
     assert.deepEqual(
       fromOrdered.nodes.map((n) => n.path),
       ordered.slice(0, GRAPH_NODE_CAP).map((r) => r.path)
@@ -896,9 +812,6 @@ describe('assembleGraph node cap', () => {
 
   test('no returned edge references a node dropped by the cap', () => {
     const rows = makeManyRows(GRAPH_NODE_CAP + 20)
-    // -> Every row links to the very last (guaranteed-dropped) row, and to the very first
-    //    (guaranteed-retained) row -- if capped-out targets leaked through, half these edges would
-    //    dangle.
     const droppedPath = rows.at(-1)!.path
     const retainedPath = rows[0]!.path
     for (const row of rows) {
@@ -906,8 +819,6 @@ describe('assembleGraph node cap', () => {
     }
 
     const result = assembleGraph(rows, () => true)
-    // -> Edge `source`/`target` are composite `locale:path` node ids (OpenProject #1621/#1626),
-    //    not bare paths -- compare against `n.id`, not `n.path`.
     const nodeIds = new Set(result.nodes.map((n) => n.id))
     const retainedId = `en:${retainedPath}`
 
@@ -916,8 +827,7 @@ describe('assembleGraph node cap', () => {
       assert.ok(nodeIds.has(edge.source), `edge source ${edge.source} is not a returned node`)
       assert.ok(nodeIds.has(edge.target), `edge target ${edge.target} is not a returned node`)
     }
-    // -> Sanity: edges to the retained target did survive, so the assertion above isn't vacuously
-    //    true from every edge having been dropped.
+    // -> Guards the loop above against passing vacuously with every edge dropped.
     assert.ok(result.edges.some((e) => e.target === retainedId))
   })
 })

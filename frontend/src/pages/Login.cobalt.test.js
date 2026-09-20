@@ -5,29 +5,16 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /*
-  `Login.vue`'s `.auth` stylesheet against the Cobalt token layer (OpenProject #2779).
-
-  `tailwind.css` -- where `--color-*`/`--corner-marks`/`--shadow-primary` actually get their
-  per-aesthetic values -- is plain CSS with no compiled module this file can import and resolve a
-  live cascade against (see `css/cobaltTokens.test.js`'s identical note), and neither jsdom nor
-  happy-dom runs a real cascade/layout engine either way. So, following `editorScreenChrome.test.js`'s
-  established pattern, this reads `Login.vue`'s own `<style>` block back exactly as the app ships it
-  (no compile step needed -- it is already plain, valid CSS) and reads the declarations back --
-  which is exactly the level this task's own gap sits at: whether the block reaches for the token
-  layer at all, not what any one token currently resolves to (that is `cobaltTokens.test.js`'s job,
-  and `Login.darkMode.test.js`'s for the live light/dark cascade).
+  Neither jsdom nor happy-dom resolves a real cascade against `tailwind.css`, so this reads the
+  `<style>` block back as text instead. That is the level these assertions sit at: whether the block
+  reaches for the token layer at all, not what any one token resolves to -- `cobaltTokens.test.js`
+  owns that, and `Login.darkMode.test.js` the live light/dark cascade.
 */
 
 const pagesDir = dirname(fileURLToPath(import.meta.url))
 const srcDir = dirname(pagesDir)
 
-/**
- * One SFC's `<style>` block, read back exactly the way the app ships it.
- *
- * @param {string} dir directory containing the SFC, relative to `src/`
- * @param {string} fileName the SFC itself
- * @returns {string} the style block's own text
- */
+/** @param {string} dir directory containing the SFC, relative to `src/` */
 function compileStyles(dir, fileName) {
   const source = readFileSync(join(srcDir, dir, fileName), 'utf8')
   const block = source.match(/<style[^>]*>([\s\S]*?)<\/style>/)
@@ -36,14 +23,11 @@ function compileStyles(dir, fileName) {
 }
 
 /**
- * Every declaration one selector carries, as a `property: value` map -- merged across every rule
- * that names it (a nested `&::before, &::after {…}` shared block plus that selector's own dedicated
- * rule are TWO separate CSS rules, both of which apply). Keys are literal CSS property names
- * (`border-top`, not `borderTop`). See `editorScreenChrome.test.js`'s identical single-rule helper
- * for why comments are stripped before the split.
+ * Merged across every rule that names the selector: a shared `&::before, &::after {…}` block plus
+ * that selector's own dedicated rule are TWO CSS rules, both of which apply. Keys are literal CSS
+ * property names (`border-top`, not `borderTop`).
  *
- * @param {string} css
- * @param {string} selector the exact, whole selector as Sass emits it
+ * @param {string} selector the exact, whole selector as the stylesheet writes it
  * @returns {Record<string, string>}
  */
 function declarations(css, selector) {
@@ -101,10 +85,7 @@ describe('the login/auth screen’s own chrome (OpenProject #2779)', () => {
     )
   })
 
-  /*
-   * `--corner-marks` (#2767) is `block` (a no-op) under Ledger and `none` under Cobalt -- neither
-   * mockup this task diffs against draws a registration mark on anything.
-   */
+  /* `--corner-marks` is `block` (a no-op) under Ledger and `none` under Cobalt. */
   it('gates the blueprint corner marks on --corner-marks, in the accent-fill color', () => {
     expect(declarations(css, '.auth-marks::before')).toMatchObject({
       display: 'var(--corner-marks)',
@@ -118,19 +99,9 @@ describe('the login/auth screen’s own chrome (OpenProject #2779)', () => {
     })
   })
 
-  /*
-   * `--shadow-primary` (#2767/#2772) had no consumer anywhere in the app until task #2779 wired it
-   * through this page's own `.auth-cta` class -- OpenProject #2813 later moved that wiring into
-   * `WBtn` itself (a solid `color="accent"` button bakes the glow in, see WBtn.test.js), retiring
-   * `.auth-cta` as a page-local duplicate. Nothing left in this stylesheet to assert here any more.
-   */
-
   it('carries no literal hex color left over from the SCSS variables it replaced', () => {
-    // -> `.auth`, `.auth-site-title`, `.auth-lead`, `.auth-subtitle`, `.auth-notice`, `.auth-hint`,
-    //    `.auth-marks` and `.auth-bg` are the selectors this task converted; a `#`-prefixed literal
-    //    inside any of them (rather than one of this file's own `var(--color-*)` writes) would mean a
-    //    `$`-prefixed SCSS variable survived the conversion and baked a Ledger literal in at compile
-    //    time again.
+    // -> A `#`-prefixed literal in any of these, rather than a `var(--color-*)`, bakes one
+    //    aesthetic's palette in and leaves the other theme unable to override it.
     for (const selector of [
       '.auth',
       '.body--dark .auth',

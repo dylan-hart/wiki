@@ -150,37 +150,23 @@ import WebhookEditDialog from '@/components/WebhookEditDialog.vue'
 import WebhookHistoryDialog from '@/components/WebhookHistoryDialog.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.webhooks.title')
 }))
 
-// DATA
-
 const state = reactive({
   hooks: [],
   loading: 0,
-  /** Id of the hook whose row test button is mid-request, or null. Only one row at a time. */
   testingHookId: null
 })
 
-// METHODS
-
-/** The site a webhook is scoped to, or the "all sites" label for a null (instance-wide) one. */
 function siteScopeLabel(siteId) {
   if (!siteId) {
     return t('admin.webhooks.siteAll')
@@ -227,9 +213,8 @@ function editHook(id) {
 }
 
 /**
- * Re-validates a saved webhook's endpoint without opening the edit dialog, via the same
- * `POST /_api/hooks/test` the edit dialog itself calls -- the persisted `url`/`authHeader`/
- * `acceptUntrusted` pass through the same body shape rather than a second, hookId-based endpoint.
+ * The saved values are re-sent through the edit dialog's own `POST /_api/hooks/test` body shape;
+ * there is no hookId-based endpoint to test a persisted hook in place.
  */
 async function testHook(hook) {
   state.testingHookId = hook.id
@@ -289,8 +274,6 @@ function deleteHook(hook) {
     }
   })
 }
-
-// MOUNTED
 
 onMounted(() => {
   load()

@@ -10,18 +10,9 @@ import {
 } from './renderedContent'
 import { queue as notifyQueue } from '@/composables/notify'
 
-/**
- * OpenProject #1597: the clipboard-failure toast this file's copy controls raise (code-block copy,
- * heading-anchor copy) used to hardcode English rather than going through `t()`. OpenProject #2357:
- * the four accessible-name/tooltip strings on those same controls ('Copy code', 'Copied', 'Copy link
- * to this section', 'Link copied') were left hardcoded in that same edit -- coverage here also
- * proves those four now resolve through the passed-in `t`. The copy controls' DOM/interaction
- * behavior otherwise is pre-existing and untouched by either change.
- */
-
 // A translation table standing in for `en.json`, keyed the same way a real `useI18n().t` would
-// resolve them -- proof that `enhanceRenderedContent` actually threads its `t` argument through to
-// the notify() call and the controls' labels, not just that some string appears.
+// resolve them -- so the assertions prove `enhanceRenderedContent` threads its `t` argument through
+// to notify() and the controls' labels, not just that some string appears.
 const MESSAGES = {
   'common.clipboard.failure': 'Failed to copy to clipboard.',
   'common.renderedContent.copyCode': 'Copy code',
@@ -43,12 +34,8 @@ function codeBlock(text) {
   return pre
 }
 
-/**
- * The exact shape `renderers/markdown.js`'s table overrides produce (OpenProject #2997/#3014):
- * `<div class="table-wrap"><div class="table-scroll"><div role="table">...</div></div></div>`.
- *
- * @param {string} rowsHtml `div[role="row"]` rows to place inside the `div[role="table"]`.
- */
+/** The exact shape `renderers/markdown.js`'s table overrides produce -- the code under test walks
+ *  roles rather than tags, so the fixture has to match it. */
 function tableWrap(rowsHtml) {
   const wrap = document.createElement('div')
   wrap.className = 'table-wrap'
@@ -57,7 +44,6 @@ function tableWrap(rowsHtml) {
   return wrap
 }
 
-/** A single `div[role="row"]` built from cell text, mirroring one grid row of the real markup. */
 function row(cells, { header = false } = {}) {
   const role = header ? 'columnheader' : 'cell'
   return `<div role="row">${cells.map((text) => `<div role="${role}">${text}</div>`).join('')}</div>`
@@ -72,9 +58,8 @@ function headingWithId(id) {
 }
 
 /**
- * A `[role="cell"]`/`[role="columnheader"]` grid, `rows` deep and `cols` wide, the first row a
- * header -- built the same way `contentImageZoom.test.js`'s own `pointerEvent` helper stands in for
- * a real pointer, since jsdom has no layout engine to derive one from real coordinates.
+ * A grid `rows` deep and `cols` wide, the first row a header. Cells are addressed by index rather
+ * than coordinates: happy-dom has no layout engine to hit-test a real pointer against.
  */
 function selectTable(rows, cols) {
   let html = row(
@@ -106,7 +91,6 @@ function pointerEvent(type, props) {
   })
 }
 
-/** Dispatches a `copy` event on `root` carrying a fake `clipboardData`, returning it and the event. */
 function dispatchCopy(root) {
   const clipboardData = { setData: vi.fn() }
   const event = new Event('copy', { bubbles: true, cancelable: true })
@@ -174,11 +158,6 @@ describe('renderedContent clipboard localization', () => {
   })
 })
 
-/**
- * OpenProject #2357: the code-copy and heading-anchor buttons' accessible name (and, for the
- * heading anchor, its tooltip) come from the same `t()` passed into `enhanceRenderedContent` --
- * both at initial paint and after a successful copy flips the control into its "done" state.
- */
 describe('renderedContent accessible-name/tooltip localization (#2357)', () => {
   beforeEach(() => {
     notifyQueue.length = 0
@@ -230,12 +209,7 @@ describe('renderedContent accessible-name/tooltip localization (#2357)', () => {
   })
 })
 
-/**
- * OpenProject #2972: a rendered table grows a copy-to-CSV button, mirroring the code-block copy
- * button exactly -- same `copyWithFeedback` pattern, same idempotency, same t()-sourced labels --
- * plus its own CSV-serialization coverage (`csvOf`, exercised indirectly through the button's
- * clipboard write, since it is a private helper).
- */
+/** `csvOf` is private, so its serialization is exercised through the button's clipboard write. */
 describe('renderedContent table copy-to-CSV button (#2972)', () => {
   beforeEach(() => {
     notifyQueue.length = 0
@@ -254,8 +228,7 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
     expect(wrap.dataset.tableCopy).toBe('')
     const button = wrap.querySelector('.table-copy')
     expect(button).not.toBeNull()
-    // -> Appended to the frame (`.table-wrap`), not the scroller, so it never travels with the
-    //    table's own horizontal scroll
+    // -> The frame, not the scroller: the control must not travel with the table's horizontal scroll
     expect(button.parentElement).toBe(wrap)
   })
 
@@ -341,22 +314,10 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
 })
 
 /**
- * OpenProject #3066: `enhanceRenderedContent` wires content images into the click-to-zoom lightbox
- * too, the same way it wires the code-copy button and heading anchors -- see
- * `contentImageZoom.test.js` for the lightbox's own full behavior (zoom, pan, the linked-image
- * exclusion, ...); this is only proof the two are actually connected.
- */
-/**
- * OpenProject #3143/#3238: whole-table copy synthesizes a real `<table>` HTML string (plus a TSV
- * plain-text fallback) onto the clipboard, rather than letting the browser copy the rendered
- * `role="table"` div grid verbatim.
- *
- * happy-dom's own `Selection`/`ClipboardEvent` support isn't reliable enough to drive this
- * end-to-end (real selection-and-copy coverage is `markdown.test.js`'s real-Chromium describe
- * instead), so `window.getSelection` is stubbed to return a minimal fake -- just enough shape
- * (`isCollapsed`, `rangeCount`, `getRangeAt`) for `tableForSelection` to read -- and the `copy`
- * event is dispatched with a hand-built `clipboardData` stand-in, the same way a real browser's
- * `ClipboardEvent` would carry one.
+ * happy-dom's `Selection`/`ClipboardEvent` support isn't reliable enough to drive this end-to-end
+ * (real selection-and-copy coverage is `markdown.test.js`'s real-Chromium describe instead), so
+ * `window.getSelection` is stubbed with just enough shape for `tableForSelection` to read, and the
+ * `copy` event carries a hand-built `clipboardData` stand-in.
  */
 describe('renderedContent whole-table copy as real <table> HTML (#3238)', () => {
   beforeEach(() => {
@@ -368,7 +329,6 @@ describe('renderedContent whole-table copy as real <table> HTML (#3238)', () => 
     vi.restoreAllMocks()
   })
 
-  /** Stubs `window.getSelection()` to report a non-collapsed selection anchored at `node`. */
   function stubSelectionOn(node) {
     vi.spyOn(window, 'getSelection').mockReturnValue({
       isCollapsed: false,
@@ -449,8 +409,7 @@ describe('renderedContent whole-table copy as real <table> HTML (#3238)', () => 
     wrap.parentNode.appendChild(outside)
     enhanceRenderedContent(wrap.parentNode, t)
 
-    // -> A common ancestor above the table (the shared parent), standing in for a selection that
-    //    spans both the table and this sibling paragraph
+    // -> A common ancestor above the table, standing in for a selection spanning it and the paragraph
     stubSelectionOn(wrap.parentNode)
     const { clipboardData, prevented } = dispatchCopy(wrap.parentNode)
 
@@ -477,7 +436,7 @@ describe('renderedContent whole-table copy as real <table> HTML (#3238)', () => 
     stubSelectionOn(wrap.querySelector('[role="table"]'))
     const { clipboardData } = dispatchCopy(wrap.parentNode)
 
-    // -> Exactly one text/html call, not two -- a second listener would have called setData twice
+    // -> A second listener would have called setData twice
     expect(clipboardData.setData.mock.calls.filter(([kind]) => kind === 'text/html')).toHaveLength(
       1
     )
@@ -510,12 +469,6 @@ describe('renderedContent content-image click-to-zoom wiring (#3066)', () => {
   })
 })
 
-/**
- * OpenProject #3239: an explicit, script-driven rectangular cell selection for a rendered table,
- * independent of the browser's own (linear, not two-dimensional) text selection. Its state is read
- * back through `getActiveTableSelection()` -- the same surface OpenProject #3240 (wiring this into
- * the copy handler) will use -- rather than by poking at private module internals.
- */
 describe('renderedContent cell-range select mode (#3239)', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -541,7 +494,6 @@ describe('renderedContent cell-range select mode (#3239)', () => {
     expect(target.dataset.tableSelected).toBe('')
     expect(document.activeElement).toBe(target)
     expect(target.getAttribute('tabindex')).toBe('0')
-    // -> Nothing else in the table picked up the marker
     expect(wrap.querySelectorAll('[data-table-selected]')).toHaveLength(1)
   })
 
@@ -706,9 +658,8 @@ describe('renderedContent cell-range select mode (#3239)', () => {
   })
 
   it('is idempotent -- re-running enhanceRenderedContent over the same root wires no second pointerdown listener', () => {
-    // -> A fresh, never-enhanced root, not `document.body` -- every other test in this describe
-    //    shares `document.body` (via `tableWrap`), which some earlier test in this file has
-    //    already wired, so a listener count taken against it would not prove anything here.
+    // -> A fresh, never-enhanced root, not `document.body`: every other test here shares that via
+    //    `tableWrap`, and an earlier one has already wired it, so a count against it proves nothing
     const container = document.createElement('div')
     document.body.appendChild(container)
     const addSpy = vi.spyOn(container, 'addEventListener')
@@ -725,11 +676,6 @@ describe('renderedContent cell-range select mode (#3239)', () => {
   })
 })
 
-/**
- * OpenProject #3240: wires the active select-mode range (#3239) into the same `copy` interception
- * #3238 wired onto `root` -- an active range always wins over whatever the browser's own selection
- * would otherwise resolve to, and serializes only its own rectangle rather than the whole table.
- */
 describe('renderedContent cell-range copy (#3240)', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -763,7 +709,6 @@ describe('renderedContent cell-range copy (#3240)', () => {
       'text/plain',
       `${cell(0, 1).textContent}\t${cell(0, 2).textContent}\n${cell(1, 1).textContent}\t${cell(1, 2).textContent}`
     )
-    // -> Column 0 never appears anywhere in either payload
     expect(clipboardData.setData.mock.calls.flatMap(([, value]) => value).join('\n')).not.toContain(
       cell(0, 0).textContent
     )
@@ -834,7 +779,7 @@ describe('renderedContent cell-range copy (#3240)', () => {
     })
     const { clipboardData } = dispatchCopy(wrap.parentNode)
 
-    // -> All four cells (2x2), not just one -- proof this went through the whole-table path
+    // -> More than one row -- proof this went through the whole-table path, not a single-cell range
     expect(clipboardData.setData).toHaveBeenCalledWith(
       'text/html',
       expect.stringContaining('</tr><tr>')
@@ -848,7 +793,7 @@ describe('renderedContent cell-range copy (#3240)', () => {
     wrap.querySelector('[role="cell"]').dispatchEvent(pointerEvent('pointerdown'))
 
     // -> Spied only after the pointerdown settles, so `syncNativeTableSelectionToRange`'s own read
-    //    (setting up the range, unrelated to this assertion) isn't counted
+    //    isn't counted
     const getSelectionSpy = vi.spyOn(window, 'getSelection')
     dispatchCopy(wrap.parentNode)
 

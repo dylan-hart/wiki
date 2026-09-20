@@ -8,18 +8,12 @@ import { pageviews as pageviewsTable } from '../db/schema.ts'
 import { hashVisitor, pageviews } from './pageviews.ts'
 import type { PageActor } from './pages.ts'
 
-// `Settings.init()` -> `generateSigningCertificates()` calls `Temporal.Now.instant()` unconditionally,
-// and `summary()` below calls `Date.prototype.toTemporalInstant()` -- `ensureTemporal()` installs both
-// the `Temporal` global and that Date method, not just the former (see its own doc comment).
+// `summary()` calls `Date.prototype.toTemporalInstant()`, which `ensureTemporal()` installs
+// alongside the `Temporal` global.
 await ensureTemporal()
 
-/** A fixed test key so DB-backed tests below get deterministic, reproducible hashes. */
 const TEST_HASH_KEY = 'test-hash-key-0123456789abcdef'
 
-/**
- * `hashVisitor` needs no database at all -- it's a pure function -- so it gets its own top-level
- * tests rather than living inside the DB-backed `describe` below.
- */
 test('hashVisitor never returns the raw id, and is deterministic per input under one key', () => {
   const a = hashVisitor('secret-key-id', TEST_HASH_KEY)
   const b = hashVisitor('secret-key-id', TEST_HASH_KEY)
@@ -52,12 +46,6 @@ test('hashVisitor produces different output for the same raw id under two differ
   )
 })
 
-/**
- * `Settings.init()` is what seeds `pageviews.hashKey` at first boot (mirroring `auth.secret`) --
- * verified here as a pure unit test the same way `hooks.test.ts` stubs `CARDINAL.db` rather than
- * standing up a real database, since what's under test is the JS-level shape of the seeded value,
- * not SQL orchestration.
- */
 describe('Settings.init seeds pageviews.hashKey', () => {
   test('a fresh boot seeds a non-empty hashKey that is not shared with auth.secret', async () => {
     const inserted: { key: string; value: any }[] = []
@@ -105,12 +93,6 @@ describe('Settings.init seeds pageviews.hashKey', () => {
   })
 })
 
-/**
- * OpenProject #2288: rotating `pageviews.hashKey` so historical rows can no longer be re-linked.
- * Modelled on `models/sessions.ts#rotateSecret()` -- and, like that method's own test coverage, pure
- * config mutation plus a stubbed `CARDINAL.configSvc.saveToDb()`, no real database needed: what's under
- * test is the swap-and-persist-or-roll-back JS logic, not SQL orchestration.
- */
 describe('rotateHashKey', () => {
   const previousWiki = (globalThis as any).CARDINAL
 
@@ -161,11 +143,8 @@ describe('rotateHashKey', () => {
   })
 })
 
-/**
- * OpenProject #2269: `countsForGraph` reads the same `CARDINAL.config.pageviews.isEnabled` flag `record()`
- * already gates writes on. No database at all here -- the point is that the query never runs in the
- * first place, which a real Postgres round trip couldn't distinguish from "ran and found nothing".
- */
+// The throwing `db` Proxy is the assertion: a real round trip could not distinguish "never
+// queried" from "queried and found nothing".
 test('countsForGraph returns an empty map and never touches the database while pageview tracking is disabled', async () => {
   const previousWiki = (globalThis as any).CARDINAL
   ;(globalThis as any).CARDINAL = {
@@ -187,12 +166,6 @@ test('countsForGraph returns an empty map and never touches the database while p
   }
 })
 
-/**
- * `record()`/`purgeExpired()` are genuine SQL orchestration -- the admin opt-out's no-op guarantee and
- * the retention purge's timestamp comparison are exactly the kind of thing a mock of the query builder
- * would mostly just re-describe rather than verify. Real Postgres it
- * is, gated the same way every other DB-backed suite in this repo is.
- */
 describe('pageviews model', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let pageviewsModel: typeof import('./pageviews.ts').pageviews
@@ -255,9 +228,8 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
   test('record() never throws when the insert itself fails', async () => {
     CARDINAL.config.pageviews = { isEnabled: true, hashKey: TEST_HASH_KEY }
 
-    // -> A page that does not exist trips the `pageId` foreign key -- record() must swallow that,
-    //    not propagate it, since a logging failure must never break serving the page it rides along
-    //    with.
+    // -> The bogus `pageId` trips the foreign key: a pageview insert must never break serving the
+    //    page it rides along with.
     await assert.doesNotReject(
       pageviewsModel.record({
         siteId: fixtures.siteId,
@@ -306,11 +278,8 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
   describe('summary', () => {
     let summaryPageId: string
     let otherPageId: string
-    // -> Earlier tests in this same DB-backed suite (record(), purgeExpired()) already left rows
-    //    behind in this table, and `summary()` has no page/site filter -- it aggregates the WHOLE
-    //    table by design. Asserting against a baseline captured right before this describe's own
-    //    inserts, rather than hardcoded absolute counts, is what keeps these tests correct
-    //    regardless of what earlier tests (or a re-ordered suite) left lying around.
+    // -> `summary()` aggregates the WHOLE table, with no page or site filter, so earlier tests'
+    //    rows are in it too -- assert against a baseline captured here, never absolute counts.
     let baseline: Awaited<ReturnType<typeof pageviewsModel.summary>>
 
     before(async () => {
@@ -340,7 +309,6 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
       otherPageId = otherPage.id
 
       await fixtures.db.insert(pageviewsTable).values([
-        // -> Within the last 24h -- counts toward last24h, last7d and totalViews.
         {
           siteId: fixtures.siteId,
           pageId: summaryPageId,
@@ -348,7 +316,6 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
           visitorHash: hashVisitor('summary-visitor-1', TEST_HASH_KEY),
           viewedAt: sql`now() - interval '1 hour'`
         },
-        // -> Within the last 7d but not the last 24h -- counts toward last7d and totalViews only.
         {
           siteId: fixtures.siteId,
           pageId: summaryPageId,
@@ -356,8 +323,6 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
           visitorHash: hashVisitor('summary-visitor-2', TEST_HASH_KEY),
           viewedAt: sql`now() - interval '3 days'`
         },
-        // -> Older than 7d but within retention -- counts toward totalViews only, and toward
-        //    distinctPages via a second page.
         {
           siteId: fixtures.siteId,
           pageId: otherPageId,
@@ -407,9 +372,8 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
     let countsPageId: string
 
     before(async () => {
-      // -> countsForGraph now short-circuits on this flag itself (OpenProject #2269), not only
-      //    `record()` -- explicit here rather than relying on whichever value an earlier sibling
-      //    test in this file happened to leave it at.
+      // -> `countsForGraph` short-circuits on this flag, and earlier tests in this file leave it
+      //    at whatever they last set.
       CARDINAL.config.pageviews = { isEnabled: true }
 
       const page = await pagesModel.createPage(
@@ -425,8 +389,6 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
       countsPageId = page.id
 
       await fixtures.db.insert(pageviewsTable).values([
-        // -> Two distinct browser visitors, one of whom came back within 30 days -- both count
-        //    within 6mo/2yr, only one (the recent revisit) counts within 30d.
         {
           siteId: fixtures.siteId,
           pageId: countsPageId,
@@ -448,7 +410,6 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
           visitorHash: hashVisitor('graph-session-2', TEST_HASH_KEY),
           viewedAt: sql`now() - interval '3 months'`
         },
-        // -> One `api` visitor, outside the 30d window but inside 6mo/2yr.
         {
           siteId: fixtures.siteId,
           pageId: countsPageId,
@@ -456,7 +417,6 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
           visitorHash: hashVisitor('graph-api-key-1', TEST_HASH_KEY),
           viewedAt: sql`now() - interval '2 months'`
         },
-        // -> One `mcp` visitor, outside every window but the 2yr one.
         {
           siteId: fixtures.siteId,
           pageId: countsPageId,
@@ -476,8 +436,7 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
           api: 0,
           mcp: 0,
           all: 1,
-          // -> Both `graph-session-1` rows (5 days and 1 day ago) fall inside 30d -- raw total
-          //    counts both, unlike the deduped `browser: 1` above.
+          // -> `total` is raw rows, not deduped: both `graph-session-1` views fall inside 30d.
           total: { browser: 2, api: 0, mcp: 0, all: 2 }
         },
         last6mo: {

@@ -8,22 +8,16 @@ import { useSiteStore } from './site'
 
 const pad = (value) => String(value).padStart(2, '0')
 
-// -> Built once rather than once per `formatDatePart()` call landing on the locale-default branch.
-//    `Intl.DateTimeFormat.format()` won't take a `Temporal.ZonedDateTime` directly (its own zone
-//    would conflict with a formatter that has none configured), so callers pass `.toPlainDateTime()`
-//    -- dropping the zone is fine here since it was already applied by `toUserZone()`.
+// -> Built once rather than per `formatDatePart()` call. `Intl.DateTimeFormat.format()` won't take a
+//    `Temporal.ZonedDateTime` directly (its own zone would conflict with a formatter that has none),
+//    so callers pass `.toPlainDateTime()` -- dropping the zone is fine, `toUserZone()` applied it.
 const localeDateFormat = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
   month: 'numeric',
   day: 'numeric'
 })
 
-/**
- * Render the date part of a moment the way the user asked for it.
- *
- * The stored preference is one of a handful of explicit patterns, or an empty string meaning "whatever
- * this locale does" — which is the only case a formatter can be left to decide on its own.
- */
+/** An empty `dateFormat` means "whatever this locale does" — the only case left to a formatter. */
 function formatDatePart(zoned, dateFormat) {
   switch (dateFormat) {
     case 'DD/MM/YYYY':
@@ -42,12 +36,7 @@ function formatDatePart(zoned, dateFormat) {
   }
 }
 
-/**
- * The moment as this user's clock shows it, whatever form the API sent it in.
- *
- * @param date A `Temporal.Instant`, a `Date`, or a string one can be parsed from.
- * @param timezone This user's stored zone, which may be empty or no longer exist.
- */
+/** @param date A `Temporal.Instant`, a `Date`, or a string one can be parsed from. */
 function toUserZone(date, timezone) {
   let instant = date
   if (typeof date === 'string') {
@@ -64,14 +53,13 @@ function toUserZone(date, timezone) {
   }
 }
 
+const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: 'short' })
+
 /*
   Four variants built once, keyed by `timeFormat` and whether seconds are shown, rather than one per
   `formatTimePart()` call. `hourCycle` rather than `hour12: false`, which some locales render as
   24:00 where they mean 00:00.
 */
-/** The abbreviated weekday `formatRecent()` reads back, in the interface's own locale. */
-const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: 'short' })
-
 const timeFormats = {
   '12h': new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }),
   '24h': new Intl.DateTimeFormat(undefined, {
@@ -94,14 +82,11 @@ const timeFormats = {
 }
 
 /**
- * Render the time part -- see `localeDateFormat` above for why `.toPlainDateTime()`.
+ * See `localeDateFormat` above for why `.toPlainDateTime()`.
  *
- * @param seconds Append `:ss` — for a screen where sub-minute precision is the point (a webhook
- *   delivery log, a scan report, a scheduler run), not the default for a reader's everyday timestamp.
- * @param timeZoneName Append the zone's short label (`GMT+9`, `JST`, ...) -- for a screen where the
- *   reader needs to know which zone they're looking at, not just what it reads. Bypasses the
- *   pre-built `timeFormats` formatters (which format a zone-less `PlainDateTime` and so have no zone
- *   to name) and formats `zoned` directly instead, since the zone name is derived from its identity.
+ * @param timeZoneName Appending the zone's short label (`GMT+9`, `JST`, ...) bypasses the pre-built
+ *   `timeFormats` formatters -- they format a zone-less `PlainDateTime` and so have no zone to name
+ *   -- and formats `zoned` directly instead.
  */
 function formatTimePart(zoned, timeFormat, { seconds = false, timeZoneName } = {}) {
   if (timeZoneName) {
@@ -124,8 +109,8 @@ export const useUserStore = defineStore('user', {
     name: '',
     hasAvatar: false,
     /**
-     * The provider-reported avatar URL cached at login (Task #3264), or `null` when none has been
-     * synced. Only a fallback: `hasAvatar` wins wherever both are set, matching the backend's own
+     * The provider-reported avatar URL cached at login, or `null` when none has been synced. Only a
+     * fallback: `hasAvatar` wins wherever both are set, matching the backend's own
      * `syncAvatarFromProvider()` precedence.
      */
     avatarProviderUrl: null,
@@ -137,16 +122,13 @@ export const useUserStore = defineStore('user', {
     timeFormat: '12h',
     appearance: 'site',
     /**
-     * The Cobalt aesthetic setting (Feature #2753/#2766): `'site'` follows the site administrator's
-     * choice, or a per-user override of `'ledger'`/`'cobalt'` -- the same three-value shape
-     * `appearance` uses for dark mode, resolved the same way (see `App.vue`'s aesthetic watch).
+     * `'site'` follows the site administrator's choice; otherwise a per-user override of
+     * `'ledger'`/`'cobalt'` -- the same three-value shape `appearance` uses for dark mode.
      */
     aesthetic: 'site',
     /**
-     * Per-user content-width preference (Feature #3051 / Task #3068): `'site'` (default) inherits the
-     * site's own `contentWidth` admin setting, or a per-user override of `'measured'`/`'full'` --
-     * the same three-value shape `aesthetic` uses, resolved the same way (see `Index.vue`'s
-     * `resolvedContentWidth` computed).
+     * `'site'` inherits the site's own `contentWidth` admin setting; otherwise a per-user override
+     * of `'measured'`/`'full'`, resolved the same way `aesthetic` is.
      */
     contentWidth: 'site',
     cvd: 'none',
@@ -154,24 +136,20 @@ export const useUserStore = defineStore('user', {
     pagePermissions: [],
     /**
      * The `site:*` permissions (see `backend/helpers/siteRules.ts`) the caller holds on
-     * `sitePermissionsSiteId` — the site-scoped counterpart to `pagePermissions`. Only ever valid for
-     * the one site it was last fetched for, which is exactly what `sitePermissionsSiteId` records: a
-     * component asking about a DIFFERENT site must not read this as an answer for that site. See
-     * `canOnSite`.
+     * `sitePermissionsSiteId`, and only on that site: a component asking about a DIFFERENT site must
+     * not read this as an answer for that site. See `canOnSite`.
      */
     sitePermissions: [],
-    /** Which site `sitePermissions` was fetched for, or null before the first fetch. */
     sitePermissionsSiteId: null,
     authenticated: false,
     profileLoaded: false
   }),
   actions: {
     /**
-     * Take in a session that arrived with something else — `bootstrap` hands it over with the site and
-     * the flags, which is how an app load asks who is logged in without a request of its own. A login
-     * instead re-answers this by reloading the app entirely: `AuthLoginPanel.vue` does a full
-     * `window.location.replace()` on success, so the next answer arrives the same way, through
-     * `bootstrap` calling this again on the fresh page load.
+     * `bootstrap` hands the session over with the site and the flags, which is how an app load asks
+     * who is logged in without a request of its own. A login re-answers it the same way:
+     * `AuthLoginPanel.vue` does a full `window.location.replace()` on success, so `bootstrap` calls
+     * this again on the fresh page load.
      */
     applyProfile(resp) {
       if (!resp?.authenticated) {
@@ -180,10 +158,9 @@ export const useUserStore = defineStore('user', {
       }
       this.$patch({
         /*
-          Kept, rather than left at the guest id this store starts with. Nothing used to read it
-          while logged in, so nothing noticed -- but a live editing session identifies its
-          participants by it, and every one of them claiming the guest id makes a roomful of
-          people look like one person wearing the same colour.
+          Kept, rather than left at the guest id this store starts with: a live editing session
+          identifies its participants by it, and every one of them claiming the guest id makes a
+          roomful of people look like one person wearing the same colour.
         */
         id: resp.id,
         name: resp.name || 'Unknown User',
@@ -212,21 +189,17 @@ export const useUserStore = defineStore('user', {
         const resp = await API_CLIENT.post(`sites/${siteStore.id}/auth/logout`).json()
         redirect = resp?.redirect || '/'
       } catch (err) {
-        // -> Clear the client either way. Whatever went wrong, someone who clicked Logout must not be
-        //    left looking at a page that still says they are signed in.
+        // -> Clear the client either way: someone who clicked Logout must not be left looking at a
+        //    page that still says they are signed in.
         log.warn('auth', 'could not sign out on the server', err)
       }
       this.setToGuest()
       /*
         NavSidebar.vue's watcher only re-fetches the sidebar menu when the page it lands on carries a
-        DIFFERENT navigationId than the one it just left. A logout redirect target commonly shares the
-        same navigationId as the page just left (the site's default menu, say), so that watcher never
-        fires -- and the menu stays on screen built against the session that just ended, restricted
-        items included. Forced here instead, unconditionally (`forceRefresh: true`, OpenProject #1012
-        -- `fetchNavigation()`'s own "already showing this menu" cache check would otherwise skip a
-        refetch under the SAME id this passes), so the sidebar reflects the guest this reader now is
-        regardless of where the redirect lands them. Nothing to refresh if no sidebar menu was ever
-        loaded in the first place.
+        DIFFERENT navigationId, and a logout redirect commonly lands under the same one -- leaving
+        the menu on screen built against the session that just ended, restricted items included.
+        Forced here instead, past `fetchNavigation()`'s own "already showing this menu" check, so the
+        sidebar reflects the guest this reader now is wherever the redirect lands them.
       */
       if (siteStore.nav.currentId) {
         await siteStore.fetchNavigation(siteStore.nav.currentId, true)
@@ -258,9 +231,8 @@ export const useUserStore = defineStore('user', {
         sitePermissionsSiteId: null,
         authenticated: false,
         /*
-          Loaded, not unknown: being a guest IS an answer, and this is where it is recorded — whether
-          it came back from `bootstrap` or from logging out. Left false, every navigation would ask
-          the server who this is all over again, and every reader of a public wiki is a guest.
+          Loaded, not unknown: being a guest IS an answer. Left false, every navigation would ask the
+          server who this is all over again, and every reader of a public wiki is a guest.
         */
         profileLoaded: true
       })
@@ -279,14 +251,9 @@ export const useUserStore = defineStore('user', {
       return false
     },
     /**
-     * Which page-scoped permissions the caller holds AT `path` — what gates edit/create/etc.
-     * controls for the currently-viewed page. See `userStore.pagePermissions` usage in `App.vue`
-     * (refreshed per route) and `Index.vue`'s `canCreatePage`.
-     *
      * Clears first, synchronously, rather than only on success: while a fetch for a NEW path is in
      * flight, `pagePermissions` reads as denied in the meantime — the safe direction for a
-     * permission check to be wrong in, unlike serving the PREVIOUS path's answer while this one is
-     * still loading would be. Mirrors the hardened `fetchSitePermissions` above.
+     * permission check to be wrong in, unlike serving the PREVIOUS path's answer would be.
      */
     async fetchPagePermissions(path, locale) {
       this.pagePermissions = []
@@ -301,22 +268,15 @@ export const useUserStore = defineStore('user', {
             ...(locale ? { locale } : {})
           }
         }).json()
-        // -> Guards `.includes()` against a malformed/empty response the same way an absent one is
-        //    already guarded against above.
         this.pagePermissions = Array.isArray(permissions) ? permissions : []
       } catch (err) {
         log.warn('auth', `could not read this session's permissions on ${path}`, err)
       }
     },
     /**
-     * Which `site:*` permissions the caller holds on `siteId` — what the admin area's nine
-     * site-scoped pages hide their sidebar links and content behind. See
-     * `frontend/src/composables/siteAdminAccess.js`, the actual caller.
-     *
      * Clears first, synchronously, rather than only on success: while a fetch for a NEW site is in
-     * flight, `sitePermissionsSiteId` no longer matches that (or any) site, so `canOnSite` reads as
-     * denied for it in the meantime — the safe direction for a permission check to be wrong in,
-     * unlike serving the PREVIOUS site's answer while this one is still loading would be.
+     * flight, `sitePermissionsSiteId` matches no site, so `canOnSite` reads as denied in the
+     * meantime — the safe direction for a permission check to be wrong in.
      */
     async fetchSitePermissions(siteId) {
       this.sitePermissions = []
@@ -326,8 +286,6 @@ export const useUserStore = defineStore('user', {
       }
       try {
         const permissions = await API_CLIENT.get(`sites/${siteId}/userPermissions`).json()
-        // -> Guards `canOnSite`'s `.includes()` against a malformed/empty response the same way an
-        //    absent one is already guarded against above.
         this.sitePermissions = Array.isArray(permissions) ? permissions : []
         this.sitePermissionsSiteId = siteId
       } catch (err) {
@@ -335,10 +293,9 @@ export const useUserStore = defineStore('user', {
       }
     },
     /**
-     * Whether the caller holds a `site:*` permission on a specific site — the site-scoped counterpart
-     * to `can()`. Takes `siteId` explicitly, unlike `can()`'s implicit "current path": `sitePermissions`
-     * is only ever valid for one site at a time, and a caller asking about a site it was not fetched
-     * for must be refused rather than answered with a stale or unrelated site's grant.
+     * Takes `siteId` explicitly, unlike `can()`'s implicit "current path": `sitePermissions` is only
+     * ever valid for one site at a time, and a caller asking about a site it was not fetched for
+     * must be refused rather than answered with a stale or unrelated site's grant.
      */
     canOnSite(permission, siteId) {
       if (this.permissions.includes('manage:system')) {
@@ -350,18 +307,13 @@ export const useUserStore = defineStore('user', {
       return this.sitePermissions.includes(permission)
     },
     /**
-     * Format a moment as this user asked to see it: their date pattern, their 12h/24h choice, and their
-     * time zone. Word order comes from the locale, which is why `t` is passed in.
+     * Word order comes from the locale, which is why `t` is passed in.
      *
-     * @param date A `Temporal.Instant`, a `Date`, or a string one can be parsed from — what the API
-     *             returns. Nullable columns like `lastLoginAt` are common, so nothing at all formats as
-     *             an empty string rather than blowing up mid-render.
-     * @param seconds Include seconds in the time part — for a log-style timestamp (a job's timing, a
-     *             webhook delivery attempt, a security scan) where sub-minute precision is the point,
-     *             rather than an everyday "last modified" line.
-     * @param zone Append the zone's short label (`GMT+9`, `JST`, ...) — for an account-scoped
-     *             timestamp (a session, an API key, an audit entry) where the reader needs to know
-     *             which zone they are looking at, not just what it reads.
+     * @param date A `Temporal.Instant`, a `Date`, or a string one can be parsed from. Nullable
+     *             columns like `lastLoginAt` are common, so nothing at all formats as an empty
+     *             string rather than blowing up mid-render.
+     * @param zone Append the zone's short label (`GMT+9`, `JST`, ...), for a timestamp whose reader
+     *             needs to know which zone they are looking at, not just what it reads.
      */
     formatDateTime(t, date, { seconds = false, zone = false } = {}) {
       if (!date) {
@@ -377,15 +329,11 @@ export const useUserStore = defineStore('user', {
       })
     },
     /**
-     * The RECENT form: a weekday and a time ("Tue 4:12 PM") for anything inside the last week, and
-     * the full date-and-time for anything older.
-     *
-     * What a reader wants from "last modified" on a page they are looking at is how fresh it is, and
-     * a weekday answers that at a glance where `2026-09-05 at 11:17 AM` has to be decoded against
-     * today's date first. Beyond a week the weekday stops being useful -- "Tue" could be any Tuesday
-     * -- so it falls back to `formatDateTime` rather than growing a second relative vocabulary.
-     *
-     * The weekday comes from `Intl` rather than a table, so it follows the interface locale.
+     * A weekday and a time ("Tue 4:12 PM") inside the last week, the full date-and-time beyond it.
+     * What a reader wants from "last modified" is how fresh a page is, which a weekday answers at a
+     * glance where `2026-09-05 at 11:17 AM` has to be decoded against today's date first. Past a
+     * week "Tue" could be any Tuesday, so it falls back rather than grow a second relative
+     * vocabulary. The weekday comes from `Intl`, so it follows the interface locale.
      */
     formatRecent(t, date) {
       if (!date) {
@@ -400,12 +348,7 @@ export const useUserStore = defineStore('user', {
       }
       return `${weekdayFormat.format(zoned.toPlainDateTime())} ${formatTimePart(zoned, this.timeFormat)}`
     },
-    /**
-     * Format the DATE alone, in this user's pattern and zone. For a line with no room for a time, or
-     * where the time says nothing worth reading -- the day an update was released, say.
-     *
-     * No `t`: with only one part there is no word order for a locale to have an opinion about.
-     */
+    /** No `t`: with only one part there is no word order for a locale to have an opinion about. */
     formatDate(date) {
       if (!date) {
         return ''

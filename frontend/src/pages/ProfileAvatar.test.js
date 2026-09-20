@@ -6,15 +6,8 @@ import { mountWithApp } from '../../test/mount.js'
 import { pendingProfileSaves } from '@/composables/profileSaving'
 
 /**
- * OpenProject #2701 -- the avatar section on the settings pattern.
- *
- * What is worth pinning here is the SHAPE, since the page's behaviour (upload, clear) was not
- * touched: the image is the row's stacked `preview`, the same slot Admin General's logo row uses,
- * rather than a second stacked variant invented for this page; and the row still says why the
- * buttons are missing when the site has profile editing turned off, instead of silently rendering
- * an empty control. Geometry -- that the preview really does sit under both halves of the row -- is
- * measured in a real browser by `pages/profileSettingsRhythm.layout.test.js`; happy-dom has no
- * layout engine to answer it here.
+ * Shape only: whether the preview really sits under both halves of the row is geometry, which
+ * happy-dom has no layout engine to answer and a real-browser suite measures instead.
  */
 
 const MESSAGES = {
@@ -46,12 +39,9 @@ describe('ProfileAvatar', () => {
   })
 
   /**
-   * OpenProject #3282: both write actions count themselves on the shared `pendingProfileSaves`
-   * module singleton (what gates the Profile dialog's close button/dismiss guard), alongside their
-   * own local `state.loading`. `uploadImage()` builds its own detached `<input type="file">` rather
-   * than reading one from the template, so `document.createElement` is stubbed to hand back a plain
-   * object standing in for it -- a real DOM input's `files` cannot be assigned in a test, but nothing
-   * here reads more of the input than `.onchange`/`.click()`, so a plain object suffices.
+   * `uploadImage()` builds its own detached `<input type="file">`, and a real DOM input's `files`
+   * cannot be assigned in a test, so `document.createElement` hands back a plain object instead --
+   * nothing here reads more of the input than `.onchange`/`.click()`.
    */
   describe('pendingProfileSaves (OpenProject #3282)', () => {
     let realCreateElement
@@ -132,7 +122,6 @@ describe('ProfileAvatar', () => {
     const preview = wrapper.find('.w-settings-row__preview')
     expect(preview.exists()).toBe(true)
     expect(preview.find('.profile-avatar-circ').exists()).toBe(true)
-    // -> The real avatar image, cache-busted, rather than the fallback glyph
     expect(preview.find('img').attributes('src')).toContain('/_user/current/avatar?')
     expect(wrapper.find('.w-settings-row__control').find('.profile-avatar-circ').exists()).toBe(
       false
@@ -151,10 +140,6 @@ describe('ProfileAvatar', () => {
     expect(clear.attributes('disabled')).toBeDefined()
   })
 
-  /**
-   * Task #3264: a manual upload always wins; the provider-synced picture is only a fallback for
-   * the reader's own preview here, same precedence as every other avatar-rendering call site.
-   */
   it('falls back to the provider avatar when there is no manual upload', async () => {
     const wrapper = mountPage({
       hasAvatar: false,
@@ -193,7 +178,7 @@ describe('ProfileAvatar', () => {
     const control = wrapper.find('.w-settings-row__control')
     expect(control.findAll('button')).toHaveLength(0)
     expect(control.text()).toContain('cannot be changed')
-    // -> The preview stays: the reader can still SEE their avatar, they just cannot change it
+    // -> Being unable to change an avatar is not being unable to see it.
     expect(wrapper.find('.w-settings-row__preview').exists()).toBe(true)
   })
 })

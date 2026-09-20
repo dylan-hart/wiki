@@ -7,15 +7,10 @@ import { describe, expect, it } from 'vitest'
 import { tokenValue } from '../../test/tokens.js'
 
 /*
-  OpenProject #2903: the Cobalt reading rail's icon colours, against
-  `ui-iteration/cobalt/Cardinal Wiki - Page View 3x - Cobalt.dc.html` -- Page Properties (the plate)
-  draws white, every other button draws the saturated accent blue.
-
-  Neither `jsdom` nor `happy-dom` installs the Cobalt half of the token layer (`test/setup.js` only
-  installs Ledger's, see `test/tokens.js`), so a mount-based assertion would read Ledger's values
-  regardless of the `body--cobalt` class on the fixture -- this instead reads the SFC's own
-  `<style>` block the same way the app ships it (mirroring `editorScreenChrome.test.js`) and reads
-  the rule text back, which is what actually exposes a selector that never matches.
+  Neither `jsdom` nor `happy-dom` installs the Cobalt half of the token layer (`test/setup.js`
+  installs Ledger's only, see `test/tokens.js`), so a mount-based assertion would read Ledger's
+  values regardless of the `body--cobalt` class on the fixture. Reading the SFC's own `<style>`
+  block back as text is also what exposes a selector that never matches anything.
 */
 
 const componentsDir = dirname(fileURLToPath(import.meta.url))
@@ -63,8 +58,8 @@ describe('the Cobalt reading rail’s icon colours (OpenProject #2903)', () => {
       )
     ).toEqual({ color: white })
 
-    // -> The regression itself: the plate no longer carries its own `color`, which is what let
-    //    `w-btn`'s inline `color: var(--color-accent-fill)` (red, on the equally-red plate) win.
+    // -> A `color` on the plate itself would let `w-btn`'s inline `color: var(--color-accent-fill)`
+    //    win -- red on an equally red plate.
     expect(
       declarations(
         css,
@@ -80,10 +75,9 @@ describe('the Cobalt reading rail’s icon colours (OpenProject #2903)', () => {
     ).toEqual({ color: accentStrong })
 
     // -> Page Properties is the rail's only `.aspect-square` cell (every other button is `.h-12`),
-    //    so this selector never matched anything as a live rule -- pinned here so it can't quietly
-    //    come back. `[,{]` rather than a bare match: the fix's own explanatory comment names the
-    //    dead selector in prose, which the compiled CSS keeps verbatim (Sass does not strip
-    //    comments), and that mention is not itself a rule.
+    //    so that selector can never match as a live rule. `[,{]` rather than a bare match: the
+    //    style block is read as raw text, comments included, and the SFC names the dead selector in
+    //    prose -- which is not itself a rule.
     expect(css).not.toMatch(/\.aspect-square:not\(:first-child\)\s*[,{]/)
   })
 })

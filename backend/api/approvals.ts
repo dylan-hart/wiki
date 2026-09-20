@@ -5,12 +5,8 @@ import type { ApprovalPageRef, ApprovalRulePatch } from '../models/approvalRules
 import type { FastifyInstance, FastifyReply } from 'fastify'
 
 /**
- * Everything a rule has to satisfy beyond what the JSON Schema already enforces.
- *
- * All of it comes down to the same thing: a rule that cannot match a page, or that nobody is on either
- * side of, is a rule that does nothing, and storing one silently is worse than refusing it.
- *
- * @returns A `CustomError` to throw, or null when the rule is usable
+ * What the JSON Schema cannot express. A rule that matches no page, or has no group on one side,
+ * does nothing, and refusing it beats storing it silently.
  */
 function validateRule({
   name,
@@ -31,12 +27,8 @@ function validateRule({
     return new CustomError('approvalRuleEmptyName', 'A rule name is required.')
   }
   /*
-    Empty is only meaningful for `START`, where it is every path and therefore the whole site -- which
-    is how a rule covers a site without naming a folder.
-
-    Every other mode still needs something. An empty `EXACT` matches no page at all; an empty `END` or
-    `REGEX` matches every one of them, but by accident of the operator rather than by intent, and a
-    rule whose reach nobody meant to write is exactly what this refuses.
+    An empty path is meaningful only for `START`, where it covers the whole site. An empty `EXACT`
+    matches no page, and an empty `END` or `REGEX` matches every page by accident.
   */
   if (match !== 'START' && (!path || path.trim().length < 1)) {
     return new CustomError(
@@ -77,11 +69,6 @@ function validateRule({
   return null
 }
 
-/**
- * Reject group IDs that are not groups on this instance, for either list.
- *
- * @returns Whether the reply has been sent
- */
 async function rejectUnknownGroups(
   reply: FastifyReply,
   groupIds: (string[] | undefined)[]
@@ -93,19 +80,13 @@ async function rejectUnknownGroups(
   return false
 }
 
-/**
- * Approvals API Routes
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST SITE APPROVAL RULES
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/approvals/rules',
     {
       /*
-        No route-level `permissions`: who may read this comes from `checkSiteAccess()`, which that
-        hook cannot call — see `models/groups.ts#checkSiteAdminAccess`.
+        No route-level `permissions`: that hook reads global permissions only, so it cannot check the
+        site-scoped `site:approvals` — see `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'List the approval rules of a site',
@@ -133,16 +114,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE AN APPROVAL RULE
-   */
   app.post<{ Params: { siteId: string }; Body: ApprovalRulePatch }>(
     '/sites/:siteId/approvals/rules',
     {
-      /*
-        No route-level `permissions`: who may write this comes from `checkSiteAccess()`, which that
-        hook cannot call — see `models/groups.ts#checkSiteAdminAccess`.
-      */
+      /* No route-level `permissions`: as for the list route above. */
       schema: {
         summary: 'Create an approval rule',
         description:
@@ -199,16 +174,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE AN APPROVAL RULE
-   */
   app.put<{ Params: { siteId: string; ruleId: string }; Body: ApprovalRulePatch }>(
     '/sites/:siteId/approvals/rules/:ruleId',
     {
-      /*
-        No route-level `permissions`: same reasoning as the POST above — see
-        `models/groups.ts#checkSiteAdminAccess`.
-      */
+      /* No route-level `permissions`: as for the list route above. */
       schema: {
         summary: 'Update an approval rule',
         description:
@@ -260,9 +229,8 @@ async function routes(app: FastifyInstance) {
         throw new CustomError('approvalRuleEmpty', 'No rule fields provided to update.')
       }
 
-      // -> Validated as the rule will be, not as it was sent: changing the mode alone has to hold up
-      //    against the stored path, and emptying one group list has to be caught even though the other
-      //    was not touched
+      // -> Validated as the rule will be, not as it was sent: a changed mode has to hold up against
+      //    the stored path
       const invalid = validateRule({
         name: req.body.name ?? current.name,
         match: req.body.match ?? current.match,
@@ -293,16 +261,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE AN APPROVAL RULE
-   */
   app.delete<{ Params: { siteId: string; ruleId: string } }>(
     '/sites/:siteId/approvals/rules/:ruleId',
     {
-      /*
-        No route-level `permissions`: same reasoning as the POST above — see
-        `models/groups.ts#checkSiteAdminAccess`.
-      */
+      /* No route-level `permissions`: as for the list route above. */
       schema: {
         summary: 'Delete an approval rule',
         description:
@@ -343,9 +305,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST SUGGESTIONS WAITING ON THIS REVIEWER
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/approvals/submissions',
     {
@@ -374,9 +333,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET ONE SUGGESTION TO REVIEW
-   */
   app.get<{ Params: { siteId: string; submissionId: string } }>(
     '/sites/:siteId/approvals/submissions/:submissionId',
     {
@@ -414,9 +370,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * APPROVE A SUGGESTION
-   */
   app.post<{
     Params: { siteId: string; submissionId: string }
     Body: { content?: string; render?: string }
@@ -495,17 +448,15 @@ async function routes(app: FastifyInstance) {
         actor
       })
       if (!applied.ok) {
-        // -> Distinguishable from the generic 404 above: the submission is real, but the page moved
-        //    since this reviewer's own GET computed its diff, and writing over that would silently
-        //    discard whatever changed in between. The client re-fetches both sides and re-prompts
-        //    instead of treating this as an ordinary failure.
+        // -> 409 rather than the generic 404: the page changed since the reviewer's diff was
+        //    computed, and the client re-fetches both sides and re-prompts on it.
         if (applied.reason === 'stale') {
           return reply.conflict(
             'This page has changed since you loaded this suggestion. Reload it and reconcile the changes before approving.'
           )
         }
-        // -> OpenProject #2165: the reviewer queue and `write:pages` disagreeing -- being one of
-        //    this page's approval-rule reviewers is not the same grant as being allowed to write it.
+        // -> Being one of this page's approval-rule reviewers is not the same grant as
+        //    `write:pages`.
         if (applied.reason === 'forbidden') {
           return reply.forbidden('You do not have permission to write this page.')
         }
@@ -523,9 +474,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REJECT A SUGGESTION
-   */
   app.post<{
     Params: { siteId: string; submissionId: string }
     Body: { reason?: string }
@@ -570,10 +518,8 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const actor = actorFrom(req)
-      // -> Defensive rather than reachable: `reviewerScopeFor` (via `isReviewerSession`) already requires
-      //    an authenticated session before `getSubmissionForReview` can return anything below, so this
-      //    never actually fires -- kept explicit anyway, the same shape as the approve route above,
-      //    since `rejectSubmission` now records who declined the suggestion.
+      // -> Defensive: `reviewerScopeFor` already hands an unauthenticated session an empty scope,
+      //    but `rejectSubmission` records `actor.id`.
       if (!actor) {
         return reply.unauthorized()
       }
@@ -600,11 +546,9 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
-   * GET OWN SUGGESTION STATE FOR A PAGE
-   *
-   * Deliberately not permission-gated: whether somebody may suggest an edit is decided by the site's
-   * approval rules and the groups they are in, and for an anonymous reader those are the guests
-   * group's. A route permission would answer 401 before any of that could be considered.
+   * Not permission-gated: who may suggest an edit is decided by the approval rules and the caller's
+   * groups — the guests group's for an anonymous reader — and a route permission would answer 401
+   * before any of that is considered.
    */
   app.get<{
     Params: { siteId: string; pageId: string }
@@ -654,11 +598,6 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       reply.preventCache()
-      // -> The page a suggestion is about, loaded exactly as `loadReadablePage`'s doc
-      //    (`helpers/pageAccess.ts`) describes, `withContent`/`withPassword` included. Reading it comes
-      //    first, for suggesting an edit and for reviewing one alike: neither is something to do to a
-      //    page the caller may not see, and answering as though it were not there is how every other
-      //    page-scoped route treats that.
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId, {
         withContent: true,
         withPassword: true
@@ -701,9 +640,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SUBMIT AN EDIT SUGGESTION FOR A PAGE
-   */
   app.put<{
     Params: { siteId: string; pageId: string }
     Body: { content: string; guestName?: string; guestEmail?: string }
@@ -747,11 +683,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> The page a suggestion is about, loaded exactly as `loadReadablePage`'s doc
-      //    (`helpers/pageAccess.ts`) describes, `withContent`/`withPassword` included. Reading it comes
-      //    first, for suggesting an edit and for reviewing one alike: neither is something to do to a
-      //    page the caller may not see, and answering as though it were not there is how every other
-      //    page-scoped route treats that.
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId, {
         withContent: true,
         withPassword: true

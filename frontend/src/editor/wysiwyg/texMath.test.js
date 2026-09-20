@@ -6,11 +6,6 @@ import { Markdown } from '@tiptap/markdown'
 
 import { TexMath } from './texMath.js'
 
-/**
- * Builds a headless editor (no DOM mount) with just enough of a schema to parse/render markdown --
- * `Markdown`'s `contentType: 'markdown'` path only needs the schema and `editor.markdown`, not a
- * live ProseMirror view, so this is cheap and does not need jsdom's layout at all.
- */
 function buildEditor(content) {
   return new Editor({
     content,

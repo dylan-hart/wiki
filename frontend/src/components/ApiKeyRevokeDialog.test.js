@@ -5,13 +5,6 @@ import ApiKeyRevokeDialog from './ApiKeyRevokeDialog.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * OpenProject #788: `ApiKeyRevokeDialog` is reused by both `AdminApi.vue` (an admin revoking any key)
- * and `ProfileApi.vue` (a user revoking their own personal token) via two new props -- `endpoint`
- * (which REST resource to POST the revoke to) and `labelPrefix` (which i18n namespace to read its
- * strings from). Defaults reproduce the dialog's original, pre-#788 behavior exactly, so `AdminApi.vue`
- * needed no change to keep working.
- */
 function mountDialog(props) {
   const i18n = createTestI18n({
     admin: { api: { revoke: 'Revoke', revokeConfirm: 'Revoke API Key?' } },

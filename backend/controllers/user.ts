@@ -9,18 +9,14 @@ import type { FastifyInstance } from 'fastify'
 const AVATAR_CACHE = 'private, no-cache'
 
 /**
- * _user Routes
- *
  * Public, like `_site` and `_icons`: avatars appear next to page authors and in user pickers, so a
- * reader who can see a page can see them. Only what a user chose to upload is served, under a URL that
- * has to be known — nothing here enumerates users.
+ * reader who can see a page can see them. Only what a user chose to upload is served, under a URL
+ * that has to be known — nothing here enumerates users.
  */
 async function routes(app: FastifyInstance) {
   /**
-   * USER AVATAR
-   *
-   * `current` resolves to the logged in user, as it does for a site's own assets — a page showing its
-   * own avatar then needs no user ID to build the URL with.
+   * `current` resolves to the logged in user, so a page showing its own avatar needs no user ID to
+   * build the URL with.
    */
   app.get<{ Params: { userId: string } }>('/:userId/avatar', async (req, reply) => {
     let userId: string | null = null
@@ -33,17 +29,15 @@ async function routes(app: FastifyInstance) {
       return reply.notFound('User not found')
     }
 
-    // -> Answered from the hash column alone whenever possible: a conditional request (the common
-    //    case, since AVATAR_CACHE forces revalidation on every open) never has to read the blob back
-    //    out of the database or hash it.
+    // -> The hash column alone answers a conditional request -- the common case, since AVATAR_CACHE
+    //    revalidates every time -- without reading the blob.
     const hash = await CARDINAL.models.users.getAvatarHash(userId)
     if (!hash) {
       return reply.notFound('This user has no avatar')
     }
 
-    // -> `notModifiedOrPrepare` also sends `X-Content-Type-Options: nosniff`: the bytes came from a
-    //    user, so the browser must take the type at its word rather than looking for something more
-    //    interesting in them
+    // -> `notModifiedOrPrepare` also sends `nosniff`: the bytes came from a user, so the browser
+    //    must take the type at its word
     if (notModifiedOrPrepare(req, reply, { etag: `"${hash}"`, cacheControl: AVATAR_CACHE })) {
       return reply
     }

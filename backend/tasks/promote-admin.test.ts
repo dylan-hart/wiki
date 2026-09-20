@@ -4,13 +4,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 
-/**
- * Static wiring checks for the promote-admin CLI entry point — mirrors `tasks/migrate.test.ts`.
- * Booting the CLI end-to-end needs a live database, which this suite deliberately does not stand up:
- * the actual promotion logic is exercised through `promoteAdminRuntime.db.test.ts` instead, against
- * `promoteAdminRuntime.ts` directly (safe to import, unlike `promote-admin.ts` itself, whose `main()`
- * runs unconditionally at module scope).
- */
+// Static checks only: `promote-admin.ts` runs `main()` at module scope, so importing it here would
+// run the command. The promotion logic is covered by `promoteAdminRuntime.db.test.ts`.
 
 const backendDir = path.resolve(fileURLToPath(import.meta.url), '..', '..')
 

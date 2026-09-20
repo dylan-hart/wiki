@@ -2,10 +2,8 @@ import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
-   * BLOCK CREDENTIAL
-   *
-   * Never carries a `secret` field — see `models/blockCredentials.ts`'s header comment. A block prop
-   * (in a page's own markdown) references a credential by `id` alone.
+   * Never carries a `secret` field: the secret never leaves `models/blockCredentials.ts`, and a
+   * block prop references a credential by `id` alone.
    */
   app.addSchema({
     $id: 'BlockCredential',

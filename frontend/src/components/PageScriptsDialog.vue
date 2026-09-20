@@ -8,7 +8,7 @@
       <div class="text-caption text-white/70">{{ languageLabel }}</div>
     </w-toolbar>
     <div style="min-height: 450px">
-      <!-- -> Square: this one spans the dialog edge to edge, so a radius would cut across its corners -->
+      <!-- -> Square: this spans the dialog edge to edge, so a radius would cut across its corners -->
       <util-code-editor
         ref="editor"
         v-model="state.content"
@@ -45,8 +45,6 @@ import { usePageStore } from '@/stores/page'
 
 import UtilCodeEditor from './UtilCodeEditor.vue'
 
-// PROPS
-
 const props = defineProps({
   /** `jsLoad` | `jsUnload` | `styles` */
   mode: {
@@ -55,25 +53,17 @@ const props = defineProps({
   }
 })
 
-// STORES
-
 const pageStore = usePageStore()
-
-// I18N
 
 const emit = defineEmits(['close'])
 
 const { t } = useI18n()
-
-// DATA
 
 const editor = ref(null)
 
 const state = reactive({
   content: ''
 })
-
-// COMPUTED
 
 const language = computed(() => {
   switch (props.mode) {
@@ -99,11 +89,9 @@ const languageLabel = computed(() => {
 })
 
 /*
-  An explicit lookup rather than deriving the key by capitalizing `props.mode` (OpenProject #1130):
-  that scheme happens to land on the real pageStore field for `jsLoad`/`jsUnload`
-  (`scriptJsLoad`/`scriptJsUnload`) but not for `styles`, whose actual field is `scriptCss` --
-  `'script' + 'Styles'` produces `scriptStyles`, a property that doesn't exist on the store and isn't
-  in `pageSave()`'s `pick()` allowlist either, so the CSS editor read and wrote nothing at all.
+  An explicit lookup rather than capitalizing `props.mode`: that scheme lands on the real store field
+  for `jsLoad`/`jsUnload` but not for `styles`, whose field is `scriptCss` -- `scriptStyles` is on
+  neither the store nor `pageSave()`'s allowlist, so the CSS editor would read and write nothing.
 */
 const MODE_STORE_KEYS = {
   jsLoad: 'scriptJsLoad',
@@ -112,8 +100,6 @@ const MODE_STORE_KEYS = {
 }
 
 const contentStoreKey = computed(() => MODE_STORE_KEYS[props.mode])
-
-// METHODS
 
 function persist() {
   pageStore.$patch({
@@ -124,21 +110,16 @@ function persist() {
 /*
   A named handler rather than `persist(); $emit('close')` inline: Vue parses an inline handler as an
   EXPRESSION, and oxfmt reformats a semicolon-separated pair onto separate lines without the
-  semicolon, which stops being one. See `docs/tooling-incidents.md`.
+  semicolon, which stops being one.
 */
 function saveAndClose() {
   persist()
   emit('close')
 }
 
-// MOUNTED
-
-// -> No deferred mount: the quarter-second wait was there to give the old editor a laid-out container
-//    to measure itself against, and a textarea needs no such thing
 onMounted(() => {
   state.content = pageStore[contentStoreKey.value]
-  // -> The editor is what this dialog is for, so the caret starts there. After the tick that renders
-  //    the content above, so focus lands on a field that is already populated.
+  // -> After the tick that renders the content above, so focus lands on a populated field
   nextTick(() => {
     editor.value?.focus()
   })

@@ -13,13 +13,6 @@ import {
 } from '../db/schema.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
-/**
- * `forgotPassword()` and `resetPassword()` are also SQL orchestration -- a strategy/config lookup, a
- * user lookup, and a token round-trip through `userKeys` -- so this runs the real methods the same
- * DB-backed way `register()`'s suite above does. `mail.sendForgotPassword` and
- * `sendPasswordResetConfirmed` are stubbed for the same reason `sendVerifyEmail` is above: no real
- * SMTP transport is needed to test this orchestration.
- */
 describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let sendForgotPasswordMock: ReturnType<typeof mock.fn>
@@ -28,11 +21,9 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
   const MODULE_KEY = 'local-reset-test'
 
   function req(): any {
-    // -> `regenerate` is a no-op stub, not a full `@fastify/session` fake: these tests assert on
-    //    `afterLoginChecks`'s outcome (`nextAction`, `redirect`, ...), not on session-id churn --
-    //    that is `users.updateSession`'s own describe block's job (see the stub there for the real
-    //    reassignment behavior). This just needs to exist so `updateSession`'s `await
-    //    req.session.regenerate()` (task 2115 / WP 2105 §4) doesn't throw on a path that reaches it.
+    // -> `regenerate` is a no-op stub, not a `@fastify/session` fake: these tests assert on
+    //    `afterLoginChecks`'s outcome, not on session-id churn. It only has to exist, since
+    //    `updateSession` awaits it on any path that reaches one.
     return { session: { regenerate: async () => {} } }
   }
 
@@ -55,10 +46,7 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
     return row!.id
   }
 
-  /**
-   * Same reasoning as the register suite's own copy above: `afterLoginChecks()` looks the strategy up
-   * in `CARDINAL.auth.strategies`, not the database.
-   */
+  /** `afterLoginChecks()` looks the strategy up in `CARDINAL.auth.strategies`, not the database. */
   function registerLiveStrategy(strategyId: string, config: Record<string, any> = {}): void {
     ;(CARDINAL.auth.strategies as any)[strategyId] = { config }
   }
@@ -92,7 +80,7 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
         useForm: true,
         usernameType: 'email',
         props: {
-          // -> Matches `modules/authentication/local/definition.yml`'s own prop: default true
+          // -> Mirrors `modules/authentication/local/definition.yml`'s own prop.
           allowForgotPassword: { type: 'Boolean', title: 'Allow Forgot Password', default: true }
         }
       }
@@ -281,7 +269,6 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       const confirmCall = sendPasswordResetConfirmedMock.mock.calls[0].arguments[0] as any
       assert.equal(confirmCall.to, 'confirm@example.com')
 
-      // -> Single-use: the token is gone after a successful reset
       const [tokenRow] = await fixtures.db.select().from(userKeys).where(eq(userKeys.token, token))
       assert.equal(tokenRow, undefined)
     })
@@ -290,10 +277,9 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       const strategyId = await createStrategy()
       registerLiveStrategy(strategyId)
       const userId = await createLocalUser(strategyId, { email: 'inactive-reset@example.com' })
-      // -> Minted directly rather than via `forgotPassword()`, which now refuses to mint one for a
-      //    deactivated account at all: this proves `afterLoginChecks()` itself enforces the check,
-      //    for a token that existed before deactivation (e.g. one purged too late, or by a path other
-      //    than the admin API's `clearKeysFromUser()` call).
+      // -> Minted directly rather than through `forgotPassword()`, which refuses a deactivated
+      //    account outright: the check under test is `afterLoginChecks()`'s own, against a token
+      //    that predates the deactivation.
       const token = await userCredentials.generateToken({
         kind: 'resetPwd',
         userId,
@@ -364,10 +350,9 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
   })
 
   /**
-   * `clearKeysFromUser()` is what `api/users/admin.ts`'s deactivation path (`patch.isActive === false`)
-   * calls alongside `sessions.clearSessionsFromUser()` (OpenProject #2094): purging a user's
-   * outstanding `userKeys` rows is what stops a `resetPwd` token minted before deactivation from
-   * still being redeemable afterwards.
+   * `models/users.ts#updateUser`'s deactivation path calls this: purging a user's outstanding
+   * `userKeys` rows is what stops a `resetPwd` token minted before deactivation from still being
+   * redeemable afterwards.
    */
   describe('clearKeysFromUser', () => {
     test('deactivating a user with an outstanding resetPwd key leaves no usable key behind', async () => {
@@ -387,7 +372,7 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       const [after] = await fixtures.db.select().from(userKeys).where(eq(userKeys.token, token))
       assert.equal(after, undefined)
 
-      // -> Redeeming it now fails on the token itself, not merely on the account state
+      // -> Redeeming it fails on the token itself, not merely on the account state
       await assert.rejects(
         login.resetPassword(
           { siteId: fixtures.siteId, strategyId, token, newPassword: 'brandnewpwd1' },

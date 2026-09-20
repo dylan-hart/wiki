@@ -1,16 +1,11 @@
 import { Client } from 'pg'
 
 /**
- * Direct Postgres access for the one thing the app's own API can't set up: simulating a job that an
- * instance has already picked up between the Upcoming tab rendering its row and a user clicking
- * Cancel. `scheduler.spec.js`'s "already picked up" case races that by hand -- deleting the `jobs`
- * row out from under a still-rendered UI row -- rather than trying to out-time the real 5s polling
- * loop, which the task brief itself offers as the alternative ("race it... or delete it via SQL to
- * simulate").
+ * Direct Postgres access for the job states the app's own API cannot set up on demand, rather than
+ * trying to out-time the real polling loop.
  *
- * Talks to the same `DATABASE_URL` the webServer itself was started with, and the same schema
- * (`wiki`) `base.yml` defaults to -- see `config.e2e.yml`'s own comment on why there is no `db:`
- * block there to read it from instead.
+ * Talks to the same `DATABASE_URL` the webServer was started with, and the `wiki` schema `base.yml`
+ * defaults to -- see `config.e2e.yml` for why there is no `db:` block there to read it from.
  */
 export async function withDb(fn) {
   const client = new Client({ connectionString: process.env.DATABASE_URL })
@@ -24,22 +19,15 @@ export async function withDb(fn) {
 }
 
 /**
- * Inserts a row straight into the pending `jobs` queue, bypassing `scheduler.addJob()` entirely.
- * This is deliberate: it is the only way to plant a job with a chosen `useWorker` value without
- * actually having a matching worker-thread task run (there is no cron entry that produces one, and
- * the Upcoming tab's useWorker column needs one to prove it renders both states, not just the
- * in-process one every seeded cron task happens to be). It also doubles as the way `scheduler.spec.js`
- * (task 581) plants a job under a task name the scheduler genuinely has no handler for -- `task` need
- * not exist in `tasks/simple/`, since nothing validates it against that directory before a job is
- * queued -- so the real `processJob()`/`runJob()` pipeline claims and genuinely fails it (`this
- * .tasks[job.task] is not a function`), landing a real `lastErrorMessage` and a real automatic-retry
- * decision in `jobHistory`, not a fabricated one.
+ * Bypasses `scheduler.addJob()` deliberately. It is the only way to plant a job with a chosen
+ * `useWorker` value without a matching worker-thread task actually running, and the only way to
+ * queue a task name the scheduler has no handler for (nothing validates `task` against
+ * `tasks/simple/` before a job is queued), so that the real `processJob()`/`runJob()` pipeline
+ * claims it and genuinely fails -- a real `lastErrorMessage` and retry decision, not a fabricated
+ * one.
  *
- * `waitUntilHoursFromNow` defaults hours out so the real scheduler's polling loop never picks the row
- * up before the test gets to observe or cancel it -- pass `0` for the opposite: a job due right away,
- * for a test that wants the real pipeline to actually claim and run (fail) it.
- *
- * @returns The inserted job's id
+ * `waitUntilHoursFromNow` defaults hours out so the polling loop never claims the row before a test
+ * can observe or cancel it; `0` queues it due right away, for a test that wants it run.
  */
 export async function insertSyntheticJob(
   db,
@@ -60,28 +48,22 @@ export async function insertSyntheticJob(
   return result.rows[0].id
 }
 
-/** Removes a job from the pending queue directly -- the "already picked up" simulation. */
+/** Simulates the job having been picked up by another instance mid-render. */
 export async function deleteJob(db, id) {
   await db.query('DELETE FROM "jobs" WHERE id = $1', [id])
 }
 
 /**
- * Inserts a row straight into `jobHistory`, bypassing the claim/run pipeline entirely. Used for the
- * states nothing else can plant on demand:
+ * Bypasses the claim/run pipeline, for the states nothing else can plant on demand:
  *
- * - A permanently-stuck `interrupted` row that still has an automatic retry owed (`attempt <=
- *   maxRetries`): the real `reapStaleJobs` sweep requeues such a row and the poller picks it back up
- *   again within a handful of seconds -- too fast to reliably assert the Failed tab's retry button
- *   mid-flight without racing the poller.
- * - A `failed` row that already reads as having exhausted retries it never actually took (a high
- *   `attempt` with a low `maxRetries`), so a Retry Job click on it can be proven to reset the budget
- *   -- the new job attempting at 1/N again -- rather than continuing to count up from where a real
- *   multi-attempt job would have left off.
- * - A genuinely in-flight `active` row, for the Active tab's spinner: nothing ever advances it, since
- *   it was never claimed out of the real `jobs` queue, so it holds still for as long as an assertion
- *   needs -- short of `reapStaleJobs` eventually sweeping it once `scheduler.staleJobTimeout` elapses.
- *
- * @returns The inserted row's id
+ * - an `interrupted` row still owed a retry (`attempt <= maxRetries`): the real `reapStaleJobs`
+ *   sweep requeues one and the poller re-claims it within seconds, too fast to assert the Failed
+ *   tab's retry button against without racing;
+ * - a `failed` row reading as having exhausted retries it never took (high `attempt`, low
+ *   `maxRetries`), so a Retry Job click can be proven to reset the budget rather than continue
+ *   counting up from it;
+ * - an `active` row nothing will ever advance, since it was never claimed out of the real `jobs`
+ *   queue, so it holds still until `scheduler.staleJobTimeout` elapses.
  */
 export async function insertHistoryJob(
   db,
@@ -107,10 +89,8 @@ export async function insertHistoryJob(
 }
 
 /**
- * Bulk-seeds `count` synthetic `completed` history rows in one round trip -- the only practical way
- * to get past `AdminScheduler.vue`'s `HISTORY_LIMIT` (100) for the "Showing the N most recent of
- * total" caption test without either waiting on real task runs one at a time or rebuilding the
- * frontend with the constant temporarily lowered.
+ * One round trip, because getting past `AdminScheduler.vue`'s `HISTORY_LIMIT` for the "showing the
+ * N most recent of total" caption otherwise means waiting on real task runs one at a time.
  */
 export async function seedCompletedHistory(db, count, taskPrefix = 'e2eBulkHistoryProbe') {
   await db.query(

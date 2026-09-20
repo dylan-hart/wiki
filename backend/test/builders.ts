@@ -1,10 +1,6 @@
 /**
- * Fixture builders for the shapes a backend test asserts against over and over (TEST-F7).
- *
- * Each one is "sane defaults, overridden per test" — the shape a test cares about is what it names in
- * the override, and everything else is the shape the row actually has. That is the difference between
- * these and the 188 raw rule literals / 246 actor literals they replace: a reader can see what a case
- * is ABOUT without diffing it against its neighbours.
+ * Sane defaults, overridden per test: what a case names in its override is what that case is about,
+ * and everything else is the shape the row actually has.
  */
 import type { GroupRule } from '../models/groups.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
@@ -13,7 +9,6 @@ import type { StorageTarget } from '../models/storage.ts'
 import type { RebuildPageSource } from '../modules/search/shared.ts'
 import type { SiteRow } from '../db/schema.ts'
 
-/** A group rule with sane defaults, overridden per test. Mirrors the shape stored on a group row. */
 export function makeGroupRule(overrides: Partial<GroupRule> = {}): GroupRule {
   return {
     id: 'rule-1',
@@ -28,7 +23,6 @@ export function makeGroupRule(overrides: Partial<GroupRule> = {}): GroupRule {
   }
 }
 
-/** The page reference `helpers/pageRules.ts` resolves a rule against. */
 export function makeRulePageRef(overrides: Partial<RulePageRef> = {}): RulePageRef {
   return {
     path: 'geography/countries/france',
@@ -40,7 +34,6 @@ export function makeRulePageRef(overrides: Partial<RulePageRef> = {}): RulePageR
   }
 }
 
-/** The `{ id, permissions, groupIds }` actor every `checkAccess`/`checkSiteAccess` call takes. */
 export function makeActor(overrides: Record<string, any> = {}) {
   return {
     id: 'user-1',
@@ -50,7 +43,6 @@ export function makeActor(overrides: Record<string, any> = {}) {
   }
 }
 
-/** A `CARDINAL.sites[id]` entry — the cached per-site config a route or model reads locales off. */
 export function makeSite(overrides: Record<string, any> = {}): SiteRow {
   return {
     id: 'site-1',
@@ -66,18 +58,14 @@ export function makeSite(overrides: Record<string, any> = {}): SiteRow {
 }
 
 /**
- * A storage target row, defaulted to the blob-module shape (`azure`/`gcs`/`s3` share it byte for
- * byte). A module whose capabilities genuinely differ — `sftp` and `git` do, in `contentTypes`,
- * `assetDelivery`, `versioning` and `sync` — passes the whole differing object as an override rather
- * than having it merged, so what a target claims to support stays readable in one place.
+ * Defaulted to the blob-module shape; a module whose capabilities differ overrides a whole
+ * capability object rather than merging into one, so what it claims to support reads in one place.
  *
- * `id` is a fresh UUID per call by default: every blob module caches its client per target id, so a
- * shared id would leak one test's stubbed client into the next.
+ * `id` is a fresh UUID per call: every blob module caches its client per target id, so a shared id
+ * would leak one test's stubbed client into the next.
  *
- * `overrides` is deliberately loose rather than `Partial<StorageTarget>`: several suites hand it a
- * DELIBERATELY incomplete capability block — `git/sync.test.ts`'s `sync` omits `supportsContentSync`
- * to prove the code under test never reads it — which is exactly what the `as StorageTarget` casts
- * these builders replace were there to allow.
+ * `overrides` is loose rather than `Partial<StorageTarget>` so a suite can hand it a deliberately
+ * incomplete capability block to prove the code under test never reads the missing field.
  */
 export function makeStorageTarget(
   module: string,
@@ -120,9 +108,8 @@ export function makeStorageTarget(
 }
 
 /**
- * A page row as a search engine's index hooks receive it — the full 28-field superset
- * (`modules/search/azure-search/` reads the widest set of them), so a module gaining a field it
- * indexes does not need every engine's fixture edited to see it.
+ * The full superset of fields, not the ones any one engine reads, so a module that starts indexing
+ * another field needs no fixture edited to see it.
  */
 export function makeIndexablePage(
   overrides: Partial<SearchIndexablePage> = {}
@@ -165,13 +152,8 @@ export function makeIndexablePage(
 }
 
 /**
- * A `CARDINAL.db` stand-in serving one page of rows, then an empty page — the keyset-loop shape
- * `modules/search/shared.ts#pageStream` walks, and all `algolia`/`elasticsearch` `rebuild()` needs to
- * see a whole site go by.
- *
- * Deliberately not a `stubSelect()` variant: that one answers a `from`/`where`/`limit` chain with a
- * fixed row and is about what a model asked for, while this one is about a loop terminating — the
- * second read has to come back empty or `pageStream` never returns.
+ * One page of rows, then an empty page: not a `stubSelect()` variant because this one is about the
+ * loop terminating — the second read has to come back empty or `pageStream` never returns.
  */
 export function stubPageStreamDb(pages: SearchIndexablePage[]) {
   let remaining = pages
@@ -193,13 +175,8 @@ export function stubPageStreamDb(pages: SearchIndexablePage[]) {
 }
 
 /**
- * A fake `RebuildPageSource`: pages supplied per locale, sliced by whatever `offset`/`limit`
- * `rebuild()` actually passes — records every call so a test can assert the pagination loop walked
- * the full set in the batches it should have, rather than only checking the final tally.
- *
- * The shape `azure-search` rebuilds through (see `modules/search/shared.ts`'s `RebuildPageSource` doc
- * for why it takes an injected source at all rather than reading `CARDINAL.db` the way `stubPageStreamDb`
- * above stands in for).
+ * Records every call, so a test can assert the pagination loop walked the full set in the batches
+ * it should have rather than only checking the final tally.
  */
 export function makeRebuildPageSource(
   pagesByLocale: Record<string, SearchIndexablePage[]>
@@ -218,12 +195,8 @@ export function makeRebuildPageSource(
 }
 
 /**
- * A Drizzle `db.select()` chain that answers `row` (or nothing, for `null`), recording the chain it
- * was driven through.
- *
- * `joins` names the chain methods this particular query adds beyond the `from`/`where`/`limit` every
- * one of them uses — `['leftJoin']` for a query that joins one table — so the stub answers exactly
- * the surface the code under test reaches for and still throws on anything it does not.
+ * `joins` names the chain methods a query adds beyond `from`/`where`/`limit`, so the stub answers
+ * exactly the surface the code under test reaches for and still throws on anything it does not.
  */
 export function stubSelect(row: any, { joins = [] as string[] } = {}) {
   const calls: { where: unknown[] } = { where: [] }

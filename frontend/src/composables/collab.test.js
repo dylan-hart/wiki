@@ -4,15 +4,11 @@ import { createPinia, setActivePinia } from 'pinia'
 import { queue as notifyQueue } from '@/composables/notify'
 
 /**
- * Task 482: verify the reconnect-with-offline-edits path end to end on the browser side.
- *
  * `y-websocket`'s real `WebsocketProvider` needs an actual `WebSocket` and a server on the other end
- * of it, neither of which exists in this unit test -- so it is mocked with a small fake that the test
- * drives by hand, emitting exactly the `status`/`sync` events the real library emits (see
- * `node_modules/y-websocket/src/y-websocket.js`) in exactly the order a real reconnect produces them:
- * `disconnected` -> `connecting` -> (`sync`, `true`) -> `connected`. What this buys over trusting the
- * library is coverage of `composables/collab.js`'s OWN reaction to that sequence -- the thing task 482
- * flags as most likely to regress.
+ * of it, neither of which exists in a unit test -- so it is faked, and driven by hand. The fake
+ * emits the same `status`/`sync` events the real library does, in the order a real reconnect
+ * produces them: `disconnected` -> `connecting` -> (`sync`, `true`) -> `connected`. What that covers
+ * is `composables/collab.js`'s OWN reaction to the sequence.
  */
 
 const { FakeWebsocketProvider } = vi.hoisted(() => {
@@ -50,9 +46,8 @@ const { FakeWebsocketProvider } = vi.hoisted(() => {
       this.listeners[event] = (this.listeners[event] ?? []).filter((fn) => fn !== cb)
     }
 
-    // -> Not part of the real y-protocols API -- a test-only hook so a suite can drive the same
-    //    'change' listener `composables/collab.js` itself registers via `on()` above, the same way
-    //    `FakeWebsocketProvider#emit` lets a test drive the provider's own listeners.
+    // -> Not part of the real y-protocols API: a test-only hook for driving the 'change' listener
+    //    `composables/collab.js` registers through `on()` above.
     emit(event, ...args) {
       for (const cb of this.listeners[event] ?? []) {
         cb(...args)
@@ -97,14 +92,10 @@ const { FakeWebsocketProvider } = vi.hoisted(() => {
 vi.mock('y-websocket', () => ({ WebsocketProvider: FakeWebsocketProvider }))
 
 /*
-  `dialog()`'s real chain (`composables/dialog.js`) mounts a `<w-dialog>` component that resolves
-  asynchronously through user interaction -- nothing this unit test can drive. This stand-in keeps the
-  same chainable shape (`.onOk(cb).onCancel(cb)`, both registering on the one object dialog() itself
-  returns) so a test decides which branch fires by calling `.okCb()`/`.cancelCb()` directly, the same
-  way `GlossaryImportDialog.test.js` drives its own `confirm()` mock. What the draft-restore prompt
-  hands the dialog is asserted off `componentProps`; the component itself is a
-  `defineAsyncComponent` wrapper (`PageDraftRestoreDialog.vue` has its own suite), so identity is
-  not what this file checks.
+  The real `dialog()` mounts a component that resolves through user interaction, which a unit test
+  cannot drive. This stand-in keeps the same chainable shape so a test picks the branch by calling
+  `.okCb()`/`.cancelCb()` directly. The component passed is a `defineAsyncComponent` wrapper, so
+  only `componentProps` is worth asserting, not identity.
 */
 const dialogMock = vi.fn(() => {
   const chain = {
@@ -128,11 +119,9 @@ vi.mock('@/composables/dialog', async (importOriginal) => ({
 }))
 
 /*
-  `composables/collab.js` reads the app's real i18n singleton (`@/boot/i18n`), which nothing in this
-  unit test's harness ever boots (no `main.js`, no locale strings loaded from the server) -- so `t()`
-  is stood in with a marker that echoes back exactly which key and params it was called with. What is
-  worth asserting here is the WIRING (the right key, the right interpolation params for "known
-  author" vs "unknown author"), not the English wording itself, which `en.json` already owns.
+  `composables/collab.js` reads the app's real i18n singleton, which this harness never boots, so
+  `t()` echoes back the key and params it was called with: the wiring is what is worth asserting,
+  not the English wording `en.json` owns.
 */
 vi.mock('@/boot/i18n', () => ({
   i18n: { global: { t: (key, params) => JSON.stringify({ key, params: params ?? null }) } }
@@ -162,9 +151,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  // -> The composable's `doc`/`provider` are module-level singletons, not component state -- must be
-  //    torn down between tests the same way `EditorMarkdown.vue`'s `onBeforeUnmount` does, or a later
-  //    test would silently reuse the previous test's session.
+  // -> The composable's `doc`/`provider` are module-level singletons, not component state, so
+  //    without this a later test silently reuses the previous test's session.
   stopCollabSession()
 })
 
@@ -174,9 +162,6 @@ describe('collabStatusEffects', () => {
   })
 
   it('never re-locks a reconnect´s trip back through "connecting" once the first sync happened', () => {
-    // -> This is the exact guard `stores/collab.js`'s doc comment describes and task 482 calls out as
-    //    the thing most likely to regress: same raw status as the very first connect, different
-    //    outcome because `hasSynced` is now true.
     expect(collabStatusEffects('connecting', true).readOnly).toBe(false)
   })
 
@@ -218,38 +203,32 @@ describe('startCollabSession reconnect behavior', () => {
 
   it('pins an explicit reconnect backoff ceiling rather than trusting the library default', () => {
     const { provider } = boot()
-    // -> A future `y-websocket` bump changing its own default must not silently change how long a
-    //    real outage takes to recover from once connectivity returns.
     expect(provider.opts).toMatchObject({ maxBackoffTime: 2500 })
   })
 
   it('walks disconnected -> connecting -> connected on reconnect, without tearing down the session', () => {
     const { collabStore, provider } = boot()
 
-    // -> First connect and sync, exactly like a normal session opening.
     provider.emit('status', { status: 'connecting' })
     provider.emit('sync', true)
     expect(collabStore.status).toBe('connected')
     expect(collabStore.hasSynced).toBe(true)
 
-    // -> The network drops. `y-websocket` reports this as `disconnected`, never `connecting` first.
+    // -> A drop: `y-websocket` reports it as `disconnected`, never `connecting` first.
     provider.emit('sync', false)
     provider.emit('status', { status: 'disconnected' })
     expect(collabStore.status).toBe('disconnected')
-    // -> hasSynced must survive a disconnect, not just a resync
     expect(collabStore.hasSynced).toBe(true)
 
-    // -> Connectivity returns; `y-websocket` retries on its own and reports the retry.
     provider.emit('status', { status: 'connecting' })
     expect(collabStore.status).toBe('connecting')
 
-    // -> The reconnect resyncs.
     provider.emit('sync', true)
     expect(collabStore.status).toBe('connected')
     expect(collabStore.hasSynced).toBe(true)
 
-    // -> Never a new `Y.Doc`/`WebsocketProvider` for the same reconnect -- that is what actually keeps
-    //    local edits made while disconnected: the very same document they were written into.
+    // -> Reusing the same `Y.Doc`/`WebsocketProvider` is what keeps edits made while disconnected:
+    //    they were written into that very document.
     expect(FakeWebsocketProvider.instances.length).toBe(1)
     expect(provider.destroyed).toBe(false)
   })
@@ -258,8 +237,6 @@ describe('startCollabSession reconnect behavior', () => {
     const { collabStore, provider } = boot()
 
     provider.emit('status', { status: 'connecting' })
-    // -> The socket is up, but nothing has synced yet: y-websocket's own 'connected' status must not
-    //    leak into the store as-is (see the comment in `composables/collab.js`).
     provider.emit('status', { status: 'connected' })
     expect(collabStore.status).toBe('connecting')
 
@@ -282,15 +259,6 @@ describe('startCollabSession reconnect behavior', () => {
   })
 })
 
-/**
- * Task 485: `bindCollabEditor` must not assume Monaco.
- *
- * Prior to this task it constructed `y-monaco`'s `MonacoBinding` directly, so any other editor --
- * TipTap included -- had no way to bind to the same session. It now takes a factory and hands it the
- * two things every binding needs (the shared `ytext`, the provider's `awareness`), leaving how those
- * turn into a live binding, and what (if anything) needs tearing down later, entirely up to the
- * caller.
- */
 describe('bindCollabEditor', () => {
   function boot() {
     const siteStore = useSiteStore()
@@ -320,8 +288,6 @@ describe('bindCollabEditor', () => {
       return { destroy: vi.fn() }
     })
     expect(seenAwareness).toBe(provider.awareness)
-    // -> A real Y.Text bound to this session's own document, not a stand-in -- so any real binding
-    //    (Monaco's, TipTap's, or a test double) sees genuine session content.
     seenYtext.insert(0, 'hello')
     expect(seenYtext.toString()).toBe('hello')
   })
@@ -345,19 +311,14 @@ describe('bindCollabEditor', () => {
   })
 
   it('tolerates a factory that owns its own lifecycle and returns nothing to track', () => {
-    // -> This is TipTap's shape: `@tiptap/extension-collaboration` binds itself once configured with
-    //    the document, and there is nothing left for this session to hold onto or tear down.
+    // -> TipTap's shape: `@tiptap/extension-collaboration` binds itself once configured with the
+    //    document, leaving this session nothing to hold onto or tear down.
     boot()
     expect(() => bindCollabEditor(() => undefined)).not.toThrow()
     expect(() => stopCollabSession()).not.toThrow()
   })
 })
 
-/**
- * Task #3264: `avatarProviderUrl` rides the same awareness `user` field `hasAvatar` already does --
- * written once at connect, and read back by `refreshParticipants()` into `collabStore.participants`
- * for `CollabPresence.vue` to render as a fallback.
- */
 describe('collab presence carries avatarProviderUrl', () => {
   function boot({ avatarProviderUrl = null } = {}) {
     const siteStore = useSiteStore()
@@ -418,10 +379,6 @@ describe('collab presence carries avatarProviderUrl', () => {
   })
 })
 
-/**
- * OpenProject #2455: on a page whose collaboration room last closed with unsaved edits still
- * pending, the reader is offered to restore them once the session syncs.
- */
 describe('offerDraftRestore / applyRestoredDraft', () => {
   function boot({ draft = null } = {}) {
     const siteStore = useSiteStore()
@@ -443,7 +400,6 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
     icon: 'tabler:restore'
   }
 
-  /** Binds a throwaway editor so the shared text can be seeded and read back. */
   function bindYtext(initial) {
     let seenYtext = null
     bindCollabEditor((ytext) => {
@@ -473,10 +429,10 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
 
     expect(dialogMock).toHaveBeenCalledTimes(1)
     const { component, componentProps } = dialogMock.mock.calls[0][0]
-    // -> A bespoke dialog component (OpenProject #2929), not the generic `confirm()` path
+    // -> A bespoke dialog component, not the generic `confirm()` path.
     expect(component).toBeTruthy()
     expect(componentProps.authorName).toBe('Grace Hopper')
-    // -> Consumed immediately, not left standing as "still pending" while the dialog is up
+    // -> Consumed immediately, not left standing as "still pending" while the dialog is up.
     expect(pageStore.draft).toBe(null)
   })
 
@@ -498,7 +454,7 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
     provider.emit('sync', true)
 
     // -> Before any button is pressed: the GET is already in flight and both halves of the
-    //    comparison are the dialog's to show (OpenProject #2929)
+    //    comparison are the dialog's to show.
     expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/pages/page-1/draft')
     const props = promptProps()
@@ -579,8 +535,8 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
       draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
     })
     const seenYtext = bindYtext('unchanged content')
-    // -> The prompt-time fetch failing is exactly the case a discard must not turn into an
-    //    unhandled rejection: nobody else is left to observe it
+    // -> A failed prompt-time fetch is the case a discard must not turn into an unhandled
+    //    rejection: nobody else is left to observe it.
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.reject(new Error('network')) })
 
     provider.emit('sync', true)
@@ -600,10 +556,6 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
   })
 })
 
-/**
- * OpenProject #2516: the schema-agnostic REST call `EditorWysiwyg.vue#swapToCollabEditor` makes
- * before seeding an empty WYSIWYG fragment, so at most one concurrent opener actually writes to it.
- */
 describe('claimWysiwygSeed', () => {
   it('posts to the claim route and returns the granted verdict', async () => {
     API_CLIENT.post.mockReturnValueOnce({

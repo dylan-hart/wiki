@@ -1,13 +1,11 @@
 # Inherited from upstream Wiki.js and not yet replaced: every target below funds the upstream
 # Wiki.js maintainers (NGPixel / Requarks), not Cardinal.js. Deliberately left naming upstream
 # rather than renamed -- a renamed copy would claim these are Cardinal.js's, which they are not.
-# Tracked in docs/legal/README.md, "What is not clean", item 2.
-
-# These are supported funding model platforms
+# Tracked in docs/audits/legal/README.md, "What is not clean".
 
 github: [NGPixel]
 patreon: requarks
 open_collective: wikijs
-ko_fi: # Replace with a single Ko-fi username
-tidelift: # Replace with a single Tidelift platform-name/package-name e.g., npm/babel
-custom: # Replace with a single custom sponsorship URL
+ko_fi:
+tidelift: # <platform-name>/<package-name>, e.g. npm/babel
+custom:

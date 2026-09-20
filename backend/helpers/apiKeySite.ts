@@ -1,43 +1,15 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
 
 /**
- * Refuse a request whose API key is scoped to one site but whose resource belongs to another.
+ * A null `req.apiKey.siteId` means unrestricted, and a request with no API key always passes. On a
+ * mismatch this writes the 403 itself and returns `false`, so the caller returns `reply`.
  *
- * `apiKeys.siteId` (added alongside this feature — see `models/apiKeys.ts`) is nullable, and null
- * means unrestricted: a key with no site on it may act against any site, exactly as every key did
- * before `siteId` existed. Only a *non-null* `req.apiKey.siteId` is a restriction, and it is checked
- * against `siteId`, the id of the site the route is actually about.
+ * `apiKeySitePinHook` covers the `/_api/sites/:siteId/...` surface; call this directly only where
+ * the site is resolved some other way (a hostname, a query-string id). A body `siteId` on a
+ * `manage:system`-gated route is deliberately left unchecked: `manage:system` bypasses every other
+ * authorization check, so pinning that one action would be an inconsistent partial boundary.
  *
- * A request with no API key at all (session auth, or no auth) is not this helper's concern and always
- * passes — it only ever restricts what an API key, specifically, may reach.
- *
- * Returns `true` when the request may proceed. On a mismatch it writes the 403 itself (via
- * `reply.forbidden()`, matching every other authorization refusal in `api/pages/read.ts` and
- * `api/assets.ts`) and returns `false`, so a caller's whole check is:
- *
- * ```ts
- * if (!enforceApiKeySite(req, reply, req.body.siteId)) {
- *   return reply
- * }
- * ```
- *
- * Most of the `/sites/:siteId/...` REST surface never calls this directly any more — `apiKeySitePinHook`
- * below is registered once, globally, in `index.ts` and covers all of it. It stays exported, and is
- * still called explicitly, for the handful of routes that resolve their site some other way than a
- * `:siteId` path parameter under that hook's prefix:
- *   - `req.hostname` (`controllers/files.ts`, `controllers/site.ts`, `controllers/render.ts` —
- *     OpenProject #2201), where the route has to resolve the real site itself before this can run;
- *   - a site id named in the request *body*, used by every `manage:system`-gated admin route that
- *     creates or exports something scoped to one site (`api/hooks.ts`'s webhook create/update,
- *     `api/apiKeys.ts`'s admin-issued key create, `api/system/transfer.ts`'s `/export`) — deliberately left
- *     *uncalled*, not merely unenumerated: `manage:system` already bypasses every other authorization
- *     check in this codebase, so pinning would be enforced only
- *     on this one action a `manage:system` key can take and nowhere else it matters just as much — an
- *     inconsistent partial boundary rather than a real one. Each such route carries a comment pointing
- *     back here instead of a call.
- *
- * `mcp/auth.ts`'s `assertSiteInScope` re-implements the same check rather than calling this, since it
- * throws instead of writing a Fastify reply.
+ * Mirrored by `mcp/auth.ts#assertSiteInScope`, which throws instead of writing a reply.
  */
 export function enforceApiKeySite(
   req: FastifyRequest,
@@ -52,59 +24,31 @@ export function enforceApiKeySite(
 }
 
 /**
- * The URL prefixes a Bearer token is actually verified against, in `index.ts`'s own `onRequest` hook
- * (the one that sets `req.apiKey`). `/_api/` is the ordinary case. The rest are
- * hostname-resolved, no-`:siteId`-param controllers this file's own doc comment above names
- * (`controllers/files.ts`, `controllers/site.ts`) plus `controllers/thumb.ts` and
- * `controllers/pageScripts.ts` (OpenProject #3405) — both of which read `req.apiKey` indirectly,
- * through `actorForRequest()`'s `AccessActor.siteId` and `groups.checkAccess()`'s `withinSitePin`,
- * rather than calling `enforceApiKeySite()` themselves, but depend on `req.apiKey` being populated
- * exactly the same way (OpenProject #2339: before this existed, `req.apiKey` was always null outside
- * `/_api/`, so every one of these checks was a permanent no-op for a Bearer-authenticated request
- * against any of them).
+ * The prefixes `core/http/authHooks.ts` verifies a Bearer token under; anywhere else `req.apiKey`
+ * stays unset and a site-pin check is a silent no-op. Beyond `/_api/`, these are the
+ * hostname-resolved controllers that read `req.apiKey`, directly or through `actorForRequest()`.
  *
- * Deliberately excludes two look-alike public controllers: `controllers/render.ts` resolves no site
- * at all (the served shell is identical for every site) and is only ever fetched by this instance's
- * own headless browser, which carries no API key; `controllers/icons.ts` never reads `req.apiKey` —
- * an icon carries no site-scoped permission of its own to check.
+ * `/_render/` and `/_icons/` are deliberately absent: the render shell resolves no site and is only
+ * fetched by this instance's own headless browser, and an icon has no site-scoped permission to
+ * check.
  */
 const BEARER_AUTH_PREFIXES = ['/_api/', '/_files/', '/_site/', '/_thumb/', '/_pages/']
 
-/**
- * Whether `index.ts`'s API-key-verification hook should even look for a Bearer token on this
- * request. Kept as a plain function of the URL, matching `helpers/rateLimit.ts#isPublicRateLimitedPath`'s
- * own reasoning for being one: independently unit-testable, with no Fastify instance needed.
- */
 export function isBearerAuthenticatedPath(url: string): boolean {
   return BEARER_AUTH_PREFIXES.some((prefix) => url.startsWith(prefix))
 }
 
 /**
- * The literal prefix every `/sites/:siteId/...` REST route is mounted under: `api/index.ts` registers
- * every resource file (`pages.ts`, `assets.ts`, `sites.ts`, `tree.ts`, ...) under `/_api`, and each one
- * writes its own path starting with either `/sites/:siteId/...` or (`sites.ts` itself, whose file
- * writes bare `/:siteId/...` under an `{ prefix: '/sites' }` registration) the same thing once the
- * prefix is applied. `helpers/apiKeySite.coverage.test.ts` asserts, against the real registered route
- * table, that this really is every route carrying a `:siteId` param — so a route added under some
- * other prefix that still happens to read a `:siteId` param (paths OUTSIDE this prefix that also
- * happen to have a same-named parameter — `controllers/site.ts`'s `/:siteId/:resource`, whose
- * `:siteId` can be the literal sentinel `'current'` or a hostname rather than a real site id — are
- * deliberately NOT matched by this prefix, and must call `enforceApiKeySite()` explicitly instead)
- * fails that test rather than silently going unchecked.
+ * `apiKeySite.coverage.test.ts` asserts, against the real route table, that every `/_api` route with
+ * a `:siteId` param sits under this prefix. A route outside it that shares the param name
+ * (`controllers/site.ts`, whose `:siteId` may be `'current'` or a hostname) is deliberately not
+ * matched and calls `enforceApiKeySite()` itself.
  */
 const SITE_SCOPED_API_PREFIX = '/_api/sites/'
 
 /**
- * Global `preHandler` enforcing the API key `siteId` pin across every `/sites/:siteId/...` REST route
- * in one place (OpenProject #2194), rather than the one-liner-per-route approach that produced the gap
- * this closes: `enforceApiKeySite()` above was invoked at exactly two of 117+ call sites before this
- * existed. Registered once in `index.ts`, beside the permissions hook, so a route added later under
- * `SITE_SCOPED_API_PREFIX` is covered automatically rather than by remembering to add a call. Routes
- * with no `:siteId` param under that prefix are untouched, matching `enforceApiKeySite`'s own "no
- * opinion when there is nothing to check" behavior for a request with no API key at all.
- *
- * Cheap on the overwhelming majority of requests: an unpinned key (`req.apiKey.siteId` null, or no key
- * at all — session auth, or none) returns before even looking at the URL.
+ * One global `preHandler` rather than a call per route, so a route added later under
+ * `SITE_SCOPED_API_PREFIX` is covered without anyone remembering to.
  */
 export function apiKeySitePinHook(
   req: FastifyRequest,

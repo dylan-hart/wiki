@@ -24,8 +24,6 @@ describe('shared/render.js: renderError()', () => {
 
   it('leaves no whitespace of its own around the message', () => {
     // -> `errorBox` sets `white-space: pre-wrap`, so the markup's own indentation would be drawn.
-    //    That is exactly what the hand-written multi-line `<div class="error">` blocks this replaces
-    //    would have started doing once they adopted the shared box.
     const box = into(renderError('short')).querySelector('.error')
 
     expect(box.textContent).toBe('short')

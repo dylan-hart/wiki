@@ -17,11 +17,9 @@ import type { MigrationContext } from '../context.ts'
 import { iterate as iter, stubSourceConnector } from '../../test/migrationFixtures.ts'
 
 /**
- * A `SourceConnector` for a 2.x install whose primary locale is French (`lang.code: 'fr'`), not the
- * destination's pre-migration default (`'en'`) — matching this suite's own purpose, see the module
- * doc comment below. `navigation()`'s modern per-locale format carries a distinct item per locale
- * (`'English Home'` under `'en'`, `'Accueil'` under `'fr'`), so which one lands as the site's real
- * menu directly proves which locale `contentPhase` actually resolved.
+ * A 2.x install whose primary locale is French, not the destination's pre-migration `'en'` default.
+ * `navigation()` carries a distinct item per locale, so which one lands as the site's real menu
+ * proves which locale `contentPhase` resolved.
  */
 function fakeSourceConnector(): SourceConnector {
   return stubSourceConnector({
@@ -96,17 +94,8 @@ function fakeSourceConnector(): SourceConnector {
 }
 
 /**
- * Whole-branch review Critical #1: `ctx.primaryLocale` used to be captured in `tasks/migrate.ts`
- * BEFORE any phase ran — always `'en'` on a fresh destination — and never updated even after the
- * `settings` phase (which runs first) changed the destination site's real primary locale via
- * `updateSite()`. `phases/content.ts`'s navigation write and `phases/assets.ts`'s asset/folder writes
- * both keyed off that stale value, so a non-English 2.x source's imported nav/assets always landed
- * under `'en'` regardless of what the source's own `lang.code` said.
- *
- * This suite runs the real `settings` phase first (flipping the destination's primary locale from
- * `'en'` to `'fr'`), then the real `content`/`assets` phases against the SAME `MigrationContext` — no
- * process restart, no re-bootstrap — and asserts the nav row and the uploaded asset both land under
- * `'fr'`, the locale `settings` just set, not the destination's pre-migration `'en'` default.
+ * The three real phases run against the SAME `MigrationContext` — no restart, no re-bootstrap — so a
+ * locale captured once at context-build time rather than re-read per phase fails here.
  */
 describe(
   'locale propagation: settings phase changes the primary locale, content/assets phases pick it up (Critical #1 fix)',
@@ -131,13 +120,11 @@ describe(
         localStrategyId: 'unused-local-strategy',
         systemGroupIds: { admin: 'unused-admin-group', guest: 'unused-guest-group' },
         operatorActorId: fixtures.userId,
-        // -> Stands in for a completed users-phase run; neither the page nor the asset in this
-        //    fixture has a resolvable authorId, so this is never actually consulted.
+        // -> Stands in for a completed users-phase run; nothing in this fixture has a resolvable
+        //    authorId, so it is never actually consulted.
         userIdMap: new Map()
       }
 
-      // -> Sanity check before touching anything: the fixture site starts at the destination's
-      //    ordinary pre-migration default.
       assert.equal(CARDINAL.sites[fixtures.siteId]!.config.locales.primary, 'en')
 
       const settingsResult = await settingsPhase.run(ctx)
@@ -154,10 +141,8 @@ describe(
       const assetsResult = await assetsPhase.run(ctx)
       assert.equal(assetsResult.status, 'ok')
 
-      // -> The navigation row was written under 'fr' (resolvePrimaryLocale() re-read the destination's
-      //    now-current primary locale), never under the stale 'en' default -- and its item is the
-      //    'fr'-tree's own item, proving extractLocaleItems() picked the right per-locale tree out of
-      //    2.x's config, not just that some row happened to land at locale 'fr'.
+      // -> Asserting the item too, not just the row's locale: it proves extractLocaleItems() picked
+      //    the right per-locale tree out of 2.x's config, not that a row happened to land at 'fr'.
       const [navRow] = await fixtures.db
         .select()
         .from(navigationTable)
@@ -173,7 +158,6 @@ describe(
         .where(and(eq(navigationTable.siteId, fixtures.siteId), eq(navigationTable.locale, 'en')))
       assert.equal(enNavRows.length, 0, 'no navigation row was written under the stale en default')
 
-      // -> The uploaded asset's tree row was written under 'fr' too.
       const [treeEntry] = await fixtures.db
         .select()
         .from(treeTable)

@@ -16,13 +16,6 @@ const MESSAGES = {
   common: { actions: { discard: 'Discard', save: 'Save' } }
 }
 
-/**
- * OpenProject #3389/#3402: restored from the pre-a3a6c7994 tree, rewired to the current `w-*`/
- * oxfmt/icon conventions. The 403-refusal side of "no silent discard" is the server's job
- * (`api/pages/scriptsPermission.test.ts`); this suite covers the dialog's own read/write mapping --
- * the exact bug OpenProject #1130 fixed once already (`'script' + 'Styles'` deriving a store key
- * that doesn't exist).
- */
 describe('PageScriptsDialog', () => {
   it('loads scriptJsLoad into the editor for mode: jsLoad, and patches it back on save', async () => {
     const { wrapper, pageStore } = mountWithApp(PageScriptsDialog, {

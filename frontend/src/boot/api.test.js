@@ -5,10 +5,9 @@ import { initializeApi, isSessionExpiryUrl } from './api.js'
 import { useUserStore } from '@/stores/user'
 
 /*
-  `initializeApi()`'s whole point is the `ky.create({ hooks })` wiring, so the real assertion is on
-  what gets passed to `ky.create` -- not on a real network round trip. `ky` itself is mocked down to
-  a spy that records its call, and each test invokes the captured `beforeError` hook directly with a
-  synthetic `{ request, error }`, the same shape ky's own hook receives.
+  `ky` is mocked down to a spy recording its call, so the assertions here are on the options handed
+  to `ky.create` rather than on a network round trip: each test invokes the captured `beforeError`
+  hook directly with a synthetic `{ request, error }`, the shape ky's own hook receives.
 */
 const createMock = vi.fn()
 
@@ -133,14 +132,6 @@ describe('initializeApi(): global session-expiry handling', () => {
   })
 })
 
-/*
-  Task 1758: the shared client used to override `throwHttpErrors` to `(statusNumber) => statusNumber
-  > 400`, resolving a 400 instead of rejecting it -- every caller that wanted a 400 treated as an
-  error (`AuthLoginPanel.vue`'s `login()`/`register()`/`changePwd()`/`resetPassword()` included) had
-  to inspect `resp.ok` itself. `ky.create` is mocked in this file (see header comment above), so the
-  real assertion reachable here is on the option actually handed to it -- `ky`'s own behavior for a
-  `throwHttpErrors: true` client is `ky`'s to guarantee, not this suite's.
-*/
 describe('initializeApi(): throwHttpErrors', () => {
   it('passes throwHttpErrors: true to the shared ky client, rather than special-casing 400', () => {
     initializeApi(stubRouter())

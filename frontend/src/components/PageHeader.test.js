@@ -17,11 +17,8 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Regression test for OpenProject #2000: `notImplemented()` showed a red toast with the untranslated
- * literal 'Not implemented' and was never called from anywhere in this component -- dead code left
- * over from an earlier stub. Reads the raw source rather than mounting, matching
- * `EditorMarkdown.deadcode.test.js`'s reasoning: this asserts an identifier is simply gone, and also
- * guards against it quietly being reintroduced.
+ * Source-scanned rather than mounted: the claim is that an unreachable helper is gone from the file
+ * and does not quietly come back, which no render can show.
  */
 describe('PageHeader dead code', () => {
   it('has no notImplemented() helper', () => {
@@ -31,15 +28,6 @@ describe('PageHeader dead code', () => {
   })
 })
 
-/**
- * Regression coverage for feature 413 ("RTL support end-to-end"), task 721: this row is a plain flex
- * row, so a reader's text direction already reorders the icon, the title column and the action
- * buttons for free -- what does NOT follow along on its own is the GAP between them, which used to be
- * written as physical Tailwind utilities (`pl-4`, `ml-4`, `ml-2`, `mr-2`). Under `dir="rtl"` those
- * stay glued to the visual left/right they name, landing on the wrong side of whichever element the
- * flex reorder just moved -- `ps-4`/`ms-4`/`ms-2`/`me-2` (logical: inline-start/inline-end) are the
- * fix, since they resolve against the reader's direction rather than the viewport.
- */
 async function mountHeader() {
   const router = await createTestRouter(['/'])
 
@@ -47,11 +35,8 @@ async function mountHeader() {
 }
 
 /**
- * OpenProject #1630/#1633: the title of every wiki page used to render into a plain
- * `<div class="text-h4 page-header-title">` -- a heading NEITHER role nor level, so a screen
- * reader's heading navigation (the H key / rotor) found nothing to land a reader on here. Fixed by
- * changing the element only; the classes (and therefore the visuals) are unchanged. See the
- * accessibility audit's heading-hierarchy pass (`docs/audit-2026-08-24/accessibility-i18n.md` §3).
+ * A real `<h1>`, not a styled `<div>`: a screen reader's heading navigation (the H key, the rotor)
+ * has to be able to land on the page title.
  */
 describe('PageHeader heading semantics', () => {
   it('renders the page title as a real <h1>, carrying the same classes as before', async () => {
@@ -60,7 +45,6 @@ describe('PageHeader heading semantics', () => {
     const heading = wrapper.find('h1.page-header-title')
     expect(heading.exists()).toBe(true)
     expect(heading.classes()).toContain('text-h4')
-    // -> No stray `<div class="text-h4 page-header-title">` left behind alongside it
     expect(wrapper.find('div.page-header-title').exists()).toBe(false)
   })
 
@@ -75,9 +59,8 @@ describe('PageHeader heading semantics', () => {
 })
 
 /**
- * Feature #2574/#2578: the reading-mode heading is a deliberate override of `pageStore.title` when
- * the site's path-display setting is on -- not a fallback for a page with no title, which is why
- * the humanized segment wins even though `title` below is set to something else entirely.
+ * The path-display setting overrides `pageStore.title` outright rather than filling in for a page
+ * without one, which is why the humanized segment wins over the title set beside it.
  */
 describe('PageHeader path-display heading (Feature #2574)', () => {
   it('renders pageStore.title unchanged when the setting is off', async () => {
@@ -98,6 +81,11 @@ describe('PageHeader path-display heading (Feature #2574)', () => {
   })
 })
 
+/**
+ * The flex row reorders under `dir="rtl"` on its own; the gaps do not. A physical utility (`pl-4`,
+ * `ml-2`) stays glued to the visual side it names, landing on the wrong side of whichever element
+ * the reorder moved, so the row uses the logical `ps-*`/`ms-*`/`me-*` forms.
+ */
 describe('PageHeader RTL-safe spacing', () => {
   it('spaces the page icon from the title with a logical (inline-start) padding, not a physical one', async () => {
     const wrapper = await mountHeader()
@@ -111,7 +99,6 @@ describe('PageHeader RTL-safe spacing', () => {
     const wrapper = await mountHeader()
 
     const html = wrapper.html()
-    // -> None of the physical margin utilities this row used to carry survive in the render
     expect(html).not.toMatch(/\bml-4\b/)
     expect(html).not.toMatch(/\bml-2\b/)
     expect(html).not.toMatch(/\bmr-2\b/)
@@ -119,18 +106,13 @@ describe('PageHeader RTL-safe spacing', () => {
 })
 
 /**
- * OpenProject #1747: the `editorStore.saveConflict` watcher and its `resolveSaveConflict()` dialog
- * used to live only in `EditorMarkdown.vue`, so `EditorWysiwyg`, `EditorCode`, `EditorAsciidoc` and
- * `EditorRedirect` all fell through to `saveChangesCommit()`'s generic negative toast on a 409 instead
- * of ever raising `PageSaveConflictDialog.vue`. Hoisted here because `saveChangesCommit()` is the one
- * save path every editor already routes through -- these tests drive `editorStore.saveConflict`
- * directly (the same state `stores/page.js`'s 409 handler sets, regardless of which editor triggered
- * the save) rather than through a real 409 round trip, so they exercise the shared, editor-agnostic
- * path the fix actually lives on.
+ * The conflict dialog belongs to `saveChangesCommit()`, the one save path every editor routes
+ * through, so these drive `editorStore.saveConflict` directly -- the same state a 409 sets, whichever
+ * editor was mounted -- rather than through a real round trip.
  */
 describe('PageHeader save-conflict resolution (OpenProject #1747)', () => {
   afterEach(() => {
-    // -> Leftover dialogs/toasts from one test must not bleed into the next test file's render.
+    // -> Both are module state: an entry left behind bleeds into the next file's render.
     openDialogs.splice(0, openDialogs.length)
     queue.splice(0, queue.length)
   })
@@ -138,9 +120,7 @@ describe('PageHeader save-conflict resolution (OpenProject #1747)', () => {
   async function mountHeaderForSave() {
     setActivePinia(createPinia())
 
-    // -> `editorStore.editor` is set to 'code', deliberately not 'markdown': these tests must pass
-    //    for any editor, since the whole point of the hoist is that the dialog no longer depends on
-    //    which one is active.
+    // -> 'code', deliberately not 'markdown': the dialog must not depend on which editor is active.
     const editorStore = useEditorStore()
     editorStore.isActive = true
     editorStore.editor = 'code'
@@ -198,12 +178,8 @@ describe('PageHeader save-conflict resolution (OpenProject #1747)', () => {
   })
 
   /**
-   * OpenProject #2073: a save-conflict "Discard" choice used to be permanent. `resolveSaveConflict`'s
-   * discard branch stashes the author's pending content in `editorStore.discardedContent` right
-   * before the overwrite, and raises a toast with an "undo" action (`undoDiscard`) that restores it.
-   * Store-only here, matching the hoist itself (OpenProject #1747): this file has no reference to
-   * whichever editor is mounted, so restoring is `pageStore.content` alone -- a mounted editor picks
-   * it back up the same way it does any other external change to that field.
+   * Restoring is a write to `pageStore.content` alone -- a mounted editor picks that up like any
+   * other external change to the field -- so the whole claim is assertable against the stores.
    */
   it("retains the author's discarded content and restores it via the toast's undo action", async () => {
     const { wrapper, editorStore, pageStore } = await mountHeaderForSave()
@@ -231,7 +207,7 @@ describe('PageHeader save-conflict resolution (OpenProject #1747)', () => {
     toast.action.onClick()
 
     expect(pageStore.content).toBe('Author draft text.')
-    // -> The stash is cleared once restored, so a stray repeat click has nothing left to redo.
+    // -> Cleared once restored, so a second click on a lingering toast cannot redo it.
     expect(editorStore.discardedContent).toBeNull()
   })
 
@@ -243,8 +219,7 @@ describe('PageHeader save-conflict resolution (OpenProject #1747)', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.vm.$nextTick()
 
-    // -> The i18n messages map above is deliberately empty (matching the aria-label assertions
-    //    throughout this file), so `t('common.page.saveFailed')` resolves to the untranslated key.
+    // -> The i18n map is empty throughout this file, so a message reads as its own untranslated key.
     expect(queue.some((n) => n.message === 'common.page.saveFailed')).toBe(false)
   })
 
@@ -261,9 +236,8 @@ describe('PageHeader save-conflict resolution (OpenProject #1747)', () => {
 })
 
 /**
- * OpenProject #2137: the return leg `hasOpenSuggestion` alone never gave -- that flag going false
- * says nothing about what happened to the suggestion. `pageStore.resolvedSubmission`, set from the
- * `viewer` block a page fetch carries back, is what fills that in here.
+ * `hasOpenSuggestion` going false says nothing about how the suggestion ended;
+ * `pageStore.resolvedSubmission`, off the page fetch's `viewer` block, is what carries the outcome.
  */
 describe('PageHeader suggestion outcome (OpenProject #2137)', () => {
   it('renders a declined resolution with both the outcome and the reviewer’s reason visible', async () => {
@@ -312,19 +286,13 @@ describe('PageHeader suggestion outcome (OpenProject #2137)', () => {
 })
 
 /**
- * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
- * the page-icon plate's glyph drew the same bright light-mode tone against a dark ground.
+ * The whole plate -- ground, edge, corner, glyph -- reads `--page-header-icon-*` rather than a
+ * light/dark `color` prop pair, which cannot express Cobalt's translucent white well on a gradient
+ * banner. So the icon carries no colour of its own and the stylesheet is what lightens the glyph
+ * for Ledger's dark theme while leaving Cobalt's white one alone.
  *
- * The fix used to be a `dark.isActive`-driven `color` prop on both branches. It is now a token --
- * the whole plate (ground, edge, corner, glyph) reads `--page-header-icon-*`, because Cobalt draws
- * it as a translucent white well on a gradient banner and no light/dark prop pair can express that.
- * So the claim moves with it: the branches carry NO colour of their own, and the stylesheet is what
- * hands Ledger's dark theme the lightened accent while excluding Cobalt, whose plate is the same
- * white glyph in both themes.
- *
- * Asserted against the compiled `<style>` block rather than a mounted element for the reason
- * `editorScreenChrome.test.js` gives: happy-dom resolves no cascade, so a rule scoped to a `body`
- * class cannot be read off a mounted node.
+ * Read off the source `<style>` block, not a mounted element: happy-dom resolves no cascade, so a
+ * rule scoped to a `body` class is invisible to a mounted node.
  */
 describe('PageHeader page-icon plate glyph (OpenProject #2807)', () => {
   const style = readFileSync(join(import.meta.dirname, 'PageHeader.vue'), 'utf-8')
@@ -334,7 +302,7 @@ describe('PageHeader page-icon plate glyph (OpenProject #2807)', () => {
 
     const icon = wrapper.find('.page-header-icon .w-icon')
     expect(icon.exists()).toBe(true)
-    // -> `WIcon`'s `color` prop renders as `text-<name>`; neither tone is named on the element
+    // -> `WIcon`'s `color` prop renders as `text-<name>`, so neither tone may appear as a class
     expect(icon.classes()).not.toContain('text-accent-fill')
     expect(icon.classes()).not.toContain('text-accent-dark')
   })

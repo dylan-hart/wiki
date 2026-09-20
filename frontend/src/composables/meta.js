@@ -1,18 +1,10 @@
 import { onScopeDispose, watchEffect } from 'vue'
 
 /**
- * Document title management.
- *
- * Replaces the meta plugin with just the part the app used: a `title` set by pages, and a
- * `titleTemplate` set by layouts that wraps it (e.g. `title => \`${title} - Cardinal.js\``).
- *
- * Registrations form a stack in mount order. The effective title is the most recently registered
- * `title`, and the effective template the most recently registered `titleTemplate` -- so a layout
- * mounting first and a page mounting second combine the way the component tree implies, without
- * needing to model provide/inject.
- *
- * The full meta plugin also handled arbitrary <meta>/<link>/<script> tags. Nothing in the app used
- * those, so they are deliberately not reimplemented.
+ * Document title only: a `title` registered by pages and a `titleTemplate` registered by layouts
+ * that wraps it. Registrations form a stack in mount order, and the most recent of each wins -- so
+ * a layout mounting first and a page mounting second combine the way the component tree implies,
+ * with no provide/inject to model.
  */
 
 /** @type {Array<{ title?: string, titleTemplate?: (t: string) => string }>} */

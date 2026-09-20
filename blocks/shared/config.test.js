@@ -13,19 +13,10 @@ function stubSite(site) {
   )
 }
 
-/*
- * OpenProject #954: `getBlockImportUrl` is `blocks/`'s own equivalent of `blockImportUrl()` in
- * `frontend/src/stores/common.js` -- it resolves a block's compiled-code URL off the public
- * `/_api/sites/current` response's `blocksIndex` map rather than the manage:sites-gated
- * `GET /sites/:siteId/blocks` route, which a plain reader is refused. `block-include`'s
- * `_loadNestedBlocks` is the first caller: a custom block nested inside transcluded content has no
- * other way to resolve its import URL for itself.
- */
 describe('shared/config.js: getBlockImportUrl()', () => {
   beforeEach(() => {
-    // -> Both exports share one cached fetch for the module's lifetime (one request per real page
-    //    load); each test needs its own site-info response, so the cache must not survive between
-    //    them -- the same reason block-map's own tests reset it.
+    // -> Both exports share one site fetch cached for the module's lifetime; each test needs its
+    //    own site-info response, so the cache must not survive between them.
     _resetSiteCache()
   })
 

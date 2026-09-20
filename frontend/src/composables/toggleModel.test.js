@@ -3,7 +3,6 @@ import { reactive } from 'vue'
 
 import { useToggleModel } from './toggleModel'
 
-/** `props`/`emit` as a component would hand them over. */
 function setup(props) {
   const emit = vi.fn()
   const state = reactive({ val: undefined, ...props })

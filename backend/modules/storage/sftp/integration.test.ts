@@ -14,18 +14,8 @@ import type { StorageTarget } from '../../../models/storage.ts'
 import { ensureTemporal } from '../../../test/temporal.ts'
 
 /**
- * Integration coverage for the `sftp` storage module, against a real (if narrow) SFTP server rather
- * than a stub of `ssh2-sftp-client`'s API — see `test/sftpServer.ts` for why that's built directly on
- * `ssh2` instead of a stub or a Docker fixture. Everything below runs a real TCP connection to
- * `127.0.0.1` and reads back real files from a real (temporary) directory on disk; the only thing
- * replaced is the database query each of `exportPages`/`exportAssets` would otherwise run
- * (`fetchBatch`), following the same dependency-injection convention their own unit tests already use
- * — this is exactly the "not SQL orchestration" case this repo's testing conventions say to stub
- * rather than reaching for a live Postgres for.
- *
- * `injectFrontMatter` (via `exportPages`) converts a page's `createdAt`/`updatedAt` through
- * `Date#toTemporalInstant()`, a Node 26 global this sandbox's Node v25.9.0 doesn't provide — same gap
- * `helpers/pageSerialization.test.ts` and `core/scheduler.test.ts` already work around.
+ * Real TCP against a real SFTP server (`test/sftpServer.ts`), reading files back off disk; only the
+ * database query behind `fetchBatch` is stubbed, since nothing here is exercising SQL.
  */
 let wikiHandle: { restore(): void }
 let loggerCalls: { level: string; scope: string; message: string }[]
@@ -37,9 +27,8 @@ before(async () => {
 beforeEach(() => {
   loggerCalls = []
   wikiHandle = installTestWiki({
-    // -> Not the silent default: several tests assert on what the export run logged. `scope()` has to
-    //    be a real child here rather than `createSilentLogger`'s `() => stub`, since the module logs
-    //    only through one.
+    // -> Not the silent default: tests assert on what the export logged, and the module logs only
+    //    through a `scope()` child, which `createSilentLogger` collapses back onto itself.
     logger: (() => {
       const at = (level: string, scope: string) => (message: string) => {
         loggerCalls.push({ level, scope, message })
@@ -85,8 +74,6 @@ after(async () => {
   await server.stop()
 })
 
-/** Create a fresh, empty directory directly under the server's backing root, and return the absolute
- *  SFTP-side path to it — what a target's `basePath` would point at. */
 function makeBaseDir(name: string): string {
   fs.mkdirSync(path.join(server.rootDir, name))
   return `/${name}`
@@ -292,7 +279,6 @@ describe('exportAll — full run against a seeded site (real server)', () => {
       'welcome.md'
     ])
 
-    // -> The default locale (`en`) is never namespaced; a non-default locale (`fr`) is.
     const enBody = fs.readFileSync(path.join(server.rootDir, baseName, 'welcome.md'), 'utf8')
     assert.match(enBody, /title: Welcome/)
     assert.match(enBody, /description: The landing page/)
@@ -303,8 +289,6 @@ describe('exportAll — full run against a seeded site (real server)', () => {
     assert.match(frBody, /title: Bienvenue/)
     assert.match(frBody, /# Bonjour/)
 
-    // -> Assets are written as raw bytes, not text — a folderPath nests them exactly where the tree
-    //    table said they lived.
     assert.deepEqual(
       fs.readFileSync(path.join(server.rootDir, baseName, 'logo.png')),
       Buffer.from('PNG-bytes')
@@ -314,7 +298,6 @@ describe('exportAll — full run against a seeded site (real server)', () => {
       Buffer.from('JPG-bytes')
     )
 
-    // -> `exportAll`'s own orchestration/logging ran too, over the real connection.
     assert.ok(loggerCalls.some((c) => c.scope === 'storage' && c.message === 'starting the export'))
     assert.ok(loggerCalls.some((c) => c.scope === 'storage' && c.message === 'export completed'))
   })

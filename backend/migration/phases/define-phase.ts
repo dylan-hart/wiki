@@ -5,23 +5,17 @@ import type { WriteRecorder } from '../recorder.ts'
 import type { MigrationContext, MigrationPhase, MigrationPhaseId, PhaseResult } from '../context.ts'
 
 /**
- * One entity a phase reads off the source connector.
- *
- * `classify`, when given, is called for every record read and decides how it counts toward the
- * phase's `PhaseReport` — typically `recorder.unmappable(...)` for a record this task's named
- * unmappable categories cover (see `../report.ts`), otherwise `recorder.create(...)`. An entity
- * that omits it still gets every record it reads counted as a plain "would create" via the default
- * below — the correct behavior for an entity this task has no per-record reconciliation rule for.
+ * `classify` decides how each record read counts toward the phase's `PhaseReport`. An entity that
+ * omits it still counts every record as a plain "would create".
  */
 export interface PhaseEntity {
   source: () => AsyncIterable<unknown>
   classify?: (record: unknown, recorder: WriteRecorder) => void | Promise<void>
   /**
-   * Runs once, after this entity's `source()` stream is fully exhausted — never for a
-   * `NotYetImplementedError` stub, since no records were actually read. For a phase whose entity
-   * needs a genuine second pass over what `classify` accumulated (a forward reference that cannot
-   * resolve until every record has a real destination id — see `comment-import.ts#resolveCommentReplies()`
-   * for the motivating case), rather than a synthetic extra entity that would pollute `PhaseResult.counts`.
+   * Runs once after `source()` is fully exhausted, never for a `NotYetImplementedError` stub. For an
+   * entity needing a second pass over what `classify` accumulated (a forward reference that cannot
+   * resolve until every record has a destination id), rather than a synthetic extra entity that
+   * would pollute `PhaseResult.counts`.
    */
   onComplete?: () => void | Promise<void>
 }
@@ -42,17 +36,9 @@ async function defaultClassify(
 }
 
 /**
- * Exhausts one entity's source generator, running `classify` (or the default) per record and counting
- * how many were read — the harness never needs the records themselves once classified, only how many
- * the source reports and how each one was classified.
- *
- * An entity generator that is still a `NotYetImplementedError` stub — real against a
- * `PostgresSourceConnector` source today, still true of most of `ExportBundleSourceConnector`'s
- * generators (`users`/`groups`/`settings`/`comments`/`assets` — bundle write support is out of this
- * plan's scope) — resolves to `'not_implemented'` rather than aborting the whole phase, so an operator
- * running the CLI against either connector kind gets a clean per-phase report instead of a crash. Any
- * other error propagates, since that is a real fault (a bad connection, a malformed row) the operator
- * needs to see.
+ * A source generator that is still a `NotYetImplementedError` stub resolves to `'not_implemented'`
+ * rather than aborting the phase, so an operator gets a clean per-phase report instead of a crash.
+ * Any other error propagates: that is a real fault the operator needs to see.
  */
 async function readEntity(
   entity: PhaseEntity,
@@ -80,12 +66,6 @@ async function readEntity(
   return count
 }
 
-/**
- * Builds one `MigrationPhase` from its id/label/dependencies plus the source entities it reads,
- * wrapping the read in structured success/not-implemented/error reporting (`PhaseResult`) and, on top
- * of that, the dry-run/report-mode reconciliation every phase now produces (`PhaseResult.report`, see
- * Feature 421 task 744 and `../report.ts`).
- */
 export function definePhase(config: {
   id: MigrationPhaseId
   label: string

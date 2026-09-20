@@ -1,13 +1,3 @@
-/**
- * `core/collab.ts`'s autosave-draft persistence (OpenProject #2454): a room's live Yjs state is
- * debounce-written to `CARDINAL.models.pageDrafts` as real edits happen, `initRoom()` never reads it back
- * to seed a room (OpenProject #2957 -- doing so used to make the recovery-restore dialog's diff empty
- * and its Discard a no-op, since the room would already hold the draft by the time either ran), and
- * `pageSaved()`/`discardDraft()` clear the draft once a real save, or an explicit Cancel (OpenProject
- * #2898), supersedes it. Pure -- `test/collabHarness.ts` stubs `CARDINAL.models.pageDrafts`, so this
- * needs no database; `models/pageDrafts.db.test.ts` covers the storage layer itself. Split out of
- * `core/collab.test.ts` (TEST-F14) alongside its three siblings.
- */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import * as Y from 'yjs'
@@ -59,7 +49,6 @@ describe('scheduleDraftPersist / flushDraftPersist: debounce', () => {
     const room = await harness.openRoom(collab, { id: 'page-3', siteId: 'site-1' })
     const pageDrafts = harness.pageDrafts()
 
-    // -> An edit every (DEBOUNCE - 1)ms, forever — the debounce alone would never fire.
     const step = DRAFT_PERSIST_DEBOUNCE - 1
     let elapsed = 0
     while (elapsed < DRAFT_PERSIST_MAX_DELAY + step) {
@@ -82,10 +71,8 @@ describe('scheduleDraftPersist / flushDraftPersist: debounce', () => {
     const room = await harness.openRoom(collab, { id: 'page-4', siteId: 'site-1' })
     const pageDrafts = harness.pageDrafts()
 
-    // -> A real cross-instance edit, not an independently-seeded doc: cloned from the room's own
-    //    current state first (same reasoning `buildSeed`'s doc comment gives for why two independent
-    //    seeds must never both be inserted), then edited, then diffed against the room's state vector
-    //    — exactly the update shape `doc.on('update', …)` itself would relay out.
+    // -> Cloned from the room's own state before editing, not independently seeded: two independent
+    //    seeds concatenate on merge. The diff is the update shape `doc.on('update', …)` relays out.
     const before = Y.encodeStateVector(room.doc)
     const remote = new Y.Doc()
     Y.applyUpdate(remote, Y.encodeStateAsUpdate(room.doc))
@@ -120,7 +107,6 @@ describe('scheduleDraftPersist / flushDraftPersist: debounce', () => {
     assert.equal(pageDrafts.save.mock.calls.length, 1)
     assert.equal(room.draftPersist.timer, null)
 
-    // -> The debounce timer that was pending before the manual flush must not also fire later.
     t.mock.timers.tick(DRAFT_PERSIST_DEBOUNCE)
     assert.equal(
       pageDrafts.save.mock.calls.length,
@@ -131,17 +117,13 @@ describe('scheduleDraftPersist / flushDraftPersist: debounce', () => {
 })
 
 describe('closeRoomIfEmpty: flushes a pending draft before the doc is destroyed', () => {
-  // -> `ensureRoom()` directly, not `harness.openRoom()`: `closeRoomIfEmpty` below already destroys
-  //    the doc/awareness itself, and the harness's own `afterEach` teardown does the same for every
-  //    room `openRoom()` tracked — a real Yjs `Doc`/`Awareness` is not documented as safe to
-  //    `destroy()` twice, so these two tests own their room's whole lifecycle instead of sharing it.
+  // -> `ensureRoom()`, not `harness.openRoom()`: `closeRoomIfEmpty` destroys the doc/awareness
+  //    itself, and the harness teardown would `destroy()` a tracked room a second time.
   test('a room with pending edits persists them one last time on close', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
     const room = await collab.ensureRoom({ id: 'page-6', siteId: 'site-1' })
     const pageDrafts = harness.pageDrafts()
 
-    // -> The room already holds `STORED_PAGE.content` from its own fallback seeding — inserting at 0
-    //    prepends rather than replacing it.
     room.doc.transact(() => room.doc.getText('content').insert(0, 'not yet flushed: '))
     assert.equal(pageDrafts.save.mock.calls.length, 0)
 
@@ -286,8 +268,7 @@ describe('pageSaved: clears the persisted draft', () => {
       authorName: 'Ada'
     })
 
-    // Give pageSaved()'s own promise chain several microtask turns to (wrongly) run ahead of the
-    // still-pending save -- it must still be waiting on it.
+    // Enough microtask turns that a clear not waiting on the pending save would have run by now
     await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()
@@ -364,8 +345,7 @@ describe('discardDraft: the same clear-coordination pageSaved gets, for an expli
     const flushed = collab.flushDraftPersist(room)
     const discarded = collab.discardDraft(room.pageId)
 
-    // Give discardDraft()'s own promise chain several microtask turns to (wrongly) run ahead of the
-    // still-pending save -- it must still be waiting on it.
+    // Enough microtask turns that a clear not waiting on the pending save would have run by now
     await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()

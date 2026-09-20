@@ -10,29 +10,14 @@ import { createTestRouter } from '../../test/router.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
- * OpenProject #2697 -- the parts of handoff 2's Search screen that are claims about LAYOUT, and so
- * cannot be answered by `Search.test.js`'s happy-dom mounts: neither happy-dom nor jsdom runs a
- * layout engine, so every `getBoundingClientRect()` there comes back zeroed whatever the CSS says.
+ * The Search screen's claims about LAYOUT, which `Search.test.js`'s happy-dom mounts cannot answer:
+ * neither happy-dom nor jsdom runs a layout engine, so every `getBoundingClientRect()` there comes
+ * back zeroed whatever the CSS says.
  *
- * Three of this Task's requirements are measured claims rather than markup ones:
- *
- *   - the header strips are pinned to a fixed height with `line-height: 1`, expressly so that a long
- *     result count cannot make the Results bar taller than the Sort by bar starting the column
- *     beside it. "Does not grow" is a measurement of two renders, not a property of one;
- *   - the date and tags sit in a 150px trailing column;
- *   - below 600px that column wraps under the title, inset to clear the icon plate -- and the inset
- *     has to actually equal the plate the row landed on rather than the 56px the `w-item` rows it
- *     replaced happened to use.
- *
- * Plus the two deliberate removals, both of which are only observable as computed style: the dark
- * radial `::before` band behind the card, and the card's own `box-shadow`.
- *
- * `test/realGridLayout.js` supplies `hasChromium()` and `buildAppCss()` unchanged -- this file adds
- * nothing to it. `buildAppCss()` compiles `src/css/tailwind.css` only, though, and every rule this
- * screen is made of lives in `Search.vue`'s own `<style>` block. That block is read by Vitest itself
- * (`test.css: true` in `vitest.config.js`) and injected into the test document as a `<style>`
- * element at import time, so `collectSfcCss()` reads back exactly the CSS the app build produces --
- * scope attributes and all -- rather than a second, hand-maintained copy of it.
+ * `buildAppCss()` compiles `src/css/tailwind.css` only, and every rule this screen is made of lives
+ * in `Search.vue`'s own `<style>` block. Vitest reads that block (`test.css: true`) and injects it
+ * into the test document at import time, so `collectSfcCss()` reads back exactly the CSS the app
+ * build produces -- scope attributes and all -- rather than a hand-maintained second copy.
  */
 
 const FIXTURE_RESULT = {
@@ -48,7 +33,6 @@ const FIXTURE_RESULT = {
   highlight: '&hellip;the worker reads its <b>credentials</b> from the secret store&hellip;'
 }
 
-/** A count label short enough to be unremarkable, and one long enough to wrap if anything let it. */
 const SHORT_COUNT = 'No result | {0} result | {0} results'
 const LONG_COUNT =
   'No result | At least {0} result | At least approximately {0} results, found across every ' +
@@ -84,9 +68,8 @@ function createI18n(totalResultsApprox) {
 }
 
 /**
- * Mounts the real page against one search response and hands back its markup. `approximate` picks
- * which of the two count messages the Results strip renders, which is the whole point of the
- * pinned-height pair of measurements below.
+ * `approximate` picks which count message the Results strip renders: the long one is long enough
+ * to wrap the strip if anything let it, which is what the pinned-height pair below measures.
  */
 async function renderSearch({ approximate = false, total = 1 } = {}) {
   setActivePinia(createPinia())
@@ -120,7 +103,6 @@ async function renderSearch({ approximate = false, total = 1 } = {}) {
   return html
 }
 
-/** Every SFC style block Vitest compiled and injected while the modules above were imported. */
 function collectSfcCss() {
   return [...document.querySelectorAll('style')].map((el) => el.textContent).join('\n')
 }
@@ -129,9 +111,8 @@ let browser = null
 let appCss = null
 
 /**
- * Renders `html` at `viewport` in a real Chromium page under the app's real CSS, and returns
- * whatever `probe` reads out of it. `body--light` because that is the class the app itself puts on
- * `<body>`, and every rule in this screen's stylesheet is stated per theme against it.
+ * `body--light` because that is the class the app itself puts on `<body>`, and every rule in this
+ * screen's stylesheet is stated per theme against it.
  */
 async function measure({ html, viewport, probe }) {
   const page = await browser.newPage({ viewport })
@@ -153,11 +134,11 @@ describe(
     beforeAll(async () => {
       /*
        * `composables/screen.js` caches one `matchMedia` query per breakpoint for the life of the
-       * module, and the very first mount here is what populates it -- so the answer has to be settled
-       * before then. Pinned true so the sidebar renders as a column rather than as the below-900px
-       * disclosure (which is `v-show`-hidden, and would leave the Sort by strip un-measurable). The
-       * NARROW cases below are still real: the markup is identical either way at this breakpoint, and
-       * what the 390px page actually exercises is the stylesheet's own `max-width` rules.
+       * module and the first mount populates it, so this has to be settled before then. Pinned true
+       * so the sidebar renders as a column rather than the below-900px disclosure, which is
+       * `v-show`-hidden and would leave the Sort by strip un-measurable. The narrow cases below are
+       * unaffected: the markup is identical either way, and what a 390px page exercises is the
+       * stylesheet's own `max-width` rules.
        */
       window.matchMedia = (query) => ({
         matches: true,
@@ -191,14 +172,13 @@ describe(
         probe
       })
 
-      // -> Sort by, Filters, Results: three strips, and every one of them the same pinned height
+      // -> Sort by, Filters, Results.
       expect(short.heights).toHaveLength(3)
       expect(short.heights.every((h) => h === 37)).toBe(true)
       expect(short.lineHeights.every((lh) => lh === 'normal' || Number.parseFloat(lh) === 10)).toBe(
         true
       )
 
-      // -> The count really is much longer in the second render, and the bars did not move
       expect(long.countText.length).toBeGreaterThan(short.countText.length + 40)
       expect(long.heights).toEqual(short.heights)
     })
@@ -217,7 +197,6 @@ describe(
             metaWidth: meta.getBoundingClientRect().width,
             plateWidth: plate.getBoundingClientRect().width,
             plateHeight: plate.getBoundingClientRect().height,
-            // -> The trailing column is a column: the body ends before it starts
             bodyEndsBeforeMeta:
               body.getBoundingClientRect().right <= meta.getBoundingClientRect().left + 0.5,
             rowIsOneLine:
@@ -245,12 +224,12 @@ describe(
           const plate = document.querySelector('.layout-search-plate').getBoundingClientRect()
           const meta = document.querySelector('.layout-search-rowmeta').getBoundingClientRect()
           return {
-            // -> Wrapped: the trailing column is now BELOW the title, not beside it
             metaIsBelowTitle: meta.top >= title.bottom,
             dateLeft: date.left,
             tagsLeft: tags.left,
             titleLeft: title.left,
-            // -> "inset to clear the plate": one plate plus one 14px row gutter
+            // -> The expected 48 is the 34px plate plus the row's own 14px gutter: the inset has to
+            //    clear the plate the row actually landed on, not a fixed guess.
             insetFromPlate: date.left - plate.left,
             metaWidthExceeds150: meta.width > 150
           }
@@ -305,7 +284,7 @@ describe(
             background: style.backgroundColor,
             color: style.color,
             weight: style.fontWeight,
-            // -> Upright: the mark is what distinguishes the matched words now, not a line of italics
+            // -> The mark, not a line of italics, is what distinguishes the matched words.
             excerptStyle: getComputedStyle(excerpt).fontStyle
           }
         }

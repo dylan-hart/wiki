@@ -4,27 +4,19 @@ import { useUserStore } from '@/stores/user'
 
 /**
  * Request paths (relative to the `/_api` prefix) whose own 401 is an ordinary, expected answer
- * rather than the session having expired -- handling either as a session expiry would misfire.
+ * rather than the session having expired.
  *
- * `sites/:siteId/auth/login` answers a bad password with a `400` (`ERR_LOGIN_FAILED`), not a `401`
- * -- see `backend/api/auth/site.ts` -- but is exempted anyway as a defensive belt-and-braces
- * measure per OpenProject #2096, since a `401` from the login screen's own request is never a
- * session that just expired and redirecting it back to `/login` would only loop.
- *
- * `sites/:siteId/pages/:pageIdOrHash/unlock` genuinely does answer a wrong page password with a
- * `401` (`backend/api/pages/read.ts`), which `PageUnlockDialog.vue` reports inline as
- * `common.page.lockedWrongPassword` -- treating it as a session expiry would bounce the reader off
- * the very page they were trying to unlock instead of leaving the dialog up to try again.
+ * The login route answers a bad password with a `400` (`ERR_LOGIN_FAILED`), not a `401`, and is
+ * exempted defensively -- a `401` from the login screen's own request could only loop. A page's
+ * unlock route genuinely does answer a wrong page password with a `401`, which
+ * `PageUnlockDialog.vue` reports inline; redirecting would bounce the reader off the page they are
+ * trying to unlock.
  */
 const SESSION_EXPIRY_EXEMPT_PATH_PATTERNS = [/\/auth\/login$/, /\/pages\/[^/]+\/unlock$/]
 
 /**
- * Whether a 401 from `url` (the request's full URL, as ky's `beforeError` hook hands it via
- * `request.url`) should be treated as the session having expired, rather than left for the caller's
- * own `catch` to handle as an ordinary rejected-credentials answer.
- *
- * A pure function, exported so the routing decision is testable with no `ky` or mounted app around
- * it -- mirrors `bootstrapFailureRedirectFor` in `helpers/bootstrap.js`.
+ * `url` must be a full URL, as ky's `beforeError` hook hands it via `request.url`. Exported so the
+ * routing decision is testable with no `ky` or mounted app around it.
  */
 export function isSessionExpiryUrl(url) {
   const { pathname } = new URL(url)
@@ -32,17 +24,13 @@ export function isSessionExpiryUrl(url) {
 }
 
 /**
- * A session that was valid when this tab loaded, or when the reader last acted, no longer is -- some
- * `preHandler` on the backend answered a plain `401` to an otherwise ordinary request (OpenProject
- * #2096). Left unhandled, `userStore` keeps showing the profile loaded at boot -- the header still
- * says signed in, the admin nav still renders -- right up until the next click fails the same way.
+ * Left unhandled, `userStore` keeps showing the profile loaded at boot -- the header still says
+ * signed in, the admin nav still renders -- right up until the next click fails the same way.
  *
- * Patches the store back to guest and sends the reader to sign back in, carrying the page they were
- * on as `?redirect=` so a plain form login can return them to it -- a router push rather than a full
- * reload, so any state elsewhere in the SPA survives the trip. Nothing to do if this tab is already
- * showing as a guest (a second 401 racing in after the first already handled it) or is already on
- * `/login` (nothing under that path should ever reach here given the exemption above, but costs
- * nothing to guard against a redirect loop directly too).
+ * A router push rather than a full reload, so state elsewhere in the SPA survives the trip;
+ * `?redirect=` is what a plain form login returns the reader by. The already-guest guard covers a
+ * second 401 racing in behind the first, and the `/login` one is a redundant loop guard -- the
+ * exemption list above should already keep that path from reaching here.
  */
 function handleSessionExpiry(router) {
   const userStore = useUserStore()
@@ -58,20 +46,13 @@ function handleSessionExpiry(router) {
 }
 
 /**
- * The HTTP client every call to the API goes through, exposed as the `API_CLIENT` global.
- *
  * Nothing is attached to a request beyond the session cookie: authentication is the
- * `__Host-wikiSession` cookie the server sets, sent because of `credentials`. There used to be a
- * `beforeRequest` hook here
- * that refreshed a JWT and set an `Authorization` header — a leftover from when 3.x authenticated
- * with tokens. The user store it read has had no token since sessions replaced them, so the hook only
- * ever set an empty header. API keys still use bearer tokens, but those belong to callers outside
- * this app.
+ * `__Host-wikiSession` cookie the server sets, sent because of `credentials`. API keys still use
+ * bearer tokens, but those belong to callers outside this app.
  *
- * @param router The app's router instance (see `main.js`), so a 401 for an already-established
- *               session can send the reader back to `/login` -- see `handleSessionExpiry`. Passed in
- *               rather than reached for as a singleton: `main.js` already builds one before this
- *               boots, and it is what makes the hook testable with a stub router and no mounted app.
+ * @param router Passed in rather than reached for as a singleton: `main.js` already builds one
+ *               before this boots, and it is what makes the hook testable with a stub router and no
+ *               mounted app.
  */
 export function initializeApi(router) {
   const client = ky.create({

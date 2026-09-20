@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * EXTENSION - Optional third-party tooling, with its state on this system
-   */
   app.addSchema({
     $id: 'Extension',
     type: 'object',

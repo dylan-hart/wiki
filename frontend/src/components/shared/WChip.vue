@@ -1,9 +1,8 @@
 <template>
   <!--
-    `leading-tight` rather than the inherited 1.5: a chip is a single nowrap line, so its height is
-    its line box plus padding, and body line-height made it noticeably taller than the text it wraps.
-    Tight still clears the glyph box, which matters because the label span clips its overflow -- any
-    less and descenders would be cut.
+    `leading-tight` rather than the inherited body line-height: a chip is a single nowrap line, so
+    its height is its line box plus padding. Tight still clears the glyph box, which matters because
+    the label span clips its overflow -- any less and descenders would be cut.
   -->
   <div
     class="w-chip inline-flex max-w-full flex-nowrap items-center gap-1.5 leading-tight align-middle"
@@ -33,9 +32,6 @@
 import { computed } from 'vue'
 import { useDictText } from '@/composables/i18nText'
 
-/**
- * Compact label for a tag, status or selected value.
- */
 const props = defineProps({
   label: {
     type: [String, Number],
@@ -70,12 +66,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Accessible name for the remove button. Falls back to the `common.chip.remove` dictionary entry. */
   removeLabel: {
     type: String,
     default: null
   },
-  /** Native tooltip. */
   title: {
     type: String,
     default: null
@@ -92,14 +86,8 @@ const resolvedRemoveLabel = computed(
 const SIZES = { xs: '10px', sm: '12px', md: '14px', lg: '16px' }
 
 /*
-  `--radius-pill`, always -- one token, no aesthetic branch. Ledger's own value is `0` (the `square`
-  prop -- once the opt-IN to sharp corners -- is gone, since square IS the only Ledger corner style),
-  so this renders exactly as before there; Cobalt's `body.body--cobalt` block (OpenProject
-  #2767/#2772) gives tags, chips and toggles a real pill radius instead.
-
-  An uncoloured chip is an OUTLINE (white with a hairline edge), not a grey fill. That is what makes
-  the tag row in the design read as a row of small documents rather than a row of pills, and it is
-  what leaves the solid fill free to mean "selected".
+  An uncoloured chip is an OUTLINE (surface with a hairline edge), not a grey fill: a tag row then
+  reads as a row of small documents, and the solid fill stays free to mean "selected".
 */
 const classes = computed(() => [
   'rounded-pill',
@@ -119,25 +107,16 @@ const styles = computed(() => ({
 
 <style scoped>
 /*
-  An avatar inside a chip is sized by the chip, not by the 48px it takes standing on its own -- that
-  default made a 12px-font chip 56px tall, swallowing the row. Same reason WItemSection overrides it
-  for a flanking section, and the box has to be restated for the same reason too: the chip this
-  replaces derived an avatar's dimensions from its font size, ours does not.
+  An avatar inside a chip is sized by the chip, not by the size it takes standing on its own, which
+  would swallow the row. Relative rather than fixed px because a chip's font size is a prop and the
+  avatar has to track it; `font-size: inherit` is what keeps these `em` lengths chip-ems.
 
-  Relative rather than the fixed px used for item metrics, because a chip's own font size is a prop
-  (10-16px) and the avatar has to track it.
+  1.25em matches the `leading-tight` line box, so the avatar sits WITHIN the label's line instead of
+  becoming the tallest thing in the box and growing the chip around it.
 
-  `font-size: inherit` is load-bearing: it keeps the avatar on the CHIP's font size, so the `em`
-  lengths below are chip-ems. Were a font size set here instead, they would resolve against it.
-
-  1.25em matches the `leading-tight` line box on the tag above, so the avatar sits WITHIN the label's
-  line instead of setting the chip's height. Anything taller becomes the tallest thing in the box and
-  the chip grows around it, which is what made it stand a row tall.
-
-  A descendant selector, not a child one: everything slotted lands inside the truncating <span> in
-  the template, so an avatar written between the chip's tags is a grandchild. That also means the
-  chip's own `gap` does not separate it from the label -- they are inline siblings inside that span,
-  with nothing between them -- so the gap has to be a margin here.
+  A descendant selector, not a child one: everything slotted lands inside the truncating span, so a
+  slotted avatar is a grandchild. That also puts it inline with the label rather than in the chip's
+  own flex row, so the gap between them has to be this margin.
 */
 .w-chip :deep(.w-avatar) {
   width: 1.25em;
@@ -146,7 +125,6 @@ const styles = computed(() => ({
   margin-inline-end: 0.45em;
 }
 
-/* -> Which leaves the glyph to scale separately, at a little over two thirds of the circle */
 .w-chip :deep(.w-avatar > .w-icon) {
   font-size: 0.85em;
 }

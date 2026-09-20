@@ -9,11 +9,9 @@ import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 
 /**
- * OpenProject #2541 (Feature #2539): the `?highlight=` query param, read by `Index.vue` and applied
- * to the rendered content via `helpers/renderedContent.js`'s `applyKeywordHighlight`. Covers the
- * route-query wiring, the "same component instance across two navigations" requirement, and the
- * dismiss/Escape/`router.replace` behavior -- not the wrap/unwrap logic itself, which
- * `renderedContent.highlight.test.js` already covers as pure DOM logic with no component involved.
+ * The `?highlight=` param's component wiring only: route query, the same-instance re-navigation
+ * requirement, and dismissal. `applyKeywordHighlight`'s own wrap/unwrap logic is pure DOM and is
+ * covered by `renderedContent.highlight.test.js`.
  */
 
 const STUBS = {
@@ -46,8 +44,6 @@ beforeEach(() => {
     clear: () => store.clear()
   }
 
-  // -> jsdom does not implement `scrollIntoView` at all; `focusHighlightMatch` calls it on the
-  //    current match unconditionally, so it has to exist as *something* to observe.
   Element.prototype.scrollIntoView = vi.fn()
 })
 
@@ -87,15 +83,10 @@ async function mountAt(initialPath) {
 }
 
 /**
- * Mounts at `initialPath`, then puts a real page with `html` as its render on screen.
- *
- * The unmocked `API_CLIENT.get` stub resolves `undefined`, which the route watcher's own
- * `loadPageForRoute` (unrelated to this WP) reads as `ERR_PAGE_NOT_FOUND` and asynchronously flips
- * the store to `pageNotFound` state -- which would otherwise land AFTER a naive
- * `pageStore.render = html` set right after `mount()` and stomp it back to the missing-page screen.
- * `flushPromises()` first lets that doomed load run its course; only then is the store patched into
- * the state this suite actually wants to test against, with a second `flushPromises()` for this WP's
- * own `nextTick`-deferred highlight pass to run.
+ * The unmocked `API_CLIENT.get` stub resolves `undefined`, which `loadPageForRoute` reads as
+ * `ERR_PAGE_NOT_FOUND` and asynchronously flips the store to the missing-page state. The first
+ * `flushPromises()` lets that doomed load finish so it cannot stomp the patch that follows; the
+ * second lets the `nextTick`-deferred highlight pass run.
  */
 async function mountWithContent(initialPath, html) {
   const mounted = await mountAt(initialPath)
@@ -124,7 +115,6 @@ describe('Index.vue: keyword highlight indicator (OpenProject #2541)', () => {
     const bar = wrapper.find('.keyword-highlight-bar')
     expect(bar.exists()).toBe(true)
     expect(bar.text()).toContain('1 of 2')
-    // -> The first match starts out current
     expect(marks[0].classes()).toContain('is-current-match')
   })
 
@@ -155,11 +145,9 @@ describe('Index.vue: keyword highlight indicator (OpenProject #2541)', () => {
 
     await nextBtn.trigger('click')
     await nextBtn.trigger('click')
-    // -> Wrapped back to the first match
     expect(currentText()).toBe('1 of 3')
 
     await prevBtn.trigger('click')
-    // -> Wrapped the other way, to the last match
     expect(currentText()).toBe('3 of 3')
   })
 
@@ -172,9 +160,6 @@ describe('Index.vue: keyword highlight indicator (OpenProject #2541)', () => {
     expect(wrapper.findAll('mark.keyword-highlight')).toHaveLength(1)
     expect(wrapper.find('.keyword-highlight-bar-count').text()).toBe('1 of 1')
 
-    // -> A second graph-node click while already on a content page: the route changes (a new
-    //    highlight term, possibly a new path too), but this is the SAME mounted `Index.vue`
-    //    instance -- Vue Router does not remount it for a sibling content-page navigation.
     await router.push('/page-a?highlight=wolves')
     pageStore.$patch({ notFound: false, render: '<p>Wolves live here too.</p>' })
     await flushPromises()

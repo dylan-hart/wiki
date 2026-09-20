@@ -2,25 +2,17 @@ import OAuth2Authentication from '../oauth2/authentication.ts'
 import { fillNameHalves } from '../../../helpers/personName.ts'
 import type { ProviderProfile } from '../../../models/authentication.ts'
 
-/** Facebook's fixed Graph API endpoints, merged over whatever the admin config carries (only credentials). */
 function buildFacebookConfig(conf: Record<string, any>): Record<string, any> {
   return {
     ...conf,
-    // -> Graph API v19+; Facebook does not version its OAuth dialog/token endpoints independently
-    //    of the Graph API itself, so both carry the same `/v19.0/` prefix.
+    // -> Facebook does not version the OAuth dialog independently of the Graph API, so both endpoints
+    //    carry the same version prefix.
     authorizationURL: 'https://www.facebook.com/v19.0/dialog/oauth',
     tokenURL: 'https://graph.facebook.com/v19.0/oauth/access_token',
-    // -> `fields=id,name,email` is required -- unlike most providers' userinfo endpoints, a bare
-    //    `/me` call returns only `id` and `name`; `email` has to be asked for explicitly per request.
+    // -> `fields=` is mandatory: a bare `/me` returns only `id` and `name`, never `email`.
     userInfoURL: 'https://graph.facebook.com/me?fields=id,name,email',
-    // -> Both remain default-available scopes (no Meta App Review needed) as of Graph API v19 per
-    //    current Meta developer docs (developers.facebook.com/docs/permissions/reference) --
-    //    `email` and `public_profile` are the two permissions granted to every app automatically.
-    //    App Review has tightened considerably for small/self-hosted apps in recent years, but that
-    //    tightening applies to *other* permissions (e.g. `user_friends`, Business-asset scopes),
-    //    not to this pair.
+    // -> The only two permissions every app is granted automatically, with no Meta App Review.
     scope: 'email public_profile',
-    // -> Facebook's `/me` object has no `displayName`-style split; `name` is the one display string.
     userIdClaim: 'id',
     emailClaim: 'email',
     displayNameClaim: 'name'
@@ -28,20 +20,9 @@ function buildFacebookConfig(conf: Record<string, any>): Record<string, any> {
 }
 
 /**
- * Facebook
- *
- * Facebook speaks plain OAuth2 (Graph API), not OpenID Connect -- there is no
- * `.well-known/openid-configuration` discovery document and no ID token, only an access token
- * exchanged for a Graph API `/me` call. Same delegation shape as `discord/authentication.ts`: a thin
- * wrapper over `OAuth2Authentication` fixing every endpoint and claim name, since there is one
- * Facebook, not a per-tenant deployment. See `docs/audits/auth-provider-audit.md` for the
- * classification.
- *
- * Facebook has no guild/organization/workspace equivalent to restrict login to, so unlike
- * `discord/authentication.ts` and `slack`'s membership checks there is no analogous restriction prop
- * or `profile()` override needed here -- `mapProfile()` is the only override, for the same
- * single-display-string reason every mononym-shaped provider needs one (`github`, `discord`,
- * `slack`, `twitch`, `cas`).
+ * Plain OAuth2 (Graph API), not OIDC: Facebook publishes no discovery document and issues no ID
+ * token, only an access token exchanged for a `/me` call. Facebook also has no organization or
+ * workspace equivalent to restrict login to, so unlike `discord` there is no `profile()` override.
  */
 export default class FacebookAuthentication extends OAuth2Authentication {
   constructor(strategyId: string, conf: Record<string, any>) {
@@ -49,14 +30,10 @@ export default class FacebookAuthentication extends OAuth2Authentication {
   }
 
   /**
-   * The base mapping, plus the first/last split every single-string provider needs.
-   *
-   * Facebook's `/me` response carries no separated name halves -- only `name`, a single free-text
-   * display string -- so the split is the only source there is. Applied through `fillNameHalves`
-   * rather than unconditionally, matching `discord/authentication.ts#mapProfile`: a half the generic
-   * `oauth2` mapping already established from a configured claim is never re-guessed. The override
-   * lives here rather than in `oauth2/authentication.ts` deliberately -- a fallback in the base class
-   * would fire for every plain-OAuth2 strategy, including ones whose provider reports real halves.
+   * `/me` carries no separated name halves, only `name`, so the split is the only source there is.
+   * `fillNameHalves` leaves alone any half the base mapping did establish from a configured claim.
+   * The split belongs here and not in `oauth2/authentication.ts`, where it would fire for every
+   * plain-OAuth2 strategy, including ones whose provider reports real halves.
    */
   protected override mapProfile(info: Record<string, any>): ProviderProfile {
     const profile = super.mapProfile(info)

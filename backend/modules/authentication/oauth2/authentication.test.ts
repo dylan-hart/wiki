@@ -8,7 +8,6 @@ import OAuth2Authentication from './authentication.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-/** A configured instance pointed at endpoints, without spending them on a real provider. */
 function makeConf(overrides: Record<string, any> = {}): Record<string, any> {
   return {
     clientId: 'client-abc',
@@ -155,7 +154,6 @@ describe('OAuth2Authentication', () => {
       })
       const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
       const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
-      // -> no displayName claim present in the response, so the name falls back to the email
       assert.deepEqual(profile, {
         id: '7',
         email: 'person@example.com',
@@ -185,7 +183,7 @@ describe('OAuth2Authentication', () => {
     })
 
     test('throws ERR_TOKEN_EXCHANGE_FAILED when the token endpoint answers 200 with an error field', async () => {
-      // -> mirrors github/authentication.ts: some providers report a refused exchange as 200 + `error`
+      // -> Some providers, GitHub among them, report a refused exchange as 200 plus an `error` field.
       fetchMock = mock.method(
         globalThis,
         'fetch',
@@ -296,11 +294,6 @@ describe('OAuth2Authentication', () => {
       )
     })
 
-    /**
-     * Every branded preset built on this module (`discord/authentication.ts`) inherits this behavior
-     * unchanged by delegating to `mapProfile()` — see `discord/authentication.test.ts`'s own group-
-     * mapping tests. OpenProject #826.
-     */
     test('leaves `groups` absent from the profile when mapGroups is off, even if the field is present', async () => {
       fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
         const url = String(input)
@@ -349,11 +342,6 @@ describe('OAuth2Authentication', () => {
       assert.deepEqual(profile.groups, [])
     })
 
-    /**
-     * `emailVerifiedClaim` is unset for a bare OAuth2 config by default -- most providers speaking
-     * plain OAuth2 have no such field at all (see the class doc comment) -- so these exercise it only
-     * once it is named, the same way `discord/authentication.ts` names it as `verified`.
-     */
     test('throws ERR_EMAIL_NOT_VERIFIED when the configured verification claim is explicitly false', async () => {
       fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
         const url = String(input)
@@ -450,7 +438,8 @@ describe('OAuth2Authentication', () => {
 
       fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
         const url = String(input)
-        // -> GitHub's real access_token response, JSON because `Accept: application/json` is sent
+        // -> GitHub's real token response; JSON only because the module sends `Accept:
+        //    application/json`, form encoding otherwise.
         if (url === 'https://github.com/login/oauth/access_token') {
           return new Response(
             JSON.stringify({
@@ -461,7 +450,7 @@ describe('OAuth2Authentication', () => {
             { status: 200 }
           )
         }
-        // -> GitHub's real /user shape: public email is often null, but this throwaway app set one
+        // -> GitHub's real /user shape: its public email is often null, but this app set one.
         if (url === 'https://api.github.com/user') {
           return new Response(
             JSON.stringify({
@@ -478,8 +467,8 @@ describe('OAuth2Authentication', () => {
 
       const oauth2 = new OAuth2Authentication('strategy-1', conf)
       const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'throwaway-code' })
-      // -> GitHub issues no separated halves, so neither key is on the profile at all — the whole
-      //    point of leaving them off rather than writing two empty strings.
+      // -> GitHub issues no separated halves, so neither key is on the profile at all, rather than
+      //    two empty strings.
       assert.deepEqual(profile, {
         id: '123456',
         email: 'octocat@example.com',
@@ -489,10 +478,9 @@ describe('OAuth2Authentication', () => {
   })
 
   /*
-    Feature #2608. `discord`, `slack` and `twitch` all inherit `mapProfile()` from this class, so a
-    claim read added here is added to them too — which is why nothing in this base falls back to
-    splitting the display name when the halves come back empty. That fallback is per-preset (Task
-    #2641), and doing it here would fire for every provider built on this module.
+    Every preset built on this module inherits `mapProfile()`, so this base deliberately never falls
+    back to splitting the display name when the halves come back empty — that fallback is per-preset,
+    and here it would fire for providers that do report real halves.
   */
   describe('mapProfile: separated name halves', () => {
     let fetchMock: any
@@ -500,7 +488,6 @@ describe('OAuth2Authentication', () => {
       fetchMock?.mock.restore()
     })
 
-    /** Answers the token exchange, then hands `info` back as the userinfo response. */
     function stubUserInfo(info: Record<string, any>): void {
       fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
         if (String(input) === 'https://provider.example/oauth2/token') {
@@ -522,7 +509,6 @@ describe('OAuth2Authentication', () => {
       const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
       assert.equal(profile.firstName, 'Alice')
       assert.equal(profile.lastName, 'Example')
-      // -> Still the display-name claim; the model derives `name` from the halves, not this module.
       assert.equal(profile.name, 'Alice Example')
     })
 

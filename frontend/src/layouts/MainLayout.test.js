@@ -29,19 +29,8 @@ const LAYOUT_STUBS = {
 }
 
 /**
- * Regression coverage for OpenProject #2512: loading or SPA-navigating to a non-content-page route
- * (the knowledge graph chief among them) used to collapse the sidebar to its 56px mini rail, because
- * `isSidebarMini`'s `!pageStore.navigationId` fallback -- meant to catch a CONTENT page that hasn't
- * told the store which menu it belongs to yet -- fired on every OTHER route too, since those never
- * call `pageStore.pageLoad()` (the only thing that ever sets `navigationId`) and so just see whatever
- * a previously-viewed content page left there: `null` on a fresh store, or a stale id carried over
- * from an earlier SPA navigation. Fixed by scoping that fallback to `route.meta.contentPage`
- * (`router/routes.js`), so a route with no navigation opinion of its own gets the normal expanded
- * sidebar instead.
- *
- * Real routes from the app's own route table drive each case (not hand-rolled stub routes), since the
- * bug is precisely about which of those routes carry `meta.contentPage` -- a stub route list would
- * hide a regression where a route's flag drifts from what this test expects.
+ * Drives each case from the app's own route table rather than stub routes: the sidebar-mini
+ * fallback keys off `route.meta.contentPage`, so stub routes would hide a drifted flag.
  */
 async function mountLayout(path, options = {}) {
   const router = await createTestRouter(routes, path)
@@ -50,21 +39,9 @@ async function mountLayout(path, options = {}) {
 }
 
 /**
- * Regression coverage for OpenProject #3196: task 721's RTL mirroring audit named
- * `NavSidebar.vue`/`PageToc.vue`/`PageHeader.vue`/the editor toolbars specifically but missed this
- * layout's own sidebar chrome entirely. Four `w-menu` popups this layout passes explicit hardcoded
- * physical `anchor`/`self` pairs to -- the mini rail's `locale-selector-menu` and `nav-browse-menu`
- * overrides, and both `nav-edit-menu` `w-menu` wrappers (mini and full) -- are fixed the same
- * mechanical way `AdminLayout.vue`'s locale-switcher menu was (task 727): routed through
- * `helpers/directionalAnchor.js`, reactively off `composables/direction.js`.
- *
- * A SEPARATE, TOP-LEVEL describe placed FIRST in this file, before any other describe below mounts
- * with `attachTo: document.body` and never calls `wrapper.unmount()` -- `MainLayout` now reacts to
- * the SAME module-level `useDirection()` ref every one of those leaked instances would also close
- * over, and flipping direction after any of them has run would re-trigger those now-parentless
- * instances and crash on a null `insertBefore` (see `LocaleSelectorMenu.test.js`'s own equivalent
- * describe for the full mechanics). Running first avoids that; each test below also unmounts its own
- * wrapper regardless.
+ * Must stay the FIRST describe in this file: later ones mount with `attachTo: document.body` and
+ * never unmount, and `useDirection()`'s ref is module-level -- flipping direction after they have
+ * run re-triggers those now-parentless instances and crashes on a null `insertBefore`.
  */
 describe('MainLayout sidebar w-menu anchors (RTL mirroring, OpenProject #3196)', () => {
   async function mountMiniSidebar() {
@@ -96,8 +73,7 @@ describe('MainLayout sidebar w-menu anchors (RTL mirroring, OpenProject #3196)',
   }
 
   afterEach(() => {
-    // -> `useDirection`'s backing ref is module-level state shared with every other test file that
-    //    imports it in this run; leaving it flipped would bleed into whichever test runs next
+    // -> Module-level ref shared across test files; leaving it flipped bleeds into the next test
     useDirection().set(false)
   })
 
@@ -223,17 +199,8 @@ describe('MainLayout sidebar-mini fallback (OpenProject #2512)', () => {
 })
 
 /**
- * Regression coverage for OpenProject #2513: the mini (56px icon-rail) sidebar had no way back to
- * full width once a page's own `navigationMode` (or the non-content-route fallback) collapsed it --
- * `isSidebarMini` was a read-only computed with no UI toggle reading or writing it. `MainLayout` now
- * offers a session-scoped override: an "Expand Sidebar" button in the mini rail, and a matching
- * "Collapse Sidebar" control back in the expanded sidebar's own chrome, persisted to
- * `sessionStorage` so it survives navigating to another page (or a reload of the same tab) without
- * becoming a permanent cross-session preference.
- *
- * `useMinWidth` (via `useScreen`) calls `window.matchMedia` -- stubbed matching wide throughout, so
- * `WDrawer` renders its sidebar column rather than the narrow-viewport overlay (see
- * `HeaderNav.test.js` for the same pattern).
+ * `useMinWidth` calls `window.matchMedia`; stubbed matching wide throughout so `WDrawer` renders
+ * its sidebar column rather than the narrow-viewport overlay.
  */
 beforeEach(() => {
   window.matchMedia = vi.fn().mockImplementation((query) => ({
@@ -242,9 +209,8 @@ beforeEach(() => {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn()
   }))
-  // -> Node's native `sessionStorage` global is one process-wide instance -- not rebuilt per test the
-  //    way `test/setup.js` rebuilds `localStorage`, so a value written by one test would otherwise
-  //    leak into the next one in this file.
+  // -> Node's native `sessionStorage` is one process-wide instance -- `test/setup.js` rebuilds
+  //    `localStorage` per test but not this, so a value written here leaks into the next test
   sessionStorage.clear()
 })
 
@@ -325,8 +291,7 @@ describe('MainLayout sidebar mini-mode expand override (OpenProject #2513)', () 
   })
 
   it('does not offer a Collapse Sidebar control on a page that was never mini to begin with', async () => {
-    // -> The override flag can still be true from a previous mini page this session; it must stay a
-    //    no-op here rather than growing a stray collapse control on an ordinary page.
+    // -> The override can still be true from an earlier mini page this session; it must no-op here
     sessionStorage.setItem('sidebarExpandOverride', 'true')
 
     const { wrapper } = await mountMainLayout({ navigationMode: 'inherit', navigationId: 1 })
@@ -344,8 +309,6 @@ describe('MainLayout sidebar mini-mode expand override (OpenProject #2513)', () 
     await wrapper.find('[aria-label="Expand Sidebar"]').trigger('click')
     expect(wrapper.find('.sidebar-mini').exists()).toBe(false)
 
-    // Simulate landing on a different page that also forces mini navigation -- the override must
-    // still hold, since it is scoped to the reader's session, not to the one page it was set on.
     pageStore.$patch({ navigationId: 2, navigationMode: 'hideExact' })
     await wrapper.vm.$nextTick()
 
@@ -363,12 +326,6 @@ describe('MainLayout sidebar mini-mode expand override (OpenProject #2513)', () 
   })
 })
 
-/**
- * OpenProject #2720, Dylan's 2026-09-06 hands-on review (note 6, first half): the Edit Nav control
- * drew `tabler:steering-wheel` (an odd, non-obvious glyph for "edit the navigation tree") inside a
- * `w-bar dense`, whose own translucent black wash and forced 8px button label read as a "dark muddy"
- * strip out of step with the rest of the sidebar's chrome.
- */
 async function mountMainLayoutWithEditNav() {
   const router = await createTestRouter(['/'])
 
@@ -393,16 +350,13 @@ describe('MainLayout edit-nav control (OpenProject #2720)', () => {
 
     const bar = wrapper.find('.sidebar-footerbtns')
     expect(bar.exists()).toBe(true)
-    // -> Scoped through the button itself, not just the bar: `nav-edit-menu`'s own popup content
-    //    sits in the same subtree and carries icons of its own.
+    // -> Scoped through the button, not the bar: the nav-edit popup content sits in the same
+    //    subtree and carries icons of its own
     const editNavBtn = bar.findComponent({ name: 'WBtn' })
     expect(editNavBtn.findComponent({ name: 'WIcon' }).props('name')).toBe('tabler:list-tree')
   })
 
   it('draws tabler:list-tree in the collapsed mini-rail variant too', async () => {
-    // -> The mini rail only renders once something has forced the sidebar into its 56px icon-only
-    //    mode -- a page-level `navigationMode: 'hide'` is the ordinary way that happens (see the
-    //    #2513 suite above).
     const router = await createTestRouter(['/'])
     const { wrapper } = mountWithApp(MainLayout, {
       messages,
@@ -424,24 +378,16 @@ describe('MainLayout edit-nav control (OpenProject #2720)', () => {
     const { wrapper } = await mountMainLayoutWithEditNav()
 
     const bar = wrapper.get('.sidebar-footerbtns')
-    // -> happy-dom reports an unset `background-color` as an empty string rather than resolving it
-    //    to its initial value; either way, the important thing asserted here is that nothing set it
-    //    to WBar's own translucent wash (`rgb(0 0 0 / 0.2)`).
+    // -> happy-dom reports an unset `background-color` as an empty string rather than its initial
+    //    value; what matters is that nothing set it to WBar's own translucent wash
     expect(getComputedStyle(bar.element).backgroundColor).toMatch(
       /^(|rgba\(0, 0, 0, 0\)|transparent)$/
     )
   })
 
   /**
-   * The bar's height is built to match `.site-footer`'s (`FooterNav.vue`) -- the "Powered by
-   * Cardinal.js" band at the foot of the article column -- via an invisible spacer sharing the
-   * SAME font stack, size and vertical padding `.site-footer` renders its own text with, rather
-   * than a pixel value copied from one measurement. Asserted here as a live comparison between the
-   * two REAL components' own computed styles (both mounted under this suite's `test.css: true`
-   * pipeline), so a future edit to either side's padding/font-size that breaks the match fails this
-   * test instead of silently drifting -- `getBoundingClientRect` itself is not asked here, since
-   * neither jsdom nor happy-dom runs a layout engine (see `test/realGridLayout.js`'s own header
-   * comment); the box-model DECLARATIONS that determine the rendered height are what is compared.
+   * Neither jsdom nor happy-dom runs a layout engine, so the box-model DECLARATIONS both real
+   * components resolve are compared rather than `getBoundingClientRect`.
    */
   it('sizes its spacer from the same padding/font-size/font-family recipe as the site footer', async () => {
     const { wrapper } = await mountMainLayoutWithEditNav()
@@ -470,18 +416,6 @@ describe('MainLayout edit-nav control (OpenProject #2720)', () => {
   })
 })
 
-/**
- * OpenProject #3380: `showEditNav` used to read `userStore.can('manage:navigation')` alone, which
- * ORs only the global and page-scoped permission lists and never consults `sitePermissions` -- so a
- * group holding just a `site:navigation` delegation on this site (no `manage:navigation`) never saw
- * Edit Nav anywhere in the sidebar, even though the backend (`maySiteAdmin` in
- * `backend/api/navigation.ts`) has always accepted that delegate on every navigation route. Fixed by
- * routing `showEditNav` through `maySeeSiteSurface`, the same helper the admin area's nine `site:*`
- * pages already gate on -- see `composables/siteAdminAccess.js`.
- *
- * Follows the `sitePermissions`/`sitePermissionsSiteId` seeding pattern `AdminLayout.test.js` uses
- * for its own `site:navigation` delegate case.
- */
 describe('MainLayout edit-nav site:navigation delegation (OpenProject #3380)', () => {
   async function mountLayoutForSite(storeOverrides) {
     const router = await createTestRouter(['/'])
@@ -579,14 +513,9 @@ describe('MainLayout edit-nav site:navigation delegation (OpenProject #3380)', (
 })
 
 /**
- * OpenProject #2746: the reader-facing navbar's `<w-drawer>` never passed `bordered`, unlike
- * `AdminLayout.vue`'s (`bordered` since before the Quasar-to-native-components migration), so the
- * sidebar drew with no hairline separating it from the content column. `WDrawer.vue`'s `bordered`
- * prop already resolves a side-aware class (`border-e` on the left-hand default, `border-s` when
- * `siteStore.theme.sidebarPosition` flips the drawer to the right) plus its `dark:` counterpart onto
- * the `<aside class="w-drawer">` element itself -- asserted there rather than on `.bg-sidebar` (the
- * caller's own class), since `@vue/test-utils` stubs the drawer's root `<transition>` by default and
- * fallthrough attrs land on that stub, not on the real element, under test.
+ * Asserted on `<aside class="w-drawer">` rather than the caller's own `.bg-sidebar`:
+ * `@vue/test-utils` stubs the drawer's root `<transition>` by default, and fallthrough attrs land
+ * on that stub instead of the real element under test.
  */
 describe('MainLayout sidebar border (OpenProject #2746)', () => {
   it('passes bordered through to the drawer, drawing the content-facing hairline on the default (left) side', async () => {
@@ -613,15 +542,6 @@ describe('MainLayout sidebar border (OpenProject #2746)', () => {
   })
 })
 
-/**
- * OpenProject #2788: the reader-facing Locale button in `.sidebar-actions` carried the same
- * `flex-1` class as Browse, splitting the row 50/50 regardless of either label's actual length --
- * unlike `AdminLayout.vue`'s standalone, content-sized locale button. Both icons also rendered at
- * WBtn's own `size="sm"` ratio (~17px), undersized next to the label. Fixed by dropping `flex-1`
- * from Locale (Browse keeps it, so it absorbs the width Locale no longer claims) and pinning both
- * icons to 20px via a `.icon-lg` marker class scoped to this toolbar only -- not the sibling
- * "Collapse Sidebar" button, which shares the same `.sidebar-actions` wrapper but is out of scope.
- */
 describe('MainLayout reader locale/browse toolbar sizing (OpenProject #2788)', () => {
   async function mountToolbar({ navigationId = null, navigationMode = 'inherit' } = {}) {
     const router = await createTestRouter(['/'])
@@ -642,9 +562,8 @@ describe('MainLayout reader locale/browse toolbar sizing (OpenProject #2788)', (
         MainOverlayDialog: true,
         NavSidebar: true
       },
-      // -> `getComputedStyle` only resolves the real cascade (including the `<style>`
-      //    rule this suite asserts against) for an element actually attached to the document, the
-      //    same reason the sibling `.sidebar-footerbtns-spacer` suite above attaches too.
+      // -> `getComputedStyle` resolves the real cascade only for an element attached to the
+      //    document
       attachTo: document.body
     })
   }
@@ -682,11 +601,8 @@ describe('MainLayout reader locale/browse toolbar sizing (OpenProject #2788)', (
 })
 
 /**
- * OpenProject #2971: the reader sidebar's Locale button rendered its `commonStore.locale` code
- * verbatim (e.g. "en"), unlike `AdminLayout.vue`'s equivalent control, which has always called
- * `.toUpperCase()` on the same value. Fixed by mirroring that `.toUpperCase()` call here too. The
- * `aria-label` deliberately stays lowercase -- screen readers don't need visual casing -- so the
- * fix is asserted against the button's rendered text, not its aria-label.
+ * The `aria-label` deliberately stays lowercase -- screen readers don't need visual casing -- so
+ * the uppercasing is asserted against the rendered label text, not the aria-label.
  */
 describe('MainLayout reader locale button casing (OpenProject #2971)', () => {
   it('uppercases the locale code in the visible label, matching AdminLayout', async () => {
@@ -708,61 +624,18 @@ describe('MainLayout reader locale button casing (OpenProject #2971)', () => {
       }
     })
 
-    // -> `mountWithApp` does not seed `commonStore` (it isn't one of the stores the harness
-    //    manages), so this reads its real default: `localStorage.getItem('locale') || 'en'`.
+    // -> `mountWithApp` does not manage `commonStore`, so this reads its real default
     const commonStore = useCommonStore()
     expect(commonStore.locale).toBe('en')
 
     const localeBtn = wrapper.get('.sidebar-actions-locale')
     expect(localeBtn.attributes('aria-label')).toBe('en')
-    // -> the label lives in WBtn's own `<span v-if="label !== null">`, a sibling of the default
-    //    slot (where `<locale-selector-menu>` -- stubbed above anyway -- would render), so this is
-    //    exactly the rendered label text and nothing else in the button.
+    // -> The label lives in WBtn's own `<span>`, a sibling of the default slot, so `span > span`
+    //    is exactly the rendered label and nothing else in the button
     expect(localeBtn.find('span > span').text()).toBe('EN')
   })
 })
 
-/**
- * OpenProject #2776 ("History + File manager: diff against Cobalt mockups, fix gaps"). Diffing the
- * File Manager and Page History overlays against their Cobalt mockups (`Cardinal Wiki - File
- * Manager 3x - Cobalt.dc.html`, `Cardinal Wiki - History 3x - Cobalt.dc.html`) found every overlay
- * `MainOverlayDialog.vue` mounts still drawing Ledger's flat panel and 10px ink title-band edge
- * regardless of aesthetic, since `.main-overlay`'s stylesheet never branched on it -- the mockups
- * draw a plain 12px-radius, clipped panel with no title-band edge at all (DESIGN-DECISIONS.md's
- * "Themes": "Dialogs and overlays ... take a 12px radius with `overflow:hidden` ... No dark eyebrow
- * bar on dialog tops").
- *
- * Sizing was the other half of this overlay's own acceptance criteria (confirm File Manager and
- * Page History stay near-full-bleed rather than picking up the Inbox/Profile centred treatment) --
- * already correct with no code change needed, since `MainOverlayDialog.vue`'s `isHalfSized` only
- * ever names `Profile`/`Inbox`.
- *
- * `.main-overlay` is a plain (non-scoped) global style block, mounted through every overlay
- * `MainOverlayDialog.vue` hosts rather than owned by any one of them -- a computed-style assertion
- * would need a full app mount plus `tailwind.css`'s real `--radius-dialog` custom property, which
- * (per `css/cobaltTokens.test.js`'s own note) is not loaded in this test environment. Checked
- * against the component's own source text instead, the same technique that suite uses for a
- * hand-edited stylesheet.
- *
- * OpenProject #2864 replaced the panel's own `overflow: hidden` clip (this test's original
- * assertion) with a transparent, non-clipping panel plus a header/body that round and fill
- * themselves -- see `css/_overlay-dialog.cobaltDialogCorners.test.js` for that fix's own coverage.
- *
- * OpenProject #3000 moved `.main-overlay` itself out of this file (it was scoped only by class name,
- * invisible to `AdminLayout.vue`'s own separate async `<style>` chunk) into the shared
- * `css/_overlay-dialog.css` partial, `@import`ed by `app.css` so it loads regardless of which layout's
- * chunk is present -- the coverage this comment used to introduce, keeping only what #2776 is
- * responsible for (the eyebrow bar is gone and the panel still carries the dialog radius for its
- * box-shadow under Cobalt), moved with it and lives on in
- * `css/_overlay-dialog.cobaltDialogCorners.test.js`'s "no fill, no clip" describe.
- */
-/**
- * OpenProject #2861: the reader sidebar's `.sidebar-actions` strip gains a third cell, "Top", beside
- * Locale and Browse -- always reserving 40x40 so the other two never shift width, fading in (button
- * + leading separator) once `.page-container-scrl` scrolls past 150px, and scrolling that column
- * back to the top on click. Visual polish (the Ledger plate/mono-label + Cobalt tile treatment) is a
- * separate WP (#2862); this suite covers only the structural cell + scroll/click behavior.
- */
 describe('MainLayout sidebar-actions Top cell (OpenProject #2861)', () => {
   async function mountWithScrollColumn({ scrollTop = 0, routes = ['/'] } = {}) {
     const router = await createTestRouter(routes)
@@ -799,10 +672,6 @@ describe('MainLayout sidebar-actions Top cell (OpenProject #2861)', () => {
     document.querySelectorAll('.page-container-scrl').forEach((el) => el.remove())
   })
 
-  // -> Scoped to `.sidebar-actions` for clarity/consistency with the rest of this suite, even though
-  //    OpenProject #2894 retired the corner `WPageScroller` button this used to need disambiguating
-  //    against -- the sidebar's own "Top" button is now the only "Return to top" control anywhere in
-  //    this layout.
   function findTopBtn(wrapper) {
     return wrapper
       .get('.sidebar-actions')
@@ -860,7 +729,7 @@ describe('MainLayout sidebar-actions Top cell (OpenProject #2861)', () => {
     await wrapper.vm.$nextTick()
     expect(findTopBtn(wrapper).exists()).toBe(true)
 
-    // -> Simulates the new route's own scroll column starting back at the top
+    // -> Stands in for the new route's own scroll column starting back at the top
     scrollColumn.scrollTop = 0
     await router.push('/some/other/page')
     await wrapper.vm.$nextTick()
@@ -886,13 +755,9 @@ describe('MainLayout sidebar-actions Top cell (OpenProject #2861)', () => {
 })
 
 /**
- * OpenProject #2862 ("Sidebar strip: Ledger + Cobalt visual treatment"): the theme-specific finish
- * on top of #2861's structural strip -- Ledger's white Top plate + mono "TOP" label + hairline cell
- * separators, Cobalt's ruleless flat tiles. Literal, class-toggleable rules (no `var()` resolution
- * needed) are asserted live via `getComputedStyle`; rules that resolve a `tailwind.css` custom
- * property are asserted against the compiled stylesheet's own source text instead, since this
- * harness never loads `tailwind.css`'s token layer and so cannot resolve `var(--color-*)`
- * reliably -- the same limitation `NavEditMenu.test.js`'s Cobalt Save-button test documents.
+ * This harness never loads `tailwind.css`'s token layer, so rules resolving a `var(--color-*)` are
+ * asserted against the compiled stylesheet's own source text; literal, class-toggleable rules are
+ * asserted live via `getComputedStyle`.
  */
 describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProject #2862)', () => {
   const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'MainLayout.vue')
@@ -919,9 +784,8 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
       attachTo: document.body
     })
 
-    // -> The Top button/cell only mounts once `.page-container-scrl` has scrolled past 150px (see
-    //    the #2861 suite above) -- every test here needs it visible, so this helper scrolls it in
-    //    unconditionally rather than repeating the fade threshold dance per test.
+    // -> The Top button only mounts once `.page-container-scrl` has scrolled past 150px, and every
+    //    test here needs it visible
     const scrollColumn = document.createElement('div')
     scrollColumn.className = 'page-container-scrl'
     document.body.appendChild(scrollColumn)
@@ -950,10 +814,8 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
     expect(style.fontWeight).toBe('600')
     expect(style.fontSize).toBe('7.5px')
     expect(style.textTransform).toBe('uppercase')
-    // -> `letter-spacing: 0.18em` on the same rule as this `font-size` override: happy-dom resolves
-    //    it against the element's PRIOR (inherited, 10px) font-size rather than the 7.5px this same
-    //    rule sets, so the live computed value (1.8px) is an artifact of this harness's own `em`
-    //    handling, not of the stylesheet -- checked against the source text instead.
+    // -> happy-dom resolves the `em` in `letter-spacing` against the element's PRIOR inherited
+    //    font-size, not the 7.5px the same rule sets -- checked against the source text instead
     expect(styleBlock).toMatch(/> span > span \{[\s\S]*?letter-spacing: 0\.18em;/)
   })
 
@@ -1010,8 +872,6 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
     }
   })
 
-  // -> OpenProject #3461: under Cobalt the Top tile is 36x32 inside the unchanged 40x40 cell, so its
-  //    `4px 4px 4px 0` margin (below) brings the outer box back to exactly 40x40.
   it('sizes the Top tile to 36x32 inside its 40x40 cell with no padding under Cobalt', async () => {
     const { wrapper } = await mountStrip({ cobalt: true })
 
@@ -1021,8 +881,6 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
     expect(style.padding).toBe('0px')
   })
 
-  // -> OpenProject #3133: the Top button also fills its 40x40 cell under LEDGER, which #3109 never
-  //    fixed (it only sized the button under Cobalt) -- the missing case this WP's own title reports.
   it('sizes the Top tile to fill its 40x40 cell with no padding under Ledger', async () => {
     const { wrapper } = await mountStrip()
 
@@ -1032,11 +890,6 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
     expect(style.padding).toBe('0px')
   })
 
-  /**
-   * OpenProject #3133: #3109 gave Cobalt's Top button a bespoke one-off "plate" style (its own
-   * background/hover/colour scheme), instead of the shared `.sidebar-actions .icon-lg` treatment
-   * Locale and Browse already use under Cobalt. Reverted: the Top button now carries `icon-lg` too.
-   */
   it("gives the Top button the icon-lg class, matching Locale/Browse's shared treatment", async () => {
     const { wrapper } = await mountStrip()
 
@@ -1045,11 +898,9 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
   })
 
   /**
-   * OpenProject #3461 (supersedes #3224's flush `margin: 0`): the Top button carries the same
-   * 4px inset as Locale/Browse, mirrored on the left (`4px 4px 4px 0`) because the cell's left edge
-   * abuts Browse's own 4px-inset tile. #3224's overflow is avoided by shrinking the button to 36x32
-   * (see the sizing test above), so margin + size sum to exactly the 40x40 cell -- no clipping, and
-   * its hover wash abuts Browse's with no gap (Cobalt hides the separators).
+   * No left inset: that edge abuts Browse's own 4px-inset tile, and a gap there would break the
+   * hover wash running between them. The button is shrunk to 36x32 so margin plus size still sum to
+   * the 40x40 cell -- at a fixed 40px, the same margin pushed it past the cell's edge.
    */
   it('insets the Top button with margin 4px 4px 4px 0 under Cobalt, filling its cell exactly', async () => {
     const { wrapper } = await mountStrip({ cobalt: true })
@@ -1081,8 +932,7 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
       /\.sidebar-actions \.icon-lg \{[\s\S]*?\.w-icon \{\s*color: var\(--color-sidebar-icon\);\s*\}/
     expect(styleBlock).toMatch(iconRuleWins)
     // -> The icon rule is scoped inside `body.body--cobalt`, applied after the Top cell's own
-    //    unscoped rule -- checked live via the element the same way the Ledger icon-size test above
-    //    does, rather than re-deriving the cascade by hand.
+    //    unscoped rule -- checked live rather than re-deriving the cascade by hand
     expect(getComputedStyle(topIcon.element).fontSize).toBe('15px')
   })
 
@@ -1091,9 +941,7 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
 
     const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
     // -> `#0000`, not the `transparent` keyword: lightningcss (wired into `vitest.config.js` to
-    //    downlevel native CSS nesting for happy-dom's benefit, OpenProject #3254) canonicalizes color
-    //    keywords into their shortest equivalent hex form as part of that same pass. Semantically
-    //    identical -- fully transparent black either way.
+    //    downlevel native CSS nesting for happy-dom) canonicalizes color keywords to shortest hex
     expect(style.backgroundColor).toBe('#0000')
   })
 
@@ -1123,27 +971,10 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
   })
 })
 
-// -> OpenProject #3000: the `describe('MainLayout overlay chrome Cobalt aesthetic conformance
-//    (OpenProject #2776)', ...)` suite that used to sit here moved to
-//    `css/_overlay-dialog.cobaltDialogCorners.test.js`, alongside the `.main-overlay` styling itself
-//    -- extracted out of this file's own `<style>` block into the shared `css/_overlay-dialog.css`
-//    partial, so any layout mounting `MainOverlayDialog.vue` gets it regardless of which layout's own
-//    chunk is loaded.
-
 /**
- * OpenProject #2863 ("Retire WPageScroller corner disc in wide mode (>=1200px)") retired the corner
- * scroll-to-top button at >=1200px, where the sidebar strip's own "Top" cell (Feature #2840's
- * sibling task #2861) took over the scroll-to-top role instead. OpenProject #2894 finishes that
- * retirement: the corner disc was still mounting for the 750-1199px band, where the sidebar overlays
- * the page rather than columning beside it -- `WPageScroller.vue` is now deleted outright, and the
- * sidebar's "Top" cell (already unconditional on viewport width -- see the OpenProject #2861 suite
- * above) is the only back-to-top control anywhere in this layout, at every width. Below 750px the
- * page view's own TOC-panel opener still keeps that corner instead (`showTocPanelBtn` in
- * `pages/Index.vue`, unchanged by this task).
- *
- * `useMinWidth`'s shared `matchMedia` cache (`composables/screen.js`) is set directly on the refs it
- * returns rather than through a fresh `matchMedia` mock -- see `HeaderNav.test.js`'s own note on why
- * a NEW mock can't reach a breakpoint another test in this file already cached.
+ * `useMinWidth` caches its `matchMedia` refs module-wide (`composables/screen.js`), so a fresh
+ * `matchMedia` mock cannot reach a breakpoint another test in this file already cached -- the refs
+ * are set directly instead.
  */
 describe('MainLayout has no corner scroll-to-top button at any width (OpenProject #2894)', () => {
   afterEach(() => {
@@ -1163,23 +994,18 @@ describe('MainLayout has no corner scroll-to-top button at any width (OpenProjec
 
       const { wrapper } = await mountLayout('/')
 
-      // -> `.corner-btn--right` is the class the retired `WPageScroller` mount carried; the sidebar's
-      //    own "Top" button (which shares the same `returnToTop` aria-label, hence not asserted on
-      //    here) never carries it, so this alone is what proves the corner disc is really gone.
+      // -> Asserted on the corner class, not the `returnToTop` aria-label: the sidebar's own Top
+      //    button shares that label
       expect(wrapper.find('.corner-btn--right').exists()).toBe(false)
     }
   )
 })
 
 /**
- * OpenProject #2904/#2928: the narrow-viewport sidebar opener moved from a floating bottom-left
- * corner disc (`corner-btn--left`, `tabler:menu-2`) into `HeaderNav`'s own bar, as an inline toggle
- * ahead of the logo. This layout still owns WHEN it shows (`showSidebarBtn`, unchanged) and what a
- * click does (`openSidebar()`), and hands both to the header as a prop and an emit -- so with
- * `HeaderNav` stubbed, the prop it receives and the drawer's reaction to its emit are the contract.
- *
- * Same direct-on-the-ref `useMinWidth` handling as the OpenProject #2894 suite above, for the same
- * module-level `matchMedia` cache reason.
+ * This layout owns when the toggle shows (`showSidebarBtn`) and what a click does
+ * (`openSidebar()`), handing both to `HeaderNav` as a prop and an emit -- so with the header
+ * stubbed, that prop and the drawer's reaction to that emit are the contract. `useMinWidth` refs
+ * are set directly, for the same cached-`matchMedia` reason as the suite above.
  */
 describe('MainLayout inline sidebar toggle replaces the corner FAB (OpenProject #2928)', () => {
   afterEach(() => {
@@ -1236,11 +1062,11 @@ describe('MainLayout inline sidebar toggle replaces the corner FAB (OpenProject 
     await wrapper.vm.$nextTick()
 
     expect(drawer.props('modelValue')).toBe(true)
-    // -> Still asked for, so the header keeps its 64px slot and the logo does not slide left
-    // (OpenProject #3455); the drawer/scrim may cover it
+    // -> Still asked for, so the header keeps its 64px slot and the logo does not slide left;
+    //    the drawer/scrim may cover it
     expect(headerNav(wrapper).props('showSidebarToggle')).toBe(true)
 
-    // -> The scrim is what closes it; the toggle is unchanged
+    // -> The scrim is what closes it
     drawer.vm.$emit('update:modelValue', false)
     await wrapper.vm.$nextTick()
 

@@ -16,17 +16,10 @@
 
 <script setup>
 /**
- * A checkbox group for narrowing a graph node-sizing metric down to whichever "client type(s)"
- * should count toward it.
- *
- * Shared, not duplicated, between Feature #1141 (edit-volume sizing, filtering
- * `pageHistory.via`'s `editor`/`mcp` split) and Feature #1140 (page-visit-volume sizing, filtering
- * the pageview log's own client-type column once #1227 lands): both need the identical
- * "which source(s) count" checkbox-group control, just against a different value domain -- so the
- * domain is passed in via `options` rather than hardcoded here.
+ * Shared by the edit-volume and visit-volume node-sizing metrics, which need the same "which
+ * source(s) count" control over different value domains -- hence `options` as a prop.
  */
 defineProps({
-  /** The currently-checked option values. */
   modelValue: {
     type: Array,
     required: true
@@ -35,7 +28,7 @@ defineProps({
     type: String,
     required: true
   },
-  /** `{ value, label }` pairs -- the checkbox domain, owned by the caller. */
+  /** `{ value, label }` pairs. */
   options: {
     type: Array,
     required: true
@@ -52,11 +45,9 @@ defineEmits(['update:modelValue'])
   gap: 4px;
 
   /*
-    Sits in a transparent overlay directly over the graph canvas, with no page-level ancestor
-    supplying a dark-aware text color -- both this caption and the `w-checkbox` option labels
-    below it (deliberately colorless by design, per WCheckbox's own doc comment) inherit from
-    here. Without this, both fall back to browser-default black in both themes, illegible only in
-    dark mode (OpenProject #2522). Matches `.graph-view-control-caption`'s values in Graph.vue.
+    Sits in a transparent overlay over the graph canvas, with no page-level ancestor supplying a
+    dark-aware text color, and the `w-checkbox` labels are colorless by design -- without a color
+    declared here both fall back to browser-default black, illegible in dark mode.
   */
   .body--light & {
     color: rgba(0, 0, 0, 0.8);
@@ -67,10 +58,8 @@ defineEmits(['update:modelValue'])
 }
 
 /*
-  Matches `.graph-view-control-caption` (Graph.vue) -- the mono, letter-spaced overline every other
-  graph-control label (GROUP BY, SIZE BY, the filter captions) uses, so "Count edits/visits by"
-  reads consistently with the rest of the panel (OpenProject #2893) rather than in the plain,
-  lower-opacity style this used to inherit.
+  Keep in sync with `.graph-view-control-caption` in Graph.vue: the mono, letter-spaced overline
+  every other graph-control label uses, so this caption reads as one of them.
 */
 .graph-client-type-filter-caption {
   font-family: var(--font-mono);
@@ -88,12 +77,9 @@ defineEmits(['update:modelValue'])
 }
 
 /*
-  A single horizontal row of checkboxes, not one per line (OpenProject #2855/#2828 item 4: "the
-  browser/api/mcp checkboxes can share a single row too") -- superseding #1290's column layout,
-  whose right-aligned-item-shift concern only existed because each option sat on its own line.
-  `flex-wrap` is the fallback for a locale/option set whose labels don't fit the panel's width on
-  one line, not an expectation that it will usually wrap; `justify-content: flex-end` keeps a
-  wrapped remainder aligned with the rest of the (right-aligned) control panel.
+  `flex-wrap` is a fallback for a locale whose labels overflow the panel width, not the expected
+  layout; `justify-content: flex-end` keeps any wrapped remainder aligned with the right-aligned
+  control panel.
 */
 .graph-client-type-filter-options {
   display: flex;

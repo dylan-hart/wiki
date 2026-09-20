@@ -4,18 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * `PUT /users/profile` carrying `iconPicker`: the icon picker's one persisted control, its set
- * filter (`IconPickerDialog.vue`'s `state.setFilter`).
- *
- * Mirrors `profile.graph.test.ts`'s shape for this field: the real `UserProfileUpdate` schema
- * (registered through `buildTestApp`'s default `schemas: 'all'`) rejects an unknown sub-key
- * (`additionalProperties: false`) before it ever reaches the model, and a successful save both hands
- * the patch to `models/users.ts#updateProfile` unchanged and copies the saved value onto
- * `req.session.user`, the same "session carries a copy of the preferences" contract every other
- * profile pref has.
- */
-
 const USER_ID = '55555555-5555-4555-8555-555555555555'
 
 let app: FastifyInstance
@@ -115,10 +103,8 @@ describe('PUT /users/profile: iconPicker', () => {
 })
 
 /**
- * `req.session.user.iconPicker` -- what `/whoami` actually serves -- separately from the response
- * body above. `session: 'header'` re-parses a fresh object from a header on every request, so it
- * cannot show a mutation; a session **function** returning the same mutable object across requests
- * can (`test/fastify.ts`'s documented third seeding form).
+ * `session: 'header'` re-parses a fresh object on every request, so it cannot show a mutation; a
+ * session function returning the same mutable object across requests can.
  */
 describe('PUT /users/profile: iconPicker on the session', () => {
   test('copies the saved value onto req.session.user, the same as graph/aesthetic/appearance', async () => {

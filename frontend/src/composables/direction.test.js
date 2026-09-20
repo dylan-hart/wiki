@@ -2,15 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { useDirection } from './direction.js'
 
-/**
- * Regression coverage for feature 413 ("RTL support end-to-end"), task 721: a component that stays
- * mounted across navigations (`PageHeader.vue`'s review-queue menu is the concrete case) cannot get
- * its direction from a one-time read of `document.documentElement.dir` at setup -- `App.vue`'s
- * `applyLocale()` flips that attribute on every navigation, not only once at boot, so a reader moving
- * between an LTR page and an RTL one in the same visit needs a reactive source. `useDirection()`
- * mirrors the attribute into a module-level ref for exactly that, the same way `composables/dark.js`
- * mirrors `body--dark`.
- */
 afterEach(() => {
   document.documentElement.removeAttribute('dir')
 })

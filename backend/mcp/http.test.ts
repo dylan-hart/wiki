@@ -12,15 +12,10 @@ import { createMcpSessionHarness } from '../test/mcpSessionHarness.ts'
 let wikiHandle: { restore(): void }
 
 /**
- * Exercises `mcp/http.ts` as a real Fastify plugin (`app.inject()`, same pattern
- * `helpers/rateLimit.test.ts` and `controllers/site.test.ts` use) rather than unit-testing its
- * internals directly — the thing actually worth proving here is the wiring: per-request bearer auth,
- * the rate limiter, and the session lifecycle the MCP SDK's `WebStandardStreamableHTTPServerTransport`
- * expects, all glued into Fastify's request/reply cycle including `reply.hijack()` and `webBridge.ts`'s
- * Fastify↔Web-Standard conversion. The transport's own protocol-framing correctness is the SDK's
- * problem, not this suite's; `CARDINAL.models.apiKeys.verify` and `CARDINAL.models.rateLimits.consume` are
- * stubbed so no database is touched. `app` here is built with no explicit `bodyLimit`, so it runs
- * under Fastify's own 1 MiB default — exactly what the body-size-limit test below relies on.
+ * Driven as a real Fastify plugin (`app.inject()`): what is worth proving is the wiring — bearer
+ * auth, the rate limiter and the SDK transport's session lifecycle glued into Fastify's
+ * request/reply cycle, `reply.hijack()` and `webBridge.ts` included — not the SDK's own protocol
+ * framing. `app` sets no `bodyLimit`, so Fastify's 1 MiB default applies; the 413 test relies on it.
  */
 describe('mcp/http', () => {
   let app: FastifyInstance
@@ -33,8 +28,7 @@ describe('mcp/http', () => {
   const SITE_X = 'site-x'
   const SITE_Y = 'site-y'
 
-  /** Mutated mid-test to prove a session re-reads it on every request. See the 'reflects a token's
-   *  freshly re-verified scope' test below. */
+  /** Mutated mid-test to prove a session re-reads it on every request. */
   let tokenASiteId: string | null
 
   function identityFor(token: string) {
@@ -73,10 +67,8 @@ describe('mcp/http', () => {
             return identityFor(token)
           }
         },
-        // -> `list_sites` (OpenProject #2193) checks `read:pages` per site for a caller with no
-        //    `access:admin`/`manage:sites`; this suite's tokens hold neither, so it stubs a rule
-        //    granting the read everywhere rather than testing that gating itself (covered by
-        //    `mcp/tools/listSites.test.ts`) — the point of this file is the HTTP/session wiring.
+        // -> `list_sites` checks `read:pages` per site for a caller without `access:admin`/
+        //    `manage:sites`. Granted everywhere here: that gating is `mcp/tools/listSites.test.ts`'s.
         groups: {
           checkAccess: () => true
         },
@@ -107,10 +99,8 @@ describe('mcp/http', () => {
     rateLimitAllowed = true
     tokenASiteId = null
     auditCalls = []
-    // -> `limitApiKey`'s ban memo (`helpers/rateLimit.ts#activeBanMemo`) is a module-level singleton
-    //    shared across every test in this file; clearing it here keeps the "over its rate limit" test
-    //    below from banning TOKEN_A for real (42s TTL) and bleeding a 429 into every test after it —
-    //    same reasoning as `rateLimit.test.ts`'s own `beforeEach`.
+    // -> `limitApiKey`'s ban memo is a module-level singleton: uncleared, the rate-limit test below
+    //    bans TOKEN_A for real and bleeds a 429 into every test after it.
     activeBanMemo.clear()
   })
 
@@ -174,13 +164,9 @@ describe('mcp/http', () => {
   })
 
   test('a request body over the size limit is refused with 413', async () => {
-    // -> The app-wide Fastify `bodyLimit` (`core/http/server.ts`, 1 MiB here since this suite's `app`
-    //    sets no override) is what refuses this, not anything `mcp/http.ts` does itself — the v1 SDK's
-    //    own missing internal body-size check (OpenProject #3160's audit source) is moot once every
-    //    route, this one included, sits behind the same instance-level guard `/_api/` and everything
-    //    else already does. A valid bearer token, so the `onRequest` auth hook (which runs BEFORE
-    //    Fastify parses the body) completes normally and this genuinely exercises body-size refusal
-    //    rather than short-circuiting on auth first.
+    // -> Fastify's instance-level `bodyLimit` refuses this, not `mcp/http.ts` itself. The token is
+    //    valid so the `onRequest` auth hook, which runs before the body is parsed, passes and the
+    //    refusal under test is the size one.
     const res = await app.inject({
       method: 'POST',
       url: '/',
@@ -278,7 +264,6 @@ describe('mcp/http', () => {
   })
 
   test('a follow-up POST on an existing session re-authorizes against that request own fresh verification, not the identity that opened it', async () => {
-    // Token A opens the session unscoped (siteId null) and sees both sites.
     const opened = await openSession()
     const sessionId = opened.headers['mcp-session-id'] as string
 
@@ -407,24 +392,15 @@ describe('mcp/http', () => {
 })
 
 /**
- * OpenProject #2207: the session map's idle TTL and hard cap. A separate app/describe block, built
- * with test-sized `sessionIdleTtlMs`/`sessionCap` overrides (`mcp/http.ts`'s `HttpRoutesOptions`) —
- * the default 30-minute idle TTL and 1000-session cap are not something a unit test should wait out or
- * open a thousand real sessions to exercise. The app, `openSession` and `pollSession` come from
- * `test/mcpSessionHarness.ts`, shared with `mcp/http.flaky.test.ts`.
- *
- * A third claim — that an ACTIVE session is not evicted while it is still being touched — lives in
- * `mcp/http.flaky.test.ts` instead, quarantined because it is the one of the three whose result
- * depends on the whole run's scheduling rather than on the session map. The two below assert that eviction
- * HAPPENS, which a slow run only makes more true, so they stay in the default lane.
+ * The third claim — an ACTIVE session is never evicted — lives in `mcp/http.flaky.test.ts`: only
+ * that direction can be falsified by a slow run. The two below assert that eviction HAPPENS, which
+ * a slow run only makes more true.
  */
 describe('mcp/http session eviction (OpenProject #2207)', () => {
   let harness: Awaited<ReturnType<typeof createMcpSessionHarness>>
 
-  // -> A fresh harness (and therefore a fresh, empty session store) per test: these tests reason
-  //    about exactly which sessions are live at a given moment, which a store shared across tests
-  //    would make order- and timing-dependent. A tiny idle ttl and a cap of 2, so both eviction
-  //    paths fire within a fast test run.
+  // -> A fresh harness, so an empty session store, per test: these reason about exactly which
+  //    sessions are live. A tiny idle ttl and a cap of 2 so both eviction paths fire quickly.
   beforeEach(async () => {
     harness = await createMcpSessionHarness({ sessionIdleTtlMs: 30, sessionCap: 2 })
   })
@@ -441,15 +417,12 @@ describe('mcp/http session eviction (OpenProject #2207)', () => {
     )
     try {
       const sessionId = await harness.openSession()
-      // -> Confirm it is reachable right after opening, before the ttl has had a chance to lapse.
       assert.equal((await harness.pollSession(sessionId)).statusCode, 200)
 
-      // -> Longer than the 30ms sessionIdleTtlMs above, with no request touching the session in
-      //    between so nothing resets its idle clock.
+      // -> Well past the 30ms idle ttl, with nothing touching the session in between.
       await new Promise((resolve) => setTimeout(resolve, 150))
 
-      // -> `LRUCache` evicts lazily, on the next touch of the stale entry — this `.get()` (via
-      //    `pollSession`) is what actually triggers the sweep/dispose, and should itself find nothing.
+      // -> `LRUCache` evicts lazily: this `.get()` (via `pollSession`) is what triggers the dispose.
       assert.equal(
         (await harness.pollSession(sessionId)).statusCode,
         404,
@@ -471,7 +444,6 @@ describe('mcp/http session eviction (OpenProject #2207)', () => {
     const sessionB = await harness.openSession(2)
     const sessionC = await harness.openSession(3)
 
-    // -> Cap is 2: opening a third session must have evicted exactly one of the first two.
     const [resA, resB, resC] = await Promise.all([
       harness.pollSession(sessionA),
       harness.pollSession(sessionB),

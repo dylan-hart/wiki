@@ -2,31 +2,18 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #2886 ("Ledger dark mode: tabsets show white hairlines").
+ * The bug class guarded here is invisible to a source-text suite, because it is not in what any one
+ * token is declared as: a custom property's nested `var()` is substituted using the COMPUTED value
+ * at the element where that property is ASSIGNED, and that already-resolved value is what inherits
+ * down -- it is never re-substituted per descendant. So `--tabs-strip-rule`'s literal
+ * `1px solid var(--tabs-border)`, assigned only at `:root`, keeps resolving against `<html>`'s own
+ * value even under a `body--dark` that overrides `--tabs-border` for everything below it. A rule's
+ * OWN direct `var(--tabs-border)` is fine: that substitution happens locally, where the override is
+ * genuinely inherited.
  *
- * `tabsetTokens.test.js` asserts the `--tabs-*` custom properties against the SOURCE TEXT of
- * `tailwind.css` -- it cannot catch this bug, because the bug is not in what any one token is
- * declared as: it is in how the browser resolves a `var()` NESTED inside another custom property
- * across an inheritance boundary, which no amount of reading the source text can simulate (`jsdom`
- * cannot either -- it runs no layout/paint engine, so it never actually resolves a `var()` cascade
- * at all). This suite is the one place that mounts the REAL compiled CSS in a REAL browser and reads
- * back the REAL computed color, the only way this class of bug is actually observable.
- *
- * The failure mode, concretely: `--tabs-strip-rule`/`--tabs-tab-rule` hold the literal string
- * `1px solid var(--tabs-border)`. A custom property's nested `var()` is substituted using the
- * COMPUTED value at the element where that property is itself ASSIGNED in the cascade, and that
- * already-resolved value is what then inherits down -- it is not re-substituted per descendant. So
- * a shorthand assigned only once, at `:root` (`<html>`), keeps resolving its nested
- * `var(--tabs-border)` against `<html>`'s own value forever, even on a page whose `<body>` carries
- * a `body--dark` class overriding `--tabs-border` for everything under it. A block's OWN direct
- * `border: 1px solid var(--tabs-border)` does not have this problem, since that substitution
- * happens locally, deep in the block's own shadow tree, where the override really is inherited.
- *
- * The fixture below is a minimal custom element declaring the same three consuming rules
- * `blocks/block-tabs/component.js` does (`.tabs` direct, `.strip`/`.tab` through the shorthands),
- * kept self-contained here rather than importing the real compiled block -- this suite is about the
- * CSS cascade `tailwind.css` declares, not about `block-tabs` specifically, and a self-contained
- * fixture needs no cross-workspace build step to stay in sync with.
+ * Only real compiled CSS in a real browser can show this -- `jsdom` resolves no `var()` cascade at
+ * all. The fixture restates the consuming rules `blocks/block-tabs/component.js` declares rather
+ * than importing the built block, so this suite needs no cross-workspace build step.
  */
 
 const FIXTURE_SCRIPT = `
@@ -93,8 +80,7 @@ describe(
       async () => {
         const result = await computedRuleColors('body--ledger body--dark')
 
-        // -> The correct Ledger-dark --tabs-border, #2a3040. Before the #2886 fix, .strip and .tab
-        //    came back as rgb(219, 225, 236) -- Ledger LIGHT's #dbe1ec -- the white-reading hairline.
+        // -> Ledger dark's --tabs-border, #2a3040.
         expect(result.tabsBorderColor).toBe('rgb(42, 48, 64)')
         expect(result.stripBorderBottomColor).toBe('rgb(42, 48, 64)')
         expect(result.tabBorderRightColor).toBe('rgb(42, 48, 64)')

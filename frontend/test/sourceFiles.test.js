@@ -6,13 +6,6 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { listSourceFiles } from './sourceFiles.js'
 
-/**
- * One recursive source walker for the seven that were copied across `src/` (TEST-F15):
- * `autofocusUsage` ≡ `buttonAccessibility`, `imgAlt` ≡ `adminIconHeaderSize`, plus
- * `components/dialogAccessibleName`, `i18nSourceGate`, `css/_base`, `physicalPositioning` and
- * `i18nUnexpectedErrorLiteral` -- each the same readdir-recurse-filter loop, differing only in the
- * extensions it keeps and whether it skips test files.
- */
 let root
 
 beforeAll(() => {

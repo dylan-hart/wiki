@@ -15,12 +15,9 @@ import type { SystemIds } from './types.ts'
 await ensureTemporal()
 
 /**
- * `Settings.init()` (OpenProject #2005): the seeded `settings` rows a fresh install writes.
- * `search` (moved to per-site config in #563 — `models/search.ts`'s comment reads
- * `CARDINAL.sites[siteId].config.search.config`, never `CARDINAL.config.search`) and `icons` (the 2.x
- * icon-webfont shape; the only live `CARDINAL.config.icons` read is `models/icons.ts`'s `apiUrl`,
- * satisfied by `base.yml`) were dead rows nothing ever read back. This locks their removal so
- * neither reappears.
+ * Search config is read per-site (`CARDINAL.sites[siteId].config.search.config`, never
+ * `CARDINAL.config.search`) and the only live `CARDINAL.config.icons` read is `models/icons.ts`'s
+ * `apiUrl`, which `base.yml` satisfies — so a seeded row for either is dead weight nothing reads.
  */
 describe('Settings.init() (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -65,15 +62,6 @@ describe('Settings.init() (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 })
 
-/**
- * Unit tests for WP #2158/#2166 (part of #2154): `securityCspSeed` is what a fresh instance's
- * `security` settings row actually seeds `cspDirectives`/`enforceCsp` from -- unlike every other
- * field `Settings#init` seeds, which is a hardcoded literal, these two are read from
- * `CARDINAL.config.security` (`base.yml` merged with any `config.yml` override) specifically so
- * `e2e/config.e2e.yml` can turn `enforceCsp` on for `e2e/tests/csp.spec.js` without touching what a
- * real fresh install ships with. Pure function, no `CARDINAL` global and no database, per this
- * workspace's testing convention.
- */
 describe('securityCspSeed', () => {
   test('reads both fields straight through when config sets them', () => {
     assert.deepEqual(
@@ -113,8 +101,8 @@ describe('securityCspSeed', () => {
 
   test('in real boot order (config.init() before initDbValues()), the shipped backend/base.yml default flows through untouched', () => {
     const config: any = load(readFileSync(path.join(import.meta.dirname, '../base.yml'), 'utf8'))
-    // -> `configSvc.init()` merges `config.yml` onto `appdata.defaults.config` -- with no override,
-    //    `CARDINAL.config.security` ends up identical to `base.yml`'s own `defaults.config.security`.
+    // -> `configSvc.init()` merges `config.yml` onto `appdata.defaults.config`, so with no override
+    //    both arguments really are the same `base.yml` object at boot.
     const result = securityCspSeed(
       { security: config.defaults.config.security },
       { defaults: { config: { security: config.defaults.config.security } } }

@@ -6,17 +6,10 @@ import BlockParamsDialog from './BlockParamsDialog.vue'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * OpenProject #2634. This dialog is the third consumer of a block definition's `icon` — after
- * `AdminBlocks.vue` and `BlockPickerOverlay.vue` — and the one nothing was covering, so a rename of
- * the 26 in-repo declarations would have blanked its title band with nothing failing to say so.
- *
- * It draws the reference as-is rather than assembling an `img:/_assets/icons/ultraviolet-<name>.svg`
- * path out of it -- a name assembled by concatenation is therefore a bug; make it a literal:
- * `scripts/generate-icons.mjs` cannot see a name built at
- * runtime, and `WIcon` draws nothing at all for a reference carrying no Iconify prefix.
- *
- * `WIcon` stamps `data-icon` on all three of its branches, so this reads the same whether the
- * reference happens to be in the inlined bundle or falls through to `iconify-icon` at runtime.
+ * `ultraviolet-` is what an assembled `img:` icon path would look like: a name built by
+ * concatenation is invisible to `scripts/generate-icons.mjs`, and `WIcon` draws nothing for a
+ * reference with no Iconify prefix. `WIcon` stamps `data-icon` on all three of its branches, so
+ * the selector holds whether the reference is inlined at build time or falls through at runtime.
  */
 
 const DEFINITION = {

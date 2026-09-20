@@ -17,11 +17,9 @@ import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
 /*
-  `stores/common.js` reads `localStorage.getItem('locale')` at store-creation time. Node 26 (this
-  repo's engine requirement) ships an experimental global `localStorage` that shadows happy-dom's own
-  implementation in a way that leaves `.getItem` missing -- nothing under test actually cares about a
-  persisted locale, so a minimal stub sidesteps the collision rather than fighting over which
-  `localStorage` wins. `AdminLayout` pulls in `commonStore` unconditionally, so any mount needs this.
+  `stores/common.js` reads `localStorage.getItem('locale')` when the store is created, and every
+  mount here pulls that store in. Node's own experimental global `localStorage` shadows happy-dom's
+  with one that has no `.getItem`, so stub past the collision -- no test cares about a stored locale.
 */
 beforeEach(() => {
   vi.stubGlobal('localStorage', {
@@ -32,25 +30,14 @@ beforeEach(() => {
 })
 
 describe('AdminLayout sidebar nav', () => {
-  /**
-   * Regression coverage for Task 614 (Feature 394, "Admin comments management UI rebuild"): the
-   * sidebar Comments link used to be permanently `disabled` and only ever rendered behind
-   * `flagsStore.experimental`, alongside Analytics. Both of those gates are gone -- the link is a
-   * normal, clickable admin nav entry, matching General/Approvals -- but (OpenProject #950) it is
-   * now gated on `manage:sites` the way General/Approvals already were, which every test in THIS
-   * describe block grants by default; see the separate "delegated admin" describe block below for
-   * coverage of a user who does not hold it.
-   */
   async function mountLayout({
     experimental,
     permissions = ['access:admin', 'manage:sites'],
     sitePermissions = []
   }) {
-    // -> Avoids the pre-existing `this.sites[0].id` crash in `adminStore.fetchSites()` (called from
-    //    `onMounted`) when the stubbed API_CLIENT response is empty by default. The
-    //    `userPermissions` branch avoids a similar crash in `userStore.fetchSitePermissions()`,
-    //    triggered by AdminLayout.vue's watcher on `adminStore.currentSiteId` once `fetchSites()`
-    //    resolves — `sitePermissions.includes()` needs an array, not the default `undefined`.
+    // -> The default stub resolves every call to `undefined`: `sites` has to answer with one site
+    //    for `fetchSites()` to set a `currentSiteId`, and the `userPermissions` call that
+    //    AdminLayout's watcher on it then makes has to answer with the delegated grants
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'sites') {
         return { json: () => Promise.resolve([{ id: 'site1', title: 'Site 1' }]) }
@@ -85,7 +72,7 @@ describe('AdminLayout sidebar nav', () => {
 
     expect(commentsItem).toBeDefined()
     expect(commentsItem.attributes('aria-disabled')).toBeUndefined()
-    // -> A non-disabled `to` item renders as a `router-link` -> `<a>`, with the real target href.
+    // -> A disabled `to` item is not a `router-link`, so the tag name is the enabled/disabled tell
     expect(commentsItem.element.tagName).toBe('A')
   })
 
@@ -109,22 +96,15 @@ describe('AdminLayout sidebar nav', () => {
   })
 
   /**
-   * OpenProject #950: unlike the other eight site-scoped sidebar entries (General, Approvals,
-   * Blocks, Editors, Locale, Login, Navigation, Theme -- each gated via `maySeeSiteSurface`/
-   * `manage:sites`), Analytics and Comments rendered for anyone holding `access:admin` at all, no
-   * `v-if`. Both pages require `manage:sites` server-side (`backend/api/analytics.ts`,
-   * `backend/api/comments.ts`'s admin routes), so a delegated administrator holding only a `site:*`
-   * permission -- `site:theme` here, an arbitrary one of the eight the other entries already gate on
-   * -- saw both links and got a 403 error toast over an empty page on click.
+   * Both pages require `manage:sites` server-side, so a link an actor without it can see is a 403
+   * over an empty page.
    */
   it('hides Analytics and Comments from a delegated admin who lacks manage:sites', async () => {
     const wrapper = await mountLayout({
       experimental: false,
       permissions: ['access:admin'],
-      // -> `site:theme` is a per-site DELEGATED permission (`userStore.canOnSite`, fetched from
-      //    `sites/:id/userPermissions`), not a group-wide one -- an arbitrary one of the eight
-      //    `site:*` surfaces the other sidebar entries already gate on, chosen to prove this admin
-      //    genuinely has SOME delegated access, just not the `manage:sites` these two links need.
+      // -> An arbitrary delegated `site:*` grant, so this actor has SOME site access, just not the
+      //    group-wide permission these two links need
       sitePermissions: ['site:theme']
     })
 
@@ -134,13 +114,6 @@ describe('AdminLayout sidebar nav', () => {
 })
 
 describe('AdminLayout Navigation nav-tree entry', () => {
-  /**
-   * Regression test for the Navigation nav-tree entry's gating (Feature 358, Task 434): it used to be
-   * wrapped in `flagsStore.experimental &&` and carry a `disabled` attribute, back when the screen
-   * behind it (`AdminNavigation.vue`) was a dead stub. Both are gone now that the screen is real — the
-   * entry should behave exactly like every other admin nav-tree item, gated on the permission check
-   * alone, regardless of the experimental flag.
-   */
   async function mountLayout({ permissions = [], experimental = false } = {}) {
     const router = await createTestRouter(['/:pathMatch(.*)*'], '/_admin/site-1/navigation')
 
@@ -193,19 +166,8 @@ describe('AdminLayout Navigation nav-tree entry', () => {
 })
 
 /**
- * Regression guard for the AdminSsl.vue removal (Task 599, Feature 388).
- *
- * `AdminSsl.vue` was unrouted dead code: a pre-migration Options-API/Pug page wired to
- * `$apollo.mutate` calls (`system.setHTTPSRedirection`, `system.renewHTTPSCertificate`) that have no
- * backend implementation, reachable only through a `disabled` nav item this file rendered behind
- * `flagsStore.experimental` -- `frontend/src/router/routes.js` never defined an `ssl` route, so the
- * link never resolved to anything even with the flag on.
- *
- * 3.0's TLS posture is termination at a reverse proxy/ingress (see the `trustProxy` setting in
- * `AdminSecurity.vue` and the Docker/Helm assets under `dev/`), not in-app certificate management --
- * so the page, its nav entry, and its locale strings were deleted outright rather than rebuilt --
- * change the shape, change the callers, delete the old path. These assertions exist to keep that
- * dead surface from quietly growing back.
+ * TLS terminates at a reverse proxy or ingress here, never in-app, so there is no certificate
+ * management screen to restore -- these keep the deleted surface from growing back.
  */
 describe('AdminLayout SSL dead-code removal', () => {
   const adminLayoutPath = join(import.meta.dirname, 'AdminLayout.vue')
@@ -239,16 +201,9 @@ describe('AdminLayout SSL dead-code removal', () => {
 })
 
 /**
- * Regression coverage for feature 413 ("RTL support end-to-end"), task 727: two mirroring gaps in
- * the admin chrome that task 721's audit did not reach (it was scoped to NavSidebar/PageToc/
- * PageHeader/the editor toolbars, not the admin layout).
- *
- * The header's own language-switcher menu -- the exact control a reader uses to switch INTO an RTL
- * locale in the first place -- had a hardcoded `anchor="bottom right" self="top right"`, the same
- * bug `PageHeader.vue`'s review-queue dropdown had before task 721 fixed it via
- * `helpers/directionalAnchor.js`. Fixed the same way here, reactively off
- * `composables/direction.js` since this header, like `PageHeader.vue`'s, stays mounted across
- * navigations.
+ * The language switcher is the control a reader uses to switch INTO an RTL locale, and this header
+ * stays mounted across navigations -- so its anchor has to mirror reactively off
+ * `composables/direction.js`, not be resolved once at mount.
  */
 async function mountAdminLayout() {
   setActivePinia(createPinia())
@@ -261,9 +216,7 @@ async function mountAdminLayout() {
 
   const i18n = createTestI18n()
 
-  // -> `fetchSites()` (called from `onMounted`) does `this.sites[0].id` when nothing came back --
-  //    the default `API_CLIENT` stub resolves every call to `undefined`, which would throw. A
-  //    stubbed site list is what a real backend would return here.
+  // -> `onMounted` calls `fetchSites()`, and only a non-empty list gives it a `currentSiteId`
   stubApi({ sites: [{ id: 'site-1', title: 'Test Site' }] }, { fallback: [] })
 
   const wrapper = mount(AdminLayout, {
@@ -282,8 +235,7 @@ async function mountAdminLayout() {
 
 describe('AdminLayout locale-switcher menu direction', () => {
   afterEach(() => {
-    // -> `useDirection`'s backing ref is module-level state shared with every other test file that
-    //    imports it in this run; leaving it flipped would bleed into whichever test happens to run next
+    // -> `useDirection`'s backing ref is module-level state; left flipped it bleeds into the next test
     useDirection().set(false)
   })
 
@@ -315,15 +267,6 @@ describe('AdminLayout locale-switcher menu direction', () => {
   })
 })
 
-/**
- * Regression coverage for task 822: the EXIT and locale-switcher buttons in the admin toolbar used
- * to carry only `ml-4` (WBtn's default `hover:bg-current/10` fill), the same faint/inconsistent
- * hover state task 807 fixed for the site header's five icon buttons via `.header-nav-btn`. These
- * two buttons carry a visible text label beside their icon, unlike those five icon-only buttons, so
- * they take `header-nav-btn` together with the `header-nav-btn--auto-width` modifier
- * (`css/_base.css`) rather than the bare class -- same 64px band, squared corners and 20% hover
- * fill, but sized to the label instead of forced to a 64px square.
- */
 describe('AdminLayout toolbar hover treatment (task 822)', () => {
   async function mountToolbar() {
     setActivePinia(createPinia())
@@ -353,10 +296,8 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
   }
 
   /*
-    The Cardinal re-skin moved these two off the `header-nav-btn` band. That band is a hover FILL on a
-    solid dark bar, and the admin header is a white plate now -- so a control needs an edge of its
-    own to read as one, which is what `outline` gives it. `header-nav-btn--auto-width` existed only
-    to let these two size to their labels inside that band, and went with them.
+    These two sit off the `header-nav-btn` band: that band is a hover fill made for a solid dark bar,
+    and on the admin header's white plate a control needs an edge of its own to read as one.
   */
   it('outlines the EXIT button, in the accent -- the one control in the bar that leaves', async () => {
     const wrapper = await mountToolbar()
@@ -380,8 +321,7 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
     expect(localeBtn.attributes('style')).toContain('var(--color-slate)')
   })
 
-  // -> OpenProject #3001: both header action buttons carry a dedicated class so Cobalt can give them
-  //    a solid white stroke/border via CSS, since `color` alone never reaches the outline WBtn's border.
+  // -> The shared class is how an aesthetic restrokes these: a WBtn's `color` never reaches its border
   it('gives both the Exit and locale-switcher buttons the admin-header-action-btn class', async () => {
     const wrapper = await mountToolbar()
 
@@ -403,9 +343,7 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
   })
 
   it('no longer declares the header-nav-btn--auto-width modifier, which has no callers left', () => {
-    // -> Vue Test Utils never loads the app's stylesheet, so the class assertions above cannot catch
-    //    a dead rule left behind in the CSS. Guards the removal directly, the same way the SSL
-    //    dead-code describe block above asserts on file contents rather than rendered style.
+    // -> Vue Test Utils never loads the app's stylesheet, so no mounted assertion can see a dead rule
     const dir = dirname(fileURLToPath(import.meta.url))
     const scssPath = join(dir, '../css/_base.css')
     const source = readFileSync(scssPath, 'utf-8')
@@ -415,13 +353,9 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
 })
 
 /**
- * OpenProject #2356: the admin `admin-overlay` `<w-dialog>` gets its accessible name from a small
- * lookup map (`ADMIN_OVERLAY_TITLES`) keyed by which child `overlays` component is currently loaded --
- * there is no title of its own to read, since the loaded child owns the only visible heading. A key
- * present in one map but not the other is exactly the failure mode that would silently leave that one
- * screen's dialog unnamed with no visible symptom, so this guards the two maps staying in lockstep
- * rather than asserting against a full, heavier mount of each real (dynamically-imported) child
- * overlay (`EditorMarkdownConfigOverlay`, `GroupEditOverlay`, `UserEditOverlay`).
+ * The `admin-overlay` dialog takes its accessible name from `ADMIN_OVERLAY_TITLES`, keyed by which
+ * `overlays` child is loaded, since the child owns the only visible heading. A key in one map and
+ * not the other leaves that screen's dialog unnamed with no visible symptom.
  */
 describe('AdminLayout admin-overlay accessible-name map', () => {
   function topLevelKeys(source, constName) {
@@ -442,9 +376,7 @@ describe('AdminLayout admin-overlay accessible-name map', () => {
         }
       }
     }
-    // -> Strips `//`-to-end-of-line comments first: a commented-out entry in either map (an overlay
-    //    that is not yet implemented, say) would otherwise still be picked up as a real key by a
-    //    purely textual `\w+:` scan.
+    // -> Strip line comments first: a commented-out entry would otherwise read as a real key
     const body = source
       .slice(braceStart + 1, braceEnd)
       .split('\n')
@@ -472,13 +404,9 @@ describe('AdminLayout admin-overlay accessible-name map', () => {
 })
 
 /**
- * Regression coverage for OpenProject #2564: `AdminApi.vue`'s personal-token note opens the shared
- * "Profile" overlay via `siteStore.openOverlay('Profile', { section: 'api' })`, but that overlay is
- * only ever rendered by `<MainOverlayDialog>` -- which, unlike `MainLayout.vue`
- * (`frontend/src/layouts/MainLayout.vue:207`), `AdminLayout.vue` never mounted. The click set
- * `siteStore.overlay`/`overlayOpts` with nothing in the admin view able to render it: a dead click.
- * This does not overlap `AdminLayout`'s own separate `adminStore.overlay`-driven `<w-dialog>`
- * (EditorMarkdownConfig/GroupEditOverlay/UserEditOverlay) -- a distinct store field and mechanism.
+ * `siteStore.openOverlay()` only ever renders through `<MainOverlayDialog>`, so an admin page
+ * calling it without this mounted sets the store field and shows nothing -- a dead click. Distinct
+ * from the layout's own `adminStore.overlay`-driven dialog, which is a separate mechanism.
  */
 describe('AdminLayout MainOverlayDialog mount (OpenProject #2564)', () => {
   it('mounts MainOverlayDialog, so a siteStore.openOverlay() call from an admin page has something to render into', async () => {
@@ -494,11 +422,6 @@ describe('AdminLayout MainOverlayDialog mount (OpenProject #2564)', () => {
   })
 })
 
-/**
- * OpenProject #2831: Admin's API Access nav entry used `tabler:plug-connected`, disagreeing with
- * Profile's own API Access section (`ProfileOverlay.vue`), which uses `tabler:api`. And the
- * Scheduler nav entry used `tabler:robot`, a glyph with no relation to what the page does.
- */
 describe('AdminLayout system nav icons (OpenProject #2831)', () => {
   async function mountSystemNav() {
     const router = await createTestRouter(['/_admin/:siteid?/:rest*'], '/_admin/site-1/dashboard')
@@ -532,16 +455,12 @@ describe('AdminLayout system nav icons (OpenProject #2831)', () => {
 })
 
 /**
- * OpenProject #3386: the mail nav's status light used to reflect isMailConfigured (SMTP host set)
- * alone. It now also warns when isMailBaseURLConfigured is false -- every mail link this instance
- * would send resolves to an unresolvable host, even with SMTP fully working -- so a fresh instance
- * still gets a visible nudge to set a base URL, not just a green light because mail could be sent.
+ * Working SMTP is not enough: without a base URL every link the instance mails out resolves
+ * nowhere, so that half warns as loudly as an unconfigured mailer.
  */
 describe('AdminLayout mail status light (OpenProject #3386)', () => {
   async function mountMailNav(info) {
-    // -> AdminLayout's onMounted calls adminStore.fetchInfo(), which overwrites info.* from
-    //    GET system/info -- seeding the store directly races that fetch, so the response itself
-    //    is what needs stubbing.
+    // -> `onMounted`'s `fetchInfo()` overwrites `info.*`, so seed the response, not the store
     stubApi(
       { sites: [{ id: 'site-1', title: 'Test Site' }], 'system/info': info },
       { fallback: [] }
@@ -612,16 +531,8 @@ describe('AdminLayout nav count badge', () => {
 })
 
 /**
- * Regression coverage for OpenProject #2635 (note 15 of the 2026-09-05 review): the centred admin
- * toolbar used to carry a hardcoded `<w-badge label="beta" />` beside the "ADMIN AREA" label. It is
- * gone, and it stays gone.
- *
- * Worth knowing before "restoring" it: `ui-redesign/Cardinal Wiki - Admin 3x.dc.html:30` DOES still
- * draw that chip. The removal is a deliberate divergence from the mockup, asked for directly, not
- * drift away from it -- so a later conformance pass should leave this alone rather than reconciling
- * the two against the mockup. The label was a literal, never a locale key, so nothing in
- * `backend/locales/` went with it; the badge's `ms-2` was purely the gap to the label, and the
- * wordmark lives in a different `<w-toolbar>` entirely, so its position is unaffected.
+ * The admin mockups still draw a "beta" chip beside the area label. Its absence here is a deliberate
+ * divergence, so a conformance pass against those mockups should leave it absent.
  */
 describe('AdminLayout beta badge removal (OpenProject #2635)', () => {
   it('renders no "beta" badge in the admin header', async () => {
@@ -639,10 +550,8 @@ describe('AdminLayout beta badge removal (OpenProject #2635)', () => {
   })
 
   /*
-    Scoped to the centred toolbar rather than the whole template on purpose: `AdminLayout` draws five
-    other `<w-badge>`s, all of them the sidebar's nav counts, and a blanket "no w-badge anywhere"
-    assertion would both fail today and, once loosened, be guarding the wrong thing. What matters is
-    that this one toolbar holds the area label and nothing else.
+    Scoped to the centred toolbar, not the whole template: the sidebar's nav counts are `<w-badge>`s
+    too, so a blanket "no badge anywhere" assertion would guard the wrong thing.
   */
   it('leaves the centred toolbar holding the area label alone, with no badge beside it', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
@@ -660,13 +569,8 @@ describe('AdminLayout beta badge removal (OpenProject #2635)', () => {
 })
 
 /**
- * Regression coverage for OpenProject #3069: the admin home-link button was missing the
- * `header-nav-btn` class that `HeaderNav.vue`'s equivalent logo button carries, so it fell back to
- * `WBtn`'s own `dense` padding (`0 0.8em`, ~10px at this button's base font size) instead of the
- * flush `padding: 0 !important` `header-nav-btn` forces -- producing extra left/right inset on the
- * admin logo that the main header's logo does not have. Fixed by matching `HeaderNav.vue` exactly:
- * `header-nav-btn` added, the now-redundant `dense` prop dropped (`header-nav-btn`'s `!important`
- * rules override both of `dense`'s effects anyway).
+ * `header-nav-btn`'s `!important` padding overrides everything `dense` does, so carrying both says
+ * two different things about one button and only one of them is true.
  */
 describe('AdminLayout home-link button padding (OpenProject #3069)', () => {
   it('gives the home-link button the header-nav-btn class, matching HeaderNav.vue', async () => {
@@ -695,14 +599,9 @@ describe('AdminLayout home-link button padding (OpenProject #3069)', () => {
 })
 
 /**
- * Diffed against the Cobalt mockups (OpenProject #2780): before this task, every colour in this
- * layout's `<style>` block was a plain `$scss` constant or a hardcoded `#fff`, none of which vary
- * with `body.body--cobalt` -- so the admin header stayed white and the sidebar stayed on Ledger's
- * ink/dark-N tones under Cobalt too. Not a colour/computed-style assertion, for the same reason
- * `NavEditMenu.test.js`'s own Cobalt-override coverage isn't one: jsdom doesn't resolve the
- * aesthetic's `var()` cascade reliably. These check that the override rules exist, are scoped to
- * `body.body--cobalt` (never touching the Ledger rule above them), and read the right custom
- * properties -- the token *values* are `cobaltTokens.test.js`'s job, not this file's.
+ * Source text rather than computed style: the test DOM does not resolve an aesthetic's `var()`
+ * cascade reliably. These assert only that the overrides exist, stay scoped to `body.body--cobalt`
+ * and read the right custom properties -- the token values themselves are `cobaltTokens.test.js`'s.
  */
 describe('AdminLayout Cobalt aesthetic overrides (OpenProject #2780)', () => {
   function cobaltOverrideBlock() {
@@ -753,8 +652,8 @@ describe('AdminLayout Cobalt aesthetic overrides (OpenProject #2780)', () => {
       /background-color:\s*var\(--color-admin-sidebar-raised\)\s*!important/
     )
     expect(countBadge).toMatch(/color:\s*var\(--color-sidebar-text-secondary\)\s*!important/)
-    // -> Left alone: the trailing-edge stripe has to keep matching StatusLight, a frozen shared
-    //    primitive (#2772/#2773) that stays on $negative-fill / $positive-fill regardless of aesthetic
+    // -> The trailing-edge stripe stays put: it has to match StatusLight, a frozen shared primitive
+    //    that keeps its negative/positive fills whatever the aesthetic
     expect(countBadge).not.toMatch(/negative-fill|positive-fill/)
   })
 
@@ -781,8 +680,7 @@ describe('AdminLayout Cobalt aesthetic overrides (OpenProject #2780)', () => {
     )
   })
 
-  // -> OpenProject #3001: solid white stroke/border for the Exit and locale-switcher header buttons,
-  //    with no light/dark split needed since plain white applies uniformly to both Cobalt modes.
+  // -> One rule, no light/dark split: plain white reads on both Cobalt modes' header bars
   it('gives the header action buttons a solid white stroke and border (OpenProject #3001)', () => {
     const block = cobaltOverrideBlock()
 

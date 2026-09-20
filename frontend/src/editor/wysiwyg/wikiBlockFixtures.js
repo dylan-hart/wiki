@@ -1,15 +1,10 @@
 /**
- * Test-only: every block's own `static definition`, read straight out of each `blocks/block-<name>`
- * directory's `component.js` source text rather than imported -- the same reason
- * `blocks/definitions.test.js` does it this way.
- * Importing every block for real pulls in whatever rendering library each one wraps (mermaid, KaTeX,
- * Leaflet, swagger-ui, pdfjs-dist, …), several of which touch browser APIs happy-dom doesn't implement
- * at module scope; none of that has any bearing on a markdown round-trip, which only ever reads
- * `definition.block`/`.template`/`.props`. `blocks/` is a separate, independently-installed workspace
- * from `frontend/` (root `CLAUDE.md`'s workspace table) with no dependency this one could import
- * through even if it wanted to, so this is a deliberate duplicate of `readDefinition()` rather than a
- * shared import -- see that file's own doc comment for the quote/comment-aware brace matching this
- * mirrors.
+ * Test-only: every block's own `static definition`, read out of each `blocks/block-<name>`
+ * directory's `component.js` source text rather than imported. Importing them for real pulls in
+ * whatever rendering library each one wraps (mermaid, KaTeX, Leaflet, …), several of which touch
+ * browser APIs happy-dom doesn't implement at module scope; a markdown round-trip needs none of it.
+ * `blocks/` is a separately-installed workspace with no dependency `frontend/` could import
+ * through, so this duplicates `blocks/definitions.test.js`'s reader rather than sharing it.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
@@ -66,13 +61,7 @@ function readDefinition(source) {
   return new Function(`return (${literal})`)()
 }
 
-/**
- * Every block under `blocks/block-*`, as its own `static definition` object -- `{ block, name,
- * props?, template? }` -- keyed by directory name and sorted the same way `blocks/definitions.test.js`
- * sorts them, so a new block picked up by both suites lands in the same relative place in each.
- *
- * @returns {Array<{ dirName: string, definition: object }>}
- */
+/** @returns {Array<{ dirName: string, definition: object }>} */
 export function readAllBlockDefinitions() {
   const blockDirNames = readdirSync(BLOCKS_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && entry.name.startsWith('block-'))

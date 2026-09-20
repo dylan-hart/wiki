@@ -3,10 +3,6 @@ import { describe, expect, it } from 'vitest'
 import { generateGraph } from './storageDeliveryGraph'
 
 /**
- * The diagram is a pure function of the site's storage targets, so what it draws for a given set of
- * them can be asserted directly -- which is the point of lifting it out of `AdminStorage.vue`, whose
- * own coverage only ever got as far as "a graph rendered with some nodes in it".
- *
  * `t` is the identity function here: every label is a key, so a node's `name` says which string it
  * would have shown without a message bundle standing in the way.
  */
@@ -42,11 +38,8 @@ describe('generateGraph', () => {
   })
 
   it('draws every wiki node as this product, not as upstream Wiki.js', () => {
-    // -> WP #2653: the graph is the last surface that both labelled and DREW the wiki node as
-    //    upstream Wiki.js. Every wiki node in every branch -- the always-seeded `pages_wiki`, the
-    //    direct-access branch, the streaming branch and the db fallback -- carries the same pair, so
-    //    a new branch that reintroduces the old mark or the old label fails here rather than only
-    //    being noticed on screen.
+    // -> Every branch's wiki node -- the always-seeded `pages_wiki`, direct access, streaming and the
+    //    db fallback -- so a new branch drawing the upstream name or mark fails here, not on screen.
     const { nodes } = generateGraph(
       [
         target({ module: 'db', contentTypes: { activeTypes: ['documents'] } }),

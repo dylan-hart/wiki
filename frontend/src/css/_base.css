@@ -1,21 +1,7 @@
-/* app global css — native CSS nesting + custom properties, not SCSS (converted OpenProject #3250; */
-/* no bare $variable/@use/@mixin ever survives outside this comment, so the three former @use imports */
-/* of 'sass:color'/'palette'/'theme' are dropped rather than kept as dead weight) */
-/* ------------------------------------------------------------------ */
-/* SCROLLBAR */
-/* ------------------------------------------------------------------ */
-/* */
-/* Ledger: a ruled margin -- 12px gutter, 1px hairline on the inner edge, a square thumb filling */
-/* the gutter edge to edge (no inset). Dark thumb on light track in light mode, a muted lighter */
-/* thumb on the dark track in dark mode; one tone stronger on hover, cardinal only while dragging. */
-/* No arrow buttons. Source: `ui-iteration-scrollbars/scrollbars.md`'s "Ledger" section, reviewed */
-/* 2026-09-10. Cobalt's own scrollbar block lives beside this one as a separate, undivided */
-/* addition -- see that task's own header comment rather than interleaving with this block. */
-/* */
 /* Chromium 121+ ignores every `::-webkit-scrollbar*` rule on an element where `scrollbar-width` */
-/* or `scrollbar-color` is non-auto (Feature #3004's "engine gotcha"), so the standard properties */
-/* are wrapped in `@supports not selector(::-webkit-scrollbar)` and never set on the same selector */
-/* as a `::-webkit-scrollbar*` rule. */
+/* or `scrollbar-color` is non-auto, so the standard properties are wrapped in `@supports not */
+/* selector(::-webkit-scrollbar)` and never set on the same selector as a `::-webkit-scrollbar*` */
+/* rule. */
 @supports not selector(::-webkit-scrollbar) {
   .body--ledger {
     scrollbar-width: thin;
@@ -52,9 +38,8 @@
   display: none;
 }
 
-/* Dark mode, and any Ledger surface on ink (e.g. a `.code-block`, or the always-dark */
-/* `.admin-sidebar` -- see `AdminLayout.vue`'s own header comment: "The admin sidebar is drawn on */
-/* INK in both themes -- it is the one column in the app that always is"). */
+/* Dark mode, and any Ledger surface on ink -- a `.code-block`, or the admin sidebar, which is the */
+/* one column in the app drawn on ink in both themes. */
 @supports not selector(::-webkit-scrollbar) {
   .body--ledger.body--dark,
   .body--ledger .code-block,
@@ -89,34 +74,13 @@
   background: #14171f;
 }
 
-/* ------------------------------------------------------------------ */
-/* SCROLLBAR — COBALT (OpenProject #3006) */
-/* ------------------------------------------------------------------ */
+/* SCROLLBAR — COBALT */
 /* */
-/* Overlay pill: 14px gutter, no track fill, no rule -- the same "no hairline" language Cobalt draws */
-/* everywhere else. An 8px pill thumb, grown to 10px (via a shrinking transparent border rather than */
-/* a width change, so the track never reflows) and deepened on hover/drag. Cobalt tint on light */
-/* ground; a white tint on dark-toned ground -- the whole page in dark mode, PLUS the sidebar and */
-/* rendered code blocks, which stay dark-toned Cobalt surfaces regardless of light/dark mode. */
-/* */
-/* Handoff source: `ui-iteration-scrollbars/scrollbars.md`'s Cobalt section, reviewed 2026-09-10. */
-/* Two of its selectors are generic placeholders, mapped here to this codebase's real classes: */
-/*   - `.sidebar` -> `.sidebar-nav` (`NavSidebar.vue`) + `.admin-sidebar` (`AdminLayout.vue`), named */
-/*     explicitly in this task's own spec. Both wrap a nested `<w-scroll-area>` that does the actual */
-/*     overflow scrolling; the descendant-combinator form below (`.body--cobalt .sidebar-nav */
-/*     ::-webkit-scrollbar-thumb`) reaches it with no extra nesting, same as the handoff's own shape. */
-/*     Deliberately unconditioned on `.body--dark`: both sidebars are dark-toned even under Cobalt */
-/*     LIGHT, so the dark-ground tint has to apply there too. */
-/*   - `.code-block` -> `.page-contents pre`, the real `overflow-x: auto` element behind every */
-/*     rendered or previewed code block (`_page-contents.css`'s own header comment: every selector */
-/*     there is nested under `.page-contents`, "the article column in the page view, and the preview */
-/*     pane in the markdown editor"). Also unconditioned on `.body--dark`: `--content-surface-code` */
-/*     resolves to the same `#10194a` in Cobalt light and dark, so the block is dark-toned in both. */
-/* */
-/* Same engine gotcha as the Ledger block above: Chromium 121+ ignores every `::-webkit-scrollbar*` */
-/* rule on an element carrying a non-auto `scrollbar-width`/`scrollbar-color`, so the standards */
-/* properties stay wrapped in `@supports not selector(::-webkit-scrollbar)` and are never stated */
-/* unwrapped alongside a `::-webkit-scrollbar*` rule on the same selector. */
+/* An 8px pill thumb grown to 10px on hover/drag by shrinking a transparent border rather than by */
+/* changing its width, so the track never reflows. The dark-ground tint is deliberately */
+/* unconditioned on `.body--dark`: both sidebars and rendered code blocks stay dark-toned Cobalt */
+/* surfaces under Cobalt LIGHT too. Same `@supports` wrapping, for the same Chromium gotcha, as the */
+/* Ledger block above. */
 @supports not selector(::-webkit-scrollbar) {
   .body--cobalt {
     scrollbar-width: thin;
@@ -149,7 +113,6 @@
   display: none;
 }
 
-/* Dark ground: whole page in dark mode, plus the sidebar and rendered code blocks in either mode. */
 @supports not selector(::-webkit-scrollbar) {
   .body--cobalt.body--dark,
   .body--cobalt .sidebar-nav,
@@ -177,9 +140,7 @@
   background-color: #8fb0ff;
 }
 
-/* ------------------------------------------------------------------ */
 /* FONTS */
-/* ------------------------------------------------------------------ */
 
 @font-face {
   font-family: 'Roboto Mono';
@@ -194,16 +155,9 @@
   word-break: break-all;
 }
 
-/* ------------------------------------------------------------------ */
-/* THEME COLORS */
-/* ------------------------------------------------------------------ */
-/* */
-/* -> Cardinal chrome: a white header band and the cooler of the two tints for the sidebar, both */
-/*    drawing their contents in ink. `--q-header`/`--q-sidebar` are declared once, in */
-/*    `css/tailwind.css`'s `:root` -- both files always load together (`main.js` -> `app.css` -> */
-/*    `_base`, alongside `tailwind.css` directly), so redeclaring the same custom properties (and */
-/*    the literal hex they resolve to) here would just be a second copy to drift out of step with */
-/*    a themed/re-skinned value. */
+/* -> The two chrome tokens below are declared once, in `css/tailwind.css`'s `:root`, and both files */
+/*    always load together -- redeclaring them here (hex literal and all) would only be a second copy */
+/*    to drift out of step with a themed or re-skinned value. */
 
 .header,
 .bg-header {
@@ -214,23 +168,18 @@
   background: var(--q-sidebar);
 }
 
-/* In dark mode the chrome takes the RAMP rather than the site's own colour. */
+/* In dark mode the chrome takes the RAMP rather than the site's own colour: the chrome tokens are */
+/* one value each, chosen by a site administrator against the ink the chrome draws its contents in, */
+/* which is a light-theme question. There is no second setting for what that colour becomes on ink, */
+/* and an arbitrary saturated colour cannot be trusted to hold contrast against the dark palette's */
+/* foregrounds. */
 /* */
-/* `--q-header` / `--q-sidebar` are one value each, chosen by a site administrator and checked (in */
-/* `AdminTheme.vue`) against the ink the chrome draws its contents in -- which is a light-theme */
-/* question. There is no second setting for what that colour should become on ink, and an arbitrary */
-/* saturated colour cannot be trusted to hold its contrast against the dark palette's foregrounds: */
-/* the same reasoning `--color-primary-light` already uses for the brand blue. */
+/* Two classes, so it beats the single-class rule above without `!important`. */
 /* */
-/* So dark mode is the language's own, not the site's: panel for the header band, the recessed tone */
-/* for the sidebar beside it. Stated at `body.body--dark .x` -- two classes, so it beats the single */
-/* class above without `!important`. */
-/* */
-/* Cobalt is excluded, and for the reason this rule gives rather than in spite of it: its chrome DOES */
-/* have a second value for the dark theme -- the header bar deepens to `#1a43bd` and the sidebar to */
-/* `#0e1540` -- and `helpers/aestheticDefaults.js` supplies both through `--q-header`/`--q-sidebar` */
-/* themselves (see `resolveAestheticColors`). Repainting them from the ramp here would throw that */
-/* away and leave Cobalt's dark chrome on Ledger's near-black instead of its own indigo. */
+/* Cobalt is excluded because of that reasoning rather than in spite of it: its chrome does have a */
+/* second value for the dark theme, supplied through the same two tokens by */
+/* `helpers/aestheticDefaults.js#resolveAestheticColors`. Repainting from the ramp here would throw */
+/* that away and leave Cobalt's dark chrome on Ledger's near-black instead of its own indigo. */
 body.body--dark:not(.body--cobalt) {
   .header,
   .bg-header {
@@ -243,10 +192,9 @@ body.body--dark:not(.body--cobalt) {
   }
 }
 
-/* The dark ramp as utilities. Through the custom properties rather than the literals they resolve to */
-/* under Ledger: `body.body--cobalt.body--dark` re-points every rung at Cobalt's own indigo ramp */
-/* (`css/tailwind.css`), and a baked hex here would silently opt every caller of these five classes */
-/* out of it. */
+/* Through the custom properties, not the literals they resolve to under Ledger: */
+/* `body.body--cobalt.body--dark` re-points every rung at Cobalt's own indigo ramp */
+/* (`css/tailwind.css`), and a baked hex here would silently opt every caller out of it. */
 .bg-dark-6 {
   background-color: var(--color-dark-6);
 }
@@ -263,13 +211,6 @@ body.body--dark:not(.body--cobalt) {
   background-color: var(--color-dark-2);
 }
 
-/* ------------------------------------------------------------------ */
-/* BUTTONS */
-/* ------------------------------------------------------------------ */
-
-/* The frosted treatment for WBtn, which has no focus-helper child to tint -- it draws its */
-/* own hover state -- so the tint is a background on the button itself. */
-/* */
 /* Unlayered (this file is plain CSS, not a Tailwind layer), so it beats the `hover:bg-current/10` */
 /* utility WBtn carries for its flat variant, which would otherwise cancel the hover step out. */
 .w-btn.acrylic-btn {
@@ -282,24 +223,16 @@ body.body--dark:not(.body--cobalt) {
   }
 }
 
-/* A button that sits IN a corner of the viewport rather than floating near it: square on the two edges */
-/* it is flush against, and still fully round on the one corner that faces the page -- the one place */
-/* Cardinal keeps a curve, because the curve is what says "this reaches into the page from off-screen" */
-/* rather than "this is a control sitting on the page". */
+/* A button that sits IN a corner of the viewport rather than floating near it: square on the two */
+/* edges it is flush against, round on the one corner facing the page, because that curve is what */
+/* says "this reaches into the page from off-screen" rather than "this sits on the page". */
 /* */
-/* `round` stays on the button, because that is what gives it its 3em square box and drops its padding -- */
-/* only the radius is restated here. Unlayered (this file is plain CSS, not a Tailwind layer), which is */
-/* what lets it beat the `rounded-full` utility WBtn emits without `!important`. */
+/* The caller keeps `round` -- that is what gives the button its 3em square box and drops its */
+/* padding; only the radius is restated here. Unlayered (this file is plain CSS, not a Tailwind */
+/* layer), which is what lets it beat the `rounded-full` utility WBtn emits without `!important`. */
 /* */
-/* `50%` rather than a fixed radius: at half the box the curve runs from the middle of one edge to the */
-/* middle of the next, so the corner is as round as the disc it was -- which is the point. A fixed value */
-/* would have to be re-picked whenever the button's `size` changed. */
-/* */
-/* Here rather than in a layout, because three screens draw one: the site sidebar's opener and */
-/* scroll-to-top in `MainLayout`, the contents panel's opener in `pages/Index.vue`, and the admin */
-/* sidebar's opener in `AdminLayout` -- which is in a different layout tree and would otherwise see none */
-/* of it. Which corner is the one facing the page depends on which corner the button is in, so the side is */
-/* a modifier, stated after the base rule so each wins for its own corner. */
+/* `50%` rather than a fixed radius, so the corner stays as round as the disc it was at any button */
+/* `size`. */
 .corner-btn {
   border-radius: 0;
 }
@@ -310,8 +243,8 @@ body.body--dark:not(.body--cobalt) {
   border-top-left-radius: 50%;
 }
 
-/* The fade a corner button gives way with as the panel it opens slides over it. Same duration and easing */
-/* as `WDrawer`'s own slide, so the two read as one movement. */
+/* Same duration and easing as `WDrawer`'s own slide, so a corner button giving way and the panel */
+/* sliding over it read as one movement. */
 .corner-btn-enter-active,
 .corner-btn-leave-active {
   transition: opacity 0.2s var(--ease-standard);
@@ -328,32 +261,23 @@ body.body--dark:not(.body--cobalt) {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* FLUSH-HOVER BUTTONS (OpenProject #3465, Feature #3464) */
-/* ------------------------------------------------------------------ */
-/* */
-/* One class for every toolbar, sidebar and rail button whose hover has to read as a SQUARE cell of */
-/* its container -- edge to edge, no gap to its neighbours -- in Ledger and Cobalt, light and dark. */
-/* The caller keeps `flat` and drops `round` (a disc is exactly what this replaces); `dense`/`size` */
-/* stay legal, because nothing here states a size. */
+/* One class for every toolbar, sidebar and rail button whose hover has to read as a square cell of */
+/* its container -- edge to edge, no gap to its neighbours. The caller keeps `flat` and drops */
+/* `round`; `dense`/`size` stay legal, because nothing here states a size. */
 /* */
 /*   .flush-hover-btn          square corners, no margin, the shared hover fill; in a Cobalt */
 /*                             `.w-btn-group`, no gap either. Never sets a width or height. */
-/*   .flush-hover-btn--square  for an icon-only button: zero horizontal padding and a 1:1 box, so */
-/*                             the button is a true square at whatever `size`/`dense` it carries. */
-/*                             Not for a labelled button, which would be stretched tall. A `round` */
-/*                             WBtn is already a square box (min-width = min-height) and needs no */
-/*                             modifier. */
-/*   .flush-hover-btn--cap     opt-out: keeps the button's OWN corners (`round`/`rounded` pill, or */
-/*                             Cobalt's `--radius-control`) so it reads as a cap on the end of a */
-/*                             rail -- Page Properties in Cobalt's `.page-actions`. The hover fill, */
-/*                             margin and group gap are still the shared ones. */
+/*   .flush-hover-btn--square  for an icon-only button: no padding and a 1:1 box. Not for a */
+/*                             labelled button, which it would stretch tall. A `round` WBtn is */
+/*                             already a square box and needs no modifier. */
+/*   .flush-hover-btn--cap     opt-out: keeps the button's OWN corners, so it reads as a cap on the */
+/*                             end of a rail. The hover fill, margin and group gap are still the */
+/*                             shared ones. */
 /* */
-/* `!important` on radius, margin and padding, for the reasons `.w-btn.header-nav-btn` documented: */
-/* WBtn writes `min-height`/`padding` as INLINE styles, which no class beats on specificity alone, */
-/* and its `rounded-full`/`rounded-[28px]` utilities would otherwise win a shape fight with any */
-/* stray caller rule. The radius rule is scoped `:not(.flush-hover-btn--cap)` so the cap keeps its */
-/* corners without a second `!important` to fight. */
+/* `!important` because WBtn writes `padding` as an inline style, which no class beats on */
+/* specificity alone, and its `rounded-full`/`rounded-[28px]` utilities would otherwise win the */
+/* shape fight. The radius rule is scoped `:not(.flush-hover-btn--cap)` so the cap keeps its corners */
+/* without a second `!important` to fight. */
 .w-btn.flush-hover-btn {
   margin-inline-start: 0 !important;
 }
@@ -365,64 +289,44 @@ body.body--dark:not(.body--cobalt) {
   aspect-ratio: 1 / 1;
 }
 
-/* Unlayered (this file is plain CSS, not a Tailwind layer), so the hover fill beats the */
-/* `hover:bg-current/10` utility WBtn carries for its flat variant without an `!important` of its own */
-/* -- see `.w-btn.acrylic-btn` above for the same trick. `currentcolor`, so the one rule serves every */
-/* ground: white on Cobalt's blue header, ink on Ledger's white one, either in dark mode. Gated on */
-/* `(hover: hover)` so a touch tap doesn't leave the fill stuck on afterwards. */
+/* `currentcolor`, so the one rule serves every ground: white on Cobalt's blue header, ink on */
+/* Ledger's white one, either in dark mode. Gated on `(hover: hover)` so a touch tap doesn't leave */
+/* the fill stuck on afterwards. */
 @media (hover: hover) {
   .w-btn.flush-hover-btn:hover {
     background-color: color-mix(in srgb, currentcolor 16%, transparent);
   }
 }
 
-/* Cobalt's `.w-btn-group` takes an 8px gap (`css/tailwind.css`, #2859) so rounded buttons keep their */
-/* own corners. A flush button has none to keep, and the gap would be a dead strip between two hover */
+/* Cobalt's `.w-btn-group` takes a gap (`css/tailwind.css`) so rounded buttons keep their own */
+/* corners. A flush button has none to keep, and the gap would be a dead strip between two hover */
 /* cells. `:has()` lifts this above that rule's specificity without an `!important`. Ledger's group */
 /* draws a hairline seam, not a gap, and is left alone. */
 body.body--cobalt .w-btn-group:has(> .flush-hover-btn) {
   gap: 0;
 }
 
-/* The site header's five icon buttons (new page / file manager / inbox / admin / account, in */
-/* `HeaderNav.vue` and `AccountMenu.vue`), plus its logo and the narrow-viewport sidebar toggle at */
-/* the other end of the same bar -- a toolbar band, not a floating action. */
+/* The site header's buttons as one flush toolbar band, not a row of separate floating actions. */
+/* Carried together with `flush-hover-btn`, which does the shape, margin and hover; this class adds */
+/* only what that one deliberately never states -- the header's own 64x64 box -- so a hover lights */
+/* the full height of the bar. The caller keeps `flat` and drops `round`. */
 /* */
-/* Carried TOGETHER with `flush-hover-btn` (shape, margin, hover), which is what makes them flush; */
-/* this class adds only the one thing the shared class deliberately never states, the header's own */
-/* 64x64 box -- its full height, with `min-height` and an explicit `width`. A hover therefore lights */
-/* the full height of the header, which is what the band is for. The caller drops `round` and the */
-/* now-inert `dense` and keeps just `flat`. */
-/* */
-/* `min-height` and `padding` need `!important` because WBtn sets them as inline styles (a */
-/* JS-computed `style` binding beats any class regardless of layer); see `EditorMarkdown.vue`'s own */
-/* toolbar for the same fight against the same two properties. */
+/* `min-height` and `padding` need `!important` because WBtn sets them as inline styles, and a */
+/* JS-computed `style` binding beats any class regardless of layer. */
 .w-btn.header-nav-btn {
   min-height: 64px !important;
   width: 64px !important;
   padding: 0 !important;
 }
 
-/* ------------------------------------------------------------------ */
-/* DIALOGS */
-/* ------------------------------------------------------------------ */
-
-/* A dialog's own title band: the raised tone, in tracked uppercase Barlow Condensed. Flat -- the */
-/* radial gradient and the pair of edge shadows this replaces were elevation, which Cardinal draws */
-/* with a hairline instead. */
+/* A dialog's title band, shared by every dialog rather than owned by one, so a change here is */
+/* deliberately app-wide. Flat: Cardinal draws elevation with a hairline, not with a gradient and a */
+/* pair of edge shadows. */
 /* */
-/* `background-color`/`border-bottom-color` read runtime custom properties, not the compile-time */
-/* `theme.$dark-2`/`$hairline-dark` Sass constants they were baked from -- so this band follows the */
-/* site's aesthetic (`body.body--cobalt` and friends) instead of always drawing Ledger's own */
-/* near-black, the same way every other `dark:`-aware surface in the app already does. This is a */
-/* shared class, used by 60+ dialogs beyond `WConfirmDialog.vue` (`NavEditOverlay.vue` among them) -- */
-/* the change is deliberately app-wide (OpenProject #2815). */
-/* */
-/* The ground is `--color-dialog-header-bg` rather than `--color-dark-2` directly: the ramp rung is */
-/* only half the answer. `--color-dark-2` carries a Cobalt value in the DARK block alone, so reading */
-/* it left a Cobalt LIGHT page still drawing Ledger's near-black band, where `Profile 3x - Cobalt` */
-/* and `Inbox 3x - Cobalt` both draw the aesthetic's own raised indigo (`#1c2a70`). The token names */
-/* the role and carries all three values; see its declaration in `css/tailwind.css`. */
+/* The ground is `--color-dialog-header-bg` rather than the `--color-dark-2` rung directly: that */
+/* rung carries a Cobalt value in the DARK block alone, so reading it leaves a Cobalt LIGHT page */
+/* still drawing near-black where the aesthetic's own raised indigo belongs. The token names the */
+/* role and carries all three values (`css/tailwind.css`). */
 .card-header {
   display: flex;
   align-items: center;
@@ -437,15 +341,13 @@ body.body--cobalt .w-btn-group:has(> .flush-hover-btn) {
   border-bottom: 1px solid var(--color-hairline-dark);
 }
 
-/* The same band in the chrome tone, for a side panel: the design draws the page-properties panel's */
-/* head in slate rather than in the near-black the overlays use, so a panel docked beside the page */
-/* reads as part of the app's chrome rather than as something laid over it. */
+/* Slate rather than the near-black the overlays use, so a panel docked beside the page reads as */
+/* part of the app's chrome rather than as something laid over it. */
 .card-header--slate {
   background-color: var(--color-slate);
   border-bottom-color: var(--color-slate);
 }
 
-/* The same band in the accent, for a dialog whose whole subject is a refusal or a destructive act. */
 .card-negative {
   display: flex;
   align-items: center;
@@ -459,8 +361,8 @@ body.body--cobalt .w-btn-group:has(> .flush-hover-btn) {
   text-transform: uppercase;
 }
 
-/* A dialog's action bar. `WCardActions` already rules it off from the body; all this adds is the */
-/* ground, which is the page tint rather than the card's own white so the bar reads as a footer. */
+/* The page tint rather than the card's own white, so the bar reads as a footer; `WCardActions` */
+/* already rules it off from the body. */
 .card-actions {
   .body--light & {
     background-color: var(--color-paper);
@@ -472,16 +374,8 @@ body.body--cobalt .w-btn-group:has(> .flush-hover-btn) {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* DROPDOWN MENUS */
-/* ------------------------------------------------------------------ */
-
-/* A gradient rather than one flat translucency: glassy at the top, fully opaque from halfway down. */
-/* */
-/* The flat version read well over a pale page and poorly over a dark or busy one, where whatever sat */
-/* behind the menu showed through its text. Keeping the original alpha at the very top preserves the */
-/* glass effect where the menu meets its trigger, and everything below the midpoint gets a solid */
-/* surface to sit on -- which is where a menu's content actually is. */
+/* Glassy where the menu meets its trigger, solid from halfway down, where a menu's content actually */
+/* is: one flat translucency lets a dark or busy page show through the menu's text. */
 /* */
 /* The last stop carries on to the bottom edge, so a taller menu stays opaque rather than fading back */
 /* out; only the position where it becomes solid is proportional. */
@@ -489,10 +383,9 @@ body.body--cobalt .w-btn-group:has(> .flush-hover-btn) {
   backdrop-filter: blur(10px) saturate(180%);
 
   /* `background-color: transparent` is load-bearing: WMenu paints an OPAQUE surface of its own with */
-  /* a `bg-[…]` utility, and the flat rule this replaces worked by overriding that colour outright. A */
-  /* gradient is a background IMAGE, which composites over that colour rather than replacing it -- so */
-  /* on its own it changed nothing at all, the top included. Clearing the colour makes the gradient the */
-  /* only background layer, which is what lets the top be translucent. */
+  /* a `bg-[…]` utility, and a gradient is a background IMAGE, which composites over that colour */
+  /* rather than replacing it. Clearing the colour makes the gradient the only background layer, */
+  /* which is what lets the top be translucent. */
   .body--light & {
     background-color: transparent;
     background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.8) 0%, #fff 50%);
@@ -506,16 +399,12 @@ body.body--cobalt .w-btn-group:has(> .flush-hover-btn) {
     );
   }
 
-  /* The panel inside has to let the blur through. `!important` because WCard sets its background */
-  /* with a utility class. */
+  /* Transparent so the blur reaches through; `!important` because WCard sets its background with a */
+  /* utility class. */
   > .w-card {
     background-color: transparent !important;
   }
 }
-
-/* ------------------------------------------------------------------ */
-/* LOADING ANIMATIONS */
-/* ------------------------------------------------------------------ */
 
 .syncing-enter-active {
   animation: syncing-anim 0.1s;

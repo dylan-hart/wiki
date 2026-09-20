@@ -1,18 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import type { SearchEngine } from '../models/search.ts'
 
-/** The one engine whose panel needs a dictionary override editor, task #574. */
 const DB_ENGINE_KEY = 'db'
 
-/**
- * Attach `dictOverrides` and `availableDictionaries` onto the `db` entry of an engine list.
- *
- * Both routes below that return the engine list (`GET .../engines`, `POST .../refresh`) need this, so
- * it lives here rather than in `models/search.ts`: computing it for every engine on every call would
- * load and query the `db` module even when nothing asked for its panel, and `getSiteEngines()`'s own
- * test coverage already pins its output to exactly the `SearchEngine` fields it builds itself. See the
- * `SearchEngine.dictOverrides` doc comment in `models/search.ts`.
- */
 async function withDbSearchExtras(
   engines: SearchEngine[],
   siteId: string
@@ -26,45 +16,18 @@ async function withDbSearchExtras(
 }
 
 /**
- * Search API Routes
+ * The general search settings (`dictOverrides`, `semanticEnabled`) hold no secret, so they take
+ * `manage:sites` like the rest of a site's settings. An engine's config can hold credentials, so
+ * the engine-picker routes take `manage:system`, as `api/storage.ts` does; `refresh` and the
+ * rebuilds take it too, since a rebuild runs engine code.
  *
- * Per-site, mirroring the shape of `api/storage.ts`'s target routes: search configuration
- * (`dictOverrides`) and the rebuild action moved off the instance-wide `/system/search` routes onto a
- * site once `models/sites.ts` started seeding `config.search` per site (task #563). `manage:sites`
- * rather than `manage:system` there: unlike a storage target's credentials, none of that general
- * search config holds a secret, so it belongs with the rest of a site's editable settings.
- *
- * `termHighlighting` used to live on `/sites/:siteId/search` alongside `dictOverrides`, but task #574
- * folded it into the `db` engine's own per-engine config: it is a plain boolean prop on `db`'s
- * `definition.yml`, so it is read and written through the engine-picker routes below like any other
- * engine's config, and this route no longer mentions it. `dictOverrides` could not follow — see
- * `SearchEngine.dictOverrides` in `models/search.ts` — so it keeps the PATCH below to write it; the
- * caller-less bare `GET .../search` was deleted (task #1871), since the `db` entry of the
- * engine-picker list below already carries `dictOverrides`' current value (plus `availableDictionaries`)
- * so the admin area's `db`-specific panel needs no second round trip to render it.
- *
- * The engine-picker routes below (task #570) are different: a non-default engine's config can hold
- * credentials the same way a storage target's can (an API key, an index name pointing at private
- * infrastructure, ...), so they require `manage:system`, exactly like `api/storage.ts`. `refresh` and
- * `rebuild` require it too for consistency with the rest of this surface, even though neither reads a
- * secret itself -- `rebuild` in particular can now run arbitrary engine code, the same reasoning
- * `api/storage.ts`'s action route uses.
- *
- * `semanticEnabled` / `GET .../search/semantic` / `POST .../search/rebuild-embeddings` (task #3104,
- * Epic #3050) are unrelated to the pluggable engine system above — semantic search is always backed
- * directly by Postgres/pgvector regardless of which full-text engine a site has selected — but they
- * live in this same file since they are, like `dictOverrides`, a site-level search setting plus a
- * matching rebuild action with no engine of its own to belong to.
+ * Semantic search is not an engine: it is always backed by Postgres/pgvector, whichever full-text
+ * engine a site has selected.
  */
 async function routes(app: FastifyInstance) {
   /**
-   * UPDATE SITE SEARCH CONFIGURATION
-   *
-   * `semanticEnabled` (Task #3104) is the per-site half of the semantic-search availability flag
-   * triangle: `CARDINAL.capabilities.semanticSearch` (instance-wide, Task #3095) AND this setting must
-   * both be true before the feature is actually reachable — enforced here, not just hinted at in the
-   * admin UI, so a stale or hand-crafted request can't flip this on when the capability itself is
-   * false and end up with a setting that can never do anything.
+   * `semanticEnabled: true` is refused here, not only greyed out in the admin UI, so a hand-crafted
+   * request cannot store a setting the instance capability would never let take effect.
    */
   app.patch<{
     Params: { siteId: string }
@@ -158,16 +121,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET SITE SEMANTIC SEARCH SETTING
-   *
-   * A small, dedicated route rather than folding this onto `GET .../search/engines` (task #1871
-   * deliberately deleted the last caller-less bare `GET .../search`, but this one has a real caller:
-   * `AdminSearch.vue`'s toggle needs both the stored setting and the instance capability to render
-   * itself — disabled with an explanation when the capability is false — and semantic search is not
-   * an engine, so it has no natural home on that list). `manage:sites`, matching the PATCH above: this
-   * is the same site-settings surface, not the credential-bearing engine-picker one.
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/search/semantic',
     {
@@ -202,14 +155,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REBUILD SITE EMBEDDINGS INDEX
-   *
-   * Mirrors the full-text `POST .../search/rebuild` route immediately below: queues a job and returns
-   * right away rather than doing per-page work in the request/response cycle (Epic #3050's
-   * coordination note is explicit about this). Refused up front when semantic search is unavailable on
-   * this instance — nothing to rebuild.
-   */
   app.post<{ Params: { siteId: string } }>(
     '/sites/:siteId/search/rebuild-embeddings',
     {
@@ -262,9 +207,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REBUILD SITE SEARCH INDEX
-   */
   app.post<{ Params: { siteId: string } }>(
     '/sites/:siteId/search/rebuild',
     {
@@ -316,9 +258,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST SITE SEARCH ENGINES
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/search/engines',
     {
@@ -350,9 +289,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SELECT SITE SEARCH ENGINE
-   */
   app.put<{ Params: { siteId: string; key: string }; Body: { config?: Record<string, any> } }>(
     '/sites/:siteId/search/engines/:key',
     {
@@ -436,9 +372,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REFRESH SEARCH ENGINE DEFINITIONS
-   */
   app.post<{ Params: { siteId: string } }>(
     '/sites/:siteId/search/refresh',
     {

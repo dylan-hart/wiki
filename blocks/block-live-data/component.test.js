@@ -23,12 +23,7 @@ function stubFetch({ siteOk = true, resolveOk = true, value = 42, status = 200 }
   })
 }
 
-/**
- * Mounts a `<block-live-data>` with the given props and waits for its first poll to settle.
- *
- * `settle: 2`: connectedCallback's _poll() is async (siteId fetch, then the resolve fetch), and a
- * couple of macrotask turns is enough for both promise chains to settle.
- */
+/** `settle: 2` — the first poll is two chained fetches, the site id and then the resolve. */
 const mountLiveData = (props = {}) =>
   mountBlock('block-live-data', {
     props: { url: 'https://api.example.com/metrics', jsonPath: '$.v', ...props },
@@ -150,8 +145,7 @@ describe('block-live-data', () => {
         })
       )
 
-      // -> Mounted without `settle`: this test drives the poll on fake timers itself below, where a
-      //    real `setTimeout` would never fire.
+      // -> No `settle`: the poll is driven on fake timers below, where a real one would never fire
       const el = await mountBlock('block-live-data', {
         props: {
           url: 'https://api.example.com/metrics',
@@ -178,17 +172,15 @@ describe('block-live-data', () => {
         if (url === '/_api/sites/current') {
           return Promise.resolve({ ok: true, json: async () => ({ id: SITE_ID }) })
         }
-        // -> Never settles on its own -- the test settles it after disconnecting, so the race
-        //    (disconnect landing while this poll's own fetch is still outstanding) is deterministic
-        //    rather than timing-dependent.
+        // -> Never settles on its own: the test settles it after disconnecting, so the race lands
+        //    deterministically rather than by timing
         return new Promise((resolve) => {
           resolveFetch = resolve
         })
       })
       vi.stubGlobal('fetch', fetchMock)
 
-      // -> Mounted without `settle`: this test drives the poll on fake timers itself below, where a
-      //    real `setTimeout` would never fire.
+      // -> No `settle`: the poll is driven on fake timers below, where a real one would never fire
       const el = await mountBlock('block-live-data', {
         props: {
           url: 'https://api.example.com/metrics',
@@ -196,7 +188,7 @@ describe('block-live-data', () => {
           refreshInterval: 10
         }
       })
-      // -> Lets getSiteId's fetch resolve and the resolve-route fetch actually start.
+      // -> Lets getSiteId's fetch resolve and the resolve-route fetch actually start
       await vi.advanceTimersByTimeAsync(0)
 
       document.body.removeChild(el)
@@ -207,8 +199,7 @@ describe('block-live-data', () => {
         fetchMock.mock.calls.filter(([url]) => url !== '/_api/sites/current').length
       const callsRightAfterDisconnect = resolveCallCount()
 
-      // -> Well past any refresh interval this test could have set -- if the old timer survived the
-      //    disconnect, this is well past enough time for it to have fired at least once more.
+      // -> Well past the refresh interval, so a timer that survived the disconnect would have fired
       await vi.advanceTimersByTimeAsync(120_000)
       expect(resolveCallCount()).toBe(callsRightAfterDisconnect)
     })

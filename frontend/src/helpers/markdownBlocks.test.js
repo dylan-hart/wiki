@@ -3,11 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { blockOpeningLine, blockValues, findBlocks, hasEditableParams } from './markdownBlocks.js'
 
 /**
- * `blockValues` is what the "Edit Block Parameters" lens opens the form on: a prop the page's source
- * says nothing about falls back to what the block would do if left alone. For a block whose admin
- * card offers a site-wide default (`config`, e.g. block-kroki/block-plantuml's "Server" field), that
- * fallback should be the site's configured value rather than the component's own hardcoded default —
- * an admin who has set one gets to see it reflected back, not silently overridden.
+ * A block whose admin card offers a site-wide default (`config`, e.g. block-kroki's "Server" field)
+ * must reflect that value back at an author who wrote no attribute, not the component's own
+ * hardcoded default.
  */
 
 const DEFINITION = {
@@ -48,11 +46,8 @@ describe('blockValues', () => {
   })
 
   /*
-    None of the three diagram blocks declare a `boolean` prop themselves, but `blockValues()`'s type
-    switch is shared by every block the picker knows about, and a bare MDC attribute (no `="value"`
-    at all) is exactly how a boolean prop is written when true — `{ hideToolbar }`, not
-    `{ hideToolbar="true" }`. Covering the switch directly, rather than only through blocks that
-    happen not to exercise this branch, is what the task asks for.
+    No diagram block declares a `boolean` prop itself, but `blockValues()`'s type switch is shared by
+    every block the picker knows about, so the branch is covered directly here instead.
   */
   const BOOLEAN_DEFINITION = { props: [{ name: 'hideToolbar', type: 'boolean', default: false }] }
 
@@ -72,13 +67,6 @@ describe('blockValues', () => {
   })
 })
 
-/**
- * Round-trip coverage of the "Edit Block Parameters" lens for the three diagram blocks specifically:
- * `findBlocks` reading a real opening line back out of page source, `blockValues` coercing it into
- * form state, and `blockOpeningLine` writing the edited form back out — including that an attribute
- * the block's own definition does not declare (`kept`, e.g. one written by an older version of the
- * block, or a stray `.class`) survives a re-save untouched rather than being silently dropped.
- */
 describe('the diagram blocks round-trip through findBlocks / blockValues / blockOpeningLine', () => {
   const DIAGRAM = {
     block: 'diagram',
@@ -131,7 +119,6 @@ describe('the diagram blocks round-trip through findBlocks / blockValues / block
     const values = blockValues(found, DIAGRAM)
     expect(values).toEqual({ caption: 'Ship flow', theme: 'dark', align: 'center' })
 
-    // -> The author edits the alignment back to the default and leaves the rest
     const edited = { ...values, align: 'left' }
     // -> align="left" is the prop's own default, so `blockAttributes` leaves it out entirely
     expect(blockOpeningLine(found, DIAGRAM, edited)).toBe(
@@ -156,7 +143,6 @@ describe('the diagram blocks round-trip through findBlocks / blockValues / block
       align: 'center'
     })
 
-    // -> Only `format` changes; `data-legacy` is not one of this block's props, so it must be kept
     const edited = { ...values, format: 'svg' }
     expect(blockOpeningLine(found, KROKI, edited)).toBe(
       '::block-kroki{type="d2" server="https://kroki.example.com" caption="Topology" align="center" data-legacy="x"}'

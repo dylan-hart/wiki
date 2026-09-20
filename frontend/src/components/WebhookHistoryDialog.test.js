@@ -6,11 +6,6 @@ import { useUserStore } from '@/stores/user'
 
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * `getDeliveryHistory()`'s API surface — a status icon/color per row plus the error message on
- * failed rows, reusing the same success/error color treatment `AdminWebhooks.vue` uses for a hook's
- * own state. The dialog fetches on mount via `API_CLIENT`, stubbed here per `test/setup.js`.
- */
 function mountDialog(deliveries, { total } = {}) {
   API_CLIENT.get.mockReturnValueOnce({
     json: () =>
@@ -26,8 +21,8 @@ function mountDialog(deliveries, { total } = {}) {
       hook: { id: 'hook-1', name: 'My Webhook' }
     },
     messages: { common: { datetime: '{date} at {time}' } },
-    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: `w-dialog` really teleports
-    //    its body to `document.body`, which is where this suite asserts.
+    // -> Opts out of the default `teleport: true` stub: `w-dialog` really teleports its body to
+    //    `document.body`, which is where this suite asserts.
     stubs: {}
   }).wrapper
 }
@@ -40,8 +35,6 @@ describe('WebhookHistoryDialog', () => {
     expect(API_CLIENT.get).toHaveBeenCalledWith('hooks/hook-1/deliveries')
   })
 
-  // -> `w-dialog` teleports its content to `document.body`, so it never appears under `wrapper`'s
-  //    own element — asserted against `document.body` instead, as any teleported overlay must be.
   it('renders a positive icon and no error message for a completed delivery', async () => {
     mountDialog([
       {
@@ -91,9 +84,6 @@ describe('WebhookHistoryDialog', () => {
     expect(document.body.textContent).toContain('admin.webhooks.historyNone')
   })
 
-  /** WP 2082: `humanizeDate` used to render a hardcoded browser-locale/timezone string directly; it
-   *  now delegates to the shared `humanizeDateWithSeconds` helper (`helpers/datetime.js`), which
-   *  routes through `userStore.formatDateTime`, so a stored timezone changes what shows. */
   it("renders a delivery's startedAt through the shared date helper, so a stored timezone changes it", async () => {
     const wrapper = mountDialog([
       {

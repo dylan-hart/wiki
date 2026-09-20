@@ -25,7 +25,6 @@ describe('htmlToVisibleText (OpenProject #2834)', () => {
     const text = htmlToVisibleText(html)
       .split('\n')
       .map((line) => line.trim())
-    // -> The blank Monaco line survives as an actual blank line, not collapsed away or dropped.
     expect(text.filter((line) => line.length > 0)).toEqual(['A', 'B'])
     expect(text.some((line) => line === '')).toBe(true)
   })
@@ -66,19 +65,16 @@ describe('isSameVisibleText (OpenProject #2834)', () => {
 
   it('does not match when the HTML carries real structure text/plain lacks (a table)', () => {
     const html = '<table><tr><td>Name</td><td>Score</td></tr><tr><td>A</td><td>1</td></tr></table>'
-    // -> A browser's own `text/plain` for a copied table typically joins each row's cells with
-    //    tabs/spaces on one line rather than one cell per line, which is what this reduction
-    //    produces -- so a genuine table paste reliably diverges and still reaches `htmlToMarkdown`.
+    // -> A browser's `text/plain` for a copied table joins each row's cells on one line, where
+    //    this reduction gives one cell per line -- so a table paste reliably diverges.
     const text = 'Name\tScore\nA\t1'
     expect(isSameVisibleText(html, text)).toBe(false)
   })
 
-  // -> Known, accepted limitation (see the WP's own risk notes): a same-editor copy of already-bold
-  //    text is indistinguishable from a genuine rich paste of the same words once reduced to bare
-  //    visible text, since plain-text clipboard entries never carry a formatting marker either way.
-  //    This intentionally matches -- and skips conversion -- rather than trying to detect it, because
-  //    Monaco itself can emit incidental inline bold/italic styling for certain theme tokens, and
-  //    preserving THAT as markdown is exactly the corruption this fix exists to stop.
+  // -> Accepted limitation: reduced to bare visible text, a rich paste of emphasized words is
+  //    indistinguishable from a same-editor copy. Detecting it is worse than skipping conversion,
+  //    since Monaco emits incidental inline bold/italic for some theme tokens and preserving THAT
+  //    as markdown is the corruption this gate exists to stop.
   it('matches (and so skips conversion) when only inline emphasis differs, by design', () => {
     const html = '<p>Hello <strong>world</strong></p>'
     const text = 'Hello world'
@@ -94,9 +90,7 @@ describe('isSameVisibleText (OpenProject #2834)', () => {
   })
 
   it('does not match an image-only paste against an empty text/plain (OpenProject #2504 regression)', () => {
-    // -> An `<img>` contributes no visible text at all, so a naive comparison would see both sides
-    //    reduce to '' and wrongly call that "the same" -- which would skip `htmlToMarkdown` entirely
-    //    and silently drop the embedded image instead of running it through the pending-asset upload.
+    // -> Both sides reduce to '', so a naive equality would skip the conversion and drop the image.
     const html = '<img src="data:image/png;base64,AAAA" alt="screenshot">'
     expect(isSameVisibleText(html, '')).toBe(false)
   })

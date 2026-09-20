@@ -6,13 +6,6 @@ import { createSiteAdminAccessStub } from '../test/mocks.ts'
 import blockCredentialsRoutes from './blockCredentials.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * A unit-level test of the route's own wiring — the shared site preHandler, the `manage:sites`/
- * `site:blocks` gate, response shape — with `CARDINAL.sites`/`models.blockCredentials`/`models.groups`
- * stubbed rather than a real database, the same way `api/blocks.test.ts`'s PUT/DELETE suite covers
- * the same `checkSiteAdminAccess` gate.
- * `models/blockCredentials.test.ts` is what proves the model itself against a real database.
- */
 describe('block credentials API (site-scoped delegation)', () => {
   const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'
   const CREDENTIAL_ID = 'a1b2c3d4-e5f6-4789-9abc-def012345678'
@@ -72,7 +65,7 @@ describe('block credentials API (site-scoped delegation)', () => {
     return updateAllowedOriginsResult
   }
 
-  /** Grants `site:blocks` only for the site id the `x-test-site-permissions` header names. */
+  /** The `x-test-site-permissions` header lists site-scoped grants as `permission@siteId`. */
   let currentSitePermissionHeader: string | undefined
   function checkSiteAccess(actor: { permissions: string[] }, permission: string, siteId: string) {
     if (actor.permissions.includes('manage:system')) {
@@ -94,8 +87,8 @@ describe('block credentials API (site-scoped delegation)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
-    //    plugin-only app has to register it to answer that case the way the real app does.
+    // -> The unknown-site 404 lives in this hook, not in the route handlers, so a plugin-only app
+    //    has to register it
     const guardedRoutes: FastifyPluginAsync = async (instance) => {
       instance.addHook('preHandler', siteEnabledPreHandler)
       await instance.register(blockCredentialsRoutes)
@@ -103,8 +96,8 @@ describe('block credentials API (site-scoped delegation)', () => {
 
     app = await buildTestApp({
       routes: guardedRoutes,
-      // -> The site-permission stub takes no `req`, so it reads this suite's per-test grants off a
-      //    module-level variable, populated once per request.
+      // -> `checkSiteAccess` takes no `req`, so each request's grants are copied to a variable it
+      //    can read
       session: (req: any) => {
         currentSitePermissionHeader = req.headers['x-test-site-permissions']
         return undefined

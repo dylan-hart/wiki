@@ -21,18 +21,13 @@ import { and, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { PoolClient } from 'pg'
 
 /**
- * What a task hands back when its run is worth an `info` line.
+ * `summary` is the sentence the scheduler logs at `info` in place of its own `<task> finished` —
+ * lowercase, no trailing period — and every other property rides that line as a field. A task with
+ * nothing worth reporting returns nothing and its run stays at `debug`.
  *
- * `summary` is the sentence the scheduler logs in place of its own `<task> finished` — lowercase, no
- * trailing period, the same wording the task used to log for itself — and every other property rides
- * that same line as a field. A task that did nothing worth reporting returns nothing at all and stays
- * at `debug`: "swept, found none" is not news, and these run on a timer.
- *
- * Deliberately NOT written to `jobHistory.result`. That column is a task's own channel to a follow-up
- * route (`exportContent`'s `{ filePath, fileSize }`, which `GET /_api/system/export/:jobId/download`
- * reads back), written by the task itself through `CARDINAL.models.jobs.setResult()`; a summary landing
- * silently on top of it would break the routes that read it. The two are separate on purpose — see
- * `models/jobs.ts#setResult`.
+ * Never written to `jobHistory.result`: that column is a task's own channel to a follow-up route,
+ * written through `CARDINAL.models.jobs.setResult()`, and a summary landing on it would break its
+ * readers.
  */
 export interface TaskResult {
   summary: string
@@ -40,15 +35,9 @@ export interface TaskResult {
 }
 
 /**
- * An in-process task, loaded from `tasks/simple/`.
- *
- * `jobId` is this task's own row in `jobHistory` — most tasks have no use for it, but one that wants
- * to hand something back (`exportContent`'s `{ filePath, fileSize }`) writes it there via
- * `CARDINAL.models.jobs.setResult(jobId, ...)`, which is what lets a follow-up route find it later.
- *
- * A task that returns a `TaskResult` is telling the scheduler what its run amounted to, so the outcome
- * is logged ONCE, by the one caller that also knows the job id, the attempt and how long it took (see
- * `runJob()`). A task does not log its own counts.
+ * An in-process task, loaded from `tasks/simple/`. `jobId` is its own `jobHistory` row, for a task
+ * that hands a result to a follow-up route through `CARDINAL.models.jobs.setResult(jobId, ...)`. A
+ * task returns a `TaskResult` rather than logging its own counts: `runJob()` logs the outcome once.
  */
 export type SimpleTask = (
   payload?: any,
@@ -56,12 +45,8 @@ export type SimpleTask = (
 ) => Promise<TaskResult | void> | TaskResult | void
 
 /**
- * Read a task's return value as a summary, or `null` when there is nothing to say.
- *
- * Anything that is not a plain object carrying a non-empty `summary` string is "no summary": a task
- * returning `undefined` (most of them), one that hands back a bare count, and every worker-thread job
- * — `worker.ts`'s handler resolves `true` rather than the task's own value, so a worker job is
- * always the `debug` case here.
+ * Always `null` for a worker-thread job: `worker.ts`'s handler resolves `true`, not the task's own
+ * return value.
  */
 function taskSummary(value: unknown): TaskResult | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -71,68 +56,50 @@ function taskSummary(value: unknown): TaskResult | null {
   return typeof summary === 'string' && summary.length > 0 ? (value as TaskResult) : null
 }
 
-/** Fallback for `scheduler.taskTimeout`, in seconds, when nothing is configured. */
+/** In seconds. */
 const DEFAULT_TASK_TIMEOUT = 300
 
-/** Fallback for `scheduler.staleJobTimeout`, in seconds, when nothing is configured. */
+/** In seconds. */
 const DEFAULT_STALE_JOB_TIMEOUT = 3600
 
 /**
- * How long, in ms, an idle worker thread above `minThreads` is kept warm before piscina tears it
- * down. Not exposed as its own `scheduler.*` config key: it only trades a little idle memory against
- * avoiding a cold worker-thread spin-up on the next burst of jobs, which is not a knob an operator
- * has needed to reach for.
+ * How long piscina keeps an idle thread above `minThreads` warm. Not a `scheduler.*` config key: it
+ * only trades a little idle memory against a cold thread spin-up on the next burst of jobs.
  */
 const WORKER_IDLE_TIMEOUT_MS = 60_000
 
 /**
- * How long an `addJob({ promise: true })` deferred waits for a `jobCompleted` NOTIFY before giving up
- * on its own (OpenProject #928).
- *
- * A multiple of `staleJobTimeout` rather than its own config key: that setting is already this
- * scheduler's "nobody could still be working on this" threshold (`reapStaleJobs`'s own doc comment), so
- * a promise waiting on a job that has gone stale, been reaped, and requeued should still be alive to
- * see the requeued attempt finish — one plain `staleJobTimeout` would expire it out from under a job
- * that is, in fact, still going to answer.
+ * An `addJob({ promise: true })` deferred gives up after this many `staleJobTimeout`s. More than
+ * one, so a promise whose job went stale and was requeued by `reapStaleJobs` is still alive to see
+ * the requeued attempt finish.
  */
 const COMPLETION_PROMISE_TTL_MULTIPLIER = 2
 
 /**
- * How much longer than the task timeout the scheduler waits before giving up on its own.
- *
- * The abort is the polite route — the pool aborts a task that is merely slow, and rejects with a
- * `TimeoutError` naming what happened. This grace period lets that answer arrive first, and only
- * covers the case where nothing is going to answer at all.
+ * How much longer than the task timeout, in ms, the scheduler waits before giving up on its own.
+ * The pool aborting a slow task is the better answer; this lets it arrive first, and only covers a
+ * worker that never answers at all.
  */
 const TASK_TIMEOUT_GRACE = 5000
 
 /**
- * Extra time `stop()`'s drain waits on top of `taskTimeout` before giving up on in-flight jobs.
- *
- * A worker-thread job already has its own ceiling — `executeOnWorker`'s abort at `taskTimeout`, or
- * the backup timer at `taskTimeout + TASK_TIMEOUT_GRACE` for a worker that dies without answering —
- * so `taskTimeout` alone already bounds that case with room to spare. An in-process (non-worker)
- * task has no timeout of its own, though, so this grace is what keeps `stop()`'s drain bounded for
- * that case too, without waiting the full `TASK_TIMEOUT_GRACE` on top for a job that's already
- * limited elsewhere.
+ * Extra time, in ms, `stop()`'s drain waits on top of `taskTimeout`. Shorter than
+ * `TASK_TIMEOUT_GRACE`: every in-flight job has its own `taskTimeout` ceiling and a head start on
+ * the drain.
  */
 const SHUTDOWN_DRAIN_GRACE = 1000
 
 /**
- * Sends the scheduler's cross-instance notifications, one at a time.
- *
- * Nothing here awaits a notification: a job being added or finishing should not wait on a round trip,
- * and `processJob` runs concurrently with itself, so two notifications easily meet on the one client.
+ * Sends are fire-and-forget: a job being added or finishing must not wait on a round trip.
+ * Serialized because `processJob` runs concurrently with itself, so two notifications easily meet
+ * on the one client.
  */
 const notifier = createNotifier(() => CARDINAL.scheduler.pubsubClient, 'scheduler')
 
 /**
- * Tell every instance that a job has finished, so an `addJob({ promise: true })` caller waiting on
- * another instance's run of it settles (see `CompletionPromise` below).
- *
- * The three senders — a completed run, a failed one, and the sweep giving up on an interrupted job
- * with no attempts left — wrote out the same envelope, which is exactly the sort of literal that
- * drifts a field at a time until one listener silently stops matching.
+ * Tells every instance a job finished, which is what settles an `addJob({ promise: true })` caller
+ * whichever instance ran it. One function so every sender writes the same envelope the
+ * `jobCompleted` listener matches on.
  */
 function notifyJobCompleted(
   id: string,
@@ -151,7 +118,6 @@ function notifyJobCompleted(
   )
 }
 
-/** A pending `addJob({ promise: true })` caller, waiting on the `jobCompleted` event. */
 interface CompletionPromise {
   id: string
   added: Temporal.Instant
@@ -161,29 +127,21 @@ interface CompletionPromise {
 }
 
 export interface AddJobOptions {
-  /** The task name to execute. */
   task: string
-  /** An optional data object to pass to the job. */
   payload?: any
-  /** An optional datetime after which the task is allowed to run. */
   waitUntil?: Date
-  /** The number of times this job can be restarted upon failure. Uses server defaults if not provided. */
   maxRetries?: number
-  /** Whether this is a scheduled job. */
   isScheduled?: boolean
-  /** Whether to notify all instances that a new job is available. */
+  /** Tell every instance that a new job is available. */
   notify?: boolean
-  /** Whether to return a promise property that resolves when the job completes. */
+  /** Also return a `promise` that settles when the job completes. */
   promise?: boolean
 }
 
 /**
- * The claim step of `reapStaleJobs()`, split out purely so its return type can be named
- * (`Awaited<ReturnType<typeof claimStrandedJobs>>`) without hand-writing the row shape.
- *
- * `UPDATE ... RETURNING` is the claim itself: two instances sweeping at once both filter on
- * `state = 'active'`, so whichever commits second matches nothing and returns nothing. Left to the
- * caller: everything after the claim succeeds or fails per job, not as a single unit with this.
+ * Split out of `reapStaleJobs()` only so its return type can be named. The `UPDATE ... RETURNING`
+ * is the claim: two instances sweeping at once both filter on `state = 'active'`, so whichever
+ * commits second matches nothing.
  */
 function claimStrandedJobs(cutoff: Date, staleAfter: number) {
   return CARDINAL.db
@@ -217,32 +175,16 @@ export default {
       this.maxWorkers = 1
     }
     const workerFile = path.join(CARDINAL.SERVERPATH, 'worker.ts')
-    /*
-      Unlike poolifier's separate `FixedThreadPool`/`DynamicThreadPool` classes -- the latter of
-      which refused a minimum equal to its maximum ("Use a fixed pool instead"), which crashed
-      `init()` (and therefore boot) whenever `maxWorkers` resolved to exactly 1 (`scheduler.workers:
-      1` explicitly configured, or 'auto' on a single-CPU host/container -- both real deployment
-      shapes, not edge cases) -- piscina is one class with a plain `minThreads`/`maxThreads` range
-      that tolerates `minThreads === maxThreads` outright, so no such branch is needed here.
-    */
     this.workerPool = new Piscina({
       filename: workerFile,
       minThreads: 1,
       maxThreads: this.maxWorkers,
       idleTimeout: WORKER_IDLE_TIMEOUT_MS,
-      // -> Forwarded verbatim to each `new Worker(file, options)`, so this is what `worker.ts` reads
-      //    out of `node:worker_threads`' `workerData` to build its own `INSTANCE_ID` before its
-      //    logger exists. One object for the whole pool — the per-worker half of the id is the
-      //    thread's own `threadId`, not anything sent from here. `capabilities` rides along the same
-      //    object for the same reason: it's settled once, here, after the db boot phase that
-      //    populates `CARDINAL.capabilities`, and a worker thread never calls `syncSchemas()` itself to
-      //    learn it (OpenProject #3124) — without this a worker-thread task guarding on
-      //    `CARDINAL.capabilities?.semanticSearch` always reads `undefined` and silently no-ops.
+      // -> Forwarded to every worker thread as its `workerData`: `worker.ts` builds its
+      //    `INSTANCE_ID` from `parentInstanceId` before its logger exists, and takes `capabilities`
+      //    from here because a worker thread never calls `syncSchemas()` to learn it.
       workerData: { parentInstanceId: CARDINAL.INSTANCE_ID, capabilities: CARDINAL.capabilities }
     })
-    // -> Piscina is an `EventEmitterAsyncResource`, not a constructor-option callback trio: the
-    //    `errorHandler`/`exitHandler`/`onlineHandler` poolifier took at construction time become
-    //    listeners on the pool instance itself.
     this.workerPool.on('error', (err: Error) =>
       CARDINAL.logger.warn('worker', 'worker pool error', { error: err })
     )
@@ -250,24 +192,15 @@ export default {
     this.workerPool.on('workerCreate', () => CARDINAL.logger.debug('worker', 'worker online'))
     this.tasks = {}
     for (const f of await fs.readdir(path.join(CARDINAL.SERVERPATH, 'tasks/simple'))) {
-      // -> `tasks/simple/` carries this repo's usual co-located `*.test.ts` files
-      //    (send-watch-digests.test.ts, update-locales.test.ts) alongside the real task modules.
-      //    Without this filter, `readdir` returns those too, and the unconditional `import()`
-      //    below executes their `node:test` suites live as a side effect of every boot -- caught
-      //    only now, running this loop for the first time against a real filesystem listing rather
-      //    than a fake CARDINAL in a unit test. `[^.]+\.[jt]s$` requires no dot before the extension,
-      //    so `name.ts`/`name.js` match but `name.test.ts` does not.
+      // -> Skips the co-located `*.test.ts` files, which the `import()` below would otherwise run
+      //    as `node:test` suites on every boot: the pattern allows no dot before the extension.
       if (!/^[^.]+\.[jt]s$/.test(f)) {
         continue
       }
       const taskName = camelCase(f.replace(/\.[jt]s$/, ''))
-      // -> Unlike `workerFile` above (a plain OS path, which is what piscina's own `filename`
-      //    option and `new Worker()` itself expect), dynamic `import()`
-      //    parses its argument as a module specifier -- a bare absolute Windows path like
-      //    `C:\...` gets its drive letter read as a URL *scheme*, throwing
-      //    ERR_UNSUPPORTED_ESM_URL_SCHEME ("Received protocol 'c:'"). A `file://` URL is what
-      //    `import()` actually wants for an absolute path; a raw POSIX path happens to also parse
-      //    (no colon before the first `/`), which is why this went unnoticed until run on Windows.
+      // -> A `file://` URL, not the plain path piscina takes for `workerFile`: `import()` parses
+      //    its argument as a module specifier, so a Windows `C:\...` has its drive letter read as a
+      //    URL scheme and throws ERR_UNSUPPORTED_ESM_URL_SCHEME.
       this.tasks[taskName] = (
         await import(pathToFileURL(path.join(CARDINAL.SERVERPATH, 'tasks/simple', f)).href)
       ).task
@@ -277,9 +210,6 @@ export default {
   async start(): Promise<void> {
     const connectionAppName = `Cardinal.js - ${CARDINAL.INSTANCE_ID}:SCHEDULER`
 
-    // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
-    //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
-    //    an unhandled 'error' and taking the process down with it.
     this.listenerHandle = await connectListener({
       pool: CARDINAL.dbManager.listenerPool!,
       applicationName: connectionAppName,
@@ -323,33 +253,22 @@ export default {
       }
     })
 
-    // -> Start scheduled jobs check
     this.scheduledRef = setInterval(async () => {
       this.addScheduled()
       this.reapStaleJobs()
       this.expireCompletionPromises()
     }, CARDINAL.config.scheduler.scheduledCheck * 1000)
 
-    // -> Add scheduled jobs on init
     const planned = await this.addScheduled()
 
-    /*
-      Anything left claimed but unfinished, before this instance starts claiming more. Most often
-      that is what this very instance abandoned when it last went down — but it runs on the interval
-      as well, since an instance that never comes back cannot clean up after itself.
-    */
     await this.reapStaleJobs()
 
-    // -> Start job polling
     this.pollingRef = setInterval(async () => {
       this.processJob()
     }, CARDINAL.config.scheduler.pollingCheck * 1000)
 
     CARDINAL.logger.info('jobs', 'scheduler started', { workers: this.maxWorkers, planned })
   },
-  /**
-   * Add a job to the scheduler
-   */
   async addJob({
     task,
     payload = {},
@@ -372,11 +291,8 @@ export default {
         waitUntil,
         createdBy: CARDINAL.INSTANCE_ID
       })
-      // -> Registered only once the row genuinely exists: pushed before the insert, a failed insert
-      //    would leave this deferred tracked in `completionPromises` with no caller ever having
-      //    received `jobDefer.promise` to attach a handler to, and `expireCompletionPromises()` would
-      //    reject it hours later as an unhandled rejection with nothing to connect it back to this
-      //    call (OpenProject audit 2026-08-24, finding 8).
+      // -> Registered only after the insert succeeds: a failed insert must not leave a deferred
+      //    tracked that no caller ever received.
       if (promise) {
         this.completionPromises.push({
           id: jobId,
@@ -405,15 +321,10 @@ export default {
     }
   },
   /**
-   * Reject any `addJob({ promise: true })` deferred that has waited past its ceiling (OpenProject
-   * #928), and stop tracking it.
-   *
-   * The only way a `completionPromises` entry ever otherwise settles is a `jobCompleted` NOTIFY
-   * (`start()`'s `onNotification` handler above) — and postgres NOTIFY is not durable, so one missed
-   * during a LISTEN reconnect is simply gone. Without this sweep that left the deferred, and everything
-   * awaiting it (`api/system/info.ts`'s check-update route, for one), pending forever, and the map entry
-   * itself leaked for the life of the process. `added` (written by `addJob`, otherwise never read) is
-   * what makes each entry's age checkable.
+   * Reject, and stop tracking, any `addJob({ promise: true })` deferred that has waited past its
+   * ceiling. A `jobCompleted` NOTIFY is the only other thing that settles one, and NOTIFY is not
+   * durable: one missed during a LISTEN reconnect would leave the deferred pending, and its entry
+   * tracked, for the life of the process.
    */
   expireCompletionPromises(): void {
     const ttlSeconds =
@@ -430,34 +341,15 @@ export default {
     }
   },
   /**
-   * Run a job in a worker thread, and stop waiting for it if it does not come back.
-   *
-   * A task promise that never settles is not a hypothetical: a worker thread that dies mid-task —
-   * `process.exit`, an OOM kill, a native crash — takes the answer with it. Piscina's own pool
-   * rejects any task still in flight on that worker the moment it sees the thread exit (its
-   * `onWorkerExit` handler), so a crash is typically caught quickly on its own — unlike poolifier,
-   * which only reported the exit through its `exitHandler` with nothing to attach it to, leaving the
-   * promise pending forever and making the backup timer below the *only* thing that ever settled it.
-   * The timer stays regardless: it is what makes the wait finite for the residual case piscina's own
-   * exit detection cannot cover either — a thread that is neither answering nor exiting at all (a
-   * genuine native-code deadlock ignoring the abort signal) — and with it everything the caller is
-   * holding: the job stays claimed, its history row stays `active`, and the transaction around this
-   * never commits.
-   *
-   * Two ceilings, because they cover different failures. The abort signal is for a task that is still
-   * running and merely slow — the pool aborts it (tearing down the worker running it) and rejects, so
-   * the worker stops doing the work as well. The timer is for the case where there is no longer
-   * anybody to abort, and is what makes the wait finite no matter what happened to the thread.
-   *
-   * Either way the job ends up in the same place a thrown task does: recorded as failed, and retried
-   * with the usual backoff.
+   * Run a job in a worker thread, under two ceilings that cover different failures. The abort
+   * signal is for a task that is merely slow: the pool tears down the worker running it and
+   * rejects. The timer is for a thread that neither answers nor exits (piscina itself rejects a
+   * task whose thread exits), which would otherwise hold its `activeWorkers` slot forever. Either
+   * way the job fails and is retried like a thrown task.
    */
   async executeOnWorker(job: { task: string; payload?: any }): Promise<void> {
     const timeoutMs = (CARDINAL.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
     await withTimeout(
-      // -> No `INSTANCE_ID` rider on the payload any more: a worker settles its own id from
-      //    `workerData` at boot (see `init()` above), so sending one per job only ever
-      //    overwrote a correct value with the same information a job later.
       this.workerPool!.run({ ...job }, { signal: AbortSignal.timeout(timeoutMs) }),
       timeoutMs + TASK_TIMEOUT_GRACE,
       () =>
@@ -468,30 +360,20 @@ export default {
   },
 
   /**
-   * Take a batch of due jobs and run them.
+   * Take a batch of due jobs and run them, in two steps rather than one transaction. The claim has
+   * to be atomic — the `DELETE` with `SKIP LOCKED` is what stops two instances running the same
+   * job, and the history row saying it started belongs with it. Running it must not be: a
+   * transaction held open across a task pins a pooled connection, holds the claim's locks, and
+   * stops postgres vacuuming anything newer than its snapshot.
    *
-   * Two steps, deliberately not one transaction. Claiming a job has to be atomic — the `DELETE` with
-   * `SKIP LOCKED` is what stops two instances running the same job, and the history row saying it
-   * started belongs with it — but running it does not: a task takes as long as whatever it is waiting
-   * on, and a transaction held open across that pins a pooled connection, holds the locks the claim
-   * took, and stops postgres vacuuming anything newer than its snapshot for the duration.
-   *
-   * So the transaction covers the claim and nothing else, and the work happens after it commits, all
-   * of the batch at once rather than one job at a time — the worker pool is there to be used, and the
-   * batch was sized to it.
-   *
-   * The cost of committing the claim first is that a process which dies mid-job no longer has its
-   * claim rolled back: the job is gone from the queue and its history row is left saying `active`.
-   * That is what `reapStaleJobs` is for.
+   * The cost is that a process dying mid-job leaves the job out of the queue with an `active`
+   * history row, which is what `reapStaleJobs` is for.
    */
   async processJob(): Promise<void> {
-    // -> Reserved up front, before the `await` below, rather than left as a plain check-then-act read
-    //    of `activeWorkers`: `processJob` has two overlapping callers (the polling interval and the
-    //    `newJob` NOTIFY handler), and the claim transaction this reservation guards is several round
-    //    trips long, so nothing serialized concurrent invocations before this and `maxWorkers` did not
-    //    actually bind concurrency. Reserving synchronously (no `await` between the read and the
-    //    increment) closes that window; the reservation is corrected back down below once the claim
-    //    reports how many rows it actually got.
+    // -> Reserved synchronously, before the first `await`: `processJob` has two overlapping callers
+    //    (the polling interval and the `newJob` handler) and the claim is several round trips long,
+    //    so a check-then-act read of `activeWorkers` would not bind concurrency to `maxWorkers`.
+    //    Corrected below once the claim reports how many rows it got.
     const availableWorkers = this.maxWorkers - this.activeWorkers
     if (availableWorkers < 1) {
       CARDINAL.logger.debug('jobs', 'all workers busy, nothing claimed', {
@@ -509,11 +391,9 @@ export default {
           .where(
             inArray(
               jobsTable.id,
-              // -> Ordered by due time and age, matching `models/jobs.ts#getUpcoming()`'s own
-              //    `waitUntil ASC NULLS FIRST, createdAt ASC` — `id` is a `crypto.randomUUID()`
-              //    with no correlation to either, so ordering by it left an eligible job that
-              //    happened to sort high repeatedly passed over, and discarded the urgency
-              //    `reapStaleJobs` explicitly sets (`waitUntil: new Date()` on a requeued row).
+              // -> Ordered by due time then age, matching `models/jobs.ts#getUpcoming()`. `id` is a
+              //    random UUID: ordering by it would pass over eligible jobs arbitrarily and
+              //    discard the urgency `reapStaleJobs` sets on a requeued row.
               sql`(SELECT id FROM jobs WHERE ("waitUntil" IS NULL OR "waitUntil" <= NOW()) ORDER BY "waitUntil" ASC NULLS FIRST, "createdAt" ASC FOR UPDATE SKIP LOCKED LIMIT ${availableWorkers})`
             )
           )
@@ -537,21 +417,18 @@ export default {
             })
             .onConflictDoUpdate({
               target: jobHistoryTable.id,
-              // -> A reclaim (this row already exists — the common case right after `reapStaleJobs`
-              //    has interrupted it) must also refresh `attempt`, not just the run-state columns.
-              //    Left out, a job whose worker/process keeps dying before `runJob` ever gets to
-              //    record anything has `attempt` frozen at its very first claim forever, so
-              //    `reapStaleJobs`'s `attempt > maxRetries` cutoff never trips and the job is
-              //    requeued indefinitely instead of eventually being abandoned.
+              // -> A reclaim must refresh `attempt` too: otherwise a job whose runner keeps dying
+              //    before `runJob` records anything keeps its first `attempt` forever,
+              //    `reapStaleJobs`'s `attempt > maxRetries` cutoff never trips, and the job is
+              //    requeued indefinitely.
               set: {
                 state: 'active',
                 executedBy: CARDINAL.INSTANCE_ID,
                 startedAt: sql`now()`,
                 attempt: job.retries + 1,
-                // -> Cleared on every reclaim, not just left over from whatever attempt last wrote it:
-                //    `jobHistory` holds one row per job id across every attempt, so without this a job
-                //    that was interrupted, requeued, reclaimed and then succeeded ends up `completed`
-                //    while still carrying `reapStaleJobs`'s "gone" message from the attempt before it.
+                // -> `jobHistory` holds one row per job across every attempt, so without this a job
+                //    that was interrupted and then succeeded ends up `completed` while still
+                //    carrying `reapStaleJobs`'s message.
                 lastErrorMessage: null
               }
             })
@@ -559,27 +436,22 @@ export default {
         return claimed
       })
     } catch (err: any) {
-      // -> Nothing was claimed: the transaction rolled back, so the jobs are still queued. Correct the
-      //    up-front reservation back down to what was actually claimed (zero).
+      // -> The transaction rolled back, so nothing was claimed: release the whole reservation
       this.activeWorkers -= availableWorkers
       CARDINAL.logger.warn('jobs', 'failed to claim jobs', { error: err })
       return
     }
 
-    // -> Correct the up-front reservation down to what was actually claimed: `availableWorkers` slots
-    //    were reserved before this transaction ran, but the claim may have returned fewer jobs (or
-    //    none) than that ceiling allowed.
+    // -> Release the part of the reservation the claim did not fill
     this.activeWorkers -= availableWorkers - jobs.length
 
     if (jobs.length < 1) {
       return
     }
 
-    // -> Tracked in `inFlightJobs` so `stop()` can await these rather than abandoning them mid-run
-    //    (OpenProject #2019). Added before the first `await` below, so a `stop()` racing this call
-    //    always sees the full batch. `activeWorkers` is not incremented again here — the up-front
-    //    reservation above (`this.activeWorkers += availableWorkers`, corrected down to
-    //    `jobs.length`) already accounts for this batch.
+    // -> Added to `inFlightJobs` before the first `await` below, so a `stop()` racing this call
+    //    sees the full batch. `activeWorkers` already counts this batch, through the reservation
+    //    above.
     const jobPromises = jobs.map((job) => this.runJob(job))
     for (const p of jobPromises) {
       this.inFlightJobs.add(p)
@@ -594,27 +466,16 @@ export default {
     }
   },
   /**
-   * Run an in-process task (`tasks/simple/`) against the same `taskTimeout` ceiling
-   * `executeOnWorker` already gives a worker-thread job.
+   * Run an in-process task (`tasks/simple/`) under the same `taskTimeout` ceiling a worker job has.
    *
-   * Unlike a worker thread, an in-process task cannot actually be aborted — there is no separate
-   * thread to tear down, and the task's own promise keeps running (and, eventually, settling) in the
-   * background whether or not anything is still awaiting it. What this bounds is the scheduler's own
-   * bookkeeping: without a ceiling here, a task that never settles (the documented case is
-   * `withAdvisoryLock` blocking forever on an unavailable lock, before this same audit gave it its own
-   * `lock_timeout`) means `processJob`'s `Promise.allSettled` never settles for it either, so the
-   * `activeWorkers` slots it holds are never returned — 18 of this codebase's 19 task modules run this
-   * way, so one wedged task permanently costs `maxWorkers` slots (default 3), and the instance stops
-   * claiming new jobs at all. Racing the call against a timer here is what makes that finite: the job
-   * is recorded failed and retried with the usual backoff, exactly as a thrown task already is,
-   * through the shared `helpers/timeout.ts#withTimeout` every other bounded step in the repo uses.
+   * The task cannot actually be aborted: its promise keeps running whether or not anything still
+   * awaits it. What the ceiling bounds is the scheduler's bookkeeping — a task that never settles
+   * would otherwise never return its `activeWorkers` slot, and enough of them stop the instance
+   * claiming jobs at all.
    *
-   * The task itself runs inside `runWithJobExecutionContext()` (OpenProject #2351): since it cannot
-   * actually be cancelled, a task that calls `CARDINAL.models.jobs.setResult(jobId, ...)` after this
-   * ceiling has already given up on it does so from a "stale" continuation that outlives this call.
-   * The context carries the attempt number this specific claim is running as, so that late write can
-   * be fenced against a later retry's result -- see `helpers/jobExecutionContext.ts` for the full
-   * reasoning.
+   * For the same reason it runs inside `runWithJobExecutionContext()`: the context carries this
+   * claim's attempt number, so a `setResult()` from a continuation that outlived the ceiling can be
+   * fenced against a later retry's result (see `helpers/jobExecutionContext.ts`).
    */
   async executeInProcess(job: {
     task: string
@@ -624,12 +485,8 @@ export default {
   }): Promise<TaskResult | void> {
     const timeoutMs = (CARDINAL.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
     const runTask = () => this.tasks![job.task](job.payload, job.id)
-    // -> `Promise.resolve`, since a task may be written as a synchronous function: `Promise.race`
-    //    accepted a bare value, `withTimeout` takes a promise
-    // -> The task's own return value is handed back rather than discarded: a task that ran to
-    //    completion may have returned a `TaskResult`, and `runJob()` is what turns that into the one
-    //    `info` line for this run. A task that timed out never returns at all, so there is nothing to
-    //    carry through that branch.
+    // -> `Promise.resolve`, since a task may be a synchronous function and `withTimeout` takes a
+    //    promise
     return await withTimeout(
       Promise.resolve(
         job.id
@@ -644,17 +501,12 @@ export default {
     )
   },
   /**
-   * Run one already-claimed job and record how it went.
-   *
-   * Runs outside any transaction, so every write here is on its own — which is also why a failure
-   * cannot undo the ones before it. A job that fails is recorded as failed and requeued with the
-   * scheduler's backoff, and its siblings in the batch are unaffected either way.
+   * Run one already-claimed job and record how it went. Outside any transaction, so each write here
+   * stands alone and a later failure cannot undo an earlier one.
    */
   async runJob(job: any): Promise<void> {
     const attempt = job.retries + 1
-    // -> `maxRetries` counts the RETRIES, so the run itself is the extra one: a job with
-    //    `maxRetries: 3` gets four attempts, and `attempt=2/4` is what an operator needs to read
-    //    "two down, two to go" off a single line without knowing that convention.
+    // -> `maxRetries` counts the retries, so the first run is the extra one
     const attempts = job.maxRetries + 1
     const startedAt = Date.now()
     CARDINAL.logger.debug('jobs', `${job.task} started`, {
@@ -672,11 +524,6 @@ export default {
           completedAt: sql`now()`
         })
         .where(eq(jobHistoryTable.id, job.id))
-      // -> The scheduler owns the outcome line, not the task (audit N3/X1). A task that reports
-      //    something — a count swept, a digest sent — returns it, and that becomes the ONE `info`
-      //    record for this run, carrying the job id, the attempt and the duration a task cannot know.
-      //    A task that did nothing worth saying returns nothing and the run stays at `debug`, so a
-      //    timer-driven sweep finding nothing is invisible until an operator asks for `debug`.
       const summary = taskSummary(outcome)
       if (summary) {
         const { summary: sentence, ...summaryFields } = summary
@@ -695,20 +542,10 @@ export default {
       }
       notifyJobCompleted(job.id, 'success')
     } catch (err: any) {
-      // -> Only the terminal, retries-exhausted branch logs at `error`. A job that will still be
-      //    retried logs at `warn` — an operator shipping only `error` to alerting must see a storm
-      //    of failing-and-retrying jobs, not just the final give-up.
-      // -> One record, not two: the situation is the message and the error rides `fields.error`, so
-      //    the renderer puts the message inline and the stack under it rather than emitting a
-      //    second, contextless line. `job` plus the attempt (OpenProject #1937) keep it traceable
-      //    without cross-referencing `jobHistory` by timestamp, and the attempt named is the one
-      //    about to be recorded below (`job.retries + 1`), not `job.retries` itself.
-      // -> The two branches count differently on purpose: a job that will be tried again says
-      //    `attempt=n/m`, because there is an `n+1` coming; one that has run out says `attempts=m`,
-      //    the total it used, because there is no next attempt for a ratio to be counting towards.
-      // -> `next` is settled here, before the line is written, and reused by the requeue insert
-      //    below: the whole point of the field is that it is the row's real `waitUntil`, not a
-      //    second calculation of the same backoff that could drift from it.
+      // -> The two branches count differently on purpose: a retrying job says `attempt=n/m`, an
+      //    exhausted one `attempts=m`, since there is no next attempt for a ratio to count towards.
+      // -> `nextRun` is computed once and reused by the requeue insert below, so the logged `next`
+      //    is the row's real `waitUntil`.
       const retriesExhausted = job.retries >= job.maxRetries
       const nextRun = retriesExhausted
         ? null
@@ -741,8 +578,6 @@ export default {
           })
           .where(eq(jobHistoryTable.id, job.id))
         notifyJobCompleted(job.id, 'failed', err.message)
-        // -> Reschedule for retry, at exactly the instant the `warn` above told the operator to
-        //    expect it
         if (nextRun) {
           await CARDINAL.db.insert(jobsTable).values({
             ...job,
@@ -763,30 +598,16 @@ export default {
     }
   },
   /**
-   * Requeue jobs that were claimed and never finished.
+   * Requeue jobs that were claimed and never finished: an instance that dies mid-job leaves an
+   * `active` history row for a job no longer in the queue, which nothing else notices.
    *
-   * A job is claimed out of `jobs` and marked `active` in the history before it runs, so an instance
-   * that dies mid-job — or a worker that takes its answer with it — leaves a row saying a job started
-   * that nothing is going to finish. Nothing else notices those: they are no longer in the queue.
+   * Age is the only usable signal. `INSTANCE_ID` is random per boot, so an instance cannot pick out
+   * the rows of its previous life, and another instance's `active` row may be running happily.
+   * `staleJobTimeout` is therefore a "nobody could still be working on this" threshold, generous on
+   * purpose: set too low, it runs a job that is already running.
    *
-   * Age is the only usable signal. `INSTANCE_ID` is a fresh random hex id on every boot, so an instance
-   * cannot pick out the rows of its own previous life, and another instance's `active` row may well
-   * be a job that is running perfectly happily. `staleJobTimeout` is therefore a "nobody could still
-   * be working on this" threshold rather than a deadline — generous on purpose, because the cost of
-   * setting it too low is running a job that was already running.
-   *
-   * The `UPDATE` is the claim: two instances sweeping at once both filter on `state = 'active'`, so
-   * whichever commits second matches nothing and returns nothing.
-   *
-   * A job that gets requeued below is not abandoned — `runJob` sends its own `jobCompleted` NOTIFY
-   * once the requeued attempt actually finishes, resolving whichever `addJob({ promise: true })`
-   * deferred is still waiting on that (unchanged) job id the ordinary way. A job that is skipped
-   * instead (its attempts are used up) has no such future: nothing is ever going to run it again, so
-   * this is the only place anything will ever report on it, and OpenProject #928 has this send the
-   * `jobCompleted` failure NOTIFY itself rather than leaving that job's deferred to time out on its own
-   * `expireCompletionPromises()` ceiling.
-   *
-   * @returns How many jobs were requeued
+   * A job with no attempts left is never run again, so this sends its `jobCompleted` failure itself
+   * rather than leaving an `addJob({ promise: true })` caller to time out.
    */
   async reapStaleJobs(): Promise<number> {
     const staleAfter = CARDINAL.config.scheduler.staleJobTimeout ?? DEFAULT_STALE_JOB_TIMEOUT
@@ -815,15 +636,9 @@ export default {
           notifyJobCompleted(job.id, 'failed', job.lastErrorMessage)
           continue
         }
-        // -> `.onConflictDoNothing` makes this a no-op, not a duplicate-key throw, when the original
-        //    runner's own retry insert (`runJob`'s own `...job` spread, which reuses the same id)
-        //    already beat this sweep to the punch — a live race, not a hypothetical one. `.returning()`
-        //    is what lets `requeued` below count rows actually inserted rather than rows merely
-        //    attempted. Wrapped in this per-job try/catch, not left to the removed outer one: the
-        //    previous shape aborted the whole loop on the first failing insert, silently leaving every
-        //    remaining stranded job in this batch `interrupted` in history with nothing back in the
-        //    queue — permanently dropped, since a later sweep filters on `state = 'active'` and will
-        //    never see an `interrupted` row again.
+        // -> `.onConflictDoNothing`: the original runner's own retry insert in `runJob` reuses the
+        //    same id and may already have beaten this sweep to it. `.returning()` lets `requeued`
+        //    count rows actually inserted.
         const inserted = await CARDINAL.db
           .insert(jobsTable)
           .values({
@@ -834,15 +649,9 @@ export default {
             retries: job.attempt,
             maxRetries: job.maxRetries,
             isScheduled: job.wasScheduled,
-            // -> Explicit, not left null: this job already passed whatever `waitUntil` it had before it
-            //    was claimed and interrupted, so it is due again right now regardless. Leaving it null
-            //    would still make `processJob`'s claim query pick it up immediately too (its `WHERE`
-            //    treats null the same as "already due") — but a *scheduled* row with a null `waitUntil`
-            //    crashes `addScheduled()`'s dedupe check the next time it runs (`j.waitUntil.getTime()`
-            //    on `null`), silently pausing cron seeding for this task until this row is claimed
-            //    (OpenProject #929). Setting a real timestamp here keeps every row `isScheduled = true`
-            //    ever produces satisfying that invariant, rather than defending against `null` at every
-            //    site that reads it.
+            // -> Explicit, though `processJob` would claim a null row just as soon: every
+            //    `isScheduled` row is expected to carry a real `waitUntil`, which
+            //    `addScheduled()`'s dedupe reads.
             waitUntil: new Date(),
             createdBy: CARDINAL.INSTANCE_ID
           })
@@ -850,10 +659,9 @@ export default {
           .returning()
         requeued += inserted.length
       } catch (err: any) {
-        // -> One job's requeue failing must not strand every job after it in this array: each still
-        //    has its own `jobHistory` row marked `interrupted`, and without a per-job catch here, a
-        //    single insert failure aborted the whole loop and left the rest permanently unrequeued —
-        //    a later sweep only ever looks at `state = 'active'` rows, so it never revisits them.
+        // -> Caught per job, not around the loop: every row here is already marked `interrupted`,
+        //    which a later sweep (filtering on `state = 'active'`) never revisits, so one failed
+        //    insert must not strand the jobs after it.
         CARDINAL.logger.warn('jobs', 'failed to requeue job', {
           job: job.id,
           task: job.task,
@@ -862,17 +670,10 @@ export default {
       }
     }
 
-    // -> `notifier.send` above is deliberately fire-and-forget (see helpers/pubsub.ts) so this
-    //    function can call it from inside a loop with no `await` per iteration. Without draining once
-    //    before returning, an early caller could observe `reapStaleJobs()` as "done" while an
-    //    abandoned job's `jobCompleted` NOTIFY is still queued behind the connection — precisely the
-    //    drop the comment atop this function says this branch exists to avoid.
+    // -> `notifier.send` is fire-and-forget, so drain once: an abandoned job's `jobCompleted`
+    //    NOTIFY must be out before this reports done.
     await notifier.drained()
 
-    // -> A sweep that found something is `warn`: an instance died mid-job, which is worth an
-    //    operator's attention even though the jobs are back in the queue. The far more common empty
-    //    sweep is `debug` — it runs on a timer and finding nothing is the healthy case, but saying so
-    //    is what tells someone with `debug` on that the sweep is running at all.
     if (stranded.length > 0) {
       CARDINAL.logger.warn('jobs', 'requeued interrupted jobs', {
         found: stranded.length,
@@ -883,15 +684,11 @@ export default {
     }
     return requeued
   },
-  /**
-   * @returns How many future planned jobs this pass actually queued (0 when another instance held
-   *   the cron lock, or when every planned iteration was already scheduled).
-   */
   async addScheduled(): Promise<number> {
     let totalAdded = 0
     try {
       await CARDINAL.db.transaction(async (trx: any) => {
-        // -> Acquire lock
+        // -> Acquire the cron lock, which also rate-limits seeding across instances
         const jobLock = await trx
           .update(jobLockTable)
           .set({
@@ -906,28 +703,20 @@ export default {
           )
 
         if (jobLock.rowCount > 0) {
-          // -> Both selects read through `trx`, the same physical connection the lock UPDATE just
-          //    took, rather than the ambient `CARDINAL.db` pool handle. Under READ COMMITTED this does not
-          //    change what rows are visible (a `trx.select()` after the lock UPDATE sees exactly the
-          //    same committed rows a pool read would), but it does stop every scheduled task's inserts
-          //    from checking out a *second* pool connection while this one is still held open by the
-          //    transaction.
+          // -> Both selects read through `trx`, the connection the lock already holds, rather than
+          //    checking a second one out of the pool while this transaction is open.
           const scheduledJobs = await trx.select().from(jobScheduleTable)
           if (scheduledJobs?.length > 0) {
-            // -> Get existing scheduled jobs
             const existingJobs = await trx
               .select()
               .from(jobsTable)
               .where(eq(jobsTable.isScheduled, true))
             for (const job of scheduledJobs) {
-              // -> Get next planned iterations. `croner` (OpenProject #3177 -- replaces cron-parser,
-              //    which dragged in luxon as a transitive dependency) has no `hasNext()`/`next()`
-              //    iterator of its own: `nextRun(prev)` returns the next occurrence strictly after
-              //    `prev` as a plain `Date`, or `null` once none remain before `stopAt`, which is what
-              //    the loop below polls instead.
+              // -> `croner` has no iterator: `nextRun(prev)` returns the next occurrence strictly
+              //    after `prev`, or `null` once none remain before `stopAt`, which the loop below
+              //    polls.
               const windowStart = Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
-              // -> 24 hours rather than `{ days: 1 }`: Temporal.Instant only accepts exact time
-              //    units, and in UTC a calendar day is exactly 24 hours anyway.
+              // -> 24 hours, not `{ days: 1 }`: Temporal.Instant only accepts exact time units
               const windowEnd = Temporal.Now.instant()
                 .add({ hours: 24, minutes: 5 })
                 .toString({ smallestUnit: 'millisecond' })
@@ -937,23 +726,17 @@ export default {
                 startAt: windowStart,
                 stopAt: windowEnd
               })
-              // -> Add a maximum of 10 future iterations for a single task
               let addedFutureJobs = 0
               let cursor: Date | string = windowStart
               while (true) {
                 try {
                   const next = plannedIterations.nextRun(cursor)
-                  // -> No more iterations for this period
                   if (!next) {
                     break
                   }
                   cursor = next
-                  // -> Ensure this iteration isn't already scheduled. `j.waitUntil &&` guards against
-                  //    a scheduled row with a null `waitUntil` — `reapStaleJobs` no longer produces
-                  //    one (OpenProject #929), but a null here must never crash this loop (silently
-                  //    pausing cron seeding for every task after it) regardless of how it got there:
-                  //    at worst, treating it as "not a match" schedules one harmless extra occurrence
-                  //    instead.
+                  // -> `j.waitUntil &&`: a null must not throw here, which would end this task's
+                  //    seeding. Treating it as "no match" schedules one extra occurrence at worst.
                   if (
                     !existingJobs.some(
                       (j: any) =>
@@ -962,10 +745,8 @@ export default {
                         j.waitUntil.getTime() === next.getTime()
                     )
                   ) {
-                    // -> `addJob` swallows its own errors and returns `undefined` on failure (logging
-                    //    its own warning), so awaiting it here and only counting a returned `id` is
-                    //    what keeps this loop's "N scheduled" log reporting actual outcomes rather than
-                    //    intent (OpenProject #1998) -- an insert that never lands must not be counted.
+                    // -> `addJob` swallows its own errors and returns `undefined`, so only a
+                    //    returned `id` counts as queued.
                     const added = await this.addJob({
                       task: job.task,
                       payload: job.payload,
@@ -978,7 +759,6 @@ export default {
                       totalAdded++
                     }
                   }
-                  // -> Max iterations count reached
                   if (addedFutureJobs >= 10) {
                     break
                   }
@@ -997,26 +777,19 @@ export default {
     return totalAdded
   },
   /**
-   * Stop the scheduler.
-   *
-   * Clears both intervals first, so no new job is claimed once shutdown begins, then waits for
-   * whatever `processJob()` batches are already in flight (bounded, so one hung task cannot hold this
-   * open indefinitely — see `drainInFlightJobs()`) before destroying the worker pool out from under
-   * whatever is still running. A batch still going at the bound is abandoned exactly as before this
-   * drain existed: `workerPool.destroy()` tears it down, and its `jobHistory` row is picked up by
-   * `reapStaleJobs()` once `staleJobTimeout` elapses.
-   *
-   * Returns the same awaitable promise `core/http/server.ts`'s `createGracefulShutdown(...)` close
-   * tasks hold (OpenProject #2028) — nothing further to wire up here, `stop()` was already awaitable.
+   * Clears both intervals first, so polling claims nothing new, then waits (bounded) for the
+   * batches already in flight before destroying the worker pool under them. A batch still running
+   * at the bound is abandoned: its `jobHistory` row is picked up by `reapStaleJobs()` once
+   * `staleJobTimeout` elapses.
    */
   async stop(): Promise<void> {
     clearInterval(this.scheduledRef!)
     clearInterval(this.pollingRef!)
-    // -> Nulled synchronously, before anything below is awaited: no new job is claimed once shutdown
-    //    begins (`processJob` is only ever called from this interval), and the drain below only has
-    //    to deal with whatever was already in flight at this instant.
     this.scheduledRef = null
     this.pollingRef = null
+    // FIXME: the `newJob` NOTIFY handler still calls `processJob()` until the listener closes
+    // below, so a batch can be claimed mid-drain, missed by it, and lose its worker pool. Gate
+    // `processJob` on a stopping flag.
     await this.drainInFlightJobs()
     await this.workerPool!.destroy()
     if (this.listenerHandle) {
@@ -1024,20 +797,13 @@ export default {
       await this.listenerHandle.close()
       this.listenerHandle = null
     }
-    // -> `debug`, not `info`: `core/http/server.ts`'s `boot stopping` / `boot stopped  ms=` pair is
-    //    the shutdown narrative now, and this runs inside it as one of the graceful server's own
-    //    `closePromises`. An operator wanting to see which teardown step is slow turns on `debug`.
+    // -> `debug`, not `info`: `core/http/server.ts` logs the shutdown itself, and this is one
+    //    teardown step inside it.
     CARDINAL.logger.debug('jobs', 'scheduler stopped')
   },
   /**
-   * Waits for whatever `processJob` currently has in flight, bounded so a hung task cannot hold
-   * shutdown open indefinitely (OpenProject #2019).
-   *
-   * Called from `stop()` after `pollingRef` is already cleared, so `inFlightJobs` only shrinks from
-   * here on — nothing new is added to it. A job's own promise is awaited (via `runJob`'s tracked
-   * promise in `inFlightJobs`), not dropped; a job that never settles on its own is not waited on
-   * past `taskTimeout + SHUTDOWN_DRAIN_GRACE`, after which `stop()` proceeds anyway and abandons it
-   * the same way an unbounded wait would eventually have had to.
+   * Waits for whatever `processJob` has in flight, bounded by `taskTimeout + SHUTDOWN_DRAIN_GRACE`
+   * so a hung task cannot hold shutdown open: past the bound `stop()` proceeds and abandons it.
    */
   async drainInFlightJobs(): Promise<void> {
     if (this.inFlightJobs.size < 1) {
@@ -1045,16 +811,14 @@ export default {
     }
     const timeoutMs =
       (CARDINAL.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000 + SHUTDOWN_DRAIN_GRACE
-    // -> `debug jobs`, for the same reason as `scheduler stopped` above: the drain's cost is already
-    //    reported by `boot stopped  ms=`, and this is the detail behind that number.
     CARDINAL.logger.debug('jobs', 'waiting for in-flight jobs', {
       jobs: this.inFlightJobs.size,
       timeout: timeoutMs
     })
-    // -> The bound expiring is this function doing its job, not a failure, so the rejection
-    //    `withTimeout` signals it with is swallowed here — `Promise.allSettled` itself never rejects,
-    //    so nothing else can reach this `catch`. `unref`, since this runs while the process is
-    //    already trying to exit and the ceiling must not by itself keep it alive.
+    // -> The bound expiring is this function doing its job, so `withTimeout`'s rejection is
+    //    swallowed; `Promise.allSettled` never rejects, so nothing else reaches this `catch`.
+    //    `unref`, since the process is already trying to exit and the ceiling must not keep it
+    //    alive.
     await withTimeout(
       Promise.allSettled(Array.from(this.inFlightJobs)),
       timeoutMs,

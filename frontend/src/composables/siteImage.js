@@ -11,34 +11,20 @@ import {
 } from '@/helpers/siteImages'
 
 /**
- * Replacing or clearing one of a site's own images (`logo`, `favicon`, `loginBg`) from an admin
- * settings page.
+ * `helpers/siteImages.js` stays the transport -- the picker, the accepted-type check and the two
+ * requests; this owns the orchestration around them.
  *
- * `helpers/siteImages.js` is the transport -- the picker, the accepted-type check and the two
- * requests. What sits around it was written out three times over two pages (`AdminGeneral.vue`'s
- * logo and favicon, `AdminLogin.vue`'s background): pick, refuse a type the endpoint would not take,
- * count the page's loading gauge up and back down, toast the outcome, flip the "this site has one"
- * flag and bump a cache-busting timestamp on the `<img>` src. Only the kind, that flag and the
- * locale keys ever differed, so this owns the orchestration and each page instantiates one per
- * image it offers.
- *
- * @param {'logo'|'favicon'|'loginBg'} kind Which of the site's images this instance manages.
+ * @param {'logo'|'favicon'|'loginBg'} kind
  * @param {object} opts
- * @param {() => string} opts.siteId Reads the site being edited at call time -- a getter, not a
- *   value, since the admin can switch sites without this composable being re-created.
- * @param {import('vue').Ref<boolean>} opts.has Whether the site has an image of its own, i.e.
- *   whether there is anything to clear. Written on every successful upload and clear.
- * @param {string} opts.i18nPrefix The locale key stem for this image's four messages --
- *   `<prefix>UploadSuccess`, `<prefix>UploadFailed`, `<prefix>ClearSuccess`, `<prefix>ClearFailed`
- *   (e.g. `admin.general.logo`, `admin.login.bg`).
- * @param {import('vue').Ref<number>} opts.loading The page's own loading counter, raised for the
- *   duration of a request.
- * @param {string} [opts.invalidTypeKey] The caption shown when the picked file is a type the
- *   endpoint would refuse. Defaults to `<prefix>UploadInvalidType`; passed explicitly where one
- *   message is shared by several uploaders on the same page (`AdminGeneral.vue`).
+ * @param {() => string} opts.siteId A getter, not a value: the admin can switch sites without this
+ *   composable being re-created.
+ * @param {import('vue').Ref<boolean>} opts.has
+ * @param {string} opts.i18nPrefix The locale key stem for this image's four messages.
+ * @param {import('vue').Ref<number>} opts.loading The page's own loading counter.
+ * @param {string} [opts.invalidTypeKey] Passed where one message is shared by several uploaders on
+ *   the same page.
  * @returns {{ upload: () => Promise<void>, clear: () => Promise<void>,
- *   timestamp: import('vue').Ref<string> }} `timestamp` is the query string that cache-busts the
- *   image's `<img>` src, and changes each time this image does.
+ *   timestamp: import('vue').Ref<string> }} `timestamp` cache-busts the image's `<img>` src.
  */
 export function useSiteImage(kind, { siteId, has, i18nPrefix, loading, invalidTypeKey }) {
   const { t } = useI18n()

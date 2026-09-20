@@ -1,47 +1,28 @@
 /**
- * Live application of Admin → Theme's `baseFont` / `contentFont` selection.
+ * Live application of Admin → Theme's `baseFont` / `contentFont`, as two independent swaps:
  *
- * The two are independent runtime font-family swaps:
+ *  - `baseFont` writes `--font-sans` on the document root, which Tailwind's Preflight applies to
+ *    `html`, so it reaches the whole app.
+ *  - `contentFont` writes `--font-content` in a `<style>` scoped under `.page-contents` rather than
+ *    on the root, so a reader's content font never leaks into the surrounding chrome.
  *
- *  - `baseFont` writes `--font-sans` on the document root, which is what `tailwind.css`'s
- *    `@theme static` block feeds to Tailwind's Preflight (`html { font-family: var(--font-sans) }`)
- *    — so it reaches the whole app, exactly where `--font-sans` was already used before this module
- *    existed.
- *  - `contentFont` writes `--font-content` scoped under `.page-contents`, mirroring how
- *    `App.vue`'s `applyCodeBlocksTheme()` nests a highlight.js theme under the same selector: a
- *    `<style>` element with `.page-contents { --font-content: … }` rather than a property set on
- *    the root, so a reader's chosen content font never leaks into surrounding chrome (the sidebar,
- *    the header, admin screens). `_page-contents.css` reads it as
- *    `font-family: var(--font-content, var(--font-sans))`, so with nothing selected the content
- *    column falls back to the same font as the rest of the app, not to the browser default.
- *
- * Only the stylesheet(s) actually selected are linked into `<head>` — the vendored assets from
- * `public/_assets/fonts/<key>/<key>.css` (task 715) — deduplicated when `baseFont` and
- * `contentFont` name the same font, so a site using one font everywhere downloads it once.
- *
- * `'user'` (and any other value this catalog doesn't recognise, e.g. an unset default) means "no
- * override": no stylesheet is linked for it, and the corresponding custom property is removed
- * rather than set to something. That leaves the fallback stack already declared in `tailwind.css`
- * (`--font-sans: 'Barlow', -apple-system, …`) — or, for content, the `var(--font-content,
- * var(--font-sans))` fallback — in effect. Nothing ever requests a font literally named "user".
+ * `'user'` — and any other value this catalog doesn't recognise — means "no override": no
+ * stylesheet is linked and the custom property is removed rather than set, leaving `tailwind.css`'s
+ * own fallback stack in effect. Nothing ever requests a font literally named "user".
  */
 
 import { replaceHeadStyle } from '@/helpers/injectCss'
 
 /**
- * Every self-hosted font the admin area's font pickers offer, keyed by the value stored in
- * `theme.baseFont` / `theme.contentFont`. Mirrors the `fonts` options array in `AdminTheme.vue`
- * (minus its `user` entry, which this module treats as "no override" rather than a real font) and
- * the families vendored under `public/_assets/fonts/` in task 715.
+ * Keyed by the value stored in `theme.baseFont` / `theme.contentFont`. Mirrors `AdminTheme.vue`'s
+ * `fonts` options (minus its `user` entry) and the families vendored under
+ * `public/_assets/fonts/` — keep the three in sync.
  */
 const FONT_CATALOG = {
   /*
-    `display` is the condensed companion a family is DESIGNED to be set with, and Barlow is the only
-    entry that has one -- it is what makes the Cardinal pairing (Barlow Condensed headings over
-    Barlow body copy) a single choice in the admin picker rather than two that can be got wrong
-    independently. Its stylesheet is linked alongside the base family's and its name is written to
-    `--font-display`; a family with no companion clears that property, leaving the fallback stack in
-    `tailwind.css` in effect.
+    `display` is the condensed companion a family is DESIGNED to be set with, so picking Barlow is
+    one admin choice rather than two that can be got wrong independently. A family without one
+    clears `--font-display`, leaving `tailwind.css`'s stack in effect.
   */
   barlow: {
     family: 'Barlow',
@@ -60,17 +41,14 @@ const FONT_CATALOG = {
 }
 
 /**
- * The condensed tail of `tailwind.css`'s `--font-display` stack, reused after whichever display
- * family is actually selected -- same role as `SYSTEM_FALLBACK` below, but it keeps trying
- * CONDENSED faces first so a heading does not reflow from condensed to normal-width and back while
- * the webfont is in flight.
+ * Condensed faces come first so a heading does not reflow from condensed to normal-width and back
+ * while the webfont is in flight.
  */
 const CONDENSED_FALLBACK = `'Roboto Condensed', 'Helvetica Neue Condensed', -apple-system, Helvetica, Arial, sans-serif`
 
 /**
- * The non-webfont tail of `tailwind.css`'s existing `--font-sans` stack, reused as the fallback
- * after whichever family is actually selected so a vendored font that fails to load (or hasn't
- * finished loading) degrades the same way the system stack always has.
+ * `tailwind.css`'s `--font-sans` stack minus its webfont, so a vendored font that fails or has not
+ * finished loading degrades the way the system stack always has.
  */
 const SYSTEM_FALLBACK = `-apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif`
 
@@ -78,10 +56,6 @@ function fontFamilyValue(font) {
   return `'${font.family}', ${SYSTEM_FALLBACK}`
 }
 
-/**
- * Link the stylesheet(s) for whichever selections are actual fonts (`'user'` and unknown values
- * contribute none), replacing whatever this helper linked last time.
- */
 function applyFontStylesheets(baseFont, contentFont) {
   document.querySelectorAll('link[data-theme-font]').forEach((el) => el.remove())
 
@@ -92,9 +66,8 @@ function applyFontStylesheets(baseFont, contentFont) {
     }
   }
   /*
-   * Only the BASE font's display companion, and under its own `<key>-display` name so a caller can
-   * still address either sheet: a display face is chrome, and the content column never sets headings
-   * in it (`_page-contents.css` reads `--font-content`, not `--font-display`).
+   * Only the BASE font's display companion: a display face is chrome, and the content column sets
+   * headings from `--font-content`, never `--font-display`.
    */
   const baseDisplay = FONT_CATALOG[baseFont]?.display
   if (baseDisplay) {
@@ -109,9 +82,6 @@ function applyFontStylesheets(baseFont, contentFont) {
   }
 }
 
-/**
- * Apply `baseFont` app-wide via `--font-sans` on the document root.
- */
 function applyBaseFont(baseFont) {
   const font = FONT_CATALOG[baseFont]
   const root = document.documentElement
@@ -128,10 +98,6 @@ function applyBaseFont(baseFont) {
   }
 }
 
-/**
- * Apply `contentFont` scoped to `.page-contents` via a `--font-content` custom property, following
- * the same nested-`<style>` pattern `applyCodeBlocksTheme()` uses.
- */
 function applyContentFont(contentFont) {
   const font = FONT_CATALOG[contentFont]
   replaceHeadStyle(
@@ -141,10 +107,6 @@ function applyContentFont(contentFont) {
 }
 
 /**
- * Apply the site's `baseFont` and `contentFont` theme selections as independent, live font-family
- * swaps: link only the stylesheet(s) actually needed, then set (or clear) the two custom
- * properties they back.
- *
  * @param {string} baseFont `siteStore.theme.baseFont`, e.g. `'roboto'` or `'user'`.
  * @param {string} contentFont `siteStore.theme.contentFont`, e.g. `'inter'` or `'user'`.
  */

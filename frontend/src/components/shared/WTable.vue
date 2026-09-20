@@ -27,23 +27,13 @@
       <tbody>
         <!--
           `h-[52px]` is a floor, not a fixed height: on a table row CSS treats `height` as a minimum
-          and taller content still expands it. Without one, a row's height came purely from its
-          content, so the rows carrying action buttons stood 52px tall (a 36px flat button plus the
-          cell's 16px of vertical padding) while rows whose actions were hidden collapsed to 40px.
-          The table this replaces had the same floor at 48px, which is why the two never visibly
-          disagreed there; 52px is that same idea sized to what these cells actually hold, so no
-          existing row has to shrink to make them agree.
+          and taller content still expands it. Without one, a row carrying action buttons stands
+          taller than a row whose actions are hidden.
         -->
         <tr
           v-for="(row, rowIndex) of visibleRows"
           :key="rowKey ? row[rowKey] : rowIndex"
           class="w-table__row h-[52px]">
-          <!--
-            The cell slot is named per column (`body-cell-<name>`), which is what the pages already
-            provide, and receives one object so `#body-cell-x="props"` reads `props.value` /
-            `props.row` / `props.col` as before. The fallback renders the formatted value, so a
-            column without a slot needs no markup at all.
-          -->
           <template v-for="col of columns" :key="col.name">
             <slot
               :name="`body-cell-${col.name}`"
@@ -57,10 +47,8 @@
       </tbody>
     </table>
     <!--
-      Only rendered when a caller actually fills the slot -- `$slots['no-data']` guards it so every
-      call site that has NOT migrated onto this slot yet (most of them, still hand-rolling their own
-      empty block outside `<w-table>`) gets no extra markup at all, not an empty padded div sitting
-      above their own text.
+      Guarded on `$slots['no-data']` so a call site drawing its own empty block gets no extra markup
+      at all, rather than an empty padded div sitting above its own text.
     -->
     <div
       v-if="$slots['no-data'] && visibleRows.length === 0 && !loading"
@@ -76,43 +64,29 @@ import { computed, reactive } from 'vue'
 import { CELL_ALIGN } from './metrics'
 
 /**
- * Data table.
+ * Simplifications against the table this replaces: no pagination, no selection, no virtual
+ * scrolling, no top/bottom slots -- every call site asked for "all rows, no footer". Sorting stays,
+ * since several tables mark columns sortable.
  *
- * Columns are `[{ name, label, field, align, sortable, format, style }]` -- the same descriptors
- * the admin pages already declare -- and each row is rendered through an optional
- * `#body-cell-<name>` slot.
- *
- * Simplifications against the component this replaces: no pagination, no selection, no virtual
- * scrolling, no top/bottom slots. Every call site passed `:rows-per-page-options="[0]"` and
- * `hide-bottom`, i.e. "show all rows, no footer", so the whole paging apparatus was dead weight.
- * Sorting is kept because several tables mark columns sortable and the header is visible there.
- *
- * An optional `#no-data` slot renders in place of the table body when there are no rows left to
- * show and the table isn't loading. It receives `rowsCount` (the `rows` prop's own length, i.e. the
- * count BEFORE this component's own `filter` prop narrows it) and `filter` (the active filter
- * value) as slot props, so a caller can tell "nothing exists yet" (`rowsCount === 0`) apart from
- * "nothing matched" (`rowsCount > 0` with a non-empty `filter`) -- distinct copy for each, the way
- * `AdminNavigation.vue` already did by hand before this slot existed. A caller filtering server-side
- * instead (its `rows` prop already narrowed by a search sent to the API, `filter` left unset) reads
- * its own local search state to draw that same distinction rather than relying on these slot props,
- * which only describe filtering this component itself performed.
+ * The `#no-data` slot's `rowsCount` is the `rows` prop's own length, i.e. the count BEFORE this
+ * component's `filter` narrows it, so a caller can tell "nothing exists yet" from "nothing
+ * matched". It describes only filtering this component itself performed: a caller whose `rows` are
+ * already narrowed server-side has to draw that distinction from its own search state.
  */
 const props = defineProps({
   rows: {
     type: Array,
     default: () => []
   },
-  /** `[{ name, label, field, align, sortable, format, style }]` */
+  /** `[{ name, label, field, align, sortable, format, style, headerStyle }]` */
   columns: {
     type: Array,
     default: () => []
   },
-  /** Row property holding a stable identity, used as the render key. */
   rowKey: {
     type: String,
     default: null
   },
-  /** Drops the elevation shadow. */
   flat: {
     type: Boolean,
     default: false
@@ -134,8 +108,6 @@ const props = defineProps({
 
 const sort = reactive({ name: null, descending: false })
 
-// -> `col.align` keeps its `left`/`right` names for every existing column descriptor, resolved to
-//    the logical `text-start`/`text-end` utility -- see `CELL_ALIGN`.
 function alignClass(col) {
   return CELL_ALIGN[col.align] ?? CELL_ALIGN.left
 }
@@ -150,7 +122,6 @@ function ariaSort(col) {
   return sort.descending ? 'descending' : 'ascending'
 }
 
-/** `field` is either a property name or a function of the row, as the descriptors already assume. */
 function rawValue(row, col) {
   return typeof col.field === 'function' ? col.field(row) : row[col.field]
 }
@@ -161,8 +132,8 @@ function cellValue(row, col) {
 }
 
 /**
- * Cycles ascending -> descending -> unsorted (default row order) on repeated clicks of the same
- * column header; clicking a different sortable column always starts that column at ascending.
+ * Cycles ascending -> descending -> unsorted on repeated clicks of the same column header; a
+ * different column always starts at ascending.
  */
 function sortBy(col) {
   if (sort.name === col.name) {
@@ -223,10 +194,10 @@ const visibleRows = computed(() => {
 
 <style scoped>
 /*
-  Row rules are drawn as scaled pseudo-elements for the same reason as `.w-hairline`: a plain 1px
-  border lands on a fractional device row under display scaling and paints unevenly. The cells
-  themselves are the positioning context (WTd sets `position: relative`) -- a <tr> is not a reliable
-  containing block for an absolutely positioned child.
+  Scaled pseudo-elements rather than a border, as in `.w-hairline`: a plain 1px border lands on a
+  fractional device row under display scaling and paints unevenly. The cells are the positioning
+  context (WTd sets `position: relative`) -- a <tr> is not a reliable containing block for an
+  absolutely positioned child.
 */
 .w-table__row + .w-table__row :deep(td)::before,
 thead + tbody .w-table__row:first-child :deep(td)::before {

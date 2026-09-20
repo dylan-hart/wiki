@@ -4,19 +4,15 @@ import { pages as pagesTable } from '../db/schema.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
- * OpenProject #1834: `getPage`'s `.select()` used to be `{ page: pagesTable, ... }`, which Drizzle
- * expands to every column of `pages` -- `content`, `searchContent`, the `ts` tsvector, `links`,
- * `historyData` and the generated `isSearchableComputed` included, none of which `toPage` reads
- * unconditionally. A real Postgres connection would only prove the query still returns the right
- * data, not that the column list sent to it actually shrank -- so this spies on `CARDINAL.db.select`
- * instead of standing up `setupTestDb()`, asserting directly on the selection object `getPage`
- * builds rather than re-describing it.
+ * A real Postgres connection would only prove the query returns the right data, not that the column
+ * list sent to it is narrow -- `content`, `searchContent`, the `ts` tsvector, `links` and
+ * `historyData` must stay out of an ordinary page read. So this spies on `CARDINAL.db.select` rather
+ * than standing up `setupTestDb()`, asserting on the selection object `getPage` builds.
  */
 describe('getPage selection (pure unit, OpenProject #1834)', () => {
   let wiki: { restore(): void }
 
-  /** A `CARDINAL.db.select`-shaped spy: records the selection config, then returns a chain ending in
-   *  `.limit()`, which resolves to `[row]` (or `[]` when `row` is omitted). */
+  /** Records the selection config; the chain ends at `.limit()`, resolving to `[row]` or `[]`. */
   function stubSelect(row?: Record<string, unknown>) {
     const calls: Record<string, unknown>[] = []
     const chain: any = {}
@@ -31,9 +27,8 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
     return { select, calls }
   }
 
-  /** A row shaped like what the real query returns post-narrowing -- one key per selected column,
-   *  `content` following the same CASE-in-SQL rule `getPage` builds (redirect editor only, unless
-   *  `withContent`). */
+  /** Shaped like the real query's row: `content` is null unless the editor is `redirect`, matching
+   *  the CASE expression `getPage` builds. */
   function fakeRow(overrides: Record<string, unknown> = {}) {
     return {
       id: 'page-1',
@@ -70,8 +65,8 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
     }
   }
 
-  // -> Rebuilt per test rather than per file: each test installs its own `db.select` spy over the
-  //    stub, and one test's recorded calls must not be visible to the next.
+  // -> Rebuilt per test, not per file: each test installs its own `db.select` spy, and one test's
+  //    recorded calls must not be visible to the next.
   beforeEach(() => {
     wiki = installTestWiki()
   })
@@ -90,12 +85,12 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
     for (const excluded of ['searchContent', 'ts', 'historyData', 'links']) {
       assert.ok(!selectedKeys.includes(excluded), `selection should omit ${excluded}`)
     }
-    // -> Still selects everything toPage actually reads, plus password for the locked check.
+    // -> Everything `toPage` reads, plus `password` for the locked check.
     for (const included of ['render', 'toc', 'relations', 'tags', 'password', 'classification']) {
       assert.ok(selectedKeys.includes(included), `selection should include ${included}`)
     }
-    // -> Without withContent, `content` is a CASE expression (redirect editor only), not the raw
-    //    column -- an ordinary page view never asks the database for the full body.
+    // -> Without `withContent`, `content` is a CASE expression (redirect editor only), not the raw
+    //    column: an ordinary page view never asks the database for the full body.
     assert.notEqual(calls[0]!.content, pagesTable.content)
   })
 
@@ -118,7 +113,6 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
     const page = await pagesModel.getPage({ siteId: 'site-1', id: 'page-1', withContent: true })
 
     assert.equal(page?.content, '# Hello')
-    // -> With withContent on, the column is selected directly rather than through the redirect CASE.
     assert.equal((calls[0] as any).content, pagesTable.content)
   })
 

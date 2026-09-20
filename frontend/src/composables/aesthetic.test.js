@@ -2,12 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { useAesthetic } from './aesthetic.js'
 
-/**
- * Feature #2753 / Task #2766: `aesthetic.js` is `dark.js`'s sibling for the second, fully
- * independent theme axis. It brackets the `body--ledger`/`body--cobalt` flip with
- * `.theme-transition-suppress` on `<html>` for one frame the same way `dark.js` does for
- * `body--dark`/`body--light`.
- */
 afterEach(() => {
   document.body.classList.remove('body--ledger', 'body--cobalt')
   document.documentElement.classList.remove('theme-transition-suppress')

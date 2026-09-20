@@ -69,8 +69,6 @@ import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { normalizePagePath } from '@/helpers/pagePaths'
 
-// PROPS
-
 const props = defineProps({
   folderId: {
     type: String,
@@ -78,25 +76,15 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptTitle.value
 })
 
-// STORES
-
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   path: '',
@@ -105,12 +93,8 @@ const state = reactive({
   loading: false
 })
 
-// REFS
-
 const renameFolderForm = ref(null)
 const iptTitle = ref(null)
-
-// VALIDATION RULES
 
 const titleValidation = [
   (val) => val.length > 0 || t('fileman.folderTitleMissing'),
@@ -121,8 +105,6 @@ const pathValidation = [
   (val) => val.length > 0 || t('fileman.folderFileNameMissing'),
   (val) => /^[a-z0-9-]+$/.test(val) || t('fileman.folderFileNameInvalid')
 ]
-
-// WATCHERS
 
 watch(
   () => state.title,
@@ -135,8 +117,6 @@ watch(
     }
   }
 )
-
-// METHODS
 
 async function rename() {
   state.loading++
@@ -167,8 +147,6 @@ async function rename() {
   }
   state.loading--
 }
-
-// MOUNTED
 
 onMounted(async () => {
   state.loading++

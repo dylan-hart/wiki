@@ -4,13 +4,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #2777 ("Tags + Search + Graph: diff against Cobalt mockups, fix gaps"). Same rationale
- * as `TagsBrowse.cobalt.test.js`: a source-text scan, not a mounted-and-computed style, is the
- * established pattern for pinning a hand-edited `<style>` block's shape in this test environment.
- *
- * `Search.vue`'s card, sidebar, section headers and result rows all styled themselves with hardcoded
- * Ledger SCSS literals scoped only by bare .body--light/.body--dark -- never body.body--cobalt --
- * so the screen picked up no Cobalt color, radius or shadow at all. This suite pins the fix.
+ * A source-text scan rather than a mounted-and-computed style: pinning the shape of a hand-edited
+ * `<style>` block is what these Cobalt-diff suites do, here and in `TagsBrowse.cobalt.test.js`.
  */
 
 const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'Search.vue')
@@ -19,12 +14,11 @@ const source = readFileSync(SOURCE_PATH, 'utf-8')
 describe('Search.vue Cobalt diff (OpenProject #2777)', () => {
   it('introduces no hardcoded Ledger SCSS color literal in its style block', () => {
     const styleBlock = source.match(/<style>([\s\S]*)<\/style>/)[1]
-    // -> Strip comments first: several explain the fix by NAMING the literal they replaced
-    //    (`$primary`, `$accent-dark`, ...), which would otherwise read as the regression itself.
+    // -> Strip comments first: one naming the literal it replaced (`$primary`, `$accent-dark`, ...)
+    //    would otherwise read as the regression itself.
     const withoutComments = styleBlock.replace(/\/\*[\s\S]*?\*\//g, '')
-    // -> The page's own local layout constants (filters-collapse-max, plate-size, ...) are plain
-    //    px literals now (inlined, no longer Sass variables); only a Ledger theme literal is the
-    //    regression this guards against.
+    // -> Only a Ledger theme literal is the regression; the page's own layout constants are plain
+    //    px values, not Sass variables.
     expect(withoutComments).not.toMatch(
       /\$(hairline|surface|primary|slate|ink|tint(-alt)?|dark-\d|text-(body|secondary|caption|dark)(-dark)?|accent-(fill|strong|dark|text)|paper)\b/
     )
@@ -51,22 +45,9 @@ describe('Search.vue Cobalt diff (OpenProject #2777)', () => {
   })
 })
 
-/**
- * OpenProject #2984 ("Cobalt typography: search"). The empty-query prompt's own type role (italic
- * 400 14.5px/1.6 sans, per the role table's "Empty-query prompt" row) -- a size/line-height fix that
- * applies identically to both aesthetics, so it is a plain rule rather than one scoped under
- * `body.body--cobalt`, and its color still goes through the same `--color-text-secondary(-dark)`
- * pair every other secondary-tier row in this file already uses.
- */
 describe('Search.vue empty-query prompt type role (OpenProject #2984)', () => {
   const styleBlock = source.match(/<style>([\s\S]*)<\/style>/)[1]
 
-  /**
-   * OpenProject #3254 flattened this file's nesting, so `.layout-search-empty-prompt`'s size/
-   * line-height and its two theme-toggle color overrides are now three separate, flat top-level
-   * rules rather than one `&-empty-prompt { ... .body--light & { ... } ... }` block -- extracted the
-   * same brace-counting way, just once per rule instead of once for the whole nest.
-   */
   function extractRule(selector) {
     const start = styleBlock.indexOf(selector)
     expect(start).toBeGreaterThan(-1)

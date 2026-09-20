@@ -15,16 +15,8 @@ const tagActionResponse = {
   }
 }
 
-/**
- * Tag API Routes
- *
- * Tags are derived from the pages that carry them rather than stored on their own — see
- * `models/tags.ts` for why.
- */
+/** Tags are derived from the pages that carry them, not stored: see `models/tags.ts` for why. */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST TAGS
-   */
   app.get<{ Params: { siteId: string }; Querystring: { limit?: number } }>(
     '/sites/:siteId/tags',
     {
@@ -77,16 +69,11 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * POPULAR TAGS
-   *
-   * A static segment ('popular'), never a value `:tag` could take on its own — this sits alongside
-   * the PATCH/DELETE `:tag` routes below with no collision since neither of those is a GET.
-   */
+  // -> The static `popular` segment cannot collide with the `:tag` routes below: neither is a GET.
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/tags/popular',
     {
-      // -> No route-level `permissions`, for the same reason as LIST TAGS above: filtered per page.
+      // -> No route-level `permissions`, as for the listing above: filtered per page.
       schema: {
         summary: 'List the most active tags on a site',
         description:
@@ -121,14 +108,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * RENAME TAG (also how merge works — see `models/tags.ts#renameTag`)
-   */
   app.patch<{ Params: { siteId: string; tag: string }; Body: { newTag: string } }>(
     '/sites/:siteId/tags/:tag',
     {
-      // -> No route-level permissions: manage:pages is a page rule permission, checked per affected
-      //    page below rather than declared here.
+      // -> No route-level permissions: manage:pages is a page rule permission, checked per page.
       schema: {
         summary: 'Rename a tag across every page that carries it',
         description:
@@ -169,14 +152,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE TAG
-   */
   app.delete<{ Params: { siteId: string; tag: string } }>(
     '/sites/:siteId/tags/:tag',
     {
-      // -> No route-level permissions: manage:pages is a page rule permission, checked per affected
-      //    page below rather than declared here.
+      // -> No route-level permissions: manage:pages is a page rule permission, checked per page.
       schema: {
         summary: 'Remove a tag from every page that carries it',
         description:

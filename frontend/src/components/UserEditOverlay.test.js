@@ -13,12 +13,6 @@ import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * Regression coverage for task 432: the admin passkeys panel (list + per-row revoke) and a real
- * `invalidateTFA()` implementation (previously a `// TODO: invalidate user 2FA` stub that always
- * notified success with no API call at all and no error path).
- */
-
 const USER = {
   id: 'user-1',
   name: 'Jane Doe',
@@ -83,12 +77,6 @@ async function mountOverlay({ canManage = true } = {}) {
   return wrapper
 }
 
-/**
- * Regression test for `unassignGroup(id)`: it filtered `state.user.groups` with `gr.id === id`,
- * which KEEPS only the group being removed and drops every other one -- the exact opposite of the
- * button's action ("Unassign Group X" would leave the user in every group EXCEPT X once saved).
- * Correct behaviour is `gr.id !== id`, dropping only the targeted group.
- */
 async function mountWithUser(groups) {
   const router = await createTestRouter(['/:id?/:section?'], '/user-1/groups')
 
@@ -142,7 +130,7 @@ describe('UserEditOverlay admin passkeys panel', () => {
       .find((b) => b.attributes('aria-label') === 'common.actions.delete')
     await revokeBtn.trigger('click')
 
-    // -> confirm() only opens the dialog; the actual call happens once its onOk handler fires
+    // -> `confirm()` only opens the dialog; the call happens once its onOk handler fires.
     expect(API_CLIENT.delete).not.toHaveBeenCalled()
     await openDialogs[openDialogs.length - 1].handlers.ok[0]()
     await flushPromises()
@@ -187,8 +175,7 @@ describe('UserEditOverlay invalidateTFA', () => {
 
     API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
 
-    // -> Two buttons share this label in the auth section (change password, then invalidate 2FA);
-    //    the invalidate one is the second in document order.
+    // -> Two buttons share this label in the auth section: change password, then invalidate 2FA.
     const invalidateBtn = wrapper
       .findAll('button')
       .filter((b) => b.text() === 'common.actions.proceed')[1]
@@ -233,9 +220,7 @@ describe('UserEditOverlay unassignGroup', () => {
     const groupB = { id: 'group-b', name: 'Group B' }
     const wrapper = await mountWithUser([groupA, groupB])
 
-    // -> Target the group-row "unassign" button structurally (its `.acrylic-btn` class): the
-    //    aria-label is i18n-keyed text that doesn't resolve to anything meaningful under the empty
-    //    test message bundle.
+    // -> Found by class, not aria-label: under the empty test bundle the label is a raw i18n key.
     const removeButtons = wrapper.findAll('.acrylic-btn')
     expect(removeButtons).toHaveLength(2)
 
@@ -258,8 +243,7 @@ describe('UserEditOverlay unassignGroup', () => {
 
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
 
-    // -> Under the empty test i18n bundle, `t()` falls back to the raw message key rather than
-    //    resolved text ("common.actions.save" instead of "Save").
+    // -> Under the empty test bundle, `t()` falls back to the raw key rather than resolved text.
     const saveButton = wrapper
       .findAll('button')
       .find((b) => b.text().includes('common.actions.save'))
@@ -275,11 +259,6 @@ describe('UserEditOverlay unassignGroup', () => {
   })
 })
 
-/**
- * OpenProject #2440: picking a group to assign that is currently on an enabled strategy's
- * `mappableGroups` allow-list warns before the admin clicks "Assign Group" -- the group may be
- * silently reverted the next time that user logs in through the provider.
- */
 describe('UserEditOverlay groups tab: provider-sync warning', () => {
   async function mountGroupsTab({ syncWarnings }) {
     const router = await createTestRouter(['/:id?/:section?'], '/user-1/groups')
@@ -329,7 +308,6 @@ describe('UserEditOverlay groups tab: provider-sync warning', () => {
     return wrapper
   }
 
-  /** Opens the Groups tab's "group to add" picker and clicks the option matching `groupName`. */
   async function pickGroupToAdd(wrapper, groupName) {
     const control = wrapper.find('[role="combobox"]')
     await control.trigger('click')
@@ -373,10 +351,8 @@ describe('UserEditOverlay groups tab: provider-sync warning', () => {
       ]
     })
 
-    // -> Only group-editors is in the synced-groups response above; group-reviewers is already
-    //    assigned and is still offered by the picker (nothing filters an already-assigned group
-    //    out of it -- `assignGroup()` itself is what refuses a duplicate), so this exercises the
-    //    "no warning" path against a group that IS a real, selectable option.
+    // -> Reviewers is absent from the synced-groups response yet still offered by the picker
+    //    (nothing filters an already-assigned group out), so it is a real selectable option.
     await pickGroupToAdd(wrapper, 'Reviewers')
 
     expect(wrapper.text()).not.toContain('Synced from')
@@ -385,12 +361,6 @@ describe('UserEditOverlay groups tab: provider-sync warning', () => {
   })
 })
 
-/**
- * The operations panel's "Delete user" proceed button was wired to `async function deleteUser() {}`
- * -- a live, `canManage`-gated button that did nothing at all when clicked. It now opens the same
- * `UserDeleteDialog` the users list opens (`pages/AdminUsers.vue#deleteUser`), which owns the
- * confirmation, the optional content reassignment and the `DELETE /_api/users/:id` itself.
- */
 describe('UserEditOverlay operations panel delete user', () => {
   it('opens UserDeleteDialog for the user being edited', async () => {
     setActivePinia(createPinia())
@@ -423,8 +393,8 @@ describe('UserEditOverlay operations panel delete user', () => {
     })
     await flushPromises()
 
-    // -> Every other proceed button in this panel is `color="primary"`; the delete card's is the one
-    //    `WBtn` paints from `--color-negative` (an inline style, not a class -- see `WBtn.vue`).
+    // -> The delete card's is the one button `WBtn` paints from `--color-negative`, and it paints
+    //    colour as an inline style rather than a class.
     const deleteButton = wrapper
       .findAll('button')
       .find((b) => (b.attributes('style') ?? '').includes('--color-negative'))
@@ -447,14 +417,6 @@ describe('UserEditOverlay operations panel delete user', () => {
   })
 })
 
-/**
- * OpenProject #1755: the overview panel's created/updated/last-login dates and the passkeys panel's
- * creation date used a local `formattedDate()` hardcoded to the BROWSER's own timezone
- * (`Temporal.Instant.prototype.toLocaleString` called with an explicit `undefined` locale),
- * ignoring the user's stored
- * `timezone`/`dateFormat`/`timeFormat` preferences entirely. Converted to the shared
- * `helpers/datetime.js#humanizeDate`, which delegates to `userStore.formatDateTime`.
- */
 describe('UserEditOverlay dates honour the stored profile timezone (OpenProject #1755)', () => {
   async function mountOverviewWithTimezone(timezone) {
     API_CLIENT.get.mockImplementation((url) => {
@@ -501,18 +463,16 @@ describe('UserEditOverlay dates honour the stored profile timezone (OpenProject 
     wrapperUtc.unmount()
 
     const wrapperTokyo = await mountOverviewWithTimezone('Asia/Tokyo')
-    // -> Same instant, nine hours ahead -- proof the stored zone (not the sandbox's own) is honoured
+    // -> Same instant, nine hours ahead: the stored zone, not the sandbox's own.
     expect(wrapperTokyo.text()).toContain('2026-03-05 at 00:30')
     wrapperTokyo.unmount()
   })
 })
 
 /**
- * Feature #2608, Task #2642: the admin editor authors the two halves AND shows the derived display
- * name, so the "author it yourself" override the parent Feature grants is reachable from the UI.
- * All three go in the patch every save -- `models/users.ts#updateUser` is the sole owner of the
- * derive-unless-authored rule, and treats a `name` equal to what the halves derive to as "keep
- * deriving", so saving an untouched form does not silently author every account.
+ * All three name fields go in the patch every save: the server owns the derive-unless-authored
+ * rule, and reads a `name` equal to what the halves derive to as "keep deriving", so saving an
+ * untouched form authors nothing.
  */
 const NAMED_USER = {
   id: 'user-1',
@@ -596,11 +556,9 @@ describe('UserEditOverlay first/last/display name (Feature #2608)', () => {
   })
 
   /*
-    The half-edit case, and why `composables/displayName.js` exists. The server reads a submitted
-    `name` that differs from what the halves derive to as a deliberate override and marks the account
-    authored for good -- so an editor that left a stale display name in the patch while an
-    administrator corrected only the first name would silently, permanently freeze that user's
-    display name.
+    Why `composables/displayName.js` exists: the server treats a submitted `name` differing from the
+    derived one as a deliberate override and marks the account authored for good, so a stale display
+    name left in the patch would permanently freeze that user's name.
   */
   it('re-derives the display name as a half is edited, so the patch is never stale', async () => {
     const wrapper = await mountOverview()
@@ -651,13 +609,6 @@ describe('UserEditOverlay first/last/display name (Feature #2608)', () => {
     expect(wrapper.find('input[aria-label="Display Name"]').element.value).toBe('Countess Lovelace')
   })
 
-  /*
-    The two required name fields used to declare their rule inline as
-    `(val) => invalidCharsRegex.test(val) || ...`, reading a bare identifier that is actually a
-    `state` member -- so it resolved to `undefined` and the rule threw the moment it ran. No test
-    mounted the Overview tab, so it never surfaced. It is a named function now, and this is the
-    coverage that keeps it callable.
-  */
   it('validates the required name fields without throwing on the regex', async () => {
     const wrapper = await mountOverview()
 
@@ -675,8 +626,7 @@ describe('UserEditOverlay first/last/display name (Feature #2608)', () => {
     })
 
     expect(wrapper.find('input[aria-label="Last Name"]').element.value).toBe('')
-    // -> The last-name rule is the one that tolerates emptiness; the first name and display name
-    //    keep refusing it, which is why they are not asserted here.
+    // -> Only the last-name rule tolerates emptiness; the other two still refuse it.
     expect(wrapper.vm.optionalNameRule('')).toBe(true)
     expect(wrapper.vm.optionalNameRule('Doe')).toBe(true)
     expect(wrapper.vm.optionalNameRule('<script>')).not.toBe(true)
@@ -693,11 +643,6 @@ describe('UserEditOverlay first/last/display name (Feature #2608)', () => {
   })
 })
 
-/**
- * WP #2770: the Appearance row grows a second, sibling `w-btn-toggle` for the aesthetic setting
- * (`site | ledger | cobalt`), aesthetic first -- mirroring exactly how `prefs.appearance` already
- * behaves in this overlay (whole-`prefs`-object save, no separate init required).
- */
 describe('UserEditOverlay aesthetic toggle (WP #2770)', () => {
   it('shows the aesthetic toggle beside the appearance toggle', async () => {
     const wrapper = await mountOverview()
@@ -724,12 +669,6 @@ describe('UserEditOverlay aesthetic toggle (WP #2770)', () => {
     })
   })
 
-  /*
-    OpenProject #3052: WP #2770 put the aesthetic toggle beside the appearance one in one shared
-    "Site Appearance" row/label -- the same visual-combination bug ProfileInfo.vue had. Each now gets
-    its own row with its own label and hint, so the two toggles must resolve to two distinct
-    `.w-item` ancestors, not a shared one.
-  */
   it('gives the aesthetic and light/dark toggles separate rows, each with its own label', async () => {
     const wrapper = await mountOverview()
 
@@ -751,18 +690,11 @@ describe('UserEditOverlay aesthetic toggle (WP #2770)', () => {
   })
 })
 
-/**
- * OpenProject #2810: this overlay mirrors `ProfileInfo.vue`'s Preferences card exactly (WP #2770's
- * own framing), so it shares that screen's never-diffed gap against
- * `ui-redesign-cobalt/Cardinal Wiki - Profile 3x - Cobalt.dc.html`. Same fix, same reason: the
- * mockup's selected-segment fill is the ACCENT role (`ui-redesign-cobalt/HANDOFF.md`'s chrome
- * table), not primary.
- */
 describe('UserEditOverlay settings-row toggles against the Cobalt mockup (OpenProject #2810)', () => {
   it('fills every settings-row toggle selection from the segment-selected role', async () => {
-    // -> Each `w-btn-toggle` here binds `state.user.prefs.<x>` directly with no template-side
-    //    default, so an empty `prefs` (as `fetchUser()` REPLACES `state.user` wholesale) leaves
-    //    every segment unchecked. Set one of each toggle's own valid values explicitly.
+    // -> Each `w-btn-toggle` binds `state.user.prefs.<x>` with no template-side default, and
+    //    `fetchUser()` replaces `state.user` wholesale, so an empty `prefs` leaves every segment
+    //    unchecked. Hence an explicit value per toggle.
     const wrapper = await mountOverview({
       ...NAMED_USER,
       prefs: { timeFormat: '12h', aesthetic: 'site', appearance: 'site', cvd: 'none' }
@@ -780,11 +712,9 @@ describe('UserEditOverlay settings-row toggles against the Cobalt mockup (OpenPr
       expect(toggle.exists()).toBe(true)
       const selected = toggle.find('[aria-checked="true"]')
       /*
-        `--color-segment-selected`, not `--color-accent` directly: the mockup's ask is "the accent
-        under Cobalt", and the two aesthetics answer it differently -- Ledger fills a selected
-        segment with the site's primary (what `WBtnToggle` has always drawn, and what its own
-        Aesthetic Setting card shows), Cobalt with the accent. The token carries both, so no caller
-        names a tone; `css/cobaltTokens.test.js` pins the two values.
+        `--color-segment-selected`, not `--color-accent`: a selected segment fills with the site's
+        primary under Ledger and with the accent under Cobalt, and the token carries both, so no
+        caller names a tone.
       */
       expect(selected.attributes('style')).toContain(
         'background-color: var(--color-segment-selected)'

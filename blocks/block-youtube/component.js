@@ -1,24 +1,19 @@
 import { I18n } from '../shared/i18n.js'
 import { VideoEmbedElement } from '../shared/video-embed.js'
 
-/** Every YouTube host a link can arrive on, including the one their own privacy mode hands out. */
 const HOSTS = /^(?:www\.|m\.)?youtube(?:-nocookie)?\.com$/
 
-/** The paths that carry the id in them, rather than in `?v=`. */
 const ID_PATHS = /^\/(?:embed|shorts|live|v)\/([^/?#]+)/
 
-/** What a video id is made of. Length is not checked: that is YouTube's to change, not ours. */
+/** Length is deliberately not checked: that is YouTube's to change, not ours. */
 const ID = /^[A-Za-z0-9_-]+$/
 
-/** A timestamp as YouTube writes it in a share link: `90`, `1m30s`, `1h2m3s`. */
+/** A timestamp as YouTube writes it in a share link: `1m30s`, `1h2m3s`. */
 const TIMESTAMP = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/
 
 /**
- * The video a link points at, or null for a link that points at no video.
- *
- * Every shape YouTube hands out: `watch?v=`, `youtu.be/`, `/embed/`, `/shorts/`, `/live/`. A bare id
- * is taken as one too — it is what an author who copied the id rather than the link will paste, and
- * there is nothing else an eleven-character word could be meant as here.
+ * A bare id is taken as a video too — it is what an author who copied the id rather than the link
+ * will paste, and there is nothing else an eleven-character word could be meant as here.
  */
 function videoId(source) {
   const value = source.trim()
@@ -46,10 +41,8 @@ function videoId(source) {
 }
 
 /**
- * Where in the video a link says to start, in seconds. 0 for one that does not say.
- *
- * `t` is what the "copy link at current time" button adds, and it arrives either as a plain count of
- * seconds or as `1m30s`. `start` is the same thing spelled the way the embed parameter is.
+ * `t` is what YouTube's "copy link at current time" button adds, either as a plain count of seconds
+ * or as `1m30s`; `start` is the same thing spelled the way the embed parameter is.
  */
 function linkStart(source) {
   const url = URL.parse(source.trim()) ?? URL.parse(`https://${source.trim()}`)
@@ -64,18 +57,10 @@ function linkStart(source) {
   return Number(parts[1] ?? 0) * 3600 + Number(parts[2] ?? 0) * 60 + Number(parts[3] ?? 0)
 }
 
-/**
- * Block YouTube
- *
- * A YouTube player, from the address of a video. Nothing is fetched until the frame is scrolled near,
- * and the frame is the only thing here: the player, its controls and everything it does are YouTube's,
- * driven by the parameters below.
- */
 export class BlockYoutubeElement extends VideoEmbedElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'youtube',
@@ -141,17 +126,12 @@ export class BlockYoutubeElement extends VideoEmbedElement {
   }
 
   static properties = {
-    /**
-     * Seconds into the video to start at
-     * @type {number}
-     */
     start: { type: Number }
   }
 
   constructor() {
     super()
     this.start = 0
-    // -> Resolves the two messages below against the page's locale; see `../shared/i18n.js`
     this._i18n = new I18n(this)
   }
 
@@ -174,9 +154,7 @@ export class BlockYoutubeElement extends VideoEmbedElement {
   }
 
   /**
-   * The address of the player, with what it was asked for.
-   *
-   * Only the parameters that were actually changed: an option left out is YouTube's own default,
+   * Only the parameters actually changed are sent: an option left out is YouTube's own default,
    * which is the one that goes on being maintained.
    */
   _embedUrl(id) {
@@ -184,9 +162,9 @@ export class BlockYoutubeElement extends VideoEmbedElement {
     if (this.autoplay) {
       params.set('autoplay', '1')
       /*
-        -> Muted, because that is the only way it plays. Every browser refuses to start a video with
-           sound before the reader has interacted with the page, and refuses silently: the player
-           simply sits there, which reads as a block that is broken rather than one being overruled.
+        -> Muted, because that is the only way it plays: browsers refuse to start a video with sound
+           before the reader has interacted with the page, and refuse silently -- the player just
+           sits there, reading as a broken block rather than an overruled one.
       */
       params.set('mute', '1')
     }

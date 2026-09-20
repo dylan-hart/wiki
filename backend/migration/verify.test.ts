@@ -81,8 +81,6 @@ describe('countSourceEntities', () => {
   })
 })
 
-/** Whole-branch review Critical #2: the two counts `VERIFY_ENTITIES`/`countSourceEntities()` don't
- * cover — see `PhaseOnlySourceCounts`'s own doc comment in `verify.ts`. */
 describe('countPhaseOnlySourceCounts', () => {
   test('reports not_implemented for both counts against the current connector stubs', async () => {
     const counts = await countPhaseOnlySourceCounts(stubSourceConnector())
@@ -163,8 +161,7 @@ describe('createDestinationCounter.tags', { skip: !hasTestDatabase() }, () => {
     await teardownTestDb()
   })
 
-  /** Minimal `.values()` object satisfying every NOT NULL column on `pages`, same shape
-   * `models/pages.test.ts`'s `rawPageRow` uses for a raw insert. */
+  /** Every NOT NULL column on `pages`, so the row can be inserted without going through the model. */
   function rawPageRow(overrides: { path: string; tags: string[] }) {
     return {
       siteId: fixtures.siteId,
@@ -266,8 +263,6 @@ describe('compareEntityCounts', () => {
   })
 
   test('groups: source reporting two system groups against a destination seeded with three matches', () => {
-    // 2.x skips two isSystem source groups (Administrators, Guests); 3.0 seeds three
-    // (Administrators, Users, Guests) — see task 1813 / EXPECTED_COUNT_DELTA's doc comment.
     const results = compareEntityCounts(
       { users: 0, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
       { users: 0, groups: 3, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 }
@@ -317,8 +312,8 @@ describe('compareAgainstDryRunReports', () => {
     return { phase, found, wouldCreate: found, wouldSkipExisting: 0, conflicts: [], unmappable: [] }
   }
 
-  // -> No memberships/comments in play for these tests — they exercise the pages/pageHistory/tags/
-  //    users/groups arithmetic these already covered before Critical #2's fix, unaffected by it.
+  // -> For the tests below, which exercise the entity arithmetic alone; memberships and comments
+  //    have their own cases further down.
   const ZERO_PHASE_ONLY: PhaseOnlySourceCounts = { userGroups: 0, comments: 0 }
 
   test('matches when the live sum for a phase equals the captured report', () => {
@@ -373,11 +368,8 @@ describe('compareAgainstDryRunReports', () => {
   })
 
   test('sums only pages (not pageHistory/tags) plus the site-navigation sentinel for the content phase, matching PhaseReport.found granularity post-Task-13', () => {
-    // -> Task 13's content-staging rewrite folded pageHistory/tags into the `pages` entity and added a
-    //    one-record `site-navigation` sentinel (see verify.ts's ENTITY_OWNING_PHASE and
-    //    PHASE_FOUND_SENTINEL_OFFSET doc comments) — so a real `content` PhaseReport.found is
-    //    `pagesFound + 1`, not `pages + pageHistory + tags`. pageHistory/tags carry large,
-    //    unrelated-scale live counts here specifically to prove they're no longer summed in.
+    // -> pageHistory/tags carry deliberately large, unrelated-scale counts to prove neither is
+    //    summed into the content phase's `liveFound`.
     const results = compareAgainstDryRunReports(
       { users: 0, groups: 0, pages: 4, pageHistory: 700, tags: 100, assets: 0, navigation: 0 },
       ZERO_PHASE_ONLY,
@@ -428,12 +420,6 @@ describe('compareAgainstDryRunReports', () => {
     assert.deepEqual(phases, ['assets', 'content', 'users'])
   })
 
-  /**
-   * Whole-branch review Critical #2, the `users` phase half: `PhaseReport.found` for `users` is
-   * `groups + users + userGroups` (a third `userGroups` entity was added after the entity-owning-phase
-   * table was written), but before this fix `liveFound` only summed `sourceCounts.users +
-   * sourceCounts.groups` — mismatching whenever any user belongs to any group.
-   */
   test('folds userGroups (the users phase third entity) into liveFound — Critical #2', () => {
     const results = compareAgainstDryRunReports(
       { users: 3, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
@@ -443,16 +429,8 @@ describe('compareAgainstDryRunReports', () => {
     const users = results.find((r) => r.phase === 'users')!
     assert.equal(users.liveFound, 9)
     assert.equal(users.status, 'match')
-    // -> Without the fix, liveFound would have been 5 (users+groups only), reporting a spurious
-    //    mismatch against a real found of 9.
   })
 
-  /**
-   * Whole-branch review Critical #2, the `assets` phase half: `PhaseReport.found` for `assets` is
-   * `assets + comments` (a `comments` entity was added, but `comments` was never added to
-   * `VERIFY_ENTITIES`), so before this fix `liveFound` only counted `sourceCounts.assets` —
-   * mismatching whenever the source has any comments.
-   */
   test('folds comments (the assets phase second entity) into liveFound — Critical #2', () => {
     const results = compareAgainstDryRunReports(
       { users: 0, groups: 0, pages: 0, pageHistory: 0, tags: 0, assets: 1, navigation: 0 },
@@ -488,14 +466,10 @@ describe('compareAgainstDryRunReports', () => {
 })
 
 /**
- * The class of bug that let Critical #2 through in the first place: the tests above hand-feed
- * synthetic `found`/count numbers that already assume the correct arithmetic, which passes whether or
- * not `verify.ts` actually matches what the real phases report. This suite instead runs the REAL
- * `usersPhase`/`assetsPhase` (`dryRun: true`, so no live `CARDINAL`/db needed — `createDryRunWriter()`/each
- * phase's own placeholder-id branch handles it) against a fixture connector, and asserts
- * `compareAgainstDryRunReports` reports `'match'` against the resulting REAL `PhaseReport`s — so a
- * future entity added to either phase without a matching `verify.ts` update fails this suite instead of
- * silently passing the way the stale two-entity-shape tests did.
+ * The tests above hand-feed synthetic counts that already assume the correct arithmetic, so they
+ * pass whether or not `verify.ts` still agrees with what the real phases report. These run the real
+ * `usersPhase`/`assetsPhase` instead, so an entity added to either phase without a matching
+ * `verify.ts` update fails here. `dryRun: true` is what lets `db` be a bare `{}`: nothing writes.
  */
 describe('compareAgainstDryRunReports derived from the real phases (regression coverage for Critical #2)', () => {
   test('users phase: groups + users + userGroups matches liveFound derived from the same source', async () => {
@@ -728,8 +702,6 @@ describe('runContentSpotCheck', () => {
   })
 
   test('assets() being not_implemented does not affect a pages-only spot-check', async () => {
-    // Defends against a spot-check that accidentally reads through more of SourceConnector than
-    // pages() alone.
     async function* pages(): AsyncGenerator<SourceRecord> {
       yield { id: 1, path: 'en/home', localeCode: 'en', content: 'x' }
     }
@@ -743,10 +715,9 @@ describe('runContentSpotCheck', () => {
   })
 
   test('normalizes an uppercase/underscored 2.x source path before the destination lookup', async () => {
-    // The source path is exactly what a real 2.x row would carry -- uppercase segments and an
-    // underscore -- while the destination is keyed the way `page-import.ts`/`normalizeMigratedPath`
-    // actually wrote it on import: lowercased, underscores folded to hyphens. An unnormalized lookup
-    // would miss this row entirely and report `destination_missing`.
+    // The fixture's two sides are deliberately spelled differently: the source path as a real 2.x
+    // row carries it, the destination keyed as `normalizeMigratedPath` wrote it on import. An
+    // unnormalized lookup misses this row entirely and reports `destination_missing`.
     async function* pages(): AsyncGenerator<SourceRecord> {
       yield { id: 1, path: 'Guide/Getting_Started', localeCode: 'en', content: '# intro' }
     }
@@ -757,7 +728,7 @@ describe('runContentSpotCheck', () => {
       { siteId: 'site-1', paths: ['Guide/Getting_Started'] }
     )
     assert.equal(results.length, 1)
-    assert.equal(results[0].path, 'Guide/Getting_Started') // reported path stays the raw source path
+    assert.equal(results[0].path, 'Guide/Getting_Started')
     assert.equal(results[0].status, 'match')
   })
 

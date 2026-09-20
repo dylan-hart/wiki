@@ -7,18 +7,15 @@ import { describe, expect, it } from 'vitest'
 import { tokenValue } from '../../test/tokens.js'
 
 /*
-  OpenProject #3040: the Cobalt reading rail's card "border" is a `box-shadow` ring
-  (`--shadow-card`, painted OUTSIDE the box), not a real `border` -- and `.page-actions` carries an
-  unconditional `overflow-y: auto` a few rules below this one, which per spec forces `overflow-x` to
-  compute to `auto` too. That means a child can never cover an outer ring by overhanging the box (it
-  gets clipped there, confirmed by screenshotting an isolated repro in real Chromium before landing
-  this fix) -- the rail has to draw its own ring INSET instead, so the page-properties plate, flush
-  with the box's own edges, covers it in ordinary z-order with no overflow or negative-margin tricks.
+  The Cobalt rail's card "border" is a `box-shadow` ring painted OUTSIDE the box, and
+  `.page-actions` carries an unconditional `overflow-y: auto`, which per spec forces `overflow-x` to
+  compute to `auto` too -- so a child can never cover an outer ring by overhanging the box; it is
+  clipped instead. The ring has to be drawn INSET, letting the page-properties plate cover it flush
+  in ordinary z-order with no overflow or negative-margin tricks.
 
   Same reason as `PageActionsCol.cobaltIcons.test.js` for reading the SFC's own `<style>` block
-  directly rather than mounting it: neither `jsdom` nor `happy-dom` installs the Cobalt half of the
-  token layer, so a mount-based assertion would read Ledger's values regardless of the
-  `body--cobalt` class on the fixture.
+  rather than mounting it: neither `jsdom` nor `happy-dom` installs the Cobalt half of the token
+  layer, so a mount-based assertion would read Ledger's values regardless of the fixture's class.
 */
 
 const componentsDir = dirname(fileURLToPath(import.meta.url))
@@ -63,8 +60,8 @@ describe('the Cobalt reading rail plate caps the card border, not just its width
       'box-shadow': `inset 0 0 0 1px ${hairline}`
     })
 
-    // -> Never the shared, plain-outer-ring token every other floating Cobalt card still draws --
-    //    flipping that token itself would change every other card's edge too.
+    // -> Never the shared outer-ring token every other floating Cobalt card draws: flipping that
+    //    token itself would change every other card's edge too.
     expect(declarations(css, 'body.body--cobalt .page-actions:not(.is-editor)')).not.toMatchObject({
       'box-shadow': 'var(--shadow-card)'
     })

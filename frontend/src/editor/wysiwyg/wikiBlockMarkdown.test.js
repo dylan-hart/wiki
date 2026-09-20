@@ -23,12 +23,9 @@ function renderHtml(markdown) {
 }
 
 /**
- * Round-trips `markdown` through a real WYSIWYG editor (markdown in -> Tiptap JSON -> markdown out)
- * and checks the result renders identically to the source, through the same `MarkdownRenderer` the
- * read view and the plain-text editor's own preview both use -- the acceptance bar OpenProject #3396
- * itself states ("survive markdown -> editor -> markdown with a render-equal result"), not byte-for-
- * byte markdown equality, which the node is free to reformat (attribute quoting, colon-fence length)
- * as long as what a reader is shown does not change.
+ * Render-equal, not byte-equal: the node is free to reformat attribute quoting and colon-fence
+ * length, so the bar is that the same `MarkdownRenderer` the read view uses shows the reader the
+ * same thing, not that the markdown comes back unchanged.
  */
 function expectRenderEqualRoundTrip(markdown) {
   const editor = createEditor(markdown)
@@ -39,17 +36,12 @@ function expectRenderEqualRoundTrip(markdown) {
 }
 
 /**
- * `block-gallery`'s own template body is bare image URLs, one per line, exactly the shape a bare
- * URL takes anywhere else in this app's markdown -- and the `Markdown`/`Link` extension pair
- * `EditorWysiwyg.vue` already registers autolinks a bare URL into a real `link` mark on parse
- * (`marked`'s own GFM autolinking, upstream of anything this node's tokenizer does or could
- * change), which then serialises back out as `[url](url)` instead of the bare `url` the source
- * wrote. Confirmed as a generic, pre-existing gap in the `@tiptap/markdown` integration and not a
- * wikiBlock defect: a bare URL sitting in a plain top-level paragraph, no block involved at all,
- * round-trips through the very same `Markdown` extension into `[url](url)` too. Out of this WP's
- * scope (it belongs to the markdown-storage Task these nodes are built on, #3395) -- tracked here
- * rather than silently masked, with its own weaker-but-real check below in place of the strict
- * byte-equal one every other fixture gets.
+ * `block-gallery`'s template body is bare image URLs, and the `Markdown`/`Link` extension pair
+ * autolinks a bare URL into a real `link` mark on parse (`marked`'s GFM autolinking, upstream of
+ * anything this node's tokenizer could change), which serialises back out as `[url](url)`. A
+ * generic gap in the `@tiptap/markdown` integration rather than a wikiBlock defect -- a bare URL in
+ * a plain paragraph round-trips the same way -- so it gets the weaker check below instead of being
+ * masked.
  */
 const KNOWN_AUTOLINK_GAPS = new Set(['block-gallery'])
 

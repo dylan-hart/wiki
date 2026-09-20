@@ -4,12 +4,9 @@ import { buildOidcConfig, OidcPreset } from './preset.ts'
 import OidcAuthentication from './authentication.ts'
 
 /**
- * Covers the composition pattern from Task 437: a branded preset must not re-hardcode
- * `client.discovery`/`buildAuthorizationUrl`/`authorizationCodeGrant` the way
- * `google/authentication.ts` does. `buildOidcConfig` is asserted directly (pure, no network); the
- * delegation itself is asserted by replacing `OidcAuthentication.prototype` methods with mocks and
- * checking `OidcPreset` forwards to the exact same instance it built from that merge — never touching
- * `openid-client` or the network.
+ * Delegation is asserted by mocking `OidcAuthentication.prototype` and checking `OidcPreset`
+ * forwards to the instance it built from the merge, so nothing here reaches `openid-client` or the
+ * network.
  */
 
 describe('buildOidcConfig', () => {
@@ -28,7 +25,6 @@ describe('buildOidcConfig', () => {
     )
     assert.equal(config.scopes, 'openid email')
     assert.equal(config.emailClaim, 'mail')
-    // -> Not fixed by this template, so the admin config's own value survives
     assert.equal(config.displayNameClaim, 'name')
   })
 
@@ -74,13 +70,6 @@ describe('buildOidcConfig', () => {
     assert.equal(config.emailClaim, undefined)
   })
 
-  /**
-   * No `OidcPresetTemplate` field fixes group-claim mapping — it is always an admin choice — so
-   * `mapGroups`/`groupsClaim`/`groupsScope` pass through untouched for every branded preset (Auth0,
-   * Okta, Microsoft, Keycloak, GitLab, Twitch, Slack all build on this same merge). This is the single
-   * point that guarantees the mapping behaves identically across all of them: see OpenProject #826,
-   * and `oidc/authentication.test.ts`'s `mapOidcProfile` suite for the mapping logic itself.
-   */
   test('mapGroups/groupsClaim/groupsScope are never fixed by a template — every preset gets whatever the admin configured', () => {
     const config = buildOidcConfig(
       { issuer: () => 'https://issuer.example' },
@@ -152,7 +141,6 @@ describe('OidcPreset', () => {
       { domain: 'something.auth0.com', clientId: 'abc', clientSecret: 'xyz' },
       { issuer: (c) => `https://${c.domain}/`, scopes: 'openid profile email' }
     )
-    // -> `inner` is private at the type level but this asserts the real runtime shape
     const inner = (preset as unknown as { inner: OidcAuthentication }).inner
     assert.ok(inner instanceof OidcAuthentication)
     assert.equal(inner.conf.issuer, 'https://something.auth0.com/')

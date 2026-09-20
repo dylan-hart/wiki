@@ -18,11 +18,6 @@ function mountBadge(props) {
   })
 }
 
-/**
- * OpenProject #3223: the semantic-mode similarity match badge. `distance` (cosine distance, smaller
- * = closer) is the only input, converted client-side to a percentage-style "N% match" label per the
- * work package's resolved scope.
- */
 describe('SearchResultSimilarityBadge', () => {
   it('draws the badge with a rounded percentage label for a typical distance', () => {
     const wrapper = mountBadge({ distance: 0.13 })
@@ -87,11 +82,6 @@ describe('SearchResultSimilarityBadge', () => {
     expect(wrapper.text().trim().length).toBeGreaterThan(0)
   })
 
-  /*
-    OpenProject #3293: it used to render as a `w-chip` with an icon and a hairline-pill border, sized
-    for sitting on the title line. Now it lives in the meta column as plain text, styled by that
-    column's own CSS rather than carrying any of its own.
-  */
   it('renders as plain text, not a w-chip with an icon', () => {
     const wrapper = mountBadge({ distance: 0.13 })
 

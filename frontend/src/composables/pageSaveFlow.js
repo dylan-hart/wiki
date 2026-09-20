@@ -13,21 +13,13 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
 /**
- * The header's save/discard/conflict/undo cluster: everything behind its Save Changes and Discard
- * buttons, plus the resolution dialog a 409 puts up and the undo that follows a discard.
- *
- * Split out of `PageHeader.vue` because none of it is about the header -- the header is where the
- * buttons happen to live, and the flow itself is entirely store, dialog and router work. What it
- * does need from the header is the two answers only the header has: whether this edit is a
- * suggestion, and whether the page's pending assets could be committed first.
- *
- * The save-conflict watch is registered here, synchronously during setup, so it is bound to the
- * calling component's effect scope exactly as it was when it lived in the header.
+ * Call synchronously during setup: the save-conflict watch registered below binds to the calling
+ * component's effect scope.
  *
  * @param {object} opts
- * @param {{value: boolean}} opts.isSuggesting Whether the open editor is in `suggest` mode.
- * @param {() => Promise<boolean>} opts.processPendingAssets Commits any pending asset renames,
- *   answering false when the save must not go ahead.
+ * @param {{value: boolean}} opts.isSuggesting
+ * @param {() => Promise<boolean>} opts.processPendingAssets Answers false when the save must not go
+ *   ahead.
  */
 export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
   const editorStore = useEditorStore()
@@ -41,19 +33,16 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
 
   async function discardChanges() {
     /*
-      Abandoning a page that is being written, which is a different thing from reverting an edit: there
-      is nothing stored to go back to, so the editor closes and the reader is put back on the site.
-
-      `isActive` is part of the test, not just the mode. This button also appears with no editor open at
-      all -- the properties panel writes straight to the page store, and this is how those changes are
-      dropped -- and that is an edit to a page that exists, however the editor was last used.
+      A page being written has nothing stored to go back to, so the editor closes and the reader is
+      put back on the site. `isActive` is part of the test, not just the mode: this button also
+      appears with no editor open at all -- the properties panel writes straight to the page store --
+      and that is an edit to a page that exists.
     */
     if (editorStore.isActive && editorStore.mode === 'create') {
       /*
-        Timestamps equalized here too, not just `isActive` (OpenProject #1129 follow-on): App.vue's
-        navigation guards gate on `hasPendingChanges` alone, so leaving them unequal would have the
-        `router.replace` below -- a real navigation -- immediately re-trigger a confirm prompt for the
-        discard the reader just clicked through.
+        Timestamps equalized too, not just `isActive`: App.vue's navigation guards gate on
+        `hasPendingChanges` alone, so leaving them unequal makes the `router.replace` below re-prompt
+        for the discard the reader just confirmed.
       */
       const discardedAt = Temporal.Now.instant()
       editorStore.$patch({
@@ -62,16 +51,13 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         lastSaveTimestamp: discardedAt,
         lastChangeTimestamp: discardedAt,
         /*
-          OpenProject #3317: this create session is the one that set `originPageId` (or inherited it
-          from an outer one, per `pageCreate()`'s own "don't replace if already in edit mode" rule) --
-          either way, it is the outermost create session ending here, so nothing downstream should
-          still read it. Left set, a later, unrelated edit-mode discard's `cancelPageEdit()` would load
-          THIS stale origin page instead of the page actually being edited.
+          The outermost create session ends here, so nothing downstream should still read this. Left
+          set, a later unrelated edit-mode discard's `cancelPageEdit()` would load THIS stale origin
+          page instead of the page actually being edited.
         */
         originPageId: ''
       })
 
-      // Is it the home page in create mode?
       if (
         (pageStore.path === '' || pageStore.path === 'home') &&
         pageStore.locale === siteStore.locales.primary
@@ -91,13 +77,10 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
     loading.show()
     try {
       /*
-        OpenProject #2898: the collab room behind every open editor autosaves a recoverable draft
-        whenever its last participant leaves (`core/collab.ts#closeRoomIfEmpty`), with no way for the
-        backend to tell "clicked Cancel" apart from a crash or a plain navigation-away. An explicit
-        Cancel/Discard is an explicit "no, don't keep this" -- the same signal declining the later
-        restore prompt already sends (`composables/collab.js`'s own `.onCancel`) -- so it clears the
-        draft here too, best-effort: a failed delete just means the same draft gets offered again next
-        time this page is opened, not a reason to block the discard the reader already asked for.
+        The collab room behind an open editor autosaves a recoverable draft whenever its last
+        participant leaves (`core/collab.ts#closeRoomIfEmpty`), with no way for the backend to tell
+        "clicked Cancel" apart from a crash or a navigation-away. Best-effort: a failed delete only
+        means the same draft is offered again next time, not a reason to block the discard.
       */
       try {
         await API_CLIENT.delete(`sites/${siteStore.id}/pages/${pageStore.id}/draft`)
@@ -106,15 +89,15 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
       }
 
       /*
-        The page is put back, and only then does the editor close. The other order draws the page view
-        for a moment at the route the editor was on, which a redirection reads as "nobody is holding
-        me" and acts on -- taking the author to its target instead of back to the page they discarded.
+        Order is load-bearing: closing the editor first draws the page view for a moment at the
+        editor's route, and a redirection acts on that -- taking the author to its target instead of
+        back to the page they discarded.
       */
       await pageStore.cancelPageEdit()
       editorStore.$patch({
         isActive: false,
         editor: '',
-        // -> Back to the ordinary meaning of the editor, or the next thing opened would inherit this one
+        // -> Reset, or the next editor opened inherits this one's mode
         mode: 'edit'
       })
       if (hadPendingChanges) {
@@ -127,15 +110,12 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         })
       }
     } catch (err) {
-      // -> The editor closes either way: the reader asked to leave it, and a page that would not
-      //    reload is not a reason to keep them in it
+      // -> The editor closes either way: a page that would not reload is no reason to keep the
+      //    reader in it
       editorStore.$patch({
         isActive: false,
         editor: '',
         mode: 'edit',
-        // -> OpenProject #3317: same reasoning as the create-mode branch above -- the editor is
-        //    closing regardless of what caused the failure, so any stale create-session origin it
-        //    was still carrying must not survive to be picked up by a later, unrelated session
         originPageId: ''
       })
       notify({
@@ -176,11 +156,9 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         message: t('common.page.saveSuccess')
       })
       /*
-        OpenProject #1080: raising this page's own classification does not cascade to its
-        descendants -- some may now sit below the new floor. Rather than leaving that silent, the
-        resolution dialog lists them for an admin to bump explicitly. Shown after the success
-        notification rather than instead of it: the save itself succeeded regardless of what this
-        surfaces.
+        Raising this page's classification does not cascade to its descendants -- some may now sit
+        below the new floor -- so the dialog lists them for an admin to bump explicitly. After the
+        success toast rather than instead of it: the save itself succeeded.
       */
       if (result?.classificationConflicts?.length > 0) {
         dialog({
@@ -195,13 +173,11 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
       }
       if (closeAfter) {
         /*
-          The editor closes onto the page, and for a redirection that page would take the author
-          straight to the target they just chose. `editorExitPath` holds it instead — a change of query
-          on the route already showing, so nothing is loaded again. Every other page is left alone,
-          down to the fragment it was opened at.
-
-          Before the editor closes, and awaited: the page view drawn at the editor's route would read
-          the query as it stands and follow the redirection out from under this.
+          A redirection would take the author straight to its target the moment the editor closes, so
+          `editorExitPath` parks them on a query change to the route already showing -- nothing is
+          loaded again, and every other page is left alone down to its fragment. Awaited before the
+          editor closes, or the page view drawn at the editor's route follows the redirection out
+          from under this.
         */
         if (pageStore.editor === 'redirect' && route.fullPath !== pageStore.editorExitPath) {
           await router.replace(pageStore.editorExitPath)
@@ -212,9 +188,8 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         })
       }
     } catch (err) {
-      // -> A 409 already means `resolveSaveConflict()` below is putting the resolution dialog up (via
-      //    the `saveConflict` watch) -- a generic toast on top of it would be redundant noise for
-      //    something that is not a dead end. Anything else genuinely failed and is reported as before.
+      // -> A 409 has already put the resolution dialog up via the `saveConflict` watch; a generic
+      //    failure toast on top of it would be noise for something that is not a dead end.
       if (err.message !== 'ERR_SAVE_CONFLICT') {
         notify({
           type: 'negative',
@@ -227,34 +202,15 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
   }
 
   /**
-   * Puts up the resolution dialog once `pageStore.pageSave()` has flagged a save the server refused
-   * because somebody else saved first (`editorStore.saveConflict`, the page snapshot the 409 came back
-   * with -- see `stores/page.js`). Lives here rather than in any one `Editor*.vue`: every editor's Save
-   * button already routes through `saveChangesCommit()` above, so this is what makes the dialog
-   * reachable from all of them instead of only whichever editor happened to watch for it (OpenProject
-   * #1747 hoisted this out of `EditorMarkdown.vue`, which had it first only because Markdown was the
-   * first editor built, not because a conflict is a Markdown-specific concern).
+   * Lives here rather than in any one `Editor*.vue` because every editor's Save routes through
+   * `saveChangesCommit()` above, so one registration serves all of them.
    *
-   * Offers two ways out: adopt the server's version wholesale, or re-issue the save with the server's
-   * `updatedAt` as the new baseline -- an informed overwrite, now that this author has been told there
-   * was something to overwrite, rather than the blind one `expectedUpdatedAt` exists to prevent. Either
-   * choice recovers this author's edit one way or another, so a 409 is never a dead end (OpenProject
-   * #838, upstream requarks/wiki #2256). Nothing here is lost if the overwrite's own `pageSave()` hits a
-   * second conflict either: the 409 handler in `stores/page.js` sets `editorStore.saveConflict` again,
-   * which re-triggers the `watch` below and puts this same dialog back up with the newer snapshot.
+   * "Overwrite" re-bases on the server's `updatedAt` so the retried save passes the
+   * `expectedUpdatedAt` check -- an informed overwrite, not the blind one that check guards against.
    *
-   * Only `pageStore`/`editorStore` state is touched here, deliberately: this file has no reference to
-   * whichever editor component is actually mounted, so a "discard" cannot reach into its live view the
-   * way `EditorMarkdown.vue`'s own version once could (calling `editor.setValue()` on its local Monaco
-   * instance and re-rendering its preview pane). The page's stored content -- what the next save would
-   * actually send -- is corrected either way; what can lag a beat behind it is that one editor's own
-   * on-screen copy, until its next edit or a remount.
-   *
-   * A "Discard" choice is itself still recoverable (OpenProject #2073): the author's pending content is
-   * stashed in `editorStore.discardedContent` right before it is overwritten, and the toast that
-   * follows offers it straight back via `undoDiscard()` below. As with discard itself, the restore is
-   * store-only -- a mounted editor picks the content back up on its own next render or remount, rather
-   * than this file reaching into a Monaco instance it has no reference to.
+   * Store-only by design: this file holds no reference to the mounted editor component, so a
+   * "discard" corrects the content the next save would send while that editor's own on-screen copy
+   * can lag until its next edit or a remount.
    */
   function resolveSaveConflict(snapshot) {
     dialog({
@@ -262,9 +218,8 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
       componentProps: {
         authorName: snapshot.authorName,
         serverContent: snapshot.content,
-        // -> Already flushed onto the store by `pageSave()`'s `contentFlusher` await, before the 409
-        //    that set `snapshot` was ever thrown -- so this is still this author's pending edit, not
-        //    the server's content the store gets patched with only on a successful save.
+        // -> Still this author's pending edit: `pageSave()`'s `contentFlusher` await put it on the
+        //    store before the 409, and the store takes the server's content only on success.
         pendingContent: pageStore.content
       }
     })
@@ -277,13 +232,11 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
             contentLoaded: true,
             updatedAt: snapshot.updatedAt
           })
-          // -> Adopting the server's copy leaves nothing of this author's pending; see `hasPendingChanges`
           editorStore.markClean()
           notify({
             type: 'warning',
             message: t('editor.collab.saveConflict.discarded'),
-            // -> Longer than the 5s default: this toast is the only remaining route back to the
-            //    author's discarded text, so it should still be there a moment after a quick glance.
+            // -> The only remaining route back to the discarded text, so it outlasts the 5s default
             timeout: 10000,
             action: {
               label: t('editor.collab.saveConflict.undoDiscard'),
@@ -312,15 +265,6 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
       })
   }
 
-  /**
-   * Restores the author's own content after a save-conflict "Discard" replaced it with the server's
-   * snapshot -- the undo action offered on the toast `resolveSaveConflict` raises right after
-   * (OpenProject #2073). Store-only, matching `resolveSaveConflict`'s own discard branch: puts the
-   * stashed copy back into `pageStore.content` and clears the stash so a stray second click -- the
-   * toast is already gone by then, but nothing stops calling this directly -- has nothing left to
-   * restore. A mounted editor picks the restored content up the same way it would any other external
-   * change to `pageStore.content`.
-   */
   function undoDiscard() {
     const content = editorStore.discardedContent
     if (content === null) {

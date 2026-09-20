@@ -51,10 +51,8 @@ describe('page store: breadcrumbs', () => {
   })
 
   /**
-   * Feature #2574/#2578: each crumb's `title` is the raw path segment, humanized per the site's
-   * `pathDisplayCase` setting -- a deliberate override, not a fallback, since a breadcrumb has
-   * nothing but the raw segment to work with in the first place (there is no separate "real title"
-   * being overridden here, unlike `PageHeader.vue`'s heading).
+   * Humanizing a crumb title is an unconditional transform, not a fallback: a breadcrumb has
+   * nothing but the raw path segment to work with, so there is no real title being overridden.
    */
   it('leaves each crumb title as the raw segment when the setting is off', () => {
     const pageStore = usePageStore()
@@ -108,7 +106,7 @@ describe('page store: pageWatch()', () => {
 
     expect(pageStore.isWatching).toBe(false)
     expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/watch')
-    // -> Nothing changed server-side, so there is nothing for the rail to re-fetch (OpenProject #2722).
+    // -> Nothing changed server-side, so there is nothing for the rail to re-fetch
     expect(pageStore.watchersRevision).toBe(0)
   })
 
@@ -128,10 +126,9 @@ describe('page store: pageWatch()', () => {
   })
 
   /**
-   * OpenProject #2722: the bug was the rail's watcher-list re-fetch racing ahead of this very write,
-   * because it used to key off `isWatching`, which this action flips optimistically and synchronously
-   * -- well before the PUT/DELETE below has actually resolved. `watchersRevision` is what the rail
-   * keys off instead, and it must only move once the request has genuinely settled.
+   * The rail's watcher-list re-fetch keys off `watchersRevision`, not `isWatching`, because this
+   * action flips `isWatching` optimistically and synchronously. The revision must therefore move
+   * only once the request has genuinely settled, or the re-fetch races ahead of the write.
    */
   it('bumps watchersRevision only once the request resolves, and reads isWatching back from it', async () => {
     const siteStore = useSiteStore()
@@ -148,9 +145,9 @@ describe('page store: pageWatch()', () => {
     })
 
     const pending = pageStore.pageWatch(true)
-    // -> Flipped instantly, ahead of the request settling -- the bell must not wait on a round trip.
+    // -> Flipped instantly: the bell must not wait on a round trip
     expect(pageStore.isWatching).toBe(true)
-    // -> But the revision has not moved yet: nothing has actually committed on the server.
+    // -> The revision has not moved: nothing has committed on the server yet
     expect(pageStore.watchersRevision).toBe(5)
 
     resolveJson({ ok: true, isWatching: true })

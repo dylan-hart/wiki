@@ -27,8 +27,8 @@ describe('syncPayloadFor', () => {
   })
 
   it('omits mode but includes scheduleOverride for a single-mode module that IS scheduled', () => {
-    // -> Sending `mode` here would make the whole batched PUT fail: validateTarget refuses a mode
-    //    patch outright when the module offers no choice, regardless of the value sent.
+    // -> Sending `mode` here fails the whole batched PUT: validateTarget refuses a mode patch
+    //    outright when the module offers no choice, whatever the value.
     const target = {
       sync: { supportedModes: ['pull'], schedule: 'PT5M', mode: 'pull', scheduleOverride: 'PT10M' }
     }

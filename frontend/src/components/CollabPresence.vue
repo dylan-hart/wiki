@@ -1,23 +1,18 @@
 <template>
   <!--
     The root has to stay a single element for `class="me-2"` fallthrough from `PageHeader.vue` to
-    still land on `.collab-presence` (see `inheritAttrs: false` below) -- so the always-present
-    announcement region below is a sibling INSIDE it, not a sibling of it. It contributes no box of
-    its own (an empty div around a single `position: absolute` child collapses to 0x0), so it changes
-    nothing about the "nothing at all when alone" layout the group div below still governs.
+    still land on `.collab-presence` (see `inheritAttrs: false` below) -- so the announcement region
+    below is a sibling INSIDE it, not a sibling of it. It contributes no box of its own (an empty div
+    around a single `position: absolute` child collapses to 0x0), so it costs no layout.
   -->
   <div>
     <!--
-      Screen-reader-only, and deliberately always in the DOM rather than appearing along with its
-      first announcement -- a live region has to already exist for assistive tech to pick up a change
-      inside it; one that appears with its text already filled in is not reliably announced. See
-      `announcement` for what fires it and, as importantly, what does not.
+      Always in the DOM rather than appearing along with its first announcement: a live region has to
+      already exist for assistive tech to pick up a change inside it, and one that appears with its
+      text already filled in is not reliably announced.
     -->
     <span class="sr-only" role="status" aria-live="polite">{{ announcement }}</span>
-    <!--
-      Nothing at all when you are on your own, which is the ordinary case: a single bubble of your own
-      face says nothing you did not already know, and the header has better uses for the space.
-    -->
+    <!-- Nothing at all when you are on your own: a bubble of your own face says nothing new. -->
     <div
       v-if="collabStore.people.length > 1"
       v-bind="$attrs"
@@ -25,9 +20,8 @@
       role="group"
       :aria-label="t('editor.collab.participants')">
       <!--
-        The bubble is wrapped rather than styled alone because it has to clip the avatar to a circle,
-        and a ring rippling outwards from something that clips its own children would be cut off at the
-        edge it is supposed to leave.
+        The bubble is wrapped rather than styled alone because it clips the avatar to a circle, and a
+        ring rippling outwards from it would be cut off at the very edge it is supposed to leave.
       -->
       <div
         v-for="person of visible"
@@ -41,8 +35,8 @@
         <div class="collab-presence-bubble" :style="{ backgroundColor: person.color }">
           <!--
             No `alt`: the name is already on the group's label and in the tooltip, and an avatar that
-            fails to load should fall back to the coloured circle rather than to the person's name in
-            plain text across the header.
+            fails to load should fall back to the coloured circle, not to the person's name in plain
+            text across the header.
           -->
           <img
             v-if="person.hasAvatar"
@@ -51,7 +45,7 @@
             loading="lazy"
             width="30"
             height="30" />
-          <!-- -> A manual upload always wins; the provider-synced picture is only a fallback (Task #3264) -->
+          <!-- -> A manual upload always wins; the provider-synced picture is only a fallback -->
           <img
             v-else-if="person.avatarProviderUrl"
             :src="person.avatarProviderUrl"
@@ -65,10 +59,7 @@
           {{ personLabel(person) }}
         </w-tooltip>
       </div>
-      <!--
-        The count pulses on behalf of whoever it is standing in for, so that someone typing out of sight
-        is not simply invisible.
-      -->
+      <!-- The count pulses on behalf of whoever it stands in for, so typing out of sight still shows. -->
       <div
         v-if="overflow > 0"
         class="collab-presence-person collab-presence-person--overflow"
@@ -89,10 +80,8 @@ import { initials } from '@/helpers/initials'
 import { useCollabStore } from '@/stores/collab'
 
 /**
- * Who is editing this page right now, as a row of overlapping faces in the page header.
- *
- * Fed entirely by `stores/collab.js`, so it is empty whenever there is no session — which covers the
- * site having the feature off, the editor being anything other than markdown, and an edit being
+ * Fed entirely by `stores/collab.js`, so this is empty whenever there is no session — which covers
+ * the site having the feature off, the editor being anything other than markdown, and an edit being
  * suggested rather than made.
  */
 
@@ -112,17 +101,13 @@ const overflowTyping = computed(() => hidden.value.some((person) => person.typin
 const overflowNames = computed(() => hidden.value.map(personLabel).join(', '))
 
 /**
- * The `aria-live` text: fires `editor.collab.editingWithYou` the moment somebody OTHER than the
- * reader first shows up among `collabStore.people` -- i.e. off the deduplicated person, not off the
- * raw `participants` list, so a second tab from someone already on-screen says nothing new.
+ * The `aria-live` text: fires the moment somebody OTHER than the reader first shows up among
+ * `collabStore.people` -- off the deduplicated person, not the raw `participants` list, so a second
+ * tab from someone already on-screen says nothing new.
  *
- * One-directional on purpose. There is no string for someone LEAVING -- `editingWithYou` reads as a
- * presence, not an absence, and coining new copy for it is a bigger call than this task's -- so a
- * departure stays visually obvious (their face leaves the row) but silent for a screen-reader user.
- * That is a real, considered trade, not an oversight: arriving is the moment someone needs to be told
- * "you are not alone in this document any more"; leaving mid-edit is lower-stakes, and announcing it
- * on every drop of a merely flaky connection (see the `disconnected` indicator in `PageHeader.vue`)
- * would be noise closer to what a `disconnected`-triggered departure already looks like without help.
+ * One-directional on purpose: a departure stays visually obvious but silent. Arriving is the moment
+ * someone needs to be told they are not alone in the document; announcing every departure would fire
+ * on each drop of a merely flaky connection.
  */
 const announcement = ref('')
 let knownIds = new Set(nonSelfIds())
@@ -140,18 +125,14 @@ watch(nonSelfIds, (ids) => {
   knownIds = new Set(ids)
 })
 
-/** A participant's name, or `You` for the reader's own face. */
 function personLabel(person) {
   return person.isSelf ? t('editor.collab.you') : person.name
 }
 </script>
 
 <style scoped>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* These selectors stay flat: a `&-suffix` concatenation is a Sass idiom, and native CSS nesting
+   silently drops such a rule rather than matching it. */
 @charset "UTF-8";
 .collab-presence {
   display: flex;
@@ -166,9 +147,8 @@ function personLabel(person) {
 }
 .collab-presence {
   /*
-    The ripple. Sits under the faces rather than over them, so a wave passing beneath the next avatar
-    along does not wash over it -- `z-index: 0` against the bubbles' `1`, in document order, is what
-    puts it there.
+    The ripple sits under the faces rather than over them -- `z-index: 0` against the bubbles' `1` --
+    so a wave passing the next avatar along does not wash over it.
   */
 }
 .collab-presence-wave {
@@ -176,7 +156,6 @@ function personLabel(person) {
   z-index: 0;
   inset: 0;
   border-radius: 9999px;
-  /* -> A hairline: the ring is meant to be noticed out of the corner of an eye, not read */
   border: 1px solid transparent;
   opacity: 0;
   pointer-events: none;
@@ -201,13 +180,10 @@ function personLabel(person) {
   user-select: none;
   /*
     The ring is what stops two adjacent faces from reading as one shape, so it has to be the header
-    behind them rather than a fixed colour — the header is near-white on one theme and near-black
-    on the other.
+    behind them rather than a fixed colour — near-white on one theme, near-black on the other.
   */
 }
 .body--light .collab-presence-bubble {
-  /* -> The header's own ground, `var(--color-surface)` -- not the near-white it used to borrow from the
-     Material ramp, which read as a faint grey halo against the white behind it */
   box-shadow: 0 0 0 2px var(--color-surface);
 }
 .body--dark .collab-presence-bubble {
@@ -227,7 +203,7 @@ function personLabel(person) {
 .collab-presence {
   /*
     The count stands in for several people at once and so has no one colour to ripple in; it borrows
-    the grey it is drawn in. Every other wave takes its colour from its owner, inline.
+    the grey it is drawn in. Every other wave takes its owner's colour, inline.
   */
 }
 .body--light .collab-presence-person--overflow .collab-presence-wave {
@@ -249,9 +225,8 @@ function personLabel(person) {
 }
 
 /*
-  A ring that never stops moving is exactly what someone who asked for less motion asked to be spared,
-  and the information it carries -- who is typing -- would be lost with it. So it stops expanding and
-  stays put instead: a steady halo that still says the same thing.
+  A ring that never stops moving is what someone asking for less motion asked to be spared, but the
+  information it carries -- who is typing -- would go with it. So it holds still instead.
 */
 @media (prefers-reduced-motion: reduce) {
   .collab-presence-person.is-typing .collab-presence-wave {

@@ -5,12 +5,10 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Task/Feature #3350: while a page is being edited in place (`isEditing`: the icon, title and
- * description become editable, and `EditorMarkdown.vue`'s two toolbars and Monaco sit right after
- * them in plain DOM order), Tab is meant to flow title -> description -> the editor's own content,
- * skipping this row of docs-help/Discard/Create/Save buttons entirely -- rather than a keyboard user
- * having to Tab through the whole action row first. `:tabindex="isEditing ? -1 : undefined"` is the
- * fix; this suite asserts it lands only where, and only when, it should.
+ * While a page is edited in place, title, description and the editor's content sit next to each
+ * other in DOM order, so Tab is meant to run straight through them rather than through the action
+ * row first. `:tabindex="isEditing ? -1 : undefined"` is what does it; this suite pins down where
+ * and when it applies.
  */
 async function mountHeader(editorOverrides = {}) {
   const router = await createTestRouter(['/'])
@@ -43,8 +41,8 @@ describe('PageHeader tab order while editing (Task/Feature #3350)', () => {
     const saveAndClose = actionButtons(wrapper).find(
       (b) => b.attributes('aria-label') === 'common.actions.saveAndClose'
     )
-    // -> The docs-help button carries no `aria-label` of its own (only a `w-tooltip`), so it's found
-    //    by being the row's one `<a>`-rendered button (`type="a"`, via `href`) instead.
+    // -> The docs-help button carries no `aria-label` (only a `w-tooltip`), so it is found by being
+    //    the row's one `<a>`-rendered button.
     const docs = wrapper.find('a.w-btn')
 
     expect(discard.attributes('tabindex')).toBe('-1')
@@ -63,8 +61,8 @@ describe('PageHeader tab order while editing (Task/Feature #3350)', () => {
   })
 
   it('leaves Discard and Save normally tabbable in the "pending changes, no open editor" state', async () => {
-    // -> isActive stays false: this is the properties-panel-only pending state, where title/
-    //    description are plain, non-editable spans -- there is no Tab-order conflict to avoid.
+    // -> `isActive` false: title and description are plain spans here, so there is no Tab-order
+    //    conflict to avoid.
     const wrapper = await mountHeader({
       isActive: false,
       editor: 'markdown',
@@ -83,7 +81,6 @@ describe('PageHeader tab order while editing (Task/Feature #3350)', () => {
 
     expect(discard.attributes('tabindex')).toBeUndefined()
     expect(save.attributes('tabindex')).toBeUndefined()
-    // -> Save & Close is only offered once an editor is actually open
     expect(
       actionButtons(wrapper).find(
         (b) => b.attributes('aria-label') === 'common.actions.saveAndClose'

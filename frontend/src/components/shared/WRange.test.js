@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 
 import WRange from './WRange.vue'
 
-/** The two draggable handles, in `[min, max]` order -- see the `v-for="handle of ['min', 'max']"`. */
+/** The handles, in `[min, max]` DOM order. */
 function handles(wrapper) {
   return wrapper.findAll('[role="slider"]')
 }
@@ -159,8 +159,7 @@ describe('WRange', () => {
 
       await handle.trigger('keydown', { key: 'ArrowRight' })
 
-      // -> Already at max and unchanged, so no event -- matches the two-handle no-op-emits-nothing
-      //    convention `update()` already follows.
+      // -> Already at max and unchanged, and `update()` emits nothing for a no-op.
       expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     })
 
@@ -204,7 +203,7 @@ describe('WRange', () => {
         props: { single: true, modelValue: 3, min: 0, max: 6, markers: true }
       })
 
-      // -> 7 steps (0..6 inclusive) -- one tick each, matching `steps` in two-handle mode.
+      // -> 7 steps, 0..6 inclusive -- one tick each.
       expect(wrapper.findAll('.bg-rule')).toHaveLength(7)
     })
   })

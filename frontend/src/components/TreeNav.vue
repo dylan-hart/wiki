@@ -12,8 +12,6 @@ import TreeLevel from './TreeLevel.vue'
 import { useDark } from '@/composables/dark'
 import { ancestorFolderIds } from '@/helpers/treeNodes'
 
-// PROPS
-
 const props = defineProps({
   nodes: {
     type: Object,
@@ -41,19 +39,11 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 const emit = defineEmits(['update:selected', 'lazyLoad', 'contextAction'])
-
-// I18N
 
 const { t } = useI18n()
 
-// DARK MODE
-
 const dark = useDark()
-
-// Context Actions
 
 const contextActions = computed(() => ({
   newFolder: {
@@ -96,14 +86,10 @@ provide(
   )
 )
 
-// DATA
-
 const state = reactive({
   loaded: {},
   opened: {}
 })
-
-// COMPUTED
 
 const selection = computed({
   get() {
@@ -113,8 +99,6 @@ const selection = computed({
     emit('update:selected', val)
   }
 })
-
-// METHODS
 
 function emitLazyLoad(nodeId, isCurrent, clb) {
   if (props.useLazyLoad) {
@@ -137,8 +121,6 @@ function resetLoaded() {
   state.loaded = {}
 }
 
-// PROVIDE
-
 provide('roots', toRef(props, 'roots'))
 provide('nodes', props.nodes)
 provide('loaded', state.loaded)
@@ -147,16 +129,12 @@ provide('displayMode', toRef(props, 'displayMode'))
 provide('selection', selection)
 provide('emitLazyLoad', emitLazyLoad)
 
-// EXPOSE
-
 defineExpose({
   setOpened,
   isLoaded,
   setLoaded,
   resetLoaded
 })
-
-// MOUNTED
 
 onMounted(() => {
   if (props.selected) {
@@ -169,23 +147,9 @@ onMounted(() => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .treeview {
-  /* -> No indentation of its own any more (OpenProject #3064): a nested level used to shift its */
-  /*    whole `<li>` right via this padding PLUS `&-node`'s own always-on `border-left` guide line */
-  /*    below -- two lines' worth of visual nesting cue that read as a column of LINES down the */
-  /*    tree, next to the main navbar's own hover-only DOTS (`NavSidebar.vue`'s `.w-item::before`). */
-  /*    Indentation now lives entirely on `&-label`'s own `padding-inline-start`, driven by */
-  /*    `--tree-depth` (`TreeNode.vue#indentStyle`) exactly the way the navbar's `--nav-depth` */
-  /*    drives its row padding -- so a nested `<ul>` contributes no offset of its own to undo, and */
-  /*    this only needs to cancel the `<ul>` element's OWN default list-indent, not add a per-level */
-  /*    one. Logical, matching the navbar's own `padding-inline-start` (`NavSidebar.vue`) -- the */
-  /*    physical `padding-left`/`margin-left` pair this replaces was the one thing keeping this file */
-  /*    on `logicalSpacing.test.js`'s ALLOWLIST; see that file's own diff for why the entry is gone. */
+  /* -> Deliberately empty: per-level indent lives entirely on `.treeview-label`'s own */
+  /*    `padding-inline-start`, so a nested level adds no offset of its own here. */
 }
 .treeview-level {
   list-style: none;
@@ -195,22 +159,16 @@ onMounted(() => {
   display: block;
 }
 .treeview-label {
-  /* -> 12px matches a toolbar's own side padding, which is what lines a row's folder icon up with */
-  /*    the icon in the header above it. `--tree-depth` (set on this row's own `<li>` ancestor by */
-  /*    `TreeNode.vue#indentStyle`, the same mechanism `NavSidebarItem.vue#depthStyle` sets */
-  /*    `--nav-depth` with) adds this row's own per-level indent on top -- real padding on the */
-  /*    row's OWN box, so its `active`/hover background still spans the tree's full width at every */
-  /*    depth, with no ancestor box narrowing to correct for (OpenProject #853's original fix, */
-  /*    superseded here the same way #2951 superseded it for the navbar). */
-  /* */
-  /* -> The main navbar's own font role (`NavSidebar.vue`'s `.sidebar-nav .w-list .w-item`): */
-  /*    13.5px/400, rather than the ambient body 14px a tree row inherited with nothing of its own. */
+  /* -> 12px matches a toolbar's side padding, lining a row's folder icon up with the header icon */
+  /*    above it. The per-level indent rides on this row's OWN box (`--tree-depth`, set by */
+  /*    `TreeNode.vue#indentStyle`), so hover/active still spans the full width at every depth. */
+  /* -> 13.5px/400 is the main navbar's row font role, not the ambient body 14px. */
   padding: 4px 12px;
   padding-inline-start: calc(12px + var(--tree-depth, 0) * 10px);
   font-size: 13.5px;
   font-weight: 400;
-  /* -> Square: a row spans the full width of its container, and a radius on a full-width band reads */
-  /*    as a pill that has been clipped rather than as a highlighted row */
+  /* -> No radius: a row spans the full container width, where one reads as a clipped pill rather */
+  /*    than a highlighted row. */
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -234,12 +192,9 @@ onMounted(() => {
 }
 .treeview-label {
   /*
-    The depth cue itself (OpenProject #3064): one dot per ancestor indent lane, lit only on hover
-    -- ported verbatim from `NavSidebar.vue`'s own `.w-item::before` rule (OpenProject #2906/
-    #2932/#2951), rather than this tree's previous always-on `border-left` guide line. `--tree-depth`
-    is this row's own depth (`TreeNode.vue#indentStyle`), so the trail's width scales with nesting
-    the same way the navbar's does; the geometry (6px inset, 10px lanes narrowed by 4px, `max()`
-    floored at 0) is the navbar's own settled formula, not re-derived independently.
+    Empty on purpose: the depth cue is the `::before` below -- one dot per ancestor indent lane,
+    lit only on hover. Its geometry (6px inset, 10px lanes narrowed by 4px, `max()`-floored) is
+    `NavSidebar.vue`'s `.w-item::before` formula, kept identical so both trees read the same.
   */
 }
 .treeview-label::before {

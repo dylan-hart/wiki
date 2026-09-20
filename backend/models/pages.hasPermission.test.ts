@@ -3,23 +3,10 @@ import { after, before, test } from 'node:test'
 import { hasPermission } from './pages.ts'
 
 /**
- * Regression test for task 548: `hasPermission()` in `models/pages.ts` used to check
- * `actor.permissions.includes(permission)` — the group-WIDE permission list built by `actorFrom()`
- * in `helpers/pageAccess.ts` — but `write:scripts`/`write:styles` are page-rule-scoped permissions (same
- * `PAGE_PERMISSIONS` list `mayBypassPassword()` misused before task 547). A page-rule grant of
- * either was therefore silently ignored at all three call sites that
- * gate `postProcess()` — `write:scripts`/`write:styles` decide whether an author's raw `<script>`/
- * `<style>` HTML survives sanitization, not merely a global toggle: `createPage`, `updatePage`, and
- * `queueRerender`.
- *
- * `hasPermission()` now takes the page in question and asks `CARDINAL.models.groups.checkAccess()` — the
- * same per-page decision `mayOnPage()` makes in `helpers/pageAccess.ts` — via the actor's new `groupIds` field
- * (populated by `actorFrom()` from `CARDINAL.models.groups.groupIdsForRequest(req)`). This stubs
- * `checkAccess` to behave like a real page rule: it grants `write:scripts` only to a specific group,
- * only under a specific path prefix, and ignores the actor's global `permissions` list entirely —
- * mirroring how a page rule actually works — so a session with the string in its global list but no
- * matching rule must NOT be granted, and a session with a matching rule but nothing in its global list
- * must be.
+ * `write:scripts`/`write:styles` are page-rule-scoped, not group-wide, so `hasPermission()` must ask
+ * `CARDINAL.models.groups.checkAccess()` about the page rather than search the actor's global
+ * `permissions` list: a session holding the string globally with no matching rule must NOT be
+ * granted, and a session with a matching rule but nothing global must be.
  */
 
 let previousWiki: any
@@ -29,9 +16,8 @@ before(() => {
   ;(globalThis as any).CARDINAL = {
     models: {
       groups: {
-        // -> Stands in for a real page rule: `write:scripts` is granted to `rule-group` only under
-        //    `docs/allowed`, and to nobody else -- the actor's `permissions` list plays no part,
-        //    matching how a page rule actually works.
+        // -> Stands in for a real page rule: `write:scripts` only for `rule-group`, only under
+        //    `docs/allowed`, with the actor's `permissions` list playing no part.
         checkAccess: (
           actor: { groupIds: string[]; permissions: string[] },
           permission: string,
@@ -82,8 +68,6 @@ test('hasPermission: the same actor is refused on a page outside the rule scope'
 })
 
 test('hasPermission: holding write:scripts in the global permissions list alone, with no matching page rule, does not grant it', () => {
-  // -> Not in `rule-group`, so `checkAccess` grants nothing here -- this is exactly the bug: the old
-  //    implementation would have said `true` because the string was in `actor.permissions`.
   const actor = { id: 'user-1', permissions: ['write:scripts'], groupIds: ['some-other-group'] }
   assert.equal(
     hasPermission(actor, 'write:scripts', {
@@ -119,14 +103,10 @@ test('hasPermission: manage:system still bypasses everywhere, via checkAccess', 
 })
 
 /**
- * Regression tests for task 3054: the 2.5.x migration importer's synthetic per-page actor has no
- * group membership at all (`groupIds: []`) and is not logged in as anyone real, so it can never earn
- * `write:scripts`/`write:styles` through `checkAccess()` the way the tests above establish. These
- * cover `PageActor.forcedPagePermissions`, the dedicated escape hatch `hasPermission()` checks BEFORE
- * ever calling `checkAccess()` — confirming it grants exactly the names it lists, grants nothing else,
- * and that `checkAccess()` is never even reached when it applies (the stub above would throw a
- * TypeError reading `page.path` if it were, since these tests pass no `page` fields `checkAccess()`
- * itself needs).
+ * The 2.5.x migration importer's synthetic per-page actor has no group membership at all and is not
+ * logged in as anyone real, so it can never earn `write:scripts`/`write:styles` through
+ * `checkAccess()`. Hence `PageActor.forcedPagePermissions`, the escape hatch `hasPermission()`
+ * checks first.
  */
 
 test('hasPermission: forcedPagePermissions grants a listed permission with no group membership at all', () => {

@@ -9,22 +9,10 @@ import { installTestWiki } from '../test/mocks.ts'
 let wikiHandle: { restore(): void }
 
 /**
- * Regression coverage for task 1842: `/metrics` used to build its snapshot from `await`
- * expressions inside one object literal, so each round trip waited on the previous one instead of
- * running concurrently. `CARDINAL.db.$count`/`CARDINAL.db.execute`/`CARDINAL.models.jobs.*` are stubbed to each
- * record when they were *called* and when they *resolved* into a shared `events` array, with a fixed
- * artificial delay before resolving — chosen so the assertion is deterministic either way rather than
- * racy: concurrent (`Promise.all`) calls every stub synchronously before any of them resolves, so
- * every 'start' event lands before the first 'end' event; serial (`await` chained) calls the next
- * stub only after the previous one resolves, so a 'start'/'end' pair interleaves immediately and the
- * first 'end' lands before the later 'start's. Unlike a countdown-latch/barrier stub (which would
- * simply hang forever on a serial regression instead of failing cleanly), this fixed-delay approach
- * fails fast and with a readable assertion either way.
- *
- * Task 1939 added `jobsFailed` (via `CARDINAL.models.jobs.countFailed()`, so it joins the same
- * `Promise.all` and the concurrency assertion below) and the three `dbPoolTotal`/`dbPoolIdle`/
- * `dbPoolWaiting` gauges (read synchronously off `CARDINAL.dbManager.pool`, not awaited, so they don't
- * join the concurrency count).
+ * Each stub records when it was called and, after a fixed delay, when it resolved. Issued
+ * concurrently, every 'start' lands before the first 'end'; issued serially, they interleave. A fixed
+ * delay rather than a latch/barrier stub, which would hang forever on a serial regression instead of
+ * failing with a readable assertion.
  */
 describe('GET /metrics', () => {
   const DELAY_MS = 20

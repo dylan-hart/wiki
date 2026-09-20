@@ -2,62 +2,31 @@ import TurndownService from 'turndown'
 import { tables, taskListItems } from '@joplin/turndown-plugin-gfm'
 
 /**
- * Converts a clipboard `text/html` payload into markdown for the markdown editor's paste path
- * (OpenProject #2448, Feature #2417). `EditorMarkdown.vue`'s paste handler is the one caller: when
- * a paste carries `text/html`, this is what stands in for the browser's own plain-text paste, so
- * structure a webpage/Word/OneNote/etc. author relied on (headings, lists, links, emphasis, tables)
- * survives as real markdown instead of being flattened to whatever `text/plain` happened to be.
+ * Converts a clipboard `text/html` payload into markdown for the markdown editor's paste path, so
+ * structure the source author relied on survives instead of being flattened to `text/plain`.
  *
- * OneNote is the feature's named validation case, and its clipboard HTML has two quirks turndown's
- * defaults do not cover on their own:
+ * Office-family clipboard HTML (OneNote, Word) has two quirks turndown's defaults do not cover:
  *
  * 1. It marks bold/italic/strikethrough/underline with an inline `style` attribute on a `<span>`
- *    (or the odd `<div>`) rather than `<strong>`/`<em>`/`<s>`/`<u>` -- the same convention Word and
- *    most Office-family paste HTML uses. `presentational*` rules below detect the style property
- *    directly (not `node.style`, which a non-browser parser -- e.g. under `npm run test` -- may not
- *    populate) so they fire whichever parser turndown ends up using.
- * 2. Its to-do lists render as a plain `<ul>`/`<li>` with a Unicode ballot-box glyph
- *    (☐ U+2610 unchecked, ☑ U+2611 checked) as the item's own first character, not a semantic
- *    checkbox -- `convertCheckboxGlyphs` rewrites those lines to GFM task-list syntax afterwards.
- *    A real `<input type="checkbox">`, which other sources (and older OneNote captures) do send, is
- *    already handled by `@joplin/turndown-plugin-gfm`'s own `taskListItems` rule and needs nothing
- *    extra here. Its `strikethrough` rule is deliberately NOT used, in favour of this file's own
- *    (below): it emits single-tilde `~text~`, which is Pandoc's strikethrough spelling, not GFM's --
- *    and this app's renderer (`markdown-it`, whose own strikethrough support is a CommonMark/GFM
- *    `~~text~~` core rule) does not recognise it at all.
+ *    rather than `<strong>`/`<em>`/`<s>`/`<u>`. The `presentational*` rules below read the style
+ *    ATTRIBUTE, not `node.style`, which a non-browser parser may leave unpopulated.
+ * 2. Its to-do lists are a plain `<ul>`/`<li>` with a Unicode ballot-box glyph (☐ U+2610,
+ *    ☑ U+2611) as the item's first character rather than a semantic checkbox --
+ *    `convertCheckboxGlyphs` rewrites those to GFM task-list syntax afterwards. A real
+ *    `<input type="checkbox">` is already covered by `@joplin/turndown-plugin-gfm`'s
+ *    `taskListItems`. That plugin's `strikethrough` rule is deliberately NOT used, in favour of
+ *    this file's own: it emits single-tilde `~text~`, Pandoc's spelling, which this app's
+ *    `markdown-it` renderer does not recognise at all.
  *
- * A third quirk, specific to nested lists, is handled by DOM surgery rather than a turndown rule --
- * see `renestOrphanedSublists` below for why and how.
+ * Images become a `![alt](pending-image:N)` placeholder plus an entry in the returned `images`
+ * list: an HTML paste can carry a multi-megabyte `data:` URI, inlining it would dump the blob into
+ * the page source, and dropping it loses the image. Uploading it is async while turndown's
+ * `addRule` replacement is not, so resolving the placeholders is the caller's job.
  *
- * Two more decisions worth calling out:
- *
- * - **Images become a pending-asset placeholder, not a dropped tag or an inlined blob.** An HTML
- *   paste can carry an inline image as a `data:` URI (a screenshot pasted into OneNote/Word, then
- *   copied out, commonly does) worth megabytes of base64 -- inlining that into a markdown `![]()`
- *   verbatim would dump the whole blob into the page source, and dropping it silently loses the
- *   image entirely (OpenProject #2504: this was the original behavior here, and turned out to be
- *   exactly what OneNote/mixed-content pastes hit every time, since `EditorMarkdown.vue`'s own
- *   bare-image-paste handling only ever sees a paste with NO accompanying text -- see
- *   `shouldClaimPaste`). Turndown's `addRule` replacement runs synchronously, but turning an image's
- *   `src` into a real uploaded asset is not (`fetch` + `editorStore.addPendingAsset`), so this module
- *   does not perform the upload itself: `htmlToMarkdown` returns `{ markdown, images }`, where
- *   `markdown` has a `![alt](pending-image:N)` placeholder in place of each `<img>` and `images` is
- *   the ordered list of `{ token, src, alt }` needed to resolve them. `EditorMarkdown.vue`'s paste
- *   handler is what does the actual fetch-and-upload and substitutes each token for the real pending
- *   asset `blob:` URL (or drops that one image if its `src` cannot be retrieved at all -- a
- *   cross-origin image the source page doesn't allow, e.g.), mirroring `insertFilesAsAssets`'s
- *   already-established pending-asset pattern for a bare file/image paste.
- * - **This module itself has no "is this worth converting" gate -- every non-empty `text/html`
- *   payload handed to it is converted, unconditionally.** That gate now lives in the caller instead
- *   (OpenProject #2834): `EditorMarkdown.vue`'s `onEditorPaste` compares the HTML's own visible text
- *   (`helpers/htmlVisibleText.js#isSameVisibleText`) against the clipboard's `text/plain` sibling
- *   *before* ever calling `htmlToMarkdown`, and skips the call entirely for a same-editor copy/cut --
- *   Monaco's own "copy with syntax highlighting" writes a `text/html` payload alongside `text/plain`
- *   on every ordinary in-editor copy, and running it through this converter reproduced exactly the
- *   escaping/blank-line corruption `isSameVisibleText` exists to avoid. Escaping markdown-significant
- *   characters in genuine rich-paste prose (turndown's `\*`/`\_`/`` \` `` escaping) remains the
- *   accepted cost once that gate has already decided a payload is worth converting -- see turndown's
- *   own documentation.
+ * There is no "is this worth converting" gate here -- every non-empty payload is converted. That
+ * gate belongs to the caller, which compares the HTML's visible text against the clipboard's
+ * `text/plain` sibling (`helpers/htmlVisibleText.js#isSameVisibleText`) so a same-editor copy never
+ * round-trips through turndown's escaping.
  */
 
 function styleValue(node, property) {
@@ -74,37 +43,27 @@ const isPresentationalStrike = (node) =>
 const isPresentationalUnderline = (node) =>
   styleValue(node, 'text-decoration').includes('underline')
 const hasContent = (content) => content.trim().length > 0
-// -> `node.isBlock` is set by turndown itself (a fixed block-tag list -- DIV/P/LI/... are block,
-//    SPAN is not) before any rule's filter runs. OneNote/Office give an entire paragraph/bullet a
-//    uniform base font-size on its own block container; that is not the "mid-paragraph change" this
-//    rule exists for, and wrapping it would inject a `<span>` between a list marker and its text (or
-//    around a whole heading-like line) for no benefit. Restricting to non-block nodes scopes this to
-//    genuine inline runs (an OneNote/Word `<span style="font-size:...">` inside running text).
+// -> Office gives whole paragraphs and bullets a uniform base font-size on their block container;
+//    that is not the mid-paragraph change this rule is for, and wrapping it would inject a `<span>`
+//    between a list marker and its text. `node.isBlock` is turndown's own flag, set before filters.
 const isPresentationalFontSize = (node) => !node.isBlock && styleValue(node, 'font-size').length > 0
 
 /*
-  Set to the current call's array for the duration of a single `htmlToMarkdown` invocation --
-  turndown's own parse is synchronous and non-reentrant, so a plain module-level variable is enough
-  to hand each `<img>` rule firing back to the specific call that triggered it, with no need to
-  thread a collector through turndown's own `addRule` API (which takes no such per-call argument).
+  turndown's `addRule` API takes no per-call argument, and its parse is synchronous and
+  non-reentrant, so a module-level variable is enough to hand each `<img>` firing back to the call
+  that triggered it.
 */
 let currentImageCollector = null
 
-/*
-  A source-less `<img>` (no `src` at all, or one that resolved to an empty string) has nothing to
-  fetch and is dropped outright, same as the old unconditional-drop rule did for every image.
-*/
 function collectPendingImage(node) {
   const src = ((node.getAttribute && node.getAttribute('src')) || '').trim()
   if (!src || !currentImageCollector) {
     return ''
   }
-  // Word/OneNote auto-generate a multi-line OCR description as `alt` (literal embedded newlines).
-  // Collapse it to single-line markdown-image-safe text up front -- a multi-line value isn't valid
-  // alt text for inline markdown image syntax regardless, and this is what keeps the placeholder
-  // text built below in lockstep with the `alt` a caller later reconstructs it from (OpenProject
-  // #2534): `normalize()` trims trailing whitespace per line across the whole document, which
-  // would otherwise desync an un-sanitized multi-line placeholder from its reconstructed match.
+  // Word/OneNote auto-generate a multi-line OCR description as `alt`, which is not valid inside
+  // inline markdown image syntax. Collapsing it here also keeps the placeholder byte-identical to
+  // what a caller reconstructs from `alt`, which `normalize()`'s per-line trim would otherwise
+  // desync.
   const rawAlt = (node.getAttribute && node.getAttribute('alt')) || ''
   const alt = rawAlt.replace(/\s+/g, ' ').trim()
   const token = `pending-image:${currentImageCollector.length}`
@@ -135,17 +94,13 @@ function buildTurndownService() {
     filter: (node) => !['EM', 'I'].includes(node.nodeName) && isPresentationalItalic(node),
     replacement: (content) => (hasContent(content) ? `_${content}_` : content)
   })
-  // -> GFM strikethrough (`~~text~~`), covering both the real tags AND the OneNote/Office
-  //    presentational-style spelling in one rule -- see the module doc comment on why
-  //    `@joplin/turndown-plugin-gfm`'s own `strikethrough` rule is not used here.
   service.addRule('strikethrough', {
     filter: (node) =>
       ['DEL', 'S', 'STRIKE'].includes(node.nodeName) || isPresentationalStrike(node),
     replacement: (content) => (hasContent(content) ? `~~${content}~~` : content)
   })
-  // -> Markdown has no native underline syntax; `<u>` is the CommonMark-legal, lossless fallback
-  //    every other emphasis kind above has a real marker for. A site with HTML rendering disabled
-  //    shows it escaped literally rather than silently dropping the author's emphasis.
+  // -> Markdown has no underline syntax, so `<u>` is the lossless fallback: a site with HTML
+  //    rendering off shows it escaped rather than dropping the author's emphasis silently.
   service.addRule('presentationalUnderline', {
     filter: (node) => node.nodeName !== 'U' && isPresentationalUnderline(node),
     replacement: (content) => (hasContent(content) ? `<u>${content}</u>` : content)
@@ -154,11 +109,8 @@ function buildTurndownService() {
     filter: 'u',
     replacement: (content) => (hasContent(content) ? `<u>${content}</u>` : content)
   })
-  // -> Markdown has no native font-size syntax either; `<span style="font-size: ...">` is the
-  //    same kind of lossless, CommonMark-legal fallback the `<u>` rule above uses for underline.
-  //    `font-size` (unlike `font-family`) is already in the backend's general-author style
-  //    allowlist (`ALLOWED_STYLES['*']`), so this survives rendering for any author. Scoped to
-  //    inline nodes only -- see `isPresentationalFontSize` above.
+  // -> Same lossless fallback as the `<u>` rule above. `font-size` (unlike `font-family`) is in
+  //    the backend's general-author style allowlist, so this survives rendering for any author.
   service.addRule('presentationalFontSize', {
     filter: isPresentationalFontSize,
     replacement: (content, node) =>
@@ -166,11 +118,9 @@ function buildTurndownService() {
         ? `<span style="font-size: ${styleValue(node, 'font-size')}">${content}</span>`
         : content
   })
-  // -> See "Images become a pending-asset placeholder" above. `img` has a built-in turndown rule,
-  //    so `service.remove('img')` would never win against it -- `remove()` only wins for a tag with
-  //    NO default rule to begin with (which is why it works for `style`/`script` above);
-  //    overriding a tag turndown already has an opinion on takes a real `addRule`, checked before
-  //    the defaults.
+  // -> `service.remove('img')` would lose to turndown's built-in `img` rule: `remove()` only wins
+  //    for a tag with no default rule (hence `style`/`script` above). Overriding one turndown
+  //    already has an opinion on takes an `addRule`, which is checked ahead of the defaults.
   service.addRule('pendingImage', {
     filter: 'img',
     replacement: (content, node) => collectPendingImage(node)
@@ -186,29 +136,21 @@ function getTurndownService() {
 }
 
 /*
-  Office/OneNote clipboard writes (the CF_HTML format) prepend a plain-text descriptor block --
-  Version/StartHTML/EndHTML/StartFragment/EndFragment byte offsets -- ahead of the actual markup.
-  Every browser observed strips this before handing `text/html` to the Clipboard API, but nothing
-  in the spec guarantees it, so this is a defensive strip: a payload that still opens with a
-  `Version:` line has everything before its first `<` cut, which a CF_HTML header never contains.
-
-  Exported for `helpers/htmlVisibleText.js`, the other caller that has to look at raw clipboard
-  `text/html` before any real HTML parsing happens.
+  Office clipboard writes (the CF_HTML format) prepend a plain-text descriptor block of byte
+  offsets ahead of the markup. Browsers strip it before handing `text/html` to the Clipboard API,
+  but nothing in the spec guarantees that, so this is defensive: a payload still opening with a
+  `Version:` line loses everything before its first `<`, which a CF_HTML header never contains.
 */
 export function stripClipboardHeader(html) {
   return /^\s*Version:/i.test(html) ? html.replace(/^[\s\S]*?(?=<)/, '') : html
 }
 
 /*
-  What survives the strip above is still commonly a full `<html>...<body>...</body></html>` shell --
-  real clipboard `text/html` from an Office-family paste routinely looks exactly like that, with the
-  actual content sitting between `<!--StartFragment-->`/`<!--EndFragment-->` markers inside the
-  body. Turndown parses its input by wrapping it in its own `<x-turndown>` element and parsing THAT
-  as a full document, so a second, nested `<html>`/`<body>` pair in the input has to be reconciled by
-  the parser's tag-adoption rules -- and not every DOMParser implementation does that the same way a
-  browser does (verified: it silently produces an empty conversion under happy-dom, this project's
-  own test environment). Cutting straight to the body content sidesteps relying on that reconciliation
-  at all, in tests and in whichever browser the editor actually runs in alike.
+  Office clipboard `text/html` is routinely a full `<html>...<body>` shell. Turndown wraps its
+  input in an `<x-turndown>` element and parses THAT as a document, so a nested `<html>`/`<body>`
+  pair has to be reconciled by the parser's tag-adoption rules -- which happy-dom, this project's
+  test environment, resolves to an empty conversion. Cutting to the body content avoids relying on
+  that reconciliation anywhere.
 */
 function unwrapDocumentShell(html) {
   const body = html.match(/<body[^>]*>([\s\S]*)<\/body>/i)
@@ -216,32 +158,15 @@ function unwrapDocumentShell(html) {
 }
 
 /*
-  OpenProject #3423: a real captured OneNote nested-list paste (`<ul><li>...<ul><li>...</ul></li>...
-  </ul>`) flattens -- a sub-list that should read as an indented continuation of its parent bullet
-  instead comes out as an unindented sibling bullet run.
+  Office-family HTML commonly expresses list depth with one `<ul>`/`<ol>` per level sitting as a
+  SIBLING inside a common ancestor list rather than inside the `<li>` it belongs under, and no
+  engine reparents it -- a `<ul>` directly inside a `<ul>` parses exactly as written. turndown's
+  `listItem` rule indents the string it assembled from the `<li>`'s own children, so such a
+  sub-list is invisible to it and comes out as an unindented sibling bullet run.
 
-  turndown's own `list`/`listItem` rules (un-overridden here) only ever indent a nested `<ul>`/`<ol>`
-  that is a DOM CHILD of the `<li>` it belongs under -- `listItem`'s replacement indents by
-  re-indenting the STRING that `content = process(node)` already assembled from `node.childNodes`,
-  so a sub-list sitting OUTSIDE that `<li>` is invisible to it and surfaces as its own top-level list
-  block instead. A `<ul>`/`<ol>` is not on the HTML5 parser's list of tags that auto-close/reparent
-  around a `<p>` or a preceding `<li>` the way `<p>` itself is -- verified directly (real Chromium via
-  Playwright, not just this suite's own happy-dom): a `<ul>` written as a literal, invalid direct
-  child of another `<ul>` (immediately following the `<li>` it is meant to nest under, rather than
-  inside it) parses EXACTLY as written, in every engine checked, with no recovery/reparenting at all.
-  A hand-built fixture never exercises this -- nobody hand-writing an example types a `<ul>` directly
-  inside a `<ul>`, only ever inside the right `<li>` -- which is exactly why an earlier look at this
-  bug, checked only against one, read as "already works" and was wrong: real Office-family HTML
-  (OneNote among it) is generated code, not hand-typed markup, and this exact shape -- one `<ul>` per
-  depth level, sharing a common ancestor `<ul>` rather than nesting inside each other's `<li>` -- is a
-  well-documented way that family of HTML represents list depth. Whatever produced it, a `<ul>`/`<ol>`
-  whose immediately preceding element sibling is a `<li>` of that SAME enclosing list is unambiguously
-  that `<li>`'s sub-list, and turndown's own default rules already render it perfectly once it is
-  actually nested where it belongs. So this repairs the DOM directly -- moving the orphaned sub-list
-  to become that `<li>`'s last child -- before handing anything to turndown, rather than teaching
-  turndown's list rules a second, parallel notion of "nested." A `<ul>`/`<ol>` that is already a
-  proper child of an `<li>` (the common, well-formed case) has no preceding element sibling at all
-  under its own parent (`<li>`), so it never matches here and this is a no-op for it.
+  Repairing the DOM first is what lets turndown's untouched default rules render it correctly. A
+  well-formed sub-list is its `<li>`'s child and so has no preceding element sibling: a no-op here.
+  Beware hand-written fixtures -- nobody types this shape, so only captured markup exercises it.
 */
 function renestOrphanedSublists(root) {
   for (const list of root.querySelectorAll('ul, ol')) {
@@ -270,27 +195,19 @@ function normalize(markdown) {
 }
 
 /**
- * `html` -> `{ markdown, images }`, or `{ markdown: '', images: [] }` for a blank/whitespace-only
- * payload.
- *
- * `markdown` carries a `![alt](pending-image:N)` placeholder wherever the source HTML had an
- * `<img>` with a usable `src` -- see the module doc comment's "Images become a pending-asset
- * placeholder" note for why resolving those into real uploaded assets is deliberately NOT this
- * function's job. `images` is the ordered `{ token, src, alt }` list a caller resolves them with;
- * `token` is exactly the placeholder text embedded in `markdown` for that image, so a caller
- * resolves it with a plain substring replace -- no parsing back out of the markdown required.
+ * `images` is the ordered `{ token, src, alt }` list resolving the placeholders in `markdown`.
+ * Each `token` is exactly the placeholder text embedded for that image, so a caller substitutes it
+ * with a plain substring replace and never parses back out of the markdown.
  */
 export function htmlToMarkdown(html) {
   if (!html || !html.trim()) {
     return { markdown: '', images: [] }
   }
   const normalizedHtml = unwrapDocumentShell(stripClipboardHeader(html))
-  // -> Parsed here, rather than handed to turndown as a string, so `renestOrphanedSublists` gets a
-  //    chance to repair the DOM before any turndown rule sees it -- turndown accepts a pre-parsed
-  //    element just as readily as a string (cloning it internally), so this changes nothing else
-  //    about how the conversion runs. The `<x-turndown>` wrapper matches what turndown's own string
-  //    path does internally (see its `RootNode`) purely so a stray top-level `<head>`/`<body>` split
-  //    a parser may introduce doesn't matter here either.
+  // -> Parsed here rather than handed to turndown as a string, so `renestOrphanedSublists` can
+  //    repair the DOM before any rule sees it; turndown takes a pre-parsed element just as
+  //    readily. The `<x-turndown>` wrapper mirrors what turndown's own string path builds, so a
+  //    stray top-level `<head>`/`<body>` split a parser introduces does not matter here either.
   const doc = new DOMParser().parseFromString(
     `<x-turndown id="turndown-root">${normalizedHtml}</x-turndown>`,
     'text/html'

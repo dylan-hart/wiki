@@ -11,7 +11,6 @@ import { siteAssetKinds } from '../models/sites.ts'
 import type { SiteAssetKind } from '../models/sites.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
-/** How large one of a site's own images may be uploaded, before it is re-encoded. */
 const imageUploadLimit = 10 * 1024 * 1024
 
 /**
@@ -43,15 +42,9 @@ const SITE_CONFIG_KEYS = [
 ] as const
 
 /**
- * Which `site:*` permission (see `helpers/siteRules.ts`) governs each key `PUT /:siteId` can
- * touch, per the per-surface mapping in §3 of the delegated-per-site-administration decision.
- *
- * `general`, `theme`, `login`, `locale` and `editors` all write through this one route, so — unlike
- * `blocks.ts`, `navigation.ts` and `approvals.ts`, which each have a dedicated route per permission —
- * the check here has to be per body key, not per route. A key with no entry (`isEnabled`, or
- * anything not in `SITE_CONFIG_KEYS`) is deliberately left ungated by any `site:*` permission: it
- * belongs to `AdminSites.vue`'s own site-management actions (enable/disable, alongside create and
- * delete), which stay `manage:sites`-only rather than becoming delegable.
+ * Which `site:*` permission governs each key `PUT /:siteId` can touch. Several admin surfaces write
+ * through that one route, so the check is per body key rather than per route. A key with no entry
+ * (such as `isEnabled`) is deliberately not delegable: it stays `manage:sites`-only.
  */
 const SITE_FIELD_PERMISSIONS: Partial<
   Record<(typeof SITE_CONFIG_KEYS)[number] | 'hostname' | 'isEnabled', string>
@@ -79,7 +72,6 @@ const SITE_FIELD_PERMISSIONS: Partial<
   theme: 'site:theme'
 }
 
-/** Which `site:*` permission covers replacing or clearing each of a site's own images. */
 const SITE_IMAGE_KIND_PERMISSIONS: Record<SiteAssetKind, string> = {
   logo: 'site:general',
   favicon: 'site:general',
@@ -87,18 +79,10 @@ const SITE_IMAGE_KIND_PERMISSIONS: Record<SiteAssetKind, string> = {
 }
 
 /**
- * Every `site:*` permission (see `helpers/siteRules.ts`) this requester holds on this site.
- *
- * The site-scoped counterpart to `pagePermissionsFor` in `helpers/pageAccess.ts`: what the interface hides
- * `AdminGeneral.vue`, `AdminTheme.vue` and the rest of the nine site-scoped admin pages by, asked the
- * same way that route's own handlers decide it (`checkSiteAccess`) rather than a broader question.
- *
- * Deliberately does NOT fold in `manage:sites`, `manage:theme` or `manage:navigation` — each of those
- * covers a different subset of the eight surfaces (see `SITE_FIELD_PERMISSIONS`, and the
- * `checkSiteAdminAccess` calls in `api/blocks.ts`, `api/navigation.ts` and `api/approvals.ts`), so
- * folding any one of them in here would tell the caller they hold a permission
- * a specific route would still refuse. The frontend already has all three of those in
- * `userStore.permissions` and combines them itself — see `frontend/src/composables/siteAdminAccess.js`.
+ * Deliberately does NOT fold in `manage:sites`, `manage:theme` or `manage:navigation`: each covers
+ * a different subset of the site surfaces, so folding one in would report a permission a specific
+ * route would still refuse. The frontend holds those globals already and combines them itself
+ * (`frontend/src/composables/siteAdminAccess.js`).
  */
 function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
   const actor = CARDINAL.models.groups.actorForRequest(req)
@@ -111,22 +95,10 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
 }
 
 /**
- * Whether semantic (vector) search is actually usable on this site right now -- Task #3103's whole
- * scope. True only when BOTH:
- *   - `CARDINAL.capabilities.semanticSearch` -- the instance-wide, boot-time flag Task #3095 records
- *     after attempting to provision the pgvector extension and its `pageEmbeddingChunks` table
- *     (`core/db.ts`). Absent entirely on a `CARDINAL` that hasn't gone through that boot step yet (e.g.
- *     a test stub), which reads as `false` here rather than throwing.
- *   - `search.config.semanticEnabled` -- this site's own admin toggle (Task #3104), stored inside
- *     `site.config.search.config` alongside the rest of the active search engine's own config (see
- *     `api/search.ts`'s PATCH handler and `models/search.ts#getConfig()`, which reads the identical
- *     path). Not spread from `config.search` directly -- `buildSitePayload` never lets the raw
- *     `search` key reach the response at all (it also carries active search-engine credentials), so
- *     this reads the one boolean it needs out of it.
- *
- * This is the SINGLE place the two flags are combined: `GET /sites/:siteId/pages/search/semantic`
- * (Task #3102) and the admin toggle's visibility (Task #3104/#3105) both read the resulting
- * `features.semanticSearch` off the site-info response rather than re-deriving this AND themselves.
+ * The single place the instance-wide pgvector capability and the site's own toggle are combined:
+ * consumers read `features.semanticSearch` off the site-info response rather than re-deriving it.
+ * `CARDINAL.capabilities` is absent on a `CARDINAL` that never ran the db boot step (a test stub),
+ * which reads as `false`.
  */
 function semanticSearchAvailable(config: Record<string, any>): boolean {
   return (
@@ -136,51 +108,16 @@ function semanticSearchAvailable(config: Record<string, any>): boolean {
 }
 
 /**
- * Assemble the payload a site's config alone doesn't cover: the row fields (`id`, `hostname`,
- * `isEnabled`) plus `pdfExportAvailable`, which isn't something a site chooses — it's whether this
- * whole instance ever installed the Puppeteer extension, per `CARDINAL.models.renderQueue.isAvailable()`,
- * the same check `renderPdf` itself gates on before ever launching a browser. Surfaced here, on the
- * payload the frontend already loads per-site (`sites/:siteIdorHostname` via `siteStore.loadSite`)
- * and reused by `bootstrap` for the same payload at app load, so the PDF export control can hide or
- * disable itself with an explanatory tooltip instead of offering a button that always 503s.
+ * Every `site.config` key reaching the response is named explicitly rather than spread in: both
+ * callers are `publicAccess: true`, and `config.search` holds the active search engine's
+ * credentials. `schemas/site.test.ts` pins the allow-list.
  *
- * Also carries `commentsProvider` (Feature #3286 / OpenProject #3303): non-null only when the site's
- * active comment provider is a `codeTemplate` one (Disqus/Commento/Artalk), in which case it is
- * `{ module, title, config, origin }` -- `origin` is `requestOrigin(req.protocol, req.hostname)`
- * (`helpers/common.ts`), computed from `req`, the SAME request this payload is being built for, never
- * a stored setting. This is what lets `PageCommentsEmbed.vue` build a codeTemplate provider's
- * canonical page URL as `commentsProvider.origin + '/' + page.path` without ever re-deriving
- * `protocol://host` itself -- see `models/commentProviders.ts`'s canonical-URL boundary doc comment
- * for why that matters. `config` carries only what the module's own `definition.yml` declares (none
- * of Disqus/Commento/Artalk's props are `sensitive`), and revealing which provider is active/its
- * config to every reader is not a `read:comments` leak: it is site-wide, admin-configured
- * information, not anything about any specific page -- the per-page boundary is enforced separately,
- * client-side, by `PageCommentsEmbed.vue` itself before it ever renders the vendor's `<script>`.
+ * `commentsProvider` is non-null only for a `codeTemplate` provider; its `origin` comes from the
+ * request this payload is built for, never a stored setting. Its (masked) config is site-wide admin
+ * configuration, so sending it to every reader is not a `read:comments` leak.
  *
- * Also carries `navigationId`: this site's default (locale-scoped) menu row id, resolved via
- * `CARDINAL.models.navigation.ensureSiteNav()` the same way `GET .../navigation/default` resolves it for
- * an admin caller. Unlike that route -- gated behind `manage:navigation`/`site:navigation`, a
- * convenience-route choice rather than a real permission requirement, since `ensureSiteNav()` itself
- * checks nothing -- this is `publicAccess: true`, because the only other way a browser ever learns a
- * real `navigationId` today is embedded in a per-page fetch response (`toPage()` in
- * `models/pages.ts`), which requires a content page to have loaded first. A non-content `MainLayout`
- * route (the knowledge graph, tags browse) never calls that, so without this fallback its sidebar has
- * no `navigationId` to ask for on a cold load or refresh (OpenProject #2526/#2527) -- `NavSidebar.vue`'s
- * watcher falls back to `siteStore.navigationId` exactly when `pageStore.navigationId` is unset.
- *
-
- * Every `site.config` key reaching the response is named explicitly rather than spread in, and both
- * callers of this function (`GET /sites/:siteIdorHostname` below and `GET /_api/bootstrap`) are
- * `publicAccess: true`. `search` is the reason: it's where active search-engine credentials live
- * (`CARDINAL.sites[siteId]?.config?.search?.engines?.[key]` — `models/search.ts:402`/`:535`, Algolia's
- * `apiKey` and Azure AI Search's `adminApiKey`), seeded under the same top-level `search` key as
- * `search.engine`/`search.config` (`models/sites.ts`'s `createSite` defaults). It used to stay out of
- * the browser only because `api/schemas/site.ts`'s `Site` schema declared no top-level `search`
- * property and fast-json-stringify silently drops undeclared keys — an invariant nothing stated and
- * no test pinned, so one additive schema edit would have disclosed both keys on the app's
- * highest-traffic unauthenticated route. Naming every key here — mirroring
- * `authentication.ts`'s `activeStrategies` payload — makes the omission positive instead of
- * accidental; `schemas/site.test.ts` pins it.
+ * `navigationId` is public here because a non-content route (the knowledge graph, tags browse)
+ * never fetches a page, the only other place a browser learns it.
  */
 export async function buildSitePayload(
   site: {
@@ -202,9 +139,7 @@ export async function buildSitePayload(
     docsBase: CARDINAL.config.docsBase,
     isReplicationEnabled: CARDINAL.config.replication?.isEnabled === true,
     navigationId: await CARDINAL.models.navigation.ensureSiteNav(site.id, defaultLocale(site.id)),
-    // -> `req` is optional purely so existing test call sites that only care about other fields need
-    //    not fabricate one; a real caller (both routes below) always passes it. Absent, or the active
-    //    provider not a `codeTemplate` one, both read as null -- see this field's own doc comment above.
+    // -> `req` is optional only so a test need not fabricate one; a real caller always passes it.
     commentsProvider:
       req && activeProvider?.codeTemplate
         ? {
@@ -246,26 +181,11 @@ export async function buildSitePayload(
 }
 
 /**
- * The site's per-block config and tag-to-block index, both for a reader's browser.
+ * `GET /sites/:siteId/blocks` is gated to authors and administrators, so a page reader's browser
+ * gets both of these on the public site-info response instead: `blocksConfig` is a block's
+ * site-wide config, `blocksIndex` the `id`/`isCustom` a custom block's import URL is built from.
  *
- * Built from one `getSiteBlocks` call rather than a route of its own: `GET /sites/:siteId/blocks`
- * (see `mayListBlocks` in `api/blocks.ts`) is gated to authors and administrators, and a page reader
- * is neither. Both travel instead on the site-info response every reader's browser already fetches
- * publicly:
- *
- *   - `blocksConfig` lets a block like `block-map` resolve its site-wide config (a tile server URL,
- *     an API key) without ever calling the gated route.
- *   - `blocksIndex` lets the page view resolve an undefined `block-*` element to its `id`/`isCustom`
- *     — what `blockImportUrl()` (`stores/common.js`) needs to build a custom block's
- *     `/_blocks/custom/:siteId/:id.js` import URL — without the gated route either. Before this
- *     existed, that resolution went through `GET /sites/:siteId/blocks` directly (OpenProject #954),
- *     so a custom block silently 404'd (falling through to the built-in, tag-only URL) for every
- *     reader who wasn't also an author.
- *
- * Both are filtered to enabled blocks only: a disabled block must never reach a reader's browser,
- * neither its config nor a URL to fetch its code from. `blocksConfig` additionally excludes a block
- * with nothing configurable, so it doesn't add an empty object to every page's payload for no reader
- * to use.
+ * Enabled blocks only: neither a disabled block's config nor a URL to its code may reach a reader.
  */
 async function siteBlocksInfoFor(
   siteId: string
@@ -285,9 +205,6 @@ async function siteBlocksInfoFor(
   return { blocksConfig, blocksIndex }
 }
 
-/**
- * Sites API Routes
- */
 async function routes(app: FastifyInstance) {
   // -> An image upload is the raw file rather than a multipart form: one file, no fields, and no
   //    dependency to add. Registered inside this plugin, so every other route keeps rejecting an
@@ -377,13 +294,9 @@ async function routes(app: FastifyInstance) {
         strict: req.query.strict ?? false
       })
       if (site) {
-        // -> `req.protocol`/`req.hostname` are this REQUEST's own -- correct for `commentsProvider.origin`
-        //    whenever `siteIdorHostname` names the site actually being browsed (`'current'`, or its own
-        //    hostname), which is the only case anything reads that field for (`applySiteInfo()` on the
-        //    frontend, called by `loadSite(window.location.hostname)`). A caller naming a DIFFERENT
-        //    site by id (e.g. an admin browsing another site's settings) gets an origin that reflects
-        //    ITS OWN request, not that other site's -- harmless, since nothing feeds this response into
-        //    `siteStore` in that case, but worth knowing before reaching for this field a second way.
+        // -> `commentsProvider.origin` reflects THIS request's host, which is right only when
+        //    `siteIdorHostname` names the site being browsed. A caller naming a DIFFERENT site by
+        //    id gets its own origin back, not that site's.
         return buildSitePayload(site, req)
       } else {
         return reply.notFound('Site does not exist.')
@@ -391,16 +304,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SITE USER PERMISSIONS
-   */
   app.get<{ Params: { siteId: string } }>(
     '/:siteId/userPermissions',
     {
       /*
-        No route-level `permissions`: same reasoning as `pages/userPermissions` in `api/pages/read.ts` --
-        this answers what the caller may do, which for an anonymous or under-permissioned caller is
-        an empty array rather than a 403.
+        No route-level `permissions`: this answers what the caller may do, which for an anonymous or
+        under-permissioned caller is an empty array rather than a 403.
       */
       schema: {
         summary: 'Get site-admin user permissions',
@@ -422,9 +331,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE SITE
-   */
   app.post<{ Body: { hostname: string; title: string } }>(
     '/',
     {
@@ -482,13 +388,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      // -> Validate inputs
-      // -> hostname is already validated by the body schema's `pattern`; no hand-rolled check needed.
+      // -> hostname is validated by the body schema's `pattern`
       if (!req.body.title || req.body.title.length < 1 || !/^[^<>"]+$/.test(req.body.title)) {
         throw new CustomError('siteCreateInvalidTitle', 'Invalid Site Title')
       }
 
-      // -> Check for duplicate hostname
       if (!(await CARDINAL.models.sites.isHostnameUnique(req.body.hostname))) {
         if (req.body.hostname === '*') {
           throw new CustomError(
@@ -503,12 +407,6 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      // -> Create site
-      //
-      // No private try/catch (Bug #2650): an unexpected failure here is left to propagate to
-      // `helpers/errorHandler.ts#apiErrorHandler`, which logs it once at `error` with the
-      // `reqId`/`method`/`url`/`siteId`/`userId` context that correlates it to the request. Catching
-      // it here logged a bare, uncorrelated line at `warn` and answered the 500 itself.
       const result = await CARDINAL.models.sites.createSite(req.body.hostname, {
         title: req.body.title
       })
@@ -520,9 +418,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE SITE
-   */
   app.put<{
     Params: { siteId: string }
     Body: {
@@ -561,11 +456,9 @@ async function routes(app: FastifyInstance) {
     '/:siteId',
     {
       /*
-        No route-level `permissions`: five different `site:*` permissions gate different keys of the
-        same body (see `SITE_FIELD_PERMISSIONS`), which `config.permissions` cannot express any more
-        than it can express a page permission, since that hook only ever reads the group-wide session
-        list — the same reason applies identically to a site-scoped permission. Checked in the
-        handler below instead.
+        No route-level `permissions`: different `site:*` permissions gate different keys of the same
+        body (see `SITE_FIELD_PERMISSIONS`), and `config.permissions` reads only the group-wide
+        session list, so it cannot express a site-scoped permission. Checked in the handler instead.
       */
       schema: {
         summary: 'Update a site',
@@ -700,9 +593,8 @@ async function routes(app: FastifyInstance) {
           | 'hostname'
           | 'isEnabled'
         )[]
-        // -> The instance-wide `manage:theme` grant (task #681) only ever covers a patch that
-        //    touches nothing but `theme` — anything broader falls through to the per-key check
-        //    below, same as it always has.
+        // -> The instance-wide `manage:theme` grant covers only a patch that touches nothing but
+        //    `theme` — anything broader falls through to the per-key check below.
         const maySaveThemeOnly =
           actor.permissions.includes('manage:theme') &&
           touchedKeys.length > 0 &&
@@ -710,8 +602,8 @@ async function routes(app: FastifyInstance) {
         if (!maySaveThemeOnly) {
           const missingPermission = touchedKeys.some((key) => {
             const required = SITE_FIELD_PERMISSIONS[key]
-            // -> `isEnabled`, or any key nobody delegated a `site:*` permission for, stays
-            //    `manage:sites`-only -- reaching this branch already means that's absent.
+            // -> A key with no `site:*` permission stays `manage:sites`-only -- reaching this
+            //    branch already means that's absent.
             if (!required) {
               return true
             }
@@ -723,14 +615,12 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      // -> Validate inputs
       if (req.body.title !== undefined && !/^[^<>"]+$/.test(req.body.title)) {
         throw new CustomError('siteUpdateInvalidTitle', 'Invalid Site Title')
       }
 
-      // -> Guard against a `javascript:` (or any other non-http(s)) `auth.*Redirect` field the same
-      //    way the group redirect fields are guarded — OpenProject #2208 §2. `welcomeRedirect` and
-      //    `logoutRedirect` are handed straight to the browser the same way `loginRedirect` is.
+      // -> All three are handed straight to the browser as navigation targets, so a `javascript:`
+      //    (or any other non-http(s)) value must be refused.
       if (req.body.auth) {
         const allowAbsolute = absoluteRedirectsAllowed()
         for (const field of ['loginRedirect', 'welcomeRedirect', 'logoutRedirect'] as const) {
@@ -753,8 +643,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Site does not exist.')
       }
 
-      // -> Mirror the DELETE route's last-site guard: a site can only be disabled if at least one
-      //    other site would remain enabled, otherwise every hostname would stop resolving.
+      // -> With no site left enabled, every hostname would stop resolving.
       if (
         req.body.isEnabled === false &&
         site.isEnabled &&
@@ -765,7 +654,6 @@ async function routes(app: FastifyInstance) {
         )
       }
 
-      // -> Check for duplicate hostname
       if (
         req.body.hostname !== undefined &&
         req.body.hostname !== site.hostname &&
@@ -784,8 +672,8 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      // -> Validate locales against the installed ones, and against what the site ends up with once
-      //    the patch is merged, so that a partial update cannot leave the primary locale inactive
+      // -> Validated against what the site ends up with once the patch is merged, so that a partial
+      //    update cannot leave the primary locale inactive
       if (req.body.locales) {
         const installedCodes = (await CARDINAL.models.locales.getLocales()).map(
           (lc: any) => lc.code
@@ -817,13 +705,8 @@ async function routes(app: FastifyInstance) {
 
         // -> Deactivating a locale that still holds pages would orphan them: unreachable by URL
         //    (the prefix parser only recognizes ACTIVE codes), uncreatable, yet still surfacing in
-        //    the file manager and search. Refuse with counts; moving or deleting the pages first is
-        //    the explicit path. (Decision doc, Option A item 5.)
-        //
-        //    Only PAGES are counted, deliberately: a folder or asset left behind in a deactivated
-        //    locale with zero pages does not orphan a reachable URL the way a page would, so
-        //    deactivation is allowed to proceed in that case. Pages are the orphaning concern this
-        //    check exists for.
+        //    the file manager and search. Only PAGES are counted, deliberately: a folder or asset
+        //    left behind orphans no reachable URL.
         const removedLocales = (site.config.locales?.active ?? []).filter(
           (code: string) => !active.includes(code)
         )
@@ -850,7 +733,6 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      // -> Split the patch between real columns and the config JSONB blob
       const config: Record<string, any> = {}
       for (const key of SITE_CONFIG_KEYS) {
         if (req.body[key] !== undefined) {
@@ -858,10 +740,6 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      // -> Update site
-      //
-      // No private try/catch, same reasoning as `POST /` above (Bug #2650): the throw reaches
-      // `apiErrorHandler`, which logs it at `error` with the request context attached.
       await CARDINAL.models.sites.updateSite(req.params.siteId, {
         hostname: req.body.hostname,
         isEnabled: req.body.isEnabled,
@@ -885,16 +763,13 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPLOAD SITE IMAGE
-   */
   app.put<{ Params: { siteId: string; kind: SiteAssetKind } }>(
     '/:siteId/images/:kind',
     {
       /*
-        No route-level `permissions`: which `site:*` permission applies depends on `kind` (`logo`
-        and `favicon` are `site:general`, `loginBg` is `site:login`), which a route-level list can't
-        express. Checked in the handler via `checkSiteAdminAccess`, over `SITE_IMAGE_KIND_PERMISSIONS`.
+        No route-level `permissions`: which `site:*` permission applies depends on `kind` (see
+        `SITE_IMAGE_KIND_PERMISSIONS`), which a route-level list can't express. Checked in the
+        handler.
       */
       schema: {
         summary: "Replace one of a site's images",
@@ -968,15 +843,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CLEAR SITE IMAGE
-   */
   app.delete<{ Params: { siteId: string; kind: SiteAssetKind } }>(
     '/:siteId/images/:kind',
     {
       /*
-        No route-level `permissions`: same reasoning as the PUT above — `kind` decides which `site:*`
-        permission applies, checked in the handler via `checkSiteAdminAccess`.
+        No route-level `permissions`: as for the PUT above, `kind` decides which `site:*` permission
+        applies. Checked in the handler.
       */
       schema: {
         summary: "Remove one of a site's images",
@@ -1036,19 +908,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE SITE
-   */
   app.delete<{ Params: { siteId: string } }>(
     '/:siteId',
     {
       /*
-        Deliberately still a route-level, global-only gate: deleting a site is one of
-        `AdminSites.vue`'s own site-management actions (alongside create and enable/disable), not one
-        of the eight delegable `site:*` settings surfaces the delegated-per-site-administration
-        decision's §3 lists, so there is no site-scoped
-        permission for `config.permissions` to be unable to express here — `manage:sites` says the
-        whole of it, same as before.
+        Deliberately a route-level, global-only gate: deleting a site is a site-management action,
+        like create and enable/disable, not one of the delegable `site:*` settings surfaces.
       */
       config: {
         permissions: ['manage:sites']
@@ -1081,17 +946,14 @@ async function routes(app: FastifyInstance) {
           reply.notFound('Site does not exist.')
         }
       } catch (err: any) {
-        // -> `deleteSite()` precounts pages/assets and refuses before touching anything, so this is
-        //    the normal way a still-content-holding site is refused -- reported as a conflict, not a
-        //    server fault.
+        // -> `deleteSite()` precounts pages/assets and refuses before touching anything: the normal
+        //    way a content-holding site is refused -- a conflict, not a server fault.
         if (err.name === 'siteHasContent') {
           return reply.conflict(err.message)
         }
-        // -> Backstop only: pages, assets, navigation and the page tree all reference the site without
-        //    a cascade, so a FK violation here means content was inserted in the race between
-        //    `deleteSite()`'s precheck and its transaction actually committing -- still a conflict to
-        //    report, not a server fault. `deleteSite()`'s own transaction has already rolled back
-        //    everything else it touched.
+        // -> Backstop only: content references the site without a cascade, so a FK violation means
+        //    something was inserted between `deleteSite()`'s precheck and its commit -- still a
+        //    conflict, and its transaction has already rolled back everything else.
         if (err.cause?.code === '23503' || err.code === '23503') {
           return reply.conflict('Cannot delete this site: it still holds pages or assets.')
         }

@@ -3,32 +3,23 @@ import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
- * Placeholder sent to the client in place of the stored bearer token. Sending it back unchanged
- * leaves the stored token alone -- the same masking contract `api/mail.ts` uses for `pass` and
- * `dkimPrivateKey`.
+ * Sent to the client in place of the stored bearer token. Sending it back unchanged leaves the
+ * stored token alone.
  */
 const TOKEN_MASK = '********'
 
-/** Fields stored in the `replication` settings blob (OpenProject #2437/#2491). */
 const REPLICATION_CONFIG_KEYS = ['isEnabled', 'sourceUrl', 'bearerToken', 'cronSchedule'] as const
 
 /**
- * Replication is a wipe-and-replace pull of the entire instance over HTTP, not a lightweight sync,
- * and `models/replication.ts`'s own `EXPORT_POLL_TIMEOUT_MINUTES` already allows the source-side
- * export step alone up to 60 minutes before `pull()` gives up waiting on it -- scheduling this more
- * often than once an hour risks queuing a new wipe-and-replace pull before the previous one's export
- * phase could even finish polling (OpenProject #2509).
+ * A pull wipes and replaces the whole instance, and `models/replication.ts`'s
+ * `EXPORT_POLL_TIMEOUT_MINUTES` gives the source's export step alone this long: a tighter schedule
+ * could queue a new pull before the previous one's export finished.
  */
 const MIN_CRON_INTERVAL_MINUTES = 60
 
 /**
- * Validates a cron expression for the replication schedule: it must both parse as
- * `core/scheduler.ts`'s own `croner` (OpenProject #3177) would accept it -- reusing the identical
- * package/call is what keeps "accepted here" meaning "will actually run" once the scheduled job
- * itself is wired up (OpenProject #2492) -- and fire no more often than once every
- * `MIN_CRON_INTERVAL_MINUTES` minutes, checked as the gap between its first two computed fire times.
- *
- * @returns The reason it is invalid, or null when it is fine.
+ * Parsed with the same `croner` call `models/replication.ts` schedules with, so a schedule accepted
+ * here is one that will actually run. The interval is the gap between the first two fire times.
  */
 function validateCronSchedule(value: string): string | null {
   let job
@@ -57,11 +48,6 @@ function isValidUrl(value: string): boolean {
   }
 }
 
-/**
- * Validate a replication config patch merged onto the current stored config.
- *
- * @returns The reason it is invalid, or null when it is fine
- */
 function validate(merged: Record<string, any>): string | null {
   if (merged.sourceUrl && !isValidUrl(merged.sourceUrl)) {
     return 'The source instance URL must be a valid http:// or https:// URL.'
@@ -72,8 +58,6 @@ function validate(merged: Record<string, any>): string | null {
       return cronError
     }
   }
-  // -> A half-configured instance must never be armed: enabling the scheduled pull requires all
-  //    three of the fields it depends on to already be set.
   if (merged.isEnabled) {
     if (!merged.sourceUrl) {
       return 'A source instance URL is required to enable replication.'
@@ -88,16 +72,7 @@ function validate(merged: Record<string, any>): string | null {
   return null
 }
 
-/**
- * Instance-level Replication settings (OpenProject #2437/#2491): source instance URL, bearer token
- * and cron schedule for a scheduled, wipe-and-replace pull from another instance. This is
- * configuration only -- the actual bulk-export/import wire protocol (#2489/#2490) and the scheduler
- * wiring that reads `cronSchedule` (#2492) are separate work.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * GET REPLICATION CONFIG
-   */
   app.get(
     '/config',
     {
@@ -130,9 +105,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE REPLICATION CONFIG
-   */
   app.put<{
     Body: {
       isEnabled?: boolean
@@ -182,8 +154,6 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      // -> Trailing slash is stripped up front so a stored sourceUrl composes cleanly once the
-      //    bulk-export API path is appended (#2489).
       if (typeof patch.sourceUrl === 'string') {
         patch.sourceUrl = patch.sourceUrl.trim().replace(/\/+$/, '')
       }
@@ -191,7 +161,6 @@ async function routes(app: FastifyInstance) {
         patch.cronSchedule = patch.cronSchedule.trim()
       }
 
-      // -> The client only ever receives a masked token, so an unchanged one must not be stored
       if (patch.bearerToken === TOKEN_MASK) {
         delete patch.bearerToken
       }
@@ -211,8 +180,6 @@ async function routes(app: FastifyInstance) {
         return reply.internalServerError('Failed to save replication configuration.')
       }
 
-      // -> Never write the raw bearer token to the audit log, even though it was accepted in the
-      //    request body.
       const auditDetail = { ...patch }
       if ('bearerToken' in auditDetail) {
         auditDetail.bearerToken = TOKEN_MASK

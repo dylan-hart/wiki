@@ -12,15 +12,10 @@ import commentsDefaultModule, {
 import type { CheckSpamParams } from './comments.ts'
 
 /**
- * `checkSpam` reads `CARDINAL.config.host` (the Akismet "blog" identity, matching 2.5.x) and
- * `CARDINAL.logger.warn` (fail-open logging) — a minimal stub of just those two, not the full
- * `test/db.ts` fixture, since nothing here touches the database. `warnLog` collects every warning so
- * tests can assert on the fail-open line without asserting on real log formatting.
- *
- * The whole record is captured, not the message alone: on the scoped call shape the cause of a
- * fail-open lives in `fields.error` (OpenProject #2668's convention — say what failed in the
- * message, pass the error as a field), so a test asserting only on the message would no longer see
- * the `ENOTFOUND` it is actually about.
+ * `checkSpam` reads `CARDINAL.config.host` (the Akismet "blog" identity) and `CARDINAL.logger.warn`
+ * (fail-open logging), so a stub of just those two is enough — nothing here touches the database.
+ * The whole record is captured rather than the message alone because the cause of a fail-open is
+ * passed as `fields.error`, not written into the message.
  */
 interface WarnRecord {
   scope: string
@@ -38,20 +33,16 @@ installTestWiki({
   }
 })
 
-/** The message plus the rendered cause — what an operator reads off one fail-open line. */
 function warnText(record: WarnRecord): string {
   const error = record.fields?.error
   return error instanceof Error ? `${record.message}: ${error.message}` : record.message
 }
 
 /**
- * Minimal stand-in for the subset of `Temporal` `checkRateLimit` and this file's own fixtures use
- * (`Now.instant()`, `Instant.compare()`, `.add()`/`.subtract()`).
- *
- * `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it — the same environment gap `core/scheduler.test.ts` works around,
- * not a spec deviation. `Instant.compare` implements the real (a, b) => sign(a - b) semantics, so
- * `checkRateLimit`'s actual comparison logic is exercised, not a re-implementation of it.
+ * A stand-in for the `Temporal` subset `checkRateLimit` and this file's fixtures use, for a Node
+ * build compiled without Temporal support. `Instant.compare` implements the real
+ * `(a, b) => sign(a - b)` semantics, so what is exercised is `checkRateLimit`'s own comparison
+ * rather than a re-implementation of it.
  */
 if (typeof (globalThis as any).Temporal === 'undefined') {
   const durationToMs = (d: { seconds?: number }) => (d.seconds ?? 0) * 1_000
@@ -69,10 +60,6 @@ if (typeof (globalThis as any).Temporal === 'undefined') {
   }
 }
 
-/**
- * A minimal `Response`-shaped stand-in for Akismet's plain-text replies — same lightweight-stub
- * convention `models/liveData.test.ts#jsonResponse` uses rather than a real `new Response(...)`.
- */
 function textResponse(body: string, init: { status?: number; statusText?: string } = {}): Response {
   return {
     ok: (init.status ?? 200) < 400,
@@ -83,12 +70,9 @@ function textResponse(body: string, init: { status?: number; statusText?: string
 }
 
 /**
- * Mocks `globalThis.fetch` (undici-backed, per `models/liveData.test.ts`'s established convention —
- * confirmed by reading it: it mocks `fetch` directly, not an undici `MockAgent`/dispatcher, and no
- * `MockAgent` usage exists anywhere else in this codebase) to answer Akismet's two REST endpoints.
- * `verifyKey`/`commentCheck` are each either the literal response text Akismet would send back, or an
- * `Error` to have `fetch` itself reject with (simulating a network failure, as opposed to a
- * successful-but-non-2xx response).
+ * `verifyKey`/`commentCheck` are each either the literal text Akismet would answer with, or an
+ * `Error` for `fetch` itself to reject with — a network failure, as opposed to a successful but
+ * non-2xx response.
  */
 function mockAkismetFetch({
   verifyKey = 'valid',
@@ -199,10 +183,7 @@ describe('modules/comments/default', () => {
       })
 
       it("guest pooling is the caller's job: two different callers sharing one lastCommentAt are rate-limited together", () => {
-        // -> This module has no notion of "guest" — it only ever compares the instant it is handed.
-        //    Simulating guest pooling here means two logically-different posters (e.g. two different
-        //    IPs) resolving to the SAME shared bucket timestamp, which is exactly what the caller is
-        //    responsible for doing (see CheckRateLimitParams' JSDoc) before calling this function.
+        // -> This module has no notion of "guest": it only compares the instant it is handed.
         const sharedGuestBucketLastCommentAt = now.subtract({ seconds: 2 })
         const guestPosterOneAllowed = checkRateLimit(30, sharedGuestBucketLastCommentAt, now)
         const guestPosterTwoAllowed = checkRateLimit(30, sharedGuestBucketLastCommentAt, now)
@@ -274,8 +255,7 @@ describe('modules/comments/default', () => {
           comment_author: 'Ada Lovelace',
           comment_author_email: 'ada@example.com',
           permalink: 'https://test.wiki/en/some-page',
-          // -> `permalinkDate` maps to `comment_post_modified_gmt`, not `comment_date_gmt` — see
-          //    `submitAkismetCommentCheck`'s doc comment for why.
+          // -> Deliberately not `comment_date_gmt`; `submitAkismetCommentCheck` says why.
           comment_post_modified_gmt: '2026-08-16T00:00:00.000Z',
           comment_type: 'reply',
           user_role: 'administrator'
@@ -398,7 +378,6 @@ describe('modules/comments/default', () => {
     it('syntax-highlights a fenced code block with a known language via highlight.js', async () => {
       const result = await commentsDefaultModule.render('```js\nconst x = 1\n```')
       assert.match(result.render, /<pre><code class="language-js">/)
-      // -> highlight.js wraps recognized tokens (`const`, here) in spans with hljs-* classes
       assert.match(result.render, /class="hljs-\w+"/)
       assert.equal(result.content, '```js\nconst x = 1\n```')
     })
@@ -411,10 +390,8 @@ describe('modules/comments/default', () => {
     })
 
     it('falls back to escaped, unhighlighted code for a real grammar outside highlight.js/lib/common', async () => {
-      // -> `fortran` is a real highlight.js grammar, but not one of the ~36 languages `lib/common`
-      //    registers (confirmed against `highlight.js/lib/common#listLanguages()`) -- this is what
-      //    proves the backend renderer's import actually shrank, not merely that a typo'd language
-      //    still falls back the way it always has.
+      // -> `fortran` is a real highlight.js grammar, just not one `lib/common` registers -- which is
+      //    what makes this a different case from the unknown-language fallback above.
       const result = await commentsDefaultModule.render('```fortran\n<b>x</b>\n```')
       assert.match(result.render, /<pre><code class="language-fortran">/)
       assert.ok(!result.render.includes('<b>x</b>'))
@@ -448,18 +425,14 @@ describe('modules/comments/default', () => {
 
     it('neuters an attempted <img onerror> injection', async () => {
       const result = await commentsDefaultModule.render('<img src=x onerror="alert(1)">')
-      // -> `html: false` escapes the tag delimiters, so what remains is inert paragraph TEXT — the
-      //    literal word "onerror" may still be visible on the page, but there is no real `<img>`
-      //    element left for a browser to attach it to as an executing attribute.
+      // -> `html: false` escapes the tag delimiters, so the literal word "onerror" may survive as
+      //    paragraph text -- but with no `<img>` element left for a browser to attach it to.
       assert.ok(!/<img[\s>]/i.test(result.render))
     })
 
     it('resolves via fs.access, matching the exact check models/storage.ts runs for storage.ts', async () => {
-      // -> models/storage.ts's hasImplementation() runs:
-      //      fs.access(path.join(CARDINAL.SERVERPATH, 'modules/storage', key, 'storage.ts'))
-      //    which resolves to <repo-root>/backend/modules/storage/<key>/storage.ts. Once
-      //    models/comments.ts exists it is expected to run the same check against
-      //    'modules/comments'; this asserts the equivalent path for this module resolves today.
+      // -> `serverPath` stands in for `CARDINAL.SERVERPATH`, which `hasImplementation()` joins the
+      //    module-relative path onto.
       const serverPath = path.join(import.meta.dirname, '..', '..', '..')
       await assert.doesNotReject(
         fs.access(path.join(serverPath, 'modules/comments', 'default', 'comments.ts'))

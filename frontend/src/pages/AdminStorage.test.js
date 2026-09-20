@@ -14,23 +14,9 @@ import { createTestI18n } from '../../test/i18n.js'
 import { buildTestRouter } from '../../test/router.js'
 
 /**
- * Regression coverage for the orphaned GitHub App setup flow that used to live in this page
- * (task 509, Feature 372): `setupGitHub()` / `setupGitHubStep()` posted a manifest to
- * github.com and drove a multi-step OAuth+webhook install, but nothing on the backend ever backed
- * it -- no `modules/storage/github/definition.yml` declared the `setup.handler`, no `/_github/*`
- * webhook route existed, so `state.target.setup.handler` could never actually equal `'github'` at
- * runtime and the whole branch (template blocks, JS handlers, the manifest-form ref, and the
- * `GithubSetupInstallDialog.vue` popup) was unreachable dead code. It was removed rather than
- * finished, since a real GitHub App storage module is new 3.0-native scope for its own Feature, not
- * something to half-build inside this git-parity task.
- *
- * These assertions read the page's source text directly rather than mounting it: `AdminStorage.vue`
- * pulls in the admin/site stores and live storage-target API calls that no other Admin* page
- * currently has Vitest coverage driving through, so a full mount here would be a disproportionate
- * lift for what is fundamentally a "this dead code must not silently reappear" check. The
- * delivery-path diagram (`StorageDeliveryGraph.vue`, task #3116) has its own, separate mount-based
- * coverage below instead, since that one specifically needs to prove the diagram still renders once
- * switched into that display mode.
+ * The GitHub-setup assertions below read the page's source text rather than mounting it: they guard
+ * against unreachable dead code reappearing, and a mount would have to stand up the admin/site
+ * stores and live storage-target calls to prove nothing.
  */
 
 const pagePath = join(import.meta.dirname, 'AdminStorage.vue')
@@ -91,8 +77,6 @@ async function mountPage() {
   return wrapper
 }
 
-/** Switches an already-mounted page into the delivery-paths display mode and returns the
- *  `<storage-delivery-graph>` wrapper once it has rendered its own DOM. */
 async function switchToDeliveryGraph(wrapper) {
   const deliveryToggle = wrapper
     .findAll('button')
@@ -109,30 +93,23 @@ describe('AdminStorage.vue - delivery-path diagram (StorageDeliveryGraph.vue, ta
   it('renders the delivery-path diagram once switched to that display mode', async () => {
     const wrapper = await mountPage()
 
-    // -> Not rendered yet: default displayMode is `targets`, the diagram is behind a v-if
+    // -> Default `displayMode` is `targets`, and the diagram is behind a v-if
     expect(wrapper.find('.storage-delivery-graph').exists()).toBe(false)
 
     const graph = await switchToDeliveryGraph(wrapper)
     expect(graph.exists()).toBe(true)
-    // -> generateGraph() always seeds at least the `user`/`pages`/`pages_wiki` nodes plus one node
-    //    per content type -- confirms the component received real node data, not an empty graph.
+    // -> The node count is data-dependent; a non-empty list is what proves real graph data arrived.
     expect(graph.findAll('.storage-delivery-graph__node').length).toBeGreaterThan(0)
   })
 })
 
 /**
- * OpenProject #2500 (and its task #3116 follow-up, which moved this off `v-network-graph`): the
- * delivery-paths graph used to hardcode `style="background-color: #fff"`, rendering as a stark white
- * box inside an otherwise dark-themed admin page. It's now bound to `useDark()`'s `dark.isActive` --
- * the same composable already driving every other dark-mode-aware control on this page -- so these
- * assert both the actual rendered background AND the node label color: leaving the label at black
- * would trade one bug (a mismatched white panel) for a worse one (unreadable black-on-dark text) the
- * moment the background goes dark.
+ * The node label colour is asserted alongside the background: a dark background with the label left
+ * black would trade a mismatched white panel for unreadable black-on-dark text.
  */
 describe('AdminStorage.vue - delivery-path diagram dark mode (OpenProject #2500)', () => {
   afterEach(() => {
-    // `useDark()`'s `active` ref is a module-level singleton -- reset it so a test that turned
-    // dark mode on doesn't leak into an unrelated test running later in this file.
+    // `useDark()`'s `active` ref is a module-level singleton, so dark mode leaks into later tests.
     useDark().set(false)
   })
 

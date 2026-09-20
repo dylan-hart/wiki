@@ -8,23 +8,18 @@
         <w-icon name="tabler:link" size="sm" class="me-2" />
         <span>{{ props.title ?? t('linkPicker.title') }}</span>
       </w-card-section>
-      <!-- -> Inset from the card's edges, as in the icon picker: the strip is a segmented control with
-              a track of its own, so it sits ON the card rather than spanning it edge to edge -->
       <w-tabs class="m-2" v-model="state.currentTab" no-caps inline-label>
         <w-tab name="page" icon="tabler:file-text" :label="t(`linkPicker.page`)" />
         <w-tab name="url" icon="tabler:world" :label="t(`linkPicker.url`)" />
       </w-tabs>
       <w-separator />
       <w-tab-panels v-model="state.currentTab">
-        <!-- ----------------------- -->
-        <!-- A page of this wiki -->
-        <!-- ----------------------- -->
         <w-tab-panel class="p-0" name="page">
           <div class="link-picker-browser flex flex-nowrap">
             <div class="link-picker-tree w-1/3">
               <w-scroll-area style="height: 300px">
-                <!-- -> No side padding: the rows carry their own and span the column, as in the File
-                        Manager. Padding here would inset the highlight band as well. -->
+                <!-- -> No side padding: it would inset the row highlight band, which spans the
+                        column -->
                 <div>
                   <tree
                     ref="treeComp"
@@ -65,9 +60,6 @@
             </div>
           </div>
         </w-tab-panel>
-        <!-- ----------------------- -->
-        <!-- Anywhere else -->
-        <!-- ----------------------- -->
         <w-tab-panel class="p-4" name="url">
           <w-input
             ref="iptUrl"
@@ -85,8 +77,8 @@
         </w-tab-panel>
       </w-tab-panels>
       <w-separator />
-      <!-- -> The same footer the icon picker has: what is about to be committed, spelled out, since
-              both tabs can be half-filled and only one of them is the answer -->
+      <!-- -> Spells out what is about to be committed: both tabs can be half-filled, and only one of
+              them is the answer -->
       <w-card-section class="flex flex-nowrap items-center py-2">
         <w-icon
           :name="state.currentTab === `page` ? `tabler:file-text` : `tabler:world`"
@@ -138,37 +130,27 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
 /**
- * Picks a link target: a page of this wiki, or any URL.
- *
- * Written to be opened from anywhere that needs one — the markdown editor's Insert Link, the target of
- * a page relation — so it decides nothing about what the link is FOR. It answers with
- * `{ href, openInNewTab, title }` and leaves the caller to render that as markdown, store it on a
- * relation, or whatever else.
- *
- *   dialog({ component: LinkPickerDialog }).onOk(({ href }) => ...)
+ * Picks a link target: a page of this wiki, or any URL. Opened from anywhere that needs one, so it
+ * decides nothing about what the link is FOR — it answers with `{ href, kind, openInNewTab, title }`
+ * and leaves the caller to render or store that.
  */
 
-// PROPS
-
 const props = defineProps({
-  /** Card heading. The insert-a-link wording by default. */
   title: {
     type: String,
     default: null
   },
-  /** Label on the confirm button, for a caller that is selecting rather than inserting. */
   okLabel: {
     type: String,
     default: null
   },
-  /** An href to open on, so re-opening the picker starts where the last choice left it. */
   initialHref: {
     type: String,
     default: ''
   },
   /**
-   * Whether the URL tab offers "open in a new tab". Off for a caller with nowhere to put the answer —
-   * a control whose effect is discarded is worse than no control.
+   * Off for a caller with nowhere to put the answer: a control whose effect is discarded is worse
+   * than no control.
    */
   newTabOption: {
     type: Boolean,
@@ -176,56 +158,37 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
 
-// DIALOG
-
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
-
-// STORES
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// REFS
 
 const treeComp = ref(null)
 const iptUrl = ref(null)
 
-// DATA
-
 const state = reactive({
   currentTab: 'page',
-  /** Folder whose contents the right-hand pane lists. Null is the site root. */
+  /** Null is the site root. */
   currentFolderId: null,
   treeNodes: {},
   treeRoots: [],
   items: [],
-  /** The chosen page, as a slash path with no leading slash. Only a row in the list sets it. */
+  /** A slash path with no leading slash. Only a row in the list sets it. */
   path: '',
-  /** Title of the page the path came from, which a caller can use as the link's text. */
   pageTitle: '',
   isFetching: false,
   url: 'https://',
   openInNewTab: false
 })
 
-// COMPUTED
-
 /*
-  The tree this picker browses is scoped to `pageStore.locale` (passed to `loadTree` below), same as
-  the link handed back -- the page currently being edited's own locale, so the picker only ever lists
-  (and only ever links to) pages that exist in that locale.
-
-  Before this scoping, the tree was unfiltered: picking a page that only had, say, a `fr` translation
-  while editing an `en` page produced a link prefixed `/en/<fr-path>` -- a page that never existed
-  under that prefix, so a dead link the moment it was followed. Listing and link now agree.
+  Tree and link are both scoped to `pageStore.locale`: listing a page that exists only in another
+  locale would hand back `/en/<fr-path>`, a path that never existed -- a dead link the moment it is
+  followed.
 */
 const href = computed(() =>
   state.currentTab === 'page'
@@ -243,20 +206,14 @@ const canSubmit = computed(() => {
   return href.value.length > 0 && !/^[a-z][a-z0-9+.-]*:\/*$/i.test(href.value)
 })
 
-// WATCHERS
-
 watch(
   () => state.currentFolderId,
   (folderId) => loadTree({ parentId: folderId })
 )
 
-// METHODS
-
 /**
- * Loads one folder into the tree, and — when that folder is the selected one — into the list beside it.
- *
- * `initLoad` also asks for the folders above the one being listed, so that opening on a page buried a
- * few levels down draws its whole branch from a single request. Those extra entries come back flagged
+ * `initLoad` also asks for the folders above the one being listed, so opening on a page buried a few
+ * levels down draws its whole branch from a single request. Those extra entries come back flagged
  * `isAncestor` and belong in the tree only, never in the list.
  */
 async function loadTree({ parentId = null, parentPath = null, initLoad = false }) {
@@ -276,8 +233,6 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
       locale: pageStore.locale,
       initLoad
     })
-    // -> The folder half of the response is the tree, merged the same way the File Manager and the
-    //    save dialog merge it; the sorted list below is this picker's own projection
     const { roots } = mergeFolderEntries(state.treeNodes, entries, parentId)
     for (const id of roots) {
       if (!state.treeRoots.includes(id)) {
@@ -286,7 +241,6 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
     }
     for (const entry of entries ?? []) {
       const path = entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
-      // -> An ancestor is drawn in the tree to give the branch its shape; it is not IN this folder
       if (isCurrentFolder && !entry.isAncestor) {
         state.items.push({
           id: entry.id,
@@ -297,7 +251,6 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
         })
       }
     }
-    // -> Folders first, as the File Manager lists them, then by what they are called
     state.items.sort((a, b) =>
       a.type === b.type ? a.title.localeCompare(b.title) : a.type === 'folder' ? -1 : 1
     )
@@ -318,7 +271,6 @@ function treeLazyLoad(nodeId, isCurrent, { done }) {
   loadTree({ parentId: nodeId }).then(done)
 }
 
-/** The id of an already-loaded folder, addressed the way a path addresses it. */
 function findFolderIdByPath(path) {
   if (!path) {
     return null
@@ -329,7 +281,6 @@ function findFolderIdByPath(path) {
   return entry?.[0] ?? null
 }
 
-/** A folder is somewhere to look; a page is the answer. */
 function selectItem(item) {
   if (item.type === 'folder') {
     state.currentFolderId = item.id
@@ -344,24 +295,20 @@ function submit() {
   onDialogOK({
     href: href.value,
     /*
-      Which tab answered, so a caller that stores the two kinds differently does not have to work it
-      out from the string afterwards. It cannot be worked out reliably: `/help` is a page of this wiki
-      and a perfectly good relative URL elsewhere. This is the choice somebody made.
+      Which tab answered: it cannot be recovered from the string afterwards, since `/help` is both a
+      page of this wiki and a perfectly good relative URL elsewhere.
     */
     kind: state.currentTab,
-    // -> Only ever true for a URL: a page of this wiki opens in the tab the reader is already in
+    // -> Never for a page: one of this wiki's own opens in the tab the reader is already in
     openInNewTab: state.currentTab === 'url' && props.newTabOption && state.openInNewTab,
     title: state.currentTab === 'page' ? state.pageTitle : ''
   })
 }
 
-// MOUNTED
-
 onMounted(async () => {
   /*
-    An href that is already set decides which tab opens and what it starts on, so re-opening the picker
-    on a link that exists starts from that link rather than from nothing. A page shows up as the
-    highlighted row once its folder is listed, and in the footer either way.
+    An href already set decides which tab opens and what it starts on, so re-opening the picker on an
+    existing link starts from that link rather than from nothing.
   */
   if (props.initialHref) {
     if (/^[a-z][a-z0-9+.-]*:/i.test(props.initialHref) || props.initialHref.startsWith('//')) {
@@ -372,7 +319,7 @@ onMounted(async () => {
     }
   }
 
-  // -> Opens on the folder holding the page being edited, which is where a link is most often going
+  // -> Opens on the folder holding the page being edited: where a link most often points
   const startFolder = pageStore.folderPath
   await loadTree({ parentPath: startFolder, initLoad: true })
   const startFolderId = findFolderIdByPath(startFolder)
@@ -398,17 +345,12 @@ onMounted(async () => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .link-picker-browser {
   height: 300px;
   max-height: 90vh;
 }
 .link-picker {
-  /* -> The tree column carries the recessed surface, as it does in the File Manager */
+  /* -> Empty: the recessed surface belongs to the tree column below */
 }
 .link-picker-tree {
   height: 300px;

@@ -1,8 +1,5 @@
 <template>
   <div class="page-placeholder">
-    <!-- ----------------------- -->
-    <!-- Nowhere to go -->
-    <!-- ----------------------- -->
     <template v-if="problem">
       <w-icon class="page-placeholder-icon" name="tabler:alert-triangle" />
       <div class="text-h6">{{ t(`common.redirect.${problem}`) }}</div>
@@ -21,9 +18,6 @@
         :label="t(`common.actions.edit`)"
         @click="editPage" />
     </template>
-    <!-- ----------------------- -->
-    <!-- Held, so the page can be worked on -->
-    <!-- ----------------------- -->
     <template v-else-if="!following">
       <w-icon class="page-placeholder-icon" name="tabler:directions" />
       <div class="text-h6">{{ t('common.redirect.held') }}</div>
@@ -36,20 +30,15 @@
         :label="t(`common.redirect.follow`)"
         @click="follow" />
     </template>
-    <!-- ----------------------- -->
-    <!-- On the way -->
-    <!-- ----------------------- -->
     <template v-else>
       <w-icon class="page-placeholder-icon" name="tabler:directions" />
       <!--
-        `aria-live`, because nothing here is clicked: a reader on a screen reader is told where they
-        are being taken at the moment the page announces it, not when they get around to reading it.
+        `aria-live`, because nothing here is clicked: a screen reader is told where it is taking its
+        reader at the moment the page announces it.
       -->
       <div class="text-h6" role="status" aria-live="polite">
         {{ t('common.redirect.redirectingTo', { target: redirect.target }) }}
       </div>
-      <!-- -> The way out of a wait, and the way past it: a reader who does not want to sit through
-              the notice can go now, and one who lands here with scripting half-loaded has a link -->
       <w-btn
         class="mt-6"
         icon="tabler:arrow-right"
@@ -81,72 +70,33 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 /**
- * What the page view draws in place of an article for a page authored with the `redirect` editor.
- *
- * A redirection has no body: it sends its reader somewhere else, either straight away or after a
- * short notice saying where. See `helpers/pageRedirect.js` for what is stored, and
- * `EditorRedirect.vue` for where it is filled in.
- *
- * **`?redirect=no` holds it**, which is what makes a redirection maintainable: without it, a page
- * whose whole purpose is to bounce the reader elsewhere cannot be opened by the person who has to
- * fix it. The link a redirection's own screens hand out carries it, so following a chain of them
- * backwards keeps working.
- */
-
-/**
- * How many redirections may be followed one after another before the chain is treated as a loop.
- *
- * `A → B → A` is a browser that never stops navigating, and no single page can see it: each one is
- * pointing somewhere perfectly reasonable. Only the count across them says otherwise. Generous enough
- * that a chain nobody meant to build still works, and small enough to stop before anything hangs.
+ * `A → B → A` is a browser that never stops navigating, and no single page can see it: each one
+ * points somewhere perfectly reasonable, and only the count across them says otherwise.
  */
 const MAX_HOPS = 5
 
 /**
- * Redirections followed in a row. Deliberately outside the component, because that is the whole point:
- * the page view keeps this one component mounted from a redirection to the next, and the count is
- * about the chain rather than about any page in it. Reset the moment the chain ends — a page that is
- * read rather than followed unmounts this, and one held by `?redirect=no` is not being followed.
+ * Module-level on purpose: the page view keeps this one component mounted from a redirection to the
+ * next, so the count is about the chain rather than about any page in it.
  */
 let hops = 0
-
-// STORES
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
 const route = useRoute()
 
-// I18N
-
 const { t } = useI18n()
 
-// DATA
-
-/** The timer behind the interstitial. Cleared on the way out, so a page left early does not fire. */
 let timer = null
 
-/** Whether this page ends a chain that has gone on too long; see `MAX_HOPS`. */
 const chainStopped = ref(false)
 
-// COMPUTED
-
-/**
- * The site's active locale codes, as `parseLocalePrefix` takes them -- shared between the target
- * composition below and `isSelf`'s decomposition of it, so the two stay in agreement about what
- * counts as a recognized prefix.
- */
 const activeLocaleCodes = computed(() => siteStore.locales.active.map((locale) => locale.code))
 
-/**
- * The stored redirection, with an in-app target resolved to a locale it actually carries. See
- * `resolveRedirectTarget` for the resolution rules (including the malformed-target caption fix);
- * a URL target leaves the app entirely and has no page locale to carry, so it passes through as-is.
- */
+/** A URL target leaves the app and has no page locale to carry, so it passes through as-is. */
 const redirect = computed(() => {
   const parsed = parseRedirect(pageStore.content)
   if (parsed.kind === 'url' || !parsed.target) {
@@ -163,13 +113,7 @@ const redirect = computed(() => {
   }
 })
 
-/**
- * Why this redirection cannot be followed, if it cannot: nothing was filled in, it points at the page
- * it is on, or it is the last hop of a chain that has come back around. All three would leave a reader
- * bouncing rather than arriving.
- *
- * Doubles as the name of the string that says so.
- */
+/** The value doubles as the name of the `common.redirect.*` string that explains the problem. */
 const problem = computed(() => {
   if (!isFollowable(redirect.value)) {
     return 'broken'
@@ -181,13 +125,10 @@ const problem = computed(() => {
 })
 
 /**
- * Whether the reader is on their way, rather than being held.
- *
  * Two things hold a redirection. `?redirect=no` is the one a person asks for. The other is an editor
  * route: `/_edit/<path>` and `/_create/<editor>` load the page BEFORE they open the editor on it, and
- * in the gap between the two the page view is drawn for a page that is already known to be a
- * redirection — which would take the author to the target instead of showing them the form for it.
- * Nobody on those routes is reading the page, so nothing there is ever followed.
+ * in that gap the page view is drawn for a page already known to be a redirection — which would take
+ * the author to the target instead of showing them the form for it.
  */
 const following = computed(
   () =>
@@ -196,21 +137,16 @@ const following = computed(
     !route.path.startsWith('/_create')
 )
 
-/** Whoever can save the page is who the broken-redirection screen offers a way to fix it to. */
 const canEditPage = computed(() =>
   ['write:pages', 'manage:pages'].some((permission) =>
     userStore.pagePermissions.includes(permission)
   )
 )
 
-// WATCHERS
-
 /*
   Keyed on the page rather than run on mount: this component stays mounted from one redirection to the
   next -- the page view swaps the store's contents under it -- so a mount hook would fire for the
-  first one only.
-
-  `immediate`, because arriving at a redirection directly is the ordinary case.
+  first one only. `immediate`, because arriving at a redirection directly is the ordinary case.
 */
 watch(
   () => [pageStore.id, redirect.value.target, following.value],
@@ -226,9 +162,9 @@ watch(
       return
     }
     /*
-      Counted here rather than in `go`, so that the interstitial on the page that breaks the chain is
-      never shown: it would say the reader is on their way somewhere they are about to be told they
-      cannot go. A URL target leaves the app entirely, which ends any chain by itself.
+      Counted here rather than in `go()`: the page that breaks the chain must not first show an
+      interstitial saying the reader is on their way somewhere they cannot go. A URL target leaves
+      the app entirely, which ends any chain by itself.
     */
     if (redirect.value.kind === 'page' && ++hops > MAX_HOPS) {
       chainStopped.value = true
@@ -249,23 +185,15 @@ onBeforeUnmount(() => {
   hops = 0
 })
 
-// METHODS
-
 function clear() {
   clearTimeout(timer)
   timer = null
 }
 
 /**
- * Whether a page target is the page holding it, however the two are spelled -- bare or
- * locale-prefixed, and whichever locale that prefix names.
- *
- * `target` is `redirect.value`'s own composed target above, so it is never simply bare: an explicit
- * prefix names the locale the author addressed, and the absence of one -- `localizedPagePath`'s only
- * unprefixed case -- names the site's primary locale just as plainly. Decomposed back into a bare
- * path and a locale and compared against this page's own `pageStore.path` and `pageStore.locale`
- * rather than the path alone, since the same path addressed at a DIFFERENT translation is a link to
- * another page, not a loop back to this one.
+ * Compared as path AND locale rather than path alone: the same path addressed at a DIFFERENT
+ * translation is a link to another page, not a loop back to this one. `target` is `redirect`'s own
+ * composed target above, so an absent prefix names the site's primary locale rather than "unknown".
  */
 function isSelf(target) {
   const parsed = parseLocalePrefix(target, activeLocaleCodes.value)
@@ -281,8 +209,6 @@ function isSelf(target) {
 }
 
 /**
- * Take the reader on.
- *
  * `replace` rather than a push, both ways: a redirection is not somewhere anyone meant to be, and
  * leaving it in the history means the back button lands on it and bounces straight forward again.
  */
@@ -300,7 +226,6 @@ function go() {
   router.replace(redirect.value.target)
 }
 
-/** Follow it deliberately, from the screen `?redirect=no` holds the reader on. */
 function follow() {
   router.replace({ path: route.path, query: { ...route.query, redirect: undefined } })
 }

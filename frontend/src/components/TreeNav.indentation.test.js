@@ -5,19 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #3064 ("Bring File Manager tree visual styling to parity with the main navbar"):
- * pins the ONE named discrepancy the parent Feature's own scope called out by name -- "Indentation
- * style (dots vs. lines)" -- against `TreeNav.vue`'s own stylesheet source. A mounted-component
- * assertion can't verify this: the depth cue is a `background-image` tiled per lane and only lit on
- * `:hover`, and jsdom runs no layout engine to render either, the same reason `TreeNode.test.js`'s
- * own header comment gives for not asserting the rendered geometry there either. A source scan is
- * what the rest of this codebase reaches for in exactly this situation (see e.g.
- * `PageToc.typography.test.js`'s own `--page-toc-*` token-wiring describe).
- *
- * The tree used to carry an always-on `border-left` guide line on every `.treeview-node` (a LINE),
- * next to the main navbar's own hover-only radial-dot cue (`NavSidebar.vue`'s `.w-item::before`
- * rule, OpenProject #2906/#2932/#2951) -- this is regression coverage for the swap to that same
- * dot mechanism, not a fix still pending.
+ * A source scan rather than a mounted assertion: the depth cue is a `background-image` tiled per
+ * lane and lit only on `:hover`, and jsdom runs no layout engine to render or measure either.
  */
 
 const componentDir = dirname(fileURLToPath(import.meta.url))
@@ -29,9 +18,8 @@ if (!styleMatch) {
 }
 const styleSource = styleMatch[1]
 
-/** Strips comments the same way `logicalSpacing.test.js` does, so a comment's own prose (which
- *  freely mentions the retired `border-left` line by name, in the past tense) can never be
- *  mistaken for a live declaration. */
+/** A comment in that stylesheet is free to name a declaration the rules no longer carry, so the
+ *  assertions below must not see comment prose. */
 function stripComments(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1')
 }

@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 // -> `monaco-editor`'s real entry point needs browser layout/measurement APIs `happy-dom` does not
-//    provide (the same reason `editorMarkdownHarness.js` exists for the component suites). Only
-//    `Range` and `Position` are reachable from this module, and only as plain value objects, so a
-//    two-class stand-in is the whole of what a mock has to be here.
+//    provide. Only `Range` and `Position` are reachable from this module, and only as plain value
+//    objects, so a two-class stand-in is the whole of what a mock has to be here.
 vi.mock('monaco-editor', () => ({
   Range: class Range {
     constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
@@ -24,12 +23,10 @@ vi.mock('monaco-editor', () => ({
 const { continueList } = await import('./markdownInsert.js')
 
 /**
- * WP #2654 (rebrand: `frontend/` code identifiers): `continueList` labels both of its edits with a
- * Monaco "edit source" id, which is what Monaco groups an undo step under and what an
- * `onDidChangeModelContent` listener reads off `e.source` to tell one command's edit from another's.
- * It carried the pre-rebrand product name and nothing pinned it, so the rename could have gone
- * half-applied -- one path renamed, the other not -- with no test and no runtime error to say so.
- * Both paths are asserted here, since they are separate `executeEdits` call sites.
+ * `continueList` labels both of its edits with a Monaco "edit source" id, which is what Monaco
+ * groups an undo step under and what an `onDidChangeModelContent` listener reads off `e.source` to
+ * tell one command's edit from another's. Nothing else pins it, and its two `executeEdits` call
+ * sites can drift apart with no runtime error, so both are asserted.
  */
 function fakeEditor(lineContent, column) {
   const executeEdits = vi.fn()
@@ -63,8 +60,7 @@ describe('continueList edit source id', () => {
   })
 
   it('labels the clear-the-empty-marker edit with the same id', () => {
-    // -> An empty marker (Enter on "- " with nothing after it) ends the list instead of continuing
-    //    it, which is the other `executeEdits` call site in the function.
+    // -> Enter on "- " with nothing after it ends the list -- the other `executeEdits` call site
     const editor = fakeEditor('- ', 3)
 
     continueList(editor)

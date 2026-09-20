@@ -8,11 +8,9 @@ import AuthTfaScreens from './AuthTfaScreens.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /*
-  The passkey row is gated on `browserSupportsWebAuthn()`, which is false under jsdom -- there is no
-  `navigator.credentials` to detect. Reporting support is the only thing this needs from the library;
-  nothing here presses the button, so `startAuthentication` is present purely to satisfy the import.
-  Hoisted by Vitest, so it takes effect ahead of the component imports below regardless of where it
-  is written.
+  The passkey row is gated on `browserSupportsWebAuthn()`, which is false in the test DOM -- there is
+  no `navigator.credentials` to detect. Nothing here presses the button, so `startAuthentication`
+  exists only to satisfy the import.
 */
 vi.mock('@simplewebauthn/browser', () => ({
   browserSupportsWebAuthn: () => true,
@@ -20,22 +18,11 @@ vi.mock('@simplewebauthn/browser', () => ({
 }))
 
 /**
- * The auth panel's chrome, against `ui-redesign/Cardinal Wiki - Login 3x.dc.html` and
- * `- Auth Screens 3x.dc.html` (OpenProject #2627).
- *
- * What this asserts and why it is asserted this way: every band on these screens is a MEASUREMENT
- * the design states (44px for the login submit, 40px for a provider row, 38px for register/forgot,
- * 36px for a strategy chip), and jsdom runs no layout engine, so none of them can be measured here.
- * `WBtn` also writes its own `min-height` as an inline style, which is why the height is expressed
- * as a `size`/`padding` pair at the call site rather than as a class a stylesheet could set --
- * content is `1.715em`, so 14px + 10px of padding is the design's 44px. Asserting the pair is
- * therefore asserting the thing that actually produces the band; a rendered-pixel check would need
- * the real-Chromium harness, and `test/realGridLayout.js#buildAppCss` compiles `css/tailwind.css`
- * only, not the SFC `<style>` blocks these screens are drawn with.
- *
- * The variant claims (outline rather than the old `acrylic-btn` wash, the chrome tone rather than
- * `primary` on four rows, the accent-fill glyph) are the ones that were visibly wrong, and those
- * jsdom can check directly.
+ * Every band on these screens is a measurement the design states, and there is no layout engine
+ * here to measure one. `WBtn` writes its own `min-height` as an inline style from its `size` and
+ * `padding` props, so asserting that pair asserts the thing that actually produces the band; a
+ * rendered-pixel check would need the real-Chromium harness, whose `buildAppCss` compiles
+ * `css/tailwind.css` only, not the SFC `<style>` blocks these screens are drawn with.
  */
 
 const LOCAL_STRATEGY = {
@@ -135,7 +122,6 @@ function mountTfa(screen, props = {}) {
   return wrapper
 }
 
-/** The `WBtn` whose rendered label is exactly `text`. */
 function btnByLabel(wrapper, text) {
   return wrapper
     .findAllComponents({ name: 'WBtn' })
@@ -152,8 +138,8 @@ describe('AuthLoginPanel — the login screen', () => {
       expect(field.classes()).toContain('auth-field')
       expect(field.props('label')).toBe(null)
     }
-    // -> The name moves onto the placeholder and `aria-label`; `WInput` puts the latter on the
-    //    `<input>` itself, which is what keeps e2e's `getByLabel('Email Address')` resolving
+    // -> With no visible label, the name lives on the placeholder and `aria-label`; `WInput` puts
+    //    the latter on the `<input>` itself, which is what keeps e2e's `getByLabel()` resolving
     expect(wrapper.find('input[aria-label="Email Address"]').exists()).toBe(true)
     expect(wrapper.find('input[aria-label="Password"]').attributes('placeholder')).toBe('Password')
   })
@@ -168,10 +154,6 @@ describe('AuthLoginPanel — the login screen', () => {
     const wrapper = await mountPanel([LOCAL_STRATEGY])
     const submit = btnByLabel(wrapper, 'Log In')
 
-    // -> OpenProject #2779: `accent`, not `primary` -- see AuthLoginPanel.vue's own note on this
-    //    button for why the two are no longer interchangeable under Cobalt. `WBtn` itself applies
-    //    the matching --shadow-primary glow for a solid accent button (OpenProject #2813); see
-    //    WBtn.test.js for that coverage.
     expect(submit.props('color')).toBe('accent')
     expect(submit.props('outline')).toBe(false)
     expect(submit.props('size')).toBe('14px')
@@ -200,7 +182,6 @@ describe('AuthLoginPanel — the login screen', () => {
   it('keeps the accent on the passkey row and the chrome tone on the other three', async () => {
     const wrapper = await mountPanel([LOCAL_STRATEGY, OKTA_STRATEGY])
 
-    // -> OpenProject #2779: `accent`, not `primary` -- see AuthLoginPanel.vue's own note on this row
     expect(btnByLabel(wrapper, 'Log In with a Passkey').props('color')).toBe('accent')
     for (const label of ['Continue with Okta', 'Create an Account', 'Forgot Password']) {
       expect(btnByLabel(wrapper, label).props('color'), label).toBe('slate')
@@ -212,12 +193,11 @@ describe('AuthLoginPanel — the login screen', () => {
 
     expect(wrapper.find('p.auth-hint').text()).toBe('Sign in with')
     expect(wrapper.find('.auth-strategies').exists()).toBe(true)
-    // -> The row's own 18px is the stylesheet's now; the utility that used to set 16px is gone
+    // -> The row's spacing belongs to the stylesheet, not to a margin utility on the element
     expect(wrapper.find('.auth-strategies').classes()).not.toContain('mb-4')
 
     const selected = btnByLabel(wrapper, 'Local')
     const other = btnByLabel(wrapper, 'LDAP')
-    // -> OpenProject #2779: `accent`, not `primary` -- see AuthLoginPanel.vue's own note on this chip
     expect(selected.props('color')).toBe('accent')
     expect(selected.props('outline')).toBe(false)
     expect(other.props('color')).toBe('slate')
@@ -255,7 +235,6 @@ describe('AuthRegisterScreen', () => {
   it('draws five unlabelled 40px fields and a marked primary', () => {
     const wrapper = mountRegister('register')
 
-    // -> Five, not four: Task #2642 split the one name field into an authored first and last name.
     const fields = wrapper.findAllComponents({ name: 'WInput' })
     expect(fields).toHaveLength(5)
     for (const field of fields) {
@@ -267,7 +246,6 @@ describe('AuthRegisterScreen', () => {
 
     const submit = btnByLabel(wrapper, 'Register')
     expect(submit.classes()).toContain('auth-marks')
-    // -> OpenProject #2779: `accent`, not `primary` -- see AuthRegisterScreen.vue's own note
     expect(submit.props('color')).toBe('accent')
     expect(submit.props('size')).toBe('13.5px')
     expect(submit.props('padding')).toBe('9.5px 16px')
@@ -301,12 +279,7 @@ describe('AuthTfaScreens', () => {
     expect(wrapper.find('p.auth-subtitle').text()).toBe('Security code required:')
   })
 
-  /*
-   * OpenProject #2779: `accent`, not `primary` -- both auth mockups draw Verify in the "accent fill
-   * carrying white text" role; `WBtn` itself applies the matching --shadow-primary glow for a solid
-   * accent button (OpenProject #2813). Neither design file draws corner marks on this button, so it
-   * deliberately has no `auth-marks`.
-   */
+  /* The design draws no corner marks on this button, so the missing `auth-marks` is deliberate. */
   it('draws Verify as the accent CTA, with no corner marks', () => {
     const verify = btnByLabel(mountTfa('tfa'), 'Verify')
 
@@ -342,10 +315,8 @@ describe('AuthTfaScreens', () => {
     const qr = wrapper.find('.auth-qr')
     expect(qr.exists()).toBe(true)
     expect(qr.find('svg').exists()).toBe(true)
-    // -> The setup row is the shorter of the two the design draws
     expect(wrapper.find('.auth-otp').classes()).toContain('auth-otp--sm')
 
-    // -> OpenProject #2779: same accent CTA as the `tfa` screen's own Verify button
     const verify = btnByLabel(wrapper, 'Verify')
     expect(verify.props('color')).toBe('accent')
   })

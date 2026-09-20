@@ -13,36 +13,22 @@ const componentSource = readFileSync(
 )
 
 /**
- * OpenProject #2412: Graph.vue's canvas had no dark-mode color swap at all -- `CATEGORICAL_PALETTE`
- * was a single light-surface array, and `colorForGroup()`'s cache stored the resolved hex, so even
- * adding a dark palette naively would have frozen every group at whichever mode first assigned it.
- * These assert the fix at the level a unit test actually can: the light/dark palettes are disjoint,
- * `colorForGroup()` picks the live mode's column, `recomputeClusters()` re-derives already-assigned
- * node colors from the new column rather than leaving them stuck, and the `dark.isActive` watcher
- * actually calls it on a toggle with no other trigger. Canvas pixel output itself isn't practically
- * assertable (`Graph.rendering.test.js`'s own documented limitation) -- see `graphDraw.test.js` for
- * the drawEdges()/drawLabels() stroke/fill-string coverage, and note real node colors here come
- * from an explicit `recomputeClusters()` call rather than a d3-force simulation tick, which under
- * test runs on its own async timer this suite doesn't drive.
+ * Canvas pixel output is not practically assertable, so node colors here come from an explicit
+ * `recomputeClusters()` call rather than a d3-force tick, which under test runs on its own async
+ * timer this suite does not drive.
  *
- * The `dark.isActive`-driven watch job (Graph.vue's `watch(() => dark.isActive, …)`) was observed
- * under this suite's `happy-dom` environment to sometimes land a turn of the event loop later than
- * a plain `await nextTick()` (even chained) reliably captures, especially with several `Graph.vue`
- * instances mounted across sibling test files in the same run and all sharing the one module-level
- * `dark.isActive` source. `vi.waitFor()` -- poll-until-true rather than a guessed tick count -- is
- * what actually made the wait deterministic; this is a test-environment timing quirk, not evidence
- * of anything wrong with the watcher itself (its wiring is covered directly, synchronously, by the
- * `colorForGroup()`/`recomputeClusters()` tests below).
+ * The `dark.isActive` watch job can land a turn of the event loop later than a chained
+ * `await nextTick()` captures, especially with several `Graph.vue` instances across sibling files
+ * sharing the one module-level `dark.isActive`. `vi.waitFor()` polls instead of guessing a tick
+ * count.
  */
 afterEach(() => {
   document.body.classList.remove('body--dark', 'body--light')
 })
 
 describe('Graph.vue dark mode (OpenProject #2412)', () => {
-  // -> colorForGroup() reads `dark.isActive` synchronously at call time -- it has no dependency on
-  //    the watcher's async job, so this needs no waiting at all, unlike the node/cluster-repaint
-  //    cases below (which go through `recomputeClusters()`, called either directly or by the
-  //    watcher).
+  // -> `colorForGroup()` reads `dark.isActive` synchronously at call time, so unlike the repaint
+  //    cases below this needs no waiting at all.
   it('colorForGroup() returns a color from the dark palette once dark mode is active, and from the light palette otherwise', async () => {
     const wrapper = await mountGraph()
     const dark = useDark()
@@ -89,10 +75,7 @@ describe('Graph.vue dark mode (OpenProject #2412)', () => {
     wrapper.vm.recomputeClusters()
     const lightColors = realNodes().map((node) => node.color)
 
-    // -> No explicit recomputeClusters()/repaint() call here -- only the mode flip, same as a
-    //    reader actually toggling the app's theme switch while this page is open. `vi.waitFor()`
-    //    polls until the watcher's own async job has actually run (see the suite-level doc comment
-    //    on why a fixed tick count isn't reliable here).
+    // -> The mode flip alone, with no recompute call: what is under test is the watcher itself.
     dark.set(true)
     await vi.waitFor(() => {
       expect(realNodes().map((node) => node.color)).not.toEqual(lightColors)
@@ -120,23 +103,12 @@ describe('Graph.vue dark mode (OpenProject #2412)', () => {
 })
 
 /**
- * OpenProject #2497: the legend/filter panel's DOM-rendered text (`.graph-view-filters`,
- * `.graph-view-control-caption`, `.graph-view-legend-label`) never set a `color` for dark mode at
- * all, unlike sibling selectors in the same style block (`.graph-view-truncation-notice`,
- * `.graph-view-tooltip`) -- it inherited browser-default black text on a near-black background.
- *
- * A computed-style assertion isn't a reliable way to verify this: `<style scoped>` + native CSS
- * `.body--dark &` nesting is a build-time (Sass) / runtime (browser) transform either way, and
- * happy-dom's CSS cascade support for that combination under this suite's `css: true` pipeline isn't
- * something to depend on for a pass/fail signal. Reading the raw SFC source and checking each
- * selector's rule body is the same style of assertion this codebase already uses elsewhere for SFC
- * style/text content (see `AdminSearch.test.js`, `ErrorGeneric.test.js`), and it directly protects
- * the actual regression: a `color` declaration going missing again from one of these three
- * selectors' light/dark blocks.
+ * A source-text assertion, not a computed style: happy-dom's cascade support for `<style scoped>`
+ * plus native `.body--dark &` nesting is not dependable as a pass/fail signal. What is guarded is a
+ * `color` declaration going missing from one of these selectors' light/dark blocks.
  */
 describe('Graph.vue legend/filter panel dark-mode text color (OpenProject #2497)', () => {
-  // -> Extracts a top-level CSS rule's full body (selector `{` through its balanced closing `}`),
-  //    so a `@at-root` block nested one level inside is captured along with the rest of the rule.
+  // -> Walks to the balanced closing brace, so the rule's own nested blocks come with it.
   const ruleBodyFor = (selector) => {
     const opener = `${selector} {`
     const start = componentSource.indexOf(opener)
@@ -159,9 +131,8 @@ describe('Graph.vue legend/filter panel dark-mode text color (OpenProject #2497)
       let body = ruleBodyFor(selector)
       const hasBoth = () =>
         /\.body--light\s+&\s*\{[^}]*\}/.test(body) && /\.body--dark\s+&\s*\{[^}]*\}/.test(body)
-      // -> A rule may take its surface from the shared `graph-panel` class (both floating panels
-      //    carry it in the template) rather than declaring one itself; the colours are still there,
-      //    in that class's own rule, so follow it when the selector's own body has neither block.
+      // -> A rule may take its colours from the shared `graph-panel` class rather than declaring
+      //    them itself, so follow that class when the selector's own body has neither block.
       if (!hasBoth()) {
         body += ruleBodyFor('.graph-panel')
       }

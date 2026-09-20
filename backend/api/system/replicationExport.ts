@@ -3,25 +3,7 @@ import fsp from 'node:fs/promises'
 import { actorFromRequest } from '../../models/auditLog.ts'
 import type { FastifyInstance } from 'fastify'
 
-/**
- * Instance-wide replication snapshot export — the SOURCE side of Epic #2437's scheduled clean-slate
- * replication (prod -> staging mirror), designed in WP #2489. Mirrors `transfer.ts`'s export/download
- * pair (queue a background job, poll/download it once) but produces a whole-instance snapshot
- * (`CARDINAL.models.replicationExport`) rather than one site's content (`CARDINAL.models.export`) — a
- * deliberately separate archive format and feature, not a variant of the existing "Export content"
- * system utility.
- *
- * No route here accepts a request body naming which data to include: full-parity scope (pages+
- * history, users/groups, assets, navigation, settings, classification levels, comments) is the whole
- * point of this surface per Feature #2437's resolved scope, so there is nothing to select. The
- * target-side import (wipe-and-replace) and the scheduler/admin-settings wiring that will actually
- * call this on a schedule are separate work packages (#2490, #2491, #2492) — this plugin only makes
- * the export itself reachable and testable.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * EXPORT REPLICATION SNAPSHOT
-   */
   app.post(
     '/replication/export',
     {
@@ -57,10 +39,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> Instance-wide, no `siteId` -- unlike `POST /export`, there is no `enforceApiKeySite()`
-      //    boundary to check here either: `manage:system` already bypasses the site-pin scope
-      //    entirely (see `helpers/apiKeySite.ts`), and a route with no `siteId` in its body has
-      //    nothing for that check to compare against.
+      // -> No `enforceApiKeySite()` call: there is no `siteId` to compare a key's pin against, and
+      //    `manage:system` routes are deliberately left unpinned (see `helpers/apiKeySite.ts`).
       const added = await CARDINAL.scheduler.addJob({ task: 'exportReplication' })
       if (!added?.id) {
         return reply.internalServerError('The scheduler could not queue the replication export.')
@@ -80,9 +60,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DOWNLOAD REPLICATION SNAPSHOT
-   */
   app.get<{ Params: { jobId: string } }>(
     '/replication/export/:jobId/download',
     {
@@ -143,9 +120,7 @@ async function routes(app: FastifyInstance) {
       }
 
       const stream = fs.createReadStream(result.filePath)
-      // -> Best-effort cleanup once the bytes are actually on the wire, not before: deleting on the
-      //    happy path here is what keeps a downloaded snapshot from sitting in `<dataPath>/exports/`
-      //    until `purgeExpired` gets to it on its own schedule.
+      // -> On `close`, so the bytes are on the wire first. Best-effort: `purgeExpired` sweeps up.
       stream.on('close', () => {
         CARDINAL.models.replicationExport.deleteExport(result.filePath).catch(() => {})
       })

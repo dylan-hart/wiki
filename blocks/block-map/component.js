@@ -1,7 +1,6 @@
 import { LitElement, html, css, unsafeCSS } from 'lit'
-// -> The ESM build by name: leaflet's `main` is still the UMD bundle, which needs the bundler's
-//    built-in CommonJS interop to take apart, and it has no `exports` map to pick the module build
-//    for us
+// -> The ESM build by name: leaflet's `main` is the UMD bundle and it has no `exports` map to pick
+//    the module build instead
 import * as L from 'leaflet/dist/leaflet-src.esm.js'
 import leafletCss from 'leaflet/dist/leaflet.css'
 import { renderError } from '../shared/render.js'
@@ -9,22 +8,13 @@ import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { getBlockConfig } from '../shared/config.js'
 
-/** The tile server used when neither a site admin nor the page author has set one. */
 const DEFAULT_TILE_SERVER_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 /**
- * The tile server URL and API key actually in effect, in order of precedence: a site admin's config
- * (`static definition.config`, set once for the whole site) beats an author's own `tileServerUrl` /
- * `apiKey` prop on this one instance (`static definition.props`), which beats the built-in OSM
- * default. The admin wins because they are the one accountable for the site's tile bill and terms of
- * service; a page author who has not touched either field gets exactly that default.
+ * A site admin's config beats a page author's own prop, which beats the built-in OSM default: the
+ * admin is the one accountable for the site's tile bill and terms of service.
  *
- * A pure function, kept apart from `firstUpdated` so the precedence itself — the actual point of
- * this task — is directly testable without mounting Leaflet.
- *
- * @param {{ tileServerUrl?: string, apiKey?: string }} siteConfig From `getBlockConfig('map')`.
- * @param {{ tileServerUrl?: string, apiKey?: string }} props This instance's own prop values.
- * @returns {{ tileServerUrl: string, apiKey: string }}
+ * Kept out of `firstUpdated` so the precedence is testable without mounting Leaflet.
  */
 export function resolveTileSettings(siteConfig, props) {
   return {
@@ -34,10 +24,8 @@ export function resolveTileSettings(siteConfig, props) {
 }
 
 /**
- * The marker, drawn rather than fetched.
- *
- * Leaflet's default icon is a pair of PNGs it builds a URL for at runtime, which does not survive
- * bundling — and an inline pin is one less request for a block that already asks for map tiles.
+ * Drawn rather than fetched: Leaflet's default icon is a pair of PNGs whose URL it builds at
+ * runtime, which does not survive bundling.
  */
 const MARKER_SVG = `
   <svg viewBox="0 0 24 36" width="24" height="36" xmlns="http://www.w3.org/2000/svg">
@@ -46,14 +34,10 @@ const MARKER_SVG = `
   </svg>
 `
 
-/**
- * Block Map
- */
 export class BlockMapElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time into `compiled/blocks.manifest.json`, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'map',
@@ -117,9 +101,8 @@ export class BlockMapElement extends LitElement {
       }
     ],
     /**
-     * Site-level fields an admin sets once for the whole site, as opposed to `props` above, which an
-     * author sets per use in the editor. Same field names as the `tileServerUrl` / `apiKey` props
-     * above on purpose — see `resolveTileSettings`, which is what decides between them.
+     * Set once per site by an admin, where `props` above are per use by an author. The field names
+     * match those props deliberately; `resolveTileSettings` decides between them.
      */
     config: [
       {
@@ -235,64 +218,27 @@ export class BlockMapElement extends LitElement {
 
   static get properties() {
     return {
-      /**
-       * Latitude in decimal degrees
-       * @type {number}
-       */
       lat: { type: Number },
 
-      /**
-       * Longitude in decimal degrees
-       * @type {number}
-       */
       lon: { type: Number },
 
-      /**
-       * Zoom level, 1 (world) to 19 (building)
-       * @type {number}
-       */
       zoom: { type: Number },
 
-      /**
-       * Height of the map in pixels
-       * @type {number}
-       */
       height: { type: Number },
 
-      /**
-       * Popup text for the marker
-       * @type {string}
-       */
       label: { type: String },
 
-      /**
-       * Which palette to draw in: `auto`, `light` or `dark`
-       * @type {string}
-       */
       theme: { type: String },
 
       /**
-       * Overrides the default OpenStreetMap tiles for this one map. A site-wide tile server set in
-       * this block's admin config takes precedence — see `resolveTileSettings`.
-       *
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `tileserverurl` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `tile-server-url` — writes `tile-server-url`
-       *    into the page.
-       * @type {string}
+       * -> Both dashed `attribute`s here are explicit, because Lit's default (a bare lowercasing of
+       *    the property name, no dash inserted) would listen for `tileserverurl` while the block
+       *    picker writes the literal `static definition.props[].name`, `tile-server-url`.
        */
       tileServerUrl: { type: String, attribute: 'tile-server-url' },
 
-      /**
-       * A tile provider's API key for this one map. A site-wide key set in this block's admin config
-       * takes precedence — see `resolveTileSettings`.
-       *
-       * -> Explicit `attribute`, for the same reason as `tileServerUrl` above.
-       * @type {string}
-       */
       apiKey: { type: String, attribute: 'api-key' },
 
-      // Internal Properties
       _error: { state: true }
     }
   }
@@ -310,18 +256,16 @@ export class BlockMapElement extends LitElement {
     this._error = ''
     this._map = null
     /*
-      No `dark` attribute on the host: this block settles the theme question itself, since the prop
-      can pin a map light on a dark page, and the answer it arrives at goes on `data-theme` below.
+      No `dark` attribute on the host: the `theme` prop can pin a map light on a dark page, so this
+      block resolves the question itself and puts the answer on `data-theme`.
     */
     this._darkMode = new DarkMode(this, { attribute: false })
   }
 
   /*
-    Async rather than `connectedCallback`/`willUpdate`: creating the Leaflet map needs the `.map`
-    container element, which only exists once `render()` has run once, i.e. once `firstUpdated` is
-    called. Lit does not await a lifecycle callback's return value, but by the time this one is
-    invoked the container is already in the DOM, so awaiting the site config fetch inside it just
-    delays the tile layer being added, not the element's own render.
+    Not `connectedCallback`: the Leaflet map needs the `.map` container, which exists only after
+    the first render. Lit does not await a lifecycle callback, so awaiting the config fetch here
+    delays the tile layer alone, not the element's own render.
   */
   async firstUpdated() {
     const lat = Number(this.lat)
@@ -338,10 +282,8 @@ export class BlockMapElement extends LitElement {
     }
 
     const container = this.renderRoot.querySelector('.map')
-    // -> Site config beats this instance's own prop, which beats the built-in default; see
-    //    `resolveTileSettings`.
     const siteConfig = await getBlockConfig('map')
-    // -> A reader may have already navigated away by the time the fetch resolves
+    // -> A reader may have navigated away by the time the fetch resolves
     if (!this.isConnected) {
       return
     }
@@ -353,8 +295,8 @@ export class BlockMapElement extends LitElement {
     this._map = L.map(container, {
       center: [lat, lon],
       zoom: Math.min(Math.max(Number(this.zoom) || 13, 1), 19),
-      // -> A map in the middle of an article must not swallow the wheel while the reader is scrolling
-      //    past it. Clicking the map is the reader saying they meant to use it.
+      // -> A map mid-article must not swallow the wheel of a reader scrolling past it; the click
+      //    handler below is them saying they meant to use it
       scrollWheelZoom: false
     })
     this._map.on('click', () => this._map.scrollWheelZoom.enable())
@@ -363,9 +305,8 @@ export class BlockMapElement extends LitElement {
     L.tileLayer(tileServerUrl, {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      // -> Leaflet's own URL templating fills in any `{apiKey}` placeholder a tile server URL
-      //    contains from this option, the same way it fills in `{z}`/`{x}`/`{y}`. A provider whose
-      //    URL needs no key simply has no such placeholder, and this option goes unused.
+      // -> Leaflet's URL templating fills any `{apiKey}` placeholder from this option, the same way
+      //    it fills `{z}`/`{x}`/`{y}`; a URL without the placeholder just ignores it
       apiKey
     }).addTo(this._map)
 
@@ -377,7 +318,9 @@ export class BlockMapElement extends LitElement {
         iconAnchor: [12, 36],
         popupAnchor: [0, -32]
       }),
-      // -> The map is a picture of a place, not a form: there is nothing to be gained by moving it
+      // -> Keeps the pin out of the tab order, the map being a picture rather than a control
+      //    FIXME: with a `label` set this leaves the popup mouse-only; the marker has to stay
+      //    tabbable in that case for a keyboard reader to reach the text
       keyboard: false
     }).addTo(this._map)
     if (this.label) {
@@ -387,7 +330,7 @@ export class BlockMapElement extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback()
-    // -> Leaflet keeps listeners on window and a resize observer, which outlive the element otherwise
+    // -> Leaflet's window listeners and resize observer outlive the element otherwise
     this._map?.remove()
     this._map = null
   }
@@ -396,8 +339,7 @@ export class BlockMapElement extends LitElement {
     if (this._error) {
       return renderError(this._error)
     }
-    // -> Anything else an author might write is read as `auto`, which is the setting that has an
-    //    answer for every page rather than a guess at what was meant
+    // -> Anything but the two pinned values falls back to `auto`, which has an answer for any page
     const theme = ['light', 'dark'].includes(this.theme)
       ? this.theme
       : this._darkMode.isDark

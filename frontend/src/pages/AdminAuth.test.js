@@ -6,14 +6,6 @@ import AdminAuth from './AdminAuth.vue'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
-/**
- * Regression coverage for Task 441: the "Add Strategy" picker's `availableStrategies` list is a flat,
- * unfiltered `<w-list>` -- fine for the 4 built-in modules, unworkable once Feature 355 adds a dozen
- * branded presets. This locks in the text filter (narrows by `str.title`, case-insensitive substring,
- * the same pattern `AdminIcons.vue`'s icon-set search uses) and the icon/logo/color wiring for each
- * new preset in both the picker and the configured-strategy list.
- */
-
 const MESSAGES = {
   admin: {
     auth: {
@@ -30,7 +22,6 @@ const MESSAGES = {
   }
 }
 
-/** The generic modules plus every branded preset Feature 355 is adding -- 12 entries total. */
 const MODULES = [
   {
     key: 'local',
@@ -131,7 +122,6 @@ async function mountPage({ strategies = [] } = {}) {
   return wrapper
 }
 
-/** Opens the "Add Strategy" menu by clicking its trigger button, and waits for it to render. */
 async function openAddStrategyMenu(wrapper) {
   const trigger = wrapper.findAll('button').find((btn) => btn.text().includes('Add Strategy'))
   await trigger.trigger('click')
@@ -143,10 +133,9 @@ function menuItemTitles() {
 }
 
 /*
-  Teleported menu content lives outside the mounted wrapper's own DOM subtree (WMenu.vue teleports to
-  `document.body`), so a test that throws before its own `wrapper.unmount()` would otherwise leave
-  its menu panel behind for the next test's `document.querySelector('.w-menu ...')` to
-  accidentally pick up alongside the new one -- this clears the slate unconditionally either way.
+  WMenu.vue teleports its panel to `document.body`, outside the wrapper's own subtree, so a test
+  that throws before its own `wrapper.unmount()` would leave the panel behind for the next test's
+  `document.querySelector('.w-menu ...')` to pick up.
 */
 afterEach(() => {
   document.body.innerHTML = ''
@@ -158,7 +147,7 @@ describe('AdminAuth add-strategy picker', () => {
     await openAddStrategyMenu(wrapper)
 
     const titles = menuItemTitles()
-    // -> 12 modules minus the built-in `local` one, which is filtered out (already configured)
+    // -> Every module but the built-in `local` one, filtered out as already configured
     expect(titles).toHaveLength(11)
     expect(titles).toContain('Auth0')
     expect(titles).toContain('Discord')
@@ -178,7 +167,6 @@ describe('AdminAuth add-strategy picker', () => {
     await filterInput.dispatchEvent(new Event('input'))
     await flushPromises()
 
-    // -> Case-insensitive: lowercase "auth0" still matches the title "Auth0"
     expect(menuItemTitles()).toEqual(['Auth0'])
 
     wrapper.unmount()
@@ -212,7 +200,6 @@ describe('AdminAuth add-strategy picker', () => {
     await flushPromises()
     expect(menuItemTitles()).toEqual(['Okta'])
 
-    // -> Close (click the trigger again) and reopen
     const trigger = wrapper.findAll('button').find((btn) => btn.text().includes('Add Strategy'))
     await trigger.trigger('click')
     await flushPromises()
@@ -228,11 +215,9 @@ describe('AdminAuth add-strategy picker', () => {
     const wrapper = await mountPage()
     await openAddStrategyMenu(wrapper)
 
-    // -> `w-icon` renders an `img:` reference as `<i class="w-icon" data-icon="img:...">` wrapping
-    //    an `<img>` (WIcon.vue), not `<iconify-icon>` -- that branch is only for a bare
-    //    `<prefix>:<name>` Iconify reference, which `'img:' + str.icon` never is.
+    // -> `w-icon` renders an `img:` reference as an `<i class="w-icon">` wrapping an `<img>`, not
+    //    as `<iconify-icon>` -- that branch is only for a bare `<prefix>:<name>` reference.
     const icons = [...document.querySelectorAll('.w-menu .w-avatar .w-icon')]
-    // -> One resolvable icon reference per listed module (11, `local` excluded)
     expect(icons).toHaveLength(11)
     for (const icon of icons) {
       expect(icon.dataset.icon).toMatch(/^img:.+\.svg$/)
@@ -244,12 +229,6 @@ describe('AdminAuth add-strategy picker', () => {
   })
 })
 
-/**
- * Task 2188: the `mappableGroups` allow-list picker. Gated on the module's own `mapGroups` config
- * prop, same as the module's own `groupsScope`/`groupSearchFilter`/... fields are gated in their
- * `definition.yml` -- shown only once group-mapping is actually turned on for this strategy, since
- * an allow-list means nothing to a strategy that never maps groups at all.
- */
 describe('AdminAuth mappable-groups picker', () => {
   const LDAP_MODULE_WITH_MAP_GROUPS = {
     key: 'ldap',
@@ -336,7 +315,6 @@ describe('AdminAuth mappable-groups picker', () => {
 
     const picker = mappablePickerNode(wrapper)
     expect(picker.exists()).toBe(true)
-    // -> The `#selected` slot's empty-list branch renders a bare `<span>`, no selection caption
     expect(picker.text()).not.toContain('Editors')
     expect(picker.text()).not.toContain('Reviewers')
 
@@ -345,11 +323,8 @@ describe('AdminAuth mappable-groups picker', () => {
 })
 
 /**
- * OpenProject #2440: the mappable-groups picker selected which groups a provider login may sync,
- * without ever calling out that a manual grant of one of them can be silently reverted on that
- * user's next login. `revocableMappableGroupNames` computes exactly the subset of the current
- * selection this applies to -- everything except a group the same strategy also grants directly via
- * `autoEnrollGroups`, which the sync never takes back.
+ * A manual grant of a mapped group can be silently reverted on the user's next login -- except for
+ * a group the same strategy also grants via `autoEnrollGroups`, which the sync never takes back.
  */
 describe('AdminAuth mappable-groups sync warning', () => {
   const LDAP_MODULE_WITH_MAP_GROUPS = {
@@ -436,9 +411,8 @@ describe('AdminAuth mappable-groups sync warning', () => {
 
     expect(wrapper.text()).toContain('Subject to reconciliation on login')
     expect(wrapper.text()).toContain('Reviewers')
-    // -> "Editors" must not appear inside the warning banner specifically -- it still appears
-    //    elsewhere on the page (the picker's own selected-groups caption), so this checks the
-    //    banner's own text, not the whole page.
+    // -> "Editors" still appears elsewhere on the page (the picker's own selected-groups caption),
+    //    so scope the assertion to the banner.
     const banner = wrapper.find('.w-banner')
     expect(banner.exists()).toBe(true)
     expect(banner.text()).not.toContain('Editors')
@@ -447,11 +421,6 @@ describe('AdminAuth mappable-groups sync warning', () => {
   })
 })
 
-/**
- * OpenProject #2469: `allowedEmailDomains` is a per-strategy config field, a friendlier alternative to
- * `allowedEmailRegex` for the common case. Scoped like `selfRegistration` itself: shown only for a
- * form-based (`useForm`) module, never for a redirect-based provider's `autoProvision` half.
- */
 describe('AdminAuth allowed-email-domains field', () => {
   const LOCAL_MODULE = {
     key: 'local',
@@ -468,9 +437,6 @@ describe('AdminAuth allowed-email-domains field', () => {
     useForm: false
   }
 
-  // -> `useInput` moves `aria-label` onto the `<input>` itself rather than a wrapping control (same
-  //    distinction the project's own testing notes make for `WInput`), so this selects the input
-  //    directly rather than a `w-select` container carrying the label.
   function domainsFieldNode(wrapper) {
     return wrapper.find('input[aria-label="Allowed Email Domains"]')
   }
@@ -561,15 +527,13 @@ describe('AdminAuth allowed-email-domains field', () => {
     await input.trigger('keydown', { key: 'Enter' })
     await flushPromises()
 
-    // -> A duplicate, differently-cased entry must not create a second chip
     await input.trigger('focus')
     await input.setValue('already.example')
     await input.trigger('keydown', { key: 'Enter' })
     await flushPromises()
 
-    // -> Nothing else on this screen renders a `w-chip` for this fixture (no other `use-chips`
-    //    field has a selection, and the add-strategy menu is not open), so scoping to the whole
-    //    page is safe here.
+    // -> Nothing else on this screen renders a `w-chip` for this fixture, so scoping the count to
+    //    the whole page is safe.
     expect(wrapper.text()).toContain('example.com')
     expect(wrapper.text()).toContain('already.example')
     expect(wrapper.findAll('.w-chip')).toHaveLength(2)
@@ -578,11 +542,6 @@ describe('AdminAuth allowed-email-domains field', () => {
   })
 })
 
-/**
- * OpenProject #2557: warn on the selected strategy's detail panel when it is enabled but shown by no
- * site's login screen -- covers a strategy created before Task #2556 started defaulting
- * `isVisible: true` into every existing site, just as much as one switched off everywhere afterward.
- */
 describe('AdminAuth no-visible-sites warning', () => {
   const LOCAL_MODULE = {
     key: 'local',
@@ -672,13 +631,9 @@ describe('AdminAuth no-visible-sites warning', () => {
 })
 
 /**
- * OpenProject #2548: the `trustEmailForLinking` toggle used to be gated on a blanket `!useForm`
- * check, hiding it for every form-based module including LDAP -- even though LDAP's `authenticate()`
- * always throws `ProvisionableLoginError` on a successful bind and dispatches through the very same
- * find-or-create-by-email path a redirect-based provider uses (`models/login.ts`). The fix gates on
- * the module's own `provisionable` flag instead, OR'd with the existing `!useForm` check, so a
- * redirect-based provider keeps showing it unconditionally, LDAP (which declares `provisionable:
- * true`) gains it, and Local (which does not declare it) stays hidden.
+ * The toggle gates on the module's own `provisionable` flag OR'd with `!useForm`, not on `!useForm`
+ * alone: LDAP is form-based yet dispatches through the same find-or-create-by-email path a
+ * redirect-based provider uses, so it needs the toggle. Local is not provisionable and does not.
  */
 describe('AdminAuth trust-email-for-linking toggle', () => {
   const TRUST_MESSAGES = {
@@ -800,11 +755,9 @@ describe('AdminAuth trust-email-for-linking toggle', () => {
 })
 
 /**
- * OpenProject #3323: the "Configuration" `w-settings-card`'s wrapping `<w-card-section>` around the
- * "no config options" banner was unconditional even though the banner itself was gated by `v-if` --
- * `WCardSection.vue` always renders its padded div regardless of slot content, so any strategy that
- * DOES have config (the common case) showed a spurious empty section above `module-config-form`'s
- * rendered rows. The fix moves the `v-if` onto the `<w-card-section>` itself.
+ * `WCardSection.vue` always renders its padded div regardless of slot content, so the "no config
+ * options" `v-if` has to sit on the `<w-card-section>` itself rather than on the banner inside it,
+ * or a strategy that does have config shows a spurious empty section above its rows.
  */
 describe('AdminAuth strategy configuration section', () => {
   const LOCAL_MODULE = {
@@ -814,12 +767,9 @@ describe('AdminAuth strategy configuration section', () => {
     description: 'Built-in.',
     useForm: true
   }
-  // -> `buildConfigEditor(mod.props, str.config)` (`helpers/moduleConfig.js`) builds
-  //    `state.strategy.config` from the MODULE's declared prop schema, keyed by raw values off the
-  //    strategy record -- not from a pre-built `{ type, title, value }` shape on the strategy
-  //    itself. A module with no `props` (`LOCAL_MODULE` above) always yields an empty `config`,
-  //    regardless of what the strategy record's own `config` holds -- this variant declares one so
-  //    the "has config" case below actually exercises a non-empty `state.strategy.config`.
+  // -> `buildConfigEditor(mod.props, str.config)` builds `state.strategy.config` from the MODULE's
+  //    declared props, so a module with no `props` always yields an empty config whatever the
+  //    strategy record holds -- this variant declares one so the "has config" case is non-empty.
   const LOCAL_MODULE_WITH_CONFIG = {
     ...LOCAL_MODULE,
     props: {
@@ -851,8 +801,6 @@ describe('AdminAuth strategy configuration section', () => {
     const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
     await flushPromises()
 
-    // -> No "no config options" banner text, and no empty `.w-card-section` sitting in the
-    //    Configuration card -- every `.w-card-section` present has actual content.
     expect(wrapper.text()).not.toContain('noConfigOption')
     const emptySections = wrapper
       .findAll('.w-card-section')

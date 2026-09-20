@@ -1,5 +1,3 @@
-# Scope decided in OpenProject task 666 (Feature 402): multi-format page import is built as
-# described below (tasks 667/668), alongside PDF/diagram export in puppeteer/definition.yml.
 key: pandoc
 title: Pandoc
 description: >-

@@ -4,13 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import replicationRoutes from './replication.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * `GET|PUT /_api/replication/config` — the instance-level replication settings panel (OpenProject
- * #2491). Only the settings CRUD/validation is under test here: the actual bulk-export/import wire
- * protocol (#2489/#2490) and the scheduler wiring that reads `cronSchedule` (#2492) are separate work
- * with no route surface of their own yet.
- */
-
 let app: FastifyInstance
 let recordMock: ReturnType<typeof mock.fn>
 
@@ -42,10 +35,6 @@ beforeEach(() => {
   CARDINAL.configSvc.saveToDb = mock.fn(async () => true)
 })
 
-/**
- * GET — masking
- */
-
 test('returns an empty config with no bearerToken masking when nothing is stored', async () => {
   const res = await app.inject({ method: 'GET', url: '/replication/config' })
 
@@ -74,10 +63,6 @@ test('masks a stored bearerToken on GET', async () => {
   assert.equal(body.sourceUrl, 'https://prod.example.com')
   assert.equal(body.isEnabled, true)
 })
-
-/**
- * PUT — masking round trip
- */
 
 test('echoing the bearerToken mask on PUT leaves the stored token byte-identical', async () => {
   CARDINAL.config.replication = {
@@ -129,10 +114,6 @@ test('never writes the raw bearerToken to the audit log', async () => {
   assert.equal(detail.bearerToken, '********')
 })
 
-/**
- * PUT — validation
- */
-
 test('rejects an invalid sourceUrl', async () => {
   const res = await app.inject({
     method: 'PUT',
@@ -165,10 +146,6 @@ test('accepts a valid cronSchedule', async () => {
   assert.equal(res.statusCode, 200)
   assert.equal(CARDINAL.config.replication.cronSchedule, '0 0 * * 0')
 })
-
-/**
- * PUT — minimum-interval validation (OpenProject #2509)
- */
 
 test('rejects a cronSchedule that fires every minute', async () => {
   const res = await app.inject({

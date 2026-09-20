@@ -19,10 +19,7 @@ const OPTS = {
   listPath: '/_admin/users'
 }
 
-/**
- * The composable registers `onMounted` / `onBeforeUnmount` hooks, so it needs a real component
- * instance rather than a bare `effectScope()`.
- */
+/** The composable's lifecycle hooks need a real component instance, not a bare `effectScope()`. */
 function mountComposable(opts = {}) {
   return mount({
     setup() {

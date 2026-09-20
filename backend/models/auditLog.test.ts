@@ -9,11 +9,8 @@ import type { FastifyRequest } from 'fastify'
 await ensureTemporal()
 
 /**
- * OpenProject #2231/#2237: the system/security/flags/auditLog event vocabulary added to close the
- * gap that made `system.*` and `auditLog.*` writes uncompilable. Listed here once so the DB-backed
- * round trip below and the pure vocabulary check share a single source instead of two copies
- * drifting apart. `auth.strategyUpdated` is deliberately not repeated here -- it predates this
- * vocabulary pass and already has its own round trip in `api/authentication.test.ts`.
+ * Listed once so the DB-backed round trip below and the pure vocabulary check share a single
+ * source instead of two copies drifting apart.
  */
 const NEW_EVENTS = [
   'system.flagsUpdated',
@@ -101,10 +98,9 @@ describe('actorFromRequest (pure)', () => {
 })
 
 /**
- * `record`/`list`/`listActors`/`purge` are SQL orchestration -- filtering, joining against `users`
- * for `listActors`, an interval-based delete -- rather than pure logic, so this runs the real methods
- * against a migrated, per-run-fresh database, matching `pageHistory.test.ts`'s own reasoning for the
- * same kind of method.
+ * `record`/`list`/`listActors`/`purge` are SQL orchestration -- filtering, a join against `users`,
+ * an interval-based delete -- rather than pure logic, so they run against a migrated, per-run-fresh
+ * database instead of a mocked query builder.
  */
 describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -210,9 +206,6 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
     for (const entry of entries) {
       const row = afterBatch.entries.find((e) => e.targetId === entry.targetId)
       assert.ok(row, `expected a row for ${entry.targetId}`)
-      // Same field values `record()` would have written for this entry -- exercised directly by
-      // `record() writes an entry that list() reads back` above, so this checks recordMany() lands
-      // the identical shape rather than re-deriving record()'s own behavior.
       assert.equal(row!.event, entry.event)
       assert.equal(row!.actor.id, entry.actor.id)
       assert.equal(row!.actor.name, entry.actor.name)
@@ -222,16 +215,13 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
       assert.equal(row!.targetLabel, entry.targetLabel)
       assert.deepEqual(row!.detail, entry.detail)
       assert.equal(row!.siteId, entry.siteId ?? null)
-      // Timestamps aren't dropped or left null by the batched path -- see the implementation plan's
-      // note on why this doesn't assert bit-exact equality against record()'s own timestamps: a
-      // single multi-row INSERT shares one transaction-start `now()` across every row in the batch,
-      // while N sequential record() calls (each its own implicit transaction) can differ by a few ms.
+      // A freshness check, not an equality one: a single multi-row INSERT shares one
+      // transaction-start `now()`, while N sequential record() calls can differ by a few ms.
       assert.ok(row!.createdAt instanceof Date)
       assert.ok(Date.now() - row!.createdAt.getTime() < 5000)
     }
 
-    // The batch's own rows share one INSERT's `now()` -- unlike sequential record() calls, they are
-    // not just close to each other, they are identical.
+    // ...which is also why the batch's own rows are identical, not merely close.
     const batchRows = entries.map((entry) =>
       afterBatch.entries.find((e) => e.targetId === entry.targetId)!
     )
@@ -271,8 +261,6 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
     const before = (await auditLogModel.list()).total
     const purged = await auditLogModel.purge(365)
     assert.equal(purged, 0)
-    // OpenProject #2237: purge() always writes its own `auditLog.purged` entry, even a zero-count
-    // run, so the log shows the job ran rather than staying silent.
     const after = await auditLogModel.list()
     assert.equal(after.total, before + 1)
     assert.equal(after.entries[0]!.event, 'auditLog.purged')
@@ -280,10 +268,6 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
     assert.ok(after.entries[0]!.detail.cutoff)
   })
 
-  /*
-    OpenProject #1902: the classification-conflicts resolve route writes its audit entries through
-    this batched path instead of one `record()` call per page.
-  */
   test('recordMany() writes N entries in one call, matching N record() calls', async () => {
     const before = (await auditLogModel.list({ event: 'page.classificationChanged' })).total
     await auditLogModel.recordMany([
@@ -324,8 +308,8 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
     assert.ok(before > 0)
     const purged = await auditLogModel.purge(0)
     assert.equal(purged, before)
-    // Only the purge's own new entry survives -- everything that existed before it, including the
-    // previous test's `auditLog.purged` row, was older than the (empty) retention window.
+    // Only the purge's own new entry survives: with an empty retention window, everything already
+    // in the table -- the previous test's `auditLog.purged` row included -- is past the cutoff.
     const after = await auditLogModel.list()
     assert.equal(after.total, 1)
     assert.equal(after.entries[0]!.event, 'auditLog.purged')

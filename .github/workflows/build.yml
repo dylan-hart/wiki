@@ -6,15 +6,9 @@ on:
       - scarlett
 
 jobs:
-  # Delegates to quality.yml (task 766) so the exact same typecheck/lint/format/unit-test gate that
-  # runs on every pull request also blocks this push-triggered job before it reaches `Build Assets`,
-  # `Build Blocks`, or the Docker login/build/push steps below. A `pull_request:` trigger was
-  # deliberately NOT added directly to this workflow: `build`'s Docker publish (and its
-  # Playwright/Postgres-backed e2e leg) has no place running against every PR, and `needs:` can't
-  # reach across workflow files to gate it selectively -- see quality.yml's own header comment for
-  # the full reasoning. Adding `pull_request:` here would mean either running the whole expensive
-  # pipeline on every PR too, or threading `if: github.event_name == 'push'` through several jobs for
-  # no benefit over the split already in place.
+  # The same gate that runs on every pull request, called here so `needs:` can block the Docker
+  # publish on it. No `pull_request:` trigger on this workflow, deliberately: the publish and e2e
+  # legs have no place running against every PR.
   quality:
     name: Quality Gates
     uses: ./.github/workflows/quality.yml
@@ -23,19 +17,15 @@ jobs:
     name: Build
     needs: quality
     runs-on: ubuntu-latest
-    # OpenProject #2736: this job has no timeout of its own to fall back on other than GitHub
-    # Actions' silent 360-minute default -- see quality.yml's own timeout-minutes comment for the
-    # wedged-runner incident that exposed the gap. 45 minutes gives this job's own heaviest legs
-    # (asset/blocks builds, the Playwright e2e smoke suite, and a QEMU-emulated multi-arch Docker
-    # build/push) comfortable headroom over their real wall-clock time.
+    # GitHub's default job timeout is 6 hours. 45 minutes is headroom over this job's heaviest legs:
+    # the builds, the e2e suite and a QEMU-emulated multi-arch Docker build/push.
     timeout-minutes: 45
     permissions:
       contents: read
       packages: write
 
-    # Backing store for the Playwright suite's own first-run seeding below (the backend's DB-backed
-    # model tests run in the `quality` job this one `needs:`, against their own postgres service --
-    # see quality.yml -- not here).
+    # For the Playwright leg's first-run seeding only: the backend's DB-backed suites run in the
+    # `quality` job, against its own postgres service.
     services:
       postgres:
         image: postgres:18
@@ -54,7 +44,7 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       # docker/login-action authenticates as github.repository_owner using the run's GITHUB_TOKEN,
       # whose packages:write scope only covers that owner's packages -- so the pushed tags must live
-      # under this repo's own namespace, not a hard-coded one that may belong to someone else.
+      # under this repo's own namespace, not a hard-coded one.
       IMAGE_NAMESPACE: ghcr.io/${{ github.repository }}
 
     steps:
@@ -80,9 +70,9 @@ jobs:
           yq -iP '.version = strenv(REL_VERSION)' backend/package.json -o json
           yq -iP '.version = strenv(REL_VERSION)' frontend/package.json -o json
 
-      # ONNXRUNTIME_NODE_INSTALL=skip: no CUDA download from nuget.org on a GPU-less runner (see
-      # quality.yml; enforced by backend/test/workflowInstallEnv.test.ts). The "Prepare build
-      # archive" install below is intentionally without it -- it builds the shipped artifact.
+      # ONNXRUNTIME_NODE_INSTALL=skip: no CUDA download from nuget.org on a GPU-less runner. The
+      # "Prepare build archive" install below is intentionally without it -- it builds the shipped
+      # artifact.
       - name: Install Backend Dependencies
         working-directory: backend
         env:
@@ -101,19 +91,9 @@ jobs:
           npm ci
           npm run build
 
-      # The backend/frontend/blocks unit suites already ran in the `quality` job above (needs:
-      # quality gates this job on them) -- re-running the same three `npm run test` invocations here
-      # would just pay for them a second time per push with no new coverage. This job's postgres
-      # service and DATABASE_URL are still needed below, for the Playwright leg's own first-run
-      # seeding.
-
-      # The e2e suite's own webServer boots `node backend` (backend/'s deps and the frontend's
-      # `assets/` build were already produced by the steps above) and serves the frontend build the
-      # same way the Docker image will — this is what "against a build of the stack" means here, and
-      # why this leg neither builds nor needs the Docker image below: that image doesn't exist yet at
-      # this point in the job, and won't be built at all until every test leg above has passed. There
-      # is therefore only ever one Docker build per run, not a rebuild for this leg plus another for
-      # the real push.
+      # The e2e suite's webServer boots `node backend` against the `assets/` build produced above,
+      # the same way the Docker image serves it -- so this leg needs no image, and the one Docker
+      # build per run happens only after every test leg has passed.
       - name: Install E2E Dependencies
         working-directory: e2e
         run: npm ci
@@ -126,28 +106,9 @@ jobs:
         working-directory: e2e
         run: npm test
 
-      # --- Quarantine lane, e2e only (report-only) --------------------------------------------
-      # OpenProject #2692 (Feature #2603, Epic #2600). The answer to "does build.yml get a lane
-      # step too" is: yes, but only e2e's, and both halves of that are deliberate.
-      #
-      # Only e2e's, because this job already `needs: quality`, and quality.yml runs the
-      # backend/frontend/blocks lanes there -- repeating them here would pay for them twice per
-      # push, the same double-pay this job already refuses for the default unit suites (see the
-      # comment above the E2E steps).
-      #
-      # But e2e's here rather than in quality.yml, because the e2e lane cannot run there: that
-      # workflow installs no e2e dependencies, and e2e/playwright.config.js throws at import time on
-      # an unset DATABASE_URL -- which playwright.flaky.config.js inherits, empty lane or not. This
-      # job is the only place e2e's dependencies, browsers, postgres service and a real `assets/`
-      # build all exist at once. Not added to e2e.yml as well: its pull_request trigger and this
-      # workflow's push trigger are disjoint, but e2e.yml's own header records that the same suite
-      # must not end up running twice per commit, and #2692's spec says not to wire both. The
-      # consequence, stated rather than left implicit: the e2e lane runs on scarlett pushes and not
-      # on pull requests. That costs nothing while the lane holds zero specs, and is the thing to
-      # revisit the moment a `*.flaky.spec.js` lands.
-      #
-      # `continue-on-error: true`, a job-summary table and a per-lane `::error::` annotation, all
-      # exactly as in quality.yml -- see the step there for why the script still exits non-zero.
+      # Only e2e's quarantine lane: quality.yml runs the backend/frontend/blocks lanes but installs
+      # nothing the e2e lane needs. e2e.yml does not run it either, so the e2e lane runs on scarlett
+      # pushes and not on pull requests.
       - name: Quarantine Lane, e2e (report-only)
         continue-on-error: true
         run: ./scripts/ci-quarantine-lane.sh e2e
@@ -167,21 +128,17 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Registers binfmt_misc handlers so Buildx (via its docker-container driver, set up next) can
-      # cross-build the linux/arm64 layer below through QEMU emulation on this amd64 runner — see
-      # OpenProject #2435/#2486. Must run before Buildx setup.
+      # Registers binfmt_misc handlers so Buildx can cross-build the linux/arm64 layer below through
+      # QEMU emulation on this amd64 runner. Must run before Buildx setup.
       - name: Set up QEMU
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      # OCI labels/annotations (OpenProject #3392). Only images: plus a handful of custom
-      # label overrides are passed -- source/revision/created/version/licenses are left to the
-      # action's own GitHub-context derivation rather than hardcoded, and this step is consumed
-      # only for its labels/annotations outputs: build-push-action's tags: below stay exactly the
-      # literal alpha/run-numbered tags this workflow has always pushed, not this action's own
-      # tag-generation logic.
+      # Consumed only for its labels/annotations outputs: build-push-action's `tags:` below stay the
+      # literal alpha/run-numbered ones, not this action's tag generation. source/revision/created/
+      # version/licenses are left to the action's own GitHub-context derivation.
       - name: Docker image metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0

@@ -5,7 +5,6 @@ import routes from './blocks.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 import { CustomError } from '../helpers/common.ts'
 
-/** A well-formed `component.js` declaring the given tag, matching `blocks.test.ts`'s own fixture shape. */
 function blockSource(tag: string, definedTag = `block-${tag}`): string {
   return `
 export class BlockWidget extends HTMLElement {
@@ -22,11 +21,7 @@ customElements.define('${definedTag}', BlockWidget)
 `
 }
 
-/**
- * Builds a `multipart/form-data` body for `app.inject()`, using the platform's own `Response` to do
- * the encoding — same helper shape as `api/assets.batch.test.ts` and
- * `api/pages/import.test.ts#buildMultipartPayload`.
- */
+/** The platform's own `Response` does the multipart encoding, boundary included. */
 async function buildMultipartPayload(
   files: { fileName: string; content: string }[]
 ): Promise<{ payload: Buffer; contentType: string }> {
@@ -40,21 +35,6 @@ async function buildMultipartPayload(
   return { payload, contentType }
 }
 
-/**
- * Route-level test for `POST /sites/:siteId/blocks/batch` (OpenProject #3211/#3231).
- *
- * `models/blocks.ts#isTagTaken()`/`createCustomBlock()` themselves are covered against a real
- * database in `models/blocks.test.ts`; the single-file route's own AST/definition/tag validation is
- * covered in `blocks.test.ts`. What this suite checks is the batch route's own wiring: that the
- * same per-file validation runs for every file, that a bad file fails only its own entry, and —
- * batch-specific — that two files in ONE request claiming the same tag cannot both win (the second
- * is refused even though `isTagTaken()` alone would not have caught it, since neither has been
- * inserted yet when the second is checked).
- *
- * `config.permissions: ['manage:sites']` is enforced by the global `preHandler` hook in `index.ts`,
- * which this plugin-only app never registers — same convention `blocks.test.ts` documents for the
- * single-file route: not this suite's job to re-prove.
- */
 describe('POST /sites/:siteId/blocks/batch', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
 
@@ -200,11 +180,6 @@ describe('POST /sites/:siteId/blocks/batch', () => {
     assert.equal(createCustomBlockCalls.length, 1)
   })
 
-  /**
-   * The batch-specific case `isTagTaken()` alone cannot catch: two files in the SAME request both
-   * claim tag "dup", and neither is in the database when the second is checked. The route tracks
-   * claimed tags itself so the second is refused with a named conflict, not a raw insert failure.
-   */
   test('two files in the same batch claiming the same tag: the first wins, the second is refused', async () => {
     const { payload, contentType } = await buildMultipartPayload([
       { fileName: 'first.js', content: blockSource('dup') },
@@ -271,14 +246,12 @@ describe('POST /sites/:siteId/blocks/batch', () => {
   })
 
   /**
-   * `@fastify/multipart`'s `limits` are read from `CARDINAL.config.security` once, at
-   * plugin-registration time — see `api/assets.batch.test.ts`'s identical describe for the full
-   * reasoning (matching `blocks.test.ts`'s existing upload-size-cap precedent).
+   * `@fastify/multipart` reads its `limits` from `CARDINAL.config.security` once, at registration,
+   * so each case sets the value and then builds its own app.
    */
   describe('registration-time limits (security.uploadMaxFileSize / uploadMaxFilesPerBatch)', () => {
     test('an oversized file fails only its own entry, not the whole batch', async () => {
-      // -> Large enough that a genuine `blockSource(...)` fixture (~260 bytes) fits comfortably
-      //    under it, so only the deliberately-padded "toobig" file below trips the cap.
+      // -> Above a plain `blockSource()` fixture's size, so only the padded "toobig" file trips it.
       CARDINAL.config.security.uploadMaxFileSize = 500
       const smallApp = await buildTestApp({ routes, ajv: true })
       try {

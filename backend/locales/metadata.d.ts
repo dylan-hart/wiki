@@ -1,9 +1,6 @@
 /**
- * Type declaration for the Localazy-generated `metadata.js` in this directory.
- *
- * `metadata.js` itself is generated output and stays JavaScript (see `localazy.json`), so this
- * sibling declaration is what lets the rest of the backend import it with `allowJs` disabled.
- * Keep it in sync if the Localazy export shape changes.
+ * `metadata.js` is Localazy-generated output and stays JavaScript; this declaration is what lets
+ * the backend import it with `allowJs` off. Keep it in sync with the Localazy export shape.
  */
 
 export interface LocalazyLanguage {

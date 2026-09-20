@@ -5,14 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #3465 ("Shared flush square-hover button primitive for toolbars and sidebars",
- * Feature #3464). `.w-btn.header-nav-btn` was the one place a button's hover read as a square cell
- * flush to its container; it was also welded to a 64x64 box. `.flush-hover-btn` (`_base.css`) is
- * that treatment with the size taken out, plus `--square` and `--cap` modifiers.
- *
  * Two layers, because each catches what the other cannot:
- *   - source text of `_base.css`, pinning the rule shapes and that the header still carries both
- *     classes -- a header regression shows up here with no browser needed;
+ *   - source text of `_base.css`, so a header regression shows up with no browser needed;
  *   - the real compiled app CSS in real Chromium, on buttons carrying the inline `min-height`/
  *     `padding` styles `WBtn` writes, since the whole reason for the `!important`s and the
  *     `:has()` gap rule is a cascade fight that jsdom/happy-dom cannot resolve.
@@ -112,8 +106,8 @@ describe('.flush-hover-btn under real Chromium', { skip: !hasChromium() }, () =>
     await browser?.close()
   })
 
-  // -> `buildAppCss()` compiles `tailwind.css` alone; `_base.css` (the file under test) is one of
-  //    `app.css`'s own `@import`s, so it is appended by hand, after it, as the app loads it
+  // -> `buildAppCss()` compiles `tailwind.css` alone; `_base.css` is one of `app.css`'s own
+  //    `@import`s, so it is appended by hand, after it, as the app loads it
   async function appCss() {
     return `${await buildAppCss()}\n${baseCss}`
   }
@@ -257,7 +251,6 @@ describe('.flush-hover-btn under real Chromium', { skip: !hasChromium() }, () =>
       for (const bodyClass of ['body--ledger', 'body--cobalt body--dark']) {
         for (const cls of ['flush-hover-btn', 'flush-hover-btn flush-hover-btn--cap']) {
           const bg = await hoverBackground(bodyClass, cls, INLINE.round)
-          // -> white text at 16% alpha
           expect(bg, `${bodyClass} ${cls}`).toMatch(
             /^(?:rgba\(255, 255, 255, 0\.16\)|color\(srgb 1 1 1 \/ 0\.16\))$/
           )

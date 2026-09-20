@@ -14,21 +14,13 @@ import type { GroupRule } from './groups.ts'
 import type { KeyExpiration } from './apiKeys.ts'
 
 /**
- * Builds a stand-in for the global `Temporal` namespace with `Now.zonedDateTimeISO` pinned to
- * `fixedZonedDateTimeISO` and every other member forwarding to the real implementation.
+ * Pins `Now.zonedDateTimeISO` while every other member still forwards to the real implementation.
  *
- * Object-spreading `Temporal` (or `Temporal.Now`) does not work for this: it copies only **own
- * enumerable** properties, and a native `Temporal` follows the same convention as the `Math`/
- * `JSON`/`Reflect` namespaces -- its own methods are non-enumerable. `{ ...Temporal.Now }` silently
- * drops every method except one explicitly re-listed in the same object literal, `instant` included
- * -- exactly what `helpers/jwt.ts#epochSeconds()`'s default argument calls on every `createKey()`.
- * `temporal-polyfill` (this sandbox's polyfill, via `ensureTemporal()`) matches that non-enumerable
- * shape too -- verified directly (`Object.getOwnPropertyDescriptor(Temporal.Now, 'instant').enumerable`
- * is `false`) -- unlike the retired `@js-temporal/polyfill`, whose methods were ordinary enumerable
- * properties and so let the spread bug pass silently here while still failing on CI's real Node 26
- * (OpenProject #2585). `Object.getOwnPropertyNames` sees non-enumerable properties too, and
- * `.bind()`-ing each function to the real object it came from keeps native `this` expectations intact
- * regardless of how the method is later invoked.
+ * Spreading `Temporal` (or `Temporal.Now`) cannot do this: like `Math`/`JSON`/`Reflect`, its members
+ * are non-enumerable, so `{ ...Temporal.Now }` silently drops every method not re-listed in the same
+ * literal -- `instant` included, which `helpers/jwt.ts#epochSeconds()` calls on every `createKey()`.
+ * `getOwnPropertyNames` sees them, and binding each function to its source keeps native `this`
+ * expectations intact however the method is later invoked.
  */
 function withFixedNow(
   realTemporal: typeof Temporal,
@@ -51,12 +43,8 @@ function withFixedNow(
   return fakeTemporal
 }
 
-/**
- * `withFixedNow` exists specifically to survive a `Temporal.Now` whose methods are non-enumerable
- * (real native Node 26 behavior, OpenProject #2585, and this sandbox's `temporal-polyfill` matches it
- * -- see above). This suite still builds that shape by hand rather than relying on the ambient global,
- * so the fixture stays self-contained and does not depend on which polyfill happens to be installed.
- */
+// The non-enumerable `Now` is built by hand rather than taken from the ambient global, so the
+// fixture does not depend on whether a polyfill is installed or what shape it gives its members.
 describe('apiKeys.test.ts withFixedNow', () => {
   function makeNonEnumerableNow(instant: () => { tag: string }): any {
     const now = {}
@@ -123,14 +111,6 @@ describe('apiKeys.test.ts withFixedNow', () => {
   })
 })
 
-/**
- * `narrowToScope` is the intersection at the heart of API key scoping: a scope can only take
- * permissions away from what the key's groups grant, never hand it one the groups didn't already
- * hold. It touches neither `CARDINAL` nor the database, so this is a pure unit test — the DB-backed
- * wiring in `resolvePermissions()` (which groups' permissions get fetched from Postgres) is
- * unchanged by this feature and already exercised elsewhere; this suite covers only the new
- * narrowing behavior itself.
- */
 describe('apiKeys.narrowToScope', () => {
   test('passes the group-derived permissions through unmodified when scope is null', () => {
     const permissions = ['read:pages', 'write:pages', 'manage:system']
@@ -146,8 +126,6 @@ describe('apiKeys.narrowToScope', () => {
   })
 
   test('never grants a permission the groups did not already hold', () => {
-    // -> The scope names a permission ('manage:users') none of the key's groups actually grant.
-    //    A scope can only narrow, so the result must not contain it even though it is in the scope.
     const permissions = ['read:pages']
     assert.deepEqual(narrowToScope(permissions, ['read:pages', 'manage:users']), ['read:pages'])
   })
@@ -157,14 +135,8 @@ describe('apiKeys.narrowToScope', () => {
   })
 })
 
-/**
- * `siteId` propagation: `createKey()` signs the given site (or `null`, for instance-wide) into the
- * token's `site` claim, and `verify()` reads it back onto `ApiKeyIdentity` so a route handler can read
- * `req.apiKey.siteId`. `CARDINAL.db` is a minimal in-memory stub (no Postgres) — just enough of
- * `insert()`/`select()` for `createKey`'s single insert and `verify`'s `getKeyById` +
- * `resolvePermissions` lookups — and the signing keypair is a real one from
- * `generateSigningCertificates()`, so the JWT is genuinely signed and verified, not faked.
- */
+// The db is stubbed but the signing keypair is real, so the token is genuinely signed and verified
+// rather than round-tripped through a fake.
 describe('apiKeys siteId propagation through JWT claims', () => {
   const SITE_ID = '33333333-3333-4333-8333-333333333333'
   const GROUP_ID = '44444444-4444-4444-8444-444444444444'
@@ -195,9 +167,8 @@ describe('apiKeys siteId propagation through JWT claims', () => {
                   ? [{ permissions: [] }]
                   : []
             return {
-              // -> `getKeyById` chains `.limit(1)` off this; `resolvePermissions` awaits it directly.
-              //    A real `Promise` with `.limit` attached satisfies both without a hand-rolled
-              //    thenable.
+              // -> `getKeyById` chains `.limit(1)` off this; `resolvePermissions` awaits it
+              //    directly. A `Promise` with `.limit` attached satisfies both.
               where: () => {
                 const result: any = Promise.resolve(rows)
                 result.limit = async () => rows
@@ -240,15 +211,9 @@ describe('apiKeys siteId propagation through JWT claims', () => {
   })
 })
 
-/**
- * OpenProject #2043 / #2033: `models/apiKeys.ts`'s `KEY_EXPIRATIONS` defines five lifetimes (`30d`,
- * `90d`, `180d`, `1y`, `3y`), but every `createKey()` call in the rest of this file passes `'30d'` --
- * so the `{ years: 1 }` / `{ years: 3 }` branches were never actually exercised, and a hand-rolled fake
- * Temporal reducing `{ years: n }` to a flat `n * 365` days would silently disagree with real calendar
- * arithmetic across a leap year -- exactly the case a `1y`/`3y` key's expiry can cross. This suite runs
- * under `ensureTemporal()`'s real (polyfilled on this sandbox's pre-Temporal Node 25, native on Node
- * 26) `Temporal`, not a fake, so both problems are genuinely exercised rather than hidden.
- */
+// Runs under the real `Temporal`, never a fake: a stand-in reducing `{ years: n }` to a flat
+// `n * 365` days disagrees with calendar arithmetic exactly where a `1y`/`3y` expiry crosses a leap
+// day, which is the case these lifetimes exist to get right.
 describe('apiKeys.createKey expiration lifetimes', () => {
   const GROUP_ID = '55555555-5555-4555-8555-555555555555'
   let insertedRows: any[] = []
@@ -273,8 +238,6 @@ describe('apiKeys.createKey expiration lifetimes', () => {
           from: (table: any) => {
             const rows = table === apiKeysTable ? insertedRows : []
             return {
-              // -> Same minimal `.where().limit()` shape as the siteId-propagation suite above --
-              //    `getKeyById` is all this describe needs to read back.
               where: () => {
                 const result: any = Promise.resolve(rows)
                 result.limit = async () => rows
@@ -297,14 +260,10 @@ describe('apiKeys.createKey expiration lifetimes', () => {
 
   for (const lifetime of Object.keys(KEY_EXPIRATIONS) as KeyExpiration[]) {
     test(`createKey computes the '${lifetime}' expiry via real Temporal.ZonedDateTime.add()`, async () => {
-      // -> Bracket the live-clock computation immediately around the call with the exact same
-      //    expression `createKey()` itself evaluates. Compared at millisecond granularity (what the
-      //    `expiration` column -- a JS `Date` -- actually persists), not as full-precision `Temporal
-      //    .Instant` objects: `Now.zonedDateTimeISO()` carries sub-millisecond precision that the
-      //    stored value never does, so comparing whole `Instant`s here can spuriously see the
-      //    millisecond-truncated stored value as "before" a bound read a sub-millisecond-fraction
-      //    earlier in the very same millisecond. Truncating every side to whole milliseconds is what
-      //    the persisted value actually is, so that's the granularity this bounds it at.
+      // -> Bounded at millisecond granularity, which is all the `expiration` column (a JS `Date`)
+      //    persists: `Now.zonedDateTimeISO()` carries sub-millisecond precision, so comparing whole
+      //    `Instant`s would see the truncated stored value as "before" a bound taken a fraction of
+      //    the same millisecond earlier.
       const lowerBoundMs = Temporal.Now.zonedDateTimeISO('UTC')
         .add(KEY_EXPIRATIONS[lifetime])
         .toInstant().epochMilliseconds
@@ -325,13 +284,8 @@ describe('apiKeys.createKey expiration lifetimes', () => {
     })
   }
 
-  /**
-   * A deterministic regression check on the leap-year bug itself, rather than relying on the
-   * suite happening to run across one: `Temporal.Now.zonedDateTimeISO` is swapped for a fixed date
-   * chosen so the added span crosses 2028-02-29, `createKey()` is driven from that frozen clock, and
-   * the resulting expiry is asserted equal to real calendar-aware `add({ years })` -- and unequal to
-   * what the removed fake's flat `n * 365` days would have produced.
-   */
+  // Each fixed date is chosen so the added span crosses 2028-02-29, rather than leaving the leap-day
+  // case to whenever the suite happens to run.
   for (const { lifetime, fixedNowIso } of [
     { lifetime: '1y', fixedNowIso: '2027-12-01T00:00:00+00:00[UTC]' },
     { lifetime: '3y', fixedNowIso: '2026-01-01T00:00:00+00:00[UTC]' }
@@ -363,14 +317,9 @@ describe('apiKeys.createKey expiration lifetimes', () => {
   }
 })
 
-/**
- * OpenProject #788: a personal access token's whole point is that its permissions are resolved LIVE
- * from the owning user's CURRENT group membership on every `verify()` call, never a snapshot taken at
- * `createKey()` time — the design decision this module's own doc comment explains at length. That is
- * genuinely a DB-backed question (it is exactly the live join the mock-`CARDINAL.db` suite above has no
- * use for), so this runs against a real, migrated database via `test/db.ts`, the same way
- * `models/groups.test.ts#checkAccess` does for the equivalent claim about sessions.
- */
+// A personal token resolves its permissions from the owner's current group membership on every
+// `verify()`, never a snapshot taken at issue time — a live join, so these run against a real
+// database rather than the stub the suites above use.
 describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
 
@@ -385,9 +334,8 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
     await teardownTestDb()
   })
 
-  // -> `fixtures` (and its one seeded user/group) are shared across every test in this describe, so
-  //    each test starts from a clean membership and an active account rather than inheriting what a
-  //    previous test left behind.
+  // -> One seeded user is shared across the describe, so each test resets its membership and
+  //    active flag rather than inheriting what the previous one left.
   beforeEach(async () => {
     await fixtures.db.delete(userGroupsTable).where(eq(userGroupsTable.userId, fixtures.userId))
     await fixtures.db
@@ -409,8 +357,6 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
       userId: fixtures.userId
     })
 
-    // -> Nothing admin-shaped survives on the row: `groups` is empty even though the token is fully
-    //    usable, because `userId` is what identity comes from now.
     const row = await apiKeys.getKeyById(id)
     assert.deepEqual(row!.groups, [])
     assert.equal(row!.userId, fixtures.userId)
@@ -443,7 +389,6 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
     assert.deepEqual(new Set(afterJoin.groupIds), new Set([fixtures.groupId, secondGroup!.id]))
     assert.deepEqual(new Set(afterJoin.permissions), new Set(['read:pages', 'write:pages']))
 
-    // -> Removed from every group: the SAME token now grants nothing at all, with nothing revoked.
     await fixtures.db.delete(userGroupsTable).where(eq(userGroupsTable.userId, fixtures.userId))
     const afterRemoval = await apiKeys.verify(key)
     assert.deepEqual(afterRemoval.groupIds, [])
@@ -466,13 +411,10 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
     })
 
     const identity = await apiKeys.verify(key)
-    // -> The user holds both read:pages and write:pages live, but scope narrows the token to just
-    //    the one named -- it can only take away, never grant beyond what the groups already hold.
     assert.deepEqual(identity.permissions, ['read:pages'])
-    // -> OpenProject #930: the identity carries the raw scope itself alongside the already-narrowed
-    //    `permissions`, so `AccessActor.scope` (models/groups.ts) can intersect page permissions
-    //    against it too -- `groupIds` is deliberately NOT narrowed here (that narrowing happens at
-    //    the rule-pooling call site, not by shrinking group membership).
+    // -> The raw scope rides along beside the already-narrowed `permissions` so `AccessActor.scope`
+    //    can intersect page permissions against it too. `groupIds` stays unnarrowed: that happens
+    //    at the rule-pooling call site, not by shrinking membership.
     assert.deepEqual(identity.scope, ['read:pages'])
     assert.deepEqual(new Set(identity.groupIds), new Set([fixtures.groupId, secondGroup!.id]))
   })
@@ -485,7 +427,7 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
       userId: fixtures.userId
     })
 
-    // -> Confirm it works before deactivation, so the rejection below is provably caused by that
+    // -> Unasserted on purpose: proves the rejection below is caused by the deactivation alone.
     await apiKeys.verify(key)
 
     await fixtures.db
@@ -511,23 +453,12 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
 })
 
 /**
- * OpenProject #827: regression test for a v2 bug (upstream requarks/wiki issue #3205, discussions
- * #6216/#6907) — an API key scoped to a group holding only READ permissions still failed every page
- * read, and the group had to be over-granted "Manage Page" just to make GETs work. That defeats the
- * point of a read-only key.
+ * Guards the failure mode upstream's requarks/wiki#3205 describes: a read-only key that verifies
+ * fine yet fails every page read, forcing the group to be over-granted "Manage Page".
  *
- * The equivalent bug existed here too, one layer down from `apiKeys.verify()`: `groups
- * .groupIdsForRequest()` read `req.session.groups`/`req.session.authenticated` only, so a bearer-token
- * request — which deliberately never touches the session, see `index.ts`'s API-key `onRequest` hook —
- * fell straight through to the anonymous branch and got the GUESTS group's rules instead of its own. A
- * key issued for a group whose only rule grants `read:pages` verified fine (`ApiKeyIdentity.permissions`
- * resolved correctly) and then failed every page read anyway, because the permission that actually gates
- * a GET (`mayOnPage()` → `groups.checkAccess()` in `helpers/pageAccess.ts`) is decided from `groupIdsForRequest()`,
- * not from the GLOBAL permission list `ApiKeyIdentity.permissions` carries.
- *
- * This exercises the real stack end to end through `models/apiKeys.ts` and `models/groups.ts`'s own
- * public surface — a genuinely signed and verified JWT, a real group row, the real in-memory rules
- * cache — the same surface `mayOnPage()` calls, rather than re-describing the fix as a mock.
+ * A page GET is decided by `groups.checkAccess()` off `groupIdsForRequest()`, not by the global
+ * `ApiKeyIdentity.permissions` list — and a bearer-token request never touches the session, so any
+ * session-only reading of group membership drops it into the guests branch instead of its own.
  */
 describe(
   'apiKeys page-read regression: group-granted read:pages via an API key (DB-backed)',
@@ -544,10 +475,9 @@ describe(
 
       CARDINAL.config.auth = { certs: generateSigningCertificates() }
       CARDINAL.config.api = { isEnabled: true }
-      // -> Deliberately NOT the fixture's own group: a guests id that names nothing, so that if
-      //    `groupIdsForRequest()` ever regresses back to hoisting an API key up to the guests group,
-      //    the rules cache has nothing for it and `checkAccess` answers false instead of accidentally
-      //    passing anyway.
+      // -> A guests id naming no real group, deliberately not the fixture's own: should an API key
+      //    ever be hoisted to the guests group again, the rules cache holds nothing for it and
+      //    `checkAccess` answers false rather than passing by accident.
       CARDINAL.data = { systemIds: { guestsGroupId: 'nonexistent-guests-group-id' } }
     })
 
@@ -556,8 +486,6 @@ describe(
     })
 
     test('a key issued for a group whose only rule grants read:pages succeeds on a page read, with no elevated permission needed anywhere', async () => {
-      // -> No GLOBAL permissions at all (`permissions: []`) — only a page rule granting `read:pages`,
-      //    exactly the "read-only group" the upstream bug report describes.
       const readOnlyRule: GroupRule = {
         id: 'rule-read-only',
         name: 'Read Only',
@@ -581,17 +509,14 @@ describe(
       })
       const identity = await apiKeys.verify(key)
 
-      // -> The resolved GLOBAL permission list is genuinely empty: nothing elevated leaked in through
-      //    `resolvePermissions()`. Read access has to come from the group's rule, not from this.
+      // -> Empty global list: read access has to come from the group's rule, not from here.
       assert.deepEqual(identity.permissions, [])
       assert.deepEqual(identity.groupIds, [group!.id])
 
       const fakeReq = { apiKey: identity } as any
       const actor = groupsModel.actorForRequest(fakeReq)
 
-      // -> This is the actual question a page GET asks (`mayOnPage()` in `helpers/pageAccess.ts`), and it must
-      //    succeed on the strength of the group's rule alone — no `manage:pages`, no `manage:system`,
-      //    no over-granting anything.
+      // -> The question a page GET actually asks, via `helpers/pageAccess.ts#mayOnPage`.
       assert.equal(
         groupsModel.checkAccess(actor, 'read:pages', {
           path: 'anything',
@@ -602,7 +527,6 @@ describe(
         }),
         true
       )
-      // -> And nothing beyond what the rule actually grants: the same read-only key must not write.
       assert.equal(
         groupsModel.checkAccess(actor, 'write:pages', {
           path: 'anything',
@@ -633,12 +557,6 @@ describe(
       assert.deepEqual(groupsModel.groupIdsForRequest(fakeReq), [group!.id])
     })
 
-    /**
-     * OpenProject #930's own regression case: a key scoped to `['read:pages']` whose GROUP grants
-     * both `read:pages` and `write:pages` through its rule. Before the fix, `checkAccess()` pooled
-     * rules purely from `groupIds` and never consulted `key.scope` at all, so this key still held
-     * `write:pages` -- the exact "obvious read-only token" the bug report describes.
-     */
     test("a key scoped to read:pages may not write, even though its group's own rule grants write:pages too", async () => {
       const readWriteRule: GroupRule = {
         id: 'rule-read-write',

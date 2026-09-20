@@ -2,14 +2,6 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'node:test'
 import cfgHelper from './config.ts'
 
-/**
- * Regression test for `parseConfigValue`'s `$(ENV_VAR:default)` regex: the default-value capture
- * group used to be greedy (`(.+)`), so two references on the same line collapsed into a single
- * match -- the first reference's default swallowed everything up to and including the final `)`,
- * including the second reference's own `$(...)` syntax. Made lazy (`(.+?)`) so each reference stops
- * at its own closing paren.
- */
-
 let previousA: string | undefined
 let previousB: string | undefined
 

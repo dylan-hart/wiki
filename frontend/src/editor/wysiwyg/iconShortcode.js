@@ -1,15 +1,8 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 
 /**
- * `:tabler:home:` -- an Iconify reference written the way an emoji shortcode is, ported from
- * `renderers/modules/markdown-it-icon-shortcode.js`'s own `ICON_SHORTCODE` regex (see that file's
- * doc comment for why the inner colon reliably tells this apart from `:smile:`-style emoji, and why
- * the prefix must start with a letter) onto `@tiptap/markdown`'s `marked`-based tokenizer.
- *
- * Rendered with the same `<iconify-icon>` custom element the published page and the rest of this
- * app use (`components/shared/WIcon.vue`, `boot/iconify.js`) -- Vite's `isCustomElement` rule
- * already tells Vue's compiler to leave that tag alone, so it needs no special handling as a
- * ProseMirror `renderHTML` array either.
+ * `:tabler:home:` -- an Iconify reference written the way an emoji shortcode is. The inner colon is
+ * what reliably tells one apart from a `:smile:`-style emoji shortcode.
  */
 const ICON_SHORTCODE = /^:([a-z][a-z\d]*(?:-[a-z\d]+)*):([a-z\d]+(?:[-.][a-z\d]+)*):/
 
