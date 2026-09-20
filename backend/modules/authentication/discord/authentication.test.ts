@@ -297,38 +297,7 @@ describe('DiscordAuthentication', () => {
       ])
     })
 
-    // -> Stock Discord reports no roles field on `/users/@me`, so this exercises the inherited
-    //    mapping mechanism, not a real Discord claim.
-    test('maps the configured groupsClaim onto profile.groups when mapGroups is on', async () => {
-      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
-        const url = String(input)
-        if (url === 'https://discord.com/api/oauth2/token') {
-          return new Response(JSON.stringify({ access_token: 'the-access-token' }), { status: 200 })
-        }
-        if (url === 'https://discord.com/api/users/@me') {
-          return new Response(
-            JSON.stringify({
-              id: '987654321098765432',
-              username: 'octocat',
-              email: 'octocat@example.com',
-              roles: ['moderator', 'editor']
-            }),
-            { status: 200 }
-          )
-        }
-        throw new Error(`unexpected fetch to ${url}`)
-      })
-      const discord = new DiscordAuthentication('strategy-1', {
-        clientId: 'client-abc',
-        clientSecret: 'secret-xyz',
-        mapGroups: true,
-        groupsClaim: 'roles'
-      })
-      const profile = await discord.profile({ ...flow, currentUrl: '', code: 'the-code' })
-      assert.deepEqual(profile.groups, ['moderator', 'editor'])
-    })
-
-    test('leaves profile.groups absent when mapGroups is off', async () => {
+    test('reports no groups, since Discord has no group claim to map', async () => {
       fetchMock = mockTokenExchange()
       const discord = new DiscordAuthentication('strategy-1', {
         clientId: 'client-abc',
@@ -403,9 +372,9 @@ describe('discord/definition.yml', () => {
     }
   })
 
-  test('declares mapGroups/groupsClaim props for group-claim mapping (OpenProject #826), consistent with every other preset even though stock Discord reports no such field', () => {
-    assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
-    assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
+  test('declares no group-mapping props — Discord reports no group/role claim, so there is nothing to map', () => {
+    assert.equal(def.props.mapGroups, undefined)
+    assert.equal(def.props.groupsClaim, undefined)
   })
 
   test('the callback URL ref matches the {host}/_api/auth/{id}/callback convention every module uses', () => {
