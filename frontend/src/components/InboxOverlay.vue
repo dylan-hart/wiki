@@ -57,39 +57,20 @@ import InboxReview from '@/pages/InboxReview.vue'
 import InboxWatching from '@/pages/InboxWatching.vue'
 
 /**
- * The inbox: what has come in for this user, what they are following, and what is waiting on them.
- *
- * A `MainOverlayDialog` entry (OpenProject #2531) -- previously a bookmarkable `/_inbox/*` route with
- * its own bespoke `WDialog`. That dialog is gone along with the routes: this is now full-screen
- * overlay content exactly like `FileManager`/`PageHistoryOverlay`, switching between its two tabs
- * (Watching/Review) via local reactive state instead of child routes. The two tabs' actual content
- * is unchanged -- `InboxWatching`/`InboxReview` are the same components the old routed pages rendered.
- */
-
-// PROPS
-
-/**
- * Initial state from whoever opened this overlay (`siteStore.openOverlay('Inbox', opts)`), forwarded
- * here by `MainOverlayDialog.vue` (OpenProject #2530). `tab` picks which of the two sections opens;
- * `submissionId`/`from` are `InboxReview`'s own initial state, passed straight through.
+ * Initial state from whoever opened this overlay (`siteStore.openOverlay('Inbox', opts)`): `tab`
+ * picks which of the two sections opens; `submissionId`/`from` are `InboxReview`'s own initial
+ * state, passed straight through.
  */
 const props = defineProps({
   overlayOpts: { type: Object, default: () => ({}) }
 })
 
-// STORES
-
 const siteStore = useSiteStore()
-
-// I18N
 
 const { t } = useI18n()
 
-// DATA
-
-// -> A computed, not a plain array evaluated once at setup: a plain array's `t()` calls would freeze
-//    these labels in whatever language was active when this overlay mounted, so switching interface
-//    language would leave them stale until the overlay was closed and reopened.
+// -> A computed, not an array evaluated once at setup: those `t()` calls would freeze these labels
+//    in whatever language was active when the overlay mounted.
 const sidenav = computed(() => [
   {
     key: 'watching',
@@ -103,10 +84,7 @@ const sidenav = computed(() => [
   }
 ])
 
-/** Which tab is showing. Local, plain reactive state -- no router involved (OpenProject #2531). */
 const tab = ref(props.overlayOpts.tab === 'review' ? 'review' : 'watching')
-
-// METHODS
 
 function close() {
   siteStore.$patch({ overlay: '' })
@@ -115,23 +93,10 @@ function close() {
 
 <style>
 /*
-  A foreground to go with the background -- the same fix `ProfileOverlay.vue`'s `.layout-profile-card`
-  needed for the same reason (see its own comment): `w-layout` is a plain div, not a `WCard` (the one
-  component that declares both halves of a surface itself), so without an explicit `color` here every
-  label under `InboxWatching.vue`/`InboxReview.vue` (notifications, watched pages, the per-page watch
-  preferences) inherited the document's default black text -- readable in light mode purely by
-  accident, illegible against this overlay's own dark background in dark mode. The light value is the
-  black it was already inheriting, so only dark mode actually changes.
-
-  Written as `var(--color-*)` rather than the `var(--color-surface)`/`var(--color-text-body)`/`var(--color-dark-3)`/`var(--color-text-dark)` SCSS
-  literals this used to read (OpenProject #2778, diffed against `Cardinal Wiki - Inbox 3x -
-  Cobalt.dc.html`): those constants are Ledger-only (`css/tailwind.css`'s own header says so), so
-  Cobalt light rendered this panel in Ledger's body text colour and Cobalt dark in Ledger's panel
-  colour -- both silently wrong once `body--cobalt` is on `<body>`, since neither literal picks up
-  `body.body--cobalt`'s `--color-text-body: #1a2038` or `body.body--cobalt.body--dark`'s
-  `--color-dark-3: #141c4f` overrides. The custom properties resolve to the exact same values in
-  Ledger (no visible change there), which is what makes this a pure token-layer fix rather than a new
-  rule.
+  A foreground declared alongside the background: `w-layout` is a plain div, not a `WCard` (the one
+  component that declares both halves of a surface itself), so without an explicit `color` every
+  label under `InboxWatching.vue`/`InboxReview.vue` inherits the document's default black -- fine in
+  light mode by accident, illegible against this overlay's dark background.
 */
 .inbox-overlay {
   .body--light & {
@@ -145,16 +110,9 @@ function close() {
 }
 
 /*
-  The overlay's own section rail. Cardinal's tint, ruled off -- the same column the profile overlay
-  and the file manager's folder tree draw, so the three overlays that have one all read alike.
-
-  Cobalt (OpenProject #2778, `Cardinal Wiki - Inbox 3x - Cobalt.dc.html`) draws this rail as the
-  site's own sidebar chrome rather than a light/dark-following tint -- background, row text/icon and
-  the active item's fill all read off the exact tokens `HeaderNav.vue`'s sidebar-tinted mobile header
-  (`--color-sidebar`) and `NavItemEditor.vue`'s Cobalt active row (`--color-sidebar-text`,
-  `--color-sidebar-icon`, `--nav-active-inset`) already establish for this same "reader sidebar" role,
-  and stay identical across the light/dark toggle -- the handoff's own dark-tokens section says the
-  sidebar treatment "stays unchanged from Cobalt light", so one `body--cobalt` block below covers both.
+  Under Cobalt this rail is the site's own sidebar chrome rather than a light/dark-following tint,
+  so it reads off the `--color-sidebar*` tokens and stays identical across the light/dark toggle --
+  which is why one `body--cobalt` block covers both themes.
 */
 .inbox-overlay-sidebar {
   .body--light & {
@@ -171,8 +129,7 @@ function close() {
   }
 
   .w-list .w-item {
-    /* -> Every rail row is set at 500, the current one included -- the design distinguishes them by
-       the plate, the bar and the colour, not by weight */
+    /* -> The active row is not bolded: the plate, the bar and the colour distinguish it */
     font-weight: 500;
     font-size: 13.5px;
     color: var(--color-slate);
@@ -191,18 +148,11 @@ function close() {
       }
     }
 
-    /*
-      The active section: lifted onto the panel's own white with an accent bar down its leading
-      edge. The same mark the site sidebar, the folder tree and the file list all use for "you are
-      here" -- where this used to be a two-stop wash of the brand colour, which is elevation drawn
-      in paint.
-    */
     &.is-active {
       background-color: var(--color-surface);
       border-inline-start-color: var(--color-accent-fill);
       color: var(--color-accent);
 
-      /* -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon */
       .w-icon,
       iconify-icon {
         color: var(--color-accent-fill);
@@ -219,11 +169,8 @@ function close() {
       }
 
       /*
-        Cobalt's active row is a plate, not a bordered strip: the handoff's radii sweep gives it
-        `--radius-control` and a 10px side margin so it reads as a pill sitting on the rail rather
-        than spanning it edge to edge, and the leading accent moves from a border to `--nav-active-
-        inset`'s inset box-shadow -- the same shape `NavItemEditor.vue`'s own Cobalt active row
-        already draws for the identical "selected sidebar item" role.
+        Cobalt's active row is a pill sitting on the rail, not a strip spanning it: hence the radius
+        and side margin, and the leading accent moving from a border to an inset shadow.
       */
       .body--cobalt & {
         background-color: var(--color-sidebar-active-bg);
@@ -243,38 +190,22 @@ function close() {
 }
 
 /*
-  The inbox's own row action: a 32x32 hairline square holding a 15px glyph and nothing else, which is
-  how every action in both design files is drawn -- the notification's mark-read tick, the watched
-  page's preferences and stop-watching pair, and the review toolbar's back/view/decline/approve set.
-  Not the flat round `acrylic-btn` those all used to be: Cardinal separates a control from its ground
-  with a hairline, never with a tint, and a round button is the one shape the language does not draw.
+  The row action both pages draw. Declared here because neither page owns the other and this overlay
+  is the only thing that renders either, so this stylesheet is guaranteed present wherever they are;
+  it is deliberately not a `components/shared/` member until a caller outside this overlay wants it.
 
-  Declared here rather than in either page because both of them use it and neither owns the other --
-  `InboxOverlay` is the only thing that ever renders `InboxWatching`/`InboxReview`, so this is the one
-  stylesheet guaranteed to be present wherever they are. It is deliberately NOT a `components/shared/`
-  member: nothing outside this overlay draws it yet, and a third caller is when it earns promotion.
-
-  `WBtn` writes its own `min-height`/`padding` as inline styles, so `padding="none"` is what actually
-  zeroes the padding; only the width is left for a class to set. The glyph is sized at the call site
-  (`<w-icon size="15px">`) for the same reason -- `WBtn`'s own `.w-icon` rule is scoped, and an inline
-  font-size is the one thing that reliably beats it.
+  `WBtn` writes its own `min-height`/`padding` as inline styles, so `padding="none"` at the call site
+  is what zeroes the padding and only the width is left for a class. The glyph is sized inline at the
+  call site for the same reason -- `WBtn`'s own `.w-icon` rule otherwise wins.
 */
 .inbox-square-btn.w-btn {
   width: 32px;
 }
 
 /*
-  Decline, the one action whose edge is not the neutral hairline: the design gives it the accent fill
-  as a border with the darker accent as its glyph, so it reads as the refusal without being a filled
-  red button sitting beside a filled green one.
-*/
-/*
-  The decline button's edge is the accent FILL -- `#e4676b` under Ledger, `#ff4d5a` under Cobalt --
-  confirmed against `Cardinal Wiki - Inbox Review 3x - Ledger.dc.html` and its Cobalt twin, whose
-  only difference on this button is that one colour. One rule for both aesthetics: the token already
-  carries each one's value, and `--color-accent-fill` is unrestated in the Cobalt dark block, so
-  Cobalt draws the same edge in both themes. Ledger's dark theme lightens it, which is the one case
-  that still needs a rule of its own.
+  Decline, the one action whose edge is not the neutral hairline: an accent-fill border rather than a
+  filled red button sitting beside a filled green one. `--color-accent-fill` already carries each
+  aesthetic's own value, and only Ledger's dark theme lightens it -- hence the single override.
 */
 .inbox-square-btn--negative.w-btn {
   border-color: var(--color-accent-fill);
@@ -283,34 +214,4 @@ function close() {
     border-color: var(--color-accent-dark);
   }
 }
-
-/*
-  Diffed against the Cobalt pair (OpenProject #2778) and logged rather than fixed, since each needs a
-  change outside this file's ownership:
-
-  - `.card-header` (`css/_base.css`) draws this overlay's own title band from the compile-time
-    `var(--color-dark-2)` SCSS constant, never picking up `--color-dark-2`'s Cobalt override -- the same
-    pre-existing, app-wide gap #2772/#2773 already logged for `WConfirmDialog.vue`'s identical band.
-    Still `#1c2a70` in the Cobalt mockup vs whatever `var(--color-dark-2)` renders as here.
-  - The panel's own rounded/clipped `--radius-dialog` + `overflow:hidden` treatment (12px, no eyebrow
-    bar) is `WDialog.vue`'s `rounded-lg` (a fixed Tailwind radius, not `--radius-dialog`) plus
-    `MainLayout.vue`'s `.main-overlay > .w-dialog-panel` rule, which still draws Ledger's 10px ink
-    eyebrow bar unconditionally -- the exact `--radius-dialog` gap #2772 already logged on `WDialog`.
-    The 50%-viewport centering itself (`MainOverlayDialog.vue`'s `HALF_SIZE`, `MainLayout.vue`'s
-    `.is-half-sized` floor) is unaffected and already correct in both aesthetics.
-  - `<w-avatar square>`'s 36px plates (`InboxWatching.vue`/`InboxReview.vue`) render literally
-    square in every aesthetic; the mockups round them to 6px (`--radius-control`) under Cobalt.
-    `WAvatar.vue`'s `square` prop is a shared-component concern, not this file's.
-  - The "slate" plate fill (the file-icon avatar in both pages) reads `--color-slate`, which Cobalt
-    never redefines -- the mockups want `#1e2a5e` there (the handoff's "Commit"/"selected-tag fill"
-    tone), a role with no token yet. `--color-accent-fill`'s plate is already correct, since Cobalt
-    does redefine that one.
-  - The diff editor's `cardinaljs` Monaco theme (`InboxReview.vue`) is deliberately literal hex,
-    since Monaco cannot resolve a custom property -- but the two mockups' code panes are not
-    identical either: gutter/label tones and the removed-line marker text shift between them
-    (`#8792ab`/`#f08287` Ledger vs `#7f8ed1`/`#ff7a84` Cobalt) while the actual insert/remove line
-    fills stay Ledger's raw `#5f9c86`/`#e4676b` in both files. Making the editor aesthetic-reactive
-    (a second theme plus a watcher on `composables/aesthetic.js`) is a real feature addition, not a
-    token swap, so it is left flagged rather than guessed at.
-*/
 </style>

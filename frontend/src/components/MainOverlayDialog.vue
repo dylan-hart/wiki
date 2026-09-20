@@ -11,10 +11,8 @@
     :aria-label="overlayAriaLabel"
     @update:model-value="onDialogModelUpdate">
     <!--
-      `overlay-opts` carries whatever initial state the opener set via `siteStore.openOverlay(name,
-      opts)` (or a plain `$patch`) through to the mounted overlay as a real prop -- every entry in
-      `overlays` below declares it, even the ones that don't read it yet, since an undeclared prop
-      falls through to this element's DOM root instead (OpenProject #2530).
+      Every entry in `overlays` declares `overlay-opts`, even the ones that don't read it: an
+      undeclared prop falls through to the child's DOM root as an attribute instead.
     -->
     <component :is="overlays[siteStore.overlay]" :overlay-opts="siteStore.overlayOpts" />
   </w-dialog>
@@ -68,21 +66,14 @@ const overlays = {
   })
 }
 
-// STORES
-
 const siteStore = useSiteStore()
-
-// I18N
 
 const { t } = useI18n()
 
-// COMPUTED
-
 /**
- * `overlays`' loaded child owns the only visible heading for this full-screen overlay (its own
- * `<w-header class="card-header">`), so the accessible name is looked up here rather than duplicated
- * as a prop threaded down -- each entry mirrors the exact translation key that child's own header
- * already renders (OpenProject #2356).
+ * The loaded child owns the only visible heading, so the dialog's accessible name is looked up here
+ * rather than threaded down as a prop. Each entry must mirror the exact translation key that child's
+ * own header renders; a missing key leaves that screen's dialog unnamed, with no visible symptom.
  */
 const OVERLAY_TITLES = {
   BlockPicker: () => t('editor.blockPicker.title'),
@@ -100,13 +91,9 @@ const overlayAriaLabel = computed(() => OVERLAY_TITLES[siteStore.overlay]?.())
 
 /**
  * Profile and Inbox are short, focused forms/lists, not a file browser or a block gallery -- a
- * full-screen panel for either dwarfed its own content (OpenProject #2543 follow-up feedback). Half
- * the viewport instead, exactly as the design draws it
- * (`ui-redesign/Cardinal Wiki - Inbox 3x.dc.html`: `50vw`/`50vh` with a `min(560px, 100%)` /
- * `420px` floor, and no ceiling above it -- a `clamp()` capped both at a size the design does not).
- * The floor is in `MainLayout.vue`'s `.main-overlay.is-half-sized` rule, since it belongs on the
- * panel rather than on the dialog's own box. Every other entry keeps the full-screen treatment it
- * needs for its own content (a tree, a table, a block gallery).
+ * full-screen panel for either dwarfs its own content. There is no ceiling above these, and the
+ * floor lives in `css/_overlay-dialog.css`'s `.is-half-sized` rule, since it belongs on the panel
+ * rather than on the dialog's own box.
  */
 const HALF_SIZE = {
   width: '50vw',
@@ -115,41 +102,27 @@ const HALF_SIZE = {
 const isHalfSized = computed(() => siteStore.overlay === 'Profile' || siteStore.overlay === 'Inbox')
 
 /**
- * Profile, Inbox, FileManager and PageHistory are all "browse/manage, then leave" surfaces with no
- * risk of losing unsaved work mid-action (a settings save, an inbox item, a file op each commit
- * immediately; page history is read-only browsing -- compare two versions, choose a rollback) -- a
- * stray click on the blurred rest of the app, or an Escape, dismisses them the way a reader would
- * expect from any ordinary modal. PageHistory joined them in OpenProject #2638: it was persistent
- * only by omission from this set, which left its Close button the single way out of a dialog that
- * discards nothing when it closes.
+ * These four are "browse/manage, then leave" surfaces with no risk of losing unsaved work mid-action
+ * (a settings save, an inbox item, a file op each commit immediately; page history is read-only), so
+ * a stray backdrop click or Escape dismisses them like any ordinary modal. Every other entry can sit
+ * mid-edit with real state to lose and stays persistent for that reason, not by inheritance.
  *
- * The remaining entries (BlockPicker, NavEdit, TableEditor, Welcome) can sit mid-edit with real
- * state to lose (a half-built block insert, an in-progress nav/table edit, the first-run
- * create-home-page flow), and each stays persistent for that reason rather than by inheritance.
- *
- * A destructive confirmation opened ON TOP of a dismissible overlay -- PageHistory's rollback
- * confirm is the one that matters -- still swallows the first Escape by itself: dismissal is routed
- * through `composables/escapeStack.js`, a LIFO stack, so the confirm (pushed later) is the only
- * handler that keypress reaches, and the overlay underneath needs a second Escape.
+ * A destructive confirmation opened ON TOP of a dismissible overlay still swallows the first Escape
+ * by itself: dismissal routes through `composables/escapeStack.js`, a LIFO stack, so the confirm
+ * (pushed later) is the only handler that keypress reaches.
  */
 const DISMISSIBLE_OVERLAYS = new Set(['Profile', 'Inbox', 'FileManager', 'PageHistory'])
 const isDismissible = computed(() => DISMISSIBLE_OVERLAYS.has(siteStore.overlay))
 
 /**
- * `siteStore.overlayIsShown` is a getter derived from `siteStore.overlay` (a Pinia getter has no
- * setter), so a plain `v-model` on `<w-dialog>` -- which assigns to it directly -- silently failed
- * a Vue `readonly` warning and never actually closed anything. Latent until now: every entry was
- * `persistent`, so `WDialog` never had a reason to emit `update:model-value` at all. Now that every
- * entry in `DISMISSIBLE_OVERLAYS` above dismisses via backdrop click or Escape, this is reachable,
- * and closing needs the same `overlay: ''` `$patch` every overlay's own Close button already uses.
+ * `siteStore.overlayIsShown` is a Pinia getter and has no setter, so a plain two-way binding on
+ * `<w-dialog>` would assign to it directly, draw a Vue `readonly` warning and close nothing. Closing
+ * goes through the same `overlay: ''` `$patch` every overlay's own Close button uses.
  *
- * OpenProject #3282: refuses the patch specifically when the current overlay is Profile and a
- * section save/write is still in flight (`pendingProfileSaves`, the same module singleton
- * `ProfileOverlay.vue`'s own close button reads) -- scoped to Profile alone so Inbox, FileManager
- * and PageHistory dismiss exactly as before. `isDismissible`/`persistent` above are left untouched:
- * WDialog's own backdrop-click and Escape handlers still emit `update:model-value(false)` (Profile
- * stays non-persistent), but since `siteStore.overlay` is never patched here, `overlayIsShown` never
- * changes and the dialog stays open.
+ * Profile refuses that patch while a section save is still in flight (`pendingProfileSaves`, the
+ * module singleton `ProfileOverlay.vue`'s close button also reads). Refusing here rather than
+ * flipping `persistent` keeps every other dismissible overlay untouched: WDialog still emits
+ * `update:model-value(false)`, but `overlayIsShown` never changes, so the dialog stays open.
  */
 function onDialogModelUpdate(value) {
   if (!value) {

@@ -9,20 +9,17 @@ import { buildTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /*
-  `WDialog` renders its panel through `<teleport to="body">`, so none of it is a descendant of the
-  component's own root -- `wrapper.find()` never sees it. Every query below goes through the real
-  `document.body` instead, wrapped the same way `@vue/test-utils` wraps its own results.
+  `WDialog` teleports its panel to `document.body`, so `wrapper.find()` never sees it -- every query
+  below goes through the real body instead.
 */
 function body() {
   return new DOMWrapper(document.body)
 }
 
 /**
- * Defaults `GET system/extensions/status` to `{ pandoc: true }` -- most of this suite exercises a
- * Pandoc-backed format (`.docx` and friends), and OpenProject #1209's gating would otherwise disable
- * every one of them under the mock client's own unconfigured default (`json()` resolving `undefined`,
- * i.e. no extensions installed). A test that specifically covers the missing-Pandoc case overrides
- * this per-call, same as any other endpoint.
+ * Defaults `GET system/extensions/status` to `{ pandoc: true }`: most of this suite exercises a
+ * Pandoc-backed format, and the mock client's unconfigured `json()` resolves `undefined`, which
+ * reads as "no extensions installed" and disables every one of them.
  */
 async function mountDialog(props = {}, { pandocInstalled = true } = {}) {
   globalThis.API_CLIENT.get.mockReturnValueOnce({
@@ -35,13 +32,12 @@ async function mountDialog(props = {}, { pandocInstalled = true } = {}) {
     props: { basePath: 'docs', ...props },
     router,
     stores: { site: { id: 'site-1' } },
-    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: `w-dialog` really teleports
-    //    its body to `document.body`, which is where this suite asserts.
+    // -> Opts out of the default `teleport: true` stub: `w-dialog` really teleports its body to
+    //    `document.body`, which is where this suite asserts.
     stubs: {}
   })
-  // -> `useDialogComponent` mounts hidden then flips visible on a following tick, so the teleported
-  //    panel -- everything this test interacts with -- exists only after that tick runs, and
-  //    `onMounted`'s `fetchExtensionsStatus()` needs its own tick to resolve too
+  // -> `useDialogComponent` mounts hidden and flips visible on a following tick, so the teleported
+  //    panel exists only after it runs; `fetchExtensionsStatus()` needs a tick of its own too.
   await flushPromises()
   return wrapper
 }
@@ -72,7 +68,6 @@ describe('ImportPageDialog', () => {
       })
     )
 
-    // -> `.docx` auto-detects a format, so Convert enables without touching the format select
     expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
   })
 
@@ -90,16 +85,14 @@ describe('ImportPageDialog', () => {
     expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
       'sites/site-1/pages/import',
       expect.objectContaining({
-        // -> A named, work-sized timeout rather than ky's 10s default (OpenProject #1718) -- the
-        //    exact value is an internal implementation detail, just that one was sent at all
+        // -> Only that a timeout was sent at all; its value is an implementation detail.
         timeout: expect.any(Number),
         searchParams: { fileName: 'notes.docx', format: 'docx', path: 'docs' },
         headers: { 'content-type': 'application/octet-stream' },
         body: file
       })
     )
-    // -> `.text()` trims outer whitespace; the underlying element still holds the trailing newline
-    //    pandoc's output ends with
+    // -> Read off the element: `.text()` would trim the trailing newline being asserted.
     expect(body().find('pre').element.textContent).toBe('# Converted heading\n')
 
     await body().find('.import-confirm-btn').trigger('click')

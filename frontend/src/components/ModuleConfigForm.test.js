@@ -9,11 +9,7 @@ import { buildConfigEditor } from '@/helpers/moduleConfig'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * `ModuleConfigForm.vue`, extracted (task #556) out of two previously-identical inline template
- * blocks in `AdminStorage.vue` and `AdminSearch.vue`. Renders `buildConfigEditor()`'s output --
- * `frontend/src/helpers/moduleConfig.test.js` covers that half separately.
- */
+// `helpers/moduleConfig.test.js` covers `buildConfigEditor()` itself; this file covers the rendering.
 function mountForm(config) {
   const i18n = createTestI18n()
   return mount(ModuleConfigForm, {
@@ -129,8 +125,6 @@ describe('ModuleConfigForm', () => {
       { mode: 'auto' }
     )
     const wrapper = mountForm(config)
-    // -> Only `mode` (a plain string field, no `if`) renders; `hosts`' condition (`mode === 'manual'`)
-    //    is false since `mode` was stored as `'auto'`
     expect(wrapper.findAllComponents(WInput)).toHaveLength(1)
   })
 

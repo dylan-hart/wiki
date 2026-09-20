@@ -16,11 +16,6 @@ const LOCALES = [
   { code: 'fr', language: 'fr', name: 'French', nativeName: 'Français' }
 ]
 
-/**
- * Regression coverage for the click handler that used to be `commonStore.setLocale(lang.code)` --
- * see the doc comment on `switchLocale` in `LocaleSelectorMenu.vue` for what that got wrong and why
- * this replaces it with navigation.
- */
 async function mountMenu({ path, locale = 'en', forcePrefix = false, id = 'page-1' }) {
   setActivePinia(createPinia())
 
@@ -38,24 +33,20 @@ async function mountMenu({ path, locale = 'en', forcePrefix = false, id = 'page-
   const i18n = createTestI18n()
 
   const wrapper = mount(LocaleSelectorMenu, {
-    // -> `attachTo` a real, connected element: WMenu's trigger is climbed from the mounted root's
-    //    OWN parent (see below), which vue-test-utils otherwise leaves detached with no parentElement
+    // -> A real, connected element: WMenu climbs to the mounted root's own parent (see below),
+    //    which is otherwise detached with no `parentElement`
     attachTo: document.body,
     global: { plugins: [router, i18n] }
   })
 
   /*
-    WMenu's popup only renders once shown. Its trigger is climbed from the mounted root's own
-    parent (see `onMounted` in WMenu.vue) -- normally the enclosing WBtn. LocaleSelectorMenu has no
-    single root node (a hidden placeholder span plus a teleport), so vue-test-utils' `wrapper.element`
-    itself resolves to the div it mounted into (see the comment on that in vite.config.js) -- which is
-    exactly WMenu's climbed trigger, so this dispatches on the element the real click listener sits on
-    rather than one further up that a bubbling click would never reach it from.
+    WMenu's popup renders only once shown, and it climbs to the mounted root's own parent for its
+    trigger. LocaleSelectorMenu has no single root node, so `wrapper.element` resolves to the div it
+    mounted into -- which is that climbed trigger, and so the element the click listener sits on.
   */
   wrapper.element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await wrapper.vm.$nextTick()
-  // -> `@show` kicks off `loadTranslationStatus()`'s async fetch; let it settle before a test reads
-  //    the rendered menu, same as `App.locale.test.js`'s own `flushPromises()` convention.
+  // -> `@show` kicks off `loadTranslationStatus()`'s fetch; let it settle before reading the menu.
   await flushPromises()
   await wrapper.vm.$nextTick()
 
@@ -69,24 +60,13 @@ function findItemByText(text) {
 }
 
 /**
- * Regression coverage for OpenProject #3196: this component's default `anchor`/`self` were a
- * hardcoded physical pair (`'bottom left'`/`'top left'`) never audited for RTL mirroring, unlike
- * `PageHeader.vue`'s and `NavSidebar.vue`'s equivalents (task 721). Fixed via
- * `helpers/directionalAnchor.js`, reactively off `composables/direction.js` since this component
- * stays mounted across navigations (the header/sidebar locale switcher) rather than being remounted
- * per page.
+ * Runs BEFORE the describe below, deliberately: that one's wrappers are cleaned up by clearing
+ * `document.body.innerHTML` rather than by `unmount()`, which leaves their instances (and their
+ * watchers on the module-level `useDirection()` ref) alive -- flipping direction after any of them
+ * has run re-triggers those now-parentless instances and crashes on a null `insertBefore`.
  *
- * A SEPARATE, TOP-LEVEL describe deliberately placed BEFORE `LocaleSelectorMenu`'s own describe below
- * -- not nested inside it, and running first -- and using a plain detached `mount()` rather than
- * `mountMenu()` (which needs `attachTo: document.body` for its click-to-open coverage there):
- * `anchor`/`self` are plain template-bound props, set whether or not the menu is ever opened.
- * `LocaleSelectorMenu` now reacts to the SAME module-level `useDirection()` ref every wrapper mounted
- * below also closes over; those are cleaned up by that describe's own `afterEach` clearing
- * `document.body.innerHTML` rather than by `wrapper.unmount()`, which leaves their component
- * instances (and watchers) alive. Flipping direction from AFTER any of those has run would re-trigger
- * every one of those leaked, now-parentless instances and crash on a null `insertBefore` -- running
- * first avoids that entirely, and each test below also builds and tears down (`wrapper.unmount()`)
- * its own wrapper regardless.
+ * A plain detached `mount()` is enough here: `anchor`/`self` are template-bound whether or not the
+ * menu is ever opened.
  */
 describe('LocaleSelectorMenu default anchor/self direction (OpenProject #3196)', () => {
   function mountDetached({ anchor, self } = {}) {
@@ -106,8 +86,8 @@ describe('LocaleSelectorMenu default anchor/self direction (OpenProject #3196)',
   }
 
   afterEach(() => {
-    // -> `useDirection`'s backing ref is module-level state shared with every other test file that
-    //    imports it in this run; leaving it flipped would bleed into whichever test runs next
+    // -> `useDirection`'s backing ref is module-level state shared across this run; leaving it
+    //    flipped would bleed into whichever test comes next
     useDirection().set(false)
   })
 
@@ -171,8 +151,8 @@ describe('LocaleSelectorMenu', () => {
   })
 
   it('leaves the primary locale unprefixed when forcePrefix is off', async () => {
-    // -> `pageStore.path` is always bare, never locale-prefixed -- see `parseLocalePrefix` --
-    //    whatever locale the page was loaded in, here the non-primary `fr`.
+    // -> `pageStore.path` is always bare, never locale-prefixed, whatever locale the page was
+    //    loaded in -- here the non-primary `fr`.
     const { router } = await mountMenu({ path: 'docs/intro', locale: 'fr' })
     const pushSpy = vi.spyOn(router, 'push')
 

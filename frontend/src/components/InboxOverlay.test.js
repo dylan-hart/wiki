@@ -5,10 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 
 /*
-  `InboxReview.vue` is a static import of this overlay's content (not lazily loaded, the way
-  `MainOverlayDialog.vue` loads the overlay itself), so its own `monaco-editor` import runs no matter
-  which tab is showing. Stubbed the same way `pages/InboxReview.test.js` does -- this suite is about
-  the overlay shell (tab switching, Close, prop pass-through), not the diff editor.
+  The overlay statically imports `InboxReview.vue`, so its `monaco-editor` import runs whichever tab
+  is showing. This suite is about the overlay shell, not the diff editor.
 */
 vi.mock('monaco-editor', () => ({
   editor: {
@@ -48,18 +46,12 @@ function mountInboxOverlay(overlayOpts) {
     props: overlayOpts ? { overlayOpts } : {},
     messages,
     routes: ['/'],
-    // -> Both tabs' content components fetch off `siteStore.id` on mount (`InboxReview.vue`'s own
-    //    `editorStore.fetchConfigs()` included) -- seeded so those calls take their real path
-    //    instead of the "no site yet" guard clause, which is not what this suite is about.
+    // -> Both tabs' content fetches off `siteStore.id` on mount; seeded so those calls take their
+    //    real path instead of the "no site yet" guard clause.
     stores: { site: { id: 'site-1' } }
   })
 }
 
-/**
- * OpenProject #2531: the Inbox is now `MainOverlayDialog` content, switching between its two sections
- * with local reactive state (a plain `tab` ref) instead of `/_inbox/watching` / `/_inbox/review` child
- * routes -- `InboxLayout.vue` and its routes are deleted outright, no redirect shim.
- */
 describe('InboxOverlay sidenav', () => {
   it('renders exactly two rail entries', () => {
     const { wrapper } = mountInboxOverlay()
@@ -92,12 +84,7 @@ describe('InboxOverlay sidenav', () => {
   })
 })
 
-/**
- * OpenProject #2530/#2531: `overlayOpts.submissionId`/`overlayOpts.from` are `InboxReview`'s own
- * initial state (set by `PageHeader.vue`'s `reviewSubmission()`), forwarded straight through as the
- * `initial-submission-id`/`from-page` props -- not read a second time off the store inside
- * `InboxReview` itself.
- */
+/** `InboxReview` takes this state as props; it never reads it back off the store itself. */
 describe('InboxOverlay overlayOpts pass-through to InboxReview', () => {
   it('passes submissionId/from down as initialSubmissionId/fromPage', () => {
     const { wrapper } = mountInboxOverlay({
@@ -113,11 +100,7 @@ describe('InboxOverlay overlayOpts pass-through to InboxReview', () => {
   })
 })
 
-/**
- * OpenProject #2531: Close is the one way out now that `MainOverlayDialog`'s shared `w-dialog` is
- * `persistent` (Escape/backdrop no longer dismiss it, unlike the old bespoke `WDialog` this replaces)
- * -- it clears `siteStore.overlay`, the same convention every other overlay's Close button uses.
- */
+/** `MainOverlayDialog`'s shared dialog is `persistent`, so Close is the one way out. */
 describe('InboxOverlay close', () => {
   it('clears siteStore.overlay on Close', async () => {
     const { wrapper, siteStore } = mountInboxOverlay()
@@ -130,16 +113,8 @@ describe('InboxOverlay close', () => {
 })
 
 /**
- * OpenProject #2543 follow-up: `.inbox-overlay` (the `w-layout` wrapping this whole overlay) is a
- * plain div, not a `WCard` -- the one component that declares both halves of a surface itself (see
- * `.w-card`'s own `body.body--dark` rule in `tailwind.css`) -- so without an explicit `color` here
- * every label under `InboxWatching.vue`/`InboxReview.vue` (notifications, watched pages, watch
- * preferences) inherited the document's default black text: readable in light mode by accident,
- * illegible against this overlay's own dark background in dark mode.
- *
- * Asserted against the source text rather than a computed style -- jsdom's CSS engine does not
- * reliably resolve a compound `.body--dark &` selector the way a real browser would, the same
- * reasoning `WelcomeOverlay.test.js`'s equivalent dark-mode fix documents.
+ * Asserted against the source text rather than a computed style: the DOM stand-in does not reliably
+ * resolve a compound `.body--dark &` selector the way a real browser would.
  */
 describe('InboxOverlay: dark mode', () => {
   const source = readFileSync(
@@ -147,13 +122,6 @@ describe('InboxOverlay: dark mode', () => {
     'utf-8'
   )
 
-  /*
-   * OpenProject #2778: these used to read the `$surface`/`$text-body`/`$dark-3`/`$text-dark` SCSS
-   * literals -- Ledger-only constants (the old Sass `_theme.scss`'s own header said so) that never
-   * picked up Cobalt's `body.body--cobalt`/`body.body--cobalt.body--dark` overrides. Moved onto the matching
-   * `var(--color-*)` custom properties, which resolve to the identical Ledger values (this assertion
-   * still passes unchanged there) and to Cobalt's own values once `body--cobalt` is on `<body>`.
-   */
   it('gives .inbox-overlay a background + color pairing for both themes', () => {
     const overlayRule = source.match(/\.inbox-overlay\s*\{[\s\S]*?\n\}\n/)[0]
 
@@ -180,11 +148,8 @@ describe('InboxOverlay: dark mode', () => {
 })
 
 /**
- * OpenProject #2778: diffed against `Cardinal Wiki - Inbox 3x - Cobalt.dc.html`. Cobalt draws this
- * rail as the site's own sidebar chrome (same tokens `NavItemEditor.vue`'s Cobalt active row already
- * uses for the identical role) rather than a light/dark-following tint, and stays the same across the
- * light/dark toggle -- one `body--cobalt` block covers both, so these assertions don't need a
- * `body--dark` variant the way the Ledger ones above do.
+ * Cobalt draws this rail as the site's own sidebar chrome and keeps it identical across the
+ * light/dark toggle, so one `body--cobalt` block covers both and no `body--dark` variant is checked.
  */
 describe('InboxOverlay: Cobalt aesthetic', () => {
   const source = readFileSync(
@@ -226,9 +191,8 @@ describe('InboxOverlay: Cobalt aesthetic', () => {
     const negativeRule = source.match(/\.inbox-square-btn--negative\.w-btn\s*\{[\s\S]*?\n\}\n/)[0]
 
     /*
-      One rule, not an aesthetic branch: `--color-accent-fill` is `#e4676b` under Ledger and
-      `#ff4d5a` under Cobalt, which is the whole of the difference between the two mockups here.
-      Ledger's dark theme lightens it; Cobalt's does not, so that override excludes the aesthetic.
+      One rule, not an aesthetic branch: `--color-accent-fill` already carries each aesthetic's own
+      value. Ledger's dark theme lightens it and Cobalt's does not, so that override excludes Cobalt.
     */
     expect(negativeRule).toMatch(/border-color:\s*var\(--color-accent-fill\)/)
     expect(negativeRule).toMatch(

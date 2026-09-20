@@ -197,23 +197,16 @@ import { useSiteStore } from '@/stores/site'
 import { useEditorStore } from '@/stores/editor'
 
 /**
- * Pick several files — Wiki.js's own Markdown, or one of Pandoc's supported formats — convert them
- * all in one request through `POST sites/:siteId/pages/import/batch` (OpenProject #849), then save
- * each converted result as its own new page through the ordinary `POST sites/:siteId/pages` — the
- * same endpoint the ordinary "New Page" flow uses. Unlike `ImportPageDialog.vue`, this dialog saves
- * the pages itself rather than handing content back to a caller: opening N editors for N files is not
- * a usable flow, so review and save both happen here, with each file's own progress and outcome shown
- * independently.
+ * Unlike `ImportPageDialog.vue`, which hands converted content back to a caller, this dialog saves
+ * the pages itself: opening N editors for N files is not a usable flow, so review and save both
+ * happen here, each file with its own outcome.
  *
- * `format: 'markdown'` (OpenProject #1092) needs no Pandoc extension, and a dropped **folder** of
- * markdown files (an Obsidian vault, a Hugo/Jekyll content directory, a whole docs-as-markdown repo)
- * is the flow this exists for: `onDrop` below walks the browser's FileSystem Entry API to preserve
- * that folder's relative structure into each row's destination path automatically, rather than
- * flattening every file straight into `basePath`. Front matter parsed server-side into
- * title/description/tags flows through to each row exactly like it does in `ImportPageDialog.vue`.
+ * A dropped **folder** of markdown files is the flow this exists for: `onDrop` below walks the
+ * browser's FileSystem Entry API to preserve that folder's structure into each row's destination
+ * path, rather than flattening every file straight into `basePath`.
  */
 
-/** Kept in step by hand with `ImportPageDialog.vue`'s own copy — see that file's header comment. */
+/** Mirrored by hand in `ImportPageDialog.vue` — keep the two in step. */
 const FORMATS = [
   { value: 'markdown', label: 'Markdown (.md)', needsPandoc: false },
   { value: 'mediawiki', label: 'MediaWiki', needsPandoc: true },
@@ -237,45 +230,23 @@ const EXTENSION_FORMATS = {
   odt: 'odt'
 }
 
-/**
- * The most files `convert()` will send in one request — matches the backend's own
- * `MAX_IMPORT_BATCH_FILES` (`backend/models/import.ts`), kept in step by hand for the same reason
- * `FORMATS` above is.
- */
+/** Must match the backend's own `MAX_IMPORT_BATCH_FILES` (`backend/models/import.ts`). */
 const MAX_BATCH_FILES = 20
 
-/** How many `-1`, `-2`, ... suffixes the `new` conflict behavior will try before giving up on a row. */
 const MAX_PATH_ATTEMPTS = 25
 
 /**
- * How long the client gives the batch-conversion request, in milliseconds -- past `ky`'s own 10s
- * default, which no batch of any real size finishes inside (`backend/models/import.ts`'s
- * `MAX_IMPORT_BATCH_FILES = 20` at up to `MAX_IMPORT_SIZE = 25MB` each routinely takes far longer).
- *
- * Unlike `EXPORT_PDF_TIMEOUT` (`PageActionsCol.vue`) or `INSTALL_TIMEOUT` (`AdminExtensions.vue`),
- * which are both fixed ceilings for a request whose own duration barely varies, this request's size
- * varies batch to batch -- so `computeBatchImportTimeout` below computes it from the files actually
- * selected, out of three terms:
- *
- * - A base of `IMPORT_BATCH_TIMEOUT_BASE`: past the server's own single-conversion ceiling
- *   (`backend/models/import.ts`'s `IMPORT_TIMEOUT`, 30s -- one pandoc process killed if it stalls),
- *   with margin. The batch route converts every file in parallel (one `Promise.all`, `api/pages/import.ts`),
- *   so this is not "30s times file count" -- it is what one file alone would already need.
- * - `IMPORT_BATCH_TIMEOUT_PER_FILE` per file: even run in parallel, more files mean more pandoc
- *   processes contending for the same CPU, more disk I/O staging each upload, and a slower parallel
- *   conversion overall than a single file's -- this is the marginal cost of each additional one.
- * - The full upload transfer time at a deliberately pessimistic `IMPORT_BATCH_ASSUMED_BYTES_PER_MS`
- *   throughput (100 KB/s) -- the one thing a fixed ceiling genuinely cannot cover: a large batch (a
- *   20-file, 25MB-each worst case is 500MB) sent over a slow or congested connection.
+ * `ky`'s 10s default is far short of what a batch conversion takes, and unlike a fixed ceiling this
+ * request's cost varies batch to batch, so `computeBatchImportTimeout` derives it from the files
+ * selected: the base is what one file alone needs (the route converts them in parallel, so it is
+ * not one ceiling times file count), the per-file term is the CPU and disk contention each extra
+ * pandoc process adds, and the throughput term covers a large upload over a slow connection -- the
+ * one thing a fixed ceiling cannot.
  */
 const IMPORT_BATCH_TIMEOUT_BASE = 40 * 1000
 const IMPORT_BATCH_TIMEOUT_PER_FILE = 3 * 1000
 const IMPORT_BATCH_ASSUMED_BYTES_PER_MS = 100
 
-/**
- * The `timeout` to send with a batch-conversion request carrying exactly these files -- see
- * `IMPORT_BATCH_TIMEOUT_BASE`'s doc comment for what each term accounts for.
- */
 function computeBatchImportTimeout(files) {
   const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0)
   return (
@@ -285,40 +256,27 @@ function computeBatchImportTimeout(files) {
   )
 }
 
-// PROPS
-
 const props = defineProps({
-  /** Where converted pages are saved by default, and what `write:pages` is checked against. */
   basePath: {
     type: String,
     default: null
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
 
-// DIALOG
-
 const { dialogVisible, onDialogHide, onDialogCancel } = useDialogComponent()
-
-// STORES
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const editorStore = useEditorStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   step: 'select',
   files: [],
-  /** Parallel to `files` -- each entry is that file's detected/overridden format, or `null` when its extension is not recognized (OpenProject #1209: no more one format shared by the whole batch). */
+  /** Parallel to `files` by index; `null` where the extension is not recognized. */
   formats: [],
   isDraggingOver: false,
   converting: false,
@@ -329,15 +287,11 @@ const state = reactive({
 
 const fileIpt = ref(null)
 
-// -> Whether Pandoc is installed decides which per-file formats are pickable at all (OpenProject
-//    #1209); fetched once per dialog open rather than assumed stale from an earlier visit.
 onMounted(() => {
   siteStore.fetchExtensionsStatus()
 })
 
-// COMPUTED
-
-/** True once we know for sure this instance has no Pandoc extension -- before the check resolves, nothing is disabled yet rather than flashing every format grayed out. */
+/** Gated on the check having resolved, so formats do not flash grayed out before it answers. */
 const pandocMissing = computed(
   () => siteStore.extensionsStatusLoaded && !siteStore.extensionsStatus.pandoc
 )
@@ -359,10 +313,8 @@ const conflictOptions = computed(() => [
 const acceptExtensions = computed(() => `.${Object.keys(EXTENSION_FORMATS).join(',.')}`)
 
 /*
-  A file whose extension went undetected (`state.formats[i]` is `null`) is still allowed into the
-  batch: it fails only its own row once converted (OpenProject #1209), the same as a Pandoc-missing
-  or genuinely corrupt file already does -- Convert All never blocks on any one file's format being
-  unresolved, only on there being no files at all.
+  A file whose extension went undetected is still allowed into the batch: it fails only its own row
+  once converted, so this blocks on there being no files at all and on nothing else.
 */
 const canConvert = computed(() => state.files.length > 0)
 
@@ -384,13 +336,10 @@ const summaryLabel = computed(() => {
   return t('pages.importBatch.summarySaved', { saved, converted })
 })
 
-// METHODS
-
 function pickFiles() {
   fileIpt.value?.click()
 }
 
-/** A file's own format, from its extension -- `null` when the extension is not one this endpoint recognizes (OpenProject #1209: per file, not one guess for the whole batch). */
 function detectFormat(fileName) {
   const ext = fileName.split('.').pop()?.toLowerCase()
   return ext ? (EXTENSION_FORMATS[ext] ?? null) : null
@@ -424,10 +373,8 @@ function onFilesSelected(ev) {
 }
 
 /**
- * Reads every `FileSystemEntry` a drop's `DataTransferItemList` names, in the shape the standard
- * (non-Chromium-only) `.webkitGetAsEntry()` exposes it — walking into directories rather than only
- * reading the top-level drop, which is what lets `onDrop` below preserve a dropped folder's relative
- * structure (OpenProject #1092).
+ * Walks into dropped directories rather than reading the top level only, which is what lets
+ * `onDrop` preserve a dropped folder's structure.
  *
  * @returns Each file paired with its path relative to the drop root — `'notes.md'` for a bare file,
  *   `'docs/guide/intro.md'` for one found inside a dropped folder.
@@ -438,8 +385,7 @@ async function filesFromDataTransfer(dataTransfer) {
     .map((item) => (typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null))
     .filter(Boolean)
 
-  // -> No FileSystem Entry API support at all (older Firefox): fall back to the flat file list, the
-  //    same shape this dropzone always handled before folder support existed.
+  // -> No FileSystem Entry API support (older Firefox): fall back to the flat file list.
   if (topEntries.length === 0) {
     return [...(dataTransfer?.files ?? [])]
       .filter((file) => file.size > 0)
@@ -449,9 +395,8 @@ async function filesFromDataTransfer(dataTransfer) {
   const collected = []
   async function readAllEntries(reader) {
     const all = []
-    // -> `readEntries()` returns entries in batches (a browser-imposed cap per call, not "all of
-    //    them"), signalled by an empty array once the directory is exhausted -- has to be called
-    //    repeatedly, not just once, to see every child of a large directory.
+    // -> `readEntries()` returns children in browser-capped batches, signalled exhausted by an
+    //    empty array -- one call does not see every child of a large directory.
     for (;;) {
       const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject))
       if (batch.length === 0) {
@@ -486,12 +431,9 @@ async function onDrop(ev) {
   const dropped = await filesFromDataTransfer(ev.dataTransfer)
   if (dropped.length) {
     /*
-      `File` carries no built-in notion of "the folder it was dropped from" -- `webkitRelativePath` is
-      the closest native equivalent, but it is a getter-only IDL attribute on `File.prototype` in every
-      engine that implements it, and this file's `<script setup>` runs in strict-mode ES module scope,
-      where assigning to a getter-only property throws rather than silently no-opping. A plain own
-      property under a name of this dialog's own choosing sidesteps that entirely -- `defaultPath`
-      below reads it back the same way regardless of how the folder structure reached this dialog.
+      Not `webkitRelativePath`: it is a getter-only IDL attribute on `File.prototype`, and assigning
+      to one from this module's strict-mode scope throws rather than silently no-opping. An own
+      property of this dialog's own naming sidesteps that; `defaultPath` reads it back.
     */
     for (const { file, relativePath } of dropped) {
       if (relativePath !== file.name) {
@@ -519,10 +461,9 @@ async function convert() {
   state.converting = true
   try {
     const form = new FormData()
-    // -> One `formats` field right after each `files` field (OpenProject #1209): the backend pairs
-    //    a `formats` part with whichever upload it most recently saw, so this exact interleaving is
-    //    load-bearing, not cosmetic. An empty string here (an undetected extension) lets the backend
-    //    make its own attempt and answer with a clear per-file error rather than the client guessing.
+    // -> One `formats` field right after each `files` field: the backend pairs a `formats` part
+    //    with whichever upload it most recently saw, so the interleaving is load-bearing. An empty
+    //    string lets the backend attempt its own detection and answer with a per-file error.
     state.files.forEach((file, idx) => {
       form.append('files', file, file.name)
       form.append('formats', state.formats[idx] ?? '')
@@ -536,10 +477,8 @@ async function convert() {
     }).json()
 
     /*
-      Zipped by index against `state.files`, not looked up by name: the batch endpoint returns one
-      result per file "in the order they were sent" (its own schema description), and `state.files`
-      was sent in that same order by the loop just above -- the only place `relativePath`
-      (OpenProject #1092's folder-structure carrier, set by `onDrop`) is still reachable from.
+      Zipped by index, not looked up by name: the endpoint answers one result per file in the order
+      they were sent, and `state.files` is the only place `relativePath` is still reachable.
     */
     state.results = (resp?.results ?? []).map((item, idx) => {
       const file = state.files[idx]
@@ -549,8 +488,7 @@ async function convert() {
         ok: Boolean(item.ok),
         markdown: item.markdown ?? '',
         convertMessage: item.message ?? '',
-        // -> A markdown import's own front matter (OpenProject #1092) names the real title -- used
-        //    over the file-name default whenever the server found one.
+        // -> A title the server parsed out of front matter beats the file-name default.
         title: item.ok ? item.title || defaultTitle(item.fileName) : '',
         path: item.ok ? defaultPath(file ?? { name: item.fileName }) : '',
         description: item.description ?? '',
@@ -561,11 +499,8 @@ async function convert() {
     })
     state.step = 'review'
   } catch (err) {
-    // -> A client-side `TimeoutError` firing while the server is still genuinely converting the batch
-    //    must not read like a real failure -- retrying resends every file and re-runs every pandoc
-    //    conversion a second time for nothing. Same distinction `AdminExtensions.vue`'s `install()`
-    //    draws for `INSTALL_TIMEOUT`. Anything else -- missing Pandoc, a bad file, a real server
-    //    refusal -- falls through to the generic caption, where the server's own message says which.
+    // -> A client-side timeout while the server is still converting must not read as a failure:
+    //    retrying resends every file and re-runs every pandoc conversion for nothing.
     if (isTimeoutError(err)) {
       notify({
         type: 'negative',
@@ -589,10 +524,8 @@ function defaultTitle(fileName) {
 }
 
 /**
- * Builds a row's destination path from its source file, preserving a dropped folder's relative
- * structure into the wiki automatically (OpenProject #1092): `file.relativePath` — set by `onDrop`'s
- * directory walk, absent for a plain browse-button selection — carries any folder segments ahead of
- * the file name, each slugified independently the same way the file name itself always has been.
+ * `file.relativePath` — set by `onDrop`'s directory walk, absent for a browse-button selection —
+ * carries a dropped folder's segments ahead of the file name, each slugified independently.
  */
 function defaultPath(file) {
   const segments = (file.relativePath || file.name).split('/').filter(Boolean)
@@ -603,23 +536,13 @@ function defaultPath(file) {
 }
 
 /**
- * The HTML for one row's converted markdown, produced the same way `InboxReview.vue`'s
- * `renderReviewed` does for an approval that also never passes through a mounted editor: the
- * markdown pipeline lives in the frontend (`renderers/markdown.js`), so nothing server-side ever
- * turns `content` into `render` on its own. Skipping this and sending `content` alone would save a
- * page whose `render` is empty -- and a page view reads `render`, not `content`
- * (`pages/Index.vue`'s `v-html="pageStore.render"`) -- so every imported page would show blank to
- * a reader until somebody happened to open and re-save it in the editor.
- *
- * Site-specific config (line breaks, typographer, ...) comes bundled with the editor configs
- * rather than on its own, so it is fetched once per dialog open, not per row.
- *
- * @throws Whatever `MarkdownRenderer#render` throws on unparsable source -- caught by the caller,
- *   same as a failed save.
+ * The markdown pipeline lives in the frontend (`renderers/markdown.js`), so nothing server-side
+ * turns `content` into `render`. A page view reads `render`, not `content`, so saving without this
+ * would store pages that show blank until somebody re-saves them in the editor.
  */
 async function renderMarkdown(markdown, pagePath) {
   // -> `ensureConfigs()`, not a bare `configIsLoaded` check: it also refreshes the glossary term
-  //    list even when the rest of the config is already loaded (OpenProject #2789)
+  //    list when the rest of the config is already loaded.
   await editorStore.ensureConfigs()
   const md = new MarkdownRenderer(editorStore.editors.markdown ?? {})
   return md.render(markdown, { pagePath })
@@ -651,10 +574,8 @@ async function overwriteExisting(row, render) {
 }
 
 /**
- * Saves one row, resolving a duplicate-path (409) refusal per `state.conflictBehavior` — the same
- * three-way choice the site's own asset-upload conflict setting offers (`uploads.conflictBehavior`,
- * `AdminGeneral.vue`), applied here per file since page creation has no such site-wide setting of
- * its own to read.
+ * Page creation has no site-wide conflict setting of its own to read, so a duplicate-path refusal
+ * resolves against `state.conflictBehavior`, chosen per import.
  */
 async function saveRow(row) {
   row.saveStatus = 'saving'
@@ -709,7 +630,7 @@ async function saveRow(row) {
     return
   }
 
-  // -> 'new': try successive `-1`, `-2`, ... suffixes until one is free
+  // -> 'new', the one behavior left: try successive suffixes until one is free
   const basePath = row.path
   for (let n = 1; n <= MAX_PATH_ATTEMPTS; n++) {
     const attemptPath = `${basePath}-${n}`
@@ -738,7 +659,7 @@ async function saveRow(row) {
   row.saveMessage = t('pages.importBatch.conflictNewExhausted')
 }
 
-/** Sequential, not parallel: 'new' resolution retries against paths the previous row may just have taken, and a shared conflict-behavior setting is simplest to reason about one row at a time. */
+/** Sequential, not parallel: 'new' resolution retries against paths a previous row may just have taken. */
 async function saveAll() {
   state.saving = true
   for (const row of state.results) {
@@ -750,10 +671,8 @@ async function saveAll() {
   const saved = state.results.filter((r) => r.saveStatus === 'saved').length
   const failed = state.results.filter((r) => r.saveStatus === 'failed').length
   /*
-    OpenProject #1012: each new page can change what an `auto`/`mixed` menu generates from the tree,
-    the same as a single `pageSave()` create -- but this is a whole batch of them, so invalidate once
-    here rather than once per `saveRow()`, which would re-trigger the tree walk per row instead of
-    per import.
+    Each new page can change what an `auto`/`mixed` menu generates from the tree; invalidated once
+    here rather than inside `saveRow()`, which would re-walk the tree per row.
   */
   if (saved > 0) {
     await siteStore.fetchNavigation(pageStore.navigationId, true)
@@ -796,11 +715,8 @@ function rowClasses(row) {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Written out in full rather than nested: `&--suffix` is Sass string concatenation, not valid
+   native CSS nesting, and a browser silently drops such a rule instead of erroring. */
 .import-batch-page-dialog-review {
   max-height: 60vh;
   overflow: auto;
@@ -813,6 +729,8 @@ function rowClasses(row) {
   color: #fff;
 }
 
+/* FIXME: the `&--over`, `&--failed` and `&--saved` rules below are the same Sass concatenation the
+   comment above warns about, so they never match -- write each out as a full selector. */
 .import-batch-dropzone {
   border: 2px dashed rgba(0, 0, 0, 0.2);
   transition: border-color 0.15s ease;
