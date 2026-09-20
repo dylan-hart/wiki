@@ -3,10 +3,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import './component.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-/**
- * Appends a `<block-m365-video>` with `embed` set as a JS property, the way an author's saved prop
- * value arrives, and waits for Lit's first render.
- */
 const mountPlayer = (embed = '') => mountBlock('block-m365-video', { props: { embed } })
 
 const SHAREPOINT_SRC =
@@ -130,11 +126,7 @@ describe('block-m365-video', () => {
     expect(style).toContain('aspect-ratio: 16 / 9')
   })
 
-  /*
-   * Deliberately no `describeDarkMode` here: this block adds no `DarkMode` controller of its own and
-   * `shared/video-embed.js` constructs none either -- there is nothing in a Microsoft 365 frame for
-   * a `dark` attribute to restyle. See `shared/video-embed.test.js` for the full split.
-   */
+  /* No `describeDarkMode`: there is nothing in an opaque provider frame for `dark` to restyle. */
   it('never takes a dark attribute -- the shared video shell constructs no DarkMode controller', async () => {
     document.body.classList.add('body--dark')
     const el = await mountPlayer(STREAM_SRC)

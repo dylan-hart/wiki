@@ -1,11 +1,7 @@
 import { LitElement, html, css } from 'lit'
 import { DarkMode } from '../shared/theme.js'
 
-/*
-  Tabler `eye-off`, pasted verbatim from frontend/src/assets/icons.generated.js (OpenProject #2875 --
-  blocks.md's ground rules: "Material path SVGs (..., eye-off, ...) -> Tabler"). Stroke rather than
-  fill, same as every other Tabler glyph in the app.
-*/
+/* Pasted verbatim from frontend/src/assets/icons.generated.js; stroke, like every Tabler glyph. */
 const EYE_OFF_SVG = html`
   <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" data-icon="tabler:eye-off">
     <g fill="none" stroke="currentColor" stroke-width="1.5">
@@ -16,14 +12,10 @@ const EYE_OFF_SVG = html`
   </svg>
 `
 
-/**
- * Block Spoiler
- */
 export class BlockSpoilerElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'spoiler',
@@ -56,10 +48,9 @@ export class BlockSpoilerElement extends LitElement {
       }
 
       /*
-        The content is laid out either way and only hidden from view, so the box is exactly as tall
-        covered as it is revealed and nothing below it moves when a reader opens it. Hiding it by
-        visibility is what does that: display:none would collapse the box, and a blur or a mask leaves
-        the text on screen for anyone who looks closely enough at the pixels.
+        Hidden by visibility, so the box is as tall covered as revealed and nothing below it moves
+        when a reader opens it: display:none would collapse the box, and a blur or a mask leaves the
+        text on screen for anyone who looks closely enough at the pixels.
       */
       .spoiler {
         position: relative;
@@ -68,7 +59,6 @@ export class BlockSpoilerElement extends LitElement {
         padding: 16px 20px;
         border: 1px solid var(--block-border);
         border-radius: var(--block-radius);
-        /* -> Covered is the tint (matches an unrevealed "well"); revealed is the card colour */
         background-color: var(--block-tint-bg);
       }
       .spoiler:not(.is-covered) {
@@ -78,10 +68,7 @@ export class BlockSpoilerElement extends LitElement {
         visibility: hidden;
       }
 
-      /*
-        Two opposite corner marks, Ledger only. Same aria-hidden four-gradient technique as
-        block-infobox / block-tabs.
-      */
+      /* -> Four gradients draw the two opposite corner marks; the aesthetic decides display. */
       .marks {
         display: var(--block-corner-marks);
         position: absolute;
@@ -141,19 +128,8 @@ export class BlockSpoilerElement extends LitElement {
 
   static get properties() {
     return {
-      /**
-       * Heading on the cover
-       * @type {string}
-       */
       label: { type: String },
-
-      /**
-       * Line under the label
-       * @type {string}
-       */
       hint: { type: String },
-
-      // Internal Properties
       _covered: { state: true }
     }
   }
@@ -163,13 +139,12 @@ export class BlockSpoilerElement extends LitElement {
     this.label = 'Spoiler'
     this.hint = 'Click to show content'
     this._covered = true
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
   }
 
   /**
-   * Drop the outermost margins of the content, the way `block-tabs` does: the box supplies the
-   * padding, and a heading adding its own on top of it would push the cover's text off centre.
+   * The box supplies the padding; content adding its own on top of it would push the cover's text
+   * off centre.
    */
   _trimEdgeMargins() {
     this.firstElementChild?.style.setProperty('margin-top', '0')
@@ -182,9 +157,8 @@ export class BlockSpoilerElement extends LitElement {
   }
 
   /**
-   * Reveals the content and, since the cover button is about to unmount rather than stay focused,
-   * moves focus onto the (now-visible) content itself so a screen reader announces something rather
-   * than silently dropping focus back to the document body.
+   * The cover button unmounts on reveal, so focus has to be moved onto the content or it drops
+   * silently back to the document body.
    */
   async _reveal() {
     this._covered = false

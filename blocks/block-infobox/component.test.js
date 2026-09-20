@@ -4,22 +4,13 @@ import { BlockInfoboxElement } from './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-/**
- * Appends a `<block-infobox>` carrying `source` inside a fenced code block, the way the wiki's own
- * markdown renderer leaves a fence's contents — exactly as typed, undoing markdown's own escaping.
- * `connectedCallback` reads the YAML synchronously, so no extra wait is needed before the fields it
- * sets are current, but the caller still awaits one render for the DOM they produce.
- */
+/** The YAML parse is synchronous, so one render is all any caller has to wait for. */
 const mountInfobox = (source) => mountBlock('block-infobox', { pre: source })
 
 describe('block-infobox', () => {
   afterEach(resetBlockDom)
 
-  /*
-    Regression coverage for bumping the `js-yaml` dependency (5.2.3 -> 5.3.0), a minor bump in a YAML
-    parser — exactly the kind of change that can silently move flow-style/block-style parsing or
-    duplicate-key handling. These lock in the behavior the block already depends on.
-  */
+  /* Parser behaviour a js-yaml upgrade can silently move, pinned. */
   it('parses block-style YAML, including a nested group and a boolean', async () => {
     const el = await mountInfobox(
       'City: Montreal\nPublic Transport:\n  Metro: true\n  Bus: false\n'
@@ -63,29 +54,19 @@ describe('block-infobox', () => {
     expect(link.textContent).toBe('montreal.ca')
   })
 
-  /*
-    Regression coverage for OpenProject #956: js-yaml's default schema parses a bare date into a
-    `Date` instance, which `rowsOf`'s `Object.entries()` used to treat as a nested mapping — an empty
-    one, since `Object.entries(dateObj)` is `[]` — and `render()` crashed reading `rows[0].label` off
-    it. A date is common infobox input ("Founded: 2020-01-01"), not a corner case.
-  */
   it('renders a bare YAML date as locale-formatted text rather than crashing', async () => {
     const el = await mountInfobox('Founded: 2020-01-01')
 
     expect(el._error).toBe('')
     const dd = el.shadowRoot.querySelector('dd')
     expect(dd).not.toBeNull()
-    // -> Pins the parse to an actual `Date`, not merely "some non-empty, non-crashing text": js-yaml
-    //    5's `CORE_SCHEMA` has no `!!timestamp` type on its own, so a bare date parses to the plain
-    //    string "2020-01-01" unless the component opts a `timestampTag` back in -- which a fallback
-    //    string render would also satisfy trivially, without ever exercising `valueOf()`'s `Date`
-    //    branch this test exists to cover.
+    // -> The formatted text, not merely non-empty text: without the component's `timestampTag` the
+    //    value parses to the string "2020-01-01", which any looser assertion would pass trivially
+    //    without exercising `valueOf()`'s `Date` branch
     expect(dd.textContent.trim()).toBe('January 1, 2020')
     expect(el.shadowRoot.querySelector('.group')).toBeNull()
   })
 
-  // Regression coverage for OpenProject #956: an empty mapping value used to hit the same
-  // `rows[0].label`-on-an-empty-array crash as a bare date.
   it('renders an empty YAML mapping value as an empty row rather than crashing', async () => {
     const el = await mountInfobox('Key: {}')
 
@@ -97,8 +78,6 @@ describe('block-infobox', () => {
     expect(el.shadowRoot.querySelector('.group')).toBeNull()
   })
 
-  // Regression coverage for OpenProject #956: a valueless key ("City:") parses to `null`, which
-  // `valueOf`'s bare `String()` used to render as the literal text "null".
   it('renders a valueless key as an empty value rather than the text "null"', async () => {
     const el = await mountInfobox('City:')
 
@@ -107,12 +86,7 @@ describe('block-infobox', () => {
     expect(dd.textContent.trim()).toBe('')
   })
 
-  /*
-    OpenProject #2942: the card border reads the infobox-specific token (`--infobox-border`,
-    `tailwind.css`'s 4-state `--infobox-*` block) rather than the generic `--block-border` every
-    other block uses, so Cobalt can give it its own `#c9d6fb`/`rgb(143 176 255 / 0.28)` values
-    without disturbing Ledger's unchanged hairline.
-  */
+  /* The card's own token exists so a theme can recolour this border alone, not every block's. */
   it('draws .infobox’s border off --infobox-border, not the generic --block-border', () => {
     const cssText = BlockInfoboxElement.styles.cssText
     const rule = cssText.slice(cssText.indexOf('.infobox {'), cssText.indexOf('.name {'))
@@ -120,10 +94,6 @@ describe('block-infobox', () => {
     expect(rule).not.toContain('var(--block-border)')
   })
 
-  /*
-    OpenProject #2944: the image well now renders unconditionally (a placeholder glyph in place of
-    the picture), not only when `image` is set.
-  */
   it('shows a centered placeholder glyph in the well when there is no image', async () => {
     const el = await mountInfobox('City: Montreal')
 

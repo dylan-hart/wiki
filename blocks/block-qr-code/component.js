@@ -6,14 +6,10 @@ import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { I18n } from '../shared/i18n.js'
 
-/**
- * Block QR Code
- */
 export class BlockQrCodeElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'qr-code',
@@ -51,7 +47,6 @@ export class BlockQrCodeElement extends LitElement {
           display: block;
         }
 
-        /* -> The gap below the block. On this element rather than :host: see block-index. */
         .qr {
           margin-bottom: 16px;
           display: inline-flex;
@@ -62,15 +57,13 @@ export class BlockQrCodeElement extends LitElement {
           border: 1px solid var(--block-border);
           border-radius: var(--block-radius);
           /*
-          White in both themes and both aesthetics, and padded: a code is read by a camera looking for
-          dark squares on a light field, so tinting or inverting it would make it harder to scan, not
-          easier -- the one deliberate exception to blocks.md's "well is the tint" rule (OpenProject
-          #2875).
+          White and padded in every theme: a camera looks for dark squares on a light field, so
+          tinting or inverting the code only makes it harder to scan.
         */
           background-color: #fff;
         }
 
-        /* -> The drawing is sized here, so the box grows by its own padding rather than eating into it */
+        /* -> Sized on the drawing, so the box grows by its padding rather than eating into it */
         .qr svg {
           display: block;
           width: var(--qr-size);
@@ -86,10 +79,9 @@ export class BlockQrCodeElement extends LitElement {
         }
 
         /*
-        Standard offscreen-clip technique: present to assistive tech and to a "select all" copy, absent
-        from the rendered layout. display: none would pull it out of the accessibility tree too, which
-        is the one thing this element exists to avoid -- role="img" below collapses the .qr subtree out
-        of the accessible-name computation, so this is the only place the encoded value is exposed.
+        Offscreen clip, not display: none -- role="img" on .qr collapses the subtree out of the
+        accessible-name computation, so this is the only place the encoded value reaches assistive
+        tech, and display: none would drop it from the accessibility tree as well.
       */
         .visually-hidden {
           position: absolute;
@@ -112,27 +104,10 @@ export class BlockQrCodeElement extends LitElement {
 
   static get properties() {
     return {
-      /**
-       * Text or URL to encode
-       * @type {string}
-       */
       value: { type: String },
-
-      /**
-       * Width of the code in pixels
-       * @type {number}
-       */
       size: { type: Number },
-
-      /**
-       * Text shown under the code
-       * @type {string}
-       */
       caption: { type: String },
-
-      // Internal Properties
       _svg: { state: true },
-      /** True once the value has proven too long to fit — the message itself is resolved in render(). */
       _tooLong: { state: true }
     }
   }
@@ -144,28 +119,20 @@ export class BlockQrCodeElement extends LitElement {
     this.caption = ''
     this._svg = ''
     this._tooLong = false
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
     this._i18n = new I18n(this)
   }
 
   /**
-   * What the code stands for.
-   *
-   * An empty `value` means this page, which is the common case — a printed page, or a screen someone
-   * wants to carry on their phone. Taken from the address bar rather than built from the site config,
-   * so it is the URL the reader is actually looking at, and without the fragment, which points at a
-   * place on the page rather than at the page.
+   * An empty `value` means this page. Taken from the address bar rather than the site config so it
+   * is the URL the reader is actually looking at, minus the fragment, which points at a place on
+   * the page rather than at the page.
    */
   _encoded() {
     return this.value?.trim() || `${window.location.origin}${window.location.pathname}`
   }
 
-  /**
-   * Whether the encoded value is a fetchable web address, worth exposing as a real, clickable link
-   * rather than plain text -- true for the common cases (an explicit URL, or the page-address
-   * fallback above), false for arbitrary encoded text (a phone number, a Wi-Fi payload, ...).
-   */
+  /** Only a fetchable web address is worth exposing as a clickable link rather than plain text. */
   _encodedIsUrl(value) {
     try {
       return ['http:', 'https:'].includes(new URL(value).protocol)
@@ -180,7 +147,7 @@ export class BlockQrCodeElement extends LitElement {
       // -> Drawn at a fixed scale and sized by CSS, so the same markup is crisp at any width
       this._svg = renderSVG(this._encoded(), { border: 1, pixelSize: 8 })
     } catch {
-      // -> Every symbol size has a ceiling, and a long enough string clears the largest of them
+      // -> uqr throws once the string clears the largest symbol size
       this._tooLong = true
     }
   }
@@ -194,10 +161,9 @@ export class BlockQrCodeElement extends LitElement {
     const size = `${Math.min(Math.max(Number(this.size) || 180, 80), 600)}px`
     const encoded = this._encoded()
     /*
-      role="img" + a short, fixed aria-label is deliberate over labelling the code with the encoded
-      value itself: `encoded` can be a multi-hundred-character URL, which would make for an unusable
-      accessible name. The actual value is exposed separately below instead -- as a real link when it
-      is one, so a screen-reader or keyboard user can also *use* it rather than just hear it read out.
+      A short fixed aria-label rather than the encoded value: `encoded` can be a
+      multi-hundred-character URL, which makes for an unusable accessible name. The value itself is
+      exposed below instead -- as a real link when it is one, so it can be used and not just heard.
     */
     return html`
       <div class="qr" role="img" aria-label="QR code" style="--qr-size: ${size}">

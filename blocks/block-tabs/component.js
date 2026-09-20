@@ -4,26 +4,20 @@ import { fetchIcon } from '../shared/icons.js'
 import { DarkMode } from '../shared/theme.js'
 
 /**
- * Asked of a block that might be hiding the element the event was dispatched on.
- *
- * The app sends it at a heading before scrolling to it — see `helpers/anchors.js` — so that a heading
- * inside a panel that is not showing is opened rather than scrolled at. Matched by name only: a block
- * answers it or ignores it, and neither side has to know about the other.
+ * Asked of a block that might be hiding the element the event was dispatched on: the app sends it
+ * at a heading before scrolling to it (`frontend/src/helpers/anchors.js`). Matched by name only, so
+ * a block answers it or ignores it and neither side has to know about the other.
  */
 const REVEAL_EVENT = 'block-reveal'
 
-/**
- * Block Tabs
- */
 export class BlockTabsElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * has to stay a plain literal.
    *
-   * `template` is the body the picker writes into the page along with the opening line. A block that
-   * has one is fenced with `:::`, so that the `::block-tab` children inside it are read as blocks of
-   * their own rather than as the end of this one.
+   * `template` is the body the picker writes into the page. A block that has one is fenced with
+   * `:::`, so the `::block-tab` children inside it read as blocks of their own rather than as the
+   * end of this one.
    */
   static definition = {
     block: 'tabs',
@@ -54,22 +48,15 @@ Content of the second tab.
         display: block;
       }
 
-      /*
-        The marks live outside .tabs' own box (see .tabs-marks below), so the wrapper is what
-        carries the gap below the block and gives the marks something to position against. On this
-        element rather than :host: see block-index.
-      */
+      /* -> The marks sit outside .tabs' own box, so they need this to position against. */
       .tabs-wrap {
         position: relative;
         margin-bottom: 16px;
       }
 
       /*
-        The frame: a hairline square (Ledger) or an 8px matte card (Cobalt) -- --tabs-radius and
-        --tabs-shadow carry the whole difference, and both aesthetics agree on "none" for the shadow,
-        so no shadow is drawn at all any more (OpenProject #2874's own removal list). Clipping to the
-        radius is what rounds the strip's top corners and the panel's bottom ones without either of
-        them having to know where it sits.
+        Clipping to the radius is what rounds the strip's top corners and the panel's bottom ones
+        without either of them having to know where it sits.
       */
       .tabs {
         border: 1px solid var(--tabs-border);
@@ -79,12 +66,9 @@ Content of the second tab.
       }
 
       /*
-        Two opposite corner marks, Ledger only -- --tabs-corner-marks is "none" under Cobalt, whose
-        frame is bounded by its own radius instead. Same technique PageHeader.vue's
-        .page-header-icon__marks draws, trimmed to the two corners tabset-block.md calls for. A
-        sibling of .tabs rather than a child of it: .tabs clips its own content to round Cobalt's
-        corners, and a mark drawn outside that frame would be clipped away right along with it if it
-        lived inside.
+        Four gradients draw the two opposite corner marks; the aesthetic decides display. A
+        sibling of .tabs rather than a child: .tabs clips its own content to round its corners, and
+        a mark drawn outside that frame would be clipped away with it.
       */
       .tabs-marks {
         display: var(--tabs-corner-marks);
@@ -101,11 +85,9 @@ Content of the second tab.
       }
 
       /*
-        The whole row is the unselected surface, tabs and the space past the last one alike. The line
-        along the bottom (none, under Cobalt) is the panel's top edge; the tabs are pulled down onto
-        it so the active one can paint over its own stretch and open the seam into the panel. "gap"
-        does double duty in a wrapping flex row: it is the space between tabs on one line AND the
-        space between wrapped lines, which is the same 4px Cobalt wants in both directions.
+        The bottom rule is the panel's top edge; the tabs are pulled down onto it so the active one
+        can paint over its own stretch and open the seam into the panel. gap does double duty in a
+        wrapping flex row: between tabs on one line AND between wrapped lines.
       */
       .strip {
         display: flex;
@@ -151,13 +133,12 @@ Content of the second tab.
       .tab:hover:not(.is-active) svg {
         color: var(--tabs-hover-fg);
       }
-      /* -> Inset rather than an outline, so the ring follows the tab's own radius under Cobalt */
+      /* -> Inset shadow rather than an outline, so the ring follows the tab's own radius */
       .tab:focus-visible {
         outline: none;
         box-shadow: var(--tabs-focus-ring);
       }
 
-      /* -> Flat panel colour, which is what lifts it out of the strip; the cap replaces the old border-top */
       .tab.is-active {
         border-bottom-color: var(--tabs-panel-bg);
         background-color: var(--tabs-panel-bg);
@@ -179,14 +160,9 @@ Content of the second tab.
       }
 
       /*
-        Tighter on a phone. The panel sits inside an article that pads by 8px there, so 20px of its own
-        put the text 28px in from the edge of the screen -- a third of the indent a 390px column can
-        afford, spent twice over on the same margin.
-
-        599.98px is the app's own phone breakpoint -- --breakpoint-sm is 600px in css/tailwind.css. A
-        block cannot read the app's Sass variables, so the value is written out, as block-infobox does
-        with its own. (No backticks in here: this whole stylesheet is a template literal, and one ends
-        it mid-rule.)
+        599.98px is the app's own phone breakpoint (--breakpoint-sm, 600px, in css/tailwind.css),
+        written out because a block cannot read the app's variables. (No backticks in here: the
+        whole stylesheet is a template literal, and one would end it mid-rule.)
       */
       @media (max-width: 599.98px) {
         .panel {
@@ -194,7 +170,6 @@ Content of the second tab.
         }
       }
 
-      /* -> The panel owns the spacing, so the content inside it does not add its own at the edges */
       ::slotted(block-tab) {
         margin-bottom: 0;
       }
@@ -205,11 +180,10 @@ Content of the second tab.
     return {
       _tabs: { state: true },
       /*
-        Which panel is open, zero-based. A property rather than internal state because two things
-        outside this block have a use for it: an author can open a block on something other than its
-        first panel (`<block-tabs active="1">`), and the markdown editor reads it off one element and
-        writes it onto the next, because every keystroke rebuilds the preview and with it this block --
-        which otherwise snapped back to the first tab while an author was typing in the second.
+        A property rather than internal state because two things outside the block use it: an author
+        opening on a later panel (`<block-tabs active="1">`), and the markdown editor, which carries
+        it across the preview rebuild every keystroke triggers so the block does not snap back to
+        the first tab while an author is typing in the second.
       */
       active: { type: Number }
     }
@@ -222,20 +196,15 @@ Content of the second tab.
     // -> Bound once, so that removing the listener later takes the same function that was added
     this._onReveal = this._onReveal.bind(this)
     /*
-      Kept even though the styles above no longer key off `[dark]` themselves (OpenProject #2874):
-      every `--tabs-*` value now comes from the body-level custom properties, which already vary by
-      theme on their own. Constructing it is still what OpenProject #2874's own scope note calls
-      "behaviour unchanged", and the shared `describeDarkMode` suite below still asserts it mirrors
-      `body--dark` onto this element correctly.
+      No rule above keys off `[dark]` -- every `--tabs-*` value comes from body-level custom
+      properties that already vary by theme -- so this only mirrors `body--dark` onto the element.
     */
     this._darkMode = new DarkMode(this)
   }
 
   /**
-   * Read the panels the page gave this block, and start showing the first.
-   *
    * The panels stay in the light DOM, slotted in below the strip: their content is page content and
-   * is styled by the article's own stylesheet, the way an included page is.
+   * has to be reached by the article's own stylesheet.
    */
   _collectTabs() {
     const panels = [...this.querySelectorAll(':scope > block-tab')]
@@ -253,12 +222,9 @@ Content of the second tab.
   }
 
   /**
-   * Drop the outermost margins of a panel's content.
-   *
-   * The panel supplies the padding; the content adding its own on top of it leaves a gap under the
-   * strip that reads as a mistake — a heading, whose margin is the largest of any element, most of
-   * all. Set on the element rather than in the stylesheet because the content is slotted: it lives in
-   * the page, styled by the page, and `::slotted()` reaches only the panel itself, never inside it.
+   * The panel supplies the padding; content adding its own on top of it leaves a gap under the
+   * strip that reads as a mistake. Set on the element rather than in the stylesheet because the
+   * content is slotted, and `::slotted()` reaches only the panel itself, never inside it.
    */
   _trimEdgeMargins(panel) {
     panel.firstElementChild?.style.setProperty('margin-top', '0')
@@ -266,13 +232,10 @@ Content of the second tab.
   }
 
   /**
-   * Keep the strip on screen when something inside a panel is scrolled to.
-   *
-   * A heading carries a `scroll-margin-top` so it does not land flush against the top edge, but that
-   * margin knows nothing about the strip standing above it — following a link to a heading in a tab
-   * would scroll the tabs themselves out of view, leaving the reader in a panel with no way to see
-   * which one they were in. Set on the elements because the content is slotted, and measured because
-   * the strip is as tall as the labels wrapped onto however many rows.
+   * A heading's own `scroll-margin-top` knows nothing about the strip standing above it, so
+   * scrolling to a heading in a panel would push the tabs themselves off screen. Set on the
+   * elements because the content is slotted, and measured because the strip wraps onto any number
+   * of rows.
    */
   _applyScrollMargin() {
     const strip = this.renderRoot.querySelector('.strip')
@@ -288,9 +251,8 @@ Content of the second tab.
   }
 
   /*
-    -> Self-heals an out-of-range `active` (hand-written markdown with too few tabs, or a stale value
-       left over after tabs were added/removed): without this, every panel hides and no tab in the
-       strip is marked active until the reader clicks one.
+    -> Self-heals an out-of-range `active`, which would otherwise hide every panel and mark no tab
+       active until the reader clicks one.
   */
   get _activeIndex() {
     if (this._tabs.length < 1) {
@@ -306,10 +268,8 @@ Content of the second tab.
   }
 
   /**
-   * Fetch the icons the tab strip is about to draw.
-   *
-   * All of them at once rather than one after another, since the shared cache collapses the repeats,
-   * and one `requestUpdate()` rather than one per tab — matching `block-index`'s `_loadIcons`.
+   * All at once rather than one after another — the shared cache collapses the repeats — and one
+   * `requestUpdate()` rather than one per tab.
    */
   async _loadIcons() {
     await Promise.all(
@@ -324,19 +284,13 @@ Content of the second tab.
   }
 
   /*
-    -> Setting the property is the whole of it: `updated` is what shows the panel, so a tab opened from
-       the strip and one opened by whoever set `active` from outside travel the same path
+    -> Setting the property is the whole of it: `updated` shows the panel, so a tab opened from the
+       strip and one opened by an outside writer of `active` travel the same path
   */
   _select(index) {
     this.active = index
   }
 
-  /**
-   * Open the panel holding a given node, if it is one of these.
-   *
-   * Both ways in end up here: the app asking for a heading it is about to scroll to, and the reader
-   * arriving on a URL whose fragment names a heading in a panel that is not the first.
-   */
   _reveal(node) {
     const index = this._tabs.findIndex(({ panel }) => panel.contains(node))
     if (index >= 0 && index !== this.active) {
@@ -349,7 +303,6 @@ Content of the second tab.
     this._reveal(event.target)
   }
 
-  /** The panel holding the heading the URL points at, if the URL points at one. */
   _revealFromHash() {
     const id = decodeURIComponent(window.location.hash.replace(/^#/, ''))
     const target = id ? document.getElementById(id) : null
@@ -359,8 +312,8 @@ Content of the second tab.
   }
 
   /**
-   * Left and right walk the strip, as they do in every other set of tabs — the panels are a single
-   * stop in the tab order, so the arrow keys are how a keyboard reaches the other ones.
+   * The strip is a single stop in the tab order, so the arrow keys are the only way a keyboard
+   * reaches the tabs other than the active one.
    */
   _onKeydown(event) {
     const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
@@ -374,9 +327,8 @@ Content of the second tab.
   }
 
   /*
-    -> The panels live in the light DOM, so `render()` never touches them: which one is showing has to
-       be applied by hand, here, where it covers a click on the strip, an arrow key, a `block-reveal`
-       and an `active` set from outside alike
+    -> The panels live in the light DOM, so `render()` never touches them: which one is showing has
+       to be applied by hand, here, where every way of changing it lands
   */
   updated(changed) {
     if (changed.has('active')) {
@@ -388,7 +340,6 @@ Content of the second tab.
   connectedCallback() {
     super.connectedCallback()
     this._collectTabs()
-    // -> On arrival, and again whenever the fragment changes under a reader using back and forward
     this._revealFromHash()
     this._onHashChange = () => this._revealFromHash()
     window.addEventListener('hashchange', this._onHashChange)

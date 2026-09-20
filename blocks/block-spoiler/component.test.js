@@ -4,9 +4,6 @@ import './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-/**
- * Appends a `<block-spoiler>` with the given light-DOM content, and waits for Lit's first render.
- */
 const mountSpoiler = (content = 'secret content') => mountBlock('block-spoiler', { text: content })
 
 describe('block-spoiler', () => {

@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-/*
- * OpenProject #1638: the "too long" message resolves through `../shared/i18n.js`'s `I18n` reactive
- * controller rather than a hardcoded literal -- see `block-youtube/component.test.js` for the same
- * mocking rationale (`I18n` has its own dedicated coverage in `shared/i18n.test.js`).
- */
 const { i18nT, MockI18n } = vi.hoisted(() => {
   const i18nT = vi.fn((_key, fallback) => fallback)
   class MockI18n {
@@ -40,8 +35,6 @@ describe('block-qr-code', () => {
     const withValue = await mountQrCode({ value: 'https://example.com/a' })
     const withoutValue = await mountQrCode({ value: '' })
 
-    // -> Both encode something, and an explicit value produces a different code than the page's own
-    //    default address (window.location in jsdom's default test origin)
     expect(withValue.shadowRoot.querySelector('svg').outerHTML).not.toBe(
       withoutValue.shadowRoot.querySelector('svg').outerHTML
     )

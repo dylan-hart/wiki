@@ -1,22 +1,17 @@
 /**
- * Block Tab
- *
- * One panel of a `block-tabs`. It draws nothing and knows nothing: the parent reads its `label` and
- * `icon`, builds the strip from them and shows or hides it. Its content is ordinary page content,
- * left in the light DOM so the article's own stylesheet reaches it.
- *
- * It is registered as an element of its own so that the page view, which fetches a component for
- * every undefined element it finds in a page, has something to fetch.
+ * One panel of a `block-tabs`, which reads its `label` and `icon`, builds the strip and shows or
+ * hides it — this element draws nothing, and leaves its content in the light DOM so the article's
+ * own stylesheet reaches it. It is registered at all only because the page view fetches a component
+ * for every undefined element it finds in a page.
  */
 export class BlockTabElement extends HTMLElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * has to stay a plain literal.
    *
-   * `isChild` keeps it out of both: a tab on its own is not something to insert into a page, and not
-   * something to switch off separately from the tabs it belongs to. The definition is still what
-   * lets the tag and its attributes survive being saved, which is the reason it is declared at all.
+   * `isChild` keeps it out of the picker and the admin area: a tab is not something to insert, or
+   * to switch off, separately from the tabs it belongs to. Declared regardless, because it is what
+   * lets the tag and its attributes survive being saved.
    */
   static definition = {
     block: 'tab',
@@ -43,14 +38,10 @@ export class BlockTabElement extends HTMLElement {
 
   connectedCallback() {
     /*
-      A box of its own, set inline because the app resets the display of everything in a page.
-
-      Only when nothing has been set already: the two components arrive in separate files and in
-      either order, and whichever runs second must not undo the first. The parent hides the panels it
-      is not showing, so overwriting that here would leave every panel on screen at once.
-
-      Visible rather than hidden by default, so a page whose tab strip never arrives is a page with
-      all its content stacked up and readable, rather than a page with none of it.
+      Set inline because the app resets the display of everything in a page, and only when nothing
+      has been set already: the two components arrive in separate files in either order, and the
+      parent hides the panels it is not showing -- overwriting that would leave every panel on
+      screen. Visible rather than hidden, so a page whose tab strip never arrives still reads.
     */
     if (!this.style.display) {
       this.style.display = 'block'

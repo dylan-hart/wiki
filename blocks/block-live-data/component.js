@@ -4,21 +4,12 @@ import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { getSiteId } from '../shared/site.js'
 
-/** How many past readings a sparkline keeps, client-side only -- see the class comment below. */
 const SPARKLINE_HISTORY = 30
 
-/** Floor matching the server's own clamp (`models/liveData.ts`) -- kept here purely so a page
- *  author sees the effective interval in devtools rather than a number the server silently raised. */
+/** Mirrors the server's own clamp (`models/liveData.ts`), so the interval this block schedules is
+ *  the one the server will honour rather than a number it silently raises. */
 const MIN_REFRESH_SECONDS = 10
 
-/**
- * `ok` / `warning` / `critical` / `unknown` -- the last both when the value isn't a finite number
- * and when neither threshold is set, since there is then nothing to compare it against.
- *
- * @param {unknown} value The resolved value.
- * @param {unknown} okMax At or below this reads `ok`.
- * @param {unknown} warnMax At or below this (but above `okMax`) reads `warning`; above it, `critical`.
- */
 export function statusLevel(value, okMax, warnMax) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) {
@@ -39,8 +30,8 @@ export function statusLevel(value, okMax, warnMax) {
 }
 
 /**
- * An SVG path `d` attribute, `points` scaled into a 100x32 box -- a flat line down the middle when
- * every reading so far has been identical, since there is no range yet to spread them across.
+ * Scaled into a 100x32 box; a flat line down the middle when every reading so far is identical,
+ * since there is no range to spread them across.
  *
  * @param {number[]} points
  */
@@ -58,27 +49,18 @@ export function sparklinePath(points) {
 }
 
 /**
- * Block Live Data (OpenProject #868)
+ * The endpoint is never fetched from here: this block calls its own wiki's `POST
+ * /sites/:siteId/live-data/resolve`, which reaches the endpoint, resolves a stored credential into
+ * a bearer token server-side and hands back the one extracted value. A page's source and this
+ * component's network tab therefore see only a `credentialId`, never the credential itself.
  *
- * Polls a REST/JSON endpoint on an interval and shows the resolved value plain, as a trend
- * sparkline, or as a threshold-coloured status pill. The fetch itself never happens here: this
- * block only ever calls its own wiki's `POST /sites/:siteId/live-data/resolve`, which is what
- * actually reaches the endpoint, resolves a stored credential into a bearer token server-side, and
- * hands back nothing but the one extracted value -- see `backend/models/liveData.ts`'s header
- * comment for why. A page's source (and this component's own network tab) never sees the endpoint's
- * credential, only a `credentialId` naming a row in this site's block-credentials store.
- *
- * The sparkline's history is this element's own memory, not a time series the server keeps: it
- * starts empty on every page load and grows only from polls made while the block has been mounted.
- * A real time-series store is a v2 concern (OpenProject #868 is REST/JSON polling only) -- this is
- * "the trend since you opened the page", which is what a reader watching a live value actually wants
- * most of the time, not a substitute for one.
+ * The sparkline's history is this element's own memory, not a series the server keeps: it starts
+ * empty on every page load and grows only from polls made while the block has been mounted.
  */
 export class BlockLiveDataElement extends LitElement {
   /**
-   * Metadata for the admin area and the editor's block picker. Collected at build time into
-   * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
-   * plain literals. See `props` in `block-index` for what the picker does with that list.
+   * Read out of the source text at build time into `compiled/blocks.manifest.json`, so every value
+   * has to stay a plain literal.
    */
   static definition = {
     block: 'live-data',
@@ -286,31 +268,25 @@ export class BlockLiveDataElement extends LitElement {
       url: { type: String },
 
       /**
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `jsonpath` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `json-path` — writes `json-path` into the page.
+       * -> Every dashed `attribute` here is explicit, because Lit's default (a bare lowercasing of
+       *    the property name, no dash inserted) would listen for `jsonpath` while the block picker
+       *    writes the literal `static definition.props[].name`, `json-path`, into the page.
        */
       jsonPath: { type: String, attribute: 'json-path' },
 
-      // -> Explicit `attribute`, for the same reason as `jsonPath` above.
       credentialId: { type: String, attribute: 'credential-id' },
 
-      // -> Explicit `attribute`, for the same reason as `jsonPath` above.
       refreshInterval: { type: Number, attribute: 'refresh-interval' },
 
-      // -> Explicit `attribute`, for the same reason as `jsonPath` above.
       displayMode: { type: String, attribute: 'display-mode' },
 
       label: { type: String },
       unit: { type: String },
 
-      // -> Explicit `attribute`, for the same reason as `jsonPath` above.
       okMax: { type: Number, attribute: 'ok-max' },
 
-      // -> Explicit `attribute`, for the same reason as `jsonPath` above.
       warnMax: { type: Number, attribute: 'warn-max' },
 
-      // Internal properties
       _status: { state: true },
       _value: { state: true },
       _fetchedAt: { state: true },
@@ -337,7 +313,6 @@ export class BlockLiveDataElement extends LitElement {
     this._error = ''
     this._history = []
     this._timer = null
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
   }
 
@@ -360,9 +335,8 @@ export class BlockLiveDataElement extends LitElement {
   }
 
   /**
-   * Fetches once, then schedules the next fetch after `refreshInterval` has elapsed -- a chain of
-   * `setTimeout`s rather than `setInterval`, so a slow or hung request never overlaps with the next
-   * one firing on top of it.
+   * A chain of `setTimeout`s rather than `setInterval`, so a slow or hung request never has the
+   * next one firing on top of it.
    */
   async _poll() {
     try {
@@ -393,12 +367,8 @@ export class BlockLiveDataElement extends LitElement {
       this._status = 'error'
       this._error = err.message || 'Could not resolve this block.'
     } finally {
-      // -> `disconnectedCallback` only has a live `this._timer` to `clearTimeout` when it runs
-      //    between polls; it runs no such check here when it fires while THIS poll's fetch is still
-      //    in flight -- there is nothing scheduled yet to cancel. Without this guard that race
-      //    leaves the element polling forever in the background after it has left the page (an SPA
-      //    navigation away being the ordinary way to trigger it), since each iteration reschedules
-      //    itself with no further disconnect ever coming to stop it.
+      // -> A disconnect during the fetch has no timer to cancel yet, so without this guard the
+      //    element reschedules itself forever after leaving the page (an SPA navigation away)
       if (this.isConnected) {
         const seconds = Math.max(Number(this.refreshInterval) || 60, MIN_REFRESH_SECONDS)
         this._timer = setTimeout(() => this._poll(), seconds * 1000)

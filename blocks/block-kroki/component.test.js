@@ -5,22 +5,14 @@ import { _resetSiteCache } from '../shared/site.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID } from '../test/mount.js'
 
-/**
- * `block-kroki` used to encode diagram source straight into a GET URL, guarded by an 8,000-character
- * pre-flight check against what a reverse proxy would accept. It now POSTs the source, with no size
- * ceiling of its own, to this site's Kroki proxy (`POST /_api/sites/:siteId/diagrams/render`,
- * OpenProject task 3228) — this locks down that request and the picture it draws from the answer.
- */
-
 const svgResponse = (data = '<svg>graph</svg>') => ({
   ok: true,
   headers: { get: () => 'image/svg+xml' },
   arrayBuffer: async () => new TextEncoder().encode(data).buffer
 })
 
-// -> The `settle` hook: firstUpdated() kicks off _draw() without awaiting it (the POST is
-//    asynchronous), so the state change it produces lands after the first update cycle — `_ready`
-//    is the handle `DiagramImageElement` keeps on that work for exactly this.
+// -> `firstUpdated()` kicks off the POST without awaiting it, so the state it sets lands after the
+//    first update cycle; `_ready` is the handle `DiagramImageElement` keeps on that work.
 const mountKroki = (body = '', props = {}) =>
   mountBlock('block-kroki', { pre: body, props, settle: (el) => el._ready })
 
@@ -85,9 +77,6 @@ describe('block-kroki', () => {
     expect(el.shadowRoot.querySelector('img')).toBeNull()
   })
 
-  // -> Inherited from `shared/diagram-image.js`'s `DiagramImageElement`, which constructs the
-  //    controller for both remote-image diagram blocks — see `shared/video-embed.test.js` for the
-  //    other half of that split.
   describeDarkMode(() => {
     stubSiteFetch({ onRequest: () => svgResponse() })
     return mountKroki('digraph G {\n  Hello -> World\n}')
