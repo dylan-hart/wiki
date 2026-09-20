@@ -86,8 +86,17 @@
             :tag="lc.code !== state.selectedLocale ? `label` : `div`"
             :text="lc.language"
             :label="lc.nativeName"
-            :hint="`${lc.name} (${lc.code})`">
+            :hint="rowHint(lc)">
             <div class="flex items-center gap-4">
+              <w-input
+                v-if="state.active.includes(lc.code)"
+                v-model="state.aliases[lc.code]"
+                class="locale-alias-input w-32"
+                dense
+                prefix="/"
+                :placeholder="lc.code"
+                :aria-label="`${lc.name} ${t('admin.locale.alias')}`"
+                :data-locale="lc.code" />
               <div
                 class="locale-completeness flex items-center gap-2"
                 :title="t('admin.locale.completeness', { percent: lc.completeness ?? 0 })">
@@ -172,6 +181,7 @@ const { state, load } = useAdminSettings({
     forcePrefix: false,
     showMenu: true,
     active: [],
+    aliases: {},
     sideloading: false
   },
   fetch: (siteId) =>
@@ -185,6 +195,7 @@ const { state, load } = useAdminSettings({
     state.forcePrefix = site?.locales?.forcePrefix ?? false
     state.showMenu = site?.locales?.showMenu ?? true
     state.active = [...(site?.locales?.active ?? [])]
+    state.aliases = { ...site?.locales?.aliases }
     // -> The primary locale is always active, and its toggle is disabled to keep it that way
     if (!state.active.includes(state.primary)) {
       state.active.push(state.primary)
@@ -224,6 +235,14 @@ function completenessColor(value) {
   return (value ?? 0) >= 90 ? 'positive' : 'primary'
 }
 
+function rowHint(lc) {
+  const alias = state.aliases[lc.code]?.trim()
+  const base = `${lc.name} (${lc.code})`
+  return alias && state.active.includes(lc.code)
+    ? `${base} · ${t('admin.locale.aliasPreview', { alias, code: lc.code })}`
+    : base
+}
+
 async function save() {
   if (state.loading > 0) {
     return
@@ -235,17 +254,26 @@ async function save() {
     if (!active.includes(state.primary)) {
       active.push(state.primary)
     }
+    const aliases = {}
+    for (const code of active) {
+      const alias = state.aliases[code]?.trim()
+      if (alias) {
+        aliases[code] = alias
+      }
+    }
     await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         locales: {
           primary: state.primary,
           active,
           forcePrefix: state.forcePrefix,
-          showMenu: state.showMenu
+          showMenu: state.showMenu,
+          aliases
         }
       }
     }).json()
     state.active = active
+    state.aliases = aliases
     notify({
       type: 'positive',
       message: t('admin.locale.saveSuccess')
