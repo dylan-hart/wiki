@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { TREE_ORDER_BY, type TreeItemType, type TreeOrderBy } from '../models/tree.ts'
+import {
+  TREE_ORDER_BY,
+  type PurgedFolder,
+  type TreeItemType,
+  type TreeOrderBy
+} from '../models/tree.ts'
 import { decodeTreePath, normalizePagePath } from '../helpers/common.ts'
 import { defaultLocale } from '../helpers/localeRouting.ts'
 import {
@@ -32,6 +37,10 @@ interface FolderBody {
   pathName: string
   title: string
   locale?: string
+}
+
+interface PurgeEmptyBody {
+  dryRun?: boolean
 }
 
 function folderPathOf(folder: { folderPath?: string | null; fileName: string }): string {
@@ -342,6 +351,91 @@ async function routes(app: FastifyInstance) {
           tags: page.tags
         })
       )
+    }
+  )
+
+  app.post<{ Params: { siteId: string }; Body?: PurgeEmptyBody }>(
+    '/sites/:siteId/tree/folders/purge-empty',
+    {
+      preValidation: async (req) => {
+        req.body ??= {}
+      },
+      schema: {
+        summary: 'Purge empty folders',
+        description:
+          "Removes the folders that hold nothing: no page, no asset, and no folder that itself holds something. A folder holding only empty folders is purged along with them, deepest first. A folder that owns a navigation override, or that a navigation item points at, is kept.\n\n`dryRun` defaults to `true`, so a bare call only reports what a real run would remove. Only folders the caller holds `manage:pages` on, judged on each folder's own path, are reported or removed; a folder whose empty child the caller may not manage is left alone as well, since it is not empty from where the caller stands. The rest are skipped rather than refusing the request. A folder that gains content between listing and deleting is skipped, never cascaded.",
+        tags: ['Tree'],
+        params: { $ref: 'SiteIdParams#' },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            dryRun: {
+              type: 'boolean',
+              default: true,
+              description: 'Only report the folders, deleting nothing.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'The folders found (dry run) or removed',
+            type: 'object',
+            properties: {
+              dryRun: { type: 'boolean' },
+              count: { type: 'integer' },
+              folders: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    path: { type: 'string' },
+                    locale: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Purging empty folders requires a logged in user.')
+      }
+      const dryRun = req.body?.dryRun ?? true
+      const { siteId } = req.params
+      const candidates = (await CARDINAL.models.tree.purgeEmptyFolders(siteId, { dryRun: true }))
+        .folders
+      const refused = candidates.filter(
+        (folder) => !mayOnFolder(req, 'manage:pages', siteId, folder.path, folder.locale)
+      )
+      const purgeable = candidates.filter(
+        (folder) =>
+          !refused.some(
+            (other) =>
+              other.locale === folder.locale &&
+              (other.path === folder.path || other.path.startsWith(`${folder.path}/`))
+          )
+      )
+      if (dryRun) {
+        return reply.send({ dryRun, count: purgeable.length, folders: purgeable })
+      }
+      const removed: PurgedFolder[] = []
+      for (const folder of purgeable) {
+        const held = await CARDINAL.models.tree.listDescendants(folder.id, siteId)
+        if (held.pages.length > 0 || held.assets.length > 0) {
+          continue
+        }
+        await CARDINAL.models.tree.deleteFolder(folder.id, siteId)
+        removed.push(folder)
+      }
+      return reply.send({ dryRun, count: removed.length, folders: removed })
     }
   )
 

@@ -536,3 +536,218 @@ test('LIST PAGES AS A READER route: threads each page’s tags into the read:pag
     ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
   }
 })
+
+const PURGE_URL = `/sites/${ENABLED_SITE_ID}/tree/folders/purge-empty`
+const SIGNED_IN = JSON.stringify({ authenticated: true, user: { id: 'user-1' } })
+
+function stubPurge(candidates: { id: string; path: string; locale: string }[]) {
+  const cardinal = (globalThis as any).CARDINAL
+  const originals = {
+    purgeEmptyFolders: cardinal.models.tree.purgeEmptyFolders,
+    listDescendants: cardinal.models.tree.listDescendants,
+    deleteFolder: cardinal.models.tree.deleteFolder,
+    checkAccess: cardinal.models.groups.checkAccess
+  }
+  const purgeCalls: any[] = []
+  const deleted: string[] = []
+  cardinal.models.tree.purgeEmptyFolders = async (siteId: string, options: any) => {
+    purgeCalls.push({ siteId, options })
+    return { folders: candidates, count: candidates.length, dryRun: options.dryRun }
+  }
+  cardinal.models.tree.listDescendants = async () => ({ pages: [], assets: [] })
+  cardinal.models.tree.deleteFolder = async (folderId: string) => {
+    deleted.push(folderId)
+    return { pages: [], assets: [] }
+  }
+  cardinal.models.groups.checkAccess = () => true
+  return {
+    purgeCalls,
+    deleted,
+    restore() {
+      cardinal.models.tree.purgeEmptyFolders = originals.purgeEmptyFolders
+      cardinal.models.tree.listDescendants = originals.listDescendants
+      cardinal.models.tree.deleteFolder = originals.deleteFolder
+      cardinal.models.groups.checkAccess = originals.checkAccess
+    }
+  }
+}
+
+const NESTED_CANDIDATES = [
+  { id: 'c-deep', path: 'a/b', locale: 'en' },
+  { id: 'c-top', path: 'a', locale: 'en' },
+  { id: 'c-other', path: 'z', locale: 'en' }
+]
+
+test('PURGE EMPTY FOLDERS route: an unauthenticated request is refused 401 and reads nothing', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  try {
+    const res = await app.inject({ method: 'POST', url: PURGE_URL, payload: { dryRun: false } })
+    assert.equal(res.statusCode, 401)
+    assert.equal(stub.purgeCalls.length, 0)
+    assert.equal(stub.deleted.length, 0)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: a bare call is a dry run, reporting the count and deleting nothing', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), { dryRun: true, count: 3, folders: NESTED_CANDIDATES })
+    assert.deepEqual(stub.purgeCalls, [{ siteId: ENABLED_SITE_ID, options: { dryRun: true } }])
+    assert.deepEqual(stub.deleted, [])
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: an explicit dryRun true deletes nothing either', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: true }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().dryRun, true)
+    assert.equal(res.json().count, 3)
+    assert.deepEqual(stub.deleted, [])
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: dryRun false removes exactly the reported folders, deepest first', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: false }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), { dryRun: false, count: 3, folders: NESTED_CANDIDATES })
+    assert.deepEqual(stub.deleted, ['c-deep', 'c-top', 'c-other'])
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: a folder the caller cannot manage is neither reported nor purged', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  const permissionsChecked: string[] = []
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    permission: string,
+    page: any
+  ) => {
+    permissionsChecked.push(permission)
+    return page.path !== 'z'
+  }
+  try {
+    const dry = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN }
+    })
+    assert.equal(dry.statusCode, 200)
+    assert.deepEqual(
+      dry.json().folders.map((f: any) => f.id),
+      ['c-deep', 'c-top']
+    )
+    assert.equal(dry.json().count, 2)
+    const real = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: false }
+    })
+    assert.equal(real.statusCode, 200)
+    assert.equal(real.json().count, 2)
+    assert.deepEqual(stub.deleted, ['c-deep', 'c-top'])
+    assert.ok(permissionsChecked.every((permission) => permission === 'manage:pages'))
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: a folder whose empty child the caller cannot manage is left alone', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    _permission: string,
+    page: any
+  ) => page.path !== 'a/b'
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: false }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(stub.deleted, ['c-other'])
+    assert.deepEqual(
+      res.json().folders.map((f: any) => f.id),
+      ['c-other']
+    )
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: a same-named folder in another locale does not stand in for the caller’s own', async () => {
+  const stub = stubPurge([
+    { id: 'fr-child', path: 'a/b', locale: 'fr' },
+    { id: 'en-top', path: 'a', locale: 'en' }
+  ])
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    _permission: string,
+    page: any
+  ) => page.locale === 'en'
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: false }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(stub.deleted, ['en-top'])
+  } finally {
+    stub.restore()
+  }
+})
+
+test('PURGE EMPTY FOLDERS route: a folder that gained a page since it was listed is skipped, not cascaded', async () => {
+  const stub = stubPurge(NESTED_CANDIDATES)
+  ;(globalThis as any).CARDINAL.models.tree.listDescendants = async (folderId: string) => ({
+    pages: ['c-deep', 'c-top'].includes(folderId)
+      ? [{ id: 'p', path: 'a/b/new', locale: 'en', tags: [], classification: null }]
+      : [],
+    assets: []
+  })
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: PURGE_URL,
+      headers: { 'x-test-session': SIGNED_IN },
+      payload: { dryRun: false }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(stub.deleted, ['c-other'])
+    assert.equal(res.json().count, 1)
+  } finally {
+    stub.restore()
+  }
+})
