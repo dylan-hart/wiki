@@ -20,6 +20,9 @@ class FakeClient extends EventEmitter {
   // FIXME: pg-pool's `release()` throws on a second call; this fake tolerates one, which hides
   // `connectListener`'s double release in its `'error'` handler.
   release(err?: any): void {
+    if (this.released) {
+      throw new Error('Release called on client which has already been released to the pool.')
+    }
     this.released = true
     this.releasedWithErr = err
   }
