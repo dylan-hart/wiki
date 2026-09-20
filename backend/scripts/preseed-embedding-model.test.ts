@@ -1,9 +1,3 @@
-/**
- * Pure unit tests for `preseed-embedding-model.ts`'s testable seam (OpenProject #3324). No real
- * `@huggingface/transformers` pipeline construction and no network/model download — the stubbed
- * loader below stands in for it, the same way `helpers/embeddings.test.ts#makeExtractor` stubs the
- * extractor rather than loading the real model.
- */
 import assert from 'node:assert/strict'
 import { describe, mock, test } from 'node:test'
 

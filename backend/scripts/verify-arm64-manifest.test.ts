@@ -1,10 +1,3 @@
-/**
- * Pure unit tests for `verify-arm64-manifest.ts`'s manifest-parsing logic (OpenProject #2488).
- * No Docker daemon, network, or real registry access needed — every case here drives the exported
- * functions directly against fixture JSON shaped like real `docker buildx imagetools inspect --raw`
- * output, the same way `backend/scripts/audit-site-scoped-rules.test.ts` drives its script's pure
- * functions without a database.
- */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -15,9 +8,8 @@ import {
   type RawManifestList
 } from './verify-arm64-manifest.ts'
 
-/** A real multi-arch manifest list also carries buildx attestation sub-manifests when the image was
- * built with `provenance`/`sbom` enabled (release.yml enables both) — each reports
- * `architecture: "unknown"` and must not be mistaken for a real platform. */
+/** A real multi-arch manifest list also carries buildx attestation sub-manifests, since the release
+ * build enables `provenance`/`sbom` — each reports `architecture: "unknown"`. */
 const MULTI_ARCH_WITH_ATTESTATIONS: RawManifestList = {
   manifests: [
     { platform: { os: 'linux', architecture: 'amd64' } },

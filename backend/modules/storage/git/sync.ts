@@ -1,26 +1,8 @@
 /**
- * Bidirectional sync action: fetch and pull-rebase from origin, push local commits back, then read
- * whatever the pull brought in and reverse-mirror it into the DB via `CARDINAL.models.pages` /
- * `CARDINAL.models.assets` — the two-way half of this target that makes it a real sync rather than a
- * push-only mirror. `created`/`updated`/`renamed`/`deleted` (`content.ts`, task 506) are the forward
- * direction — DB change to file; the diff processing here is deliberately built as the reverse of
- * that same mapping (`pageRelPath`'s `[locale/]path.ext` shape, `getFileExtension`'s content-type ↔
- * extension pairing), not a separate scheme.
- *
- * Sequence and diff handling are matched against 2.5.x's `server/modules/storage/git/storage.js`
- * `sync()`/`processFiles()` (verified directly against that source, not from memory): pull --rebase,
- * then push, then `git diffSummary(['-M', beforeHash, afterHash])` — simple-git's equivalent of
- * `git diff --name-status -M`, which is what `-M` (rename detection) actually requests — followed by
- * the same regex 2.5.x runs over each `file.file` entry to pull the old/new halves out of git's
- * `old => new` / `dir/{old => new}/rest` rename notation. No separate rename-detection API call.
- *
- * Sync-direction config (push-only / pull-only / two-way): `sync()` reads `target.sync.mode` and
- * mirrors 2.5.x's own `if (_.includes(['sync', 'pull'], mode))` / `if (_.includes(['sync', 'push'],
- * mode))` guards around the pull half and the push half — a `push`-only target never pulls (so
- * "Force Sync" cannot import remote content into the DB, matching `definition.yml`'s own "The sync
- * direction is respected" hint on that action) and a `pull`-only target never pushes. The reverse-
- * mirror step (diff-importing whatever the pull brought in) is gated the same way as the pull half:
- * nothing was pulled for a `push`-only target to reverse-mirror in the first place.
+ * The remote-to-DB half of this target: what a pull brought in is reverse-mirrored into
+ * `CARDINAL.models.pages` / `CARDINAL.models.assets`. The diff processing here is built as the exact
+ * inverse of `content.ts`'s forward mapping (`pageRelPath`'s `[locale/]path.ext` shape, the
+ * content-type ↔ extension pairing) rather than a scheme of its own, so the two cannot drift.
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -34,68 +16,35 @@ import { getEditorForContentType } from '../../../models/pages.ts'
 import { ensureRepo, gitLog } from './repo.ts'
 import { covers, fileExists } from './content.ts'
 
-/**
- * Who a DB write coming from the remote side of a sync is attributed to.
- *
- * Exported for `actions.ts`: `resolveImportActor`/`processDiffEntry` are shared with `importAll`,
- * which attributes its bulk upsert to the same identity.
- */
 export interface ImportActor {
   id: string
   permissions: string[]
   groupIds: string[]
 }
 
-/**
- * One file the diff between the previous and new HEAD reports as changed.
- *
- * Exported for `actions.ts`: `importAll` reuses `processDiffEntry` below to upsert every file it finds
- * in the working tree, built from a synthetic entry (`exists: true`, `oldPath === relPath`, no
- * insertions/deletions) rather than a real `diffSummary` line — that shape is exactly what makes
- * `processPageEntry`/`processAssetEntry`'s rename/delete branches (which all key off `relPath !==
- * oldPath` or `!exists`) fall straight through to the same "does it exist in the DB yet" upsert every
- * other caller of this file reaches too.
- */
 export interface DiffEntry {
-  /** Path (relative to the repo root) the file has now — after whatever rename, if any. */
   relPath: string
-  /** Path it had before — equal to `relPath` when this file was not renamed. */
+  /** Equal to `relPath` when the file was not renamed — never null. */
   oldPath: string
-  /** Absolute path of `relPath` on disk. */
   absPath: string
-  /** Whether `absPath` exists on disk right now. */
   exists: boolean
   binary: boolean
   insertions: number
   deletions: number
-  /** Only meaningful for a binary file — see `DiffResultBinaryFile`. */
+  /** Binary entries only; `undefined` on a text entry. */
   before?: number
   after?: number
 }
 
 /**
- * 2.5.x's rename-notation regex, verified against source, copied verbatim rather than
- * re-derived: it parses both of git's compact rename spellings — `old/path => new/path` for a
- * whole-path rename, and `dir/{old => new}/rest` for a rename that only changed part of the path —
- * out of the single string `git diffSummary` reports per renamed file.
- *
- * The `dir/{old => new}/rest` branch is what a *folder* rename actually produces — git has no
- * first-class notion of a directory move, so renaming `docs/guide` to `docs/handbook` shows up as one
- * `docs/{guide => handbook}/<file>` entry per file underneath, each parsed and dispatched
- * independently by `processDiffEntry` below. OpenProject #823 item 3 (upstream #2817: "folder renames
- * in the remote repo don't sync via Force Sync") asked this be checked against that upstream bug —
- * confirmed against a real `git diff -M` first (not assumed), then against `sync()` end-to-end in
- * `sync.test.ts`'s "pulls a whole-folder rename" tests: this already works, both for pages
- * (`movePage` per file) and assets (delete + re-upload per file, since a folder move is not something
- * `renameAsset()` covers — see `processAssetEntry`).
+ * Parses both of git's compact rename spellings out of the single string `diffSummary` reports per
+ * renamed file: `old/path => new/path`, and `dir/{old => new}/rest` for a rename that changed only
+ * part of the path. The second is what a *folder* rename produces — git has no first-class notion of
+ * a directory move, so `docs/guide` → `docs/handbook` arrives as one entry per file underneath,
+ * each dispatched independently.
  */
 const RENAME_PATTERN = /(.*?)(?:{(.*?))? => (?:(.*?)})?(.*)/
 
-/**
- * Split a `git diffSummary` file entry into its old and new paths, applying `RENAME_PATTERN`. A file
- * that was not renamed has no ` => ` in it at all, so the pattern simply fails to match and both
- * paths come back equal to the input — exactly 2.5.x's fallback.
- */
 export function parseRenamedPaths(fileEntry: string): { oldPath: string; newPath: string } {
   const match = fileEntry.match(RENAME_PATTERN)
   if (!match) {
@@ -110,28 +59,21 @@ export function parseRenamedPaths(fileEntry: string): { oldPath: string; newPath
   }
 }
 
-/** The extension on a rel path, without its dot — empty when there is none. */
 function extOf(relPath: string): string {
   const lastDot = relPath.lastIndexOf('.')
   return lastDot === -1 ? '' : relPath.slice(lastDot + 1)
 }
 
-/** `relPath` with its extension removed. */
 function stripExt(relPath: string): string {
   const lastDot = relPath.lastIndexOf('.')
   return lastDot === -1 ? relPath : relPath.slice(0, lastDot)
 }
 
 /**
- * The inverse of `content.ts`'s `localeNamespace` + `pageRelPath`: split `[locale/]path` (already
- * stripped of its extension) back into the locale it was written under and the bare page path.
- * Validated against the site's ACTIVE locales via the canonical `stripLocalePrefix` — a folder
- * merely shaped like a locale code (`it/`, `qa/`) is a folder, and the code comes back exactly as
- * stored in `active` (`pt-BR`, never a lowercased `pt-br` twin). A path with no active-locale
- * prefix is the site's primary locale, exactly as `created()` writes it.
- *
- * Exported for `sync.test.ts` — per the locale-architecture decision's §5.3, this
- * parser validates against `locales.active` instead of guessing from shape.
+ * Inverse of `content.ts`'s `localeNamespace` + `pageRelPath`. Validated against the site's ACTIVE
+ * locales via `stripLocalePrefix` rather than guessed from shape, so a folder merely shaped like a
+ * locale code (`it/`, `qa/`) stays a folder and the code comes back cased exactly as stored
+ * (`pt-BR`, never a lowercased `pt-br` twin).
  */
 export function parseLocaleAndPath(
   siteId: string,
@@ -153,10 +95,9 @@ function dirnameOf(relPath: string): string {
 }
 
 /**
- * A rough content-type-bucket guess for a file nobody has told us the kind of yet — the reverse-sync
- * equivalent of `assets.ts`'s private `kindOf()`, which cannot run before the asset exists in the DB.
- * Only used to check `target.contentTypes.activeTypes` before importing; `CARDINAL.models.assets.upload`
- * computes the real, authoritative kind itself once the row is written.
+ * A guess, for a file that has no DB row yet to ask. Only used to check
+ * `target.contentTypes.activeTypes` before importing — `CARDINAL.models.assets.upload` computes the
+ * authoritative kind once the row is written.
  */
 function guessAssetBucket(relPath: string): string {
   const mimeType = mime.getType(relPath) ?? ''
@@ -166,26 +107,24 @@ function guessAssetBucket(relPath: string): string {
 }
 
 /**
- * Who a change pulled in from the remote is attributed to in the DB: 2.5.x uses a fixed "root user"
- * for this (there is no per-file author info in a bare `git diffSummary`, only per-commit, and a
- * commit can touch many files); this fork has no equivalent fixed system user, so the closest
- * available match is whoever is registered under the target's own configured Default Author Email —
- * the same identity `content.ts`'s `resolveAuthor` falls back to when committing *out* to git. Absent
- * a resolvable user, there is nobody to attribute the write to, and DB import for this sync is
- * skipped entirely (the pull and push above still happened) rather than fabricated.
+ * A bare `git diffSummary` carries no per-file author (only per-commit, and a commit can touch many
+ * files), and there is no fixed system user to fall back on — so a pulled change is attributed to
+ * whoever is registered under the target's Default Author Email, the same identity `content.ts`'s
+ * `resolveAuthor` commits *out* to git under. With no such user there is nobody to attribute the
+ * write to, so the import is skipped rather than fabricated.
  */
 export async function resolveImportActor(target: StorageTarget): Promise<ImportActor | null> {
   const email = target.config?.defaultEmail
   if (!email) return null
   const user = await CARDINAL.models.users.getByEmail(email)
   if (!user) return null
-  // -> Trusted the same way the git remote itself is: only an admin can configure a sync target, so
-  //    content it pulls in is accepted at the same trust level an admin's own edit would be.
-  //    `manage:system` bypasses every page-rule check, so `groupIds` is never actually consulted.
+  // -> Only an admin can configure a sync target, so what it pulls in is accepted at the trust
+  //    level an admin's own edit would be. `manage:system` bypasses every page-rule check, which is
+  //    why `groupIds` is never actually consulted.
   return { id: user.id, permissions: ['manage:system'], groupIds: [] }
 }
 
-/** The current commit `git` is on, or `null` for a repo with no commits yet (an unborn HEAD). */
+/** `null` for a repo with no commits yet — an unborn HEAD, not a failure. */
 async function headHash(git: SimpleGit): Promise<string | null> {
   try {
     return (await git.revparse(['HEAD'])).trim()
@@ -200,31 +139,20 @@ function isBinaryEntry(
   return file.binary
 }
 
-/**
- * The default `maxDeletePercent` when a target's config doesn't declare one — matches
- * `definition.yml`'s own `default: 50`, re-declared here as the fallback for a target whose config
- * predates the prop, or whose stored value fails to parse as a usable number.
- */
+/** Mirrors `definition.yml`'s own `default: 50` — keep the two in step. */
 const DEFAULT_MAX_DELETE_PERCENT = 50
 
 /**
- * The mass-delete guard below only ever engages once a site has at least this many pages. Below it,
- * any percentage-based threshold is meaningless noise: a 3-page wiki where someone deletes one page
- * is a 33% deletion, and treating that as a "mass deletion" worth holding back would make the guard
- * fire on completely ordinary single-page cleanup. This floor is deliberately not configurable —
- * unlike `maxDeletePercent`, there is no real reason an administrator would want to tune it, and a
- * second knob here would only make the config surface harder to reason about for the one knob that
- * actually matters.
+ * A percentage threshold is meaningless noise below this: on a 3-page wiki, deleting one page is a
+ * 33% deletion. Deliberately not configurable — a second knob would only obscure the one that
+ * matters.
  */
 const MIN_PAGES_FOR_DELETE_GUARD = 10
 
 /**
- * Whether `entry` represents a page (not an asset) being deleted on the remote side — the same
- * condition `processPageEntry`'s own delete branch checks, re-derived here so the mass-delete guard
- * below (which runs BEFORE any entry is processed) can count deletions without any of the DB reads
- * or side effects `processPageEntry` itself carries. `contentType` is required to be non-null, the
- * same gate `processDiffEntry` uses to route an entry to `processPageEntry` in the first place — an
- * asset's own deletion is scoped out of this guard entirely (see `sync()`'s header comment).
+ * Duplicates `processPageEntry`'s own delete condition so the mass-delete guard can count deletions
+ * before any entry is applied, without the DB reads and side effects that method carries. Asset
+ * deletions are deliberately out of the guard's scope.
  */
 function isPageDeletionEntry(entry: DiffEntry): boolean {
   if (entry.binary) return false
@@ -233,9 +161,8 @@ function isPageDeletionEntry(entry: DiffEntry): boolean {
 }
 
 /**
- * The effective `maxDeletePercent` for `target`, clamped to a sane 1-100 range and falling back to
- * `DEFAULT_MAX_DELETE_PERCENT` for anything that doesn't parse as a positive number — a defensively
- * generic prop declared as `Number` has no schema enforcing a range the way a JSON Schema body would.
+ * Clamped and defaulted here because a `definition.yml` prop declared as `Number` has no schema
+ * enforcing a range the way a JSON Schema body would.
  */
 function maxDeletePercentFor(target: StorageTarget): number {
   const raw = Number(target.config?.maxDeletePercent)
@@ -243,7 +170,6 @@ function maxDeletePercentFor(target: StorageTarget): number {
   return Math.min(100, raw)
 }
 
-/** A page's content changed, moved, or was removed on the remote side. Reverses `content.ts`'s page handlers. */
 async function processPageEntry(
   target: StorageTarget,
   actor: ImportActor,
@@ -254,8 +180,6 @@ async function processPageEntry(
   const newMeta = parseLocaleAndPath(target.siteId, stripExt(entry.relPath))
 
   if (entry.exists && entry.relPath !== entry.oldPath) {
-    // -> Renamed by git — matches 2.5.x, which treats any path change on an existing file as a
-    //    rename regardless of whether the content also changed in the same commit.
     const oldMeta = parseLocaleAndPath(target.siteId, stripExt(entry.oldPath))
     const existing = await CARDINAL.models.pages.getPage({
       siteId: target.siteId,
@@ -263,9 +187,8 @@ async function processPageEntry(
       locale: oldMeta.locale
     })
     if (existing) {
-      // -> Locale included, because a locale is a directory in the repo: `git mv en/foo.md fr/foo.md`
-      //    is a move into another locale, and passing the path alone would import it as a page that
-      //    never left `en`
+      // -> Locale included, because a locale is a directory in the repo: `git mv en/foo.md
+      //    fr/foo.md` is a move into another locale, and the path alone would keep it in `en`.
       await CARDINAL.models.pages.movePage(
         target.siteId,
         existing.id,
@@ -297,9 +220,8 @@ async function processPageEntry(
   if (existing) {
     await CARDINAL.models.pages.updatePage(target.siteId, existing.id, { content }, actor)
   } else {
-    // -> Brand new to the DB. `content.ts` never injects front matter into what it writes (see its
-    //    header), so there is none to parse back out either — the title is guessed from the path the
-    //    same way 2.5.x falls back when a file it is importing has no front matter of its own.
+    // -> `content.ts` injects no front matter into what it writes, so there is none to parse back
+    //    out either — the title is guessed from the path.
     await CARDINAL.models.pages.createPage(
       target.siteId,
       {
@@ -314,7 +236,6 @@ async function processPageEntry(
   }
 }
 
-/** An asset changed, moved, or was removed on the remote side. Reverses `content.ts`'s asset handlers. */
 async function processAssetEntry(
   target: StorageTarget,
   actor: ImportActor,
@@ -326,14 +247,11 @@ async function processAssetEntry(
   if (entry.exists && entry.relPath !== entry.oldPath) {
     const existing = await CARDINAL.models.assets.getAssetByPath(target.siteId, entry.oldPath)
     if (existing) {
-      // -> `entry.binary` (which `sync()` always knows, from `DiffResultBinaryFile` vs.
-      //    `DiffResultTextFile`) is the discriminant, not an OR of both signals: a text entry's
-      //    `before`/`after` are always `undefined` (so `before === after` is vacuously true for
-      //    every text entry) and a binary entry's `insertions`/`deletions` are always hardcoded to
-      //    `0` (so that clause is vacuously true for every binary entry) — an OR of the two is
-      //    unconditionally true regardless of which kind actually changed, which is what silently
-      //    let a same-folder rename-and-rewrite through `renameAsset` with stale bytes. Only the
-      //    field that is real for this entry's kind is consulted.
+      // -> `entry.binary` is the discriminant, not an OR of both signals: a text entry's
+      //    `before`/`after` are always `undefined` and a binary entry's `insertions`/`deletions`
+      //    always `0`, so each clause is vacuously true for the other kind and an OR of the two is
+      //    unconditionally true — which sends a same-folder rename-and-rewrite through
+      //    `renameAsset` with stale bytes. Only the field that is real for this kind is consulted.
       const contentUnchanged = entry.binary
         ? entry.before === entry.after
         : entry.deletions === 0 && entry.insertions === 0
@@ -347,11 +265,10 @@ async function processAssetEntry(
         return
       }
       // -> Renamed across folders, or renamed AND rewritten in one commit: either way the old row
-      //    cannot be updated in place (renameAsset only changes the file name; upload() below keys
-      //    on the new path) — delete it so the fresh upload doesn't leave it orphaned.
+      //    cannot be updated in place (`renameAsset` only changes the file name, and `upload()`
+      //    below keys on the new path), so it is deleted rather than left orphaned.
       await CARDINAL.models.assets.deleteAsset(target.siteId, existing.id, { authorId: actor.id })
     }
-    // -> fall through to the upload below
   } else if (
     !entry.exists &&
     (((entry.before ?? 0) > 0 && entry.after === 0) ||
@@ -376,9 +293,8 @@ async function processAssetEntry(
         createIfMissing: true
       })
     : null
-  // -> `upload()` itself resolves a name already taken in this folder to an overwrite, so this one
-  //    call covers both "new asset" and "existing asset's bytes changed" — same as 2.5.x's
-  //    `commonDisk.processAsset`, which upserts rather than branching on whether the row exists yet.
+  // -> `upload()` resolves a name already taken in this folder to an overwrite, so this one call
+  //    covers both "new asset" and "existing asset's bytes changed".
   await CARDINAL.models.assets.upload({
     siteId: target.siteId,
     locale: primary,
@@ -389,7 +305,6 @@ async function processAssetEntry(
   })
 }
 
-/** Exported for `actions.ts` — see the header comment on `DiffEntry` for why `importAll` reuses this. */
 export async function processDiffEntry(
   target: StorageTarget,
   actor: ImportActor,
@@ -404,35 +319,14 @@ export async function processDiffEntry(
 }
 
 /**
- * The `sync` action declared in `definition.yml`: fetch + pull-rebase from origin, push local commits
- * back, then reverse-mirror whatever the pull brought in into the DB.
+ * A rebase conflict is deliberately not caught: it aborts the sync and leaves the working copy
+ * mid-rebase for an administrator, the same place a hand-run `git pull --rebase` would.
  *
- * A rebase conflict is not caught here — see the header comment for why that is a deliberate,
- * verified match of 2.5.x rather than a gap: it aborts the sync and surfaces the rejection to
- * whichever caller invoked this action (the admin "Force Sync" button, or a scheduled job via
- * `storageSyncTick`), leaving the working copy mid-rebase for an administrator to resolve, the same
- * place a `git pull --rebase` run by hand would leave it.
- *
- * Mass-delete safety guard (OpenProject #2429): a reverted/deleted commit on the remote legitimately
- * reverse-mirrors as page deletions here — that is working as designed — but nothing used to stand
- * between "the diff says delete one page" and "the diff says delete every page", the way `rsync
- * --max-delete` or a Terraform destroy-count warning would for an equivalent bulk-destructive diff.
- * Before any entry is applied, the diff is pre-scanned for page deletions (`isPageDeletionEntry` —
- * asset deletions are deliberately out of scope for this guard) and compared against the site's
- * current total page count. Once that fraction reaches the target's configured
- * `maxDeletePercent` (default 50%, `MIN_PAGES_FOR_DELETE_GUARD` pages minimum so the check is
- * meaningless noise on a small wiki), every OTHER change in the diff still applies normally — only
- * the page-deletion entries are held back, logged, and skipped, mirroring `rsync --max-delete`'s own
- * "stop deleting, keep transferring" behavior rather than refusing the whole sync. `data.
- * confirmMassDelete === true` bypasses the hold entirely. `data` is `{}` for every scheduled sync
- * (`tickScheduledSyncs()` never sets it), so a scheduled run can never itself supply the override —
- * only a manually re-triggered "Force Sync" through the API (passing the flag in its request body)
- * can, which is what applies this guard identically to both trigger paths while keeping the scheduled
- * one inherently unable to blow past it unattended.
- *
- * @param data The same payload `dispatchStorage` hands every other module handler — `{}` for a
- *   scheduled sync, or `{ confirmMassDelete: true }` for a manually-confirmed "Force Sync" (see
- *   `api/storage.ts`).
+ * Mass-delete guard: once page deletions reach the target's `maxDeletePercent`, only the
+ * page-deletion entries are held back and logged — every other change in the diff still applies,
+ * mirroring `rsync --max-delete`'s "stop deleting, keep transferring" rather than refusing the whole
+ * sync. `data.confirmMassDelete === true` bypasses it, and `tickScheduledSyncs()` passes `{}`, so a
+ * scheduled run can never supply that override unattended — only a manual "Force Sync" can.
  */
 export async function sync(target: StorageTarget, data: Record<string, any> = {}): Promise<void> {
   const log = gitLog(target)
@@ -467,9 +361,8 @@ export async function sync(target: StorageTarget, data: Record<string, any> = {}
 
   const afterHash = await headHash(git)
   if (!afterHash || !beforeHash || afterHash === beforeHash) {
-    // -> Either nothing changed, or this was the repo's very first pull: 2.5.x does not diff-import
-    //    on a first sync either — that is what the separate "Import Everything" action is for
-    //    (`importAll`, out of this task's scope), rather than something `sync()` infers on its own.
+    // -> Nothing changed, or this was the repo's very first pull. A first sync deliberately does
+    //    not diff-import; the separate `importAll` action is what seeds a repo's existing content.
     return
   }
 

@@ -7,11 +7,9 @@ import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
- * `exportAll` is what `models/storage.ts`'s `executeAction` calls (`mod[handler](target)`), so the
- * production entry point takes only `target`. Every collaborator it calls — `connectSftp`,
- * `exportPages`, `exportAssets` — is swappable through an optional second `deps` argument that
- * `executeAction` never supplies, which is what lets this suite verify the orchestration (call order,
- * logging, and that the connection always closes) without a real SFTP server or database.
+ * `models/storage.ts`'s `executeAction` calls `mod[handler](target)` and never supplies `exportAll`'s
+ * optional `deps`, so every default there is what production runs; stubbing them is what lets this
+ * suite check the orchestration without a real SFTP server or database.
  */
 
 let wikiHandle: { restore(): void }
@@ -23,9 +21,8 @@ let loggerCalls: {
 }[]
 
 /**
- * A `logger.scope()` child that records what it was handed, rather than `createSilentLogger`'s own
- * `scope: () => stub` — this module logs exclusively through a child, so a stub that collapsed the
- * child back onto the parent would lose both the scope and the standing fields the real one merges.
+ * Not `createSilentLogger`: the module logs exclusively through a `scope()` child, and that stub's
+ * `scope: () => stub` would lose both the scope name and the standing fields the real one merges.
  */
 function recordingLogger(): Record<string, unknown> {
   const at =
@@ -52,7 +49,6 @@ function recordingLogger(): Record<string, unknown> {
 beforeEach(() => {
   loggerCalls = []
   wikiHandle = installTestWiki({
-    // -> Not the silent default: several tests assert on WHAT was logged and at which level.
     logger: recordingLogger()
   })
 })
@@ -139,9 +135,8 @@ describe('exportAll', () => {
 
     await exportAll(target, { connect, runExportPages, runExportAssets })
 
-    // -> Logged once per batch (per call to onProgress), never once per item — the whole point of the
-    //    callback existing is to keep a large export's log output bounded. Progress is `debug`: it is
-    //    per-tick detail, and only the two framing lines belong in an `info` operator's record.
+    // -> Once per batch, never per item: the callback exists to keep a large export's log bounded.
+    //    Progress is per-tick detail, so `debug`; only the two framing lines are `info`.
     const progress = loggerCalls.filter((c) => c.level === 'debug')
     assert.deepEqual(
       progress.map((c) => c.message),
@@ -151,12 +146,9 @@ describe('exportAll', () => {
       progress.map((c) => c.fields.pages ?? c.fields.assets),
       [200, 340, 50]
     )
-    // -> A start line and a completion line frame the batch progress, so an admin reading the log can
-    //    tell an export ran to completion rather than stalled partway.
+    // -> The framing pair is what tells an admin an export ran to completion rather than stalling.
     const infoMessages = loggerCalls.filter((c) => c.level === 'info').map((c) => c.message)
     assert.deepEqual(infoMessages, ['starting the export', 'export completed'])
-    // -> Every line carries the scope and the two standing fields, so a line says which target it is
-    //    about without the message spelling it out.
     assert.ok(
       loggerCalls.every(
         (c) => c.scope === 'storage' && c.fields.module === 'sftp' && c.fields.target === target.id
@@ -181,7 +173,6 @@ describe('exportAll', () => {
     )
 
     assert.equal(client.end.mock.calls.length, 1)
-    // -> exportAssets never runs once exportPages has thrown
     assert.equal(runExportAssets.mock.calls.length, 0)
   })
 
@@ -266,7 +257,6 @@ describe('exportAll', () => {
     const runExportPages = mock.fn(async () => {})
     const runExportAssets = mock.fn(async () => {})
 
-    // -> Does not reject: a close failure after a clean export is a warning, not a thrown error
     await exportAll(target, { connect, runExportPages, runExportAssets })
 
     const warnings = loggerCalls.filter((c) => c.level === 'warn')

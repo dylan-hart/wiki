@@ -4,23 +4,19 @@ import { HeadBucketCommand } from '@aws-sdk/client-s3'
 import { buildClient } from './storage.ts'
 
 /**
- * `storage.test.ts` mocks `S3Client.prototype.send` directly (via `aws-sdk-client-mock`), which never
- * exercises the SDK's own endpoint-resolution middleware — so it cannot tell a request that would
- * actually reach `minio.example.com` apart from one that would reach the nonexistent host
- * `my-bucket.minio.example.com`. This is precisely the failure upstream #1472 ("S3 storage not
- * compatible with Minio without s3ForcePathStyle option") reported: MinIO, and most self-hosted
- * S3-compatible servers, has no wildcard DNS record for `<bucket>.<host>`, so a virtual-hosted-style
- * request never reaches the server at all — it fails to resolve before a single byte is sent.
+ * `storage.test.ts` mocks `S3Client.prototype.send` directly, which never exercises the SDK's own
+ * endpoint-resolution middleware — so it cannot tell a request that would actually reach
+ * `minio.example.com` apart from one that would reach the nonexistent host
+ * `my-bucket.minio.example.com`. MinIO, like most self-hosted S3-compatible servers, has no wildcard
+ * DNS record for `<bucket>.<host>`, so a virtual-hosted-style request fails to resolve before a
+ * single byte is sent.
  *
- * This file is kept separate from `storage.test.ts` deliberately: importing `aws-sdk-client-mock`
- * there patches `S3Client.prototype.send` for every instance in that module, which would swallow the
- * fake `requestHandler` these tests install one layer lower (the transport a client hands a fully
- * resolved request to) to capture the real hostname/path the SDK builds — with no real network
- * involved. `node --test` runs each matched file as its own process, so the two files' client
- * patching never interacts.
+ * Kept separate from `storage.test.ts` deliberately: `aws-sdk-client-mock` patches
+ * `S3Client.prototype.send` for every instance in that module, which would swallow the fake
+ * `requestHandler` these tests install one layer lower. `node --test` gives each file its own
+ * process, so the two files' client patching never interacts.
  */
 
-/** The real hostname/path an `S3Client` would send a request to, captured with no network involved. */
 function captureRequest(config: Record<string, any>): Promise<{ hostname: string; path: string }> {
   let captured: { hostname: string; path: string } | undefined
   const requestHandler = {

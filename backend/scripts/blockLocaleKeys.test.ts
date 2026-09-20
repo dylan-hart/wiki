@@ -1,8 +1,3 @@
-/**
- * Pure-unit coverage for the extraction/diff logic, plus one real-tree assertion that `en.json`'s
- * `blocks.*` namespace has not drifted from the actual `blocks/block-*` sources -- no `CARDINAL` global,
- * no database, matching this repo's pure-unit-test convention.
- */
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -17,7 +12,6 @@ import {
 
 const REPO_ROOT = path.join(import.meta.dirname, '../..')
 
-/** Builds a throwaway tree of `block-*` directories, each with a `component.js`, returning its root. */
 function makeFixtureBlocksDir(components: Record<string, string>): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'block-locale-keys-'))
   for (const [blockDir, source] of Object.entries(components)) {

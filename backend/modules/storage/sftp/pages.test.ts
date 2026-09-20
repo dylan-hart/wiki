@@ -13,11 +13,6 @@ import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { ensureTemporal } from '../../../test/temporal.ts'
 
-/**
- * `injectFrontMatter` (called indirectly through `exportPages`) converts `createdAt`/`updatedAt` via
- * `Date#toTemporalInstant()`. This sandbox's Node is v25.9.0, which lacks it natively — same gap
- * `helpers/pageSerialization.test.ts` documents.
- */
 before(() => ensureTemporal())
 
 const MULTI_LOCALE: PageExportLocaleInfo = { defaultLocale: 'en', namespacingEnabled: true }
@@ -149,7 +144,6 @@ describe('exportPages', () => {
       '---\ntitle: Configuration\n---\n\n# Setup\n\nDo the thing.'
     )
 
-    // -> The containing directory was ensured (each segment checked) before the write
     const checkedPaths = client.exists.mock.calls.map((c: any) => c.arguments[0])
     assert.deepEqual(checkedPaths, ['/srv/wiki/fr', '/srv/wiki/fr/guides'])
     // -> The stub reports every segment as already existing, so nothing needed creating
@@ -211,8 +205,6 @@ describe('exportPages', () => {
       pageSize: 2
     })
 
-    // -> Stops once a batch shorter than the page size comes back, never issuing a third,
-    //    empty-returning call
     assert.equal(fetchBatch.mock.calls.length, 2)
     assert.equal(fetchBatch.mock.calls[0].arguments[0].afterId, null)
     assert.equal(fetchBatch.mock.calls[1].arguments[0].afterId, 'b')
