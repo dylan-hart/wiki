@@ -86,7 +86,10 @@
                   out in the source.
                 -->
                   <w-list dense padding style="min-width: 240px">
-                    <w-item clickable @click="changePassword(auth.authId)">
+                    <w-item
+                      v-if="auth.config?.canChangePassword !== false"
+                      clickable
+                      @click="changePassword(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="tabler:key" class="text-blue-7 dark:text-blue-4" />
                       </w-item-section>
@@ -173,7 +176,7 @@
             @click="deactivatePasskey(pkey)" />
         </w-settings-row>
       </w-settings-card>
-      <div class="mt-4">
+      <div v-if="state.passkeysEnabled" class="mt-4">
         <w-btn
           icon="tabler:plus"
           :label="t(`profile.passkeysAdd`)"
@@ -214,6 +217,7 @@ useMeta(() => ({
 const state = reactive({
   authMethods: [],
   passkeys: [],
+  passkeysEnabled: true,
   // -> Keyed by authId, one entry per local strategy with 2FA active. An absent entry means either
   //    not applicable or a failed status fetch, and both render the same: no remaining-count line.
   recoveryCodesStatus: {},
@@ -226,6 +230,7 @@ async function fetchAuthMethods() {
     const resp = await API_CLIENT.get('users/profile/auth').json()
     state.authMethods = resp?.authMethods ?? []
     state.passkeys = resp?.passkeys ?? []
+    state.passkeysEnabled = resp?.passkeysEnabled !== false
   } catch (err) {
     notify({
       type: 'negative',

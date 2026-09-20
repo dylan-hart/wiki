@@ -396,7 +396,10 @@ const usernameFieldLabel = computed(() =>
 )
 
 const canUsePasskeys = computed(() => {
-  return browserSupportsWebAuthn()
+  return (
+    browserSupportsWebAuthn() &&
+    !state.strategies.some((str) => str.activeStrategy?.allowPasskeys === false)
+  )
 })
 
 const loginUsernameValidation = [(val) => val.length > 0 || t('auth.errors.missingUsername')]

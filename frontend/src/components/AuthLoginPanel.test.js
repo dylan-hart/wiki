@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import AuthLoginPanel from './AuthLoginPanel.vue'
 import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
+import { browserSupportsWebAuthn } from '@simplewebauthn/browser'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { mountWithApp } from '../../test/mount.js'
@@ -13,6 +14,11 @@ import { mountWithApp } from '../../test/mount.js'
  * Both the 6-digit authenticator code and a recovery code go through the same
  * `PUT sites/:siteId/auth/tfa` call -- the backend tells the two apart by shape.
  */
+
+vi.mock('@simplewebauthn/browser', () => ({
+  browserSupportsWebAuthn: vi.fn(() => false),
+  startAuthentication: vi.fn()
+}))
 
 const LOCAL_STRATEGY = {
   id: 'strat-1',
@@ -741,5 +747,51 @@ describe('AuthLoginPanel inline errors', () => {
     expect(alertOf(wrapper).text()).toContain('error.ERR_AUTH_FAILED')
     expect(window.location.search).toBe('')
     expectNoNegativeToast()
+  })
+})
+
+describe('AuthLoginPanel passkey button', () => {
+  function strategyWith(allowPasskeys) {
+    const activeStrategy = { ...LOCAL_STRATEGY.activeStrategy }
+    if (allowPasskeys !== undefined) {
+      activeStrategy.allowPasskeys = allowPasskeys
+    }
+    return { ...LOCAL_STRATEGY, activeStrategy }
+  }
+
+  async function mountWith(allowPasskeys) {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([strategyWith(allowPasskeys)])
+    })
+    const { wrapper } = mountAuthLoginPanel()
+    await flushPromises()
+    return wrapper
+  }
+
+  afterEach(() => {
+    vi.mocked(browserSupportsWebAuthn).mockReturnValue(false)
+  })
+
+  it('is shown when the browser supports WebAuthn and the strategy allows passkeys', async () => {
+    vi.mocked(browserSupportsWebAuthn).mockReturnValue(true)
+    const wrapper = await mountWith(true)
+    expect(findButtonByText(wrapper, 'auth.passkeys.signin')).toBeTruthy()
+  })
+
+  it('is shown when the strategy does not report allowPasskeys', async () => {
+    vi.mocked(browserSupportsWebAuthn).mockReturnValue(true)
+    const wrapper = await mountWith(undefined)
+    expect(findButtonByText(wrapper, 'auth.passkeys.signin')).toBeTruthy()
+  })
+
+  it('is hidden when the strategy reports allowPasskeys: false', async () => {
+    vi.mocked(browserSupportsWebAuthn).mockReturnValue(true)
+    const wrapper = await mountWith(false)
+    expect(findButtonByText(wrapper, 'auth.passkeys.signin')).toBeUndefined()
+  })
+
+  it('is hidden when the browser lacks WebAuthn support', async () => {
+    const wrapper = await mountWith(true)
+    expect(findButtonByText(wrapper, 'auth.passkeys.signin')).toBeUndefined()
   })
 })
