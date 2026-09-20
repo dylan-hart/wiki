@@ -50,8 +50,10 @@ function makeDbTarget(
     assetDelivery: {
       isStreamingSupported: true,
       isDirectAccessSupported: true,
+      isReadThroughSupported: false,
       streaming: true,
       directAccess: false,
+      readThrough: false,
       ...assetDelivery
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },

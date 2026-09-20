@@ -10,6 +10,8 @@ assetDelivery:
   isDirectAccessSupported: true
   defaultStreamingEnabled: true
   defaultDirectAccessEnabled: true
+  isReadThroughSupported: true
+  defaultReadThroughEnabled: false
 contentTypes:
   supportedTypes: ['images', 'documents', 'others', 'large']
   defaultTypesEnabled: ['images', 'documents', 'others', 'large']

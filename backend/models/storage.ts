@@ -164,6 +164,8 @@ export interface StorageDefinition {
     isDirectAccessSupported: boolean
     defaultStreamingEnabled: boolean
     defaultDirectAccessEnabled: boolean
+    isReadThroughSupported?: boolean
+    defaultReadThroughEnabled?: boolean
   }
   versioning: {
     isSupported: boolean
@@ -217,8 +219,10 @@ export interface StorageTarget {
   assetDelivery: {
     isStreamingSupported: boolean
     isDirectAccessSupported: boolean
+    isReadThroughSupported: boolean
     streaming: boolean
     directAccess: boolean
+    readThrough: boolean
   }
   versioning: {
     isSupported: boolean
@@ -248,6 +252,7 @@ export interface StorageTargetInput {
   assetDelivery?: {
     streaming?: boolean
     directAccess?: boolean
+    readThrough?: boolean
   }
   versioning?: {
     enabled?: boolean
@@ -417,7 +422,8 @@ class Storage {
         },
         assetDelivery: {
           streaming: definition.assetDelivery?.defaultStreamingEnabled ?? false,
-          directAccess: definition.assetDelivery?.defaultDirectAccessEnabled ?? false
+          directAccess: definition.assetDelivery?.defaultDirectAccessEnabled ?? false,
+          readThrough: definition.assetDelivery?.defaultReadThroughEnabled ?? false
         },
         versioning: {
           enabled: definition.versioning.isForceEnabled || definition.versioning.defaultEnabled
@@ -499,8 +505,10 @@ class Storage {
         assetDelivery: {
           isStreamingSupported: definition.assetDelivery?.isStreamingSupported ?? false,
           isDirectAccessSupported: definition.assetDelivery?.isDirectAccessSupported ?? false,
+          isReadThroughSupported: definition.assetDelivery?.isReadThroughSupported ?? false,
           streaming: assetDelivery.streaming ?? false,
-          directAccess: assetDelivery.directAccess ?? false
+          directAccess: assetDelivery.directAccess ?? false,
+          readThrough: assetDelivery.readThrough ?? false
         },
         versioning: {
           isSupported: definition.versioning.isSupported,
@@ -652,7 +660,10 @@ class Storage {
           (patch.assetDelivery.streaming ?? target.assetDelivery.streaming),
         directAccess:
           definition.assetDelivery.isDirectAccessSupported &&
-          (patch.assetDelivery.directAccess ?? target.assetDelivery.directAccess)
+          (patch.assetDelivery.directAccess ?? target.assetDelivery.directAccess),
+        readThrough:
+          (definition.assetDelivery.isReadThroughSupported ?? false) &&
+          (patch.assetDelivery.readThrough ?? target.assetDelivery.readThrough)
       }
     }
     if (patch.versioning) {

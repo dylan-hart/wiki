@@ -90,8 +90,10 @@ export function makeStorageTarget(
     assetDelivery: {
       isStreamingSupported: true,
       isDirectAccessSupported: true,
+      isReadThroughSupported: false,
       streaming: false,
-      directAccess: true
+      directAccess: true,
+      readThrough: false
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
     sync: {

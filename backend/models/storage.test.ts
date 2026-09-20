@@ -81,8 +81,10 @@ function makeTarget(moduleKey: string): StorageTarget {
     assetDelivery: {
       isStreamingSupported: false,
       isDirectAccessSupported: false,
+      isReadThroughSupported: false,
       streaming: false,
-      directAccess: false
+      directAccess: false,
+      readThrough: false
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
     sync: {
@@ -1168,4 +1170,105 @@ test('runDailyBackups logs and continues past a target whose dailyBackup throws,
   assert.equal(warnings.length, 1)
   assert.equal(warnings[0]!.fields?.site, 'site-1')
   assert.match(warnings[0]!.fields?.error?.message ?? '', /disk full/)
+})
+
+describe('storage / assetDelivery.readThrough', () => {
+  const BLOB_MODULES = ['s3', 'azure', 'gcs']
+  const NON_BLOB_MODULES = ['db', 'disk', 'sftp', 'git']
+
+  function fakeUpdateDb() {
+    const written: Record<string, any>[] = []
+    global.CARDINAL = {
+      ...global.CARDINAL,
+      db: {
+        update: () => ({
+          set: (values: Record<string, any>) => {
+            written.push(values)
+            return { where: () => Promise.resolve({ rowCount: 1 }) }
+          }
+        })
+      }
+    } as unknown as CardinalGlobal
+    return written
+  }
+
+  test('only the blob modules declare read-through support, and none of them default it on', () => {
+    for (const key of BLOB_MODULES) {
+      const delivery = storage.getDefinition(key)!.assetDelivery
+      assert.equal(delivery.isReadThroughSupported, true, key)
+      assert.equal(delivery.defaultReadThroughEnabled, false, key)
+    }
+    for (const key of NON_BLOB_MODULES) {
+      assert.notEqual(storage.getDefinition(key)!.assetDelivery.isReadThroughSupported, true, key)
+    }
+  })
+
+  test('getSiteTargets reports support from the module and reads a stored readThrough back', async () => {
+    fakeDispatchDeps([
+      {
+        ...makeRow('s3'),
+        assetDelivery: { streaming: false, directAccess: false, readThrough: true }
+      },
+      makeRow('disk')
+    ])
+    const targets = await storage.getSiteTargets('site-1')
+    const s3 = targets.find((t) => t.module === 's3')!
+    assert.equal(s3.assetDelivery.isReadThroughSupported, true)
+    assert.equal(s3.assetDelivery.readThrough, true)
+    const disk = targets.find((t) => t.module === 'disk')!
+    assert.equal(disk.assetDelivery.isReadThroughSupported, false)
+    assert.equal(disk.assetDelivery.readThrough, false)
+  })
+
+  test('a row stored before the setting existed reads back as off', async () => {
+    fakeDispatchDeps([makeRow('s3')])
+    const [s3] = await storage.getSiteTargets('site-1')
+    assert.equal(s3!.assetDelivery.readThrough, false)
+  })
+
+  test('updateTarget stores readThrough on for a module that supports it', async () => {
+    const written = fakeUpdateDb()
+    const target = makeTarget('s3')
+    const changed = await storage.updateTarget('site-1', target, {
+      id: target.id,
+      assetDelivery: { readThrough: true }
+    })
+    assert.equal(changed, true)
+    assert.equal(written[0]!.assetDelivery.readThrough, true)
+  })
+
+  test('updateTarget keeps the current readThrough when the patch omits it', async () => {
+    const written = fakeUpdateDb()
+    const target = makeTarget('s3')
+    target.assetDelivery.readThrough = true
+    await storage.updateTarget('site-1', target, {
+      id: target.id,
+      assetDelivery: { streaming: false }
+    })
+    assert.equal(written[0]!.assetDelivery.readThrough, true)
+  })
+
+  test('updateTarget lets a supporting module turn readThrough off again', async () => {
+    const written = fakeUpdateDb()
+    const target = makeTarget('s3')
+    target.assetDelivery.readThrough = true
+    await storage.updateTarget('site-1', target, {
+      id: target.id,
+      assetDelivery: { readThrough: false }
+    })
+    assert.equal(written[0]!.assetDelivery.readThrough, false)
+  })
+
+  for (const key of NON_BLOB_MODULES) {
+    test(`updateTarget stores readThrough as off for ${key}, which does not support it`, async () => {
+      const written = fakeUpdateDb()
+      const target = makeTarget(key)
+      target.assetDelivery.readThrough = true
+      await storage.updateTarget('site-1', target, {
+        id: target.id,
+        assetDelivery: { readThrough: true }
+      })
+      assert.equal(written[0]!.assetDelivery.readThrough, false)
+    })
+  }
 })
