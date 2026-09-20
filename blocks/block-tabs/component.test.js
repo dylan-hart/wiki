@@ -136,6 +136,48 @@ describe('block-tabs', () => {
     expect(el.active).toBe(1)
   })
 
+  describe('scroll margin', () => {
+    const stubStripHeight = (el, height) => {
+      Object.defineProperty(el.shadowRoot.querySelector('.strip'), 'offsetHeight', {
+        configurable: true,
+        get: () => height
+      })
+    }
+
+    it('gives each panel element the same scroll-margin-top as its children after render', async () => {
+      const el = await mountTabs([
+        { label: 'First', content: 'One' },
+        { label: 'Second', content: 'Two' }
+      ])
+      stubStripHeight(el, 40)
+      el.requestUpdate()
+      await el.updateComplete
+
+      for (const panel of el.querySelectorAll('block-tab')) {
+        expect(panel.style.getPropertyValue('scroll-margin-top')).toBe('60px')
+        expect(panel.firstElementChild.style.getPropertyValue('scroll-margin-top')).toBe('60px')
+      }
+    })
+
+    it('re-applies the margin to the panel element after the strip re-wraps', async () => {
+      const el = await mountTabs([
+        { label: 'First', content: 'One' },
+        { label: 'Second', content: 'Two' }
+      ])
+      stubStripHeight(el, 40)
+      el.requestUpdate()
+      await el.updateComplete
+
+      stubStripHeight(el, 80)
+      el.requestUpdate()
+      await el.updateComplete
+
+      const panel = el.querySelector('block-tab')
+      expect(panel.style.getPropertyValue('scroll-margin-top')).toBe('100px')
+      expect(panel.firstElementChild.style.getPropertyValue('scroll-margin-top')).toBe('100px')
+    })
+  })
+
   it('fetches every tab icon concurrently and triggers a single update', async () => {
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true, text: async () => '<svg>icon</svg>' })
     vi.stubGlobal('fetch', fetchSpy)

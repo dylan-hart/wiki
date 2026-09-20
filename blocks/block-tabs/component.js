@@ -288,6 +288,7 @@ Content of the second tab.
     }
     const margin = `${strip.offsetHeight + 20}px`
     for (const { panel } of this._tabs) {
+      panel.style.setProperty('scroll-margin-top', margin)
       for (const child of panel.children) {
         child.style.setProperty('scroll-margin-top', margin)
       }
