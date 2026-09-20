@@ -7,7 +7,6 @@ import { paginate } from '../helpers/pagination.ts'
 import type { JobState } from './jobs.ts'
 import type { RateLimitPolicy } from './rateLimits.ts'
 
-/** Every event a webhook may subscribe to; {@link EMITTED_EVENTS} is the subset anything fires. */
 export const HOOK_EVENTS = [
   'page:create',
   'page:edit',
@@ -33,9 +32,8 @@ export const HOOK_EVENTS = [
 export type HookEvent = (typeof HOOK_EVENTS)[number]
 
 /**
- * The events something in the server actually emits. Explicit rather than inferred from
- * {@link HOOK_EVENTS}, since a new entry there does not necessarily have an `emit()` call wired up
- * yet. Add an event here when you add its `emit()` call.
+ * Explicit rather than derived from {@link HOOK_EVENTS}: an entry there does not necessarily have
+ * an `emit()` call wired up yet. Add an event here when you add its `emit()` call.
  */
 export const EMITTED_EVENTS: HookEvent[] = [
   'page:create',
@@ -79,9 +77,8 @@ export interface HookDeliveryPage {
 const DELIVERY_TIMEOUT = 15000
 
 /**
- * Fallback per-webhook delivery rate limit, used until an operator configures their own and whenever
- * a stored value is unusable. Sixty a minute far exceeds any legitimate burst of these events, and is
- * what keeps one busy hook from flooding either its endpoint or the shared job queue.
+ * Sixty a minute far exceeds any legitimate burst of these events, and is what keeps one busy hook
+ * from flooding either its endpoint or the shared job queue.
  */
 const WEBHOOK_RATE_LIMIT_DEFAULTS: RateLimitPolicy = {
   max: 60,
@@ -89,10 +86,7 @@ const WEBHOOK_RATE_LIMIT_DEFAULTS: RateLimitPolicy = {
   banSeconds: 60
 }
 
-/**
- * Every field falls back on its own, and the two durations are stored as an operator wrote them
- * (`1m`, `5m`) rather than as raw seconds.
- */
+/** The two durations are stored as an operator wrote them (`1m`, `5m`), not as raw seconds. */
 function webhookRateLimitPolicy(): RateLimitPolicy {
   const scheduler = CARDINAL.config.scheduler ?? {}
   const max = Number(scheduler.webhookRateLimitMax)
@@ -113,8 +107,8 @@ function webhookRateLimitPolicy(): RateLimitPolicy {
  * `node:https` rather than `fetch`: a webhook may legitimately point at an endpoint with a
  * self-signed certificate, and per-request TLS options are not expressible through fetch.
  *
- * Exported for `POST /hooks/test`, a synthetic delivery to a URL that need not belong to any saved
- * webhook and so cannot go through `deliver()`, which reads and writes a persisted hook's state.
+ * Exported for the test-delivery route, whose target need not belong to any saved webhook and so
+ * cannot go through `deliver()`, which reads and writes a persisted hook's state.
  */
 export function postJson(
   url: string,
@@ -143,10 +137,9 @@ export function postJson(
         },
         timeout: DELIVERY_TIMEOUT,
         // -> Not a blanket TLS bypass: `acceptUntrusted` is a per-webhook admin opt-in, default
-        // false, applying only when the target is already `https:`. Intentional, for webhook targets
-        // on self-signed/internal certs — see docs/decisions/
-        // 2026-09-17-webhook-accept-untrusted-tls-opt-in.md. Scanners grepping for
-        // `rejectUnauthorized: false` (Semgrep's bypass-tls-verification) flag this line.
+        // false, applying only when the target is already `https:`, for receivers on
+        // self-signed/internal certs. Semgrep's bypass-tls-verification flags the literal — see
+        // docs/decisions/2026-09-17-webhook-accept-untrusted-tls-opt-in.md.
         ...(target.protocol === 'https:' && acceptUntrusted ? { rejectUnauthorized: false } : {})
       },
       (res) => {
@@ -164,9 +157,9 @@ export function postJson(
 }
 
 /**
- * Webhooks POST a JSON body to a remote endpoint when something happens. Delivery goes through the
- * scheduler rather than the request that triggered it: a slow or broken endpoint must not delay a
- * user's action, and the scheduler already provides retries and a place to see failures.
+ * Delivery goes through the scheduler rather than the request that triggered it: a slow or broken
+ * endpoint must not delay a user's action, and the scheduler already provides retries and a place
+ * to see failures.
  */
 class Hooks {
   async getHooks(): Promise<Hook[]> {
@@ -184,13 +177,9 @@ class Hooks {
   }
 
   /**
-   * A webhook's delivery history, most recently started first.
-   *
-   * Backed by `jobHistory` — `deliver()` runs as the `dispatchWebhook` task and every attempt is
-   * already recorded there, so this reads that log rather than keeping a second one. Retention is
-   * therefore `jobHistory`'s own, deliberately: the durable "is this webhook healthy" signal is
-   * `hooks.state` / `hooks.lastErrorMessage`, which never expires, so this is recent-attempts
-   * diagnostics rather than an audit log.
+   * Backed by `jobHistory` rather than a second log of its own, so retention is `jobHistory`'s:
+   * recent-attempts diagnostics, not an audit log. The durable "is this webhook healthy" signal is
+   * `hooks.state` / `hooks.lastErrorMessage`, which never expires.
    */
   async getDeliveryHistory(
     hookId: string,
@@ -222,7 +211,6 @@ class Hooks {
     return { total, deliveries: rows }
   }
 
-  /** Starts out pending: no event has reached it yet. Returns the new webhook's id. */
   async createHook(values: {
     name: string
     events: string[]
@@ -271,16 +259,12 @@ class Hooks {
   }
 
   /**
-   * Queue a delivery for every webhook subscribed to an event.
-   *
-   * Safe to call from anywhere, including request handlers: it only writes jobs, and it never throws
-   * — a webhook problem must not fail the action that triggered it.
+   * Never throws, so it is safe to call inline from a request handler: a webhook problem must not
+   * fail the action that triggered it.
    *
    * @param siteId `null` for an event with no site context (`user:*` — users are global entities).
-   *               A hook scoped to one site only fires for that exact site, so it deliberately does
-   *               NOT receive a `siteId: null` event: "no site context" is not a wildcard match.
-   * @param data `metadata` and `content` are stripped per webhook, per what each one asked for.
-   * @returns How many webhook deliveries were queued, not counting the independent email fan-out.
+   *               A hook scoped to one site deliberately does NOT receive those: "no site context"
+   *               is not a wildcard match.
    */
   async emit(
     event: HookEvent,
@@ -306,7 +290,7 @@ class Hooks {
         const verdict = await CARDINAL.models.rateLimits.consume(`webhook:${hook.id}`, policy)
         if (!verdict.allowed) {
           // -> Admission decision, not a delivery outcome: the hook's persisted `state` describes an
-          //    attempted delivery, and this one never was. The warn line is its only trace.
+          //    attempted delivery, and this one never was
           CARDINAL.logger.warn(
             'hooks',
             'webhook is over its delivery rate limit, skipping delivery',
@@ -345,12 +329,11 @@ class Hooks {
   }
 
   /**
-   * The email half of `emit()`'s fan-out. Independent of the webhook queueing on purpose, with its
-   * own `try`/`catch` rather than a shared one: a broken webhook lookup must not stop a subscribed
-   * user being emailed, or the reverse.
+   * Its own `try`/`catch` rather than sharing `emit()`'s: a broken webhook lookup must not stop a
+   * subscribed user being emailed, or the reverse.
    *
-   * Resolves the subscriber list here and hands the ids to the job rather than re-querying at
-   * delivery time, because the event's context can be gone by then (a delete, say).
+   * The subscriber list is resolved here and handed to the job rather than re-queried at delivery
+   * time, when the event's context can be gone (a delete, say).
    */
   private async notifyEmailSubscribers(
     event: HookEvent,
@@ -381,8 +364,8 @@ class Hooks {
 
   /**
    * Runs as the `dispatchWebhook` task in a worker thread, so everything it needs comes from the job
-   * or the database — `instance` in particular is whichever instance queued the delivery, not the
-   * thread making it.
+   * or the database — `instance` is whichever instance queued the delivery, not the thread making
+   * it.
    *
    * Throws on failure so the scheduler retries.
    */
@@ -445,8 +428,8 @@ class Hooks {
 export const hooks = new Hooks()
 
 /**
- * Tell the outside world that a page or an asset changed: webhook emit, then storage dispatch, both
- * awaited in that order — `assets.test.ts` asserts an upload does not resolve until both have.
+ * Webhook emit, then storage dispatch, both awaited in that order: the triggering write must not
+ * resolve until both have.
  *
  * A module function rather than a method on `Hooks`, because both call sites are other models whose
  * test suites stand `CARDINAL.models.hooks` up as a bare `{ emit }` stub — a method here would not

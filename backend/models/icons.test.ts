@@ -37,8 +37,8 @@ describe('icons DEFAULT_SETS', () => {
 /**
  * `getSet()` must stay a single-row query by prefix with no `count()` aggregate over the
  * (potentially large) `icons` table -- the public `/_icons` batch route calls it on every request.
- * Hence a fake `CARDINAL.db` recording which table each `select().from()` chain was pointed at: the
- * query shape is what is under test, not any row data.
+ * Hence a fake `CARDINAL.db` recording which table each chain was pointed at: the query shape is
+ * under test, not row data.
  */
 describe('icons.getSet', () => {
   const calls = { setsRowQuery: 0, setsCountAggregate: 0 }
@@ -371,8 +371,6 @@ describe('icons.searchIcons offline/fallback (OpenProject #3041)', () => {
   })
 
   it('returns no results without ever reaching the network when the requested prefix is not enabled', async () => {
-    // -> `enabledPrefixes` defaults to `['tabler']`, so a request scoped to a prefix not enabled
-    //    here narrows to nothing before either upstream or local is attempted
     const result = await icons.searchIcons({ query: 'home', prefixes: ['disabled-prefix'] })
     assert.deepEqual(result, [])
     assert.equal(calls.fetch, 0)
@@ -434,9 +432,8 @@ describe('parseSideloadIconCollection()', () => {
 })
 
 /**
- * The fake `CARDINAL.db` records every `insert(...)` so the write ORDER can be asserted as well as
- * the values: the `iconSets` row must land before any of that prefix's `icons` rows, since
- * `icons.prefix` has a foreign key on `iconSets.prefix`.
+ * The fake `CARDINAL.db` records insert ORDER as well as values: `icons.prefix` has a foreign key
+ * on `iconSets.prefix`, so the set row must land before that prefix's icon rows.
  */
 describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
   let tmpRoot: string
@@ -518,7 +515,6 @@ describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
     const aliasWrite = iconWrites.find((w) => w.name === 'bar')
     assert.equal(aliasWrite!.value.body, '<path d="M0 0"/>')
 
-    // -> FK ordering: the set row must be written before any icon row for that prefix
     const setIndex = writes.indexOf(setWrite!)
     for (const iconWrite of iconWrites) {
       assert.ok(writes.indexOf(iconWrite) > setIndex)

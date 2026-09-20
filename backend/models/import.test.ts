@@ -31,10 +31,8 @@ const PANDOC_DEFINITION: ExtensionDefinition = {
 }
 
 /**
- * The extensions model is stubbed and `runPandoc` — the one method that actually shells out — is
- * mocked per test, so format validation, size limits, "no usable content" and error surfacing are
- * verified without a real pandoc binary. The one test that does need a real conversion skips when
- * pandoc is not installed.
+ * `runPandoc` — the one method that actually shells out — is mocked per test, so format validation,
+ * "no usable content" and error surfacing are covered without a real pandoc binary.
  */
 describe('page import (pandoc)', () => {
   let isInstalled: ReturnType<typeof mock.fn>
