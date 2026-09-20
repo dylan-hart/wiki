@@ -1,20 +1,5 @@
 <template>
   <w-page>
-    <w-item v-if="!canEdit">
-      <w-item-section>
-        <w-card class="bg-negative rounded text-white">
-          <w-card-section class="items-center" horizontal>
-            <w-card-section class="shrink-0 pe-0">
-              <w-icon name="tabler:ban" size="lg" />
-            </w-card-section>
-            <w-card-section>
-              <span>{{ t('profile.editDisabledTitle') }}</span>
-              <div class="text-caption text-red-1">{{ t('profile.editDisabledDescription') }}</div>
-            </w-card-section>
-          </w-card-section>
-        </w-card>
-      </w-item-section>
-    </w-item>
     <h2 class="w-section-header">{{ t('profile.theme') }}</h2>
     <w-item>
       <blueprint-icon icon="tabler:sun" />
@@ -26,7 +11,6 @@
         <w-btn-toggle
           :model-value="state.config.appearance"
           :options="appearances"
-          :disabled="!canEdit"
           :aria-label="t(`profile.appearance`)"
           @update:model-value="onFieldChange('appearance', $event)" />
       </w-item-section>
@@ -42,7 +26,6 @@
         <w-btn-toggle
           :model-value="state.config.aesthetic"
           :options="aesthetics"
-          :disabled="!canEdit"
           :aria-label="t(`profile.aesthetic`)"
           @update:model-value="onFieldChange('aesthetic', $event)" />
       </w-item-section>
@@ -58,7 +41,6 @@
         <w-btn-toggle
           :model-value="state.config.contentWidth"
           :options="contentWidths"
-          :disabled="!canEdit"
           :aria-label="t(`profile.contentWidth`)"
           @update:model-value="onFieldChange('contentWidth', $event)" />
       </w-item-section>
@@ -82,7 +64,6 @@
           options-dense
           hide-bottom-space
           :aria-label="t(`admin.general.defaultTimezone`)"
-          :readonly="!canEdit"
           :rules="[timezoneRule]"
           @update:model-value="onFieldChange('timezone', $event)" />
       </w-item-section>
@@ -102,7 +83,6 @@
           hide-bottom-space
           :aria-label="t(`admin.general.defaultDateFormat`)"
           :options="dateFormats"
-          :readonly="!canEdit"
           @update:model-value="onFieldChange('dateFormat', $event)" />
       </w-item-section>
     </w-item>
@@ -117,7 +97,6 @@
         <w-btn-toggle
           :model-value="state.config.timeFormat"
           :options="timeFormats"
-          :disabled="!canEdit"
           :aria-label="t(`profile.timeFormat`)"
           @update:model-value="onFieldChange('timeFormat', $event)" />
       </w-item-section>
@@ -133,7 +112,6 @@
         <w-btn-toggle
           :model-value="state.config.cvd"
           :options="cvdChoices"
-          :disabled="!canEdit"
           :aria-label="t(`profile.cvd`)"
           @update:model-value="onFieldChange('cvd', $event)" />
       </w-item-section>
@@ -251,11 +229,11 @@ const cvdChoices = [
 ]
 const timezones = Intl.supportedValuesOf('timeZone')
 
-const canEdit = computed(() => siteStore.features?.profile)
+const identityEditable = computed(() => siteStore.features?.profile)
 
 function onFieldChange(field, value) {
   state.config[field] = value
-  if (suppressAutoSave || !canEdit.value) {
+  if (suppressAutoSave) {
     return
   }
   save()
@@ -345,12 +323,16 @@ async function save() {
   try {
     const resp = await API_CLIENT.put('users/profile', {
       json: {
-        name: state.config.name,
-        firstName: state.config.firstName,
-        lastName: state.config.lastName,
-        location: state.config.location,
-        jobTitle: state.config.jobTitle,
-        pronouns: state.config.pronouns,
+        ...(identityEditable.value
+          ? {
+              name: state.config.name,
+              firstName: state.config.firstName,
+              lastName: state.config.lastName,
+              location: state.config.location,
+              jobTitle: state.config.jobTitle,
+              pronouns: state.config.pronouns
+            }
+          : {}),
         timezone: state.config.timezone,
         dateFormat: state.config.dateFormat,
         timeFormat: state.config.timeFormat,
