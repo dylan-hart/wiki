@@ -5,6 +5,7 @@ import { detectImageMime, imageMimeTypes } from '../../helpers/images.ts'
 import { issueKey, validateApiKeyInput } from '../../models/apiKeys.ts'
 import type { KeyExpiration } from '../../models/apiKeys.ts'
 import { actorFromRequest } from '../../models/auditLog.ts'
+import { passkeysAllowed } from '../../models/security.ts'
 import type {
   NotificationSubscriptions,
   UserProfile,
@@ -777,6 +778,11 @@ async function routes(app: FastifyInstance) {
               passkeys: {
                 type: 'array',
                 items: { $ref: 'Passkey#' }
+              },
+              passkeysEnabled: {
+                type: 'boolean',
+                description:
+                  'Whether passkeys are enabled instance-wide (`security.allowPasskeys`). When false, registering one is refused and the listed passkeys are ignored for login.'
               }
             }
           },
@@ -789,7 +795,8 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
       return {
         authMethods: await CARDINAL.models.userCredentials.getProfileAuthMethods(userId),
-        passkeys: await CARDINAL.models.passkeys.list(userId)
+        passkeys: await CARDINAL.models.passkeys.list(userId),
+        passkeysEnabled: passkeysAllowed()
       }
     }
   )
@@ -1190,6 +1197,9 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const userId = sessionUserId(req)
+      if (!passkeysAllowed()) {
+        throw new CustomError('Bad Request', 'ERR_PASSKEYS_DISABLED')
+      }
 
       try {
         const { registrationOptions, pending } = await CARDINAL.models.passkeys.startRegistration({
@@ -1249,6 +1259,9 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const userId = sessionUserId(req)
+      if (!passkeysAllowed()) {
+        throw new CustomError('Bad Request', 'ERR_PASSKEYS_DISABLED')
+      }
 
       try {
         const passkey = await CARDINAL.models.passkeys.finalizeRegistration({

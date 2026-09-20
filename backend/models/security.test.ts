@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { beforeEach, describe, test } from 'node:test'
-import { validateTrustProxySpec } from './security.ts'
+import { beforeEach, describe, mock, test } from 'node:test'
+import { passkeysAllowed, SECURITY_FIELDS, validateTrustProxySpec } from './security.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 // `observeRequest` calls `Temporal.Now.instant()` unconditionally, and a V8 built without Temporal
@@ -218,6 +218,58 @@ describe('Security#validate CSP directive checks', () => {
         cspDirectives: config.defaults.config.security.cspDirectives
       }),
       null
+    )
+  })
+})
+
+describe('security.allowPasskeys', () => {
+  let security: typeof import('./security.ts').security
+  let saveToDb: ReturnType<typeof mock.fn>
+
+  beforeEach(async () => {
+    saveToDb = mock.fn(async () => true)
+    ;(globalThis as any).CARDINAL = {
+      config: { security: { trustProxy: false } },
+      configSvc: { saveToDb },
+      db: {}
+    }
+    ;({ security } = await import(`./security.ts?t=${Math.random()}`))
+  })
+
+  test('is a stored, patchable security field', () => {
+    assert.ok(SECURITY_FIELDS.includes('allowPasskeys' as never))
+    assert.deepEqual(security.pickFields({ allowPasskeys: false }), { allowPasskeys: false })
+  })
+
+  test('ships on in base.yml', async () => {
+    const { load } = await import('js-yaml')
+    const { readFileSync } = await import('node:fs')
+    const path = await import('node:path')
+    const config: any = load(readFileSync(path.join(import.meta.dirname, '../base.yml'), 'utf8'))
+    assert.equal(config.defaults.config.security.allowPasskeys, true)
+  })
+
+  test('an absent field reads as allowed; only an explicit false turns it off', () => {
+    assert.equal(passkeysAllowed(), true)
+    ;(globalThis as any).CARDINAL.config.security.allowPasskeys = true
+    assert.equal(passkeysAllowed(), true)
+    ;(globalThis as any).CARDINAL.config.security.allowPasskeys = false
+    assert.equal(passkeysAllowed(), false)
+  })
+
+  test('is read live: updateConfig flips it in place, and a failed save restores it', async () => {
+    assert.equal(await security.updateConfig({ allowPasskeys: false }), true)
+    assert.equal(passkeysAllowed(), false)
+    saveToDb.mock.mockImplementation(async () => false)
+    assert.equal(await security.updateConfig({ allowPasskeys: true }), false)
+    assert.equal(passkeysAllowed(), false)
+  })
+
+  test('toggling writes only the security settings, so stored passkeys are left alone', async () => {
+    await security.updateConfig({ allowPasskeys: false })
+    assert.deepEqual(
+      saveToDb.mock.calls.map((c: any) => c.arguments[0]),
+      [['security']]
     )
   })
 })

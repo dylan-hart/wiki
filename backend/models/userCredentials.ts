@@ -8,6 +8,7 @@ import {
 import { eq, lt, sql } from 'drizzle-orm'
 import type { WikiDbOrTx } from '../core/db.ts'
 import { BCRYPT_ROUNDS } from '../helpers/common.ts'
+import { passkeysAllowed } from './security.ts'
 import { randomToken } from '../helpers/randomToken.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
 import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
@@ -169,12 +170,12 @@ export async function matchRecoveryCode(
  * registered against: on a multi-site instance one bound to another site still leaves the account
  * reachable.
  */
-function countAlternativeLogins(user: any, strategyId: string): number {
+export function countAlternativeLogins(user: any, strategyId: string): number {
   const auth = (user.auth ?? {}) as Record<string, any>
   const otherProviders = Object.entries(auth).filter(
     ([id, config]) => id !== strategyId && !config?.restrictLogin
   ).length
-  const passkeys = ((user.passkeys ?? {}).authenticators ?? []).length
+  const passkeys = passkeysAllowed() ? ((user.passkeys ?? {}).authenticators ?? []).length : 0
   return otherProviders + passkeys
 }
 

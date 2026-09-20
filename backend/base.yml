@@ -109,6 +109,7 @@ defaults:
       hideLocal: false
       loginBgUrl: ''
     security:
+      allowPasskeys: true
       corsMode: 'OFF'
       corsConfig: ''
       enforceCsp: false
