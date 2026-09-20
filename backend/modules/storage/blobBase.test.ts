@@ -9,6 +9,7 @@ import {
 } from './blobBase.ts'
 import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
 import { makeStorageTarget } from '../../test/builders.ts'
+import { CONTENT_TYPES } from '../../models/storage.ts'
 import type { StorageTarget } from '../../models/storage.ts'
 
 /**
@@ -286,7 +287,11 @@ describe('blobBase / exportAll', () => {
     const driver = makeDriver()
     const module = blobStorageModule(driver)
     const target = makeTarget()
-    target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
+    target.contentTypes = {
+      activeTypes: ['images'],
+      supportedTypes: [...CONTENT_TYPES],
+      largeThreshold: '1MB'
+    }
 
     CARDINAL.models.assets.streamAll = async function* () {
       yield {

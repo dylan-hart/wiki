@@ -22,6 +22,7 @@ import {
 import { ensureRepo } from './repo.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
+import { CONTENT_TYPES } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 const SITE_ID = 'site-1'
@@ -211,7 +212,11 @@ describe('git storage content handlers', () => {
       })
       const noPagesTarget = makeTarget({
         config: { ...target.config },
-        contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+        contentTypes: {
+          activeTypes: ['images'],
+          supportedTypes: [...CONTENT_TYPES],
+          largeThreshold: '5MB'
+        }
       })
       const { repoPath } = await ensureRepo(noPagesTarget)
 
@@ -441,7 +446,11 @@ describe('git storage content handlers', () => {
       })
       const documentsOnlyTarget = makeTarget({
         config: { ...target.config },
-        contentTypes: { activeTypes: ['documents'], largeThreshold: '5MB' }
+        contentTypes: {
+          activeTypes: ['documents'],
+          supportedTypes: [...CONTENT_TYPES],
+          largeThreshold: '5MB'
+        }
       })
       const { repoPath } = await ensureRepo(documentsOnlyTarget)
 

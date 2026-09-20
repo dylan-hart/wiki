@@ -84,6 +84,7 @@ export function makeStorageTarget(
     website: '',
     contentTypes: {
       activeTypes: ['images', 'documents', 'others', 'large'],
+      supportedTypes: ['images', 'documents', 'others', 'large'],
       largeThreshold: '5MB'
     },
     assetDelivery: {

@@ -13,6 +13,7 @@ import { ensureRepo } from './repo.ts'
 import { generatePathHash } from '../../../helpers/common.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
+import { CONTENT_TYPES } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 const SITE_ID = 'site-1'
@@ -255,7 +256,11 @@ describe('git storage: syncUntracked', () => {
     })
     const noPagesTarget = makeTarget({
       config: { ...target.config },
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const { repoPath } = await ensureRepo(noPagesTarget)
 
@@ -281,7 +286,11 @@ describe('git storage: syncUntracked', () => {
     })
     const largeOnlyTarget = makeTarget({
       config: { ...target.config },
-      contentTypes: { activeTypes: ['large'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['large'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const { repoPath } = await ensureRepo(largeOnlyTarget)
 
@@ -305,7 +314,11 @@ describe('git storage: syncUntracked', () => {
     })
     const imagesOnlyTarget = makeTarget({
       config: { ...target.config },
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+      contentTypes: {
+        activeTypes: ['images'],
+        supportedTypes: [...CONTENT_TYPES],
+        largeThreshold: '5MB'
+      }
     })
     const { repoPath } = await ensureRepo(imagesOnlyTarget)
 
