@@ -707,6 +707,7 @@
   "admin.groups.permissions.read:groups.hint": "Can view groups and their permissions, but not create or modify them.",
   "admin.groups.permissions.read:history.hint": "Can view previous versions of pages.",
   "admin.groups.permissions.read:history.title": "View Page History",
+  "admin.groups.permissions.read:metrics.hint": "Can scrape the Prometheus /metrics endpoint with an API key, and nothing else. Give a scraper's service account only this permission rather than manage:system.",
   "admin.groups.permissions.read:pages.hint": "Can view and search pages.",
   "admin.groups.permissions.read:pages.title": "Read Pages",
   "admin.groups.permissions.read:source.hint": "Can view pages source. Also implicitly held by write:pages and manage:pages, since an editor needs to read a page's source before they can open it in the editor.",

@@ -17,6 +17,7 @@ export const GLOBAL_PERMISSIONS: string[] = [
   'manage:theme',
   'manage:sites',
   'manage:glossary',
+  'read:metrics',
   'manage:system'
 ]
 

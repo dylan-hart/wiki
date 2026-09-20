@@ -380,10 +380,13 @@ groups, cluster node count, and queued jobs. It is not a general request/latency
 there are no HTTP-level counters or histograms here, by deliberate scope decision (task 594), not an
 oversight.
 
-Access requires a **Bearer API key** with the `manage:system` global permission — the same permission
-gate as every other system-level action in this document, not a separate `read:metrics` permission
-(no such permission exists in this project's closed permission list). With the feature flag
-off, the route behaves as if it does not exist (a plain 404) for any caller, authenticated or not.
+Access requires a **Bearer API key** whose owner holds the `manage:system` or the `read:metrics`
+global permission. Prefer `read:metrics`: create a service user in a group holding only that
+permission and mint the scraper's key for it (optionally with `scope: ['read:metrics']`), so a leaked
+scrape credential exposes gauges and not the whole instance. A key's scope only narrows what its owner
+holds, so a scope of `read:metrics` on an owner without it still gets a 403. With the feature flag off,
+the route behaves as if it does not exist (a plain 404) for any caller, authenticated or not. See
+`docs/decisions/2026-09-20-metrics-read-permission.md`.
 
 ## Container mounts
 
