@@ -183,3 +183,27 @@ describe('GET /info', () => {
     assert.equal(body.isMailBaseURLConfigured, false)
   })
 })
+
+describe('POST /checkForUpdate', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    app = await buildTestApp({
+      routes: systemRoutes,
+      wiki: {
+        version: '3.0.0',
+        config: { offline: true, update: {} },
+        scheduler: { addJob: async () => ({ promise: Promise.resolve() }) }
+      }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  test('reports offline so the dialog can say so instead of showing blank release fields', async () => {
+    const res = await app.inject({ method: 'POST', url: '/checkForUpdate' })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), { current: '3.0.0', offline: true })
+  })
+})

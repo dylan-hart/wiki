@@ -230,6 +230,7 @@ update:
   # strings from https://github.com/requarks/wiki-locales. Set to false
   # to disable automatic locale syncing (e.g. offline instances).
   locales: true
+  releasesUrl: https://api.github.com/repos/dylan-hart/wiki/releases
 
 # ---------------------------------------------------------------------
 # Dev Mode

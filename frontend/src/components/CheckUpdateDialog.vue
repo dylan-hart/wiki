@@ -25,19 +25,32 @@
         </template>
         <template v-else>
           <div class="text-center">
-            <strong v-if="isLatest" class="text-positive">{{
-              $t('admin.system.runningLatestVersion')
+            <strong v-if="status === 'offline'" class="text-grey" data-test="update-offline">{{
+              $t('admin.system.updateCheckOffline')
             }}</strong>
-            <strong v-else class="text-pink">{{ $t('admin.system.newVersionAvailable') }}</strong>
+            <strong v-else-if="status === 'unknown'" class="text-grey" data-test="update-unknown">{{
+              $t('admin.system.updateCheckUnavailable')
+            }}</strong>
+            <strong
+              v-else-if="status === 'latest'"
+              class="text-positive"
+              data-test="update-latest"
+              >{{ $t('admin.system.runningLatestVersion') }}</strong
+            >
+            <strong v-else class="text-pink" data-test="update-available">{{
+              $t('admin.system.newVersionAvailable')
+            }}</strong>
             <div class="text-body2 mt-4">
               Current: <strong>{{ state.current }}</strong>
             </div>
-            <div class="text-body2">
-              Latest: <strong>{{ state.latest }}</strong>
-            </div>
-            <div class="text-body2">
-              Release Date: <strong>{{ state.latestDate }}</strong>
-            </div>
+            <template v-if="status === 'latest' || status === 'outdated'">
+              <div class="text-body2">
+                Latest: <strong>{{ state.latest }}</strong>
+              </div>
+              <div class="text-body2">
+                Release Date: <strong>{{ state.latestDate }}</strong>
+              </div>
+            </template>
           </div>
         </template>
       </w-card-section>
@@ -50,13 +63,6 @@
           color="grey"
           padding="xs md"
           @click="onDialogCancel" />
-        <w-btn
-          v-if="state.canUpgrade"
-          :label="t(`admin.system.upgrade`)"
-          color="primary"
-          padding="xs md"
-          :loading="state.isLoading"
-          @click="upgrade" />
       </w-card-actions>
     </w-card>
   </w-dialog>
@@ -64,6 +70,8 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
+import semverGte from 'semver/functions/gte'
+import semverValid from 'semver/functions/valid'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
@@ -83,7 +91,7 @@ const { t } = useI18n()
 
 const state = reactive({
   isLoading: false,
-  canUpgrade: false,
+  offline: false,
   current: '',
   latest: '',
   latestDate: ''
@@ -91,8 +99,14 @@ const state = reactive({
 
 // FIXME: hardcoded, so the dialog always reports the instance as up to date and `state.canUpgrade`
 //        never flips -- compare `state.current` against `state.latest` once the check returns.
-const isLatest = computed(() => {
-  return true
+const status = computed(() => {
+  if (state.offline) {
+    return 'offline'
+  }
+  if (!semverValid(state.current) || !semverValid(state.latest)) {
+    return 'unknown'
+  }
+  return semverGte(state.current, state.latest) ? 'latest' : 'outdated'
 })
 
 async function check() {
@@ -101,8 +115,9 @@ async function check() {
     const resp = await API_CLIENT.post('system/checkForUpdate').json()
     if (resp?.current) {
       state.current = resp.current
-      state.latest = resp.latest
-      state.latestDate = userStore.formatDate(resp.latestDate)
+      state.latest = resp.latest ?? ''
+      state.offline = resp.offline === true
+      state.latestDate = resp.latestDate ? userStore.formatDate(resp.latestDate) : ''
     } else {
       throw new Error(resp?.message || t('common.error.unexpected'))
     }

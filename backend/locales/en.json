@@ -1406,6 +1406,8 @@
   "admin.system.title": "System Info",
   "admin.system.totalRAM": "Total RAM",
   "admin.system.totalRAMHint": "The total amount of RAM available to Cardinal.js.",
+  "admin.system.updateCheckOffline": "This instance is in offline mode, so it cannot check for updates.",
+  "admin.system.updateCheckUnavailable": "No release information is available right now.",
   "admin.system.upgrade": "Upgrade",
   "admin.system.upgradeCapable": "Automatic Upgrades",
   "admin.system.upgradeCapableHint": "Whether this deployment has an update companion that can apply new versions on its own.",
