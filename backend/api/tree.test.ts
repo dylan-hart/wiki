@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import treeRoutes from './tree.ts'
+import { CustomError } from '../helpers/common.ts'
 import { mayOnFolder, visibleTreeItems } from '../helpers/pageAccess.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
@@ -534,5 +535,360 @@ test('LIST PAGES AS A READER route: threads each page’s tags into the read:pag
   } finally {
     ;(globalThis as any).CARDINAL.models.tree.listPages = originalListPages
     ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
+  }
+})
+
+const DEST_ID = '66666666-6666-4666-8666-666666666666'
+
+function withMoveFolderMocks(overrides: {
+  getFolderById?: (id: string) => any
+  listDescendants?: () => any
+  moveFolder?: (input: any) => any
+  checkAccess?: (actor: any, permission: string, page: any) => boolean
+}) {
+  const tree = (globalThis as any).CARDINAL.models.tree
+  const groups = (globalThis as any).CARDINAL.models.groups
+  const saved = {
+    getFolderById: tree.getFolderById,
+    listDescendants: tree.listDescendants,
+    moveFolder: tree.moveFolder,
+    checkAccess: groups.checkAccess
+  }
+  tree.getFolderById = async (id: string) =>
+    overrides.getFolderById
+      ? overrides.getFolderById(id)
+      : id === DEST_ID
+        ? { id, siteId: ENABLED_SITE_ID, fileName: 'dest', folderPath: '', locale: 'en', meta: {} }
+        : { id, siteId: ENABLED_SITE_ID, fileName: 'sub', folderPath: '', locale: 'en', meta: {} }
+  tree.listDescendants = overrides.listDescendants ?? (async () => ({ pages: [], assets: [] }))
+  tree.moveFolder =
+    overrides.moveFolder ??
+    (async (input: any) => ({
+      id: input.folderId,
+      siteId: ENABLED_SITE_ID,
+      fileName: 'sub',
+      folderPath: 'dest',
+      locale: 'en',
+      meta: {}
+    }))
+  groups.checkAccess = overrides.checkAccess ?? (() => true)
+  return () => {
+    tree.getFolderById = saved.getFolderById
+    tree.listDescendants = saved.listDescendants
+    tree.moveFolder = saved.moveFolder
+    groups.checkAccess = saved.checkAccess
+  }
+}
+
+test('MOVE FOLDER route: moves into a destination folder, passing the resolved destination to moveFolder', async () => {
+  const calls: any[] = []
+  const restore = withMoveFolderMocks({
+    moveFolder: async (input: any) => {
+      calls.push(input)
+      return {
+        id: input.folderId,
+        siteId: ENABLED_SITE_ID,
+        fileName: 'sub',
+        folderPath: 'dest',
+        locale: 'en',
+        meta: { children: 2 }
+      }
+    }
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].siteId, ENABLED_SITE_ID)
+    assert.equal(calls[0].folderId, FOLDER_ID)
+    assert.equal(calls[0].destinationId, DEST_ID)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.folder.folderPath, 'dest')
+    assert.equal(body.folder.childrenCount, 2)
+  } finally {
+    restore()
+  }
+})
+
+test('MOVE FOLDER route: a parentPath destination is normalized, and no body moves to the site root', async () => {
+  const calls: any[] = []
+  const restore = withMoveFolderMocks({
+    getFolderById: (id: string) => ({
+      id,
+      siteId: ENABLED_SITE_ID,
+      fileName: 'sub',
+      folderPath: 'elsewhere',
+      locale: 'en',
+      meta: {}
+    }),
+    moveFolder: async (input: any) => {
+      calls.push(input)
+      return { id: input.folderId, fileName: 'sub', folderPath: '', locale: 'en', meta: {} }
+    }
+  })
+  try {
+    const withPath = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { parentPath: '/Guides/Intro/' }
+    })
+    assert.equal(withPath.statusCode, 200)
+    assert.equal(calls[0].parentPath, 'guides/intro')
+    assert.equal(calls[0].destinationId, undefined)
+
+    const toRoot = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: {}
+    })
+    assert.equal(toRoot.statusCode, 200)
+    assert.equal(calls[1].parentPath, '')
+  } finally {
+    restore()
+  }
+})
+
+test('MOVE FOLDER route: an unknown folder is a 404, and an unresolvable destination id is a 404 that moves nothing', async () => {
+  let moveCalled = false
+  let restore = withMoveFolderMocks({
+    getFolderById: () => null,
+    moveFolder: async () => {
+      moveCalled = true
+      return {}
+    }
+  })
+  try {
+    const missing = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(missing.statusCode, 404)
+  } finally {
+    restore()
+  }
+  restore = withMoveFolderMocks({
+    getFolderById: (id: string) =>
+      id === FOLDER_ID
+        ? { id, siteId: ENABLED_SITE_ID, fileName: 'sub', folderPath: '', locale: 'en', meta: {} }
+        : null,
+    moveFolder: async () => {
+      moveCalled = true
+      return {}
+    }
+  })
+  try {
+    const noDest = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID, parentPath: 'fallback' }
+    })
+    assert.equal(noDest.statusCode, 404)
+    assert.equal(noDest.json().message, 'The destination folder does not exist.')
+  } finally {
+    restore()
+  }
+  assert.equal(moveCalled, false)
+})
+
+test('MOVE FOLDER route: refuses a move into the folder itself or its own subtree, by segment boundary', async () => {
+  const moves: any[] = []
+  const restore = withMoveFolderMocks({
+    moveFolder: async (input: any) => {
+      moves.push(input)
+      return { id: input.folderId, fileName: 'sub', folderPath: '', locale: 'en', meta: {} }
+    }
+  })
+  try {
+    for (const parentPath of ['sub', 'sub/inner/deeper']) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+        payload: { parentPath }
+      })
+      assert.equal(res.statusCode, 400, parentPath)
+    }
+    assert.equal(moves.length, 0)
+
+    const sibling = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { parentPath: 'sub-archive' }
+    })
+    assert.equal(
+      sibling.statusCode,
+      200,
+      'a name that merely starts with the folder name is not inside it'
+    )
+    assert.equal(moves.length, 1)
+  } finally {
+    restore()
+  }
+})
+
+test('MOVE FOLDER route: refuses without manage:pages at the source or write:pages at the destination, and moves nothing', async () => {
+  let moveCalled = false
+  const moveFolder = async () => {
+    moveCalled = true
+    return {}
+  }
+  let restore = withMoveFolderMocks({
+    moveFolder,
+    checkAccess: (_actor, permission) => permission !== 'manage:pages'
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 403)
+  } finally {
+    restore()
+  }
+  restore = withMoveFolderMocks({
+    moveFolder,
+    checkAccess: (_actor, permission, page) =>
+      !(permission === 'write:pages' && page.path === 'dest/sub')
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 403)
+  } finally {
+    restore()
+  }
+  assert.equal(moveCalled, false)
+})
+
+test('MOVE FOLDER route: one unauthorized descendant page refuses the whole move', async () => {
+  let moveCalled = false
+  const checked: { permission: string; path: string }[] = []
+  const restore = withMoveFolderMocks({
+    listDescendants: async () => ({
+      pages: [
+        { path: 'sub/ok', locale: 'en', tags: [], classification: null },
+        { path: 'sub/inner/secret', locale: 'en', tags: ['x'], classification: null }
+      ],
+      assets: []
+    }),
+    moveFolder: async () => {
+      moveCalled = true
+      return {}
+    },
+    checkAccess: (_actor, permission, page) => {
+      checked.push({ permission, path: page.path })
+      return !(permission === 'write:pages' && page.path === 'dest/sub/inner/secret')
+    }
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.ok(checked.some((c) => c.permission === 'manage:pages' && c.path === 'sub/ok'))
+    assert.ok(checked.some((c) => c.permission === 'write:pages' && c.path === 'dest/sub/ok'))
+    assert.equal(moveCalled, false)
+  } finally {
+    restore()
+  }
+})
+
+test('MOVE FOLDER route: descendant assets need manage:assets at the source and write:assets at the destination', async () => {
+  let moveCalled = false
+  const checked: { permission: string; path: string }[] = []
+  const asset = {
+    id: 'a1',
+    path: 'sub/inner/file.png',
+    folderPath: 'sub/inner',
+    fileName: 'file.png',
+    locale: 'en'
+  }
+  for (const denied of ['manage:assets', 'write:assets']) {
+    const restore = withMoveFolderMocks({
+      listDescendants: async () => ({ pages: [], assets: [asset] }),
+      moveFolder: async () => {
+        moveCalled = true
+        return {}
+      },
+      checkAccess: (_actor, permission, page) => {
+        checked.push({ permission, path: page.path })
+        return permission !== denied
+      }
+    })
+    try {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+        payload: { folderId: DEST_ID }
+      })
+      assert.equal(res.statusCode, 403, denied)
+    } finally {
+      restore()
+    }
+  }
+  assert.equal(moveCalled, false)
+  assert.ok(
+    checked.some((c) => c.permission === 'manage:assets' && c.path === 'sub/inner/file.png')
+  )
+  assert.ok(
+    checked.some((c) => c.permission === 'write:assets' && c.path === 'dest/sub/inner/file.png')
+  )
+})
+
+test('MOVE FOLDER route: a fully authorized folder with pages and assets moves', async () => {
+  const calls: any[] = []
+  const restore = withMoveFolderMocks({
+    listDescendants: async () => ({
+      pages: [{ path: 'sub/page', locale: 'en', tags: [], classification: null }],
+      assets: [{ id: 'a1', path: 'sub/f.png', folderPath: 'sub', fileName: 'f.png', locale: 'en' }]
+    }),
+    moveFolder: async (input: any) => {
+      calls.push(input)
+      return { id: input.folderId, fileName: 'sub', folderPath: 'dest', locale: 'en', meta: {} }
+    }
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.length, 1)
+  } finally {
+    restore()
+  }
+})
+
+test('MOVE FOLDER route: a 409 name collision from the model surfaces as 409', async () => {
+  const restore = withMoveFolderMocks({
+    moveFolder: async () => {
+      throw new CustomError(
+        'treeFolderDuplicate',
+        'A folder with this path name already exists.',
+        409
+      )
+    }
+  })
+  try {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/parent`,
+      payload: { folderId: DEST_ID }
+    })
+    assert.equal(res.statusCode, 409)
+  } finally {
+    restore()
   }
 })
