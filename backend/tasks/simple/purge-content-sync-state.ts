@@ -1,10 +1,8 @@
 import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
- * Sweep `contentSyncState` rows whose `contentId` no longer matches any `pages`/`assets` row
- * (OpenProject #1679) -- the backstop for rows the delete-path's own cleanup cannot reach because
- * they predate it or were lost to a failed dispatch. Mirrors `purge-pageviews.ts`'s shape: a single
- * model call, and a summary handed back only when it actually removed something.
+ * Backstop for `contentSyncState` rows whose `contentId` matches no `pages`/`assets` row: the
+ * delete path's own cleanup cannot reach one lost to a failed dispatch.
  */
 export async function task(): Promise<TaskResult | void> {
   const count = await CARDINAL.models.contentSync.purgeOrphaned()

@@ -1,22 +1,8 @@
 /* eslint-disable no-console -- CLI entry point: the `usage:` text and the fatal-exit lines are stdout/stderr for a person at a terminal, not log records. */
 /**
- * Wiki.js 2.5.x -> 3.0 migration verification — Feature 421 task 748.
- *
- * Standalone entry point, run *after* a real (non-dry-run) `migrate.ts` import: `node
- * backend/tasks/verify-migration.ts <args>` or `npm run verify-migration -- <args>` from `backend/`.
- * Shares `migrate.ts`'s bootstrap (`../migration/bootstrap.ts`) rather than duplicating it — the same
- * minimal, HTTP-server-less `CARDINAL` runtime, connected to the same 3.0 destination and reading through
- * the same kind of `SourceConnector`. Deliberately never imported by `index.ts`, `worker.ts`, or
- * `core/scheduler.ts`'s `tasks/simple/` discovery, for the same reason `migrate.ts` is not: this opens
- * a second, *foreign* (2.x) database connection alongside the 3.0 destination.
- *
- * Two independent checks (`../migration/verify.ts` has the full rationale):
- *   1. Per-entity source-vs-destination record counts, optionally cross-checked against a dry-run
- *      report captured before the import (`--against-report`, from `migrate.ts --report-file`).
- *   2. A content-integrity spot-check hash-comparing a sample of pages' rendered bodies.
- *
- * Prints a pass/fail summary suitable for pasting into the cutover runbook's verification step (task
- * 751), and exits non-zero when the summary's outcome is `'fail'`.
+ * Standalone CLI, run *after* a real (non-dry-run) `migrate.ts` import. Like `migrate.ts`, it must
+ * never be imported by `index.ts`, `worker.ts` or `core/scheduler.ts`'s `tasks/simple/` discovery:
+ * it opens a second, *foreign* (2.x) database connection alongside the 3.0 destination.
  */
 
 import { bootstrapMigrationRuntime, buildSourceConnector } from '../migration/bootstrap.ts'

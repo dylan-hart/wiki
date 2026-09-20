@@ -1,10 +1,8 @@
 import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
- * Sweep `<dataPath>/imports/` of uploads whose job never ran to completion to clean up after itself.
- *
- * `importContent` deletes its own upload once it finishes, success or failure alike, so this only
- * ever finds one left behind by a crash mid-import — still cheap to run daily. Mirrors `purgeExports`.
+ * `importContent` deletes its own upload when it finishes, success or failure alike, so this only
+ * ever finds one left behind by a crash mid-import — cheap enough to run daily regardless.
  */
 export async function task(): Promise<TaskResult | void> {
   const count = await CARDINAL.models.import.purgeExpired()

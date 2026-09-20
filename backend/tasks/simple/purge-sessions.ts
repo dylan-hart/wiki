@@ -1,10 +1,7 @@
 import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
- * Sweep `sessions` rows past the cookie's 30-day window (OpenProject #2248) -- an expired cookie
- * simply stops being presented, so nothing else ever revisits the row. Mirrors
- * `purge-rate-limits.ts` / `purge-pageviews.ts`'s shape: a single model call, and a summary handed
- * back only when it actually removed something.
+ * An expired cookie simply stops being presented, so nothing else ever revisits its `sessions` row.
  */
 export async function task(): Promise<TaskResult | void> {
   const count = await CARDINAL.models.sessions.purgeExpiredSessions()

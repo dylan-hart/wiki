@@ -11,17 +11,9 @@ import serveRoutes from '../controllers/blocks.ts'
 import { registerParamsSchemas } from '../api/schemas/params.ts'
 
 /**
- * The real round trip this task is actually about: a custom block uploaded through
- * `POST /sites/:siteId/blocks` (task 655) has to come back byte-for-byte from
- * `GET /_blocks/custom/:siteId/:blockId.js` (this task) — against a real, migrated database, with
- * neither route's model calls stubbed, unlike `api/blocks.test.ts` and `controllers/blocks.test.ts`'s
- * own unit-level suites.
- *
- * This is as far as this environment can verify the "browser actually executes it" acceptance check
- * short of a literal browser: `index.ts` refuses to boot below Node 26 (`ERROR: Node.js 26.x or later
- * required!`), and this sandbox runs 25.9, so there is no way to bring up the real HTTP server here at
- * all. What this suite CAN prove for certain is that the served bytes are exactly what was uploaded,
- * with the right headers — the part a browser's `import()` actually depends on.
+ * The round trip neither side's own unit suite covers: a block uploaded through
+ * `POST /sites/:siteId/blocks` comes back byte-for-byte from
+ * `GET /_blocks/custom/:siteId/:blockId.js`, against a real migrated database with nothing stubbed.
  */
 describe(
   'custom block upload -> serve round trip (DB-backed)',
@@ -32,15 +24,11 @@ describe(
 
     before(async () => {
       fixtures = await setupTestDb()
-      // -> `installTestWiki()` (`test/db.ts`) leaves `config: {}` -- the upload route reads
-      //    `CARDINAL.config.security?.uploadMaxFileSize`, which is fine left undefined (its own `?? default`
-      //    covers that), so nothing needs setting here beyond what `setupTestDb()` already did.
 
       app = fastify()
       await app.register(fastifySensible)
-      // -> `uploadRoutes`/`serveRoutes`' error responses (`$ref: 'ApiError#'`) can't be serialized
-      //    without this registered — the schema-build failure surfaces at `app.ready()` for every
-      //    route in the plugin, not just the ones this suite exercises.
+      // -> Without `ApiError#` registered, the schema build fails at `app.ready()` for every route
+      //    in the plugin, not only the ones this suite exercises.
       await registerErrorSchema(app)
       await registerBlockSchema(app)
       await registerParamsSchemas(app)

@@ -5,13 +5,6 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import { pages as pagesTable, pageHistory as pageHistoryTable } from '../../db/schema.ts'
 import { task } from './convert-wysiwyg-json.ts'
 
-/**
- * DB-backed: this task's own value IS the SQL orchestration -- which rows the `WHERE` clause picks
- * out of a mixed `pages` table, and that a row it can't parse is reported rather than silently
- * dropped from the count (OpenProject #3400's acceptance criteria). `jobs.setResult` is still
- * stubbed via `deps` (the same convention `tasks/simple/import-content.test.ts` uses) rather than
- * exercised against a real `jobHistory` row, which is `models/jobs.ts`'s own test's concern.
- */
 describe('convert-wysiwyg-json.task (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let pagesModel: typeof import('../../models/pages.ts').pages
@@ -25,7 +18,7 @@ describe('convert-wysiwyg-json.task (DB-backed)', { skip: !hasTestDatabase() }, 
     await teardownTestDb()
   })
 
-  /** A raw row satisfying every NOT NULL column, for shapes `createPage()` can no longer produce. */
+  /** Raw insert, satisfying every NOT NULL column: `createPage()` cannot produce these shapes. */
   function rawPageRow(overrides: {
     path: string
     content: string
@@ -48,10 +41,8 @@ describe('convert-wysiwyg-json.task (DB-backed)', { skip: !hasTestDatabase() }, 
   }
 
   beforeEach(async () => {
-    // -> The task's own `WHERE` clause has no per-test scoping (it walks the whole `pages` table by
-    //    design -- see its own doc comment), so a row one test leaves behind would otherwise be
-    //    picked up again by the next test's run. Wiped fresh before each test rather than relying on
-    //    distinct paths, since an untouched failed row is exactly what stays in `pages` between runs.
+    // -> The task walks the whole `pages` table, so distinct paths are not enough isolation: a row a
+    //    test failed to convert stays behind and the next run picks it up again.
     await fixtures.db.delete(pageHistoryTable)
     await fixtures.db.delete(pagesTable)
   })
@@ -143,7 +134,6 @@ describe('convert-wysiwyg-json.task (DB-backed)', { skip: !hasTestDatabase() }, 
     assert.equal(byId[validId]!.contentType, 'markdown')
     assert.equal(byId[validId]!.content, 'Hi')
 
-    // -> Untouched: still `html`, content unchanged.
     assert.equal(byId[malformedId]!.contentType, 'html')
     assert.equal(byId[notADocId]!.contentType, 'html')
     assert.equal(byId[codeEditorId]!.contentType, 'html')

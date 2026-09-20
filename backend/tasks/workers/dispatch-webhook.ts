@@ -1,19 +1,11 @@
 import { hooks } from '../../models/hooks.ts'
 
 /**
- * Deliver one event to one webhook.
+ * One job per subscribed webhook, in a worker thread: delivery is spent waiting on somebody else's
+ * server, and a busy event queues those waits in bursts the main event loop would otherwise absorb.
  *
- * Queued by `models/hooks.ts` → `emit()`, one job per subscribed webhook, so that a slow endpoint
- * delays nothing else and a failing one is retried with the scheduler's backoff.
- *
- * Runs in a worker thread rather than in-process, because what it does is wait on somebody else's
- * server: an endpoint is allowed to take up to `DELIVERY_TIMEOUT` to answer, and a wiki with a few
- * webhooks on a busy event queues those deliveries in bursts. On the main thread that is time the
- * event loop spends on other people's HTTP instead of on serving pages.
- *
- * A worker task is handed the whole job rather than its payload — see `worker.ts` — and starts with
- * nothing but config and a logger, so the database connection is opened on demand and the one model
- * this needs is imported here rather than taken off `CARDINAL.models`, which a worker does not carry.
+ * A worker starts with nothing but config and a logger, so the db connection is opened on demand
+ * and `hooks` is imported directly — a worker carries no `CARDINAL.models`.
  */
 export async function task(job: {
   payload: {

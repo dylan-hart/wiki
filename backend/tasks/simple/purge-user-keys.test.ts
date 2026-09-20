@@ -4,13 +4,6 @@ import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../../test/db.ts'
 import { userKeys as userKeysTable } from '../../db/schema.ts'
 
-/**
- * `task()` is the daily `purgeUserKeys` scheduled job (OpenProject #1684): it deletes `userKeys` rows
- * whose `validUntil` has passed, behind `models/userCredentials.ts#purgeExpiredKeys()`. This is a
- * suite -- a real row round-tripping through Postgres -- since the thing under test is the SQL
- * comparison against `now()`, matching how `purge-pageviews.ts` and `update-locales.ts` cover their
- * own scheduled-job siblings.
- */
 describe('purge-user-keys.task (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let task: typeof import('./purge-user-keys.ts').task
@@ -24,7 +17,6 @@ describe('purge-user-keys.task (DB-backed)', { skip: !hasTestDatabase() }, () =>
     await teardownTestDb()
   })
 
-  /** Inserts a userKeys row `hoursFromNow` hours from now and returns its id. */
   async function seedKey(kind: string, hoursFromNow: number): Promise<string> {
     const validUntil = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000)
     const [row] = await fixtures.db
@@ -44,8 +36,6 @@ describe('purge-user-keys.task (DB-backed)', { skip: !hasTestDatabase() }, () =>
     const expiredId = await seedKey('resetPwd', -1)
     const validId = await seedKey('resetPwd', 24)
 
-    // -> OpenProject #2672: the sweep RETURNS its count rather than logging it; the scheduler is
-    //    what writes the one `info` line for the run.
     assert.deepEqual(await task(), { summary: 'purged expired user keys', purged: 1 })
 
     const [expiredRow] = await fixtures.db
@@ -64,8 +54,8 @@ describe('purge-user-keys.task (DB-backed)', { skip: !hasTestDatabase() }, () =>
   test('does nothing, and reports nothing, when there is nothing expired', async () => {
     const validId = await seedKey('emailVerify', 24)
 
-    // -> Nothing swept means nothing returned, which is what keeps a nightly sweep that found
-    //    nothing at `debug` instead of in an operator's `info` log.
+    // -> Nothing swept returns nothing, which is what keeps an empty nightly sweep out of an
+    //    operator's `info` log.
     assert.equal(await task(), undefined)
 
     const [validRow] = await fixtures.db

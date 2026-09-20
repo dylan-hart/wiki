@@ -4,13 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 
-/**
- * Static wiring checks for the migration verification CLI entry point — Feature 421 task 748, mirroring
- * `migrate.test.ts`'s checks for the import CLI. Booting either end-to-end needs a live 3.0 destination
- * database, which this suite deliberately does not stand up — the DB-layer logic is exercised through
- * `../migration/verify.test.ts` / `verify-cli.test.ts` instead, with the source connector and
- * destination lookups stubbed.
- */
+/** Static wiring checks only: booting this CLI end-to-end needs a live 3.0 destination database. */
 
 const backendDir = path.resolve(fileURLToPath(import.meta.url), '..', '..')
 

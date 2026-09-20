@@ -19,10 +19,9 @@ export async function task(): Promise<void> {
   const resp = (await versionResp.json()) as { tag_name: string; published_at: string }
   const strictVersion =
     resp.tag_name.indexOf('v') === 0 ? resp.tag_name.substring(1) : resp.tag_name
-  // -> Spread over the existing object, not replaced: `update` also holds `locales` (an operator's
-  //    opt-out of the daily `updateLocales` sync, `base.yml`'s `update.locales`), which a bare
-  //    assignment here silently discarded on every run after the first, re-enabling locale syncing
-  //    for an egress-restricted deployment regardless of what the admin area shows.
+  // -> Spread, not replaced: `update` also holds `locales` (an operator's opt-out of the daily
+  //    `updateLocales` sync, `base.yml`'s `update.locales`), which a bare assignment would discard,
+  //    re-enabling locale syncing on an egress-restricted deployment regardless of what admin shows.
   CARDINAL.config.update = {
     ...CARDINAL.config.update,
     lastCheckedAt: new Date().toISOString(),
@@ -31,10 +30,9 @@ export async function task(): Promise<void> {
   }
   await CARDINAL.configSvc.saveToDb(['update'])
 
-  // -> Silent when this instance is already current (audit X11): the daily "still up to date" line
-  //    was pure heartbeat. Only an actual newer release is a state change an operator wants told.
-  //    The failure path is not logged here either — it propagates, and the scheduler writes the one
-  //    record for it.
+  // -> Silent when already current: a daily "still up to date" is heartbeat, only a newer release is
+  //    a state change. The failure path propagates instead of logging, so the scheduler writes the
+  //    one record for it.
   const current = CARDINAL.version
   if (semver.valid(strictVersion) && semver.valid(current) && semver.gt(strictVersion, current)) {
     CARDINAL.logger.info('boot', 'update available', { current, latest: strictVersion })

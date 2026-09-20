@@ -4,21 +4,15 @@ import { locales as localesTable } from '../../db/schema.ts'
 import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
- * Upper bound on how many languages a single `metadata.json` response may drive this task to fetch
- * and insert. `requarks/wiki-locales` currently ships ~60; this is deliberately generous headroom
- * rather than a tight fit, so a legitimate future addition never trips it — its purpose is only to
- * stop one compromised or malformed metadata response from multiplying this task's outbound
- * requests without limit.
+ * Generous headroom, not a tight fit: its only job is to stop one malformed or compromised
+ * `metadata.json` from multiplying this task's outbound requests without limit.
  */
 const MAX_LANGUAGES = 200
 
 /**
- * Guards the one shape the `locales.strings` jsonb column is ever supposed to hold: a flat mapping
- * of translation key to translated string. `update-locales`'s `strings` payload comes straight off
- * `raw.githubusercontent.com` with no signature, so this is what stands between a compromised
- * `requarks/wiki-locales` and arbitrary values landing in every instance's `locales` table on the
- * next daily run (OpenProject #2255) -- a nested object, an array, or a non-string value is refused
- * rather than inserted as-is.
+ * The `strings` payload comes off `raw.githubusercontent.com` unsigned, so this is what stands
+ * between a compromised `requarks/wiki-locales` and arbitrary values landing in every instance's
+ * `locales.strings` jsonb column on the next daily run.
  */
 export function isFlatStringMap(value: unknown): value is Record<string, string> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -29,9 +23,6 @@ export function isFlatStringMap(value: unknown): value is Record<string, string>
 
 export async function task(): Promise<TaskResult | void> {
   if (CARDINAL.config.offline) {
-    // -> `debug`: this runs daily and says the same thing every time on a deployment that is
-    //    deliberately offline. Sideload locale packs into <dataPath>/locales/ instead — see
-    //    docs/offline-deployment.md.
     CARDINAL.logger.debug('locale', 'skipping localization data update, offline mode')
     return
   }
@@ -70,7 +61,6 @@ export async function task(): Promise<TaskResult | void> {
 
   let updated = 0
   for (const lang of languages) {
-    // -> Build filename
     const langFilenameParts = [lang.language]
     if (lang.region) {
       langFilenameParts.push(lang.region)
@@ -118,18 +108,14 @@ export async function task(): Promise<TaskResult | void> {
     await setTimeout(100)
   }
 
-  // -> Without this, `postBoot()`'s `locales.reloadCache()` call had already populated the
-  //    `'locales'`/`locale:<code>` cache entries by the time this nightly sync ran, and nothing here
-  //    ever refreshed them: a newly-synced language stayed invisible to `GET /_api/locales`, and
-  //    `api/sites.ts`'s installed-codes validation rejected activating it as "not installed", until
-  //    the next restart -- on every instance, including this one. Broadcasts too, so a peer instance
-  //    picks it up without waiting for its own restart.
+  // -> The locales cache is filled at boot, so without this a newly-synced language stays invisible
+  //    to `GET /_api/locales` — and unactivatable as "not installed" — until the next restart.
+  //    Broadcast rather than a local reload, so peer instances pick it up too.
   if (updated > 0) {
     await CARDINAL.models.locales.broadcastReload()
     return { summary: 'synced localization data', updated, of: languages.length }
   }
-  // -> Not a summary: nothing changed, so the run itself is `debug` — but "checked N languages and
-  //    none had moved" is a different fact from the scheduler's bare `finished`, and it is the one
-  //    that says the sync is actually reaching upstream.
+  // -> Not an `info` summary, but distinct from the scheduler's bare `finished`: this is the line
+  //    that says the sync reached upstream at all.
   CARDINAL.logger.debug('locale', 'localization data unchanged', { of: languages.length })
 }

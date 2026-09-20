@@ -4,22 +4,15 @@ import collab from '../core/collab.ts'
 import { installTestWiki } from './mocks.ts'
 
 /**
- * What more than one `core/collab.*.test.ts` needs to stand a collab instance up (TEST-F14).
- *
- * The four suites `core/collab.test.ts` was split into share two things: a socket stand-in, and the
- * "two instances without two processes" technique below. Neither belongs to any one of them, and a
- * copy per file is exactly the drift this consolidation exists to remove.
- *
- * Deliberately NOT in `test/collabWorker.ts`, the other collab-shaped file under `test/`: that one is
- * a worker-thread ENTRY POINT — it destructures `workerData` and calls `boot()` at import time — so a
- * test file importing from it would try to boot a second collab instance in the main thread.
+ * Shared collab test scaffolding. Deliberately NOT in `test/collabWorker.ts`, the other
+ * collab-shaped file under `test/`: that one is a worker-thread ENTRY POINT — it destructures
+ * `workerData` and calls `boot()` at import time — so importing from it would boot a second collab
+ * instance in this thread.
  */
 
 /**
- * A minimal stand-in for `ws`'s `WebSocket`, just enough of its surface for `capture()` and
- * `refuse()`: `on`/`emit` (real, via `EventEmitter`, so `capture`'s own listeners work unmodified),
- * the three `readyState` constants and the field they set, and `close()`/`terminate()` recorded so a
- * test can assert which one a given path called.
+ * Enough of `ws`'s `WebSocket` for the code under test: a real `EventEmitter`, so production
+ * listeners work unmodified, plus recorded `close()`/`terminate()` calls to tell the two apart.
  */
 export class FakeSocket extends EventEmitter {
   readonly OPEN = 1
@@ -42,16 +35,9 @@ export class FakeSocket extends EventEmitter {
 }
 
 /**
- * A standalone clone of the `collab` singleton, for a test that needs two "instances" of it.
- *
- * No database and no second `node backend` process: `hasPeers()`'s one query is bypassed by presetting
- * its cache, and "two instances" are two independent clones of the exported object (same methods,
- * independent `rooms`/`partials`/`awaitingState`) wired together by overriding `publish` to hand the
- * envelope straight to the other clone's `receiveRelay` — toggling the module-global `CARDINAL.INSTANCE_ID`
- * around each hop exactly as two real processes would each carry their own id. This is relay/room
- * bookkeeping with no SQL in it, so a real two-process harness (as built for task 704's scheduler work)
- * would mostly be re-proving the same logic slower and flakier, per this repo's guidance to prefer a
- * unit test wherever a mock would not just be re-describing SQL.
+ * A standalone clone of the `collab` singleton: "two instances" are two clones with the same
+ * methods and independent state, not two processes. Relay and room bookkeeping have no SQL in them,
+ * so a real two-process harness would re-prove the same logic slower and flakier.
  */
 
 export function makeInstance(id: string): any {
@@ -62,9 +48,8 @@ export function makeInstance(id: string): any {
     partials: new Map(),
     awaitingState: new Map(),
     awaitingWysiwygClaim: new Map(),
-    // -> Fresh per instance, like every other mutable collection above: `{ ...collab }` only copies
-    //    the *reference* to the real singleton's maps, and sharing them across "instances" would let
-    //    one test's connection-cap bookkeeping bleed into another's.
+    // -> Fresh per instance: `{ ...collab }` copies only the *reference* to the singleton's maps,
+    //    and sharing them would let one test's connection-cap bookkeeping bleed into another's.
     userConnections: new Map(),
     addressConnections: new Map(),
     listenClient: {},
@@ -74,10 +59,8 @@ export function makeInstance(id: string): any {
 }
 
 /**
- * Wire two instance clones' relay together: a publish from one hands the envelope straight to the
- * other's `receiveRelay`, toggling `CARDINAL.INSTANCE_ID` to whichever side is "currently running" for the
- * length of that one synchronous call — mirroring what a real NOTIFY delivery would look like from a
- * second process with its own instance id, without needing one.
+ * `CARDINAL.INSTANCE_ID` is toggled to whichever side is "currently running" for the length of each
+ * synchronous hop, so the receiving clone sees what a NOTIFY delivery from a second process would.
  */
 export function wire(a: any, b: any): void {
   const byId: Record<string, any> = { [a.__id]: a, [b.__id]: b }
@@ -99,7 +82,6 @@ export function wire(a: any, b: any): void {
   }
 }
 
-/** The page row `CARDINAL.models.pages.getPage` answers with, when a room has to fall back to storage. */
 export const STORED_PAGE = {
   content: 'STORED PAGE CONTENT',
   title: 'Stored title',
@@ -107,45 +89,34 @@ export const STORED_PAGE = {
   icon: 'stored-icon'
 }
 
-/** What {@link installCollabHarness} hands back: the room bookkeeping its hooks own. */
 export interface CollabHarness {
-  /** Open a room on an instance and register it for teardown. */
+  /** Opens a room and registers it for teardown. */
   openRoom(inst: any, page: { id: string; siteId: string }): Promise<any>
-  /** Register a room a test opened by other means, so the same teardown applies. */
+  /** Registers a room a test opened by other means, so the same teardown applies. */
   trackRoom(room: any): void
-  /** This test's `CARDINAL.models.pages.getPage` mock, rebuilt fresh before every test. */
   getPage(): any
-  /** This test's `CARDINAL.models.pageDrafts` mocks (`get`/`save`/`clear`), rebuilt fresh before every
-   *  test — see `core/collab.draftPersist.test.ts`. */
   pageDrafts(): { get: any; save: any; clear: any }
 }
 
 /**
- * Register the per-test `CARDINAL` install and room teardown every collab suite below the participant
- * accessor needs, and hand back the room bookkeeping.
- *
- * Call once at the top level of a suite file: the hooks it registers are root hooks, so they apply to
- * every test in that file, exactly as they did when all four suites shared one.
+ * Call once at the top level of a suite file: the hooks it registers are root hooks, so they apply
+ * to every test in that file.
  */
 export function installCollabHarness(): CollabHarness {
   let wikiHandle: { restore(): void }
   let getPageMock: any
   let pageDraftsMocks: { get: any; save: any; clear: any }
   /**
-   * `awarenessProtocol.Awareness` (a room's cursor/presence tracker) starts a real `setInterval` of
-   * its own to expire stale states - nothing above ever cleans it up on the happy path except a room
-   * emptying out. Every room a test creates via {@link CollabHarness.openRoom} is torn down the same
-   * way `closeRoomIfEmpty` does in production, or the interval outlives the test and the process
-   * never exits.
+   * `awarenessProtocol.Awareness` starts a real `setInterval` to expire stale states, and only a
+   * room emptying out clears it. Every tracked room is torn down the way `closeRoomIfEmpty` does in
+   * production, or that interval outlives the test and the process never exits.
    */
   let createdRooms: any[] = []
 
   beforeEach(() => {
     getPageMock = mock.fn(async () => ({ ...STORED_PAGE }))
-    // -> `CARDINAL.models.pageDrafts` (OpenProject #2454): `initRoom()` itself never reads `get` (OpenProject
-    //    #2957 — a persisted draft is never a room-seeding source), but `save`/`clear` are still
-    //    exercised by the debounced-persist/pageSaved/discardDraft paths, and a suite that wants to
-    //    assert on any of the three reads them back through `pageDrafts()`.
+    // -> `initRoom()` never reads `get` — a persisted draft is never a room-seeding source — but
+    //    the debounced-persist/pageSaved/discardDraft paths do exercise `save`/`clear`.
     pageDraftsMocks = {
       get: mock.fn(async () => undefined),
       save: mock.fn(async () => {}),
@@ -158,11 +129,9 @@ export function installCollabHarness(): CollabHarness {
         pageDrafts: pageDraftsMocks
       }
     })
-    // -> Only `core/collab.draftPersist.test.ts` opens rooms on the real singleton rather than a
-    //    `makeInstance()` clone (everything else in this harness's other callers builds its own, and
-    //    sets its own `peerPresence`) — freshening this here is what keeps `hasPeers()` reading its
-    //    cache (`known: false`) instead of falling through to a real `CARDINAL.db` query (undefined in
-    //    this stub) followed by a genuine `PEER_STATE_TIMEOUT` wait for every room it opens.
+    // -> Preset for a suite that opens rooms on the real singleton: it keeps `hasPeers()` on its
+    //    cache instead of querying the stub's absent `CARDINAL.db` and then waiting out
+    //    `PEER_STATE_TIMEOUT` for every room.
     collab.peerPresence = { known: false, checkedAt: Date.now() }
     createdRooms = []
   })

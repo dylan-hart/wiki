@@ -4,14 +4,6 @@ import { task as sendWatchDigests } from './send-watch-digests.ts'
 import type { PendingDigestEvent } from '../../models/pageWatchEvents.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 
-/**
- * Task 534: the digest job's own grouping/branching logic (per user, per event, empty-cycle no-op,
- * per-recipient failure isolation) is entirely independent of real SQL — `listPendingForDigest` and
- * `markManyDelivered` are exactly what a DB-backed suite (`models/pageWatchEvents.test.ts`) exists to
- * verify. This suite stubs the whole model layer instead, so it can assert on what this task actually
- * does with the rows it's handed without standing up a database for it.
- */
-
 let wikiHandle: { restore(): void }
 let listPendingForDigest: ReturnType<typeof mock.fn>
 let markManyDelivered: ReturnType<typeof mock.fn>
@@ -43,9 +35,8 @@ after(() => {
 beforeEach(() => {
   listPendingForDigest = mock.fn(async () => [] as PendingDigestEvent[])
   markManyDelivered = mock.fn(async () => {})
-  // -> Pass-through by default (OpenProject #2173's read:pages re-check): every existing test in this
-  //    file predates the check and expects its events to reach the digest unfiltered. The dedicated
-  //    describe block below overrides this per test to exercise the filtering itself.
+  // -> Pass-through by default, so tests not about the read:pages re-check see their events reach
+  //    the digest unfiltered; the re-check's own describe overrides it per test.
   filterReadable = mock.fn(async (_userId: string, events: PendingDigestEvent[]) => events)
   getById = mock.fn(async (id: string) => ({
     id,
@@ -66,8 +57,6 @@ beforeEach(() => {
 
 describe('send-watch-digests task', () => {
   test('no pending events is a no-op: no mail sent, nothing marked delivered, nothing reported', async () => {
-    // -> OpenProject #2672: an idle run returns nothing, so the scheduler keeps it at `debug` rather
-    //    than putting a daily "sent 0 digests" line in an operator's log.
     assert.equal(await sendWatchDigests(), undefined)
 
     assert.equal(sendPageWatchDigest.mock.calls.length, 0)
@@ -77,7 +66,6 @@ describe('send-watch-digests task', () => {
   test('a single user with one pending event gets one digest covering it, then it is marked delivered', async () => {
     listPendingForDigest.mock.mockImplementation(async () => [pendingEvent()])
 
-    // -> The counts are returned for the scheduler to log, not logged here (OpenProject #2672).
     assert.deepEqual(await sendWatchDigests(), {
       summary: 'sent page watch digests',
       sent: 1,
@@ -135,16 +123,12 @@ describe('send-watch-digests task', () => {
 
     await sendWatchDigests()
 
-    // -> Same user, different sites: never batched into one email, since one email can only resolve
-    //    one site's locale routing config (see this task's own doc comment).
     assert.equal(sendPageWatchDigest.mock.calls.length, 2)
     const siteIds = sendPageWatchDigest.mock.calls.map((c: any) => c.arguments[0].siteId).sort()
     assert.deepEqual(siteIds, ['site-1', 'site-2'])
-    // -> `markManyDelivered` takes only an id list -- no siteId of its own -- so a group's delivered
-    //   ids are tied to its site by call ORDER: the task awaits `sendPageWatchDigest` then
-    //   `markManyDelivered` in the same loop iteration before moving to the next group, so call `i`
-    //   of each mock belongs to the same group. Pinned here so each group is confirmed to mark only
-    //   ITS OWN event delivered, not both events in one call and not the other group's id.
+    // -> `markManyDelivered` takes only an id list, so a group's delivered ids are tied to its site
+    //   by call ORDER alone: the task sends then marks within one loop iteration, so call `i` of
+    //   each mock is the same group.
     assert.equal(markManyDelivered.mock.calls.length, 2)
     const deliveredIdsBySite = new Map(
       sendPageWatchDigest.mock.calls.map((c: any, i: number) => [
@@ -207,7 +191,6 @@ describe('send-watch-digests task', () => {
     await assert.doesNotReject(() => sendWatchDigests())
 
     assert.equal(sendPageWatchDigest.mock.calls.length, 2)
-    // -> Only the succeeding user's event was marked delivered
     assert.equal(markManyDelivered.mock.calls.length, 1)
     assert.deepEqual(markManyDelivered.mock.calls[0]!.arguments[0], ['ev-2'])
     assert.ok(loggerError.mock.calls.length > 0)
@@ -222,11 +205,6 @@ describe('send-watch-digests task', () => {
   })
 })
 
-/**
- * OpenProject #2173: `filterReadable` is applied per `(userId, siteId)` group, right before that
- * group's mail is composed -- the send-time re-check for the one delivery path (`digest`) where an
- * event can sit pending the longest between being recorded and being acted on.
- */
 describe('send-watch-digests task — read:pages re-check (OpenProject #2173)', () => {
   test('an event that fails the re-check is excluded from the digest but still marked delivered', async () => {
     filterReadable.mock.mockImplementation(async () => [])
@@ -265,8 +243,6 @@ describe('send-watch-digests task — read:pages re-check (OpenProject #2173)', 
     assert.equal(call.items.length, 1)
     assert.equal(call.items[0].page.title, 'Getting Started')
 
-    // -> First call marks the readable-only batch delivered alongside the send; the unreadable one is
-    //    marked delivered too (nothing further to tell that watcher), in its own call.
     const deliveredIds = markManyDelivered.mock.calls.flatMap((c: any) => c.arguments[0])
     assert.deepEqual(new Set(deliveredIds), new Set(['ev-readable', 'ev-unreadable']))
   })

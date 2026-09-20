@@ -7,9 +7,8 @@ import type { PageActor, PageInput } from '../../models/pages.ts'
 import { embedPage } from './embed-page.ts'
 
 /**
- * `pageEmbeddingChunks` is not part of `db/schema.ts` (Task #3095's own decision -- it is created by
- * raw SQL, conditional on `pgvector` being installable), so this suite creates it itself rather than
- * depending on a bootstrap module: `setupTestDb()`'s migrated schema has no such table by default.
+ * `pageEmbeddingChunks` is not in `db/schema.ts` — it is created by raw SQL, conditional on
+ * `pgvector` — so `setupTestDb()`'s migrated schema has no such table and this suite creates it.
  */
 async function ensurePageEmbeddingChunksTable(db: TestFixtures['db']): Promise<boolean> {
   const probe = await db.execute(sql`SELECT 1 FROM pg_available_extensions WHERE name = 'vector'`)
@@ -84,9 +83,8 @@ describe('tasks/workers/embed-page (DB-backed)', { skip: !hasTestDatabase() }, (
       title: 'Embed Test',
       editor: 'wysiwyg',
       content: `<p>${body}</p>`,
-      // -> A real `render` is what makes `hasRenderInput` true in `createPage()`, so the fresh text
-      //    is available immediately rather than waiting on a render-queue drain this test environment
-      //    has no puppeteer to service
+      // -> A real `render` makes `hasRenderInput` true in `createPage()`, so the text is available
+      //    immediately rather than waiting on a render queue this environment has no puppeteer for
       render: `<p>${body}</p>`,
       ...overrides
     }
@@ -122,9 +120,8 @@ describe('tasks/workers/embed-page (DB-backed)', { skip: !hasTestDatabase() }, (
 
     const page = await pagesModel.createPage(fixtures.siteId, longRenderInput(), actor)
 
-    // -> The scheduler is stubbed (`test/mocks.ts#createSchedulerStub`), so the job it queued never
-    //    actually runs a worker thread -- calling the plain importable function directly is how this
-    //    exercises the delete+chunk+embed+insert logic itself, matching #3104's own planned reuse
+    // -> The scheduler stub never runs a worker thread, so the queued job does nothing; calling the
+    //    importable function directly is what exercises the delete+chunk+embed+insert path
     await embedPage(page.id)
 
     const firstPass = await chunkRows(fixtures.db, page.id)
@@ -139,7 +136,6 @@ describe('tasks/workers/embed-page (DB-backed)', { skip: !hasTestDatabase() }, (
     )
     assert.equal((dims.rows[0] as { dims: number }).dims, 384)
 
-    // -> Re-running must fully replace, not append -- same row count, not double
     await embedPage(page.id)
     const secondPass = await chunkRows(fixtures.db, page.id)
     assert.equal(secondPass.length, firstPass.length)

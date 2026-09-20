@@ -1,18 +1,13 @@
 /**
- * Worker-thread body for the multi-instance `core/collab.ts` races exercised by
- * `core/collab.crossInstance.db.test.ts`.
+ * Worker-thread body for the multi-instance `core/collab.ts` races.
  *
- * Each worker is a genuinely separate `CARDINAL` global — a worker thread gets its own V8 isolate and its
- * own module registry, so this is the smallest way to run two real `collab.ts` instances (own `rooms`,
- * `partials`, `awaitingState`, own postgres LISTEN/NOTIFY client, own `INSTANCE_ID`) against the same
- * database without paying for two full `node backend` processes and their HTTP/websocket stacks, which
- * is infrastructure this module's races do not touch. `CARDINAL.collab` is set to this worker's own
- * `collab.ts` import, since `relay`/`publish` close over `CARDINAL.collab.listenClient` rather than a
- * reference captured at import time.
+ * A worker thread gets its own V8 isolate and module registry, which is the cheapest way to run two
+ * real `collab.ts` instances against one database without two full `node backend` processes and the
+ * HTTP/websocket stacks these races never touch. `CARDINAL.collab` must point at this worker's own
+ * import: `relay`/`publish` read `CARDINAL.collab.listenClient` rather than a captured reference.
  *
- * Driven by postMessage: the parent sends `{ id, cmd, ...args }`, this replies `{ id, ok, ...result }`
- * (or `{ id, ok: false, error }`), so the test file can `await` a request/response round trip per
- * command despite the underlying channel being message-based.
+ * The parent sends `{ id, cmd, ...args }` and gets `{ id, ok, ...result }` back, so it can `await`
+ * a round trip per command over a message-based channel.
  */
 import { parentPort, workerData } from 'node:worker_threads'
 import { Pool } from 'pg'
@@ -33,26 +28,22 @@ interface WorkerInit {
   siteId: string
 }
 
-/** y-websocket message types, mirrored from `core/collab.ts` — not exported there, so restated here. */
+/** Mirrored from `core/collab.ts`, which does not export it. */
 const MESSAGE_SYNC = 0
 
 /**
- * A stand-in `ws` `WebSocket` good enough for `collab.join()`/`collab.onMessage()`: it has its own Yjs
- * document and speaks the real sync protocol both ways, the same as `y-websocket`'s `WebsocketProvider`
- * does in the browser — see `frontend/src/composables/collab.js`. Used by the `openSession` family of
- * commands to load-test `relay()`/`reassemble()` with genuinely separate client replicas rather than
- * editing the room's document directly, which is what `localEdit` does for the simpler races.
+ * A client replica with its own Yjs document, speaking the real sync protocol both ways as
+ * `y-websocket`'s `WebsocketProvider` does in the browser. The `openSession` commands exercise
+ * `relay()`/`reassemble()` through these rather than editing the room's document directly.
  */
 interface Session {
   conn: WebSocket
   doc: Y.Doc
   room: Awaited<ReturnType<typeof import('../core/collab.ts').default.ensureRoom>>
   /**
-   * Whether this session's transport is currently live, mirroring what a real `WebsocketProvider`'s
-   * `wsconnected` means to the browser side. `false` between `disconnectSession` and `reconnectSession`
-   * — task 482's whole scenario: a session's own `doc` keeps accumulating local edits exactly as it
-   * would while a real socket is down, but nothing may be relayed out over the (closed) `conn` until a
-   * fresh one replaces it.
+   * `false` between `disconnectSession` and `reconnectSession`: the session's own `doc` keeps
+   * accumulating local edits as it would while a real socket is down, but nothing may be relayed
+   * out over the closed `conn` until a fresh one replaces it.
    */
   connected: boolean
 }
@@ -80,15 +71,10 @@ async function boot(): Promise<void> {
     config: {},
     data: {},
     db,
-    // -> `collab.init()` LISTENs on `CARDINAL.dbManager.listenerPool`, a dedicated pool kept separate
-    //    from the main `pool` (`core/db.ts`'s own `init()`) -- not present here without this, so
-    //    `helpers/pubsub.ts#connectListener`'s `pool.connect()` throws on `undefined`, gets caught by
-    //    its own resilience loop (`reconnect()`'s `while (!closed)`, meant for a genuinely dropped
-    //    connection re-establishing on its own) and retries forever, every `retryDelayMs` (3s),
-    //    logged nowhere since `logger.warn` below is a no-op -- `collab.init()` never resolves, and
-    //    this worker never posts back the ready message `startInstance()` is awaiting with no
-    //    timeout of its own. Reusing the same `pool` is fine here: this worker's own test scenarios
-    //    have no reason to keep the two pools genuinely separate the way a real instance does.
+    // -> `listenerPool` must exist: `collab.init()` LISTENs on it, and an `undefined` one throws
+    //    inside `connectListener`'s resilience loop, which then retries forever against a silent
+    //    logger, so `init()` never resolves and this worker never posts its ready message. Sharing
+    //    the one pool is fine here — nothing in these scenarios needs the two kept apart.
     dbManager: { pool, listenerPool: pool },
     logger: { error: noop, warn: noop, info: noop, debug: noop },
     cache: createCacheStub(),
@@ -132,9 +118,8 @@ async function handle(
       const update = await collab.peerState(msg.pageId as string)
       return { state: update ? Buffer.from(update).toString('base64') : null }
     }
-    // -> Simulates realistic network latency on this instance's replies to a peer's `hello`, without
-    //    touching the timing constants collab.ts itself uses: everything past `hello` still runs the
-    //    real handshake, just delayed the way a slow link would delay it.
+    // -> Slow-link latency on `state` replies without touching collab.ts's own timing constants;
+    //    the rest of the handshake still runs for real.
     case 'delayStateReplies': {
       const ms = msg.ms as number
       const original = collab.relay.bind(collab)
@@ -147,9 +132,7 @@ async function handle(
       }
       return {}
     }
-    // -> Applies a local text change with a non-relayed origin, exactly as a connected editor's sync
-    //    message would — standing in for a user already mid-edit on this instance, with no live
-    //    websocket client needed to produce it.
+    // -> A user already mid-edit on this instance, with no websocket client needed to produce it.
     case 'localEdit': {
       const room = collab.rooms.get(msg.pageId as string)
       if (!room) {
@@ -168,8 +151,8 @@ async function handle(
     case 'partialsSize': {
       return { size: collab.partials.size }
     }
-    // -> Publishes a multi-chunk relay message but withholds one chunk, standing in for an instance
-    //    that dies mid-relay: the receiving side's `partials` entry should still expire on its own.
+    // -> Withholds one chunk, standing in for an instance that dies mid-relay: the receiving side's
+    //    `partials` entry has to expire on its own.
     case 'publishIncomplete': {
       const payload = 'x'.repeat(msg.totalLength as number)
       const chunkSize = msg.chunkSize as number
@@ -191,11 +174,9 @@ async function handle(
       }
       return {}
     }
-    // -> Opens a genuinely separate client replica against a room, syncing it the way a real
-    //    `WebsocketProvider` connection does: the server's `join()` sends sync step 1 (its state
-    //    vector) as it always does, and — the part a direct API call would skip — this session sends
-    //    its *own* step 1 right back, which is what actually pulls the room's real content down; a
-    //    step 1 only ever asks the other side what it is missing, never carries content itself.
+    // -> The session must send its *own* sync step 1 back after `join()` sends the server's: a
+    //    step 1 only asks the other side what it is missing, so nothing pulls the room's content
+    //    down without it.
     case 'openSession': {
       const pageId = msg.pageId as string
       const sessionId = msg.sessionId as string
@@ -204,18 +185,16 @@ async function handle(
       const conn = makeSessionSocket(collab, doc, room)
       doc.on('update', (update: Uint8Array, origin: unknown) => {
         /*
-          Re-reads the session on every update rather than closing over `conn`/`room`: after a
-          `reconnectSession`, this is the same long-lived listener but the session's live transport has
-          been swapped out from under it, and the check below must see the *current* one. Origin is the
-          session's own `conn` for an update this session just applied from the server (see
-          `makeSessionSocket`'s `readSyncMessage` calls); anything else is this session's own edit.
+          Re-reads the session rather than closing over `conn`/`room`: a `reconnectSession` swaps the
+          transport out from under this long-lived listener, and the check below must see the current
+          one. Origin is the session's own `conn` for an update the server pushed; anything else is
+          this session's own edit.
         */
         const current = sessions.get(sessionId)
         if (!current || origin === current.conn) {
           return
         }
-        // -> Not connected: hold the edit locally, exactly as a real `WebsocketProvider` does while its
-        //    socket is down. Relaying it anyway would erase the point of `disconnectSession`.
+        // -> Hold the edit locally while disconnected, as a real `WebsocketProvider` does.
         if (!current.connected) {
           return
         }
@@ -224,8 +203,8 @@ async function handle(
         syncProtocol.writeUpdate(encoder, update)
         collab.onMessage(current.room, current.conn, encoding.toUint8Array(encoder))
       })
-      // -> A distinct synthetic identity per simulated session, so this load test's own concurrent
-      //    sessions never collide against each other's connection-cap slots.
+      // -> A distinct identity per session, so concurrent sessions never collide against each
+      //    other's connection-cap slots.
       await collab.join(
         conn,
         { id: pageId, siteId },
@@ -242,10 +221,8 @@ async function handle(
       sessions.set(sessionId, { conn, doc, room, connected: true })
       return { text: doc.getText('content').toString(), length: doc.getText('content').length }
     }
-    // -> Simulates an abrupt network drop (devtools offline, a killed instance): the server notices
-    //    exactly the way it would for a real closed socket -- `onClose` retracts this session's
-    //    awareness and drops it from `room.conns` -- but this session's own `doc` is left completely
-    //    alone, the same as a browser tab's `WebsocketProvider` leaves its `Y.Doc` alone while offline.
+    // -> An abrupt network drop: the server sees a closed socket, but this session's own `doc` is
+    //    left alone, the way a browser tab's `WebsocketProvider` leaves its `Y.Doc` while offline.
     case 'disconnectSession': {
       const session = sessions.get(msg.sessionId as string)
       if (!session) {
@@ -255,11 +232,8 @@ async function handle(
       session.connected = false
       return {}
     }
-    // -> Restores connectivity for a session that reused its *own* `doc` throughout the outage
-    //    (`sessionEdit` still works while disconnected — see the `connected` check above): a fresh
-    //    `conn` rejoins the room exactly the way `openSession` first joined, so the reconnect pushes
-    //    this session's offline edits out *and* pulls down whatever the room gained while it was away,
-    //    the two halves of the reconnect-and-resync task 482 exists to verify.
+    // -> Keeps the session's own `doc` and rejoins with a fresh `conn`, which is what pushes the
+    //    offline edits out *and* pulls down whatever the room gained while it was away.
     case 'reconnectSession': {
       const sessionId = msg.sessionId as string
       const session = sessions.get(sessionId)
@@ -285,10 +259,8 @@ async function handle(
       collab.onMessage(room, conn, encoding.toUint8Array(step1))
       return { text: session.doc.getText('content').toString() }
     }
-    // -> A burst of local typing from one simulated session: inserted into that session's own
-    //    replica, exactly like a Monaco edit would be, so it flows out through the `doc.on('update')`
-    //    handler above and through the real relay/chunking path rather than being written to the room
-    //    directly.
+    // -> Typed into the session's own replica, so it flows out through the `doc.on('update')`
+    //    handler and the real relay/chunking path rather than straight into the room.
     case 'sessionEdit': {
       const session = sessions.get(msg.sessionId as string)
       if (!session) {
@@ -318,10 +290,8 @@ async function handle(
       }
       return {}
     }
-    // -> Times a full `hello`/`state` handshake without `PEER_STATE_TIMEOUT`'s own cutoff, so a load
-    //    test can measure how long a large document's chunked `state` reply actually takes to
-    //    reassemble under real (if same-box) NOTIFY latency, independent of whatever the constant is
-    //    currently set to.
+    // -> Times a `hello`/`state` handshake against a caller-supplied cutoff rather than
+    //    `PEER_STATE_TIMEOUT`, so the measurement is independent of that constant's current value.
     case 'measureStateHandshake': {
       const pageId = msg.pageId as string
       const timeoutMs = msg.timeoutMs as number
@@ -360,10 +330,9 @@ async function handle(
 }
 
 /**
- * Build a `ws`-shaped socket backed by a real client-side Yjs document, satisfying exactly the surface
- * `collab.join()`/`collab.onMessage()`/`collab.onClose()` touch (`readyState`, `OPEN`, `send`, `on`,
- * `close`, `terminate`, `ping`) with none of it going over an actual network — everything below is a
- * synchronous, in-process stand-in for the round trip a browser tab's `WebsocketProvider` makes.
+ * A `ws`-shaped socket backed by a real client-side Yjs document: exactly the surface
+ * `collab.join()`/`onMessage()`/`onClose()` touch, answered synchronously in-process instead of
+ * over a network.
  */
 function makeSessionSocket(
   collab: typeof import('../core/collab.ts').default,

@@ -3,13 +3,6 @@ import assert from 'node:assert/strict'
 import { task as checkVersion } from './check-version.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 
-/**
- * `task()` is the daily `checkVersion` scheduled job: it fetches the latest release off GitHub and
- * saves it into `CARDINAL.config.update`. No database or real network involved — `fetch` and
- * `CARDINAL.configSvc.saveToDb` are stubbed, the same no-`CARDINAL`-global-until-`beforeEach` pattern
- * `send-watch-digests.test.ts` uses.
- */
-
 let wikiHandle: { restore(): void }
 let previousFetch: typeof fetch
 let saveToDb: ReturnType<typeof mock.fn>
@@ -53,9 +46,8 @@ describe('check-version.task', () => {
   })
 
   test('merges into CARDINAL.config.update rather than replacing it, preserving an existing locales opt-out (OpenProject #2059)', async () => {
-    // -> 2026-08-24 audit finding §5 / OpenProject #2059: `update` also holds `locales` (an
-    //    operator's opt-out of the daily `updateLocales` sync, `base.yml`'s `update.locales`) -- a
-    //    bare assignment previously discarded it on every run after the first.
+    // -> `update.locales` is an operator's opt-out of the daily `updateLocales` sync, and shares the
+    //    `update` config object with the version fields this task writes.
     CARDINAL.config.update = { locales: false }
     globalThis.fetch = mock.fn(
       async () =>
@@ -84,8 +76,6 @@ describe('check-version.task', () => {
     assert.equal(saveToDb.mock.callCount(), 0)
   })
 
-  // OpenProject #2253: the fetch carries an abort timeout and a non-ok response is rejected
-  // rather than fed to .json().
   test('the release fetch carries an AbortSignal', async () => {
     let capturedOpts: any
     globalThis.fetch = mock.fn(async (_url: string, opts?: any) => {

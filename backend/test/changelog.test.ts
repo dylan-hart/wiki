@@ -1,35 +1,13 @@
 /**
- * Confirms the repo-root `cliff.toml` (git-cliff config, see docs/versioning.md) actually produces
- * a sane, categorized changelog — not just that the file parses.
+ * git-cliff is a standalone binary rather than a workspace dependency, so both describes skip when
+ * it is not on PATH, the way the DB-backed suites skip without a `DATABASE_URL`.
  *
- * git-cliff is a standalone binary (not an npm dependency of any workspace, per this repo's
- * currency/dependency stance for this task), so it is not guaranteed to be on PATH in every dev or
- * CI environment. Gated on its presence exactly like the DB-backed model suites gate on
- * `hasTestDatabase()` (see `./db.ts`) — skip the whole `describe` when the tool isn't installed
- * rather than failing the run.
+ * The real-history describe runs over FULL history, not `--unreleased`: a `vX.Y.Z` tag landing at
+ * HEAD legitimately empties that window, which would fail every content assertion for no defect at
+ * all. `--unreleased` gets one test of its own, claiming only that it renders cleanly.
  *
- * Two describes, because the two things worth proving have opposite requirements (OpenProject
- * #2567):
- *
- *  - **Against real repo history** — the smoke test that the config works on the actual corpus it
- *    ships for. It hardcodes no commit subject and no hash: it cross-references whatever the
- *    output currently contains against this repo's own `git log`. Crucially it runs git-cliff over
- *    the FULL history rather than `--unreleased`, because `--unreleased` is by definition the one
- *    window a release tag can empty out — the first `vX.Y.Z` tag landing at HEAD renders
- *    `## Unreleased` with zero sections and zero entries, which would fail every content
- *    assertion here for no code defect at all. Full history only ever grows, so it is a stable
- *    corpus whatever the tag situation is. `--unreleased` still gets its own test, but only for
- *    the narrow claim that it renders cleanly, explicitly tolerating an empty window.
- *
- *  - **Against a synthetic fixture repo** — a throwaway git repo with a known commit set, which is
- *    the only way to pin the specific shapes that motivated #2567 (a `Cycle: ...` squash-merge
- *    commit, a capitalized `Fix:`, an ad-hoc `audit:` type) and the only way to exercise the
- *    tagged-release cases at all, since this repo has no tags yet. Deterministic, so it asserts on
- *    exact categorization rather than general shape.
- *
- * Between them: the real-history describe catches "the config broke against our actual commits",
- * and the fixture describe catches "the config broke for a commit shape we care about" without
- * waiting for such a commit to organically show up in `--unreleased`.
+ * The synthetic fixture repo is the only way to pin specific commit shapes deterministically, and
+ * the only way to exercise the tagged-release cases while this repo has no tags.
  */
 import { describe, test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -41,15 +19,12 @@ import os from 'node:os'
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const CLIFF_CONFIG = path.join(REPO_ROOT, 'cliff.toml')
 
-// Order matters: Features, then Bug Fixes, then Refactors, then Chores — mirroring upstream
-// 2.5.x's GitHub Release convention (cliff.toml's own `<!-- N -->` group prefixes enforce this
-// same order in the tool's output).
+// Order matters: it mirrors `cliff.toml`'s own `<!-- N -->` group prefixes, which is what fixes
+// this order in the tool's output.
 const SECTION_ORDER = ['Features', 'Bug Fixes', 'Refactors', 'Chores']
 
-// Which real conventional-commit type each non-Chores section must actually be. Chores has no
-// entry here on purpose — cliff.toml's `commit_parsers` makes it the catch-all for everything
-// that isn't Features/Bug Fixes/Refactors, so verifying it means verifying the ABSENCE of the
-// other three prefixes below, not the presence of one of its own.
+// Chores has no entry on purpose: `cliff.toml` makes it the catch-all, so verifying it means
+// verifying the ABSENCE of the other three prefixes, not the presence of one of its own.
 const EXPECTED_TYPE_PREFIX: Record<string, RegExp> = {
   Features: /^feat(\(|!|:)/i,
   'Bug Fixes': /^fix(\(|!|:)/i,
@@ -59,7 +34,6 @@ const EXPECTED_TYPE_PREFIX: Record<string, RegExp> = {
 const COMMIT_LINK_PATTERN =
   /\(\[[0-9a-f]{7}\]\(https:\/\/github\.com\/requarks\/wiki\/commit\/([0-9a-f]{40})\)\)/
 
-/** Whether the git-cliff binary is available to run these suites. */
 function hasGitCliff(): boolean {
   try {
     execFileSync('git-cliff', ['--version'], { stdio: 'ignore' })
@@ -69,7 +43,6 @@ function hasGitCliff(): boolean {
   }
 }
 
-/** Runs the real `cliff.toml` against whichever repo `cwd` points at. */
 function runGitCliff(cwd: string, ...args: string[]): string {
   return execFileSync('git-cliff', ['--config', CLIFF_CONFIG, ...args], {
     cwd,
@@ -79,9 +52,7 @@ function runGitCliff(cwd: string, ...args: string[]): string {
 
 interface ChangelogSection {
   name: string
-  /** Everything between this section's heading and the next heading (or EOF). */
   body: string
-  /** Just the entry lines — one per rendered commit. */
   entries: string[]
 }
 
@@ -92,13 +63,10 @@ interface ChangelogRelease {
 }
 
 /**
- * Splits a git-cliff run into its `## <release>` blocks, each carrying the `### <section>`
- * headings found inside it, in the order they appear.
- *
  * Parsing per-release rather than over the whole document is load-bearing once tags exist: a full
- * run emits one block per release, so `### Features` legitimately appears many times and any
- * first-occurrence-only scan (`indexOf`) would silently read one release's sections while
- * believing it had the whole file. Ordering is therefore only ever asserted WITHIN a block.
+ * run emits one block per release, so `### Features` legitimately appears many times and a
+ * first-occurrence scan would read one release's sections believing it had the whole file. Ordering
+ * is therefore only ever asserted WITHIN a block.
  */
 function parseReleases(output: string): ChangelogRelease[] {
   const releases: ChangelogRelease[] = []
@@ -131,10 +99,9 @@ function parseReleases(output: string): ChangelogRelease[] {
 }
 
 /**
- * Asserts one release block's sections are a subsequence of `SECTION_ORDER` (so whichever ones are
- * present are in the documented order) and that none of them rendered a heading with no entries
- * under it. A section being altogether absent is fine — a small enough range can legitimately have
- * zero `feat:` commits.
+ * A subsequence of `SECTION_ORDER`, not the whole of it: a section being absent altogether is fine,
+ * since a small enough range can legitimately have zero `feat:` commits. A rendered heading with no
+ * entries under it is not.
  */
 function assertSectionsWellFormed(release: ChangelogRelease): void {
   let previousRank = -1
@@ -164,8 +131,7 @@ describe('changelog generator (cliff.toml)', () => {
   })
 
   describe('generation against real repo history', { skip: !hasGitCliff() }, () => {
-    // Populated once, shared by every test below, rather than re-running git-cliff (and `git log`)
-    // over the whole repo history — thousands of commits — for each test individually.
+    // Populated once: git-cliff and `git log` over the whole repo history are too slow per test.
     let releases: ChangelogRelease[]
     let unreleasedOutput = ''
     let subjectByHash: Map<string, string>
@@ -237,8 +203,6 @@ describe('changelog generator (cliff.toml)', () => {
                 `expected commit ${hash} ("${subject}") under "### ${section.name}" to actually be a ${section.name} commit`
               )
             } else {
-              // Chores is the catch-all: assert it's none of the three specifically-typed
-              // sections, rather than asserting it matches some positive "chore-shaped" pattern.
               for (const [otherName, pattern] of Object.entries(EXPECTED_TYPE_PREFIX)) {
                 assert.ok(
                   !pattern.test(subject),
@@ -254,10 +218,8 @@ describe('changelog generator (cliff.toml)', () => {
     })
 
     test('--unreleased renders cleanly, tolerating a window a release tag has emptied', () => {
-      // The claim here is deliberately weak, and that is the point: once a `vX.Y.Z` tag lands at
-      // HEAD this range is legitimately empty (`render_always = true` still emits the heading), so
-      // anything stronger would fail on a correct config. Categorization is proven above, against
-      // full history, where a tag cannot take the corpus away.
+      // Deliberately weak: a tag at HEAD leaves this range legitimately empty (`render_always =
+      // true` still emits the heading), so anything stronger would fail on a correct config.
       const unreleased = parseReleases(unreleasedOutput)
       assert.deepEqual(
         unreleased.map((r) => r.heading),
@@ -283,25 +245,20 @@ describe('changelog generator (cliff.toml)', () => {
       cleanup: () => void
     }
 
-    // One commit per shape worth pinning. The last four are the ones that actually motivated
-    // OpenProject #2567: before cliff.toml's Chores catch-all, an enumerated whitelist dropped
-    // each of them with a "grouping error" instead of categorizing it.
     const FIXTURE_COMMITS: { message: string; section: string | null }[] = [
       { message: 'feat: add the first thing', section: 'Features' },
       { message: 'feat(editor)!: change a thing incompatibly', section: 'Features' },
       { message: 'fix: correct the thing', section: 'Bug Fixes' },
       { message: 'refactor: restructure the thing', section: 'Refactors' },
       { message: 'chore: tidy the thing', section: 'Chores' },
-      // Capitalized type — this fork's history is not consistent about casing, which is why
-      // cliff.toml matches feat/fix/refactor with `(?i)`.
+      // This repo's history is inconsistent about casing, which is why cliff.toml matches `(?i)`.
       { message: 'Fix: correct the capitalized thing', section: 'Bug Fixes' },
-      // Ad-hoc types this fork uses that no conventional-commit spec enumerates.
+      // Ad-hoc types this repo uses that no conventional-commit spec enumerates.
       { message: 'audit: note an ad-hoc thing', section: 'Chores' },
       { message: 'polish: smooth a rough edge', section: 'Chores' },
-      // This fork's own squash-merge commit shape, PR-number suffix and all.
+      // This repo's own squash-merge commit shape, PR-number suffix and all.
       { message: 'Cycle: graph layout and assorted fixes (#46)', section: 'Chores' },
-      // Not conventional-shaped at all: `filter_unconventional` must drop it rather than render it
-      // uncategorized. Pre-fork upstream history is full of these.
+      // `filter_unconventional` must drop this rather than render it uncategorized.
       { message: 'Update README.md', section: null }
     ]
 
@@ -311,10 +268,8 @@ describe('changelog generator (cliff.toml)', () => {
     }: { tagAtHead?: string; afterTag?: string[] } = {}): Fixture {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-changelog-fixture-'))
 
-      // Hermetic on purpose: ignore the machine's own ~/.gitconfig and /etc/gitconfig entirely, so
-      // an ambient `init.defaultBranch`, `commit.gpgsign` or `core.hooksPath` cannot change what
-      // this fixture produces. This is the same class of ambient-git-config CI failure the git
-      // storage sync suite hit (OpenProject #2586) — pin it rather than inherit it.
+      // Hermetic on purpose: an ambient `init.defaultBranch`, `commit.gpgsign` or `core.hooksPath`
+      // from the machine's own git config would otherwise change what this fixture produces.
       const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
       const git = (...args: string[]) =>
         execFileSync('git', args, { cwd: dir, encoding: 'utf8', env })
@@ -349,7 +304,6 @@ describe('changelog generator (cliff.toml)', () => {
       }
     }
 
-    /** Maps every rendered entry's commit hash to the section heading it landed under. */
     function sectionByHash(output: string): Map<string, string> {
       const result = new Map<string, string>()
       for (const release of parseReleases(output)) {
@@ -380,9 +334,8 @@ describe('changelog generator (cliff.toml)', () => {
         fixture.commits.filter((c) => c.section !== null).map((c) => [c.hash, c.section as string])
       )
 
-      // Compared as whole maps rather than per-commit so a commit silently vanishing (the original
-      // #2567 "skipped due to grouping error" failure) fails just as loudly as a miscategorized
-      // one would.
+      // Compared as whole maps rather than per-commit, so a commit git-cliff silently dropped fails
+      // as loudly as a miscategorized one.
       assert.deepEqual(
         Object.fromEntries(
           [...actual].map(([hash, section]) => [
@@ -456,9 +409,8 @@ describe('changelog generator (cliff.toml)', () => {
       })
 
       test('--unreleased renders an empty window cleanly rather than failing', () => {
-        // The regression this whole work package exists to prevent: with the tag at HEAD there is
-        // nothing unreleased, and `render_always = true` emits the heading alone. Every assertion
-        // the suite makes about `--unreleased` has to survive exactly this.
+        // With the tag at HEAD nothing is unreleased and `render_always = true` emits the heading
+        // alone — every assertion this suite makes about `--unreleased` has to survive that.
         const releases = parseReleases(tagged.cliff('--unreleased'))
         assert.deepEqual(
           releases.map((r) => r.heading),
@@ -470,11 +422,8 @@ describe('changelog generator (cliff.toml)', () => {
 
       test('still categorizes the tagged release when run over full history', () => {
         const releases = parseReleases(tagged.cliff())
-        // Note the asymmetry with `--unreleased` above, confirmed against git-cliff 2.13: a FULL
-        // run omits an empty Unreleased block altogether, whereas `--unreleased` renders the bare
-        // heading (that is what `render_always = true` buys). Both are fine; the suite just must
-        // not assume the same shape from both, which is precisely the kind of assumption that
-        // made the pre-#2567 version of this file brittle.
+        // Asymmetric with `--unreleased` above: a FULL run omits an empty Unreleased block
+        // altogether, whereas `--unreleased` renders the bare heading. Neither implies the other.
         assert.deepEqual(
           releases.map((r) => r.heading.replace(/ - \d{4}-\d{2}-\d{2}$/, '')),
           ['1.0.0']
