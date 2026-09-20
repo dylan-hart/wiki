@@ -6,25 +6,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #834 ("RTL regression pass: linklist rendering + zoom/toolbar mirroring").
+ * `_page-contents.css` styles raw rendered markdown: a stylesheet partial with no component to
+ * mount, so these assert against its source text.
  *
- * `ul.links-list` (added by commit aa279332, after Feature 413's RTL audit (task 721) landed, so
- * it never went through that pass) rendered its
- * accent bar and description rule with physical `border-left`/`padding-left`/`margin-left`. Content
- * rendered from markdown reads whatever direction the active locale sets
- * (`composables/direction.js`), same as any other reader-facing content -- there is no separate
- * "content direction" concept, only the document's. Under `dir="rtl"` those physical properties stay
- * glued to the visual left, i.e. the TRAILING edge of an RTL row: the accent bar sits behind the
- * title instead of leading it in, and the description's rule/gap land on the wrong side of the
- * emphasis text -- this is upstream requarks/wiki #1639 ("link-list rendering breaks under RTL"),
- * reproduced directly by this fork's own `{.links-list}` markup.
- *
- * Fixed the same mechanical way as `.count-badge` (task 721/727, asserted by
- * `layouts/AdminLayout.test.js`): physical `-left` replaced with logical `-inline-start`, which
- * resolves against `dir` on its own with no JS involved. This is a source-level regression test in
- * the same style as that one -- `_page-contents.css` is a plain stylesheet partial applied to raw
- * rendered markdown, not a mountable component, so there is no Vue tree to inspect computed styles
- * on; asserting the compiled-from source is the direct way to pin the fix down.
+ * Content renders in whatever direction the active locale sets (`composables/direction.js`), so a
+ * physical `-left`/`-right` here stays glued to the visual left -- the TRAILING edge of an RTL row
+ * -- stranding the accent bar behind the title and the description's rule on the wrong side of the
+ * text (upstream requarks/wiki #1639). A logical `-inline-start` resolves against `dir` on its own.
  */
 describe('_page-contents.css ul.links-list', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
@@ -65,32 +53,17 @@ describe('_page-contents.css ul.links-list', () => {
 })
 
 /**
- * OpenProject #1694 ("Convert `_page-contents.css` to logical properties so rendered wiki content
- * works in RTL"), filed from the 2026-08-24 audit (`docs/audit-2026-08-24/accessibility-i18n.md`
- * §9) -- the same defect the `ul.links-list` suite above pins down for one construct (task 721's
- * RTL audit covered only specific named components, and this file wasn't one of them), applied here
- * to the rest of the file: blockquotes, the five admonition severities, the
- * code line-number gutter, and multi-line tables, none of which went through that pass either.
+ * Scans the whole source rather than one selector's slice: the bug class is "a physical property
+ * snuck back in anywhere in this file", not "in one specific rule".
  *
- * `.page-contents` styles RAW RENDERED MARKDOWN -- the one surface that always renders in the
- * content's own direction, never the app chrome's -- so every rule in this file has to resolve
- * against `dir`, not against a hardcoded screen side. This suite scans the WHOLE compiled source
- * rather than one selector's slice, because the bug class is "a physical property snuck back in
- * anywhere in this file", not "in one specific rule" -- the same reasoning the file's own governing
- * work package gives for widening the `ul.links-list` slice into a full-file scan.
- *
- * One deliberate exception: `pre { … direction: ltr … }` (see that rule's own header comment) pins
- * every code block to always read left-to-right, because there is no such thing as RTL source code.
- * Logical properties resolve against an element's OWN computed `direction`, so anything nested
- * inside that rule stays visually stable either way even if it happens to use a physical property --
- * this suite carves that one block out of the scan rather than special-casing selectors by name.
+ * `pre { … direction: ltr … }` is the one carve-out -- it pins code blocks left-to-right, and
+ * logical properties resolve against an element's OWN computed `direction`, so a physical property
+ * inside that subtree stays visually stable under RTL either way.
  */
 describe('_page-contents.css logical properties (whole file)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
-  // -> The single rule that pins its subtree to `direction: ltr`; see its own comment for why a
-  //    physical property inside it (there happen to be none left) would still be safe under RTL.
   const codeblockStart = source.indexOf('  pre {')
   const codeblockEnd = source.indexOf('The copy button, added to each block', codeblockStart)
   if (codeblockStart === -1 || codeblockEnd === -1) {
@@ -118,9 +91,8 @@ describe('_page-contents.css logical properties (whole file)', () => {
   })
 
   it('anchors the blockquote gutter and its padding to the logical leading edge', () => {
-    // -> The quote is a framed box now, not a bare bar: the band down its leading edge is a
-    //    `::before` sized in `inset-inline-start`, precisely so it follows `dir` -- an inset
-    //    `box-shadow`, which is what a physical implementation would reach for, could not.
+    // -> The band down the leading edge is a `::before` sized in `inset-inline-start` so it
+    //    follows `dir`; an inset `box-shadow`, the physical alternative, could not.
     expect(source).toMatch(
       /blockquote\s*\{[^}]*padding-block:\s*0\.9em;\s*padding-inline:\s*3\.5em 1\.1em;/s
     )
@@ -140,12 +112,6 @@ describe('_page-contents.css logical properties (whole file)', () => {
     }
   })
 
-  /*
-   * OpenProject #3131: the admonition rule used to round these two corners unconditionally, in both
-   * aesthetics, with no corner marks (`&::after { content: none; }`). It now only rounds them -- and
-   * only suppresses the marks -- inside an explicit `body.body--cobalt` scope; see the "square
-   * corners, Ledger vs Cobalt" describe below for the split this replaces.
-   */
   it('rounds the admonition corners opposite the accent bar via logical corner properties, scoped to Cobalt only', () => {
     expect(source).toMatch(
       /body\.body--cobalt & \{\s*border-start-end-radius:\s*6px;\s*border-end-end-radius:\s*6px;/
@@ -153,18 +119,9 @@ describe('_page-contents.css logical properties (whole file)', () => {
   })
 
   /**
-   * OpenProject #3130 ("Question admonition icon tiles, wrong color, and has no thick left border
-   * -- falls back to the base blockquote gutter"). `.is-question` had its own severity-specific
-   * block (`--alert-hue`, `border-inline-start-color`, `background-color`, `::before` color/
-   * mask-image -- covered by the hue loop above) but was missing from THIS shared selector list,
-   * so it never received the shared block's `border-inline-start-width: 4px`, icon `::before`
-   * sizing/masking (`width`/`height: 1.25em`, `mask-repeat: no-repeat`, `mask-size: contain`) or
-   * `.alert-title` styling below. Without those it fell back to the base `blockquote::before`
-   * gutter (44px wide, tiled, `--content-surface-alt` fill), which is what produced the reported
-   * oversized/repeating/wrong-colour icon and the thin 1px border instead of the 4px accent bar.
-   * Asserted that `.is-question` sits in the SAME selector list as the other five kinds, not just
-   * that its own tail block exists somewhere in the file (the hue loop above already covers that
-   * and would not have caught this regression).
+   * Membership in the SHARED selector list, not merely that a severity's own tail block exists:
+   * the hue loop above covers the latter, and a severity with its own colours but no place in this
+   * list silently falls back to the base `blockquote::before` gutter for its border and icon.
    */
   it('includes .is-question in the shared admonition selector list, alongside the other five kinds', () => {
     const sharedBlockStart = source.indexOf('&.is-info,')
@@ -198,12 +155,6 @@ describe('_page-contents.css logical properties (whole file)', () => {
   })
 
   it('swaps the table cell rule to `border-inline-end` so the last logical column suppresses the correct edge', () => {
-    // -> OpenProject #2916 split the single `--content-rule` table border into its own
-    //    `--content-table-col-rule`/`--content-table-rule` pair (see that WP), so the cell rule
-    //    itself moved off `--content-rule` -- the logical-property shape this test guards is
-    //    unchanged either way. OpenProject #2997/#3014/#3015 moved the markup from
-    //    `<table>`/`<th>`/`<td>`/`<thead>` to `div[role="table"]`/`[role="columnheader"]`/
-    //    `[role="cell"]`, which is the selector shape below, not the table-element one.
     expect(source).toMatch(
       /\[role='columnheader'\],\s*\[role='cell'\]\s*\{[^}]*border-inline-end:\s*1px solid var\(--content-table-col-rule\)/s
     )
@@ -221,23 +172,10 @@ describe('_page-contents.css logical properties (whole file)', () => {
   })
 })
 
-/**
- * OpenProject #3131 ("Admonitions lack Ledger's corner-mark treatment and render with rounded
- * corners instead of square"). The admonition rule (`blockquote.is-info` and its four siblings) used
- * to round its two non-accent corners and suppress the plain blockquote's own corner-mark `::after`
- * unconditionally, in both aesthetics -- an incidental byproduct of no `body.body--cobalt` override
- * existing, not a deliberate choice, unlike the plain blockquote just above it which already diverged
- * explicitly per aesthetic. The fix mirrors that split: Ledger (the unscoped default) now draws the
- * SAME square-cornered, corner-marked box as a plain quote, by dropping the radius and the `::after`
- * override so the base blockquote rule's own marks cascade through with no duplicated CSS; Cobalt
- * keeps today's rounded/no-marks look, now via an explicit override scoped by both the severity
- * selector and `body.body--cobalt` rather than as a side effect of an absent rule.
- */
 describe('_page-contents.css admonition corners -- square by default, rounded under Cobalt (OpenProject #3131)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
-  /** The declarations of the admonition selector group's own block (not a per-severity sub-block). */
   function admonitionBlock() {
     const start = source.indexOf('&.is-info,\n    &:has(> .is-info),\n    &.is-success,')
     if (start === -1) {
@@ -262,8 +200,6 @@ describe('_page-contents.css admonition corners -- square by default, rounded un
   const block = admonitionBlock()
 
   it('sets no border-radius of its own at the top level of the block (Ledger draws it square)', () => {
-    // -> Only the nested `body.body--cobalt &` sub-block may declare these -- captured
-    //    separately below -- so strip that sub-block out before scanning the rest.
     const cobaltStart = block.indexOf('body.body--cobalt &')
     expect(cobaltStart).toBeGreaterThan(-1)
     const outsideCobalt = block.slice(0, cobaltStart)
@@ -287,10 +223,9 @@ describe('_page-contents.css admonition corners -- square by default, rounded un
   })
 
   /*
-   * The part source-reading cannot confirm: which of two same-tag rules (the plain blockquote's own
-   * Cobalt override and this admonition's new, more specific one) the cascade actually applies, and
-   * what a browser paints for the resulting corners and pseudo-element. Same real-browser harness
-   * shape as the describes above in this file.
+   * What source-reading cannot confirm: which of the two competing rules (the plain blockquote's
+   * Cobalt override and this admonition's more specific one) the cascade applies, and what a
+   * browser actually paints for the corners and the pseudo-element.
    */
   describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
     let browser
@@ -369,16 +304,8 @@ describe('_page-contents.css admonition corners -- square by default, rounded un
 })
 
 /**
- * OpenProject #2783 ("Literal-color grep sweep"). `--content-info`, `--content-danger` and
- * `--content-important` used to restate `--color-info`/`--color-negative`/`--color-ink`'s hex
- * literally instead of referencing them, the one inconsistency in this block -- every sibling
- * status/tick/code property beside them (`--content-tick`, `--content-code-ink`,
- * `--content-code-edge`, ...) already resolves through `var(--color-*)`. A literal copy here would
- * silently stop following a re-themed/re-skinned value the token itself would pick up.
- *
- * `--content-success`/`--content-warning` are the same shape and are NOT part of this fix (see
- * OpenProject #2783's own comment log) -- left as a known, separately-tracked case rather than
- * silently folded into this pass.
+ * A literal hex here would silently stop following a re-themed value the token itself picks up.
+ * `--content-success`/`--content-warning` are the same shape and deliberately left out.
  */
 describe('_page-contents.css admonition tones resolve through the color token', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
@@ -396,26 +323,14 @@ describe('_page-contents.css admonition tones resolve through the color token', 
 })
 
 /**
- * OpenProject #2630 ("Rendered content beyond prose: task lists, footnotes, keyboard keys and the
- * code-token palette") -- item 6 of `docs/cardinal-reskin-second-pass.md`'s "Still to do" list.
- *
- * The second pass brought the PROSE half of a rendered page onto Cardinal and left these four
- * constructs behind, each still drawn in the vocabulary that preceded it. Asserted from source for
- * the same reason the two suites above are: `_page-contents.css` is a stylesheet partial over raw
- * rendered markdown, not a mountable component, and jsdom paints nothing -- there is no computed
- * style to read and no layout to measure. What CAN be pinned from source is that a specific
- * pre-Cardinal treatment is gone and the design's own one is in its place, which is exactly the
- * thing a later edit would silently undo.
- *
- * The colour half of the same work is pinned numerically instead, in
- * `helpers/accessibility.test.js` -- a hex in a stylesheet is only right relative to the ground it
- * lands on, and that is a contrast assertion, not a source one.
+ * The colour half of these constructs is pinned numerically in `helpers/accessibility.test.js`
+ * instead: a hex is only right relative to the ground it lands on, which is a contrast assertion,
+ * not a source one.
  */
 describe('_page-contents.css rendered content beyond prose', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
-  /** The declarations of one selector's block, given the selector's own opening line. */
   function blockFor(selector) {
     const start = source.indexOf(selector)
     if (start === -1) {
@@ -442,9 +357,8 @@ describe('_page-contents.css rendered content beyond prose', () => {
       expect(block).toMatch(/background-color:\s*var\(--content-tick\)/)
       expect(source).toMatch(/--content-tick:\s*var\(--color-accent-fill\)/)
       expect(source).toMatch(/--content-tick:\s*var\(--color-accent-dark\)/)
-      // -> `#5b616b` is a tone Cardinal does not have; it was the one thing on a rendered page
-      //    saying "done" in a colour that appears nowhere else in the app. (The stylesheet still
-      //    NAMES it, in the comment recording why it went, so this checks the declaration.)
+      // -> Scoped to the declaration rather than searching the file for the old hex: the
+      //    stylesheet's own comment still names it.
       expect(source).not.toMatch(/--content-tick:\s*#/)
     })
 
@@ -465,9 +379,8 @@ describe('_page-contents.css rendered content beyond prose', () => {
     })
 
     /*
-     * The locked dark-theme rule -- an accent FILL carries dark ink, never white. A tick is a data
-     * URI, so its stroke cannot be a custom property and the two themes need two URIs; a single one
-     * recoloured by a filter is exactly what "dark mode is a second palette, not a filter" rules out.
+     * A tick is a data URI, so its stroke cannot be a custom property: the two themes need two
+     * URIs. Recolouring one with a filter is what "dark mode is a second palette" rules out.
      */
     it('carries a white tick on the light accent and an ink tick on the dark one', () => {
       expect(block).toMatch(/stroke='%23fff'/)
@@ -480,7 +393,7 @@ describe('_page-contents.css rendered content beyond prose', () => {
 
     it('is a flat square plate, not a key cap', () => {
       expect(block).toMatch(/border:\s*1px solid var\(--content-rule\)/)
-      // -> The lip of a physical key. Cardinal has no bevelled or weighted object anywhere on it.
+      // -> The lip of a physical key; nothing in Cardinal is bevelled or weighted.
       expect(block).not.toContain('border-bottom-width')
     })
 
@@ -502,12 +415,9 @@ describe('_page-contents.css rendered content beyond prose', () => {
   })
 
   /*
-   * OpenProject #870/#2789: `.glossary-term` is `renderers/modules/markdown-it-glossary.js`'s own
-   * class, put on BOTH forms it can emit -- an unlinked `<abbr class="glossary-term">` and a linked
-   * `<a class="glossary-term">`. The unlinked form happened to already get a dotted underline from
-   * the pre-existing `abbr[title]` rule (both share the `abbr` tag), which is why this went
-   * unnoticed for the linked form: the generic `a` rule sets `text-decoration: none` and nothing
-   * overrode it for this class specifically, until this rule was added.
+   * `markdown-it-glossary.js` puts `.glossary-term` on both forms it can emit -- an unlinked
+   * `<abbr>` and a linked `<a>` -- and the generic `a` rule sets `text-decoration: none`, so only
+   * a class-keyed rule reaches both.
    */
   describe('glossary term', () => {
     const block = blockFor('.glossary-term {')
@@ -545,8 +455,8 @@ describe('_page-contents.css rendered content beyond prose', () => {
       const landed = blockFor('.footnote-item.is-anchor-landed {')
       expect(landed).toMatch(/background-color:\s*var\(--content-landed-wash\)/)
       expect(landed).toMatch(/border-inline-start:\s*2px solid var\(--content-landed-edge\)/)
-      // -> `--content-mark` is the author's own `<mark>` highlighter and keeps its yellow; being
-      //    sent to a note is a different statement and takes the language's accent wash.
+      // -> `--content-mark` is the author's own `<mark>` highlighter; a landed note is a different
+      //    statement and takes the accent wash instead.
       expect(landed).not.toContain('--content-mark')
       expect(source).toMatch(/--content-landed-wash:\s*var\(--color-accent-wash\)/)
       expect(source).toMatch(/--content-landed-wash:\s*var\(--color-accent-wash-dark\)/)
@@ -574,12 +484,6 @@ describe('_page-contents.css rendered content beyond prose', () => {
       expect(source).toMatch(/--content-code-edge:\s*var\(--color-accent-dark\)/)
     })
 
-    /*
-     * The block prints on white, so the print block is the one place the palette inverts: black ink,
-     * a plain rule for the accent edge, and the white-ground token set the screen palette used to be
-     * -- which is the same set `helpers/accessibility.test.js` proves is wrong on screen and right
-     * on paper.
-     */
     it('inverts for print rather than printing near-white text on white paper', () => {
       const printBlock = source.slice(source.indexOf('@media print {'))
       expect(printBlock).toMatch(/--content-code-block-ink:\s*#000/)
@@ -592,22 +496,11 @@ describe('_page-contents.css rendered content beyond prose', () => {
 })
 
 /**
- * OpenProject #2630, the other half: what a browser actually PAINTS for these four constructs.
- *
- * Everything above reads the stylesheet. That catches a treatment being replaced, and cannot catch
- * the two things most likely to go wrong here -- a custom property that resolves to nothing because
- * the token it names does not exist, and a rule that loses the cascade to a more specific one
- * (`.footnotes .footnote-item`'s padding against `.footnote-item.is-anchor-landed`'s is exactly
- * that shape). Neither jsdom nor happy-dom resolves a `var()` chain or runs the cascade over real
- * stylesheets, so both would report the source's intent back rather than the result.
- *
- * So this compiles the real `_page-contents.css` beside the real `tailwind.css` -- the two files
- * that between them own every token in the chain -- and reads `getComputedStyle` off actual
- * rendered-markdown markup in a real headless Chromium, once light and once with `body--dark` on,
- * which is how the app itself switches theme. Same harness rule as every other real-browser suite
- * in this repo: `hasChromium`/`buildAppCss`/`chromium` are imported from `test/realGridLayout.js`
- * and nothing is added to it; see `components/ApiKeyCreateDialog.test.js` for why the timeout is
- * raised well past the 5s default.
+ * The two failures a source read cannot catch: a custom property that resolves to nothing because
+ * the token it names does not exist, and a rule that loses the cascade to a more specific one.
+ * Neither jsdom nor happy-dom resolves a `var()` chain or runs the cascade over real stylesheets,
+ * so both report the source's intent back rather than the result -- hence a real headless Chromium
+ * over `_page-contents.css` beside `tailwind.css`, which between them own every token in the chain.
  */
 describe(
   '_page-contents.css rendered content beyond prose — real browser',
@@ -620,9 +513,8 @@ describe(
     let cobaltDark
 
     /*
-     * One sample of each construct, in the markup the renderers actually emit:
-     * `markdown-it-task-lists` (with `label: false`) for the checkbox, `markdown-it-footnote` for
-     * the note apparatus, highlight.js's own token classes inside `pre.codeblock`, and a `<kbd>`.
+     * The markup the renderers actually emit: `markdown-it-task-lists` with `label: false`,
+     * `markdown-it-footnote`, and highlight.js's own token classes inside `pre.codeblock`.
      */
     const SAMPLE = `
       <article class="page-contents">
@@ -647,14 +539,6 @@ describe(
         </section>
       </article>`
 
-    /*
-      The two stylesheets that between them own every token in the chain: `tailwind.css` declares
-      the Cardinal palette, `_page-contents.css` maps it onto the article's own properties. Read
-      directly rather than through `app.css`, and directly usable as-is -- no compile step needed
-      (OpenProject #3254 dropped the Sass pipeline this used to run through; #3253 had already
-      converted the partial's one `$breakpoint-xs-max` need to a literal, alongside every `@at-root`
-      at nesting depth 1 in this file, ahead of that).
-    */
     let stylesheets
 
     async function buildStylesheets() {
@@ -664,13 +548,6 @@ describe(
       return { appCss, contentCss }
     }
 
-    /**
-     * Every computed value the assertions below need, read in one pass off one rendered page.
-     *
-     * `cobalt` (OpenProject #2774) stacks `body--cobalt` alongside `body--dark` the same way the app
-     * itself does (`composables/aesthetic.js`) -- both classes on the one `<body>`, not a separate
-     * page per combination beyond what `dark` already gives this function.
-     */
     async function measure({ dark: darkMode = false, cobalt = false } = {}) {
       const { appCss, contentCss } = stylesheets
       const page = await browser.newPage()
@@ -805,11 +682,6 @@ describe(
       expect(dark.codeBlock.keyword).toBe('rgb(255, 155, 160)')
     })
 
-    /**
-     * OpenProject #2774: the code block gains an 8px rounded panel and drops its accent leading edge
-     * under Cobalt (`Page View 3x - Cobalt`/`Editor 3x - Cobalt`), while Ledger keeps its own square,
-     * accent-edged treatment unchanged in both themes.
-     */
     it('rounds the code block and drops its accent edge under Cobalt, leaving Ledger square', () => {
       expect(light.codeBlock.radius).toBe('0px')
       expect(dark.codeBlock.radius).toBe('0px')
@@ -838,10 +710,9 @@ describe(
     })
 
     /*
-     * The cascade case. `.footnotes .footnote-item` sets `padding: 0.7em 0`, and
-     * `.footnote-item.is-anchor-landed` has to win the leading edge back off it at equal
-     * specificity -- which it does only because it is declared later in the file. Source-reading
-     * cannot see that; this is the assertion that catches it if either block ever moves.
+     * The cascade case: `.footnotes .footnote-item` sets `padding: 0.7em 0` and
+     * `.footnote-item.is-anchor-landed` wins the leading edge back off it at equal specificity,
+     * only because it is declared later in the file. Source-reading cannot see that.
      */
     it('gives a landed note the accent plate, and its edge room inside the row', () => {
       expect(light.footnotes.landedBackground).toBe('rgb(253, 236, 237)')
@@ -858,15 +729,8 @@ describe(
 )
 
 /**
- * OpenProject #2977 ("Cobalt typography: article remainder"). `cobalt-typography.md` §3's Article
- * role table, for every role that Task's sibling Bugs (#2963 base/heading sizes, #2964 h1 color,
- * #2965 numbered-step em sizing, #2958 table corner-clipping) don't already own. Reading the source
- * against `tailwind.css`'s Cobalt token blocks found two genuine gaps -- inline code ink and the code
- * block's own ink -- and confirmed every other role in the table (h2, h3-h5, h6, paragraph,
- * numbered-step text, code block background, the syntax tones, links in prose) already resolves
- * correctly through existing tokens with no Cobalt-scoped size/weight/tracking property needed
- * anywhere in this file. Same real-browser harness shape as the describe above: a fresh `measure()`
- * over its own minimal sample, since that one's `SAMPLE` has no headings, paragraph or `<a>` to read.
+ * Its own sample and `measure()`: the describe above's markup carries no heading, paragraph or
+ * link to read a colour off.
  */
 describe(
   '_page-contents.css article role-table conformance — real browser (OpenProject #2977)',
@@ -946,8 +810,8 @@ describe(
     })
 
     it('keeps h3 and the paragraph on the same body ink under Cobalt, not h1/h2’s navy or accent', () => {
-      // -> `--color-text-body`, resolved through `--content-ink`/`--content-h2` inheritance -- not
-      //    `--color-ink`'s navy, which is what "all blue" (#0.2) was.
+      // -> `--color-text-body`, resolved through `--content-ink`/`--content-h2` inheritance, not
+      //    `--color-ink`'s navy.
       expect(cobaltLight.h3).toBe('rgb(26, 32, 56)')
       expect(cobaltLight.p).toBe(cobaltLight.h3)
       expect(cobaltDark.h3).toBe('rgb(232, 236, 255)')
@@ -961,10 +825,9 @@ describe(
     })
 
     it('links prose in the strong accent under Cobalt, matching h2 in light and diverging in dark', () => {
-      // -> `--color-accent-strong`: same hex as `--color-heading-h2` in Cobalt light (both #1f4fd6),
-      //    but NOT in dark -- the dedicated dark-cobalt `--content-link` override this file already
-      //    carries points links at the cool #7fa0ff, not the warm accent-dark a plain `.body--dark`
-      //    cascade would otherwise give them.
+      // -> `--color-accent-strong`: the same hex as `--color-heading-h2` in Cobalt light (#1f4fd6)
+      //    but not in dark, where the dark-cobalt `--content-link` override points links at the
+      //    cool #7fa0ff rather than the warm accent-dark a plain `.body--dark` cascade would give.
       expect(cobaltLight.link).toBe('rgb(31, 79, 214)')
       expect(cobaltDark.link).toBe('rgb(127, 160, 255)')
     })
@@ -977,8 +840,7 @@ describe(
     })
 
     it('gives the code block its own Cobalt ink, one step off Ledger’s, unchanged between light and dark', () => {
-      // -> `#e6eaff`, not Ledger's `--color-text-dark` (`#e6eaf2`) the generic token would otherwise
-      //    resolve to.
+      // -> `#e6eaff`, not Ledger's `--color-text-dark` (`#e6eaf2`) the generic token resolves to.
       expect(cobaltLight.codeBlock).toBe('rgb(230, 234, 255)')
       expect(cobaltDark.codeBlock).toBe(cobaltLight.codeBlock)
       expect(light.codeBlock).not.toBe(cobaltLight.codeBlock)
@@ -986,13 +848,6 @@ describe(
   }
 )
 
-/**
- * OpenProject #2977, re-verifying §4 role swap #1 (table head) as part of this sweep: already
- * tokenized before this Task, but the WP calls for a direct check that the Cobalt block actually
- * sets sentence case with no tracking, not just that the tokens exist. Source-level, matching
- * `cobaltTokens.test.js`'s own "assert against the declared text" pattern for a hand-edited
- * property list with no compiled stylesheet in this environment to read a `var()` cascade off of.
- */
 describe('_page-contents.css Cobalt table-head swap stays sentence-case with no tracking (§4.1)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
@@ -1010,20 +865,10 @@ describe('_page-contents.css Cobalt table-head swap stays sentence-case with no 
   })
 })
 
-/**
- * OpenProject #2883 ("Cobalt list rendering (numbered steps, bullets, nested lists, task lists)
- * doesn't fully match mockups"). Two independent regressions in the numbered-step circle, both
- * invisible to reading the rule and caught only by measuring what a real browser actually resolves
- * -- see the rule's own header comments in `_page-contents.css` for the mechanism of each. The
- * source-level checks below pin the exact declarations the fix depends on; the real-browser check
- * pins the thing neither a source read nor jsdom/happy-dom can confirm, the actual computed pixel
- * size of a `::before` pseudo-element.
- */
 describe('_page-contents.css cobalt numbered list (OpenProject #2883)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
-  /** The declarations of one selector's block, given the selector's own opening line. */
   function blockFor(selector) {
     const start = source.indexOf(selector)
     if (start === -1) {
@@ -1111,15 +956,6 @@ describe('_page-contents.css cobalt numbered list (OpenProject #2883)', () => {
   })
 })
 
-/**
- * OpenProject #2965 ("Cobalt numbered-step numeral sized in em will drift once the article base
- * font-size fix lands"). Sibling to #2883 above, which fixed the plate's own BOX geometry; this
- * pins the numeral's own `font-size`, previously `0.6875em` (resolving against the `li`'s inherited,
- * `.page-contents`-derived font-size, so it would silently shrink any time that base changes), now a
- * fixed `11px` per the design handoff's literal `600 11px/24px`. The real-browser check proves the
- * decoupling directly: the numeral stays 11px even when the surrounding article's own font-size
- * differs from `.page-contents`'s default.
- */
 describe('_page-contents.css cobalt numbered-step numeral is a fixed size (OpenProject #2965)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
@@ -1163,33 +999,17 @@ describe('_page-contents.css cobalt numbered-step numeral is a fixed size (OpenP
 })
 
 /**
- * OpenProject #2917 ("Tables: Ledger styling, light + dark"). The frame, mono eyebrow head, rules
- * and hover accent are `#2916`'s own token wiring (`--content-table-*`, already covered by that
- * WP's tests) — this suite covers what #2917 itself added on top: the body's own surface colour,
- * the thinned/coloured scrollbar, and Ledger's two-corner blueprint marks. OpenProject #2935 later
- * split the single `.table-wrap` box into `.table-wrap` (the outer, non-scrolling frame) and
- * `.table-scroll` (the inner scroller), specifically so the marks could move from flush with the
- * frame to the spec's own 4px overhang — the scrollbar assertions below moved to `.table-scroll`
- * with them, and the "flush" variance this suite used to also assert is deleted from
- * `docs/variances.md` along with the deviation itself. OpenProject #2958 split the boxes a second
- * time — `.table-clip` now sits between the two, owning `overflow: hidden` plus the radius on its
- * own, because `.table-scroll`'s own `overflow-x: auto` produces a native scrollbar that is not
- * reliably clipped by `border-radius` on that SAME element (a classic, space-reserving scrollbar
- * squares off the very corner it sits against) — see `_page-contents.css`'s own `TABLES` header
- * comment for the full mechanism.
+ * Three nested boxes: `.table-wrap` is the outer, non-scrolling frame the corner marks overhang;
+ * `.table-clip` owns `overflow: hidden` plus the radius on its own, because a native scrollbar is
+ * not reliably clipped by `border-radius` on the SAME element that produces it (a space-reserving
+ * scrollbar squares off the very corner it sits against); `.table-scroll` is that scroller.
  */
 describe('_page-contents.css table frame (OpenProject #2917)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
-  // -> The shared `.table-wrap`/`.table-clip`/`.table-scroll` mechanics this describe covers live in
-  //    the `TABLES` section (see that section's own header comment). Since OpenProject #3007,
-  //    the per-aesthetic sections earlier in the file set only the `--content-table-scrollbar-*`
-  //    tokens the `TABLES` section's own `.table-scroll` rule consumes -- they no longer declare
-  //    a `.table-scroll` selector of their own, so a plain search finding one of those instead is no
-  //    longer a risk, but the explicit `tablesSectionStart` anchor stays regardless.
+  // -> Anchors the searches below past the per-aesthetic token blocks earlier in the file.
   const tablesSectionStart = source.indexOf('\n  /* TABLES */\n')
 
-  /** The declarations of one selector's block, given the selector's own opening line. */
   function blockFor(selector) {
     const start = source.indexOf(selector, tablesSectionStart)
     if (start === -1) {
@@ -1217,8 +1037,8 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
   it('thins the wide-table scrollbar via the standards properties, wrapped for the Chromium engine gotcha (OpenProject #3007)', () => {
     const block = blockFor('.table-scroll {')
     expect(block).toMatch(/overflow-x:\s*auto/)
-    // -> The standards pair must NOT sit in this same unwrapped block (the engine gotcha every
-    //    other scrollbar rule in this codebase already respects) -- they live in their own
+    // -> Chromium 121+ ignores every `::-webkit-scrollbar*` rule on an element that also sets
+    //    `scrollbar-width`/`scrollbar-color`, so the standards pair lives in its own
     //    `@supports not selector(::-webkit-scrollbar)` block instead, asserted below.
     expect(block).not.toMatch(/scrollbar-width/)
     expect(block).not.toMatch(/scrollbar-color/)
@@ -1231,8 +1051,6 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
   })
 
   it('never states scrollbar-width/scrollbar-color unwrapped alongside a ::-webkit-scrollbar* rule on the same selector, in the shared .table-scroll rule', () => {
-    // -> Same source-scan shape as `_base.css`'s own equivalent test, applied to the one place in
-    //    this file that sets the standards properties.
     const scanSource = source.slice(tablesSectionStart)
     const lines = scanSource.split('\n')
     let depth = 0
@@ -1269,21 +1087,19 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
   })
 
   it('colours the table scrollbar off dedicated tokens per aesthetic, each with a rest/hover/drag triple, rather than the OS default', () => {
-    // -> Ledger light: subtler than the global scrollbar at rest, stepping up to the global rule's
-    //    own resting tone on hover, and its exact drag colour when dragging.
+    // -> Ledger light
     expect(source).toMatch(/--content-table-scrollbar-thumb:\s*var\(--color-rule\);/)
     expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-tint-alt\);/)
     expect(source).toMatch(/--content-table-scrollbar-thumb-hover:\s*var\(--color-slate-faint\);/)
     expect(source).toMatch(
       /--content-table-scrollbar-thumb-active:\s*var\(--color-negative-fill\);/
     )
-    // -> Ledger dark, same relationship
+    // -> Ledger dark
     expect(source).toMatch(/--content-table-scrollbar-thumb:\s*var\(--color-hairline-dark\);/)
     expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-ink-dark\);/)
     expect(source).toMatch(/--content-table-scrollbar-thumb-hover:\s*var\(--color-border-dark\);/)
     expect(source).toMatch(/--content-table-scrollbar-thumb-active:\s*var\(--color-accent-dark\);/)
-    // -> Cobalt light: blends into the page ground rather than the global rule's transparent track,
-    //    but drags to the exact same accent colour the global rule drags to
+    // -> Cobalt light
     expect(source).toMatch(
       /--content-table-scrollbar-thumb:\s*var\(--color-sidebar-actions-text\);/
     )
@@ -1292,16 +1108,16 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
     expect(source).toMatch(
       /--content-table-scrollbar-thumb-active:\s*var\(--color-accent-strong\);/
     )
-    // -> Cobalt dark, same relationship -- drags to `--color-heading-h2`, NOT `--color-accent-
-    //    strong` (a different, unrelated blue on this ground)
+    // -> Cobalt dark -- drags to `--color-heading-h2`, not `--color-accent-strong`, which is a
+    //    different, unrelated blue on this ground
     expect(source).toMatch(/--content-table-scrollbar-thumb:\s*rgba\(255,\s*255,\s*255,\s*0\.14\);/)
     expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-dark-3-5\);/)
     expect(source).toMatch(
       /--content-table-scrollbar-thumb-hover:\s*rgba\(255,\s*255,\s*255,\s*0\.3\);/
     )
     expect(source).toMatch(/--content-table-scrollbar-thumb-active:\s*var\(--color-heading-h2\);/)
-    // -> No aesthetic keeps its own literal-valued `.table-scroll` override any more -- every
-    //    colour flows through the shared token pair the `TABLES` section's rule consumes
+    // -> No aesthetic sets a literal on a `.table-scroll` rule of its own; every colour flows
+    //    through the shared token pair the `TABLES` section's rule consumes
     expect(source).not.toMatch(
       /\.table-scroll\s*\{\s*scrollbar-width:\s*thin;\s*scrollbar-color:\s*#c5cff5/
     )
@@ -1354,7 +1170,7 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
 
   it('positions the marks 4px outside the frame (OpenProject #2935), matching the page header plate and blockquote, and pointer-events:none so they never intercept a click', () => {
     const block = blockFor('.table-wrap::after {')
-    // -> `inset: -5px` against the frame's own 1px border -- the same convention
+    // -> -5px against the frame's own 1px border is the 4px overhang, the same convention
     //    `.page-header-icon__marks` and the blockquote's `&::after` use
     expect(block).toMatch(/inset:\s*-5px;/)
     expect(block).toMatch(/pointer-events:\s*none/)
@@ -1363,10 +1179,9 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
   describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
     let browser
 
-    // -> `div[role="table"]`/`[role="row"]`/`[role="columnheader"]`/`[role="cell"]`, matching
-    //    `renderers/markdown.js`'s renderer output (OpenProject #2997/#3014) -- there is no `<table>`,
-    //    `<thead>` or `<tbody>` any more; `thead_open`/`thead_close`/`tbody_open`/`tbody_close`
-    //    render as nothing, so a header row is just a row whose cells carry `role="columnheader"`.
+    // -> Matches `renderers/markdown.js`'s output: every table token is a `<div>` carrying a
+    //    `role`, and `thead`/`tbody` render as nothing, so a header row is just a row whose cells
+    //    carry `role="columnheader"`.
     const SAMPLE = `
       <article class="page-contents">
         <div class="table-wrap">
@@ -1383,11 +1198,8 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
       </article>`
 
     // -> Wide enough that `.table-scroll` needs a horizontal scrollbar and, unscrolled, cuts the
-    //    table off mid-content on the trailing edge rather than at the table's own natural edge --
-    //    the case that actually exercises the rounded-corner clip (OpenProject #2958). A table that
-    //    fits within its container needs no scrolling at all, so its corners sit at the table's own
-    //    natural edge regardless of which box owns the radius. 12 columns, matching the 16-column
-    //    cap `[role="table"]` reserves (OpenProject #3015) with headroom to spare.
+    //    table off mid-content on the trailing edge -- the geometry that actually exercises the
+    //    rounded-corner clip. A table that fits sits at its own natural edge either way.
     const WIDE_SAMPLE = `
       <article class="page-contents">
         <div class="table-wrap">
@@ -1429,18 +1241,15 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
             background: wrapStyle.backgroundColor,
             scrollbarColor: scrollStyle.scrollbarColor,
             scrollbarWidth: scrollStyle.scrollbarWidth,
-            // -> What real Chromium actually paints (OpenProject #3007): once `.table-scroll` also
-            //    carries `::-webkit-scrollbar*` rules, Chromium 121+'s own engine gotcha means the
-            //    standards `scrollbarColor`/`scrollbarWidth` above stop being what it renders with --
-            //    the webkit pseudo-elements are the ones a real browser resolves colour from now.
+            // -> What real Chromium paints: with `::-webkit-scrollbar*` rules on `.table-scroll`,
+            //    the standards `scrollbarColor`/`scrollbarWidth` above are not what it renders
+            //    with -- colour resolves from the webkit pseudo-elements instead.
             scrollbarThumbColor: scrollThumbStyle.backgroundColor,
             scrollbarTrackColor: scrollTrackStyle.backgroundColor,
             marksDisplay: afterStyle.display,
             marksImage: afterStyle.backgroundImage,
             clipOverflow: clipStyle.overflow,
             clipRadius: clipStyle.borderRadius,
-            // -> Measured on the inner scroller (OpenProject #2935) -- that's the box with
-            //    `overflow-x: auto` now, not the outer frame, which no longer scrolls at all.
             scrollWidth: scroll.scrollWidth,
             clientWidth: scroll.clientWidth,
             scrollHeight: scroll.scrollHeight,
@@ -1453,16 +1262,9 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
     }
 
     /*
-      OpenProject #2958's actual regression check: a table too wide for its column, UNSCROLLED, so
-      `.table-scroll` cuts it off mid-content on the trailing edge -- the geometry that actually
-      exercises the rounded-corner clip (a table that fits needs no clip at all; a table scrolled all
-      the way to either end sits at the table's own natural edge, which coincides with the frame's
-      edge regardless of which box owns the radius). `elementFromPoint`, a pixel inside the rounded
-      corner's own arc, is what proves the clip: a correctly-clipped corner resolves to `.table-wrap`
-      itself (its own background showing through, nothing painted over it there) or a page-content
-      ancestor, never a `td`/`th`/`thead` -- if a cell's own background reached that pixel, its
-      square corner would be visibly poking past the frame's rounded one, exactly OpenProject #2958's
-      report.
+      `elementFromPoint` on a pixel inside the rounded corner's own arc is what proves the clip: a
+      correctly-clipped corner resolves to `.table-wrap` or a page-content ancestor, never to a
+      table role. A cell reaching that pixel means its square corner pokes past the rounded frame.
     */
     async function measureCornerContainment({
       dark: darkMode = false,
@@ -1484,30 +1286,19 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
         return await page.evaluate((scrollAllTheWay) => {
           const wrap = document.querySelector('.table-wrap')
           const scroll = document.querySelector('.table-scroll')
-          // -> OpenProject #3016: re-verifying the #2958 regression didn't isolate whether the
-          //    corner-bleed was scroll-position dependent -- scrolled all the way to the trailing
-          //    edge, the table's own content stops being cut off mid-cell (it sits at its own
-          //    natural edge again), which is exactly the OTHER geometry `measure()`'s own comment
-          //    already calls out as "needs no clip at all" for a table that fits. If containment
-          //    only held at the unscrolled position, this is where it would break.
           if (scrollAllTheWay) {
             scroll.scrollLeft = scroll.scrollWidth
           }
           const r = wrap.getBoundingClientRect()
-          // -> Every element in the fixture is a `<div>` now (OpenProject #2997/#3014), so the
-          //    corner-containment question is no longer "which tag is here" but "does this pixel
-          //    belong to a table role at all" -- a cell/columnheader/row/table `role` attribute
-          //    poking past the frame is exactly OpenProject #2958's regression, restated for the
-          //    new markup.
+          // -> Every element in the fixture is a `<div>`, so containment asks "does this pixel
+          //    belong to a table role at all", not "which tag is here".
           function roleAt(x, y) {
             return document.elementFromPoint(x, y)?.getAttribute('role') ?? null
           }
           return {
-            // -> Confirms the fixture actually needs a scrollbar -- otherwise this test would pass
-            //    vacuously by never exercising the mid-content cut at all
+            // -> Both guard a vacuous pass: the fixture must really overflow, and a `scrollToEnd`
+            //    request must really have moved the scroller
             needsScroll: scroll.scrollWidth > scroll.clientWidth,
-            // -> Confirms a `scrollToEnd` request actually moved the scroller, so a passing test
-            //    below isn't vacuously true from never having scrolled at all
             scrolledToEnd: scroll.scrollLeft > 0,
             topRight: roleAt(r.x + r.width - 2, r.y + 2),
             bottomRight: roleAt(r.x + r.width - 2, r.y + r.height - 2)
@@ -1530,14 +1321,13 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
       const light = await measure({ dark: false })
       const dark = await measure({ dark: true })
       expect(light.background).toBe('rgb(255, 255, 255)')
-      // -> `--color-dark-3` (`#1b1f2a`), the WP's own "body surface" value
+      // -> `--color-dark-3` (`#1b1f2a`)
       expect(dark.background).toBe('rgb(27, 31, 42)')
     })
 
     it('colours the scrollbar thumb/track off the stated tokens in both themes, via the webkit pseudo-elements real Chromium actually paints (OpenProject #3007)', async () => {
-      // -> `wide: true`: the narrow SAMPLE table never overflows, so it never actually grows a
-      //    scrollbar for the webkit pseudo-elements to paint -- same reason
-      //    `measureCornerContainment` reaches for `WIDE_SAMPLE` instead of `measure()`'s default.
+      // -> `wide: true`: the narrow SAMPLE never overflows, so it grows no scrollbar for the
+      //    webkit pseudo-elements to paint.
       const light = await measure({ dark: false, wide: true })
       const dark = await measure({ dark: true, wide: true })
       // -> `--color-rule` on `--color-tint-alt`
@@ -1549,10 +1339,8 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
     })
 
     it('never lets the standards scrollbar-width/-color apply in a browser that understands ::-webkit-scrollbar (the engine gotcha itself, proven against a real Chromium rather than only source-scanned)', async () => {
-      // -> `@supports not selector(::-webkit-scrollbar)` is false in real Chromium, so nothing sets
-      //    these two any more once `.table-scroll` also carries webkit rules -- they revert to the
-      //    browser default. This is the flip side of the previous test: the standards path is
-      //    genuinely elided, not merely superseded in the cascade.
+      // -> `@supports not selector(::-webkit-scrollbar)` is false in real Chromium, so the
+      //    standards path is genuinely elided there, not merely superseded in the cascade.
       const light = await measure({ dark: false })
       expect(light.scrollbarWidth).toBe('auto')
     })
@@ -1587,19 +1375,16 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
       const cobaltDark = await measureCornerContainment({ dark: true, cobalt: true })
       for (const result of [cobaltLight, cobaltDark]) {
         expect(result.needsScroll).toBe(true)
-        // -> `roleAt` returns `null` for a pixel with no element/role there at all, which a
-        //    `.toMatch()` regex can't take directly -- membership is the same check either way.
+        // -> `roleAt` can return `null`, which a `.toMatch()` regex cannot take -- membership is
+        //    the same check either way.
         expect(['columnheader', 'cell', 'row', 'table']).not.toContain(result.topRight)
         expect(['columnheader', 'cell', 'row', 'table']).not.toContain(result.bottomRight)
       }
     })
 
     /*
-      OpenProject #3016: "whether the original corner-bleed was scroll-related was never isolated
-      before this redesign was chosen." The test above only exercises the unscrolled, mid-content-cut
-      position -- this is the other end of the same table, scrolled all the way to its trailing edge,
-      which is the position the pre-#2958 regression report itself never distinguished from the
-      unscrolled one. Containment has to hold at both ends, not just the one already covered.
+      The other end of the same table: scrolled to its trailing edge, the content sits at its own
+      natural edge again rather than cut off mid-cell. Containment has to hold at both ends.
     */
     it("still contains a wide, fully-scrolled Cobalt table's cell backgrounds to the frame's rounded corner at the trailing edge, not just at the unscrolled position (OpenProject #3016)", async () => {
       const cobaltLight = await measureCornerContainment({
@@ -1621,11 +1406,8 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
     })
 
     /*
-      OpenProject #3016: a plain functional check that `.table-scroll` genuinely scrolls under the
-      new `display: grid` + `grid-template-columns: subgrid` layout, not merely that
-      `scrollWidth > clientWidth` (already asserted elsewhere in this describe) -- subgrid is a
-      newer, less battle-tested layout mode than the plain block/table layout it replaced, so this
-      proves the trailing column is actually draggable into view rather than stuck off-screen.
+      Proves the trailing column is actually draggable into view under `display: grid` +
+      `grid-template-columns: subgrid`, not merely that `scrollWidth > clientWidth`.
     */
     it('actually scrolls a wide table horizontally: the last column is off-screen before scrolling and comes fully into view after', async () => {
       const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
@@ -1647,11 +1429,8 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
           const after = lastCell.getBoundingClientRect()
           return {
             needsScroll: scroll.scrollWidth > scroll.clientWidth,
-            // -> Before scrolling, the last column's cell extends past the scroller's own right
-            //    edge -- cut off, exactly the geometry that exercises the corner clip above
             cutOffBefore: before.right > scrollBox.right,
-            // -> After scrolling all the way, that same cell's right edge sits at or inside the
-            //    scroller's own right edge -- fully visible now, not merely "moved some"
+            // -> At or inside the scroller's own right edge: fully visible, not merely "moved some"
             visibleAfter: after.right <= scrollBox.right + 1
           }
         })
@@ -1664,13 +1443,8 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
     })
 
     /*
-      OpenProject #3033: `.table-wrap` (an ordinary block box) had no width constraint of its own, so
-      `width: auto` resolved to "fill the containing block" regardless of how narrow the table's real
-      columns were -- a 3-column table stretched to the full article width instead of shrinking to its
-      true content width. Fixed by `width: fit-content; max-width: 100%;` on `.table-wrap`, with the
-      column tracks (`max-content`, not `1fr` -- see that rule's own comment for why `1fr` was tested
-      and rejected) unchanged. Measured at a fixed viewport width so "narrower than the container" is
-      a real assertion rather than one that happens to pass at whatever width the test runner gives it.
+      Measured at a fixed viewport width so "narrower than its container" is a real assertion
+      rather than one that happens to pass at whatever width the runner gives it.
     */
     it("shrinks a narrow table's frame to its own content width instead of stretching to fill the container", async () => {
       const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
@@ -1690,9 +1464,8 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
             wrapWidth: wrap.getBoundingClientRect().width
           }
         })
-        // -> The narrow SAMPLE (2 short columns) has nowhere near enough content to need the full
-        //    700px article column -- proving the fix means proving the frame is meaningfully
-        //    narrower than its container, not merely "not wider".
+        // -> Meaningfully narrower, not merely "not wider": the two short columns come nowhere
+        //    near the 700px article width.
         expect(result.wrapWidth).toBeLessThan(result.articleWidth * 0.5)
       } finally {
         await page.close()
@@ -1728,25 +1501,11 @@ describe('_page-contents.css table frame (OpenProject #2917)', () => {
   })
 })
 
-/**
- * OpenProject #2919 ("Tables: update regression tests and contrast pins"). Before OpenProject #2916
- * a table's head was a dark title bar -- `--content-table-head` painted a `linear-gradient` down to
- * `--content-table-head-grade` and white-ish ink, with `--content-table-shadow` a real two-layer
- * `box-shadow` under the whole wrapper -- and the body's two row tones (`--content-table-row`/
- * `-row-alt`) were both a tinted wash over that dark surface. None of that shape had a regression
- * test guarding it (`--content-table-head-grade` and a real `--content-table-shadow` value never
- * appeared in this file), so there is nothing stale to rewrite here -- but there was also no POSITIVE
- * test yet for what replaced it: a plain tinted STRIP head (no gradient, no dark-title-bar ink), no
- * wrapper shadow at all, and a body whose plain row is the bare surface with only the alternating row
- * tinted. This pins that shape down the same way `NavSidebar.test.js` pins the depth-cue-dot fix --
- * asserting the new rule AND the absence of the pattern it replaced, from source.
- */
 describe('_page-contents.css table head/body (OpenProject #2916/#2919)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
   const tablesSectionStart = source.indexOf('\n  /* TABLES */\n')
 
-  /** The declarations of one selector's block, given the selector's own opening line. */
   function blockFor(selector) {
     const start = source.indexOf(selector, tablesSectionStart)
     if (start === -1) {
@@ -1769,18 +1528,15 @@ describe('_page-contents.css table head/body (OpenProject #2916/#2919)', () => {
   it('gives the wrapper no drop shadow at all -- `--content-table-shadow` is a single `none`, not a per-theme box-shadow', () => {
     const wrapBlock = blockFor('.table-wrap {')
     expect(wrapBlock).toMatch(/box-shadow:\s*var\(--content-table-shadow\)/)
-    // -> Declared exactly once in the whole file, at `none` -- no aesthetic or dark override
-    //    reintroduces a real shadow value.
+    // -> Exactly once, at `none`: no aesthetic or dark override reintroduces a real shadow value.
     const shadowDeclarations = source.match(/--content-table-shadow:\s*[^;]+;/g) ?? []
     expect(shadowDeclarations).toHaveLength(1)
     expect(shadowDeclarations[0]).toMatch(/--content-table-shadow:\s*none;/)
   })
 
   it('paints the head as a plain tinted strip -- a flat `background-color`, never a `background-image`/gradient', () => {
-    // -> OpenProject #2997/#3014/#3015: there is no `thead` element any more (the renderer's
-    //    `thead_open`/`thead_close` render as nothing), so the strip is painted directly on each
-    //    `[role="columnheader"]` cell rather than on a `thead` ancestor -- grid cells sit flush
-    //    with no gap, so per-cell painting still reads as one continuous strip.
+    // -> There is no `thead` element to paint on, so the strip goes on each
+    //    `[role="columnheader"]` cell; grid cells sit flush, so it still reads as one strip.
     const columnheaderBlock = blockFor("[role='columnheader'] {")
     expect(columnheaderBlock).toMatch(/background-color:\s*var\(--content-table-head\)/)
     expect(columnheaderBlock).toMatch(/color:\s*var\(--content-table-head-ink\)/)
@@ -1799,7 +1555,7 @@ describe('_page-contents.css table head/body (OpenProject #2916/#2919)', () => {
     )
     expect(bandedRowBlock).toMatch(/background-color:\s*var\(--content-table-row-alt\)/)
 
-    // -> Ledger's own plain-row token is `transparent`, not a wash -- the removal the WP names.
+    // -> Ledger's plain-row token is `transparent`, not a wash.
     expect(source).toMatch(/--content-table-row:\s*transparent;/)
   })
 
@@ -1819,11 +1575,10 @@ describe('_page-contents.css table head/body (OpenProject #2916/#2919)', () => {
 
   it("ties the hover row selector to the zebra rule's specificity, so hover wins on a banded row (OpenProject #3039)", () => {
     // -> The zebra rule is `[role='row']` (1) + `:nth-child(even of S)` where S =
-    //    `[role='row']:not(:has(>[role='columnheader']))` (specificity 2) -- nth-child contributes
-    //    1+2=3 -- + `[role='cell']` (1) = 5. A single `:not(:has(...))` clause on the hover selector
-    //    only reaches 4 and loses to the band regardless of source order or a real `:hover` match.
-    //    Duplicating the `:not()` clause (redundant, but valid) is what brings hover to 5 too, and
-    //    with the tie, the hover rule -- declared after the zebra rule -- wins via cascade order.
+    //    `[role='row']:not(:has(>[role='columnheader']))` (2), so nth-child contributes 1+2=3, +
+    //    `[role='cell']` (1) = 5. A single `:not(:has(...))` clause on the hover selector reaches
+    //    only 4 and loses to the band whatever the source order. Duplicating the `:not()` clause
+    //    (redundant, but valid) ties it at 5, and the later-declared hover rule then wins.
     const hoverSelectorOccurrences = source.match(
       /\[role='row'\]:not\(:has\(> \[role='columnheader'\]\)\):not\(:has\(> \[role='columnheader'\]\)\):hover\s*\n?\s*> \[role='cell'\] \{/g
     )
@@ -1831,20 +1586,16 @@ describe('_page-contents.css table head/body (OpenProject #2916/#2919)', () => {
   })
 
   it('would fail if the head went back to a dark title-bar gradient or the wrapper regained a real shadow', () => {
-    // -> Guards the guard: if either removed pattern reappeared verbatim, the assertions above
-    //    would still pass a loose "no gradient anywhere in the file" check bypassed by scoping to
-    //    one block, so this asserts directly against the two literal patterns that used to exist.
+    // -> The assertions above are scoped to one block each, so a dark title-bar gradient or a real
+    //    wrapper shadow could reappear elsewhere unseen; these two are checked file-wide.
     expect(source).not.toMatch(/--content-table-head-grade/)
     expect(source).not.toMatch(/--content-table-shadow:\s*0[^;]*rgba/)
   })
 })
 
 /**
- * OpenProject #3239. `helpers/renderedContent.js`'s cell-range select mode stamps
- * `data-table-selected` on the active rectangle's cells; this file's only job is making that
- * attribute actually paint something visible, over both a plain cell and a header cell, in both
- * themes -- the JS side (which cells get the attribute, when) is `renderedContent.test.js`'s own
- * coverage, exercised entirely through jsdom with no rendering engine involved.
+ * Which cells get `data-table-selected`, and when, is `renderedContent.test.js`'s coverage; this
+ * only proves the attribute paints something visible over both cell roles, in both themes.
  */
 describe('_page-contents.css cell-range select mode highlight (OpenProject #3239)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
@@ -1935,13 +1686,9 @@ describe('_page-contents.css cell-range select mode highlight (OpenProject #3239
 })
 
 /**
- * OpenProject #2997/#3014/#3015 ("Redesign rendered markdown tables as CSS Grid"). The two describes
- * above pin the token wiring and the head/band/hover rules from source -- what they CANNOT catch is
- * whether the CSS Subgrid technique those rules depend on actually does its one job: making a
- * column's width agree across every row even though no selector anywhere knows the real column
- * count (see `_page-contents.css`'s own "Column sizing, CSS Grid style" comment for the full
- * mechanism). A source regex can't tell a working subgrid from a broken one that happens to declare
- * the right properties -- only real layout can, which is what this describe is for.
+ * A source regex cannot tell a working subgrid from a broken one that declares the right
+ * properties. Only real layout can prove the one thing it is there for: a column's width agreeing
+ * across every row even though no selector knows the real column count.
  */
 describe('_page-contents.css table CSS Grid column alignment (OpenProject #3015)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
@@ -2014,8 +1761,7 @@ describe('_page-contents.css table CSS Grid column alignment (OpenProject #3015)
             leftEdges,
             secondColLeftEdges,
             headerBackground: getComputedStyle(headerRow.firstElementChild).backgroundColor,
-            // -> First and third body rows are the "plain" band, the second is the "alt" band --
-            //    OpenProject #2919's two-tone banding, now counted with the header row excluded.
+            // -> First and third body rows are the plain band, the second the alt band.
             bodyRowBackgrounds: bodyRows.map(
               (row) => getComputedStyle(row.firstElementChild).backgroundColor
             )
@@ -2028,26 +1774,23 @@ describe('_page-contents.css table CSS Grid column alignment (OpenProject #3015)
 
     it("lines every row's first column up on the same left edge, even though the rows' own content widths differ wildly", async () => {
       const { leftEdges } = await measure()
-      // -> Subgrid is what this proves: if it had silently fallen back to independent per-row grids
-      //    (or `display: contents` had let cells drift into the wrong grid row entirely), the data
-      //    row with the long first-column value would push its OWN column 1 wider than the header's,
-      //    and the edges below would disagree.
+      // -> Had subgrid silently fallen back to independent per-row grids, the row with the long
+      //    first-column value would push its own column 1 wider than the header's.
       expect(new Set(leftEdges).size).toBe(1)
     })
 
     it('lines every row up on the same second-column left edge too, sized off the longest content in that column across every row', async () => {
       const { secondColLeftEdges, leftEdges } = await measure()
       expect(new Set(secondColLeftEdges).size).toBe(1)
-      // -> Column 2 starts to the right of column 1 -- confirms the columns are real, distinct grid
-      //    tracks, not every cell collapsing onto the same track.
+      // -> Confirms the columns are distinct tracks, not every cell collapsing onto the same one.
       expect(secondColLeftEdges[0]).toBeGreaterThan(leftEdges[0])
     })
 
     it('bands the first body row as plain and the second as alt, not the header row (nth-child(of S) skips it correctly)', async () => {
       const { headerBackground, bodyRowBackgrounds } = await measure()
       // -> `--content-table-head` in Ledger light, `#f0f2f7` -- the header row's own cell paints
-      //    this directly, never the plain/alt body band, confirming the `:not(:has(> ...))` filter
-      //    correctly excludes it from the banding rules' count.
+      //    this directly, never the plain/alt body band, so the `:not(:has(> ...))` filter really
+      //    does exclude it from the banding count.
       expect(headerBackground).toBe('rgb(240, 242, 247)')
       expect(bodyRowBackgrounds).toHaveLength(3)
       // -> `--content-table-row: transparent` -- `getComputedStyle` reports the declared value
@@ -2059,12 +1802,9 @@ describe('_page-contents.css table CSS Grid column alignment (OpenProject #3015)
     })
 
     it('lets a real :hover win over the band on a banded row, not just an unbanded one (OpenProject #3039)', async () => {
-      // -> A source-level check can pin the selector text, but only a real browser can tell a
-      //    genuinely-tied specificity from one that merely looks tied -- this is that check. The
-      //    SECOND body row is the "alt" band (`--content-table-row-alt`, `#f7f8fb` in Ledger
-      //    light); before the fix its zebra rule (specificity 5) beat the hover rule (specificity
-      //    4) regardless of the real `:hover` match below, so the assertion would have failed on
-      //    the pre-fix selector.
+      // -> Only a real browser can tell a genuinely-tied specificity from one that merely looks
+      //    tied. The second body row is the alt band (`--content-table-row-alt`, `#f7f8fb` in
+      //    Ledger light), so an untied hover rule loses to it here regardless of the `:hover`.
       const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
       const appCss = await buildAppCss()
       const page = await browser.newPage()
@@ -2079,8 +1819,8 @@ describe('_page-contents.css table CSS Grid column alignment (OpenProject #3015)
           .locator('[role="cell"]')
           .first()
           .evaluate((cell) => getComputedStyle(cell).backgroundColor)
-        // -> `--content-table-row-hover` in Ledger light, `#eef1f7` -- and explicitly not the alt
-        //    band's `rgb(247, 248, 251)` the un-hovered row already asserts above.
+        // -> `--content-table-row-hover` in Ledger light, `#eef1f7` -- not the alt band's
+        //    `rgb(247, 248, 251)` the un-hovered row asserts above.
         expect(hoveredBackground).toBe('rgb(238, 241, 247)')
       } finally {
         await page.close()
@@ -2090,23 +1830,12 @@ describe('_page-contents.css table CSS Grid column alignment (OpenProject #3015)
 })
 
 /**
- * OpenProject #3023 ("MultiMarkdown table caption doesn't span the CSS-Grid table width, and
- * bottom-side placement is ignored"), spun off from Issue #3021.
- *
- * The Issue's own "confirmed" fix direction was CSS-only, on the theory that the caption survives
- * as a real `<caption>` element and just needs `grid-column`/`order`. Reproducing it against a real
- * Chromium during implementation found that theory wrong: `markdown-it-multimd-table` always pushes
- * `caption_open`/`caption_close` as the first child inside `table_open`/`table_close`, and
- * `table_open` already retags every table token to `<div>` (#2997/#3014) -- so there is no real
- * `<table>` element anywhere on the page for a `<caption>` to be "inside". The WHATWG HTML parser's
- * "in body" insertion mode treats an orphan `caption`/`tr`/`td`/`th`/`thead`/`tbody` start tag as a
- * parse error and DROPS it outright, leaving its text to spill out as a bare, unstyled text node --
- * confirmed directly: `<div role="table"><caption>Cap</caption>…` parses back with the tag gone.
- * No CSS selector can ever match an element the parser never created, so `renderers/markdown.js`
- * now retags `caption_open`/`caption_close` to `<div class="table-caption">` the same way every
- * other table token already is (see `markdown.test.js`'s own coverage of that), and this suite
- * covers what that change depends on: the grid-column span and the bottom-placement `order` fallback
- * that only real layout can prove.
+ * There is no real `<table>` element on a rendered page -- every table token is retagged to a
+ * `<div>` -- and the WHATWG parser's "in body" insertion mode treats an orphan `<caption>` start
+ * tag as a parse error and DROPS it, spilling its text out as a bare text node. No CSS selector can
+ * match an element the parser never created, so `renderers/markdown.js` retags the caption to
+ * `<div class="table-caption">` too; this covers what that depends on, the grid-column span and the
+ * `order` fallback for bottom placement, which only real layout can prove.
  */
 describe('_page-contents.css table caption spans the grid and honors caption-side (OpenProject #3023)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
@@ -2135,11 +1864,6 @@ describe('_page-contents.css table caption spans the grid and honors caption-sid
       await browser?.close()
     })
 
-    /*
-      One two-row/two-column table, with a caption in the given position -- built from the exact
-      markup `renderers/markdown.js` actually emits (`<div class="table-caption">`, not `<caption>`,
-      which a real browser would drop entirely before this suite even got to measure anything).
-    */
     function sample(captionHtml) {
       return `
         <article class="page-contents">
@@ -2177,16 +1901,15 @@ describe('_page-contents.css table caption spans the grid and honors caption-sid
           const firstColumnHeader = document.querySelector('[role="columnheader"]')
           const rows = [...document.querySelectorAll('[role="row"]')]
           return {
-            // -> Confirms the element actually made it into the DOM at all, not just that some other
-            //    selector below happens to find nothing and silently pass -- see #3023's own history.
+            // -> Confirms the parser kept the element at all, rather than dropping it the way it
+            //    drops an orphan `<caption>`.
             captionFound: caption !== null,
             captionRect: caption.getBoundingClientRect(),
             firstColumnRect: firstColumnHeader.getBoundingClientRect(),
-            // -> Every `[role="row"]` is `grid-column: 1 / -1` subgrid, the SAME area a `1 / -1`
-            //    caption spans -- the comparison this suite needs, not `[role="table"]`'s own outer
-            //    box, which stretches to its container's full width regardless of the grid's actual
-            //    (mostly-empty, `max-content`-tracked) content extent and would pass even if
-            //    `grid-column` on the caption did nothing at all.
+            // -> Compared against a row, which spans the same `1 / -1` area the caption should --
+            //    not `[role="table"]`'s own box, which stretches to its container's full width
+            //    regardless of the grid's content extent and would pass even if `grid-column` on
+            //    the caption did nothing at all.
             rowRect: rows[0].getBoundingClientRect(),
             firstRowTop: rows[0].getBoundingClientRect().top,
             lastRowBottom: rows[rows.length - 1].getBoundingClientRect().bottom
@@ -2198,8 +1921,8 @@ describe('_page-contents.css table caption spans the grid and honors caption-sid
     }
 
     it('spans the caption the same full width as a row, not just the first column', async () => {
-      // -> A caption authored above carries no inline style at all (the plugin only adds one for a
-      //    below-authored caption), so this is also the "no attribute selector to key off" case.
+      // -> The plugin only emits an inline style for a below-authored caption, so this is also the
+      //    "no attribute selector to key off" case.
       const { captionFound, rowRect, captionRect, firstColumnRect } = await measure(
         '<div class="table-caption">A caption</div>'
       )
@@ -2221,9 +1944,8 @@ describe('_page-contents.css table caption spans the grid and honors caption-sid
         '<div class="table-caption" style="caption-side: bottom">A caption</div>'
       )
       expect(captionFound).toBe(true)
-      // -> Left alone (no `order`), the caption is still the FIRST DOM child and would paint above
-      //    the rows regardless of the plugin's own inline style, since `caption-side` has no effect
-      //    on a grid child -- this is the exact bug #3023 reports.
+      // -> `caption-side` has no effect on a grid child, so without `order` the caption stays the
+      //    first DOM child and paints above the rows whatever the plugin's inline style says.
       expect(captionRect.top).toBeGreaterThanOrEqual(lastRowBottom)
     })
 
@@ -2236,15 +1958,6 @@ describe('_page-contents.css table caption spans the grid and honors caption-sid
   })
 })
 
-/**
- * OpenProject #2963 ("Article type scale too large: 16px/24px base+h2 instead of spec'd 15.5px/26px").
- * `ui-iteration-cobalt-typography/cobalt-typography.md` §0.1 pins the article's whole type ramp in
- * absolute px, identical in Ledger and Cobalt -- deliberately not scoped to a `body.body--cobalt`
- * block. Source-level checks pin the declarations the fix depends on; the real-browser check pins
- * what a source read cannot -- the actual computed `font-size`/`line-height` once the em/rem chain
- * (`.page-contents`'s own base, then whatever each element is set relative to) has resolved, and
- * that it resolves to the same numbers whether or not Cobalt is active.
- */
 describe('_page-contents.css article type scale (OpenProject #2963)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
@@ -2255,8 +1968,8 @@ describe('_page-contents.css article type scale (OpenProject #2963)', () => {
   })
 
   it('pins h1/h3/h4 to their unchanged px sizes in `rem`, not the old `em` ratio against the base', () => {
-    // -> `rem`, not `em`: had these stayed em-relative to the new 15.5px base they would have
-    //    silently shrunk (32em -> 31px, 20em -> 19.375px, 17em -> 16.469px) despite being unchanged.
+    // -> `rem`, not `em`: em-relative to the 15.5px article base these would silently resolve to
+    //    31px / 19.375px / 16.469px instead of the px sizes they are meant to hold.
     expect(source).toMatch(/h1\s*\{[\s\S]*?font-size:\s*2rem;/)
     expect(source).toMatch(/h3\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*1\.25rem;/)
     expect(source).toMatch(/h4\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*1\.0625rem;/)
@@ -2284,17 +1997,14 @@ describe('_page-contents.css article type scale (OpenProject #2963)', () => {
     expect(source).toMatch(
       /blockquote\s*\{[\s\S]*?font-size:\s*0\.90625rem;[\s\S]*?line-height:\s*1\.6;/
     )
-    // -> Already matched the target before this WP; asserted so a future edit can't regress it unseen.
     expect(source).toMatch(/pre\s*\{[\s\S]*?font-size:\s*0\.8125rem;[\s\S]*?line-height:\s*1\.75;/)
   })
 
   it('never re-scopes any of this to `body.body--cobalt` -- the design handoff draws one ramp for both aesthetics', () => {
     const cobaltStart = source.indexOf('body.body--cobalt &')
     expect(cobaltStart).toBeGreaterThan(-1)
-    // -> None of the type-scale properties this WP owns appear inside a Cobalt-scoped block anywhere
-    //    in the file; a real per-block parse would be needed to prove a NEGATIVE precisely, but every
-    //    `body.body--cobalt` block in this file is a short, self-contained token/color override (see
-    //    #2964's own `--content-h1`/`--content-h2` block), never a font-size declaration.
+    // -> Proving the negative precisely would need a per-block parse; every `body.body--cobalt`
+    //    block in this file is a short token/colour override, never a font-size declaration.
     const cobaltBlocks = [...source.matchAll(/body\.body--cobalt & \{/g)]
     expect(cobaltBlocks.length).toBeGreaterThan(0)
   })
@@ -2422,14 +2132,9 @@ describe('_page-contents.css article type scale (OpenProject #2963)', () => {
 })
 
 /**
- * OpenProject #2964 ("Cobalt: in-content h1 shares --color-ink with h2, reading 'all blue' instead
- * of body ink"). The Ledger-default `--content-h1: var(--color-ink)` (L68 of this file) carried
- * through into Cobalt with no override, so in-content h1 rendered in Cobalt's saturated navy
- * `--color-ink` (`#10194a`) -- the same "blue" register h2 uses via its own accent-colored
- * `--content-h2` -- rather than the aesthetic's plain body ink. The fix scopes a `--content-h1`
- * override to the `body.body--cobalt &` block, pointing it at `--color-text-body` (`#1a2038` light /
- * `#e8ecff` dark) instead. `--content-h2` and its accent color are untouched -- that split (h2
- * alone carries the accent) is the locked design decision this fix must not disturb.
+ * Under Cobalt, h2 alone carries the accent and h1 takes plain body ink: a locked design decision,
+ * and the reason `--content-h1` needs its own override rather than inheriting the Ledger default's
+ * saturated `--color-ink`, which would put both headings in the same blue register.
  */
 describe('_page-contents.css cobalt h1 ink (OpenProject #2964)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
@@ -2503,7 +2208,7 @@ describe('_page-contents.css cobalt h1 ink (OpenProject #2964)', () => {
       expect(h1Color).toBe('rgb(26, 32, 56)') // #1a2038
       expect(h2Color).toBe('rgb(31, 79, 214)') // #1f4fd6
       expect(h1Color).not.toBe(h2Color)
-      // -> Never the aesthetic's saturated navy --color-ink (#10194a) that made h1 read "all blue"
+      // -> Never the aesthetic's saturated navy `--color-ink` (#10194a)
       expect(h1Color).not.toBe('rgb(16, 25, 74)')
     })
 

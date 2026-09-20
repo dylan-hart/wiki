@@ -1,36 +1,22 @@
 /**
- * One entry per `codeTemplate` comment provider this fork ships a backend module for (see
- * `backend/modules/comments/{disqus,commento,artalk}/definition.yml`), keyed by that module's `key`.
- * Each entry's `mount(container, config, pageUrl)` builds that vendor's embed into `container` --
- * real DOM nodes appended directly, never `innerHTML`'d strings, the same convention
- * `helpers/analyticsProviders.js` follows and for the same reason: a config value that happens to
- * contain markup (an admin-typed shortname, say) must never be parsed as HTML.
+ * One entry per `codeTemplate` comment provider a backend module exists for
+ * (`backend/modules/comments/<key>/definition.yml`), keyed by that module's `key`. Adding a provider
+ * is a new definition plus one entry here; `components/PageCommentsEmbed.vue`, the only caller,
+ * knows nothing about any specific vendor.
  *
- * `components/PageCommentsEmbed.vue` is the only caller and knows nothing about any specific vendor
- * -- it just looks up `siteStore.commentsProvider.module` here, the same shape
- * `boot/analytics.js`/`helpers/analyticsProviders.js` split responsibilities in. Adding a fourth
- * `codeTemplate` provider is a new `backend/modules/comments/<key>/definition.yml` plus one new entry
- * in this map; `PageCommentsEmbed.vue` never changes.
+ * Each `mount(container, config, pageUrl)` builds its vendor's embed out of real DOM nodes, never
+ * `innerHTML`'d strings: a config value that happens to contain markup (an admin-typed shortname,
+ * say) must never be parsed as HTML.
  *
- * `container` is always a freshly-created, empty element for the page currently being viewed --
- * `PageCommentsEmbed.vue` keys it on `pageStore.id`, so Vue tears down and recreates it (and calls
- * `mount` again) on every SPA navigation to a different page rather than reusing one across pages.
- * That is what keeps each vendor's own "already loaded" state (`window.DISQUS`, `window.commento`,
- * `window.Artalk`) as the ONLY thing spanning page views -- the vendor's script/stylesheet loads at
- * most once per app load, `mount` just re-targets it at the new container/page identity every time
- * after that (Disqus's own `DISQUS.reset()`, Commento's `commento.main()`, Artalk's `Artalk.init()`
- * again with a fresh `el`) -- rather than appending a second competing `<script src>` per navigation.
+ * `container` is a fresh, empty element per viewed page -- keyed on `pageStore.id`, so Vue recreates
+ * it and calls `mount` again on every SPA navigation. Each vendor's own "already loaded" global is
+ * therefore the only thing spanning page views: the script/stylesheet loads at most once per app
+ * load and `mount` re-targets it, rather than appending a competing `<script src>` per navigation.
  *
- * `pageUrl` is always the caller's fully-built canonical URL (`siteStore.commentsProvider.origin +
- * '/' + page.path`) -- never re-derived from `window.location` here. See
- * `backend/models/commentProviders.ts`'s canonical-URL boundary doc comment for why that matters.
+ * `pageUrl` is the caller's canonical URL, never re-derived from `window.location` here -- the
+ * vendor keys its thread on it, and an SPA route is not the identity a comment thread belongs to.
  */
 
-/**
- * Loads `src` as a real `<script>` in `document.head`, at most once per app load -- a second `mount`
- * call for the same vendor reuses the already-resolved promise instead of appending a competing tag.
- * `attrs` are set via `setAttribute`, never `innerHTML`.
- */
 const scriptLoads = new Map()
 
 function loadScriptOnce(src, attrs = {}) {
@@ -54,7 +40,6 @@ function loadScriptOnce(src, attrs = {}) {
   return pending
 }
 
-/** Loads `href` as a real `<link rel="stylesheet">` in `document.head`, at most once per app load. */
 const stylesheetsLoaded = new Set()
 
 function loadStylesheetOnce(href) {
@@ -69,7 +54,6 @@ function loadStylesheetOnce(href) {
 }
 
 export const COMMENT_EMBED_PROVIDERS = {
-  /** Disqus -- https://disqus.com/ */
   disqus: {
     async mount(container, config, pageUrl) {
       const shortname = config?.accountName
@@ -81,8 +65,8 @@ export const COMMENT_EMBED_PROVIDERS = {
       container.appendChild(thread)
 
       // -> Disqus's own documented SPA pattern: `window.disqus_config` supplies the canonical page
-      //    identity, `DISQUS.reset()` re-targets an already-loaded embed at it instead of loading
-      //    `embed.js` a second time (which Disqus does not support).
+      //    identity, `DISQUS.reset()` re-targets an already-loaded embed at it. Loading `embed.js` a
+      //    second time is unsupported.
       const disqusConfig = function () {
         this.page.url = pageUrl
         this.page.identifier = pageUrl
@@ -98,7 +82,6 @@ export const COMMENT_EMBED_PROVIDERS = {
     }
   },
 
-  /** Commento -- https://commento.io/ */
   commento: {
     async mount(container, config, pageUrl) {
       const instanceUrl = (config?.instanceUrl || '').replace(/\/+$/, '')
@@ -110,8 +93,7 @@ export const COMMENT_EMBED_PROVIDERS = {
       container.appendChild(root)
 
       // -> Commento auto-detects the current page from `window.location` by default; `data-page-id`
-      //    on its script tag is the documented override, which is what lets this stay pinned to the
-      //    canonical URL passed in rather than whatever the SPA route happens to be.
+      //    on its script tag is the documented override, which pins it to the canonical URL instead
       if (window.commento?.main) {
         window.commento.pageId = pageUrl
         window.commento.main()
@@ -124,7 +106,6 @@ export const COMMENT_EMBED_PROVIDERS = {
     }
   },
 
-  /** Artalk -- https://artalk.js.org (self-hosted) */
   artalk: {
     async mount(container, config, pageUrl) {
       const server = (config?.server || '').replace(/\/+$/, '')
@@ -139,14 +120,13 @@ export const COMMENT_EMBED_PROVIDERS = {
         loadStylesheetOnce(`${server}/dist/Artalk.css`)
         await loadScriptOnce(`${server}/dist/Artalk.js`)
       }
-      // -> Re-checked after the load: a failed/blocked fetch (network hiccup, an ad blocker) still
-      //    fires `load` without ever defining `window.Artalk`, and there is nothing more to do then --
-      //    not a reason to throw out of a page view.
+      // -> Re-checked after the load: a blocked fetch (an ad blocker, say) still fires `load` without
+      //    ever defining `window.Artalk`, and that is no reason to throw out of a page view
       if (!window.Artalk?.init) {
         return
       }
-      // -> A previous mount's instance is gone along with its (now-detached) container -- destroy it
-      //    first so Artalk does not keep listening on an element no longer in the document.
+      // -> A previous mount's container is detached by now -- destroy its instance so Artalk stops
+      //    listening on an element no longer in the document
       window.artalkInstance?.destroy?.()
       window.artalkInstance = window.Artalk.init({
         el: '#artalk-comments',

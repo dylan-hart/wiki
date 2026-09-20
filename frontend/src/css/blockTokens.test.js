@@ -4,15 +4,9 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #2860 ("Add tabs- and block-namespaced custom properties, Ledger-light defaults"). Same
- * rationale as `cobaltTokens.test.js`/`cobaltDarkTokens.test.js`: asserting against `tailwind.css`'s
- * SOURCE TEXT directly, since there is no compiled stylesheet or layout engine in this test
- * environment to resolve a real `var()` cascade against.
- *
- * The `--block-*` namespace this suite pins down covers exactly what `ui-iteration/blocks.md`'s
- * "Ground rules (every block)" and "Shared fragments" sections describe as reusable across every
- * block -- not each block's own per-block specifics, which stay Feature #2844's job (out of this
- * run) when it converts each block in turn. Nothing in `blocks/` reads these yet.
+ * Asserts against `tailwind.css`'s SOURCE TEXT: there is no compiled stylesheet or layout engine in
+ * this environment to resolve a real `var()` cascade against. The `--block-*` namespace covered
+ * here is only what is reusable across every block, never one block's own specifics.
  */
 
 const CSS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'tailwind.css')
@@ -29,7 +23,6 @@ const ledgerDarkSource = source.slice(ledgerDarkStart, cobaltLightStart)
 const cobaltLightSource = source.slice(cobaltLightStart, cobaltDarkStart)
 const cobaltDarkSource = source.slice(cobaltDarkStart, elementResetStart)
 
-/** Finds `--name: value;` (or a multi-line value up to the next `--` or closing brace) in a slice. */
 function declaredValue(slice, name) {
   const re = new RegExp(`--${name}:\\s*([\\s\\S]*?);`, 'm')
   const match = slice.match(re)
@@ -72,9 +65,8 @@ describe('--block-* Ledger-dark overrides', () => {
     'eyebrow-fg': 'var(--color-text-caption-dark)',
     'accent-fill': 'var(--color-accent-dark)',
     'accent-fg': 'var(--color-accent-dark)',
-    // -> OpenProject #2905: restated because --block-accent-fill is restated on this same
-    //    selector -- otherwise its nested var(--block-accent-fill) would keep resolving against
-    //    :root's Ledger-light fill (the same cascade bug class #2886 fixed for --tabs-strip-rule).
+    // -> Restated because --block-accent-fill is restated on this same selector; otherwise its
+    //    nested var(--block-accent-fill) keeps resolving against :root's Ledger-light fill.
     'error-border': '1px dashed var(--block-accent-fill)'
   }
 
@@ -100,12 +92,9 @@ describe('--block-* Cobalt-light overrides', () => {
   })
 
   it('restates --block-radius and --block-corner-marks, aliasing --radius-card/--corner-marks (OpenProject #2955)', () => {
-    // -> NOT left undeclared: left at :root only, their nested var()s would keep resolving against
-    //    <html>'s own Ledger-light values (0, block) even though --radius-card/--corner-marks
-    //    themselves ARE correctly redefined on this same body.body--cobalt selector -- the same
-    //    nested-var() cascade bug #2886/#2905 fixed elsewhere in this file. Every block reading the
-    //    shared alias (block-infobox included) stayed square-cornered with Ledger corner marks
-    //    still showing under Cobalt until this fix.
+    // -> NOT left undeclared: at :root only, their nested var()s keep resolving against <html>'s
+    //    own Ledger-light values (0, block) even though --radius-card/--corner-marks themselves ARE
+    //    redefined on this same body.body--cobalt selector.
     expect(declaredValue(cobaltLightSource, 'block-radius')).toBe('var(--radius-card)')
     expect(declaredValue(cobaltLightSource, 'block-corner-marks')).toBe('var(--corner-marks)')
   })
@@ -134,8 +123,7 @@ describe('--block-* Cobalt-light overrides', () => {
 
 describe('--block-* Cobalt-dark overrides', () => {
   it('restates --block-border, --block-tint-bg and re-points --block-accent-fill', () => {
-    // -> OpenProject #2912: re-derived from the card hue as a solid hex, not the flat white-alpha
-    //    overlay this used to be -- still its own literal override, not the generic alias.
+    // -> A solid hex derived from the card hue: its own literal override, not the generic alias.
     expect(declaredValue(cobaltDarkSource, 'block-border')).toBe('#3143b9')
     expect(declaredValue(cobaltDarkSource, 'block-tint-bg')).toBe('var(--color-dark-3-5)')
     expect(declaredValue(cobaltDarkSource, 'block-accent-fill')).toBe('var(--color-accent-fill)')
@@ -143,16 +131,15 @@ describe('--block-* Cobalt-dark overrides', () => {
 
   it('restates --block-error-border alongside --block-accent-fill (OpenProject #2905)', () => {
     // -> Same reasoning as the Ledger-dark case: --block-accent-fill is restated on this exact
-    //    selector, so --block-error-border must be too, or its nested var() would keep resolving
-    //    against :root's Ledger-light fill instead of this block's own re-pointed value.
+    //    selector, so --block-error-border must be too.
     expect(declaredValue(cobaltDarkSource, 'block-error-border')).toBe(
       '1px dashed var(--block-accent-fill)'
     )
   })
 
   it('re-points --block-accent-fill back to the un-lightened fill, undoing the generic dark rule', () => {
-    // -> Without this override, Cobalt dark would inherit the generic body.body--dark value
-    //    (var(--color-accent-dark)) and draw the lightened Ledger-dark tone instead of staying bright.
+    // -> Without this override, Cobalt dark inherits body.body--dark's var(--color-accent-dark)
+    //    and draws the lightened Ledger-dark tone instead of staying bright.
     expect(declaredValue(ledgerDarkSource, 'block-accent-fill')).toBe('var(--color-accent-dark)')
     expect(declaredValue(cobaltDarkSource, 'block-accent-fill')).not.toBe(
       'var(--color-accent-dark)'
@@ -161,11 +148,7 @@ describe('--block-* Cobalt-dark overrides', () => {
 })
 
 describe('exact-value cross-check against the source docs (ui-iteration/blocks.md)', () => {
-  /**
-   * Resolves a `--color-*`/`--radius-*` alias chain in the FULL source against one aesthetic/mode,
-   * by preferring the most specific matching block. Kept intentionally simple (one alias hop) since
-   * every `--block-*` default above is exactly one `var()` away from a literal.
-   */
+  /** One alias hop only: every `--block-*` default above is exactly one `var()` from a literal. */
   function literalFor(colorToken, { dark, cobalt } = {}) {
     const blocks = []
     if (cobalt && dark) {
@@ -203,7 +186,7 @@ describe('exact-value cross-check against the source docs (ui-iteration/blocks.m
     expect(literalFor('color-hairline')).toBe('#dbe1ec')
     expect(literalFor('color-hairline-dark')).toBe('#2a3040')
     expect(literalFor('color-hairline', { cobalt: true })).toBe('#dfe5f5')
-    // -> Cobalt dark is the literal override (#3143b9, OpenProject #2912), not this generic alias
+    // -> Cobalt dark is the literal override (#3143b9), not this generic alias
   })
 
   it('--block-mark-color matches the 7px corner-mark color PageHeader.vue already draws', () => {

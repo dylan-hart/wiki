@@ -3,12 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { API_KEY_SCOPES, groupScopesByVerb } from './apiKeyScopes'
 
 /**
- * The real cross-workspace check against `backend/helpers/permissions.ts`'s `ALL_PERMISSIONS`
- * lives in `backend/helpers/permissions.test.ts` (OpenProject #1938), which reads this file as text
- * rather than the reverse -- a JS frontend cannot import the backend's TS source across the
- * workspace boundary, and a retyped snapshot here could drift from the backend list with a green
- * test suite either way (which is exactly what happened: see OpenProject #1272). This file keeps
- * only the assertions that are genuinely this list's own concern.
+ * The cross-workspace check against `backend/helpers/permissions.ts`'s `ALL_PERMISSIONS` lives in
+ * `backend/helpers/permissions.test.ts`, which reads this file as text rather than the reverse: a JS
+ * frontend cannot import the backend's TS source, and a retyped snapshot here would drift from the
+ * backend list with a green suite. This file keeps only what is this list's own concern.
  */
 describe('API_KEY_SCOPES', () => {
   it('includes the 4 scopes that were previously missing relative to the backend union (OpenProject #1272)', () => {

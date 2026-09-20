@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 
-/** Builds a ky-shaped `HTTPError` (its own parsed body sitting in `.data`, its own generic message in `.message`). */
+/** Shaped like ky's `HTTPError`: parsed body in `.data`, its own generic message in `.message`. */
 function httpError({ data, message = 'Request failed with status code 503' } = {}) {
   const err = new Error(message)
   err.data = data

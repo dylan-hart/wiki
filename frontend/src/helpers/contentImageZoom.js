@@ -1,27 +1,12 @@
 /**
- * Click-to-zoom for ordinary content images (OpenProject #3066).
+ * Click-to-zoom for ordinary content images: one shared, lazily-created full-viewport `<dialog>`
+ * showing the image's own `src`, since there is no thumbnail/responsive variant to prefer instead.
  *
- * Every `<img>` `enhanceRenderedContent` (`renderedContent.js`) walks over becomes clickable,
- * opening one shared, lazily-created full-viewport `<dialog>` at the image's own `src` -- there is
- * no thumbnail/responsive variant to prefer instead, so "full resolution" is simply whatever the
- * page already rendered. Once open, the image can be zoomed past 100% with the mouse wheel,
- * two-finger pinch, or the dialog's own +/- buttons, and panned by dragging while zoomed.
- *
- * This deliberately does NOT import `blocks/shared/lightbox.js`'s `LightboxController` (OpenProject
- * #3065's extraction), even though the two are conceptually the same primitive. That controller is
- * a Lit `ReactiveController` -- it calls `host.addController`, reads `host.renderRoot` and
- * `host.requestUpdate`/`host.updateComplete` -- which requires a Lit `ReactiveElement` host to
- * attach to. `frontend/` has no `lit` dependency (only `blocks/package.json` does), and content here
- * arrives as plain DOM written by `v-html`, not a Lit component: there is no host, and adding one
- * (or adding `lit` to `frontend/` at all) would cross the workspace boundary of
- * four independently-installed workspaces, each with its own `package.json`/`node_modules`. #3048's
- * own scope note anticipated exactly this ("into `blocks/shared/` **or an equivalent frontend
- * helper**"), so this module is that equivalent: the same shell/behavior contract (full-viewport
- * `<dialog>`, backdrop, Escape closes it natively, scroll lock while open), implemented natively in
- * plain DOM/JS rather than through Lit.
- *
- * Wired into `enhanceRenderedContent`, so it runs on both the live page and the editor preview,
- * exactly like the code-copy button and heading anchors it sits beside.
+ * Deliberately not `blocks/shared/lightbox.js`'s `LightboxController`, conceptually the same
+ * primitive: that is a Lit `ReactiveController` and needs a `ReactiveElement` host to attach to.
+ * Content here arrives as plain DOM written by `v-html`, and `frontend/` has no `lit` dependency --
+ * adding one would cross the workspace boundary. This keeps the same shell contract (full-viewport
+ * `<dialog>`, backdrop, native Escape, scroll lock while open) in plain DOM instead.
  */
 
 const ROOT_CLASS = 'content-image-lightbox'
@@ -44,11 +29,9 @@ let pinchState = null
 let heldScroll = null
 
 /**
- * The scrollable ancestor that actually moves when the reader scrolls -- held still while the
- * lightbox is open, same as `blocks/shared/lightbox.js#scrollerOf` and `helpers/anchors.js`'s own
- * private copy. Kept as its own small copy here too rather than an import: the three sit in two
- * independently-installed workspaces (`frontend/`, `blocks/`) plus this file's own sibling, and none
- * of the three shares a module boundary with either of the others.
+ * The scrollable ancestor that actually moves when the reader scrolls, held still while the lightbox
+ * is open. `blocks/shared/lightbox.js` and `helpers/anchors.js` each keep their own copy of this:
+ * the three sit in two independently-installed workspaces with no shared module boundary.
  */
 function scrollerOf(el) {
   for (let node = el.parentElement; node; node = node.parentElement) {
@@ -60,8 +43,6 @@ function scrollerOf(el) {
   return document.scrollingElement ?? document.documentElement
 }
 
-/** Stop the page moving under the lightbox, and let it go again afterwards -- see
- *  `blocks/shared/lightbox.js#_holdPage` for the fuller reasoning; this is the same trick. */
 function holdPage(held) {
   if (held) {
     const scroller = scrollerOf(dialogEl)
@@ -112,8 +93,7 @@ function onZoomOut() {
   setScale(scale - ZOOM_STEP)
 }
 
-/** Panning, once zoomed. Pointer Events cover mouse, pen and single-finger touch alike, so this is
- *  the one drag implementation for all three. */
+/** Pointer Events cover mouse, pen and single-finger touch alike: one pan for all three. */
 function onPointerDown(ev) {
   if (scale <= ZOOM_MIN || (ev.pointerType === 'mouse' && ev.button !== 0)) {
     return
@@ -146,17 +126,15 @@ function endDrag(ev) {
   }
 }
 
-/** The on-screen distance between two touches, for measuring a pinch. */
 function touchDistance(touches) {
   const [a, b] = touches
   return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
 }
 
 /**
- * Two-finger pinch-to-zoom, handled through raw `Touch` events rather than folded into the
- * Pointer-Events pan above: each touch of a pinch also fires its own `pointerdown`/`pointermove`,
- * and gating this handler on `ev.touches.length === 2` is what keeps the two from fighting over the
- * same gesture, rather than needing either API to suppress the other.
+ * Pinch-to-zoom stays on raw `Touch` events rather than folding into the Pointer-Events pan above:
+ * each touch of a pinch also fires its own `pointerdown`/`pointermove`, and gating on
+ * `ev.touches.length === 2` keeps the two gestures apart without either API suppressing the other.
  */
 function onTouchStart(ev) {
   if (ev.touches.length === 2) {
@@ -178,8 +156,6 @@ function onTouchEnd(ev) {
   }
 }
 
-/** A click on the ground the enlarged image sits on, rather than on the image itself or a button
- *  drawn over it -- same convention as `blocks/shared/lightbox.js#onStageClick`. */
 function onStageClick(ev) {
   if (ev.target === dialogEl || ev.target === stageEl) {
     dialogEl.close()
@@ -205,9 +181,7 @@ function makeControlButton(glyph, label) {
   return button
 }
 
-/** Builds the one shared dialog on first use. `t` is read once, here, for the controls' labels --
- *  the locale does not change mid-session without a full reload, so there is nothing to keep in
- *  sync afterwards. */
+/** `t` is read once, for the controls' labels: the locale cannot change without a full reload. */
 function ensureDialog(t) {
   if (dialogEl) {
     return dialogEl
@@ -262,16 +236,9 @@ function openLightbox(src, alt, t) {
 }
 
 /**
- * Wire every content image under `root` to open the lightbox on click.
- *
- * Idempotent, the same convention `addCodeCopyButtons` uses in `renderedContent.js`: a
- * `data-content-zoom` marker keeps a later pass over unchanged content from adding a second
- * listener. An image that is itself inside a link (markdown's `[![alt](img)](href)` pattern, which
- * makes the image double as a hyperlink) is marked but deliberately left unwired, so clicking it
- * keeps following the link rather than silently losing it to the lightbox.
- *
- * @param {HTMLElement} root The element the render was written into.
- * @param {Function} t vue-i18n translation method.
+ * Idempotent: the `data-content-zoom` marker keeps a later pass over unchanged content from adding a
+ * second listener. An image inside a link (markdown's `[![alt](img)](href)`) is marked but left
+ * unwired, so clicking it keeps following the link rather than losing it to the lightbox.
  */
 export function enhanceContentImageZoom(root, t) {
   for (const img of root.querySelectorAll('img:not([data-content-zoom])')) {
@@ -284,11 +251,7 @@ export function enhanceContentImageZoom(root, t) {
   }
 }
 
-/**
- * Test-only: drop the lazily-created dialog and all module state, so a fresh test does not inherit
- * another test's DOM node or open lightbox. Same convention as `blocks/shared/site.js`'s
- * `_resetSiteCache()`.
- */
+/** Test-only: the dialog and the zoom state are module-level, so a test would inherit the last. */
 export function _resetContentImageZoom() {
   dialogEl?.remove()
   dialogEl = null

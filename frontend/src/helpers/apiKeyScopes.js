@@ -1,14 +1,8 @@
 /**
  * The closed permission vocabulary an API key / personal access token scope entry may name -- mirrors
- * `ALL_PERMISSIONS` (`backend/helpers/permissions.ts`), which is what the API actually validates a
- * scope against. Duplicated rather than fetched: it is a fixed, closed list, the same way
- * `GroupEditOverlay.vue`'s own `permissions` / `rules` arrays are.
- *
- * The single shared source for both `ApiKeyCreateDialog.vue` (admin-issued keys) and
- * `ProfileApiKeyCreateDialog.vue` (personal tokens) -- previously each hand-maintained its own copy,
- * which is how the frontend list drifted 4 scopes behind the backend's `ALL_PERMISSIONS`
- * (`read:users`, `read:groups`, `manage:glossary`, `manage:classification` were missing here; see
- * OpenProject #1272).
+ * `ALL_PERMISSIONS` (`backend/helpers/permissions.ts`), which is what the API validates a scope
+ * against. Duplicated rather than fetched because the list is fixed and closed;
+ * `backend/helpers/permissions.test.ts` reads this file as text and fails if the two drift.
  */
 import { groupBy } from 'es-toolkit/array'
 
@@ -44,10 +38,8 @@ export const API_KEY_SCOPES = [
 ]
 
 /**
- * Groups a flat scope list by verb (the `access`/`manage`/`read`/`write`/`delete`/`review` prefix
- * before the `:`), preserving each verb's first-seen order -- the shape the scope picker tree
- * (`ApiKeyScopePicker.vue`) renders one node per verb from. A verb with a single member (`review`
- * currently has only `review:pages`) still gets its own group, rather than being special-cased away.
+ * Each verb's first-seen order is preserved: it is the order the scope picker tree draws its nodes
+ * in. A verb with a single member still gets its own group rather than being special-cased away.
  */
 export function groupScopesByVerb(scopes = API_KEY_SCOPES) {
   const grouped = groupBy(scopes, (scope) => scope.split(':')[0])

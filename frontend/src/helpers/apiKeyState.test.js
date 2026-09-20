@@ -15,7 +15,6 @@ import {
 const FUTURE = '2099-01-01T00:00:00.000Z'
 const PAST = '2000-01-01T00:00:00.000Z'
 
-/** Stands in for `useI18n()`'s `t`: echoes the key, with the interpolated values appended. */
 const t = (key, values) => (values ? `${key}:${JSON.stringify(values)}` : key)
 
 const key = (extra = {}) => ({

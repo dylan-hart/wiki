@@ -1,48 +1,34 @@
 /**
- * Getting to a heading inside a rendered page.
- *
- * Three things make this more than `scrollIntoView`. The render arrives after the browser has already
- * tried the fragment in the URL, so an anchor a reader followed from elsewhere lands nowhere; a
- * heading can sit inside a block that is not showing it — a tab that is not the open one — where it
- * has no box to scroll to; and the page goes on changing height for a while after it is drawn, as
- * each block fetches its component and settles into its real size.
+ * Getting to a heading inside a rendered page, which `scrollIntoView` alone cannot do: the render
+ * arrives after the browser has already tried the URL's fragment, a heading can sit inside a block
+ * that is not showing it (a closed tab) and so has no box, and the page goes on changing height as
+ * each block fetches its component.
  */
 
 /**
- * Asked of a block that might be hiding the element the event was dispatched on.
- *
- * Bubbles and crosses shadow boundaries, so the block that answers is whichever one happens to be
- * above the heading: the app does not need to know which kinds of block can hide things, and a new
- * one only has to listen. `block-tabs` answers it by opening the panel the heading is in.
+ * Asked of a block that might be hiding the element the event was dispatched on. Bubbles and crosses
+ * shadow boundaries, so the app needs no knowledge of which kinds of block can hide things — a new
+ * one only has to listen.
  */
 export const REVEAL_EVENT = 'block-reveal'
 
-/** How often the heading's position is sampled while waiting for the page to stop moving. */
 const SAMPLE_MS = 60
 
-/** How many samples in a row must agree before the page counts as settled. */
 const STABLE_SAMPLES = 3
 
-/** How long to wait for a smooth scroll to finish, where the browser cannot say when it has. */
 const SETTLE_MS = 1200
 
-/** How far the heading may sit from where it was aimed before it is worth correcting, in pixels. */
 const DRIFT_TOLERANCE = 4
 
 /**
- * Left on whatever a fragment link landed on, for content styling to mark — a footnote does, since it
- * is one item among a list of near-identical ones and being sent to it says nothing about which.
- *
- * `:target` used to do this and cannot any more: an in-content fragment link is followed with
- * `router.push`, and a pushed hash does not set the document's target element. Doing it here instead
- * covers arriving with a `#fragment` in the URL by the same path, which `:target` handled differently
- * from a click. Styled in `_page-contents.css` — the two have to be kept in step.
+ * Left on whatever a fragment link landed on, for content styling to mark. Replaces `:target`, which
+ * cannot serve: an in-content fragment link is followed with `router.push`, and a pushed hash does
+ * not set the document's target element. Styled in `_page-contents.css` — keep the two in step.
  */
 export const LANDED_CLASS = 'is-anchor-landed'
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** Mark where the reader has just been sent, and only there — the way `:target` behaved. */
 function markLanded(el) {
   for (const previous of document.querySelectorAll(`.${LANDED_CLASS}`)) {
     previous.classList.remove(LANDED_CLASS)
@@ -50,7 +36,6 @@ function markLanded(el) {
   el.classList.add(LANDED_CLASS)
 }
 
-/** The heading a `#slug` refers to, or null. */
 export function anchorTarget(hash) {
   const id = decodeURIComponent(String(hash ?? '').replace(/^#/, ''))
   // -> `getElementById` rather than a selector, which would have to escape a slug that is not a
@@ -58,21 +43,18 @@ export function anchorTarget(hash) {
   return id ? document.getElementById(id) : null
 }
 
-/** Whether an element has a box on the page — false while it sits in a panel that is not showing. */
+/** False while the element sits in a block panel that is not showing, and so has no box. */
 function isVisible(el) {
   return Boolean(el.offsetParent ?? el.getClientRects().length)
 }
 
-/** Ask whatever is above the element to bring it into view. */
 function reveal(el) {
   el.dispatchEvent(new CustomEvent(REVEAL_EVENT, { bubbles: true, composed: true }))
 }
 
 /**
- * The box the element actually scrolls in.
- *
  * The article has its own scroller rather than the window — the shell stays put and the column moves
- * — so the position of the heading has to be read against that box, not the viewport.
+ * — so the heading's position has to be read against that box, not the viewport.
  */
 function scrollerOf(el) {
   for (let node = el.parentElement; node; node = node.parentElement) {
@@ -84,12 +66,10 @@ function scrollerOf(el) {
   return document.scrollingElement ?? document.documentElement
 }
 
-/** Where the heading sits in the document, independent of how far the page is scrolled. */
 function positionOf(el, scroller) {
   return Math.round(el.getBoundingClientRect().top + scroller.scrollTop)
 }
 
-/** How far the heading is from where a scroll aiming at it would put it. */
 function driftOf(el, scroller) {
   const margin = Number.parseFloat(getComputedStyle(el).scrollMarginTop) || 0
   const wanted = scroller.getBoundingClientRect().top + margin
@@ -102,12 +82,9 @@ function scrollTo(el, smooth) {
 }
 
 /**
- * Wait until the heading stops moving.
- *
  * Blocks land after the page is drawn and change its height as they do — a set of tabs is at its
- * tallest before its component arrives, with every panel stacked up, and collapses to one when it
- * does. Scrolling into that leaves the reader somewhere below the heading they asked for, so this
- * waits for the page to hold still before aiming at anything.
+ * tallest before its component arrives, with every panel stacked up. Scrolling mid-flight leaves the
+ * reader somewhere below the heading they asked for.
  */
 async function whenStill(el, scroller, deadline) {
   let previous = null
@@ -123,7 +100,6 @@ async function whenStill(el, scroller, deadline) {
   }
 }
 
-/** Wait for a scroll to come to rest, by the event where there is one and by the clock where not. */
 function whenScrollEnded(scroller) {
   if (!('onscrollend' in window)) {
     return delay(SETTLE_MS)
@@ -140,12 +116,8 @@ function whenScrollEnded(scroller) {
 }
 
 /**
- * Scroll a heading into view, asking whatever is above it to reveal it first.
- *
  * For a page that is already settled — a click on the contents list, say. See
  * `scrollToAnchorWhenReady` for one that has only just been rendered.
- *
- * @returns Whether there was a heading to scroll to
  */
 export function scrollToAnchor(hash, { smooth = false } = {}) {
   const target = anchorTarget(hash)
@@ -162,12 +134,9 @@ export function scrollToAnchor(hash, { smooth = false } = {}) {
 }
 
 /**
- * The same, for a page that has only just been rendered: wait for the heading, then for the page to
- * settle, then animate to it — and check afterwards, in case something arrived late enough to move
- * it while the scroll was under way.
- *
- * Animated rather than jumped, so a reader who followed a link into the middle of a long page sees
- * where they were taken instead of being asked to work out where the top went.
+ * The same, for a page that has only just been rendered. Animated rather than jumped, so a reader
+ * who followed a link into the middle of a long page sees where they were taken instead of having to
+ * work out where the top went.
  */
 export async function scrollToAnchorWhenReady(hash, { timeout = 5000 } = {}) {
   if (!hash) {

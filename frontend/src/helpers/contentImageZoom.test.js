@@ -2,13 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { _resetContentImageZoom, enhanceContentImageZoom } from './contentImageZoom'
 
-/**
- * OpenProject #3066: click-to-zoom on ordinary content images, wired into
- * `renderedContent.js`'s enhancement pass (see `renderedContent.test.js` for the integration
- * point itself). This file covers the lightbox `contentImageZoom.js` owns: opening at the
- * clicked image's own src, the linked-image exclusion, zoom past 100% (wheel, pinch, the +/-
- * buttons) and pan while zoomed.
- */
+/** The lightbox alone; `renderedContent.test.js` covers the enhancement pass that wires it up. */
 
 const MESSAGES = {
   'common.actions.close': 'Close',
@@ -187,7 +181,6 @@ describe('contentImageZoom', () => {
     const box = dialog()
     const lightboxImg = box.querySelector('img')
 
-    // -> At 100%, dragging does nothing -- there is nowhere to pan to yet
     lightboxImg.dispatchEvent(pointerEvent('pointerdown', { clientX: 0, clientY: 0 }))
     lightboxImg.dispatchEvent(pointerEvent('pointermove', { clientX: 40, clientY: 40 }))
     expect(lightboxImg.style.transform).toBe('')

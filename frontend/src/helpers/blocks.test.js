@@ -2,13 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { propDefault, seedConfigValues } from './blocks.js'
 
-/**
- * WP #1745: the seam between an admin's site-wide `config` (block-kroki/block-plantuml's "Server"
- * field, set on the admin Blocks page) and a prop's own hardcoded default -- what
- * `BlockPickerOverlay` and the "Edit Block Parameters" lens both seed a form from. Before this fix,
- * block-kroki/block-plantuml declared no `config` at all, so this path never had anything real to
- * read from `block.config`; this locks in the seeding half now that they do.
- */
 describe('propDefault', () => {
   it("prefers the site's own configured value over the prop's hardcoded default", () => {
     const block = { config: { server: 'https://kroki.internal' } }

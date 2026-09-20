@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { collectBlocksToLoad } from './blockScan'
 
 /**
- * `:not(:defined)` is what the scan selects on, so nothing here registers a custom element: every
- * `block-*` in these fixtures is undefined, which is exactly the state a freshly-rendered page is in.
+ * The scan selects on `:not(:defined)`, so nothing here registers a custom element — leaving every
+ * `block-*` in these fixtures in the state a freshly-rendered page is in.
  */
 function render(html) {
   const root = document.createElement('div')
