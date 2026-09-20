@@ -2,11 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { boolean } from './props.js'
 
-/*
- * The one thing this converter exists for: MDC writes every prop with a value, so the block picker
- * produces `autoplay="false"` for a toggle that was switched on and off again -- and Lit's own
- * Boolean converter reads any string at all, that one included, as true.
- */
 describe('shared/props.js: boolean', () => {
   it('reads a missing attribute as false', () => {
     expect(boolean.converter.fromAttribute(null)).toBe(false)

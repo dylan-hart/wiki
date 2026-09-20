@@ -3,17 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DarkMode, isDark, watchTheme } from './theme.js'
 
 /**
- * OpenProject #1968 / testing.md §6: `theme.js` is imported by 21 of the 26 blocks and is the
- * mandated dark-mode module (`:host-context()` silently never matches outside Chromium), yet before
- * this it was exercised only as a side effect of the 11 block suites that happen to assert on dark
- * mode. This pins `watchTheme`'s shared-observer lifecycle and the `DarkMode` controller directly,
- * against a minimal stand-in for Lit's `ReactiveElement` rather than a real block.
- */
-
-/**
- * Minimal stand-in for `import('lit').ReactiveElement`: just enough of the controller-host
- * contract (`addController`, `toggleAttribute`, `requestUpdate`) for `DarkMode` to drive, with no
- * real Lit rendering pipeline behind it.
+ * Minimal stand-in for `import('lit').ReactiveElement`: just enough of the controller-host contract
+ * for `DarkMode` to drive, with no real Lit rendering pipeline behind it.
  */
 class FakeHost {
   constructor() {
@@ -22,7 +13,7 @@ class FakeHost {
   }
 
   addController() {
-    // -> DarkMode only needs this to be callable; it keeps no reference back to the controller.
+    // -> DarkMode only needs this to be callable.
   }
 
   toggleAttribute(name, force) {
@@ -202,7 +193,7 @@ describe('shared/theme.js: DarkMode', () => {
     const onChange = (dark) => order.push(`onChange:${dark}`)
     const darkMode = new DarkMode(host, { onChange })
     darkMode.hostConnected()
-    // -> Clear the hostConnected-time apply call; only the mutation-driven one is under test here.
+    // -> Drop the hostConnected-time apply; only the mutation-driven one is under test here.
     order.length = 0
 
     setDark(true)
