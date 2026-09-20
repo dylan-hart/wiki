@@ -16,7 +16,7 @@ import { randomBytes } from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
@@ -223,18 +223,26 @@ async function seedContent(db: WikiDb, label: string): Promise<SeededContent> {
 }
 
 describe(
-  'scheduled replication pull: buildSnapshot -> importSnapshot wipes and mirrors target from source (DB-backed)',
+  'scheduled replication pull: replication.pull() over a stubbed fetch wipes and mirrors target from source (DB-backed)',
   { skip: !hasTestDatabase() },
   () => {
+    const SOURCE_URL = 'https://source.round-trip.example'
+    const BEARER_TOKEN = 'round-trip-token'
+
     let source: Instance
     let target: Instance
     let sourceContent: SeededContent
     let targetContent: SeededContent
     let dataPath: string
     let wikiHandle: { restore(): void }
+    let previousFetch: typeof fetch
+    let addJob: ReturnType<typeof mock.fn>
+    let importedFilePath: string | undefined
+    let importReport: unknown
 
     before(async () => {
       await ensureTemporal()
+      previousFetch = globalThis.fetch
 
       source = await openInstance()
       target = await openInstance()
@@ -245,10 +253,39 @@ describe(
       dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-replication-round-trip-'))
       // -> One global for the whole suite, with `.db` reassigned right before each call: nothing
       //    under test reads `CARDINAL.db` elsewhere, so juggling two stubs would buy nothing.
-      wikiHandle = installTestWiki({ db: source.db, config: { dataPath } })
+      addJob = mock.fn(async () => ({ id: 'queued-job' }))
+      wikiHandle = installTestWiki({
+        db: source.db,
+        ROOTPATH: dataPath,
+        config: {
+          dataPath,
+          replication: { isEnabled: true, sourceUrl: SOURCE_URL, bearerToken: BEARER_TOKEN }
+        },
+        scheduler: { addJob },
+        models: {
+          // -> The real import, wrapped only to keep the file it was handed and the report it returned
+          replicationImport: {
+            async importSnapshot(filePath: string) {
+              const { replicationImportModel } = await import('../models/replicationImport.ts')
+              importedFilePath = filePath
+              importReport = await replicationImportModel.importSnapshot(filePath)
+              return importReport
+            }
+          },
+          sites: {
+            broadcastReload: mock.fn(async () => {}),
+            getAllSites: mock.fn(async () => target.db.select().from(sitesTable))
+          },
+          groups: { broadcastReload: mock.fn(async () => {}) },
+          classificationLevels: { broadcastReload: mock.fn(async () => {}) },
+          glossary: { invalidateCache: mock.fn(() => {}) },
+          assetServing: { forgetAllPaths: mock.fn(() => {}) }
+        }
+      })
     })
 
     after(async () => {
+      globalThis.fetch = previousFetch
       wikiHandle.restore()
       await fs.rm(dataPath, { recursive: true, force: true })
       await closeInstance(source)
@@ -257,7 +294,7 @@ describe(
 
     test('a pull wipes the target instance and replaces it with an exact mirror of the source', async () => {
       const { replicationExport } = await import('../models/replicationExport.ts')
-      const { replicationImportModel } = await import('../models/replicationImport.ts')
+      const { replication } = await import('../models/replication.ts')
 
       CARDINAL.db = source.db
       const exportResult = await replicationExport.buildSnapshot()
@@ -266,10 +303,51 @@ describe(
       assert.equal(stat.size, exportResult.fileSize)
       assert.ok(exportResult.fileSize > 0)
 
-      CARDINAL.db = target.db
-      const report = await replicationImportModel.importSnapshot(exportResult.filePath)
+      const requests: { method: string; url: string; authorization: string | null }[] = []
+      globalThis.fetch = mock.fn(async (input: any, init?: RequestInit) => {
+        const url = String(input)
+        const method = init?.method ?? 'GET'
+        const headers = new Headers(init?.headers)
+        requests.push({ method, url, authorization: headers.get('Authorization') })
+        if (method === 'POST' && url === `${SOURCE_URL}/_api/system/replication/export`) {
+          return Response.json({ id: 'export-1' })
+        }
+        if (url === `${SOURCE_URL}/_api/system/replication/export/export-1/download`) {
+          return new Response(await fs.readFile(exportResult.filePath), { status: 200 })
+        }
+        return new Response(null, { status: 404 })
+      }) as unknown as typeof fetch
 
-      assert.deepEqual(report, {
+      CARDINAL.db = target.db
+      await replication.pull()
+
+      const bearer = `Bearer ${BEARER_TOKEN}`
+      assert.deepEqual(requests, [
+        {
+          method: 'POST',
+          url: `${SOURCE_URL}/_api/system/replication/export`,
+          authorization: bearer
+        },
+        {
+          method: 'GET',
+          url: `${SOURCE_URL}/_api/system/replication/export/export-1/download`,
+          authorization: bearer
+        }
+      ])
+      assert.ok(importedFilePath, 'the pull handed the downloaded file to the import')
+      assert.notEqual(importedFilePath, exportResult.filePath, 'the import reads the download')
+      await assert.rejects(
+        fs.stat(importedFilePath),
+        { code: 'ENOENT' },
+        'the downloaded archive is removed once the import is done'
+      )
+      assert.deepEqual(
+        addJob.mock.calls.map((call) => call.arguments[0]),
+        [{ task: 'rebuildSearchIndex', payload: { siteId: sourceContent.siteId } }],
+        'the post-import side effects ran against the restored site'
+      )
+
+      assert.deepEqual(importReport, {
         sites: 1,
         classificationLevels: 1,
         groups: 1,

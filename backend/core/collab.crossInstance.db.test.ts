@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import { Worker } from 'node:worker_threads'
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import { PEER_STATE_TIMEOUT, RELAY_REASSEMBLY_TIMEOUT } from './collab.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
@@ -92,11 +92,9 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
   let connectionString: string
   let a: WorkerHandle
   let b: WorkerHandle
-  let dbWiki: any
 
   before(async () => {
     fixtures = await setupTestDb()
-    dbWiki = (globalThis as any).CARDINAL
     connectionString = process.env.DATABASE_URL!
     ;[a, b] = await Promise.all([
       startInstance(connectionString, fixtures.schema, 'instance-a', fixtures.siteId),
@@ -106,10 +104,6 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
 
   // TODO: drop this hook and `dbWiki` -- nothing in this file replaces the `CARDINAL` that
   //    `setupTestDb()` installs.
-  beforeEach(() => {
-    ;(globalThis as any).CARDINAL = dbWiki
-  })
-
   after(async () => {
     await Promise.all([a?.close(), b?.close()])
     await teardownTestDb()
