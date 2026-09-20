@@ -233,7 +233,7 @@ any permission you touch.
 
 **Global permissions** are held site-wide, bound to no path: `access:admin`, `read:users`,
 `manage:users`, `read:groups`, `manage:groups`, `manage:navigation`, `manage:theme`, `manage:sites`,
-`manage:glossary`, `read:audit`, `manage:system`. That list is the whole of it — the one offered by the group
+`manage:glossary`, `read:audit`, `read:metrics`, `manage:system`. That list is the whole of it — the one offered by the group
 editor (`GroupEditOverlay.vue`). They live on a group's `permissions` column, are flattened onto
 `req.session.permissions` at login (`models/users.ts` → `updateSession`), and are what the per-route
 `config.permissions` hook checks. `manage:system` bypasses every check everywhere.

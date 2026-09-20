@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict'
-import { after, before, describe, test } from 'node:test'
+import { after, before, beforeEach, describe, test } from 'node:test'
 import fastify from 'fastify'
+import fastifySensible from '@fastify/sensible'
 import type { FastifyInstance } from 'fastify'
 import metricsRoutes from './metrics.ts'
 import { groups as groupsTable, pages as pagesTable, users as usersTable } from '../db/schema.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 let wikiHandle: { restore(): void }
+
+const metricsConfig = { isEnabled: true }
+let verifyStub: (token: string) => Promise<{ permissions: string[] }> = async () => ({
+  permissions: ['manage:system']
+})
 
 /**
  * Each stub records when it was called and, after a fixed delay, when it resolved. Issued
@@ -33,11 +39,11 @@ describe('GET /metrics', () => {
 
   before(async () => {
     wikiHandle = installTestWiki({
-      config: { metrics: { isEnabled: true } },
+      config: { metrics: metricsConfig },
       dbManager: { dbName: 'wiki_test', pool: { totalCount: 4, idleCount: 1, waitingCount: 0 } },
       models: {
         apiKeys: {
-          verify: async () => ({ permissions: ['manage:system'] })
+          verify: (token: string) => verifyStub(token)
         },
         jobs: {
           countActive: () => record('activeWorkers', 3),
@@ -57,6 +63,7 @@ describe('GET /metrics', () => {
     })
 
     app = fastify()
+    await app.register(fastifySensible)
     await app.register(metricsRoutes)
     await app.ready()
   })
@@ -64,6 +71,73 @@ describe('GET /metrics', () => {
   after(async () => {
     await app.close()
     wikiHandle.restore()
+  })
+
+  const SCRAPE = { method: 'GET', url: '/', headers: { authorization: 'Bearer any' } } as const
+
+  describe('access', () => {
+    const ADMIN = async () => ({ permissions: ['manage:system'] })
+
+    beforeEach(() => {
+      events = []
+    })
+
+    after(() => {
+      verifyStub = ADMIN
+      metricsConfig.isEnabled = true
+    })
+
+    test('a key holding read:metrics alone scrapes', async () => {
+      verifyStub = async () => ({ permissions: ['read:metrics'] })
+      const res = await app.inject(SCRAPE)
+      assert.equal(res.statusCode, 200)
+    })
+
+    test('a key holding manage:system alone still scrapes', async () => {
+      verifyStub = ADMIN
+      const res = await app.inject(SCRAPE)
+      assert.equal(res.statusCode, 200)
+    })
+
+    test('a key holding neither permission gets 403', async () => {
+      verifyStub = async () => ({ permissions: ['read:users', 'manage:groups', 'read:pages'] })
+      const res = await app.inject(SCRAPE)
+      assert.equal(res.statusCode, 403)
+    })
+
+    test('a key whose scope removed read:metrics from its owner gets 403', async () => {
+      verifyStub = async () => ({ permissions: [] })
+      const res = await app.inject(SCRAPE)
+      assert.equal(res.statusCode, 403)
+    })
+
+    test('a revoked or expired key is refused with 401 and its reason', async () => {
+      for (const reason of ['API key has been revoked.', 'API key has expired.']) {
+        verifyStub = async () => {
+          throw new Error(reason)
+        }
+        const res = await app.inject(SCRAPE)
+        assert.equal(res.statusCode, 401)
+        assert.match(res.body, new RegExp(reason.replace('.', '\\.')))
+      }
+    })
+
+    test('a missing bearer token gets 401', async () => {
+      verifyStub = async () => ({ permissions: ['read:metrics'] })
+      const res = await app.inject({ method: 'GET', url: '/' })
+      assert.equal(res.statusCode, 401)
+    })
+
+    test('flag off is 404 even for a key that would otherwise scrape', async () => {
+      verifyStub = async () => ({ permissions: ['read:metrics', 'manage:system'] })
+      metricsConfig.isEnabled = false
+      try {
+        assert.equal((await app.inject(SCRAPE)).statusCode, 404)
+        assert.equal((await app.inject({ method: 'GET', url: '/' })).statusCode, 404)
+      } finally {
+        metricsConfig.isEnabled = true
+      }
+    })
   })
 
   test('issues all seven lookups concurrently, not serially', async () => {

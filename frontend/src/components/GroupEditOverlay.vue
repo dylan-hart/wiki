@@ -305,6 +305,7 @@ const PERMISSIONS_DATA = [
   { permission: 'manage:sites', warning: true, restrictedForSystem: true, disabled: false },
   { permission: 'manage:glossary', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'read:audit', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:metrics', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'manage:system', warning: true, restrictedForSystem: true, disabled: true }
 ]
 

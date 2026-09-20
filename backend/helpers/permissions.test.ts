@@ -19,6 +19,7 @@ describe('helpers/permissions', () => {
       'manage:sites',
       'manage:glossary',
       'read:audit',
+      'read:metrics',
       'manage:system'
     ])
   })

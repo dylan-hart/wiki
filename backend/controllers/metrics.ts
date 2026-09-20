@@ -8,6 +8,8 @@ import {
 } from '../helpers/metrics.ts'
 import type { FastifyInstance } from 'fastify'
 
+const METRICS_PERMISSIONS = ['manage:system', 'read:metrics']
+
 /**
  * Prometheus scrape endpoint. Every series is a plain gauge already computed elsewhere, so the
  * exposition writer is hand-rolled in `helpers/metrics.ts` rather than pulling in `prom-client` —
@@ -51,7 +53,7 @@ async function routes(app: FastifyInstance) {
       return reply.unauthorized(err.message)
     }
 
-    if (!apiKey.permissions.includes('manage:system')) {
+    if (!apiKey.permissions.some((permission) => METRICS_PERMISSIONS.includes(permission))) {
       return reply.forbidden()
     }
 
