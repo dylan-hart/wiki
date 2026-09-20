@@ -12,10 +12,6 @@ import {
   normalizePagePath
 } from '../helpers/common.ts'
 
-/**
- * How many descendant rows `refreshDescendantPaths` writes back per `UPDATE ... FROM (VALUES ...)`
- * statement.
- */
 export const TREE_UPDATE_CHUNK_SIZE = 200
 
 /** Mirrors the `treeType` enum in the schema. */
@@ -27,13 +23,12 @@ export type TreeOrderBy = (typeof TREE_ORDER_BY)[number]
 
 /**
  * One shape for all three kinds rather than three: a folder listing interleaves them, and the type
- * field is what tells them apart. The kind-specific fields are absent on the kinds they do not apply
- * to.
+ * field is what tells them apart.
  */
 export interface TreeItem {
   id: string
   type: TreeItemType
-  /** How many folders deep the entry sits, 0 being the root. */
+  /** Folders deep from the site root, not from the folder being listed. */
   depth: number
   /** Slash-separated, without a leading or trailing slash. Empty at the root. */
   folderPath: string
@@ -42,9 +37,9 @@ export interface TreeItem {
   tags: string[]
   createdAt: Date
   updatedAt: Date
-  /** Folders only — how many entries the folder holds. */
+  /** Folders only. */
   childrenCount?: number
-  /** Folders only — whether this folder is a parent of the one being listed, not a child of it. */
+  /** Folders only — an ancestor of the folder being listed, not an entry in it. */
   isAncestor?: boolean
   /** Assets only. */
   fileSize?: number
@@ -53,9 +48,8 @@ export interface TreeItem {
   /** Pages only. */
   editor?: string
   description?: string
-  /** Pages only — classification level id, for the permission filter layered on top of this listing
-   *  (`visibleTreeItems` in `helpers/pageAccess.ts`). Never returned to the client: no API schema
-   *  declares this field, so Fastify's response serialization drops it. */
+  /** Pages only, for `visibleTreeItems`' permission filter (`helpers/pageAccess.ts`). Never reaches
+   *  the client: no API schema declares it, so Fastify's response serialization drops it. */
   classification?: string | null
 }
 
@@ -65,63 +59,53 @@ export interface TreeItem {
  * one entry carrying both flags rather than as two rows with the same name.
  */
 export interface BrowseItem {
-  /** Slash-separated path of the entry: the page's own URL, and the folder to list on the way down. */
+  /** Slash-separated: the page's own URL, and the folder to list on the way down. */
   path: string
   fileName: string
   title: string
-  /** The page's icon, as an Iconify reference. Null for a folder with no page at its path. */
+  /** Iconify reference. Null for a folder with no page at its path. */
   icon: string | null
   isPage: boolean
   isFolder: boolean
-  /** The page's classification level id, for the reader-permission filter layered on top of this
-   *  listing. Null for a folder with no page at its path. Never returned to the client: no API schema
-   *  declares this field, so Fastify's response serialization drops it. */
+  /** For the reader-permission filter layered on top of this listing. Never reaches the client: no
+   *  API schema declares it, so Fastify's response serialization drops it. */
   classification: string | null
-  /** The page's tags, for the same filter -- a TAG/TAGALL rule needs them to decide `read:pages` the
-   *  same as a path rule needs the path. Empty for a folder with no page at its path. Never returned
-   *  to the client either. */
+  /** For the same filter -- a TAG/TAGALL rule needs tags to decide `read:pages` the same as a path
+   *  rule needs the path. Never reaches the client either. */
   tags: string[]
 }
 
 export interface BrowseLevel {
-  /** The folder that was listed, slash-separated. Empty at the site root. */
+  /** Slash-separated. Empty at the site root. */
   path: string
-  /** The folder's title. Empty at the site root, which is not a folder and has no row of its own. */
+  /** Empty at the site root, which is not a folder and has no row of its own. */
   title: string
   items: BrowseItem[]
-  /** Whether the folder holds more than `MAX_BROWSE` entries, the rest of which were dropped. */
+  /** More than `MAX_BROWSE` entries; the rest were dropped. */
   truncated: boolean
 }
 
 export interface ListedPage {
   id: string
-  /** Slash-separated path of the page, i.e. its URL within the site. */
   path: string
   title: string
   description: string
-  /** The page's icon, as an Iconify reference. Empty when it has none. */
+  /** Iconify reference. Empty when the page has none. */
   icon: string
-  /** Whether a page a reader may open sits nested under this page's own path, at any depth — the
-   *  book-vs-file signal a nested tree view draws off of. Judged by the same `pageIsVisible` rule as
-   *  the listing itself, so a caller never learns of a child it could not otherwise see. */
+  /** The book-vs-file signal a nested tree view draws off of. Judged by the same `pageIsVisible`
+   *  rule as the listing itself, so a caller never learns of a child it could not otherwise see. */
   hasChildren: boolean
-  /** How many folders below the listed `path` this page sits, 0 being directly inside it -- relative
-   *  to the query, not the site root, so a block listing `/docs/tools` at depth 2 reports 0/1/2 there
-   *  rather than counting from the root. */
+  /** Folders below the listed `path`, 0 being directly inside it -- relative to the query, not the
+   *  site root, so a block listing `/docs/tools` reports 0/1/2 there rather than 2/3/4. */
   depth: number
-  /** Classification level id, for the reader-permission filter layered on top of this listing. Never
-   *  returned to the client: no API schema declares this field, so Fastify's response serialization
-   *  drops it. */
+  /** For the reader-permission filter layered on top of this listing. Never reaches the client: no
+   *  API schema declares it, so Fastify's response serialization drops it. */
   classification: string | null
-  /** The page's tags, for the same filter -- a TAG/TAGALL rule needs them to decide `read:pages`.
-   *  Never returned to the client either. */
+  /** For the same filter -- a TAG/TAGALL rule needs tags to decide `read:pages`. Never reaches the
+   *  client either. */
   tags: string[]
 }
 
-/**
- * An entry that went with a deleted folder: the row behind it to delete, plus enough to say what was
- * deleted once nothing in the database records that any more.
- */
 export interface DeletedEntry {
   id: string
   /** Slash-separated, without the file name. Empty at the site root. */
@@ -130,35 +114,27 @@ export interface DeletedEntry {
   locale: string
 }
 
-/** A descendant page, as `listDescendants` returns it for a caller to authorize before it mutates. */
 export interface DescendantPage {
   id: string
-  /** Slash-separated path of the page. */
   path: string
   locale: string
   tags: string[]
-  /** Classification level id, joined from `pages` -- `tree` carries none of its own. */
+  /** Joined from `pages` -- `tree` carries no classification column of its own. */
   classification: string | null
 }
 
-/** A descendant asset, as `listDescendants` returns it for a caller to authorize before it mutates. */
 export interface DescendantAsset {
   id: string
-  /** Slash-separated path of the asset, what an asset `read:assets`/`manage:assets` ref is built
-   *  from. */
+  /** What an asset `read:assets`/`manage:assets` ref is built from. */
   path: string
-  /** Slash-separated, without the file name. Empty at the site root -- what `mayOnAsset`
-   *  (`helpers/pageAccess.ts`) takes alongside `fileName`, rather than the combined `path` above. */
+  /** What `mayOnAsset` (`helpers/pageAccess.ts`) takes alongside `fileName`, rather than the
+   *  combined `path` above. Empty at the site root. */
   folderPath: string
   fileName: string
   locale: string
 }
 
-/**
- * One page `refreshDescendantPaths` repathed, for `renameFolder` to fire the move side effects
- * `pages.ts#recordPageMoveSideEffects` fires for a direct `movePage` (search index, storage
- * dispatch). `page` is the full post-update row, matching what `search.renamed` expects.
- */
+/** `page` is the full post-update row, which is what `search.renamed` expects. */
 export interface MovedDescendantPage {
   page: typeof pagesTable.$inferSelect
   previousPath: string
@@ -166,17 +142,14 @@ export interface MovedDescendantPage {
 }
 
 /**
- * One asset `refreshDescendantAssetFolders` relocated, for `renameFolder` to fire the `asset:move`
- * storage dispatch `assets.ts#moveAsset` fires for a direct move. `kind`/`fileSize` travel along
- * because `Storage#targetCoversEvent` classifies an asset event by them; neither lives on `tree`, so
- * they are joined in from `assets`.
+ * `kind`/`fileSize` travel along because `Storage#targetCoversEvent` classifies an asset event by
+ * them; neither lives on `tree`, so they are joined in from `assets`.
  */
 export interface MovedDescendantAsset {
   id: string
   fileName: string
   /** Slash-separated, without the file name -- post-rename. */
   folderPath: string
-  /** Slash-separated, without the file name -- pre-rename. */
   previousFolderPath: string
   kind: string
   fileSize: number | null
@@ -206,18 +179,14 @@ export const MAX_DEPTH = 10
 
 const MAX_BROWSE = 500
 
-/** How many `name-1`, `name-2`… variants an upload tries before giving up on the name. Exported so
+/** How many `name-1`, `name-2`… variants an upload tries. Exported so
  * `migration/importers/page-import.ts`'s own numeric-suffix dedupe retries against the same cap. */
 export const MAX_NAME_ATTEMPTS = 100
 
 /**
- * Whether a folder holds a page a reader may open, at any depth below it — an `EXISTS` correlated to
- * the outer `tree` row being tested, not a standalone query.
- *
- * A folder is created for whatever is put in it, so it can end up holding only assets, only drafts,
- * or nothing at all — descending into any of those lands on an empty menu, which is why both places
- * that list a folder's contents (`tree.browse()` and `navigation.generateFromTree()`) drop a folder
- * that answers false.
+ * An `EXISTS` correlated to the outer `tree` row being tested, not a standalone query. A folder is
+ * created for whatever is put in it, so it can end up holding only assets, only drafts, or nothing at
+ * all — descending into one of those lands on an empty menu, so callers drop a folder answering false.
  *
  * @param encodedParentPath The ltree path of the folder being listed. A child's own path is built as
  *   `<prefix>.<name>` by text concatenation rather than an ltree operator, since the prefix is a
@@ -251,17 +220,11 @@ export function holdsVisiblePagesUnder(
 }
 
 /**
- * Whether a PAGE holds a page a reader may open nested under its own path, at any depth below it —
- * an `EXISTS` correlated to the outer `tree` row being tested.
- *
- * The same question `holdsVisiblePagesUnder` answers for a folder, but that one takes the parent path
- * as a fixed JS string shared by every row in the query — right for `browse()`, which only ever lists
- * one folder level at a time. `listPages()` can return rows sitting at different depths in a single
- * result set, so this variant builds each row's own path from its `folderPath`/`fileName` COLUMNS
- * instead, correlated per row. It uses the `ltree || ltree` concatenation operator rather than
- * `holdsVisiblePagesUnder`'s text-then-cast idiom, since that idiom relies on knowing ahead of time
- * whether the parent path is empty (to omit the joining dot) — impossible for a column value
- * evaluated per row. `||` needs no such special-casing: concatenating the root path is a no-op.
+ * `holdsVisiblePagesUnder` for a PAGE rather than a folder, correlated per row: `listPages()` returns
+ * rows sitting at different depths in one result set, so each row's own path is built from its
+ * `folderPath`/`fileName` COLUMNS. Hence the `ltree || ltree` operator rather than the sibling's
+ * text-then-cast idiom, which relies on knowing ahead of time whether the parent path is empty (to
+ * omit the joining dot) — impossible per row. Concatenating the root path with `||` is a no-op.
  *
  * @param aliasSuffix Must differ per call site: two `EXISTS` clauses in one statement cannot share an
  *   alias name.
@@ -287,10 +250,8 @@ export function holdsVisibleChildPages(publicOnly: boolean, aliasSuffix: string)
 }
 
 /**
- * The one refusal for "a tree row already sits at this name in this folder" — shared by the
- * pre-insert probes and by the `isUniqueViolation` catches that close the race those probes cannot,
- * so a client sees the same actionable error whichever won. (`resolveName`'s "too many files are
- * already named this" is deliberately not this one: it names a different problem.)
+ * One refusal shared by the pre-insert probes and by the `isUniqueViolation` catches that close the
+ * race those probes cannot, so a client sees the same actionable error whichever won.
  */
 function duplicateEntryError(): CustomError {
   return new CustomError('treeEntryDuplicate', 'Something with this name already exists here.', 409)
@@ -302,8 +263,8 @@ function childPathOf(folder: { folderPath?: string | null; fileName: string }): 
 }
 
 /**
- * Folders before pages, alphabetical by title within each. `Navigation.generateFromTree` reuses
- * `browse()`'s order so an auto-generated menu reads the same way the folder it was built from does.
+ * Exported so `Navigation.generateFromTree` reuses `browse()`'s order: an auto-generated menu reads
+ * the same way the folder it was built from does.
  */
 export function compareFoldersFirst(
   a: { isFolder: boolean; title: string },
@@ -312,7 +273,6 @@ export function compareFoldersFirst(
   return a.isFolder === b.isFolder ? a.title.localeCompare(b.title) : a.isFolder ? -1 : 1
 }
 
-/** Split an ltree path into the (folderPath, fileName) pair that addresses the entry itself. */
 export function splitPath(path: string): { folderPath: string; fileName: string } {
   const parts = path.split('.')
   return {
@@ -389,19 +349,18 @@ export function pageIsVisible(
  */
 class Tree {
   /**
-   * @param parentId UUID of the folder to list. Takes precedence over `parentPath`.
-   * @param parentPath Slash-separated path of the folder to list. The site root when both are absent.
-   * @param depth How many levels below the folder to include. 0, the default, is the folder itself.
-   * @param includeAncestors Also return every folder between the root and the one being listed, so a
-   *                         caller opening a deep folder gets the branch it hangs off in one request.
+   * @param parentId Takes precedence over `parentPath`.
+   * @param parentPath The site root when both are absent.
+   * @param depth 0, the default, is the folder itself.
+   * @param includeAncestors Also return the folders above the one being listed, so a caller opening a
+   *                         deep folder gets the branch it hangs off in one request.
    * @param includeRootFolders Also return every folder at the root, for the same reason.
    * @param locale Required — a caller with no locale opinion of its own resolves one before calling
    *               in, rather than this method merging every locale together.
    * @param publicOnly Hide, from a page-type entry only, exactly what `pageIsVisible` hides from an
    *                   anonymous reader, so a guest session holding `read:pages` cannot enumerate
    *                   drafts through a tree listing — the one thing `visibleTreeItems`' page-rule
-   *                   filter in `helpers/pageAccess.ts` does not check. A folder or asset entry is
-   *                   never affected either way.
+   *                   filter in `helpers/pageAccess.ts` does not check.
    */
   async getTree({
     siteId,
@@ -502,8 +461,7 @@ class Tree {
         row: treeTable,
         depth: sql<number>`nlevel(${treeTable.folderPath})`.mapWith(Number),
         // -> Only a `page`-type row's id ever matches `pagesTable.id`; a folder or asset row leaves
-        //    this null, which is exactly the "no classification" `toTreeItem` already treats those
-        //    kinds as.
+        //    this null, which is the "no classification" `toTreeItem` already treats them as
         classification: pagesTable.classification
       })
       .from(treeTable)
@@ -523,10 +481,9 @@ class Tree {
    * second. Folders are left out entirely — an index block draws a list of pages, not a file browser
    * — and so is any page the reader may not open, by the same rule the page view applies.
    *
-   * @param path Slash-separated path to list. The site root when empty.
-   * @param depth How many folders below the path to include. 0, the default, is the path itself.
+   * @param path The site root when empty.
+   * @param depth 0, the default, is the path itself.
    * @param tags Only pages carrying every one of these tags.
-   * @param publicOnly Restrict to what a reader with no session may see. See `pageIsVisible`.
    */
   async listPages({
     siteId,
@@ -616,9 +573,8 @@ class Tree {
    * a page nobody may see must not appear even as a name, and a folder whose whole contents are
    * invisible is a dead end rather than something to offer.
    *
-   * @param path Slash-separated path of the folder to list. The site root when empty.
-   * @param publicOnly Restrict pages to what a reader with no session may see. See `pageIsVisible`.
-   * @returns The level, or null when there is no such folder
+   * @param path The site root when empty.
+   * @returns Null when there is no such folder — which an empty folder is not.
    */
   async browse({
     siteId,
@@ -723,7 +679,6 @@ class Tree {
       path: basePath,
       title,
       truncated: rows.length > MAX_BROWSE,
-      // -> An entry that is both a page and a folder sorts with the folders
       items: [...merged.values()].sort(compareFoldersFirst)
     }
   }
@@ -757,9 +712,8 @@ class Tree {
   }
 
   /**
-   * `getFolderById`, but refusing rather than answering null. The nullable form stays public:
-   * `api/tree.ts` and `api/assets.ts` genuinely want to know whether a folder is there without a 404
-   * being raised for them.
+   * The nullable `getFolderById` stays public: some callers genuinely want to know whether a folder
+   * is there without a 404 being raised for them.
    *
    * @throws CustomError `treeInvalidFolder` (404)
    */
@@ -780,7 +734,7 @@ class Tree {
    * the way into `/guide/…`. An asset is, since it is served at that URL itself — the same rule
    * `resolveName` applies coming the other way.
    *
-   * @param exceptId The row allowed to already hold the name — the folder being renamed
+   * @param exceptId The row allowed to already hold the name.
    * @throws CustomError `treeFolderDuplicate` (409)
    */
   private async assertFolderNameFree(
@@ -821,8 +775,7 @@ class Tree {
    * A folder that does not exist holds nothing, so an unresolvable destination answers null rather
    * than raising: the caller is about to create it.
    *
-   * @param parentId UUID of the folder to look in. Takes precedence over `parentPath`; the site root
-   *                 when both are absent.
+   * @param parentId Takes precedence over `parentPath`; the site root when both are absent.
    */
   async getEntryAt({
     siteId,
@@ -864,9 +817,8 @@ class Tree {
   }
 
   /**
-   * @param createIfMissing Create the folder, and any ancestor it needs, when the path has none. Only
-   *                        applies when resolving by path — an ID that matches nothing is an error
-   *                        either way.
+   * @param createIfMissing Creates any missing ancestor too. Only applies when resolving by path — an
+   *                        id that matches nothing is an error either way.
    */
   async getFolder({
     id,
@@ -881,9 +833,8 @@ class Tree {
     locale?: string
     siteId: string
     createIfMissing?: boolean
-    /** Runs against this instead of the ambient `CARDINAL.db` — a batch import passes its own
-     *  transaction so a folder it has to create is rolled back with the rest of the batch rather
-     *  than surviving as an orphan. */
+    /** A batch import passes its own transaction, so a folder this has to create is rolled back
+     *  with the rest of the batch rather than surviving as an orphan. */
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
     if (id) {
@@ -921,10 +872,9 @@ class Tree {
   }
 
   /**
-   * @param parentId UUID of the folder to create it in. Takes precedence over `parentPath`.
-   * @param parentPath Slash-separated path of the folder to create it in. The root when both are absent.
-   * @param pathName The folder's own path segment. Normalized the way a page path is, so what the
-   *                 folder ends up called may differ from what was asked for.
+   * @param parentId Takes precedence over `parentPath`.
+   * @param parentPath The site root when both are absent.
+   * @param pathName Normalized, so what the folder ends up called may differ from what was asked for.
    */
   async createFolder({
     parentId,
@@ -1079,8 +1029,8 @@ class Tree {
    *
    * @param siteId Required so this model method is itself closed to a foreign `folderId`, rather
    *               than relying solely on the API handler's own separate check.
-   * @param pathName The new path segment, normalized as on the way in. Unchanged from the current
-   *                 one when only the title differs, which leaves every descendant's path untouched.
+   * @param pathName Unchanged from the current segment when only the title differs, which leaves
+   *                 every descendant's path untouched.
    */
   async renameFolder({
     folderId,
@@ -1129,7 +1079,6 @@ class Tree {
       )
     }
 
-    // -> As on the way in: a page may share the name, an asset may not
     await this.assertFolderNameFree(
       folder.siteId,
       folder.locale,
@@ -1150,8 +1099,8 @@ class Tree {
     let movedPages: MovedDescendantPage[] = []
     let movedAssets: MovedDescendantAsset[] = []
 
-    // -> Everything below is one logical move: partway through would leave some descendants renamed
-    //    and others not, or a folder row moved but its descendants' paths unrefreshed
+    // -> One logical move: failing partway would leave some descendants renamed and others not, or a
+    //    folder row moved but its descendants' paths unrefreshed
     const updated = await CARDINAL.db.transaction(async (tx) => {
       // -> Direct children carry the old path verbatim; deeper ones carry it as a prefix, and keep
       //    whatever they had below it. Scoped to this folder's own locale -- otherwise a same-named
@@ -1229,14 +1178,13 @@ class Tree {
    * the caller already rewrote every descendant's `folderPath`, and neither has a path beyond that.
    *
    * `generatePathHash` does not exist in postgres, so each page's new path and hash are computed here
-   * in JS, row by row. `updatedAt` is deliberately not touched: the folder moved, the pages under it
-   * did not change. The write-back is batched into chunks of `TREE_UPDATE_CHUNK_SIZE`, one
-   * `UPDATE ... FROM (VALUES ...)` per chunk, so a folder with a couple thousand descendants is not
-   * that many sequential round trips holding row locks on `pages`. Each chunk is read back with a
-   * typed `.select()` rather than parsed out of the raw `UPDATE`, so drizzle guarantees the row shape.
+   * in JS. `updatedAt` is deliberately not touched: the folder moved, the pages under it did not
+   * change. The write-back is chunked so a folder with a couple thousand descendants is not that many
+   * sequential round trips holding row locks on `pages`, and each chunk is read back with a typed
+   * `.select()` rather than parsed out of the raw `UPDATE`, so drizzle guarantees the row shape.
    *
-   * @returns Every page this call repathed, with where it used to live, for `renameFolder` to fire the
-   *          move side effects once the transaction this runs inside has committed.
+   * @returns Every page repathed, with where it used to live, for the caller to fire move side
+   *          effects once the transaction this runs inside has committed.
    */
   private async refreshDescendantPaths(
     siteId: string,
@@ -1316,10 +1264,9 @@ class Tree {
   }
 
   /**
-   * The same reindex/dispatch pair `pages.ts#recordPageMoveSideEffects` fires for a direct `movePage`.
    * History and watcher notifications are deliberately not fired here: both need a real authoring
    * actor, and a folder-level rename has none to give them. `glossary.invalidateCache` is per-site
-   * rather than per-page, so `renameFolder` fires it once for the whole batch instead.
+   * rather than per-page, so the caller fires it once for the whole batch instead.
    */
   private async fireDescendantMoveSideEffects(
     siteId: string,
@@ -1342,12 +1289,9 @@ class Tree {
    * rewritten every descendant's `folderPath` and derives each one's pre-rename `folderPath` by
    * replacing the `newPath` prefix with `oldPath` -- the exact inverse of the SQL
    * `newPath::ltree || subpath(folderPath, nlevel(newPath::ltree))` rewrite those `UPDATE`s ran.
-   * `kind`/`fileSize` are joined in from `assets` because `Storage#targetCoversEvent` needs them to
-   * classify the event; neither lives on `tree`.
    *
-   * @param oldPath The folder's own ltree path (dot-encoded) before the rename.
-   * @param newPath The same after the rename -- what every descendant's `folderPath` already carries
-   *                by the time this runs.
+   * @param oldPath Dot-encoded ltree, before the rename.
+   * @param newPath The same after it -- what every descendant already carries by the time this runs.
    */
   private async refreshDescendantAssetFolders(
     siteId: string,
@@ -1397,8 +1341,8 @@ class Tree {
   }
 
   /**
-   * No webhook half, unlike `assets.ts#moveAsset`'s own `announce()` call: like
-   * `fireDescendantMoveSideEffects`, this has no per-move actor to give a webhook subscriber.
+   * No webhook half, unlike `assets.ts#moveAsset`'s own `announce()` call: a folder-level rename has
+   * no per-move actor to give a webhook subscriber.
    */
   private async fireDescendantAssetMoveSideEffects(
     siteId: string,
@@ -1418,10 +1362,7 @@ class Tree {
   /**
    * Exactly the set `deleteFolder` deletes and `renameFolder` moves, scoped by `siteId` and the
    * folder's own `locale` the same way, so their callers can authorize every descendant before
-   * committing to the mutation. Each descendant page carries its real `tags` and `classification`
-   * (joined from `pages`, since `tree` carries no classification column of its own); each descendant
-   * asset carries both its combined `path` and the separate `folderPath`/`fileName` pair `mayOnAsset`
-   * (`helpers/pageAccess.ts`) builds its own ref from.
+   * committing to the mutation.
    *
    * @param db Runs against this instead of the ambient `CARDINAL.db`, so a caller can authorize inside
    *           the same transaction that will go on to mutate.
@@ -1486,8 +1427,8 @@ class Tree {
    *
    * @param siteId Required so this model method is itself closed to a foreign `folderId`, rather
    *               than relying solely on the API handler's own separate check.
-   * @returns The deleted pages and assets, for the caller to clean up after. Where each one sat comes
-   *          back with it: the tree row was the only record of that, and it is gone by then.
+   * @returns Where each deleted entry sat comes back with it: the tree row was the only record of
+   *          that, and it is gone by then.
    */
   async deleteFolder(
     folderId: string,
@@ -1553,8 +1494,8 @@ class Tree {
   }
 
   /**
-   * @param parentId UUID of the folder to add it to. Takes precedence over `parentPath`.
-   * @param parentPath Slash-separated path of the folder to add it to, created if it does not exist.
+   * @param parentId Takes precedence over `parentPath`.
+   * @param parentPath Created if it does not exist.
    */
   async addPage({
     id,
@@ -1577,9 +1518,8 @@ class Tree {
     siteId: string
     tags?: string[]
     meta?: Record<string, any>
-    /** Runs the folder resolution and the entry insert against this instead of the ambient
-     *  `CARDINAL.db` — a page move passes its own transaction so this entry shares fate with the
-     *  `pages` row update alongside it. */
+    /** A page move passes its own transaction, so this entry shares fate with the `pages` row
+     *  update alongside it. */
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
     const entry = await this.addEntry({
@@ -1606,8 +1546,8 @@ class Tree {
   }
 
   /**
-   * @param parentId UUID of the folder to add it to. Takes precedence over `parentPath`.
-   * @param parentPath Slash-separated path of the folder to add it to, created if it does not exist.
+   * @param parentId Takes precedence over `parentPath`.
+   * @param parentPath Created if it does not exist.
    */
   async addAsset({
     id,
@@ -1630,9 +1570,8 @@ class Tree {
     siteId: string
     tags?: string[]
     meta?: Record<string, any>
-    /** Runs the folder resolution and the entry insert against this instead of the ambient
-     *  `CARDINAL.db` — a batch import passes its own transaction so this asset's tree row shares fate
-     *  with the `assets` row written alongside it. */
+    /** A batch import passes its own transaction, so this asset's tree row shares fate with the
+     *  `assets` row written alongside it. */
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
     return this.addEntry({
@@ -1702,14 +1641,12 @@ class Tree {
   }
 
   /**
-   * The destination is resolved the same way `addEntry`/an upload resolves where to land: `folderId`
-   * wins over `parentPath` when both are given, `parentPath` is created (with any missing ancestor)
-   * if it does not exist yet, and neither given means the site root. Moving an entry into the folder
-   * it is already in is a no-op, so a caller cannot be told a move happened when nothing did.
+   * The destination resolves as `addEntry`'s does, missing ancestors included. A move into the folder
+   * the entry is already in is a no-op, so a caller is never told a move happened when nothing did.
    *
    * @param siteId Required so this method is itself closed to a foreign entry or `folderId`, rather
    *               than relying solely on the caller.
-   * @returns The updated row, or null if there is no such entry on this site
+   * @returns Null if there is no such entry on this site.
    * @throws CustomError `treeInvalidFolder` (404) for an unresolvable `folderId`,
    *         `treeEntryDuplicate` (409) if the destination already holds this name — the same
    *         asymmetric page/folder exception `renameEntry` applies: a page does not block a folder
@@ -1883,14 +1820,13 @@ class Tree {
   }
 
   /**
-   * Two entries with the same name in the same folder would share a path — the second one would
-   * shadow the first everywhere it is looked up by URL. An upload takes the next free `name-1.ext`,
-   * the way a file manager is expected to; anything else says so instead.
+   * Two entries with the same name in one folder would share a path — the second shadowing the first
+   * everywhere it is looked up by URL. An upload takes the next free `name-1.ext`, the way a file
+   * manager is expected to; anything else says so instead.
    *
-   * A page is the exception: a page and the folder of the pages below it are *meant* to share a name,
-   * which is what `/guide` being both a page and the way into `/guide/…` is. Nothing shadows anything
-   * there, because the two are never looked up the same way — a folder is only ever resolved as a
-   * folder (`getFolder` asks for the type), and the page is found in `pages` by its own path hash.
+   * A page is the exception: a page and the folder of the pages below it are *meant* to share a name
+   * (`/guide` is both a page and the way into `/guide/…`), and nothing shadows anything, because a
+   * folder is only ever resolved as a folder and the page is found in `pages` by its own path hash.
    * An asset stays held to the whole folder, since it is served at that URL like a page would be.
    */
   private async resolveName({

@@ -5,10 +5,9 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import { ensureTemporal } from '../test/temporal.ts'
 
 /**
- * `validateToken()` reads `validUntil` back from a `timestamp` (no time zone) column, so its
- * correctness depends on how the `pg` driver reconstructs the resulting `Date` under the Node
- * process's local `TZ`. The defect is invisible on a UTC host, which is why this suite runs under
- * `TZ=America/New_York` for its duration.
+ * `validateToken()` reads `validUntil` back from a `timestamp` (no time zone) column, so it depends
+ * on how the `pg` driver reconstructs that `Date` under the process's local `TZ` — a mismatch is
+ * invisible on a UTC host, hence `TZ=America/New_York` for this suite's duration.
  */
 describe(
   'userCredentials.generateToken / validateToken under a non-UTC TZ (DB-backed)',

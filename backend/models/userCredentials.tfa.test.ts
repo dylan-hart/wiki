@@ -10,11 +10,11 @@ import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * One schema for the whole file rather than one per describe: every `setupTestDb()` call is a
- * `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same fixture.
+ * `CREATE SCHEMA`, the full migration set and a seed, and each describe wants the same fixture.
  *
- * The `hasTestDatabase()` guard below is what a per-describe `{ skip }` cannot do for a FILE-level
- * hook: `describe(..., { skip })` skips the describe's own hooks and tests, but a root `before()`
- * runs regardless, so without this an unset `DATABASE_URL` would still throw out of the hook.
+ * `describe(..., { skip })` skips that describe's own hooks and tests, but a root `before()` runs
+ * regardless — hence the `hasTestDatabase()` guard inside it, without which an unset `DATABASE_URL`
+ * would throw out of the hook.
  */
 let fixtures: TestFixtures
 
@@ -165,13 +165,12 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
       const firstAttempt = await usersModel.getById(fixtures.userId)
       assert.equal(await userCredentials.verifyTfaCode(firstAttempt, strategyId, '287082'), true)
 
-      // -> Same code, presented again inside the same ±30s drift window: refused, since its counter
-      //    was already recorded as `tfaLastCounter` by the accepted attempt above.
+      // -> Still inside the same ±30s drift window, so only the `tfaLastCounter` the accepted
+      //    attempt above recorded stands in the way
       const replayAttempt = await usersModel.getById(fixtures.userId)
       assert.equal(await userCredentials.verifyTfaCode(replayAttempt, strategyId, '287082'), false)
 
-      // -> A different code from the next window is not a replay of the same counter, so it is still
-      //    accepted -- single-use blocks the matched counter, not the whole secret.
+      // -> Single-use blocks the matched counter, not the whole secret
       const nextWindowAttempt = await usersModel.getById(fixtures.userId)
       assert.equal(
         await userCredentials.verifyTfaCode(nextWindowAttempt, strategyId, '359152'),
@@ -267,8 +266,7 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
     const strategyId = freshStrategyId()
     const owner = await usersModel.getById(fixtures.userId)
     await userCredentials.enableTfa(owner, strategyId)
-    // -> The initial issuance from enableTfa() fires its own independent call -- only the
-    //    regeneration call below is under test here.
+    // -> enableTfa() fires its own notice; only the regeneration call below is under test
     sendMock.mock.resetCalls()
 
     await userCredentials.regenerateRecoveryCodes(fixtures.userId, strategyId)
@@ -283,7 +281,7 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
     const strategyId = freshStrategyId()
     const owner = await usersModel.getById(fixtures.userId)
     const codes = await userCredentials.enableTfa(owner, strategyId)
-    // -> Each attempt needs a freshly-reloaded user, hence the reload inside the loop.
+    // -> Each attempt needs a freshly-reloaded user
     for (const code of codes) {
       const consumer = await usersModel.getById(fixtures.userId)
       assert.equal(
@@ -399,7 +397,7 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
         )
 
         // -> Same code, same still-valid drift window, freshly-reloaded user: only the persisted
-        //    `tfaLastCounter` this first call wrote stands between this and a second acceptance.
+        //    `tfaLastCounter` the first call wrote stands between this and a second acceptance
         const secondAttempt = await usersModel.getById(fixtures.userId)
         assert.equal(
           await userCredentials.verifyTfaCode(secondAttempt, strategyId, codeForCounter1),
@@ -432,9 +430,9 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
 
     /*
       `verifyTfaCode` reads the secret off the caller's `user` object, so the TOTP comparison itself
-      still succeeds here -- what decides the answer is `patchStrategyAuth`, which re-reads the row
-      inside the per-user advisory lock and returns `false` when there is no row to write back to,
-      rather than accepting a code whose single-use counter could never be recorded.
+      still succeeds here. What decides the answer is `patchStrategyAuth`, which re-reads the row
+      inside the per-user advisory lock and refuses rather than accept a code whose single-use
+      counter could never be recorded.
     */
     test('declines a code for a user that vanished between the read and the write', async () => {
       const strategyId = freshStrategyId()
@@ -464,9 +462,8 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
   })
 
   /**
-   * The mail methods are mocked, so what is asserted is the orchestration -- which one fires, with
-   * what params, and that a send failure never propagates -- not SMTP delivery or the locale-string
-   * resolution `mail.ts`'s own suite already covers.
+   * The mail methods are mocked: what is asserted is orchestration -- which notice fires, with what
+   * params, and that a send failure never propagates -- not delivery.
    */
   describe('2FA enable/disable mail notices', () => {
     let mail: typeof import('./mail.ts').mail
@@ -566,12 +563,11 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
 })
 
 /**
- * The lost update guarded against: two whole-blob `auth` writes racing the same user's row, the
- * second writer's stale copy of the blob clobbering the first writer's change -- an
- * `adminInvalidateTfa()` silently undone by a concurrent `changeOwnPassword()`, restoring 2FA an
- * admin had just turned off. Every such write holds a `user-auth:<id>` advisory lock
- * (`helpers/advisoryLock.ts`); running both against a real Postgres is the only way to exercise that
- * serialization rather than merely asserting the source calls `withAdvisoryLock`.
+ * The lost update guarded against: two whole-blob `auth` writes racing the same row, the second
+ * writer's stale copy clobbering the first's change -- an `adminInvalidateTfa()` silently undone by a
+ * concurrent `changeOwnPassword()`, restoring 2FA an admin had just turned off. Running both against
+ * a real Postgres is the only way to exercise the `user-auth:<id>` advisory lock
+ * (`helpers/advisoryLock.ts`) rather than merely asserting the source calls `withAdvisoryLock`.
  */
 describe(
   'userCredentials auth-write serialization (DB-backed)',
@@ -591,9 +587,9 @@ describe(
       const strategyId = freshStrategyId()
       const currentPassword = 'the-old-password'
 
-      // -> Seed a strategy entry with both a password (changeOwnPassword's target) and active 2FA
-      //    (adminInvalidateTfa's target) so the two operations' writes genuinely overlap on the same
-      //    `auth[strategyId]` object rather than touching disjoint strategies.
+      // -> Both a password (changeOwnPassword's target) and active 2FA (adminInvalidateTfa's), so
+      //    the two writes genuinely overlap on one `auth[strategyId]` object rather than on
+      //    disjoint strategies
       const seeded = (await usersModel.getById(fixtures.userId)) as any
       await fixtures.db
         .update(usersTable)
