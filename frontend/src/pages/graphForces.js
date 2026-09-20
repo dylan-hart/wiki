@@ -76,12 +76,28 @@ const DEFAULT_RADIUS = 60
 // -> Past this many children a parent's fan splits across concentric rings instead of subdividing
 //    one ring's angle step ever more finely. A starting point, not a verified-correct constant:
 //    exploratory visual tuning belongs against a real, populated graph.
-const RING_CHILD_CAPACITY = 6
+export const RING_CHILD_CAPACITY = 6
 
 // -> How far outward each additional ring pushes its children's target radius. Comfortably past
 //    `DEFAULT_RADIUS` so a second ring separates visually rather than overlapping the first,
 //    without dominating the link/charge forces' own say over radius. Also a starting point.
-const RING_RADIUS_STEP = 80
+export const RING_RADIUS_STEP = 80
+
+export const RING_RADIUS_MIN_STEP = 40
+
+export const LINK_CHILD_COUNT_SCALE = 8
+export const LINK_CHILD_COUNT_CAP = 90
+
+export function childCountTermFor(childCount) {
+  return Math.min(LINK_CHILD_COUNT_CAP, LINK_CHILD_COUNT_SCALE * Math.sqrt(Math.max(0, childCount)))
+}
+
+export function ringRadiusStepFor(childCount) {
+  return Math.min(
+    RING_RADIUS_STEP,
+    Math.max(RING_RADIUS_MIN_STEP, RING_RADIUS_STEP - childCountTermFor(childCount))
+  )
+}
 
 /**
  * Ring sizes differ by at most 1, so a count just past the threshold produces two comparable rings
@@ -192,6 +208,7 @@ export function parentFanForce(strength = 0.05) {
       )
       // -> Re-indexed per ring, so each ring gets the same stepping rule scoped to its own count.
       const ringSizes = assignRingSizes(sorted.length)
+      const ringStep = ringRadiusStepFor(sorted.length)
       let cursor = 0
       ringSizes.forEach((ringSize, ringIndex) => {
         for (let siblingIndex = 0; siblingIndex < ringSize; siblingIndex++) {
@@ -199,6 +216,7 @@ export function parentFanForce(strength = 0.05) {
             parent,
             grandparent,
             ringIndex,
+            ringStep,
             siblingIndex,
             siblingCount: ringSize
           })
@@ -212,7 +230,7 @@ export function parentFanForce(strength = 0.05) {
   function force(alpha) {
     for (const [
       node,
-      { parent, grandparent, ringIndex, siblingIndex, siblingCount }
+      { parent, grandparent, ringIndex, ringStep, siblingIndex, siblingCount }
     ] of structure) {
       if (node.x === undefined || parent.x === undefined) {
         continue
@@ -225,7 +243,7 @@ export function parentFanForce(strength = 0.05) {
       // -> Ring 0 leaves the node's current radius alone; each further ring pushes outward, so
       //    rings separate instead of stacking on one circle.
       const baseRadius = Math.hypot(node.x - parent.x, node.y - parent.y) || DEFAULT_RADIUS
-      const radius = baseRadius + ringIndex * RING_RADIUS_STEP
+      const radius = baseRadius + ringIndex * ringStep
       const targetX = parent.x + radius * Math.cos(targetAngle)
       const targetY = parent.y + radius * Math.sin(targetAngle)
       node.vx += (targetX - node.x) * strength * alpha

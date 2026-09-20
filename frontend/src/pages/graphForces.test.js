@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
 import { buildPathHierarchyEdges } from './graphFilters.js'
-import { applyHoverPushImpulse, clusterForce, parentFanForce } from './graphForces.js'
+import {
+  LINK_CHILD_COUNT_CAP,
+  RING_CHILD_CAPACITY,
+  RING_RADIUS_MIN_STEP,
+  RING_RADIUS_STEP,
+  applyHoverPushImpulse,
+  childCountTermFor,
+  clusterForce,
+  parentFanForce,
+  ringRadiusStepFor
+} from './graphForces.js'
+import { linkDistanceFor } from './graphSimulation.js'
 
 /**
  * Mean resultant length for circular data: 1 means every edge points the same way (the degenerate
@@ -366,7 +377,7 @@ describe('parentFanForce (OpenProject #2581)', () => {
       for (let i = 0; i < 3; i++) {
         const child = children[4 + i]
         const baseRadius = 10 * (4 + i + 1)
-        const radius = baseRadius + 80
+        const radius = baseRadius + ringRadiusStepFor(7)
         const tx = parent.x + radius * Math.cos(ring1Angles[i])
         const ty = parent.y + radius * Math.sin(ring1Angles[i])
         expect(child.vx).toBeCloseTo(tx - child.x, 5)
@@ -393,11 +404,60 @@ describe('parentFanForce (OpenProject #2581)', () => {
       const step = (2 * Math.PI) / ringSize
       const angle = step / 2 + positionInRing * step
       const baseRadius = 10 * 19
-      const radius = baseRadius + ringIndex * 80
+      const radius = baseRadius + ringIndex * ringRadiusStepFor(19)
       const tx = parent.x + radius * Math.cos(angle)
       const ty = parent.y + radius * Math.sin(angle)
       expect(lastChild.vx).toBeCloseTo(tx - lastChild.x, 5)
       expect(lastChild.vy).toBeCloseTo(ty - lastChild.y, 5)
+    })
+
+    it('the ring step shrinks by the child-count term already spent on the spoke, within fixed bounds (OpenProject #3645)', () => {
+      expect(ringRadiusStepFor(RING_CHILD_CAPACITY + 1)).toBeCloseTo(
+        RING_RADIUS_STEP - childCountTermFor(RING_CHILD_CAPACITY + 1),
+        10
+      )
+      expect(ringRadiusStepFor(0)).toBe(RING_RADIUS_STEP)
+      expect(ringRadiusStepFor(100000)).toBe(RING_RADIUS_MIN_STEP)
+      let previous = Infinity
+      for (const count of [0, 1, 7, 13, 19, 40, 100, 1000]) {
+        const step = ringRadiusStepFor(count)
+        expect(step).toBeLessThanOrEqual(previous)
+        expect(step).toBeGreaterThanOrEqual(RING_RADIUS_MIN_STEP)
+        expect(step).toBeLessThanOrEqual(RING_RADIUS_STEP)
+        previous = step
+      }
+    })
+
+    it('a 40-child parent stays within the hard cap plus its ring offsets, and below the unreconciled sum (OpenProject #3645)', () => {
+      const count = 40
+      const collide = () => 10
+      const restingDistance = linkDistanceFor({ source: {}, target: {} }, collide, () => count)
+      const root = { path: '', locale: 'en', root: true, x: 0, y: 0, vx: 0, vy: 0 }
+      const parent = { path: 'p', locale: 'en', x: 100, y: 0, vx: 0, vy: 0 }
+      const children = Array.from({ length: count }, (_, i) => ({
+        path: `p/${String(i).padStart(2, '0')}`,
+        locale: 'en',
+        x: parent.x + restingDistance,
+        y: 0,
+        vx: 0,
+        vy: 0
+      }))
+      const force = parentFanForce(1)
+      force.initialize([root, parent, ...children])
+      force(1)
+
+      const ringCount = Math.ceil(count / RING_CHILD_CAPACITY)
+      const maxRadius = Math.max(
+        ...children.map((child) =>
+          Math.hypot(child.x + child.vx - parent.x, child.y + child.vy - parent.y)
+        )
+      )
+      const uncappedBase = restingDistance - childCountTermFor(count)
+      const ceiling = uncappedBase + LINK_CHILD_COUNT_CAP + (ringCount - 1) * RING_RADIUS_STEP
+      expect(ringCount).toBe(7)
+      expect(maxRadius).toBeLessThanOrEqual(ceiling)
+      expect(maxRadius).toBeCloseTo(restingDistance + (ringCount - 1) * ringRadiusStepFor(count), 5)
+      expect(maxRadius).toBeLessThan(restingDistance + (ringCount - 1) * RING_RADIUS_STEP)
     })
 
     it('ring assignment is stable across a re-`initialize()` with the same node set (no reshuffling on reload)', () => {

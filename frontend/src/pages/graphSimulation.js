@@ -3,7 +3,15 @@ import { select } from 'd3-selection'
 import { zoom as d3zoom } from 'd3-zoom'
 
 import { nodeId } from './graphFilters.js'
-import { clusterForce, parentFanForce } from './graphForces.js'
+import {
+  LINK_CHILD_COUNT_CAP,
+  LINK_CHILD_COUNT_SCALE,
+  childCountTermFor,
+  clusterForce,
+  parentFanForce
+} from './graphForces.js'
+
+export { LINK_CHILD_COUNT_CAP, LINK_CHILD_COUNT_SCALE, childCountTermFor }
 
 /**
  * Everything the page decides -- how a node is grouped, how large it draws, what colour its group
@@ -12,9 +20,6 @@ import { clusterForce, parentFanForce } from './graphForces.js'
 
 const LINK_BASE_DISTANCE = 40
 
-export const LINK_CHILD_COUNT_SCALE = 8
-export const LINK_CHILD_COUNT_CAP = 90
-
 export function childCountsFor(edges) {
   const counts = new Map()
   for (const edge of edges) {
@@ -22,10 +27,6 @@ export function childCountsFor(edges) {
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   return counts
-}
-
-export function childCountTermFor(childCount) {
-  return Math.min(LINK_CHILD_COUNT_CAP, LINK_CHILD_COUNT_SCALE * Math.sqrt(Math.max(0, childCount)))
 }
 
 /** Evaluated once at attach time, not per tick -- by then d3-force has resolved
