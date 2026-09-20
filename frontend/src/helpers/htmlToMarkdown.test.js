@@ -25,9 +25,8 @@ describe('htmlToMarkdown', () => {
   })
 
   it('converts a GFM table (from the gfm plugin)', () => {
-    // @joplin/turndown-plugin-gfm pads every cell to a minimum of 3 characters -- upstream's
-    // abandoned turndown-plugin-gfm did not, so this fixture's single-char cells ('A'/'B'/'1'/'2')
-    // are the direct proof of that behaviour change (WP 3163).
+    // @joplin/turndown-plugin-gfm pads every cell to a minimum of 3 characters, which the
+    // single-character cells here make visible.
     const html = '<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>'
     const { markdown: md } = htmlToMarkdown(html)
     expect(md).toContain('| A   | B   |')
@@ -35,10 +34,6 @@ describe('htmlToMarkdown', () => {
   })
 
   it('converts a headerless GFM table (behaviour change: @joplin/turndown-plugin-gfm converts it instead of leaving raw HTML)', () => {
-    // Upstream turndown-plugin-gfm's `tables` rule refused a table with no `<th>` row, leaving the
-    // whole `<table>` as literal HTML in the output. @joplin/turndown-plugin-gfm converts it,
-    // synthesising a blank header row so the result is still valid GFM (WP 3163 acceptance
-    // criteria: "Headerless tables now convert to Markdown instead of staying as HTML").
     const html = '<table><tr><td>1</td><td>2</td></tr><tr><td>3</td><td>4</td></tr></table>'
     const { markdown: md } = htmlToMarkdown(html)
     expect(md).not.toContain('<table>')
@@ -49,9 +44,6 @@ describe('htmlToMarkdown', () => {
   })
 
   it('converts a newline inside a table cell to <br> (behaviour change)', () => {
-    // WP 3163 acceptance criteria: "Newlines inside cells become <br>." -- a `<br>`, or any
-    // block-level split (e.g. two `<p>`s), inside a `<td>`/`<th>` collapses to `<br>` in the cell's
-    // markdown rather than breaking the table row across multiple lines.
     const html = '<table><tr><th>A</th></tr><tr><td>line one<br>line two</td></tr></table>'
     const { markdown: md } = htmlToMarkdown(html)
     expect(md).toContain('line one  <br>line two')
@@ -132,10 +124,6 @@ describe('htmlToMarkdown', () => {
           alt: 'Hopper @ WIKD 09 The Last of Us Part II Remastered'
         }
       ])
-      // The placeholder in `markdown` must be a single line and match the `images[].alt` value
-      // exactly -- a caller resolves it with a plain substring replace built from that same alt,
-      // and `normalize()` trims trailing whitespace per-line across the whole document, so an
-      // embedded raw newline here would desync the two and leave the placeholder unresolved.
       expect(markdown).toBe(
         '![Hopper @ WIKD 09 The Last of Us Part II Remastered](pending-image:0)'
       )
@@ -245,9 +233,8 @@ describe('htmlToMarkdown', () => {
     })
 
     it('converts a real captured OneNote nested-list fixture (OpenProject #3423, comment 10078) to a properly indented nested markdown list', () => {
-      // Real captured OneNote clipboard HTML, 4 levels deep, verbatim as posted to the work
-      // package (not a re-simplified hand-built approximation -- the Bug's own history shows that
-      // already produced a false "already works" read once before).
+      // Captured OneNote clipboard HTML, verbatim: a hand-simplified approximation of this shape
+      // passes even without the re-nesting fix.
       const html = `
         <html><body>
         <!--StartFragment-->
@@ -279,9 +266,8 @@ describe('htmlToMarkdown', () => {
         </body></html>
       `
       const { markdown: md } = htmlToMarkdown(html)
-      // Every sub-bullet is indented 4 spaces per depth level under its own parent bullet, matching
-      // turndown's own bulletListMarker width ('-   ') -- a flattened conversion would put every one
-      // of these at column 0 instead.
+      // 4 spaces per depth level is turndown's own bulletListMarker width; a flattened conversion
+      // puts every one of these at column 0.
       expect(md).toMatch(/^-\s+Level 1$/m)
       expect(md).toMatch(/^ {4}-\s+Level 2 \(nested\)$/m)
       expect(md).toMatch(/^ {4}-\s+Still level 2$/m)

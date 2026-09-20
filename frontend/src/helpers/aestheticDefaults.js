@@ -1,25 +1,15 @@
 /**
- * Per-aesthetic admin-editable color defaults (OpenProject #2768).
+ * The four admin-editable `--q-*` brand colors (`AdminTheme.vue`'s Appearance card), per aesthetic,
+ * so that switching aesthetic visibly resets the color pickers before save -- `resetColors()` is
+ * the sole consumer.
  *
- * `colorPrimary` / `colorAccent` / `colorHeader` / `colorSidebar` are the four admin-editable
- * `--q-*` brand colors (`AdminTheme.vue`'s Appearance card, `helpers/cssVars.js`). Each aesthetic
- * (`composables/aesthetic.js`) ships its own defaults for these four so that switching aesthetic
- * visibly resets the color pickers before save (`AdminTheme.vue`'s `resetColors()`, the sole
- * consumer). Ledger's values are Cardinal's existing brand -- already live in `css/tailwind.css`'s
- * `:root` block and `backend/models/sites.ts`'s `DEFAULT_THEME_COLORS`. Cobalt's are
- * `ui-redesign-cobalt/HANDOFF.md`'s "Primary color (admin default `colorPrimary`)", "Accent fill
- * carrying WHITE text", "Header bar" and "Sidebar ground" rows -- the same literals
- * `css/cobaltTokens.test.js` pins for the token layer's own (non-admin-configurable) chrome colors.
+ * `colorSecondary` and `dark` are deliberately excluded: the site's positive color does not move
+ * with an aesthetic switch, and dark mode is an orthogonal axis, so both keep being reset to their
+ * single existing default.
  *
- * Deliberately excludes `colorSecondary` and `dark`: the HANDOFF's per-aesthetic substitution never
- * calls for the site's positive color to move with the aesthetic switch, and dark mode is a wholly
- * separate, orthogonal axis (`composables/dark.js`) that a color-defaults reset does not touch --
- * both keep being reset to their single existing default in `resetColors()`.
- *
- * A fresh site is always seeded on the `ledger` aesthetic (`backend/models/sites.ts`), so its
- * `DEFAULT_THEME_COLORS` seed already agrees with `AESTHETIC_DEFAULT_COLORS.ledger` below with no
- * cross-workspace import needed (`backend/` and `frontend/` are independently-installed workspaces);
- * each side pins its own literal in its own tests, matching the existing `sites.test.ts` pattern.
+ * `backend/models/sites.ts`'s `DEFAULT_THEME_COLORS` seed pins the same `ledger` literals
+ * separately -- the two are independently-installed workspaces with no import between them, so each
+ * side pins its own copy in its own tests.
  */
 export const AESTHETIC_DEFAULT_COLORS = {
   ledger: {
@@ -41,38 +31,16 @@ export function aestheticDefaultColors(aesthetic) {
 }
 
 /**
- * Per-aesthetic FIXED status color defaults (OpenProject #2814, resolving a gap deferred by Feature
- * #2763/#2772's own logging -- `docs/cobalt-mockup-diff-signoff.md`'s "Frozen-primitive gaps").
+ * The FIXED status colors behind `--q-positive`/`-negative`/`-info`/`-warning`, per aesthetic.
+ * Unlike `AESTHETIC_DEFAULT_COLORS` these are not admin-editable -- no theme column, no picker --
+ * which is why they are a separate map rather than four more keys in that one: `resetColors()`
+ * spreads it straight onto the payload a theme save PUTs, and a key with no matching theme column
+ * would round-trip as silently-dropped dead weight in every saved theme.
  *
- * `colorPositive`/`colorNegative`/`colorInfo`/`colorWarning` back the `--q-positive`/`-negative`/
- * `-info`/`-warning` custom properties `composables/notify.js`'s toast presets (and any `bg-positive`/
- * `text-info`/... utility) resolve through. Unlike `AESTHETIC_DEFAULT_COLORS` above, these are NOT
- * admin-editable -- there is no `colorPositive`/etc. column on `backend/models/sites.ts`'s theme
- * shape and no color picker for them in `AdminTheme.vue`'s Appearance card, which is exactly why
- * `App.vue#applyTheme()` used to carry `positive`/`negative` as hardcoded literals rather than read
- * them off `siteStore.theme`. That is also why this is a SEPARATE map/accessor rather than four more
- * keys folded into `AESTHETIC_DEFAULT_COLORS`: `AdminTheme.vue#resetColors()` spreads that map's
- * return straight onto `state.config`, the payload a theme save PUTs to the backend, and a key with
- * no matching theme column would round-trip as silently-dropped dead weight in every saved theme.
- *
- * `App.vue#applyTheme()` is the sole consumer, keyed off the just-resolved `aesthetic.current`
- * (ledger/cobalt) rather than site config, and still runs each value through
- * `userStore.getAccessibleColor()` for colour-vision-deficiency remapping -- `helpers/accessibility.js`'s
- * CVD tables carry no `info`/`warning` entries (only `positive`/`negative` did before this), so those
- * two pass through unchanged for now, same as any other name the tables don't list.
- *
- * Ledger's values are unchanged from `css/tailwind.css`'s existing `:root` `--q-*` defaults and from
- * `App.vue`'s own pre-#2814 hardcoded literals for positive/negative. Cobalt's are
- * `ui-redesign-cobalt/HANDOFF.md`'s light-mode figures: "Positive text / fill" (the darker, white-
- * safe TEXT tone -- `#177a5e`, 5.27:1 on white), "Accent fill carrying WHITE text" for negative
- * (Cobalt's own accent -- `#c8303c`, 5.32:1 -- exactly as Ledger's own `--q-negative` already equals
- * `--q-accent`), "Info toast" (`#1e2a5e`, 13.57:1), and warning's own "the amber warning keeps
- * `#d9a441`" note -- unchanged from Ledger, 7.41:1 on Cobalt's `--color-ink` under the same dark-ink
- * (not white) label `notify.js`'s `warning` preset already draws. Dark-mode-specific Cobalt toast
- * swatches exist in the handoff (`Primitives Dark 3x - Cobalt.dc.html`) but the `--q-*` architecture
- * has no dark-specific override slot yet (see `css/tailwind.css`'s own note by `--q-header`), so,
- * like every other `--q-*` token, this seeds one Cobalt value used in both light and dark -- left for
- * future work alongside that same gap, not silently guessed at here.
+ * `helpers/accessibility.js`'s CVD tables carry no `info`/`warning` entries, so those two pass
+ * through the colour-vision remapping unchanged, like any other name the tables don't list. One
+ * Cobalt value serves both light and dark, since the `--q-*` layer has no dark-specific override
+ * slot.
  */
 export const AESTHETIC_STATUS_COLORS = {
   ledger: {
@@ -89,25 +57,14 @@ export const AESTHETIC_STATUS_COLORS = {
   }
 }
 
-/**
- * The fixed status-color defaults for one aesthetic. Falls back to `ledger` for an unknown or
- * missing value, same convention as `aestheticDefaultColors()` above.
- *
- * @param {'ledger'|'cobalt'|undefined} aesthetic
- * @returns {{ colorPositive: string, colorNegative: string, colorInfo: string, colorWarning: string }}
- */
 export function aestheticStatusColors(aesthetic) {
   return AESTHETIC_STATUS_COLORS[aesthetic] ?? AESTHETIC_STATUS_COLORS.ledger
 }
 
 /**
- * The chrome colors that change again on a dark ground.
- *
- * Cobalt's header bar deepens one step on dark (`#1a43bd`, "to cut glare" -- the handoff's own
- * Surfaces table) and its sidebar drops to `#0e1540`; nothing else about the aesthetic moves between
- * light and dark that a token in `css/tailwind.css` does not already carry. Ledger has no entry here
- * at all: its header and sidebar are the app's ordinary light chrome, and its dark theme repaints
- * them through `dark:` utilities rather than through the `--q-*` brand colors.
+ * The chrome colors that change again on a dark ground: Cobalt's header deepens a step to cut
+ * glare and its sidebar drops further. Ledger has no entry because its dark theme repaints header
+ * and sidebar through `dark:` utilities rather than through the `--q-*` brand colors.
  */
 const AESTHETIC_DARK_CHROME = {
   cobalt: {
@@ -117,22 +74,18 @@ const AESTHETIC_DARK_CHROME = {
 }
 
 /**
- * The four `--q-*` brand colors to actually paint with, for one RESOLVED aesthetic.
+ * The aesthetic is not only a site setting: a reader can pick Cobalt for themselves on a site whose
+ * stored `colorHeader` is Ledger's `#ffffff`, and left to the stored value alone would get Cobalt's
+ * indigo sidebar text on Ledger's near-white ground -- unreadable, and nothing the administrator
+ * could have prevented.
  *
- * `resetColors()` only reaches a site whose administrator opens AdminTheme and saves, and the
- * aesthetic is not only a site setting: a reader can pick Cobalt for themselves
- * (`users.prefs.aesthetic`) on a site whose stored `colorHeader` is Ledger's `#ffffff`. Left to the
- * stored value alone that reader gets Cobalt's indigo sidebar text on Ledger's near-white sidebar
- * ground -- unreadable, and nothing the administrator could have prevented.
- *
- * So a stored color that is still some aesthetic's own DEFAULT is treated as "not chosen" and
- * follows the resolved aesthetic; a color the administrator actually picked is left exactly as
- * saved. Compared case-insensitively against every aesthetic's defaults, not just the current one,
- * because the site's stored value is whichever aesthetic it was seeded or last reset under.
+ * So a stored color still equal to some aesthetic's own DEFAULT counts as "not chosen" and follows
+ * the resolved aesthetic, while one the administrator actually picked is left exactly as saved.
+ * Compared case-insensitively against every aesthetic's defaults, not just the current one, because
+ * the stored value is whichever aesthetic the site was seeded or last reset under.
  *
  * @param {'ledger'|'cobalt'|undefined} aesthetic The resolved aesthetic (site or user override).
- * @param {Record<string, string>} stored The site's saved `colorPrimary`/`colorAccent`/`colorHeader`/`colorSidebar`.
- * @returns {Record<string, string>} The same four keys, with untouched defaults moved onto `aesthetic`.
+ * @param {Record<string, string>} stored The site's saved brand colors.
  */
 export function resolveAestheticColors(aesthetic, stored, dark = false) {
   const target = { ...aestheticDefaultColors(aesthetic), ...aestheticStatusColors(aesthetic) }

@@ -12,8 +12,8 @@ import {
   relativeDate
 } from './datetime.js'
 
-// -> Not a real i18n instance -- these tests are about the delegation and the placeholder guard, not
-//    about `common.datetime`'s own wording, which is covered by the locale strings themselves.
+// -> Stands in for i18n so the assertions pin the date/time params passed through, not
+//    `common.datetime`'s wording.
 const fakeT = (key, params) => `${params.date} at ${params.time}`
 
 beforeEach(() => {
@@ -94,27 +94,19 @@ describe('humanizeIsoDuration', () => {
     expect(humanizeIsoDuration('')).toBe('---')
   })
 
-  // -> The number formatters behind this are hoisted to module scope, keyed by singular unit name --
-  //    this exercises every unit in ISO_DURATION_UNITS in one call, so a mis-keyed or missing map
-  //    entry for any of them would show up as a wrong/undefined segment rather than passing quietly.
   it('renders every unit correctly out of the hoisted formatter map', () => {
     expect(humanizeIsoDuration('P1Y2M3W4DT5H6M7S')).toBe(
       '1 year, 2 months, 3 weeks, 4 days, 5 hours, 6 minutes, and 7 seconds'
     )
   })
 
-  // -> Issue #3197: a storage target's scheduleOverride may now be a raw cron expression instead of
-  //    an ISO-8601 duration (backend/models/storage.ts accepts one directly, and a 2.5.x-migrated
-  //    row's syncInterval can land as one verbatim). This function doesn't interpret cron -- it must
-  //    not throw on one either, since AdminStorage.vue calls this unconditionally on whatever
-  //    scheduleOverride currently holds.
+  // -> A storage target's scheduleOverride may hold a raw cron expression rather than an ISO-8601
+  //    duration, and AdminStorage.vue renders whatever it holds -- pass it through, don't throw.
   it('returns a non-ISO-8601 value (e.g. a cron expression) as-is rather than throwing', () => {
     expect(humanizeIsoDuration('30 9 * * 1')).toBe('30 9 * * 1')
   })
 })
 
-// -> Extended for OpenProject #1881: hoisting the per-call `Intl.NumberFormat`/`Intl.DateTimeFormat`
-//    construction inside these functions to module scope must not change a single rendered string.
 describe('humanizeDuration', () => {
   it('renders a multi-unit duration narrow and largest-first', () => {
     expect(humanizeDuration('2024-01-01T00:00:00Z', '2024-01-01T01:04:32Z')).toBe('1h 4m 32s')
@@ -129,8 +121,6 @@ describe('humanizeDuration', () => {
     expect(humanizeDuration('2024-01-01T00:00:00Z', null)).toBe('---')
   })
 
-  // -> The hoisted formatters are shared, mutable-free `Intl.NumberFormat` instances -- calling twice
-  //    with the same input must keep producing the same output, not drift from any shared state.
   it('produces identical output across repeated calls against the shared formatters', () => {
     const first = humanizeDuration('2024-01-01T00:00:00Z', '2024-01-01T01:04:32Z')
     const second = humanizeDuration('2024-01-01T00:00:00Z', '2024-01-01T01:04:32Z')
@@ -138,8 +128,6 @@ describe('humanizeDuration', () => {
   })
 })
 
-// -> Not new behavior, just confirming the existing exports still work from this file once it grew a
-//    third one -- a plain smoke check, not a re-test of `Intl.RelativeTimeFormat`/`Intl.ListFormat`.
 describe('existing datetime helpers', () => {
   it('relativeDate still handles the placeholder case', () => {
     expect(relativeDate(null)).toBe('---')
@@ -151,11 +139,8 @@ describe('existing datetime helpers', () => {
 })
 
 /**
- * OpenProject #1600: every `Intl.*Format` in this file is keyed off `commonStore.locale`, not the
- * browser's own locale, and built lazily rather than captured once at import time. These pin both
- * halves of that with real ICU output (French/German wording differs from English's), not a spy on
- * the `Intl` constructors -- a spy would only prove a locale argument was passed, not that the
- * formatter it built is ever actually used.
+ * Asserted against real ICU output rather than a spy on the `Intl` constructors: a spy would only
+ * prove a locale argument was passed, not that the formatter built from it is the one used.
  */
 describe('locale-aware formatting', () => {
   it('humanizeIsoDuration renders in the app locale, not a hardcoded one', () => {
@@ -207,9 +192,8 @@ describe('locale-aware formatting', () => {
     commonStore.locale = 'en'
     expect(relativeDate(future)).toBe('in 2 days')
 
-    // -> `numeric: 'auto'` lets German pick its idiomatic "übermorgen" ("the day after tomorrow")
-    //    over the numeric "in 2 Tagen" -- either way, proof enough that the locale switch reached
-    //    the formatter, since English's own `numeric: 'auto'` output stayed numeric.
+    // -> Not an exact match: `numeric: 'auto'` lets German render "übermorgen" instead of
+    //    "in 2 Tagen". Either output proves the locale switch reached the formatter.
     commonStore.locale = 'de'
     expect(relativeDate(future)).not.toBe('in 2 days')
   })
@@ -230,9 +214,8 @@ describe('locale-aware formatting', () => {
     const commonStore = useCommonStore()
     commonStore.locale = 'en'
 
-    // -> Same locale, repeated calls: nothing here asserts identity directly (the cache is private),
-    //    but this pins that repeated calls in one locale keep producing the one correct answer rather
-    //    than drifting -- the observable half of "memoized" that matters to a caller.
+    // -> The cache is private, so only its observable half is assertable: repeated calls in one
+    //    locale keep producing the same answer.
     expect(humanizeIsoDuration('PT5M')).toBe('5 minutes')
     expect(humanizeIsoDuration('PT5M')).toBe('5 minutes')
   })

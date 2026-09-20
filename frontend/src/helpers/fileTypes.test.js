@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fileTypes from './fileTypes.js'
 
-/**
- * OpenProject #2921 replaced every real per-extension `img:` SVG with a `tabler:` Iconify name, but
- * left `page` and `redirect` (tree-node pseudo-types, not uploaded-file extensions) on their own
- * `img:` illustrations, out of that WP's scope. OpenProject #2940 ("ALL of them, not just common
- * extensions") closes that gap -- every entry in this dictionary, pseudo-types included, is
- * `tabler:` now, and there is no longer a `PSEUDO_TYPES` carve-out to maintain here.
- */
 describe('fileTypes', () => {
   it('gives every entry a tabler: icon', () => {
     for (const [ext, entry] of Object.entries(fileTypes)) {

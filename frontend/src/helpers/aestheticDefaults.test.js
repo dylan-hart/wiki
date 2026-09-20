@@ -39,8 +39,7 @@ describe('aestheticDefaultColors', () => {
     }
   })
 
-  // Pin against `backend/models/sites.ts`'s `DEFAULT_THEME_COLORS` seed, which a fresh (always
-  // Ledger) site actually gets -- see that file's own `sites.test.ts` pin for the backend half.
+  // A fresh site is always seeded Ledger, and the backend pins its own copy of these literals.
   it("agrees with backend/models/sites.ts's DEFAULT_THEME_COLORS for the fields both declare", () => {
     expect(AESTHETIC_DEFAULT_COLORS.ledger).toEqual({
       colorPrimary: '#c14a52',
@@ -51,13 +50,6 @@ describe('aestheticDefaultColors', () => {
   })
 })
 
-/*
-  `resetColors()` only reaches a site whose administrator opens AdminTheme and saves, and the
-  aesthetic is not only a site setting -- a reader can pick Cobalt for themselves on a site whose
-  stored chrome is still Ledger's. `resolveAestheticColors` is what decides which of the two the app
-  actually paints with, and the distinction it draws is "a colour nobody chose" against "a colour an
-  administrator picked": the first follows the aesthetic, the second is left exactly as saved.
-*/
 describe('resolveAestheticColors', () => {
   const LEDGER_STORED = {
     colorPrimary: '#c14a52',
@@ -76,7 +68,6 @@ describe('resolveAestheticColors', () => {
     const chosen = { ...LEDGER_STORED, colorHeader: '#123456' }
 
     expect(resolveAestheticColors('cobalt', chosen).colorHeader).toBe('#123456')
-    // -> and the ones they did NOT pick still follow
     expect(resolveAestheticColors('cobalt', chosen).colorSidebar).toBe('#10194a')
   })
 
@@ -109,9 +100,9 @@ describe('resolveAestheticColors', () => {
   })
 
   /*
-    The status pair is not administrator-editable and so is not among the four above, but `App.vue`
-    writes both onto `--q-positive`/`--q-negative` through this same call -- each aesthetic's TEXT
-    tone, since both are drawn under a white label there.
+    The status pair is not administrator-editable, but `App.vue` writes it onto
+    `--q-positive`/`--q-negative` through this same call -- each aesthetic's darker TEXT tone, since
+    both are drawn under a white label there.
   */
   it('carries each aesthetic’s own positive and negative text tones', () => {
     expect(resolveAestheticColors('ledger', LEDGER_STORED)).toMatchObject({
@@ -149,8 +140,8 @@ describe('aestheticStatusColors', () => {
     expect(aestheticStatusColors('something-else')).toEqual(AESTHETIC_STATUS_COLORS.ledger)
   })
 
-  // `warning` deliberately stays `#d9a441` in both aesthetics -- `ui-redesign-cobalt/HANDOFF.md`'s
-  // "the amber warning keeps `#d9a441`" note -- so this only asserts the three that DO change.
+  // The amber warning deliberately stays the same in both aesthetics, so only three are asserted
+  // to change.
   it('changes positive, negative and info between the two aesthetics', () => {
     const { ledger, cobalt } = AESTHETIC_STATUS_COLORS
     for (const key of ['colorPositive', 'colorNegative', 'colorInfo']) {
@@ -159,10 +150,8 @@ describe('aestheticStatusColors', () => {
     expect(cobalt.colorWarning).toBe(ledger.colorWarning)
   })
 
-  // Every fill/text pair here is drawn exactly as `composables/notify.js`'s `PRESETS` draws it
-  // (white text on positive/negative/info, `--color-ink` on warning) -- a regression here would ship
-  // an inaccessible toast under Cobalt the same way the Ledger pins in `helpers/accessibility.test.js`
-  // guard for Ledger.
+  // The foregrounds below are what `composables/notify.js`'s `PRESETS` actually draws each toast
+  // with: white on positive/negative/info, `--color-ink` on warning.
   it('clears WCAG AA under the same foreground notify.js draws each preset with', () => {
     const WHITE = '#ffffff'
     const COBALT_INK = '#10194a'

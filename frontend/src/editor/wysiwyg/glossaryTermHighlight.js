@@ -3,33 +3,19 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 /**
- * Highlights recognized glossary terms in the WYSIWYG editor -- the editor-side counterpart to
- * `renderers/modules/markdown-it-glossary.js`'s own term matching (see that file's doc comments for
- * the case-insensitive whole-word boundary rule this ports).
+ * A view-layer decoration overlay, deliberately not a stored mark or node: there is no markdown
+ * syntax for a glossary term -- the renderer recognizes one by matching a live term list against
+ * plain text -- so a stored mark would have to invent syntax the renderer ignores, or desync the
+ * moment a term is renamed. Decorations never enter the document, so the markdown round-trip holds
+ * by construction.
  *
- * Deliberately **not** a stored mark or node. There is no markdown syntax for a glossary term --
- * the renderer recognizes one by matching a live term list against otherwise-plain text at render
- * time, not from anything an author typed. A stored, editable mark would have to either invent
- * syntax the renderer knows nothing about, or silently desync from the term list the moment a term
- * is renamed or removed after the mark was applied. Decorations sidestep both: they are a pure
- * VIEW-layer overlay (`Decoration.inline`), never part of the document, so the round-trip
- * (`markdown -> editor -> markdown`) acceptance criterion holds by construction -- content the
- * decorations point at cannot itself change because of them.
+ * `options.terms` is read once at construction and does not refresh mid-session; live updates would
+ * need a way to push new terms into a running editor's plugin state.
  *
- * `options.terms` is read once, at construction (`EditorWysiwyg.vue`'s `buildExtensions()` passes
- * `editorStore.editors.markdown?.glossaryTerms` at editor-build time) -- it does not live-update if
- * the term list changes again later in the same editing session. Acceptable for this pass: a
- * within-session term edit is rare, and the decorations recompute on every keystroke regardless (the
- * `terms` list itself just does not refresh mid-session without a remount). A live-updating version
- * would need a way to push new terms into a running editor's plugin state, which is out of scope
- * here.
- *
- * Deliberately skips the renderer's "suppress inside an existing markdown link" rule
- * (`markdown-it-glossary.js`'s `insideLink` tracking): that rule exists there to avoid emitting an
- * invalid nested `<a>` in the published page's literal HTML. A decoration is a non-nesting CSS
- * overlay, not a wrapping tag, so the concern it guards against does not apply here.
+ * The renderer's "suppress inside an existing markdown link" rule is deliberately skipped: it
+ * exists there to avoid emitting an invalid nested `<a>`, and a CSS overlay does not nest.
  */
-/** Exported so a test (or a future live-update caller) can read the plugin's decoration state directly. */
+/** Exported so a test can read the plugin's decoration state directly. */
 export const glossaryTermHighlightPluginKey = new PluginKey('glossaryTermHighlight')
 
 function escapeRegExp(value) {
@@ -37,17 +23,10 @@ function escapeRegExp(value) {
 }
 
 /**
- * Builds a single case-insensitive alternation over every term's surface forms (its own name plus
- * every alias), longest first so a more specific alias wins over a shorter term it contains -- the
- * same ordering rule `markdown-it-glossary.js` documents. Bounded with Unicode-aware
- * letter/number/underscore lookaround (a `\b`-alike that also works outside ASCII) rather than
- * `markdown-it-glossary.js`'s own explicit boundary-character class -- simpler to get right on a
- * plain JS string, and this only ever runs against a text node's own content, never markdown source
- * where a literal `$`/backtick/etc right against a term would matter the way it does there.
- *
- * @example
- * buildMatcher([{ term: 'API', definition: 'Application Programming Interface' }])
- * // → a RegExp matching whole-word "API" (case-insensitively), plus a lookup Map back to the entry
+ * Surface forms are ordered longest first so a more specific alias wins over a shorter term it
+ * contains. Boundaries are Unicode-aware lookaround rather than the renderer's explicit
+ * boundary-character class: this only ever runs against a text node's own content, never markdown
+ * source, where a literal `$` or backtick against a term would matter.
  */
 function buildMatcher(terms) {
   const surfaceForms = (terms || [])
@@ -97,8 +76,7 @@ function buildDecorations(doc, matcher) {
           })
         )
       }
-      // -> Guards against a zero-width match looping forever (not expected with this pattern, but
-      //    cheap insurance against a future edit that introduces one).
+      // -> Insurance against a future pattern edit that can match zero-width and loop forever.
       if (match.index === matcher.pattern.lastIndex) {
         matcher.pattern.lastIndex += 1
       }

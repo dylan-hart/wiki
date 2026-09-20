@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { hasFiles, pastedFiles, shouldAcceptDrag, shouldClaimPaste } from './editorFileTransfer'
 
-/** A minimal DataTransfer-shaped stand-in -- only the members these functions actually read. */
 function transfer({ files = [], text = '', types = [], items } = {}) {
   return {
     files,
@@ -12,7 +11,6 @@ function transfer({ files = [], text = '', types = [], items } = {}) {
   }
 }
 
-/** A minimal DataTransferItem-shaped stand-in. */
 function fileItem(file) {
   return { kind: 'file', getAsFile: () => file }
 }
@@ -36,11 +34,6 @@ describe('pastedFiles', () => {
     ])
   })
 
-  /*
-    The cross-browser gap this exists for (OpenProject #2450): if a browser's paste event ever leaves
-    `clipboardData.files` empty for a pasted image while still populating `.items` -- the historically
-    broader-supported clipboard surface -- reading `.files` alone would silently swallow the paste.
-  */
   it('falls back to `.items` when `.files` is empty', () => {
     expect(pastedFiles(transfer({ files: [], items: [fileItem(IMAGE_FILE)] }))).toEqual([
       IMAGE_FILE
@@ -93,11 +86,6 @@ describe('shouldClaimPaste', () => {
     expect(shouldClaimPaste(transfer({ files: [PDF_FILE] }))).toBe(true)
   })
 
-  /*
-    The documented behavior `onEditorPaste` exists to preserve: copying out of a spreadsheet or a
-    design tool puts an image on the clipboard ALONGSIDE the text, and text wins so the paste is not
-    silently answered with a screenshot instead of the text the author meant to paste.
-  */
   it('lets text win when an image is on the clipboard alongside it', () => {
     expect(shouldClaimPaste(transfer({ files: [IMAGE_FILE], text: 'from the spreadsheet' }))).toBe(
       false
@@ -109,8 +97,8 @@ describe('shouldClaimPaste', () => {
   })
 
   it('is false when the plain-text entry is present but blank/whitespace-only', () => {
-    // -> Some sources (e.g. an OS screenshot tool) put an empty text/plain entry on the clipboard
-    //    alongside the image; that is not text to prefer, so the image still wins.
+    // -> An OS screenshot tool can put an empty text/plain entry alongside the image; that is not
+    //    text to prefer, so the image still wins.
     expect(shouldClaimPaste(transfer({ files: [IMAGE_FILE], text: '   ' }))).toBe(true)
   })
 })
@@ -120,12 +108,6 @@ describe('shouldAcceptDrag', () => {
     expect(shouldAcceptDrag(transfer())).toBe(false)
   })
 
-  /*
-    The cross-browser case this function exists for: `dataTransfer.files` is empty on `dragover` in
-    Chrome, Firefox AND Safari alike (drag payload access is spec-restricted until `drop`), so a check
-    that only looked at `.files` would never accept a single drag anywhere -- `types` is what carries
-    the signal at that stage.
-  */
   it('accepts a dragover with an empty `files` array but "Files" listed in `types`', () => {
     expect(shouldAcceptDrag(transfer({ files: [], types: ['Files'] }))).toBe(true)
   })

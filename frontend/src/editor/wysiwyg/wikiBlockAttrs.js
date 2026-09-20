@@ -1,31 +1,22 @@
 /**
- * Parsing and writing the `{prop="value" flag}` attribute list on a block's opening line -- the MDC
- * syntax `renderers/modules/markdown-it-blocks.js#parseProps()` reads for the read view and
- * `helpers/blocks.js#blockAttributes()` writes for the plain-text editor's picker.
+ * A third, independent implementation of the MDC `{prop="value" flag}` attribute grammar rather
+ * than a shared import: the read view's markdown-it block rule walks raw source line by line, and
+ * the picker's writer works from values already typed against a live block definition, while this
+ * Tiptap node's round-trip has to work headless, with no definition in scope at all. So it deals
+ * only in raw strings and the bare-flag `true`; the typed (boolean/number) reading is
+ * `BlockPropsForm.vue`'s.
  *
- * This is a third, independent implementation of the same small grammar rather than a shared
- * import: the two existing ones are shaped for what THEY already have in scope -- a markdown-it
- * block-rule `state` walking the raw source line by line, and a `values` object already typed
- * against a block's live `props` definition -- and neither is what this Tiptap node's markdown
- * tokenizer/serializer wants, which is an ordered set of raw string/`true` pairs read and written
- * with no block definition in scope at all. The node's own markdown round-trip has to work headless
- * (e.g. the conversion job OpenProject #3400 owns runs with no site loaded to resolve one against),
- * so it never assumes a live definition is available -- only `BlockPropsForm.vue`, reached through
- * the existing `BlockPickerOverlay.vue`/`BlockParamsDialog.vue`, does the typed (boolean/number)
- * reading; this file only ever deals in strings and the bare-flag `true`.
- *
- * `.class`/`#id` shorthand is deliberately not special-cased: no block under `blocks/` writes it
- * (`blocks/definitions.test.js`'s own template check would catch one that tried to), and a `.`/`#`
- * leading character is not excluded from the key class below, so a hand-authored one round-trips as
- * an ordinary (if odd-looking) prop name rather than being lost.
+ * `.class`/`#id` shorthand is deliberately not special-cased: no block under `blocks/` writes it,
+ * and `.`/`#` are not excluded from the key class below, so a hand-authored one round-trips as an
+ * ordinary (if odd-looking) prop name rather than being lost.
  */
 
 const PROP = /([^\s"'=}]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s}]*)))?/g
 
 /**
- * @param {string|undefined} source The inside of the `{...}` braces, or `undefined` for none.
- * @returns {Record<string, string|true>} Values by prop name, in the order they were written. A
- *   bare flag (`hideToolbar`, no `=`) is `true` -- the same reading MDC gives it everywhere else.
+ * @param {string|undefined} source The inside of the `{...}` braces.
+ * @returns {Record<string, string|true>} Values by prop name, in written order. A bare flag
+ *   (`hideToolbar`, no `=`) is `true` -- the same reading MDC gives it everywhere else.
  */
 export function parseBlockProps(source) {
   const props = {}
@@ -39,7 +30,7 @@ export function parseBlockProps(source) {
 
 /**
  * @param {Record<string, unknown>} [props]
- * @returns {string} The `{...}` braces' contents, or `''` for no props at all.
+ * @returns {string} The `{...}` braces' contents, without the braces.
  */
 export function serializeBlockProps(props = {}) {
   return Object.entries(props)

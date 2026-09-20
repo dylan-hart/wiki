@@ -1,17 +1,13 @@
 /**
- * Curated substitutes for every themeable color, keyed by the same name `AdminTheme.vue` uses for
- * `theme.color<Name>` (`primary`, `secondary`, `accent`, `header`, `sidebar`) plus the two fixed
- * status colors (`positive`, `negative`) that are never site-configurable. This is a palette swap,
- * not a simulation of what a CVD viewer would see of the site's own chosen color -- the site admin's
- * pick is discarded entirely for whichever mode is active, in favor of a color chosen to stay
- * distinguishable from its neighbors on that same page (mainly `primary`/`secondary`/`sidebar`,
- * which otherwise all render as close variants of the same hue) and, for `header`/`sidebar`, to stay
- * dark enough for the white text drawn over it.
+ * A palette swap, not a simulation of what a CVD viewer would see of the site's own color: the
+ * admin's pick is discarded entirely for whichever mode is active, in favor of a color chosen to
+ * stay distinguishable from its neighbors on the same page (`primary`/`secondary`/`sidebar`
+ * otherwise render as close variants of one hue) and, for `header`/`sidebar`, dark enough for the
+ * white text drawn over it.
  *
- * `protanopia` and `deuteranopia` (both red-green deficiencies) get the same substitutes: the
- * confusion axis is the same, so a palette that avoids reds/greens for one avoids it for the other.
- * `tritanopia` (blue-yellow) needs a different set, since blue -- the one hue the red-green modes see
- * fine -- is exactly what it confuses with yellow/green.
+ * Both red-green deficiencies share one table -- the confusion axis is the same, so a palette that
+ * avoids reds and greens for one avoids it for the other. `tritanopia` (blue-yellow) needs its own,
+ * since blue, the one hue the red-green modes see fine, is exactly what it confuses.
  */
 const protanopia = {
   accent: '#0091EA',
@@ -41,11 +37,6 @@ const tritanopia = {
   sidebar: '#00695C'
 }
 
-/**
- * Substitutes `base` with a CVD-safe color for `cvd`, when the CVD table for that mode names one for
- * `name`. Falls through to `base` unchanged for `cvd: 'none'`, an unrecognized `cvd`, or a `name` the
- * table has no entry for.
- */
 export function getAccessibleColor(name, base, cvd) {
   switch (cvd) {
     case 'protanopia': {
@@ -61,10 +52,7 @@ export function getAccessibleColor(name, base, cvd) {
   return base
 }
 
-/**
- * Expands a 3-digit hex color (`#abc` or `abc`) to 6 digits (`aabbcc`), leaving an already-6-digit
- * color (with or without its leading `#`) untouched. Bare hex, no `#`, is returned either way.
- */
+/** Returns bare 6-digit hex, no `#`, expanding the 3-digit shorthand. */
 function normalizeHex(hex) {
   const stripped = (hex || '').replace('#', '')
   if (stripped.length === 3) {
@@ -89,11 +77,7 @@ function relativeLuminance(hex) {
   return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
 }
 
-/**
- * WCAG 2.x contrast ratio between two hex colors, per
- * https://www.w3.org/TR/WCAG21/#dfn-contrast-ratio -- always >= 1, order of the two arguments does
- * not matter.
- */
+/** WCAG 2.x, per https://www.w3.org/TR/WCAG21/#dfn-contrast-ratio -- always >= 1, order-agnostic. */
 export function contrastRatio(hexA, hexB) {
   const lumA = relativeLuminance(hexA)
   const lumB = relativeLuminance(hexB)
@@ -102,8 +86,5 @@ export function contrastRatio(hexA, hexB) {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
-/**
- * The WCAG 2.x AA threshold for normal-weight text (4.5:1). Large/bold text's 3:1 threshold isn't
- * used anywhere in this codebase's contrast checks, so it isn't exported here.
- */
+/** The AA threshold for normal-weight text; large/bold text's 3:1 is unused here. */
 export const WCAG_AA_CONTRAST = 4.5

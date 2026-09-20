@@ -13,7 +13,6 @@ describe('initials', () => {
   })
 
   it('takes the FIRST and LAST word of a three-or-more-word name, not the first two', () => {
-    // -> The whole point of the consolidation: `PageComments` used to answer `DJ` here
     expect(initials('Dylan James Hart')).toBe('DH')
     expect(initials('Ada Augusta King Lovelace')).toBe('AL')
   })

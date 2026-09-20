@@ -137,8 +137,7 @@ export default {
   rar: {
     icon: 'tabler:file-zip'
   },
-  // -> Not a file extension, like `folder` and `page`: the type of a page that redirects instead of
-  //    holding content of its own
+  // -> A page type, not a file extension -- as `folder` and `page` are
   redirect: {
     icon: 'tabler:arrow-forward-up'
   },
@@ -181,8 +180,6 @@ export default {
   woff2: {
     icon: 'tabler:typography'
   },
-  // -> Was misspelled `xlst`, which no real file ever has an extension of, so an actual `.xls`
-  //    fell all the way through to the generic fallback
   xls: {
     icon: 'tabler:file-type-xls'
   },

@@ -2,12 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { PICKABLE_EDITORS, pickEditor } from './editorPicker'
 
-/**
- * Regression coverage for task 493: every new-page entry point used to hardcode `editor: 'markdown'`
- * even though the site could have more than one editor active. `pickEditor()` is what both
- * `Index.vue`'s `createPage()` and any future entry point call instead -- it is the one place that
- * decides "ask, or just answer" so that decision cannot drift between callers.
- */
 describe('pickEditor', () => {
   it('answers directly with the one active editor, without opening a dialog', async () => {
     const siteStore = { editors: { asciidoc: false, code: false, markdown: true, wysiwyg: false } }
