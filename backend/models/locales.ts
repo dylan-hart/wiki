@@ -4,6 +4,7 @@ import { locales as localesTable } from '../db/schema.ts'
 import { eq, lt, sql } from 'drizzle-orm'
 import { isPlainObject } from 'es-toolkit/predicate'
 import { ClusterReloaded } from '../helpers/clusterCache.ts'
+import { isConfiguredLocaleAlias } from '../helpers/localeRouting.ts'
 import type { LocalazyLanguage } from '../locales/metadata.d.ts'
 
 export function localeCode(lang: Pick<LocalazyLanguage, 'language' | 'region' | 'script'>): string {
@@ -353,9 +354,12 @@ class Locales extends ClusterReloaded {
    * `stripLocalePrefix`, and one created while `fr` is only installed becomes unreachable the day it
    * is activated. Case-insensitive, matching URL parsing.
    */
-  async isReservedLocaleCode(segment: string): Promise<boolean> {
+  async isReservedLocaleCode(segment: string, siteId?: string): Promise<boolean> {
     if (!segment) {
       return false
+    }
+    if (isConfiguredLocaleAlias(siteId, segment)) {
+      return true
     }
     const codes = (await this.getLocales()).map((lc: any) => String(lc.code).toLowerCase())
     return codes.includes(segment.toLowerCase())

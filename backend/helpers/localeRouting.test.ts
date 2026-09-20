@@ -5,6 +5,7 @@ import {
   assertLocaleActive,
   assertPathNotReservedLocale,
   defaultLocale,
+  isConfiguredLocaleAlias,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
   localeUrlSegment,
@@ -193,6 +194,107 @@ describe('assertPathNotReservedLocale', () => {
   test('treats a single-segment path as its own first segment', async () => {
     await withReservedCodes(['fr'], async () => {
       await assert.rejects(assertPathNotReservedLocale('fr'), { name: 'pageReservedLocaleSegment' })
+    })
+  })
+})
+
+describe('assertPathNotReservedLocale with a siteId', () => {
+  const zhSite = { 'site-1': { config: { locales: { aliases: { 'zh-CN': 'zh' } } } } }
+  const bareSite = { 'site-2': { config: { locales: { primary: 'en', active: ['en'] } } } }
+
+  function withWiki<T>(fn: () => Promise<T>): Promise<T> {
+    const handle = installTestWiki({
+      sites: { ...zhSite, ...bareSite },
+      models: {
+        locales: {
+          isReservedLocaleCode: async (code: string, siteId?: string) =>
+            code === 'fr' || isConfiguredLocaleAlias(siteId, code)
+        }
+      }
+    })
+    return fn().finally(() => {
+      handle.restore()
+    })
+  }
+
+  test('refuses a path beginning with a configured alias, saying alias', async () => {
+    await withWiki(async () => {
+      await assert.rejects(
+        assertPathNotReservedLocale('zh/guide', 'site-1'),
+        (err: CustomError) => {
+          assert.equal(err.name, 'pageReservedLocaleSegment')
+          assert.equal(err.message, '"zh" is a locale alias and cannot begin a page path.')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    })
+  })
+
+  test('matches an alias case-insensitively', async () => {
+    await withWiki(async () => {
+      await assert.rejects(assertPathNotReservedLocale('ZH/guide', 'site-1'), {
+        name: 'pageReservedLocaleSegment'
+      })
+    })
+  })
+
+  test('the same segment is fine on a site without that alias', async () => {
+    await withWiki(async () => {
+      await assertPathNotReservedLocale('zh/guide', 'site-2')
+      await assertPathNotReservedLocale('zh/guide')
+    })
+  })
+
+  test('an installed code is still refused, saying installed locale code', async () => {
+    await withWiki(async () => {
+      await assert.rejects(
+        assertPathNotReservedLocale('fr/guide', 'site-1'),
+        (err: CustomError) => {
+          assert.equal(
+            err.message,
+            '"fr" is an installed locale code and cannot begin a page path.'
+          )
+          return true
+        }
+      )
+    })
+  })
+
+  test('only the first segment is checked', async () => {
+    await withWiki(async () => {
+      await assertPathNotReservedLocale('guide/zh', 'site-1')
+    })
+  })
+})
+
+describe('isConfiguredLocaleAlias', () => {
+  function withSites<T>(sites: any, fn: () => T): T {
+    const handle = installTestWiki({ sites })
+    try {
+      return fn()
+    } finally {
+      handle.restore()
+    }
+  }
+
+  test('is false without a siteId, an empty segment, or configured aliases', () => {
+    withSites(
+      { s: { config: { locales: { aliases: { 'zh-CN': 'zh' } } } }, t: { config: {} } },
+      () => {
+        assert.equal(isConfiguredLocaleAlias(undefined, 'zh'), false)
+        assert.equal(isConfiguredLocaleAlias('s', ''), false)
+        assert.equal(isConfiguredLocaleAlias('t', 'zh'), false)
+        assert.equal(isConfiguredLocaleAlias('missing', 'zh'), false)
+      }
+    )
+  })
+
+  test('matches any alias value case-insensitively, never the canonical key', () => {
+    withSites({ s: { config: { locales: { aliases: { 'zh-CN': 'zh', 'pt-BR': 'Pt' } } } } }, () => {
+      assert.equal(isConfiguredLocaleAlias('s', 'ZH'), true)
+      assert.equal(isConfiguredLocaleAlias('s', 'pt'), true)
+      assert.equal(isConfiguredLocaleAlias('s', 'zh-CN'), false)
     })
   })
 })

@@ -806,7 +806,7 @@ class Pages {
     }
 
     const path = normalizePath(input.path)
-    await assertPathNotReservedLocale(path)
+    await assertPathNotReservedLocale(path, siteId)
     const locale = input.locale || defaultLocale(siteId)
     // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
     //    including one recreated by the deletion-recovery flow into a locale that no longer exists
@@ -1771,7 +1771,7 @@ class Pages {
     //    a title-only (or locale-only) move of an already-grandfathered page — one whose path
     //    predates this rule — isn't itself blocked by a shadowing first segment it never touches.
     if (newPath !== page.path) {
-      await assertPathNotReservedLocale(newPath)
+      await assertPathNotReservedLocale(newPath, siteId)
     }
     const destLocale = locale ?? page.locale
     // -> Same rule as `createPage`: a disabled locale is not a place a page may end up

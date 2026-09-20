@@ -459,6 +459,70 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
   })
 
+  describe('configured locale aliases', () => {
+    let originalLocales: any
+
+    beforeEach(() => {
+      originalLocales = CARDINAL.sites[fixtures.siteId]!.config.locales
+      CARDINAL.sites[fixtures.siteId]!.config.locales = {
+        ...originalLocales,
+        aliases: { 'zh-CN': 'zh' }
+      }
+    })
+
+    afterEach(() => {
+      CARDINAL.sites[fixtures.siteId]!.config.locales = originalLocales
+    })
+
+    test('createPage rejects a path whose first segment is a configured alias', async () => {
+      await assert.rejects(
+        pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path: 'zh/shadowed', locale: 'en' }),
+          actor
+        ),
+        (err: any) => err.name === 'pageReservedLocaleSegment' && /locale alias/.test(err.message)
+      )
+      await assert.rejects(
+        pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path: 'ZH/shadowed', locale: 'en' }),
+          actor
+        ),
+        (err: any) => err.name === 'pageReservedLocaleSegment'
+      )
+    })
+
+    test('createPage allows the segment nested, and once the alias is gone', async () => {
+      const nested = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/zh/nested-alias-ok', locale: 'en' }),
+        actor
+      )
+      assert.equal(nested.path, 'docs/zh/nested-alias-ok')
+
+      CARDINAL.sites[fixtures.siteId]!.config.locales = originalLocales
+      const bare = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'zh/no-alias-here', locale: 'en' }),
+        actor
+      )
+      assert.equal(bare.path, 'zh/no-alias-here')
+    })
+
+    test('movePage refuses a destination path starting with a configured alias', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'move/alias-src', locale: 'en' }),
+        actor
+      )
+      await assert.rejects(
+        pagesModel.movePage(fixtures.siteId, page.id, { path: 'zh/relocated' }, actor),
+        (err: any) => err.name === 'pageReservedLocaleSegment'
+      )
+    })
+  })
+
   test('a NESTED segment matching an installed locale code is fine — only the first segment shadows', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
