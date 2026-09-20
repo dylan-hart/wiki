@@ -8,15 +8,14 @@ import type { StorageTarget } from './storage.ts'
 /**
  * `CARDINAL.db` / `CARDINAL.models.storage` are stubbed rather than backed by a real Postgres: what has
  * to be right here is which path a given target configuration takes (disk cache vs. buffered read vs.
- * redirect), not SQL. A stub that throws when called is also how a test asserts a path was *not*
- * taken — e.g. the disk cache never touched with streaming off.
+ * redirect), not SQL. A stub that throws is also how a test asserts a path was *not* taken.
  */
 let wiki: { restore(): void }
 
 before(() => {
   // -> The real `assets` singleton: a cache miss falls through to it for the metadata and the bytes.
-  // -> `logger.warn` is a spy rather than the default silent no-op: `directUrlFor`'s
-  //    failure-fallback test below asserts on what it logged.
+  // -> `logger.warn` is a spy rather than the default silent no-op, so the `directUrlFor` failure
+  //    fallback can assert on what it logged.
   wiki = installTestWiki({ models: { assets }, logger: { warn: mock.fn() } })
 })
 
@@ -213,7 +212,7 @@ test('governingTargetFrom is a pure function of the targets it is handed — no 
       contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
     }
   )
-  stubStorage({ targets: [], ensureModule: unreachable('ensureModule') }) // -> proves it isn't consulted
+  stubStorage({ targets: [], ensureModule: unreachable('ensureModule') })
   assert.equal(
     assetServing.governingTargetFrom([dbTarget, s3Target], { kind: 'image', fileSize: 10 })?.id,
     'target-s3'
@@ -264,9 +263,9 @@ test('directUrlFor returns the module URL when everything lines up', async () =>
 })
 
 /**
- * The realistic throw is activation (`blobBase.ts#getClient`) on a bad credential or an unreachable
- * bucket, on the first asset request after a process start — long before `driver.sign()`. Unguarded
- * it would reach `readContent` and turn every asset on every page into a 500.
+ * The realistic throw is activation on a bad credential or an unreachable bucket, on the first asset
+ * request after a process start. Unguarded it would reach `readContent` and turn every asset on
+ * every page into a 500.
  */
 test('directUrlFor falls back to null and logs a warning when the module throws', async () => {
   const target = makeDbTarget({ directAccess: true, isDirectAccessSupported: true })

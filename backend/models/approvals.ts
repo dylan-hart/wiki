@@ -59,7 +59,6 @@ export interface ReviewableSubmission {
     locale: string
   }
   author: {
-    /** Null for a guest, who has no account to point at. */
     id: string | null
     name: string
     email: string
@@ -71,22 +70,20 @@ export interface ReviewableSubmission {
 export interface ReviewableSubmissionDetail extends ReviewableSubmission {
   content: string
   /**
-   * The other side of the diff. Absent, rather than an empty string, when the reviewer holds
-   * `read:pages` on the page but not `read:source` there -- the queue entry and its metadata still
-   * come back so they can act on it, the raw source does not.
+   * Absent, rather than an empty string, when the reviewer holds `read:pages` on the page but not
+   * `read:source` there -- the queue entry still comes back so they can act on it, the source does
+   * not.
    */
   pageContent?: string
-  /** Unified diff against the page as it stood when the suggestion was made. */
+  /** Against the page as it stood when the suggestion was made, not as it stands now. */
   patch: string
 }
 
 /**
- * `'stale'` is the page having moved since the reviewer's `baseHash` was taken: nothing is written,
- * and the caller decides what to do rather than the write going ahead over what changed in between.
- * `'forbidden'` is the reviewer-queue gate and page-rule permissions disagreeing -- an approval rule
- * made this reviewer one of the page's reviewers, but their `write:pages` grant does not cover it,
- * and accepting a suggestion must never take less permission than a direct save. It is checked
- * before anything is recorded, so a refusal leaves page, submission and vote tally untouched.
+ * `'stale'` is the page having moved since the `baseHash` was taken: nothing is written, and the
+ * caller reconciles rather than the write going ahead over what changed in between. `'forbidden'`
+ * is a reviewer the queue admits but whose `write:pages` grant does not cover the page; it is
+ * checked before anything is recorded, so a refusal leaves page, submission and tally untouched.
  *
  * `ok: true` does not mean the page was written: with `minApprovals` above 1, an approve only
  * records a sign-off towards the threshold. `finalized` says which of the two happened.
@@ -95,16 +92,12 @@ export type ApproveSubmissionResult =
   | { ok: true; finalized: boolean; approvalsCount: number; approvalsRequired: number }
   | { ok: false; reason: 'not-found' | 'stale' | 'forbidden' }
 
-/**
- * The life of an edit suggestion. The rules deciding which pages take one and who reviews it are
- * `models/approvalRules.ts`; the mail sent about it is `models/approvalNotifications.ts`.
- */
 class Approvals {
   /**
    * A request with no session is not nobody: it is the guests group, and a rule naming that group is
-   * how an administrator opens suggestions to anyone reading the site. Taken from the fixed ID in the
-   * configuration rather than by reading the guest account's membership — that account's groups cannot
-   * be changed, and the ID of the account itself only exists while an instance is being seeded.
+   * how an administrator opens suggestions to anyone reading the site. Taken from the configured ID
+   * rather than the guest account's own membership — that membership cannot be changed, and the
+   * account's ID only exists while an instance is being seeded.
    */
   getActorGroupIds(req: any): string[] {
     if (req.session?.authenticated && req.session.user?.id) {
@@ -115,13 +108,13 @@ class Approvals {
 
   /**
    * The page's own `allowContributions` is a veto rather than another condition to match: a rule says
-   * which pages MAY take suggestions, and turning the switch off on one page says that this one does
-   * not — no rule has to be rewritten, narrowed or excluded around it.
+   * which pages MAY take suggestions, and the switch closes one page without any rule being rewritten
+   * or narrowed around it.
    *
    * Unlike group page rules (`helpers/pageRules.ts`), approval rules carry no most-specific-wins
-   * precedence and no ALLOW/DENY/FORCEALLOW distinction — the model is purely additive. So this
-   * `.find()` is a shortcut for a yes/no answer, not a pick among candidates: WHICH rule it lands on
-   * when several match is an accident of the cache's sort order. Do not read the result's identity.
+   * precedence and no ALLOW/DENY/FORCEALLOW — the model is purely additive. So this `.find()` is a
+   * shortcut for a yes/no answer, not a pick among candidates: WHICH rule it lands on when several
+   * match is an accident of the cache's sort order. Do not read the result's identity.
    */
   async findSubmitRule(
     siteId: string,
@@ -166,23 +159,20 @@ class Approvals {
 
   /**
    * A guest counts as a member of the guests group everywhere else, which is right for SUBMITTING —
-   * anonymous suggestions are a feature — but a review is an act with an author. Reads the session
-   * and nothing else, so a guest is turned away before a query is made on their behalf.
+   * anonymous suggestions are a feature — but a review is an act with an author.
    */
   isReviewerSession(req: any): boolean {
     return Boolean(req.session?.authenticated && req.session.user?.id)
   }
 
   /**
-   * Two different kinds of rule meet here. An APPROVAL rule says which pages take suggestions and who
-   * reviews them; a group's PAGE rules say what a member may do to a page, `review:pages` among them.
-   * Holding that permission is the second way of being a reviewer, because reviewing is the entire
-   * content of it — a group granted it and named in no approval rule could otherwise review nothing.
+   * `review:pages` is the second way of being a reviewer, independent of any approval rule naming
+   * your group — reviewing is the entire content of that permission, so a group granted it and named
+   * in no rule could otherwise review nothing.
    *
-   * Page permissions are per page, so `reviewsAll` is answered for a page when there is one. Without
-   * one — the site-wide queue in the inbox — it is answered at the site root, which is the only thing
-   * a queue spanning every page could ask about; the per-page check then still applies to each entry
-   * through the approval rules that produced it.
+   * It is a page permission, so without a page — the site-wide queue in the inbox — `reviewsAll` is
+   * answered at the site root, the only thing a queue spanning every page could ask about; the
+   * per-page check still applies to each entry through the approval rules that produced it.
    *
    * Build every `ReviewerScope` here: rebuilding one at a route is two places for the
    * guests-are-not-reviewers rule and the `manage:system` bypass to drift apart.
@@ -201,9 +191,8 @@ class Approvals {
       reviewsAll:
         actor.permissions.includes('manage:system') ||
         CARDINAL.models.groups.checkAccess(actor, 'review:pages', {
-          // -> `locale: null` for the site-wide queue's `{ path: '' }` fallback: a reviewer whose only
-          //    `review:pages` grant is locale-scoped does not get blanket `reviewsAll` for a ref with
-          //    no real page to carry a locale, which is the safe direction
+          // -> `locale: null` for the site-wide queue's `{ path: '' }` fallback: a reviewer whose
+          //    only `review:pages` grant is locale-scoped does not get blanket `reviewsAll`
           ...(page ?? { path: '', locale: null }),
           classification: page?.classification ?? null,
           siteId
@@ -213,10 +202,9 @@ class Approvals {
   }
 
   /**
-   * Answered here, in one place, because it is answered on EVERY page view — the page route carries it
-   * back with the page rather than leaving the browser to ask more questions about a page it has just
-   * been given. The rules are in memory, and no query below is reached by a reader they say nothing
-   * about.
+   * Carried back with the page on EVERY page view rather than leaving the browser to ask more
+   * questions about a page it has just been given. The rules are in memory, and no query below is
+   * reached by a reader they say nothing about.
    */
   async pageViewerState(
     req: any,
@@ -234,9 +222,8 @@ class Approvals {
 
     const submitRule = await this.findSubmitRule(siteId, page, groupIds)
     /*
-      Only a logged in author can have one waiting: a guest suggestion is attributed to nobody, so
-      there is nothing to look up. The same gate covers `resolvedSubmission` below -- no submit rule
-      covering this page for this reader means no query, not just an unreachable answer.
+      Gated on `submitRule` as much as on the author, here and for `resolvedSubmission` below: a
+      reader no rule covers means no query, not just an unreachable answer.
     */
     const hasOpenSuggestion = Boolean(
       submitRule && actorId && (await this.getOwnSubmission(page.id, actorId))
@@ -293,9 +280,8 @@ class Approvals {
   }
 
   /**
-   * Null for a guest -- no account to look one up by. A page can carry more than one resolved row for
-   * the same author over time (declined, then suggested again and approved); this answers only the
-   * latest, which is what a reader returning to the page cares about.
+   * A page can carry more than one resolved row for the same author over time (declined, then
+   * suggested again and approved); only the latest matters to a reader returning to the page.
    */
   async getResolvedSubmission(
     pageId: string,
@@ -333,13 +319,10 @@ class Approvals {
 
   /**
    * The patch is taken against the page as it stands right now, which is what makes two suggestions to
-   * different parts of the same page both applicable later. A logged in author has one open suggestion
-   * per page and this replaces it; a guest has no identity to match on, so each submission is its own.
+   * different parts of the same page both applicable later.
    *
    * Reviewers and subscribers hear only about a genuinely NEW submission: an author revising their
    * own still-open suggestion is not a new thing to be told about.
-   *
-   * @param baseContent The page source the suggestion was made against
    */
   async saveSubmission({
     siteId,
@@ -373,7 +356,7 @@ class Approvals {
     /*
       Read before the write, not derived from it: `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`
       gives back the row either way, with nothing in what drizzle exposes here to say which branch was
-      taken. A guest has no identity to have an existing row under, and cannot reach the update branch.
+      taken.
     */
     const hadOpenSubmission = authorId
       ? Boolean(await this.getOwnSubmission(page.id, authorId))
@@ -434,8 +417,8 @@ class Approvals {
    * rather than frozen at submission time, so changing a rule's threshold takes effect on the
    * submissions already waiting.
    *
-   * Defaults to 1 when no enabled rule matches -- which should not arise for a submission reachable
-   * through `approveSubmission`, but leaves nothing stuck requiring zero approvers if it ever does.
+   * The 1 default should not be reachable for a submission `approveSubmission` accepted, but leaves
+   * nothing stuck requiring zero approvers if it ever is.
    */
   private async requiredApprovalsForPage(siteId: string, page: ApprovalPageMatch): Promise<number> {
     const rules = await CARDINAL.models.approvalRules.getRules(siteId)
@@ -448,10 +431,7 @@ class Approvals {
     return required
   }
 
-  /**
-   * One query for the whole batch rather than one per submission -- `getReviewableSubmissions` builds
-   * a queue of them, and a round trip per row would turn a queue of any size into that many.
-   */
+  /** One query for the whole batch: a round trip per row would scale with the queue's length. */
   private async approvalCountsFor(
     submissionIds: string[],
     viewerId?: string
@@ -482,11 +462,9 @@ class Approvals {
    * A suggestion is theirs to review when an enabled rule covers its page and names a group they are
    * in AND they hold `read:pages` on that page. The two are independent permission axes: approval
    * rules are blind to ordinary page permissions -- `matchesPage()` only knows START / END / REGEX /
-   * TAG / TAGALL, with no ALLOW/DENY and no classification of its own -- so a rule naming a
-   * reviewer's group is necessary but not sufficient. Without the intersection, a rule with
-   * `match: 'START', path: ''` would hand its `reviewerGroups` every page's title, tags and content
-   * regardless of a DENY, a classification tier, the password gate or an outright `read:pages` denial.
-   * `manage:system` sees the site's whole queue, as it does everywhere else.
+   * TAG / TAGALL, with no ALLOW/DENY and no classification of its own. Without the intersection, a
+   * rule with `match: 'START', path: ''` would hand its `reviewerGroups` every page's title, tags and
+   * content regardless of a DENY, a classification tier, the password gate or a `read:pages` denial.
    */
   async getReviewableSubmissions(
     siteId: string,
@@ -544,9 +522,8 @@ class Approvals {
       rules.some((rule) =>
         /*
           No `allowContributions` here, deliberately: that switch governs whether a suggestion may
-          be MADE. One already sent stays in its reviewers' queue if the page is later closed to
-          contributions -- otherwise turning the switch off would strand work somebody submitted in
-          good faith, with nobody able to accept or decline it.
+          be MADE. One already sent stays in its reviewers' queue if the page is later closed, rather
+          than stranding work somebody submitted in good faith with nobody able to answer it.
         */
         CARDINAL.models.approvalRules.matchesPage(rule, {
           path: row.pagePath,
@@ -565,10 +542,9 @@ class Approvals {
       })
     )
 
-    // -> Every enabled rule, not just the ones naming this reviewer's groups: the threshold a
-    //    submission has to clear is the strictest rule covering the page, whoever it names as
-    //    reviewers. `requiredApprovalsForPage`'s logic is inlined below to share this one `getRules`
-    //    read across every row instead of awaiting it per row.
+    // -> Every enabled rule, not just the ones naming this reviewer's groups: the threshold is set
+    //    by the strictest rule covering the page, whoever it names. `requiredApprovalsForPage`'s
+    //    logic is inlined below to share this one `getRules` read across every row.
     const allRules = await CARDINAL.models.approvalRules.getRules(siteId)
     const approvalCounts = await this.approvalCountsFor(
       readableRows.map((row: any) => row.id),
@@ -594,10 +570,9 @@ class Approvals {
 
   /**
    * `pageContent` additionally requires `read:source` on the page, on top of the `read:pages` the
-   * queue itself already requires to surface the entry at all: the current page body is exactly what
-   * a direct page view withholds without it, and a pending suggestion is not a way around that.
-   * Refused with a missing field, not a 403 -- the reviewer still needs the rest of this response to
-   * act on the queue entry even without seeing the page's current source.
+   * queue itself already requires: the current page body is exactly what a direct page view withholds
+   * without it, and a pending suggestion is not a way around that. Refused with a missing field, not
+   * a 403 -- the reviewer still needs the rest of this response to act on the queue entry.
    */
   async getSubmissionForReview(
     siteId: string,
@@ -651,22 +626,17 @@ class Approvals {
   }
 
   /**
-   * Records this reviewer's sign-off, then writes the page and closes the suggestion out once the
-   * covering rule's `minApprovals` threshold is met. The SAME reviewer approving twice does not count
-   * twice -- `pageEditSubmissionApprovals`'s unique index makes the second insert a no-op, so
-   * finalizing still waits on a genuinely different reviewer.
-   *
    * The content applied when the threshold is met is whatever THIS LAST reviewer settled on, which is
    * not necessarily what was submitted — the review screen lets them adjust it before accepting.
-   * Earlier approvers' `content`/`render` are not applied: their call only recorded a vote. It is
-   * written as an ordinary page edit with this reviewer as the author -- they are the one putting it
-   * on the page, and a guest submitter has no account to attribute it to.
+   * Earlier approvers' `content`/`render` are not applied: their call only recorded a vote. The write
+   * is attributed to the reviewer — they are the one putting it on the page, and a guest submitter
+   * has no account to attribute it to.
    *
-   * `baseHash` is re-checked immediately before writing, and before EVERY approve rather than only
-   * the finalizing one: the reviewer's `isStale` display and this write are different moments, and an
-   * approval recorded against a page that has since moved would count towards a threshold for content
-   * nobody re-confirmed. Refusing with `'stale'` lets the caller reload the diff and have the reviewer
-   * reconcile it instead of silently discarding whatever changed underneath.
+   * `baseHash` is re-checked before EVERY approve rather than only the finalizing one: the reviewer's
+   * `isStale` display and this write are different moments, and an approval recorded against a page
+   * that has since moved would count towards a threshold for content nobody re-confirmed. Refusing
+   * with `'stale'` lets the caller reload the diff and reconcile it instead of silently discarding
+   * whatever changed underneath.
    */
   async approveSubmission({
     siteId,
@@ -678,7 +648,7 @@ class Approvals {
     siteId: string
     submissionId: string
     content: string
-    /** The rendered HTML. Omitted, `updatePage()` queues a re-render, which needs the extension. */
+    /** Omitted, `updatePage()` queues a re-render, which needs the Puppeteer extension. */
     render?: string
     actor: { id: string; permissions: string[]; groupIds: string[] }
   }): Promise<ApproveSubmissionResult> {
@@ -688,8 +658,7 @@ class Approvals {
         pageId: submissionsTable.pageId,
         baseHash: submissionsTable.baseHash,
         status: submissionsTable.status,
-        // -> Whose markup this is, for the submitter render permissions below -- null for a guest
-        //    submission, which the submit route explicitly allows
+        // -> Whose markup this is, for the submitter render permissions below
         authorId: submissionsTable.authorId,
         guestName: submissionsTable.guestName,
         guestEmail: submissionsTable.guestEmail
@@ -698,9 +667,8 @@ class Approvals {
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
       .limit(1)
     const submission = rows[0]
-    // -> A resolved row is retained rather than deleted, so the query above still finds it. Checked
-    //    before the staleness comparison below: a resolved submission's `baseHash` is stale by
-    //    definition, which would report 'stale' where the truth is 'not-found'.
+    // -> Checked before the staleness comparison below: a resolved submission's `baseHash` is stale
+    //    by definition, which would report 'stale' where the truth is 'not-found'
     if (!submission || submission.status !== 'open') {
       return { ok: false, reason: 'not-found' }
     }
@@ -714,9 +682,8 @@ class Approvals {
       return { ok: false, reason: 'not-found' }
     }
 
-    // -> Being named in a rule's `reviewerGroups` is a different permission axis from holding
-    //    `write:pages` on the page a suggestion targets, and accepting one writes the page exactly
-    //    like a direct save does.
+    // -> Accepting a suggestion writes the page exactly like a direct save does, and being named in
+    //    a rule's `reviewerGroups` is a different permission axis from holding `write:pages` on it
     if (
       !CARDINAL.models.groups.checkAccess(actor, 'write:pages', {
         path: page.path,
@@ -740,10 +707,9 @@ class Approvals {
       Everything from the row lock through the finalisation decision runs on one transaction, so two
       concurrent calls for the same submission cannot both read a threshold-satisfying count and both
       enter the finalize branch. `onConflictDoNothing` alone is not enough -- it suppresses a repeat
-      vote *row* from the same reviewer, not the count both requests go on to read.
-
-      `updatePage` stays out of this transaction on purpose: it does its own history/watcher/search/
-      hook/storage I/O, which must not run while holding a row lock.
+      vote *row* from the same reviewer, not the count both requests go on to read. `updatePage` stays
+      out of it: it does its own history/watcher/search/hook/storage I/O, which must not run while
+      holding a row lock.
 
       So marking `status: 'approved'` below is a CLAIM, not yet a fact -- it is what blocks a
       concurrent reviewer from also finalizing, before this call has written the page. Everything down
@@ -758,8 +724,7 @@ class Approvals {
         .where(eq(submissionsTable.id, submissionId))
         .for('update')
       if (!lockedRows[0] || lockedRows[0].status !== 'open') {
-        // -> Resolved by a concurrent call that reached this transaction first. The row is retained
-        //    rather than deleted, but is no longer open for this call to act on.
+        // -> Resolved by a concurrent call that reached this transaction first
         return { ok: false as const, reason: 'not-found' as const }
       }
 
@@ -784,10 +749,6 @@ class Approvals {
         return { ok: true as const, finalized: false as const, approvalsCount, approvalsRequired }
       }
 
-      // -> Marked resolved rather than deleted, so the author can be shown it was approved and onto
-      //    which page. Its vote rows outlive it but no longer matter -- `approvalCountsFor` and
-      //    `getReviewableSubmissions` only ever look at `open` submissions.
-      //
       // -> The `status = 'open'` guard is defense-in-depth: the `for('update')` re-check above already
       //    serializes this against a concurrent writer at the Postgres level, but this write should
       //    not be the one place trusting the lock alone. A 0-rowcount result is treated as not-found
@@ -807,8 +768,7 @@ class Approvals {
     }
 
     // -> "A reviewer approved", not "the page was finalized": a subscriber on a multi-approver rule
-    //    sees each sign-off, not only the last. Emitted outside the transaction above, same as
-    //    `updatePage` below it -- webhook I/O must not run while holding the row lock.
+    //    sees each sign-off, not only the last
     await CARDINAL.models.hooks.emit('approval:approved', siteId, {
       id: submissionId,
       pageId: page.id,
@@ -826,14 +786,8 @@ class Approvals {
       return decision
     }
 
-    /*
-      The markup being sanitized here is the SUBMITTER's, not the reviewer's. `updatePage()` is called
-      with `actor: reviewer` below because the reviewer performed the write (page history, `authorId`
-      and notifications all attribute to them), but sanitizing an edit suggestion's HTML against the
-      REVIEWER's `write:scripts`/`write:styles` would launder a lower-privileged submitter's markup
-      through a grant neither side individually has: the reviewer never wrote the script, and the
-      submitter never held the permission.
-    */
+    // -> `updatePage()` below is called with `actor: reviewer`, since the reviewer performed the
+    //    write, but the markup being sanitized is the SUBMITTER's -- deliberately different actors
     const submitterRenderPermissions = await this.resolveSubmitterRenderPermissions(
       submission.authorId,
       {
@@ -867,8 +821,7 @@ class Approvals {
     })
 
     // -> `skipIfWatching`: the `updatePage()` above already queued a "page updated" notice to every
-    //    watcher, this author included if they watch the page, and two notices for one event is one
-    //    too many.
+    //    watcher, this author included, and two notices for one event is one too many
     await CARDINAL.models.approvalNotifications.notifySubmissionAuthor(
       siteId,
       { id: page.id, title: page.title, path: page.path, locale: page.locale },
@@ -886,11 +839,10 @@ class Approvals {
   }
 
   /**
-   * Undo `approveSubmission()`'s tentative `status: 'approved'` when the page write it was supposed
-   * to precede never happened. That status is a claim held only to block a concurrent reviewer from
-   * also finalizing; without this compensating update a failed write leaves it standing forever,
-   * since every other query here acts on `status = 'open'` alone -- unfixable by a retry and
-   * invisible as broken, because it just reads as resolved.
+   * `status: 'approved'` is a claim held only to block a concurrent reviewer from also finalizing;
+   * without this compensating update a failed page write leaves it standing forever, since every
+   * other query here acts on `status = 'open'` alone -- unfixable by a retry and invisible as
+   * broken, because it just reads as resolved.
    */
   private async revertFailedFinalization(submissionId: string): Promise<void> {
     await CARDINAL.db
@@ -900,14 +852,12 @@ class Approvals {
   }
 
   /**
-   * What `write:scripts`/`write:styles` the SUBMITTER holds on this page -- not the reviewer.
-   *
-   * The submit route only requires a matching submit rule, and explicitly allows a guest (no
-   * `authorId`); the reviewer's own browser then renders that markdown and posts the resulting HTML
-   * to `approveSubmission`. Resolving these from the reviewer the way an ordinary save does would let
-   * them launder a submitter's `<script>`/inline `style` past a permission the submitter never had --
-   * a confused-deputy path that turns a technical control into a human one for third-party content
-   * the reviewer only skimmed as a diff.
+   * The SUBMITTER's `write:scripts`/`write:styles`, not the reviewer's. The submit route only
+   * requires a matching submit rule, and explicitly allows a guest; the reviewer's own browser then
+   * renders that markdown and posts the resulting HTML to `approveSubmission`. Resolving these from
+   * the reviewer the way an ordinary save does would let them launder a submitter's `<script>`/inline
+   * `style` past a permission the submitter never had -- a confused-deputy path that turns a
+   * technical control into a human one for third-party content the reviewer only skimmed as a diff.
    *
    * A guest submission gets neither permission, unconditionally -- there is no group to check.
    */
@@ -930,12 +880,9 @@ class Approvals {
   }
 
   /**
-   * The page is untouched, and the submission is retained with `status: 'declined'` rather than
-   * deleted so it can be shown back to its author along with `reason`.
-   *
-   * Unlike `approveSubmission`, nothing else tells the author anything -- there is no page write to
-   * trigger `updatePage()`'s own watcher notice -- so this always notifies them, logged in or guest,
-   * with no `skipIfWatching` to consider.
+   * The submission is retained with `status: 'declined'` rather than deleted so it can be shown back
+   * to its author along with `reason`. No page write means no `updatePage()` watcher notice to
+   * collide with, so this always notifies, logged in or guest, with no `skipIfWatching` to consider.
    */
   async rejectSubmission(
     siteId: string,
@@ -1011,8 +958,6 @@ class Approvals {
       id: row.id,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
-      // -> The page moved on since this was written, so accepting it wholesale would undo whatever
-      //    changed in between. This is what tells the reviewer to look closely.
       isStale:
         createHash('sha256')
           .update(row.pageContent ?? '')

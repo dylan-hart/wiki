@@ -7,10 +7,10 @@ import type { Asset, AssetKind } from './assets.ts'
 import type { StorageTarget } from './storage.ts'
 
 /**
- * The backstop rather than the mechanism: the mutations that move an asset drop the entries they
- * affect, but only on the instance that ran them, and a second instance has no way to hear about it —
- * so every entry expires on its own as well. Short enough that a rename made elsewhere shows up
- * quickly, long enough that a busy page's images resolve once rather than once per request.
+ * The backstop rather than the mechanism: a mutation drops the entries it affects, but only on the
+ * instance that ran it, and nothing tells a second instance. Short enough that a rename made
+ * elsewhere shows up quickly, long enough that a busy page's images resolve once rather than once
+ * per request.
  */
 const PATH_CACHE_TTL_MS = 60_000
 
@@ -26,27 +26,22 @@ const SWEEP_TRIGGER_RATIO = 0.25
 const SWEEP_TARGET_RATIO = 0.8
 
 /**
- * Must match what the asset lookup itself does with a path — empty segments dropped, lowercased — so
- * that the spellings of a path reaching the same asset share one cache entry rather than each
- * getting their own.
+ * Must match what the asset lookup itself does with a path, so that the spellings reaching the same
+ * asset share one cache entry rather than each getting their own.
  */
 function normalizePath(filePath: string): string {
   return filePath.split('/').filter(Boolean).join('/').toLowerCase()
 }
 
 /**
- * The database is always the one durable copy of an asset's bytes (see `models/assets.ts`) — but not
- * the one that answers a request for a file. Serving goes through two caches, because `/_files/` is
- * hit by every image on every page view and neither half of that lookup needs the database twice:
+ * The database is the one durable copy of an asset's bytes, but not what answers a request for a
+ * file: `/_files/` is hit by every image on every page view, so serving goes through two caches —
+ * memory, holding path → metadata for `PATH_CACHE_TTL_MS` and deciding the ETag behind a browser's
+ * conditional requests, and disk, under `<dataPath>/cache/files`, holding the bytes.
  *
- * 1. **memory**, holding path → metadata for `PATH_CACHE_TTL_MS`, which is what decides the ETag and
- *    answers the conditional requests a browser sends once its own copy goes stale
- * 2. **disk**, under `<dataPath>/cache/files`, holding the bytes, streamed straight to the response
- *
- * Only the database is permanent; both caches are derived and can be deleted at any point, which is
- * also what makes a cold instance correct rather than empty-handed. That is why this is a model of
- * its own: nothing in it is a source of truth, and the CRUD half of `models/assets.ts` touches it
- * only to say "forget what you had for this asset".
+ * Both caches are derived and can be deleted at any point, which is what makes a cold instance
+ * correct rather than empty-handed. Nothing here is a source of truth, which is why it is a model of
+ * its own and the CRUD half of `models/assets.ts` touches it only to say "forget what you had".
  */
 class AssetServing {
   /** Keyed `siteId:path`. Insertion-ordered, so the oldest entry is the evictable one. */
@@ -54,7 +49,6 @@ class AssetServing {
 
   writtenSinceSweep = 0
 
-  /** Guards a burst of writes queueing more than one sweep. */
   sweeping = false
 
   async resolveAssetPath(siteId: string, filePath: string): Promise<Asset | null> {
@@ -87,28 +81,20 @@ class AssetServing {
     )
   }
 
-  /**
-   * For a folder renamed or deleted, where the paths that changed are no longer enumerable from
-   * what is left in the tree.
-   */
+  /** For a folder rename or delete: the paths that changed are no longer enumerable from the tree. */
   forgetAllPaths(): void {
     this.pathCache.clear()
   }
 
   /**
-   * An asset's bytes always live in the assets table regardless of what else is configured (the disk
-   * module only dumps/imports/backs up on request, and a file-backed or blob module keeps its own
-   * copy in sync via `dispatchStorage` rather than being where `readContent` reads from directly) — so
-   * the db target's `assetDelivery` settings are the default answer for whether to cache to disk and
-   * whether to redirect.
+   * An asset's bytes always live in the assets table regardless of what else is configured — a
+   * file-backed or blob module keeps its own copy in sync via `dispatchStorage` rather than being
+   * where `readContent` reads from — so the db target's `assetDelivery` settings are the default
+   * answer for whether to cache to disk and whether to redirect.
    *
    * A blob target (`s3`/`azure`/`gcs`) that both has direct access turned on and actually holds a copy
-   * of the asset being served — per `helpers/blobTarget.ts`'s `belongsInTarget` — governs instead: it
-   * is the one place besides the db itself with a URL of its own for the file. Passing no `asset`
-   * skips that check entirely and falls straight to the db target.
-   *
-   * @returns Null when the site has no db target row at all, which `readContent` treats as the
-   *   documented defaults (streaming on, no direct access) rather than as a hard failure
+   * of the asset being served governs instead: it is the one place besides the db itself with a URL
+   * of its own for the file. Passing no `asset` skips that check and falls straight to the db target.
    */
   async governingTarget(
     siteId: string,
@@ -119,10 +105,9 @@ class AssetServing {
   }
 
   /**
-   * The synchronous half of `governingTarget()`'s predicate, split out so a caller that already has
-   * a site's target list — `db/storage.ts#purge()`'s per-asset loop, chiefly — can decide per-asset
-   * without a `getSiteTargets()` round trip for every one of potentially thousands of assets. Same
-   * rules, same precedence: this is the one place either of them lives.
+   * Split out so a caller that already has a site's target list can decide per asset without a
+   * `getSiteTargets()` round trip for every one of potentially thousands. This is the one place the
+   * rules and their precedence live.
    */
   governingTargetFrom(
     targets: StorageTarget[],
@@ -145,10 +130,9 @@ class AssetServing {
 
   /**
    * A blob target's signing can fail before it ever reaches the SDK's `sign()` call — activation
-   * itself (`blobBase.ts#getClient`) throws on a bad credential or an unreachable bucket, and that
-   * throw would otherwise reach `readContent` unguarded and turn every asset request into a 500.
-   * The bytes always live in the assets table regardless of what a blob target holds, so a signing
-   * failure here is never fatal: it is logged and treated the same as "no direct URL available",
+   * itself throws on a bad credential or an unreachable bucket, and that throw would otherwise reach
+   * `readContent` unguarded and turn every asset request into a 500. The bytes always live in the
+   * assets table, so a signing failure is never fatal: it is treated as "no direct URL available",
    * which sends the caller back to streaming from the database.
    */
   async directUrlFor(
@@ -181,13 +165,9 @@ class AssetServing {
 
   /**
    * `assetDelivery.streaming` (on by default) decides whether the disk cache is used at all: off means
-   * every request is a buffered read straight from the database, with nothing written to local disk —
-   * the point of turning it off is that asset bytes never touch this instance's disk. `directAccess`
-   * is checked first, since a target that can hand out its own URL should never have its bytes read at
-   * all, cache or no cache.
-   *
-   * @returns Null when there is no such asset, i.e. when a cached path resolution has outlived the
-   *   row behind it
+   * every request is a buffered read straight from the database, the point being that asset bytes
+   * never touch this instance's disk. `directAccess` is checked first, since a target that can hand
+   * out its own URL should never have its bytes read at all, cache or no cache.
    */
   async readContent(
     asset: {
@@ -212,8 +192,7 @@ class AssetServing {
       }
     }
 
-    // -> Absent a target row (should not normally happen — `syncSite` gives every site one) the
-    //    documented default applies: streaming on
+    // -> Absent a target row, which `syncSite` should make impossible, the default is streaming on
     const streaming = target?.assetDelivery.streaming ?? true
 
     if (streaming) {
@@ -234,10 +213,9 @@ class AssetServing {
   }
 
   /**
-   * Named for the ID and the modification time together, which is what makes an entry immutable:
-   * anything that changes a file changes the name it would be cached under, so a stale entry is never
-   * read, only left behind for the sweep. Sharded by the first byte of the ID, to keep a wiki's worth
-   * of files out of a single directory.
+   * Named for the ID and the modification time together, so anything that changes a file changes the
+   * name it would be cached under: a stale entry is never read, only left behind for the sweep.
+   * Sharded by the ID's first two characters, to keep a wiki's worth of files out of one directory.
    */
   contentCachePath(asset: { id: string; updatedAt: Date }): string {
     return path.join(
@@ -251,9 +229,6 @@ class AssetServing {
    * The file is opened before it is streamed rather than as it is streamed, so that a sweep removing
    * it midway through a response cannot truncate what is being sent: the handle keeps the bytes
    * readable until the stream closes it, whatever happens to the directory entry.
-   *
-   * @returns Null when this instance has not cached the file — the normal state of a fresh container,
-   *   and of every entry after a change to the file
    */
   async readContentCache(asset: {
     id: string
@@ -275,9 +250,9 @@ class AssetServing {
   }
 
   /**
-   * Best effort: a full or read-only disk must not stop a file from being served, hence the swallowed
-   * error — the database answers every request the cache cannot. The file is written under a
-   * temporary name and renamed, so a concurrent reader sees either nothing or the whole thing.
+   * Best effort: a full or read-only disk must not stop a file from being served — the database
+   * answers every request the cache cannot. Written under a temporary name and renamed, so a
+   * concurrent reader sees either nothing or the whole thing.
    */
   async writeContentCache(asset: { id: string; updatedAt: Date }, data: Buffer): Promise<void> {
     // -> A file larger than the whole cache would be evicted by the sweep it triggers
@@ -307,9 +282,8 @@ class AssetServing {
   }
 
   /**
-   * Every entry an asset has, not just its current one — a file renamed twice leaves two behind, and
-   * the point of this is to reclaim the space rather than to correct an answer, which the immutable
-   * naming already does.
+   * Every entry an asset has, not just its current one — a file changed twice leaves two behind. The
+   * point is to reclaim the space, not to correct an answer, which the immutable naming already does.
    */
   async dropCachedContent(ids: string[]): Promise<void> {
     for (const id of ids) {
@@ -328,9 +302,8 @@ class AssetServing {
   }
 
   /**
-   * Oldest by when it was written rather than when it was last read: keeping a true LRU would mean
-   * touching a file on every hit, which puts a write back on the path this cache exists to keep
-   * writes off. An entry evicted while still in demand is refilled by the next request for it.
+   * Oldest by when it was written rather than when it was last read: a true LRU would mean touching
+   * a file on every hit, which puts a write back on the path this cache exists to keep writes off.
    */
   async sweepCache(): Promise<void> {
     if (this.sweeping) {
@@ -377,10 +350,7 @@ class AssetServing {
     }
   }
 
-  /**
-   * Nothing is lost, but the refill costs — every image on the next page view goes to the database
-   * once.
-   */
+  /** Nothing is lost, but every image on the next page view goes to the database once. */
   async purgeCache(): Promise<void> {
     this.pathCache.clear()
     this.writtenSinceSweep = 0
