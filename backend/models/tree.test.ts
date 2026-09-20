@@ -14,22 +14,14 @@ import { pages as pagesTable, sites as sitesTable, tree as treeTable } from '../
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
- * A tree row by id, read straight off the table.
- *
- * `tree.getById()` is private (it is the model's one lookup that takes no `siteId`), so a test that
- * wants to see what a cascade left behind reads the row itself rather than reaching through the model.
+ * `tree.getById()` is private — the model's one lookup that takes no `siteId` — so a test reads the
+ * row off the table itself rather than reaching through the model.
  */
 async function readTreeRow(id: string) {
   const rows = await CARDINAL.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
   return rows[0] ?? null
 }
 
-/**
- * Bug #932: a folder rename/delete cascade used to match every locale sharing the folder's path —
- * `models/tree.ts`'s cascade UPDATEs and DELETEs filtered on `siteId`/`folderPath` alone, so renaming
- * or deleting the `en` copy of a folder moved or destroyed the `fr` copy's descendants right along
- * with it. These lock the fix: every cascade now also filters on the folder's own `locale`.
- */
 describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let treeModel: typeof import('./tree.ts').tree
@@ -106,31 +98,21 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       locale: 'en'
     })
     assert.ok(enPage, 'the en page must have moved to guides/intro')
-    // -> The real cascade-scope claim: the fr PAGE's own tree row is still filed under the
-    //   untouched `docs` folder, not swept along by the `en`-only rename. Checking `fr`'s FOLDER
-    //   row's `fileName` (as this used to) is vacuous -- that row was never a candidate for the
-    //   cascade in the first place, since `renameFolder` was only ever given `en.id`.
+    // -> The fr PAGE's own tree row is the real cascade-scope claim: checking the fr FOLDER row is
+    //   vacuous, since `renameFolder` was only ever given `en.id`.
     const frPageTreeRow = await readTreeRow(frPage!.id)
     assert.equal(frPageTreeRow!.folderPath, 'docs')
   })
 
   /**
-   * OpenProject #1865: `refreshDescendantPaths` used to write back one `UPDATE` per descendant page
-   * (`pages.path`/`hash`). This locks in the chunked `VALUES`-join replacement — one
-   * `UPDATE ... FROM (VALUES ...)` per `TREE_UPDATE_CHUNK_SIZE` rows instead. The `tree` table itself
-   * carries no `hash` column of its own to rewrite here: the bulk ltree `UPDATE`s `renameFolder` runs
-   * before ever calling this already rewrote every descendant's `folderPath`, so only each page's own
-   * `path`/`hash` on `pages` is left for this to redo.
-   *
-   * Descendant rows and their `pages` counterparts are seeded directly (two bulk `INSERT`s, not
-   * `pagesModel.createPage()` in a loop) so the fixture stays fast regardless of row count, and
-   * `refreshDescendantPaths` itself is called directly (it is `renameFolder`'s only caller) so the
-   * `db.execute` spy counts only the write-back `UPDATE`s this WP touches, not the query-builder
-   * calls (`.select()`/`.update()`) the rest of `renameFolder` also makes.
+   * Descendant rows and their `pages` counterparts are seeded with two bulk `INSERT`s rather than
+   * `createPage()` in a loop, so the fixture stays fast regardless of row count, and
+   * `refreshDescendantPaths` is called directly so the `db.execute` spy counts only the write-back
+   * `UPDATE`s, not the query-builder calls the rest of `renameFolder` also makes.
    */
   test('refreshDescendantPaths rewrites more descendants than one chunk via batched VALUES joins, not one UPDATE per row (OpenProject #1865)', async () => {
-    // -> Deliberately one row over a single chunk: the smallest fixture that still proves batching
-    //    happened rather than merely fitting in one call by coincidence.
+    // -> One row over a single chunk: the smallest fixture that proves batching happened rather
+    //    than merely fitting in one call by coincidence.
     const rowCount = TREE_UPDATE_CHUNK_SIZE + 1
     const ids = Array.from({ length: rowCount }, () => randomUUID())
 
@@ -165,8 +147,6 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const executeSpy = mock.method(fixtures.db, 'execute')
     await (treeModel as any).refreshDescendantPaths(fixtures.siteId, 'en', 'bulk', fixtures.db)
 
-    // -> One `UPDATE ... FROM (VALUES ...)` per `TREE_UPDATE_CHUNK_SIZE` rows -- the real proof that
-    //    the write-back batches rather than looping one `UPDATE` per row.
     const expectedChunkCalls = Math.ceil(rowCount / TREE_UPDATE_CHUNK_SIZE)
     assert.equal(executeSpy.mock.callCount(), expectedChunkCalls)
     assert.ok(
@@ -255,11 +235,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * Review finding (#992): `getTree` treated `locale` as optional and only filtered when one was
-   * given, while the API handler's post-filter (`visibleTreeItems`, Task 4) always judges a single
-   * resolved locale — an omitted `locale` therefore listed every locale but filtered as if it were
-   * one. `getTree` now requires `locale` and filters unconditionally, even when two locales share the
-   * same `folderPath` (as `en`/`fr` copies of the same folder do).
+   * `getTree` requires `locale` and filters unconditionally because the API handler's post-filter
+   * (`visibleTreeItems`) always judges a single resolved locale: an unfiltered listing would carry
+   * every locale's rows but be filtered as if it were one.
    */
   test('getTree filters unconditionally on locale, even when locales share a folderPath (#992)', async () => {
     await treeModel.createFolder({
@@ -293,11 +271,10 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       depth: 1
     })
 
-    // -> Membership checks, not an exact-set `deepEqual`: since #3132, `includeAncestors` widens its
-    //    match at every level (root included, as `shared` is a root folder here) to every folder AT
-    //    that level rather than the one ancestor node, so this listing also legitimately picks up
-    //    whatever OTHER root folders earlier tests in this shared-DB file happened to create. What
-    //    this test still pins down is the actual #992 claim: no `fr` row ever leaks in.
+    // -> Membership checks, not an exact-set `deepEqual`: `includeAncestors` widens its match to
+    //    every folder AT each level rather than the one ancestor node, so other tests' root folders
+    //    in this shared-DB file legitimately show up too. The claim here is that no `fr` row leaks
+    //    in.
     assert.ok(items.length > 0, 'expected at least the en folder/page to come back')
     for (const item of items) {
       assert.notEqual(item.title, 'Shared FR', 'an fr folder must not appear in an en-only listing')
@@ -309,13 +286,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * `includeRootFolders` adds its own OR-branch to the location filter (`getTree`'s `locations`
-   * array), separate from the branch a `parentPath`/`parentId`/`includeAncestors` listing builds —
-   * so it is worth its own regression test that the branch doesn't slip past the outer, unconditional
-   * `eq(treeTable.locale, locale)` this suite's #992 fix put in place. Structurally it can't (the
-   * locale condition ANDs every OR-branch alike), but the #992 bug was exactly this kind of filter
-   * silently not applying to a branch it should have -- worth locking down directly rather than only
-   * by inspection.
+   * `includeRootFolders` adds its own OR-branch to `getTree`'s location filter, separate from the
+   * one a `parentPath`/`parentId`/`includeAncestors` listing builds, so it is worth pinning down
+   * directly that the outer `eq(treeTable.locale, locale)` still ANDs over it.
    */
   test('getTree with includeRootFolders still filters root folders by locale', async () => {
     await treeModel.createFolder({
@@ -347,13 +320,6 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
-  /**
-   * OpenProject #3132: `includeAncestors` used to match only the single exact ancestor node at each
-   * level (`folderPath` AND `fileName`), so a deep folder's navtree showed an unbroken ancestor chain
-   * with no siblings visible at any intermediate level until the reader expanded one manually. The fix
-   * drops the `fileName` condition so each level's match is `folderPath` alone -- mirroring how
-   * `includeRootFolders` already returns every root folder, not just the one on the chain.
-   */
   test('getTree with includeAncestors also returns sibling folders at every intermediate level (#3132)', async () => {
     const a = await treeModel.createFolder({
       pathName: 'branch-a',
@@ -374,11 +340,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       siteId: fixtures.siteId,
       parentId: a.id
     })
-    // -> A folder cannot be in a different locale than the one holding it (see `createFolder`'s own
-    //    `effectiveLocale` handling), so a nested folder's locale is always its parent's -- there is
-    //    no way to construct a cross-locale sibling AT an intermediate (non-root) level. #992's own
-    //    coverage above is what proves the outer `eq(treeTable.locale, locale)` still guards the
-    //    widened root-level branch; this test's own concern is siblings, not locale.
+    // -> A nested folder's locale is always its parent's (`createFolder`'s `effectiveLocale`), so a
+    //    cross-locale sibling cannot be constructed at an intermediate level at all -- locale
+    //    coverage for the widened branch lives in the root-level tests above.
     const bSibling = await treeModel.createFolder({
       pathName: 'branch-b-sibling',
       title: 'Branch B Sibling',
@@ -406,8 +370,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(new Set(ids).size, ids.length, 'no folder should appear twice')
 
     // -> Membership checks, not an exact-set assertion: this suite shares one DB/site across every
-    //    test in the file, so other tests' own root-level folders legitimately show up too, now that
-    //    the ancestor loop's own root-level iteration widens the same way `includeRootFolders` does.
+    //    test in the file, so other tests' own root-level folders legitimately show up too.
     const byId = new Map(items.map((item) => [item.id, item]))
     const bSiblingItem = byId.get(bSibling.id)
     assert.ok(bSiblingItem, 'the sibling at the intermediate level must be present')
@@ -423,10 +386,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * Task 12 (#994): a root-level folder named after an installed locale code is unreachable — shadowed
-   * by the URL prefix parser exactly as a page at that path would be (`models/pages.test.ts`'s
-   * matching coverage). Only the first path segment shadows, so a folder nested under something else
-   * is unaffected.
+   * A root-level folder named after an installed locale code is unreachable — shadowed by the URL
+   * locale prefix exactly as a page at that path would be. Only the first path segment shadows, so
+   * a folder nested under something else is unaffected.
    */
   test('createFolder refuses a root folder named after an installed locale code', async () => {
     await assert.rejects(
@@ -458,12 +420,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2131: `getFolderById()` used to select on `id` alone, so `createFolder({ parentId })`
-   * (and the `POST /sites/:siteId/tree/folders` route on top of it) would resolve a `parentId`
-   * belonging to a DIFFERENT site, deriving the new folder's ltree path and locale from a foreign row
-   * it had no business reading. `getFolderById()` now pairs `id` with `siteId`, so a foreign `parentId`
-   * simply never matches and the create is refused rather than leaking the other site's folder path or
-   * locale.
+   * `createFolder` derives the new folder's ltree path and locale from the parent row, so a foreign
+   * `parentId` resolving at all would leak another site's path and locale. It is refused with the
+   * same `treeInvalidParent` a genuinely missing id gets, carrying no trace of the real row.
    */
   test('createFolder refuses a parentId belonging to another site', async () => {
     const [otherSite] = await fixtures.db
@@ -507,15 +466,6 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
-  /**
-   * OpenProject #2131: `getFolderById()` used to filter on `id` + `type = 'folder'` only, never
-   * `siteId` — a folder-create `parentId` naming a folder in ANOTHER site resolved successfully, and
-   * `createFolder()` derived the new folder's ltree path (and locale) from that foreign row. Locked
-   * down at the model layer here: `createFolder()`'s own `getFolderById()` lookup is scoped, so a
-   * cross-tenant `parentId` is refused with `treeInvalidParent` — the same "parent does not exist"
-   * error a genuinely missing `parentId` gets, carrying no trace of the foreign folder's real path or
-   * locale.
-   */
   test('createFolder refuses a parentId belonging to another site', async () => {
     const [otherSite] = await fixtures.db
       .insert(sitesTable)
@@ -545,17 +495,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #1692: `renameFolder`'s cascade (`refreshDescendantPaths`) used to rewrite
-   * `pages.path`/`pages.hash` for every descendant page and stop there — unlike `pages.ts#movePage`,
-   * which follows the same write with `recordMoveSideEffects` (search reindex, storage dispatch,
-   * glossary cache invalidation). These lock the fix: renaming a folder now fires those side effects
-   * for every descendant page, once each, with the correct old/new paths — and fires none of them for
-   * a title-only rename, which changes no page's path (the early return at `tree.ts:960-966`).
-   *
-   * Spies on `CARDINAL.models.search`/`storage`/`glossary` directly, the same pattern
-   * `models/pages.test.ts`'s search-dispatcher coverage uses: shadow the real singleton's method as an
-   * own property, restore it (`delete`) in `finally` so the next test sees the real implementation
-   * again.
+   * Spies on `CARDINAL.models.search`/`storage`/`glossary` by shadowing the real singleton's method
+   * as an own property and `delete`-ing it in `finally`, so the next test in this file sees the
+   * real implementation again.
    */
   describe('renameFolder fires descendant page move side effects (OpenProject #1692)', () => {
     test('fires search.renamed + storage.dispatch per descendant page, and glossary.invalidateCache once', async () => {
@@ -688,13 +630,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #3384: `renameFolder`'s ltree cascade always relocated a descendant asset's own
-   * `folderPath` (the bulk ltree `UPDATE`s cover every tree row under the folder, assets included),
-   * but nothing ever told a storage target its copy of the file had moved -- `asset:move` had no
-   * `STORAGE_HANDLERS` entry at all, so a target with direct-access URLs enabled kept signing the
-   * asset's old key. These lock the fix: `renameFolder` now fires `storage.dispatch('asset:move')`
-   * once per descendant asset, with the correct old/new `folderPath` and the `kind`/`fileSize`
-   * `targetCoversEvent` needs to classify it.
+   * The ltree cascade relocates a descendant asset's `folderPath` on its own; without the dispatch,
+   * a storage target with direct-access URLs enabled keeps signing the asset's old key.
    */
   describe('renameFolder fires descendant asset move side effects (OpenProject #3384)', () => {
     test('fires storage.dispatch(asset:move) per descendant asset, with old/new folderPath and kind/fileSize', async () => {
@@ -798,15 +735,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #1693: audit of `deleteFolder` for the same missing side-effect gap #1692 fixed on
-   * `renameFolder`. Unlike `renameFolder`, `deleteFolder` itself does no per-page I/O at all — its
-   * caller (`api/tree.ts`'s DELETE-folder route) always follows it with
-   * `pages.deleteOrphaned(siteId, removed.pages, actor)`, and `deleteOrphaned` already fires the full
-   * per-page side-effect set `deletePage` fires for a single page: `search.deleted` and
-   * `storage.dispatch('page:delete')` once per descendant page, and `glossary.invalidateCache` once
-   * for the whole batch. This is the investigation's evidence, locked down the same way #1692's test
-   * locks down `renameFolder`: by driving the two calls together, exactly as the real route does, and
-   * asserting each side effect fires for the correct descendant pages.
+   * `deleteFolder` does no per-page I/O of its own — `pages.deleteOrphaned`, which the route always
+   * calls straight after it, is what fires the side effects — so this drives both calls together,
+   * exactly as the route does.
    */
   describe('deleteFolder + deleteOrphaned fire descendant page delete side effects (OpenProject #1693)', () => {
     test('fires search.deleted + storage.dispatch per descendant page, and glossary.invalidateCache once', async () => {
@@ -874,12 +805,6 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
   })
 
-  /**
-   * OpenProject #1128: `getTree()`/`browse()`/`listPages()` used to carry no classification at all —
-   * the caller (`api/tree.ts`'s permission filter) had nothing to check a CLASSIFICATION rule
-   * against and always passed a hardcoded `null`. Each now joins `pages.classification` in directly,
-   * locked down here at the model layer rather than only through the API's permission-filter tests.
-   */
   describe('classification carried through for the permission filter (OpenProject #1128)', () => {
     test('getTree() carries a page’s real classification, and null for a folder', async () => {
       const folder = await treeModel.createFolder({
@@ -913,9 +838,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         locale: 'en',
         siteId: fixtures.siteId
       })
-      // -> browse() drops a folder that holds no visible page under it (`holdsVisiblePages`), so this
-      //    folder needs one to appear in the listing at all -- the folder ROW itself still carries no
-      //    classification of its own either way.
+      // -> browse() drops a folder that holds no visible page under it, so this folder needs one to
+      //    appear in the listing at all.
       await pagesModel.createPage(
         fixtures.siteId,
         pageInput({ path: 'classified-browse-folder/inside', title: 'Inside', locale: 'en' }),
@@ -959,12 +883,6 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
   })
 
-  /**
-   * OpenProject #3409: `browse()`/`listPages()` used to carry no tags at all -- the permission filter
-   * (`api/tree.ts`) had nothing to check a TAG/TAGALL rule against, same gap `getTree()` already
-   * closed for the file manager. Each now joins `tree.tags` in directly, locked down here the same
-   * way OpenProject #1128's classification threading is above.
-   */
   describe('tags carried through for the permission filter (OpenProject #3409)', () => {
     test('browse() carries a page’s real tags, empty for a folder-only entry', async () => {
       const folder = await treeModel.createFolder({
@@ -974,7 +892,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId: fixtures.siteId
       })
       // -> browse() drops a folder that holds no visible page under it, so this folder needs one to
-      //    appear in the listing at all -- the folder ROW itself still carries no tags of its own.
+      //    appear in the listing at all.
       await pagesModel.createPage(
         fixtures.siteId,
         pageInput({ path: 'tagged-browse-folder/inside', title: 'Inside', locale: 'en' }),
@@ -1029,10 +947,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2460: `listPages()` carries no signal for whether a page has children of its own
-   * nested below it, so a nested tree view (block-index) has no way to tell a "book" (has children)
-   * from a "file" (leaf) apart from re-querying per row. `hasChildren` is a per-row correlated EXISTS
-   * over the same `pageIsVisible` gate the listing itself uses.
+   * `hasChildren` is a per-row correlated EXISTS over the same `pageIsVisible` gate the listing
+   * itself uses, which is why it answers differently for an anonymous caller.
    */
   describe('listPages() hasChildren (OpenProject #2460)', () => {
     test('false for a leaf page with no page nested under its own path', async () => {
@@ -1054,8 +970,6 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     test('true for a page with a page nested under its own path, at any depth', async () => {
-      // -> 'toc' is the page under test; 'toc/section' sits nested under 'toc''s own path, the way a
-      //    "chapter" page would sit under a "book" page's path in a nested tree view.
       await pagesModel.createPage(
         fixtures.siteId,
         pageInput({ path: 'has-children-book-folder/toc', title: 'Book', locale: 'en' }),
@@ -1120,10 +1034,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2461: `listPages()` used to carry no depth at all -- `block-index` had no way to draw
-   * anything but a flat list. `depth` is relative to the queried `path`, the same way the `depth`
-   * query param it is built from already is (0 = directly inside the listed folder), not counted from
-   * the site root.
+   * `depth` is relative to the queried `path` (0 = directly inside the listed folder), the same way
+   * the `depth` query param it is built from is — never counted from the site root.
    */
   describe('listPages() depth (OpenProject #2461)', () => {
     test('reports 0 for a page directly in the listed folder, and deeper values below it', async () => {
@@ -1147,9 +1059,6 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
 
       const direct = pages.find((p) => p.path === 'nested-depth/direct')!
-      // -> `leaf`'s own folder ('nested-depth/child/deep') sits two levels below the listed folder
-      //    ('nested-depth'), which is what `depth` reports -- not how deep `leaf` itself is from the
-      //    site root.
       const leaf = pages.find((p) => p.path === 'nested-depth/child/deep/leaf')!
       assert.equal(direct.depth, 0)
       assert.equal(leaf.depth, 2)
@@ -1171,8 +1080,6 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
 
       assert.equal(pages.length, 1)
-      // -> Absolute site depth would be 2 (depth-root/branch/leaf); relative to `depth-root/branch`
-      //    it is 0, since `leaf` sits directly inside the listed folder.
       assert.equal(pages[0]!.depth, 0)
     })
 
@@ -1197,10 +1104,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2098: `deleteFolder`/`renameFolder`'s callers need to authorize every descendant
-   * before committing to the cascade -- `listDescendants` resolves that same at-or-below set without
-   * mutating anything, carrying each page's real tags and classification (the same join #1128 added
-   * to the read-side listings above) plus each asset's path.
+   * `deleteFolder`/`renameFolder`'s callers have to authorize every descendant before committing to
+   * the cascade, which is what `listDescendants` resolves — without mutating anything.
    */
   describe('listDescendants (OpenProject #2098)', () => {
     test('lists every descendant at any depth, with real tags/classification, and mutates nothing', async () => {
@@ -1263,13 +1168,10 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(result.assets[0]!.id, asset.id)
       assert.equal(result.assets[0]!.path, 'descendants-root/nested/diagram.png')
 
-      // -> The folders themselves are never returned -- descendants only
       const ids = [...result.pages, ...result.assets].map((e) => e.id)
       assert.equal(ids.includes(root.id), false)
       assert.equal(ids.includes(nested.id), false)
 
-      // -> Nothing was deleted or renamed by the call: every row this fixture created is still exactly
-      //    where it was.
       const rootAfter = await treeModel.getFolderById(root.id, fixtures.siteId)
       const nestedAfter = await treeModel.getFolderById(nested.id, fixtures.siteId)
       const topPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: topPage.id })
@@ -1322,19 +1224,11 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         treeModel.listDescendants(otherFolder.id, fixtures.siteId),
         (err: any) => err.name === 'treeInvalidFolder'
       )
-      // -> No site cleanup here: `otherFolder`'s tree row still references it (a bare site delete
-      //    would 23503 on the FK), and this test's whole schema is dropped by teardownTestDb()
-      //    regardless.
+      // -> The extra site is left behind: its tree row still references it (a bare site delete
+      //    would 23503 on the FK), and teardownTestDb() drops the whole schema regardless.
     })
   })
 
-  /**
-   * OpenProject #2127: `getFolderById()` used to select on `id` alone, so a caller holding a
-   * folder id from ANOTHER site (a real UUID, not a guess) got that folder's path/locale back —
-   * `POST /sites/:siteId/tree/folders` fed a `parentId` straight through it with no site check at
-   * all. `siteId` is now a required argument, filtered into the query, so a foreign id resolves to
-   * null exactly like an unknown one.
-   */
   describe('getFolderById siteId scoping (OpenProject #2127)', () => {
     test('does not resolve a folder belonging to a different site', async () => {
       const [otherSite] = await CARDINAL.db
@@ -1349,24 +1243,20 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId: otherSite!.id
       })
 
-      // -> Resolves fine when asked for with its OWN site
       const resolved = await treeModel.getFolderById(folder.id, otherSite!.id)
       assert.ok(resolved, 'expected the folder to resolve for its own site')
 
-      // -> Must not resolve when asked for with a DIFFERENT site, even though the id is real
       const foreign = await treeModel.getFolderById(folder.id, fixtures.siteId)
       assert.equal(foreign, null)
 
-      // -> No site cleanup here: `folder`'s tree row still references it (a bare site delete would
-      //    23503 on the FK), and this test's whole schema is dropped by teardownTestDb() regardless.
+      // -> The extra site is left behind: its tree row still references it (a bare site delete
+      //    would 23503 on the FK), and teardownTestDb() drops the whole schema regardless.
     })
   })
 
   /**
-   * OpenProject #2447: `moveEntry` reparents a leaf tree row (in practice an asset — pages get their
-   * own path-aware `movePage`, which also has to keep the `pages` table's own copy of the path in
-   * step) into another folder, keeping both folders' children counts straight and refusing a
-   * destination that already holds the name.
+   * `moveEntry` reparents a leaf tree row — in practice an asset, since a page goes through the
+   * path-aware `movePage`, which also keeps the `pages` table's own copy of the path in step.
    */
   describe('moveEntry (OpenProject #2447)', () => {
     test("moves an asset into another folder, updating both folders' children counts", async () => {
@@ -1398,9 +1288,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       assert.ok(moved)
       assert.equal(moved!.folderPath, 'move-destination')
-      // -> `getFolderById`, not `readTreeRow`: its return is typed as a real `TreeRow` (`meta:
-      //    Record<string, any>`), unlike a bare `.select()` off a `jsonb()` column with no
-      //    generic, which infers `unknown`.
+      // -> `getFolderById`, not `readTreeRow`: its return types `meta` as `Record<string, any>`,
+      //    where a bare `.select()` off a `jsonb()` column with no generic infers `unknown`.
       const sourceAfter = await treeModel.getFolderById(source.id, fixtures.siteId)
       const destinationAfter = await treeModel.getFolderById(destination.id, fixtures.siteId)
       assert.equal(sourceAfter!.meta.children, 0, "the source folder's count must drop")
@@ -1534,8 +1423,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       const result = await treeModel.moveEntry({ id: asset.id, siteId: fixtures.siteId })
       assert.equal(result, null)
-      // -> No site cleanup here: `asset`'s tree row still references it, and this test's whole
-      //    schema is dropped by teardownTestDb() regardless.
+      // -> The extra site is left behind: its tree row still references it, and teardownTestDb()
+      //    drops the whole schema regardless.
     })
 
     test('throws for a folderId belonging to a different site (treeInvalidFolder, 404)', async () => {
@@ -1560,21 +1449,15 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         treeModel.moveEntry({ id: asset.id, siteId: fixtures.siteId, folderId: foreignFolder.id }),
         (err: any) => err.name === 'treeInvalidFolder'
       )
-      // -> No site cleanup here, same reasoning as above.
     })
   })
 
   /**
-   * OpenProject #1587 §2 / task 1599: `getTree()` used to apply no visibility filter at all, unlike
-   * `browse()`/`listPages()` -- so BROWSE THE TREE (`GET /sites/:siteId/tree`, the only caller) could
-   * enumerate a draft, a scheduled-but-not-yet-live page, or an `isBrowsable: false` page to anyone
-   * holding `read:pages` via a rule, guests included (`visibleTreeItems`'s own filter checks that
-   * RULE, never publication state). `publicOnly` threads `pageIsVisible` into the query, but --
-   * unlike `browse()`/`listPages()` -- only actually applies it when `publicOnly` is true: an
-   * authenticated caller (the file manager's own use of this same method) must keep seeing every
-   * page, drafts and non-browsable ones included, which is what `publicOnly: false` (the default)
-   * preserves unchanged. A folder or asset entry is never affected either way -- the predicate is
-   * scoped to `type = 'page'` rows only.
+   * The API's own post-filter (`visibleTreeItems`) checks page RULES, never publication state, so
+   * `getTree` threads `pageIsVisible` into the query itself -- applied only when `publicOnly`,
+   * since the file manager's authenticated use of this same method must keep seeing drafts and
+   * non-browsable pages. The predicate is scoped to `type = 'page'` rows, so a folder or asset
+   * entry is never affected either way.
    */
   describe('getTree publicOnly (OpenProject #1587 §2)', () => {
     test('publicOnly hides a draft, a scheduled page, and a non-browsable page from a page-type entry, but not a folder', async () => {

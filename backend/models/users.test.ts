@@ -2,21 +2,6 @@ import { afterEach, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { users } from './users.ts'
 
-/**
- * `updateSession` is the one place a login turns a user row into session state — permissions
- * flattened across every group the user belongs to, and the group ids kept alongside them since
- * navigation is filtered per group. It touches neither `CARDINAL` nor the database, so this is a pure
- * unit test: no fixture from `test/db.ts` needed.
- *
- * Task 2115 / WP 2105 §4: `updateSession` also has to regenerate the session id before writing the
- * authenticated state, closing session fixation. `makeReq()`'s stub session mimics the one load-
- * bearing thing the real `@fastify/session#regenerate()` does that matters here — reassigning
- * `req.session` to a brand-new object with a fresh id (`node_modules/@fastify/session/lib/
- * session.js`'s own `regenerate()` does `this[requestKey].session = session` inside its store
- * callback) — so a test can tell whether `updateSession` awaited it before proceeding to set fields
- * on what is, post-await, a different object than the one it started with.
- */
-
 function makeUser(overrides: Partial<any> = {}): any {
   return {
     id: 'user-1',
@@ -30,16 +15,13 @@ function makeUser(overrides: Partial<any> = {}): any {
 }
 
 /**
- * Stand-in for `@fastify/session`'s `Session#regenerate()` (`lib/session.js`): records that it was
- * called, then swaps `req.session` for a fresh object carrying only a new `id` — same shape the real
- * store does by replacing `this[requestKey].session` with a brand-new `Session` instance whose id
- * differs from the one it started with.
+ * Stand-in for `@fastify/session`'s `Session#regenerate()`, which replaces `req.session` wholesale
+ * rather than mutating it. That reassignment is the whole point: it is what lets a test tell whether
+ * `updateSession` awaited the regenerate before writing its fields.
  */
 function makeReq(): any {
   const req: any = { session: { id: 'pre-login-session-id' } }
   req.session.regenerate = mock.fn(async () => {
-    // -> A fresh object, not a mutation of the old one — matches the real plugin reassigning
-    //    `req.session` wholesale, and is what lets a test tell the two apart by reference/id.
     req.session = { id: 'post-login-session-id', regenerate: req.session.regenerate }
   })
   return req
@@ -61,7 +43,6 @@ describe('users.updateSession', () => {
       preLoginSession.id,
       'expected the post-login session id to differ from the pre-login one'
     )
-    // -> Landed on the regenerated session, not stranded on the discarded pre-login one
     assert.equal(req.session.authenticated, true)
     assert.equal(preLoginSession.authenticated, undefined)
   })
@@ -101,11 +82,6 @@ describe('users.updateSession', () => {
     })
   })
 
-  /**
-   * Task #3264: `avatarProviderUrl` rides the session the same way `hasAvatar` does -- carried at
-   * login rather than re-fetched per request (see `api/users/admin.ts#whoAmI`'s doc comment) -- so
-   * the frontend can render it as a fallback avatar without an extra round trip.
-   */
   test('carries avatarProviderUrl through onto the session when the row has one', async () => {
     const user = makeUser({ avatarProviderUrl: 'https://provider.example/photo.jpg' })
     const req = makeReq()
@@ -186,13 +162,6 @@ describe('users.updateSession', () => {
   })
 })
 
-/**
- * `reassignContent`'s three refusals (same user, unknown target, target is a system account) all run
- * before the method ever opens its transaction, off nothing but `getById()`'s return value — so they
- * are tested by mocking that one collaborator, the same way `login.loginTFA`'s suite above mocks its
- * own collaborators, rather than paying for a database connection to prove a branch that never issues
- * a query.
- */
 describe('users.reassignContent validation', () => {
   test('refuses to reassign a user onto themselves, without looking the target up', async (t) => {
     const getById = t.mock.method(users, 'getById', async () => {
@@ -217,11 +186,9 @@ describe('users.reassignContent validation', () => {
 })
 
 /**
- * OpenProject #1849: `getAvatarHash` exists specifically so a conditional avatar request never pulls
- * the blob out of the database. A real Postgres round trip only proves the returned value is correct,
- * not that the column list sent to it actually shrank — so this spies on `CARDINAL.db.select` instead,
- * following the precedent set by `models/pages.test.ts`'s `getPage selection (pure unit, OpenProject
- * #1834)` describe block.
+ * A real round trip would only prove the returned value is correct, not that the column list sent to
+ * the database actually shrank — hence spying on `CARDINAL.db.select` rather than querying. Not
+ * pulling the avatar blob for a conditional request is the whole reason `getAvatarHash` exists.
  */
 describe('getAvatarHash selection (pure unit, OpenProject #1849)', () => {
   let previousWiki: typeof globalThis.CARDINAL

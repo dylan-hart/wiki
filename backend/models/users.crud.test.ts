@@ -17,14 +17,9 @@ import {
 } from '../db/schema.ts'
 
 /**
- * One schema for the whole file rather than one per describe (TEST-F14): every `setupTestDb()` call
- * is a `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same
- * fixture. Anything a describe needs on top of that stays in its own `before()`.
- *
  * The `hasTestDatabase()` guard below is what a per-describe `{ skip }` cannot do for a FILE-level
  * hook: `describe(..., { skip })` skips the describe's own hooks and tests, but a root `before()`
- * runs regardless, so without this an unset `DATABASE_URL` would report every describe skipped AND
- * still throw out of the hook. Same shape as `models/contentSync.test.ts`'s own file-level fixture.
+ * runs regardless, so without it an unset `DATABASE_URL` still throws out of the hook.
  */
 let fixtures: TestFixtures
 
@@ -43,11 +38,8 @@ after(async () => {
 })
 
 /**
- * `reassignContent` is SQL orchestration over two tables inside one transaction — exactly the
- * `models/pages.test.ts`-style case that calls for a real database rather than a query
- * builder mock. Pages and assets are seeded with raw inserts (bypassing `pages.createPage()`/the
- * asset upload path entirely) since only the `authorId`/`creatorId`/`ownerId` columns this method
- * touches matter here.
+ * Pages and assets are seeded with raw inserts, bypassing `pages.createPage()` and the asset upload
+ * path entirely, since only the `authorId`/`creatorId`/`ownerId` columns this method touches matter.
  */
 describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users
@@ -203,16 +195,10 @@ describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () =
   })
 })
 
-/**
- * `createUser()` atomicity (OpenProject #1607 / #1584): the insert and its group assignment now
- * share one `CARDINAL.db.transaction()`, so a failure in `setUserGroups` after the insert must leave no
- * orphaned user row behind, and the ordinary path must still land both.
- */
 describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() }, () => {
   before(async () => {
-    // -> Matches `login.forgotPassword / resetPassword`'s own `createLocalUser` helper above: nothing
-    //    under test here logs in, so this needs no matching `authentication` row, just a key for
-    //    `createUser()` to store the password hash under.
+    // -> Nothing under test here logs in, so no matching `authentication` row is needed — only a key
+    //    for `createUser()` to store the password hash under.
     CARDINAL.data.systemIds = { localAuthId: 'atomic-create-test-strategy' } as any
   })
 
@@ -262,16 +248,11 @@ describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() },
 })
 
 /**
- * OpenProject #1742 (part of #1730): `setUserGroups` used to run its delete-then-insert as two
- * separate statements on the default connection with no transaction. `userGroups`' primary key is
- * `(userId, groupId)`, so a group deleted in the window between reading which ids are still valid and
- * the insert actually running would fail the whole multi-row insert on an FK violation -- and because
- * the delete had already committed on its own, the user was left in *no* groups at all: no admin
- * access, no page rules, with the caller's error saying nothing about membership having been wiped.
- * `setUserGroups` now wraps both statements in one transaction, so a failed insert rolls the delete
- * back with it. The two tests below prove this two different ways: sabotaging `CARDINAL.db.transaction`
- * itself to delete a group mid-transaction (reproducing the real FK-violation race), and handing the
- * transaction callback a `tx` stand-in whose `insert` is forced to throw outright.
+ * The failure mode guarded here: `userGroups`' primary key is `(userId, groupId)`, so a group
+ * deleted in the window between `setUserGroups` reading which ids are still valid and the insert
+ * running fails the whole multi-row insert on an FK violation. Were the delete half not in the same
+ * transaction it would already have committed, leaving the user in *no* groups at all -- no admin
+ * access, no page rules -- with the caller's error saying nothing about membership having been wiped.
  */
 describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users
@@ -280,14 +261,11 @@ describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => 
 
   before(async () => {
     ;({ users: usersModel } = await import('./users.ts'))
-    // -> `setUserGroups` -> `groups.guestMembershipViolation` reads `CARDINAL.data.systemIds.guestsGroupId`
-    //    -- a full-boot value the minimal test `CARDINAL` does not carry. Neither group id used below is
-    //    this one, so it never actually matches; it only has to be present for the read not to throw.
+    // -> `setUserGroups` -> `groups.guestMembershipViolation` reads this, a full-boot value the
+    //    minimal test `CARDINAL` does not carry. It only has to be present, and to match neither
+    //    group below, which is what leaves both of them ordinary assignable groups.
     CARDINAL.data.systemIds = { guestsGroupId: 'ffffffff-ffff-ffff-ffff-ffffffffffff' } as any
 
-    // -> No guests group in this fixture's seed data; `setUserGroups` reads this to keep the guest
-    //    account/guests group pairing intact, and a value that matches neither group under test is
-    //    what makes both of them ordinary, assignable groups.
     const [groupA] = await fixtures.db
       .insert(groupsTable)
       .values({ name: 'setUserGroups Group A', permissions: [], rules: [] })
@@ -320,11 +298,9 @@ describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => 
     await usersModel.setUserGroups(raceUser!.id, [fixtures.groupId])
 
     /*
-      Sabotages the transaction from the outside, at exactly the point `setUserGroups` opens it --
-      deleting the target group out from under the still-to-run insert reproduces the real race: a
-      group deleted in the window between `setUserGroups` reading it as valid and the insert actually
-      running. `CARDINAL.db.transaction` itself, and everything `setUserGroups` does inside it, run for
-      real and unmocked; only the timing of the group's deletion is engineered.
+      Deleting the target group from inside the transaction callback, before `setUserGroups`' own body
+      runs, is what reproduces the race. Only the delete's timing is engineered: the real
+      `transaction` and everything `setUserGroups` does inside it run unmocked.
     */
     const originalTransaction = CARDINAL.db.transaction.bind(CARDINAL.db)
     const transactionSpy = mock.method(CARDINAL.db, 'transaction', (fn: any) =>
@@ -390,12 +366,6 @@ describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => 
   })
 })
 
-/**
- * `deleteUser` is SQL orchestration over four tables in one transaction — the same
- * real-database case `reassignContent (DB-backed)` above is for, not one a query-builder mock
- * would usefully stand in for: what's under test is that the avatar and open submissions are
- * really gone afterwards, and that a refused delete really leaves sessions/keys/avatar alone.
- */
 describe('users.deleteUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users
 
@@ -453,8 +423,8 @@ describe('users.deleteUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
       validUntil: new Date(Date.now() + 60_000),
       userId
     })
-    // -> No onDelete cascade or set null on pages.authorId (see reassignContent's own doc comment),
-    //    so an authored page is exactly what makes deleteUser() throw a 23503 foreign-key violation.
+    // -> No onDelete cascade or set null on `pages.authorId`, so an authored page is what makes
+    //    `deleteUser()` throw a 23503 foreign-key violation.
     await fixtures.db
       .insert(pagesTable)
       .values(rawPageRow({ path: 'blocked/page', authorId: userId }))
@@ -543,16 +513,10 @@ describe('users.importLocalUser (DB-backed)', { skip: !hasTestDatabase() }, () =
 
     const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, result.id))
     assert.equal(row!.isActive, false)
-    assert.ok(row!.createdAt) // -> column's own defaultNow(), not left null
+    assert.ok(row!.createdAt)
   })
 })
 
-/**
- * `applyUserUpdate()` atomicity (OpenProject #1609 / #1584): the profile patch, group replacement,
- * auth-flag write and session clear now share one `CARDINAL.db.transaction()` -- this is what
- * `PUT /users/:userId` calls in place of its previously separate, non-transactional sequence. A
- * failure partway through must leave every earlier write in the same call rolled back too.
- */
 describe('users.applyUserUpdate atomicity (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let targetUserId: string
   const localStrategyId = 'atomic-update-test-strategy'

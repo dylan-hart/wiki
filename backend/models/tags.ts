@@ -5,7 +5,6 @@ import type { SearchIndexablePage } from './search.ts'
 
 export type Tag = Pick<typeof tagsTable.$inferSelect, 'tag' | 'usageCount'>
 
-/** A candidate page for a tag rename/delete, before the caller has decided who may touch it. */
 export interface TagPageRef {
   id: string
   path: string
@@ -15,25 +14,17 @@ export interface TagPageRef {
 }
 
 /**
- * Tags
+ * A tag is not a row anybody creates: it exists because a page carries it, in `pages.tags`, so the
+ * list is derived rather than stored and cannot drift out of step with the pages.
  *
- * A tag is not a row anybody creates: it exists because a page carries it, in `pages.tags`. The list
- * is therefore derived rather than stored, which is what keeps it from drifting out of step with the
- * pages after an edit, a delete or a restore.
- *
- * NOTE: the `tags` table in the schema is a leftover of an earlier design and is never written to.
- * Reading from it here would answer every request with an empty list.
+ * The `tags` table is never written to — reading from it here would answer every request with an
+ * empty list.
  */
 class Tags {
   /**
-   * Every tag used by a page of this site, most used first
-   *
-   * @param siteId Site the pages belong to
-   * @param limit Ceiling on how many distinct tags come back, most used first
-   * @param actor Who is asking. Given one, the list is built only from the pages they may read —
-   *              a tag is the name of something on a page, and the set of tags in use tells a
-   *              reader what a wiki is about. Counted over readable pages too, so the numbers agree
-   *              with what a search for the tag would return.
+   * @param actor Given one, only pages they may read are counted — the set of tags in use tells a
+   *              reader what a wiki is about, and counting over the same pages keeps the numbers
+   *              agreeing with what a search for the tag would return.
    */
   async getTags(
     siteId: string,
@@ -57,7 +48,7 @@ class Tags {
     /*
       Aggregated here rather than in postgres, because which pages count depends on the page rules and
       a rule can be a regular expression or a set of tags — neither of which a `GROUP BY` could take
-      into account. Only tagged pages are read, and only their path, locale and tags.
+      into account.
     */
     const result = await CARDINAL.db.execute(sql`
       SELECT path, locale, tags, classification
@@ -87,19 +78,12 @@ class Tags {
   }
 
   /**
-   * The most ACTIVE tags of this site, most active first: not lifetime usage (`getTags`'s ranking)
-   * but a count of pages carrying the tag that were created or updated in the last `days` days. This
-   * is what the Popular Tags panel in `HeaderSearch.vue` ranks by (OpenProject #3046) — a wiki whose
-   * early, now-abandoned content happens to carry the most tags overall shouldn't crowd out what
-   * people are actually writing about lately. `getTags` above is untouched and keeps its all-time,
-   * unlimited-by-default ranking for the tag-edit autocomplete and the tag-browse page, which both
-   * still want the complete picture.
+   * Ranked by recent activity rather than `getTags`'s lifetime usage: a wiki whose early,
+   * now-abandoned content carries the most tags overall should not crowd out what people are
+   * writing about lately. `getTags` keeps the all-time ranking the tag-edit autocomplete and the
+   * tag-browse page want.
    *
-   * @param siteId Site the pages belong to
-   * @param limit Ceiling on how many distinct tags come back, most active first
-   * @param days How many days back counts as "active"
-   * @param actor Who is asking — see `getTags`'s doc comment; the same permission-filtered accounting
-   *              applies here, just over a recency-filtered set of pages instead of every page.
+   * @param actor Given one, only pages they may read are counted, as in `getTags`.
    */
   async getPopularTags(
     siteId: string,
@@ -151,12 +135,9 @@ class Tags {
   }
 
   /**
-   * Every page of this site that currently carries `tag`, as candidates for a rename or delete.
-   *
-   * Deliberately returns every carrier regardless of who is asking — this is not the read-permission
-   * filtered view `getTags` builds. The caller (`api/tags.ts`) still has to decide, per page, whether
-   * THIS actor may act on it (`mayOnPage(req, 'manage:pages', ...)`) before doing anything with the
-   * result; this just narrows "every page in the site" down to the ones that would actually change.
+   * Returns every carrier regardless of who is asking — unlike `getTags`, nothing here is
+   * permission-filtered. The caller still has to check `manage:pages` per page before acting on the
+   * result.
    */
   async pagesWithTag(siteId: string, tag: string): Promise<TagPageRef[]> {
     return CARDINAL.db
@@ -172,21 +153,13 @@ class Tags {
   }
 
   /**
-   * Rename a tag across a specific, already permission-filtered set of pages.
+   * The `DISTINCT`/`array_agg` wrapper around `array_replace` is what keeps a page that already
+   * carries `newTag` from ending up with two entries. Merging two tags is this same operation:
+   * renaming one to the other's name collapses them on every page that had both.
    *
-   * An array-element rewrite of `pages.tags` — `array_replace`, wrapped in a `DISTINCT`/`array_agg` so
-   * a page that already carries `newTag` ends up with one entry instead of two. This is also the whole
-   * of what merging two tags is: renaming one of them to the other's name collapses them together on
-   * every page that had both, the same as it does here for one.
-   *
-   * Does no access control of its own — `pageIds` is expected to already be the subset the caller
-   * checked `manage:pages` against, one page at a time (see `pagesWithTag`'s doc comment). `tree.tags`
-   * is kept in step alongside `pages.tags` since `models/tree.ts`'s tag-filtered browse reads from
-   * there, not from `pages` — the same pairing `models/pages.ts#updatePage` maintains for a single-page
-   * edit. Every page actually touched is handed to `CARDINAL.models.search.updated` off the same
-   * `.returning()`, so the rename is reflected in search results without a separate reindex pass.
-   *
-   * @returns The rows actually updated
+   * No access control of its own — `pageIds` must already be the subset the caller checked
+   * `manage:pages` against. `tree.tags` is kept in step because `models/tree.ts`'s tag-filtered
+   * browse reads from there, not from `pages`.
    */
   async renameTag(
     siteId: string,
@@ -224,13 +197,8 @@ class Tags {
   }
 
   /**
-   * Delete a tag from a specific, already permission-filtered set of pages.
-   *
-   * `array_remove` needs no dedup step the way rename's `array_replace` does — removing an element
-   * never creates a collision. Otherwise the same contract as `renameTag`: no access control here,
-   * `tree.tags` kept in step, and every touched page reindexed off the `.returning()` rows.
-   *
-   * @returns The rows actually updated
+   * `array_remove` needs no dedup step the way `renameTag`'s `array_replace` does — removing an
+   * element never creates a collision. Same contract otherwise: no access control here.
    */
   async deleteTag(siteId: string, tag: string, pageIds: string[]): Promise<SearchIndexablePage[]> {
     if (pageIds.length < 1) {

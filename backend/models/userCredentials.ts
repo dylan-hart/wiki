@@ -14,9 +14,8 @@ import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 import { generateRecoveryCodes, normalizeRecoveryCode } from '../helpers/recoveryCodes.ts'
 
 /**
- * An authentication provider linked to a user, as exposed by the API. Secrets held in the stored
- * `auth` blob (the password hash, the TFA secret) are never included — `isPasswordSet` and
- * `isTfaSetup` report their state instead.
+ * `config` is a pass-through of the stored `auth` entry minus every secret it holds (the password
+ * hash, the TFA secret, the recovery-code hashes) — those are reported as derived state instead.
  */
 export interface UserAuthProvider {
   authId: string
@@ -26,12 +25,6 @@ export interface UserAuthProvider {
   config: Record<string, any>
 }
 
-/**
- * One authentication provider as the user's own profile page sees it: enough to render what can be
- * done with it, and nothing else. Unlike the administrator's view this carries no provider flags —
- * only whether a password exists, whether 2FA is set up, and whether the user is allowed to turn it
- * off again.
- */
 export interface UserProfileAuthMethod {
   authId: string
   authName: string
@@ -41,52 +34,32 @@ export interface UserProfileAuthMethod {
     isPasswordSet: boolean
     isTfaSetup: boolean
     isTfaRequired: boolean
-    /** False once password login has been turned off, whether by the user or by an administrator. */
     isPasswordLoginEnabled: boolean
-    /** Whether the account has another way in, and may therefore turn password login off. */
     canDisablePasswordLogin: boolean
-    /** How many of the 2FA recovery codes issued for this provider are still unused. 0 when 2FA is off. */
+    /** 0 when 2FA is off, not the leftovers of a previous setup. */
     recoveryCodesRemaining: number
   }
 }
 
-/**
- * One issued 2FA recovery code, as stored on `auth[strategyId].recoveryCodes`. Only the hash is ever
- * kept — the plaintext is returned to the caller once, at the moment it is generated, and never
- * again. `usedAt` is set the first (and only) time the code is redeemed; a code with a value here is
- * dead and is skipped by every check from then on.
- */
+/** Stored on `auth[strategyId].recoveryCodes`; the plaintext is never kept anywhere. */
 export interface RecoveryCodeEntry {
   hash: string
   usedAt: string | null
 }
 
 /**
- * Advisory-lock key for serializing writes to one user's whole-blob `auth` column.
- *
- * Every read-modify-write against `users.auth` -- a password change, a TFA toggle, a recovery-code
- * redemption, a TOTP replay-counter update, ... -- reads the entire JSONB column, mutates part of it
- * in memory, and writes the entire column back with no row lock and no conditional `WHERE`. Two such
- * writes for the same user racing (an admin's `adminInvalidateTfa` against a user's own in-flight
- * `verifyAndConsumeRecoveryCode`, say) is a lost update: whichever write lands second silently
- * clobbers the first's change with a blob it read before that change existed. Every call site below
- * that touches `auth` acquires this lock, keyed by user id, for the span from its read of the current
- * row to its write of the updated one, so concurrent writers for the *same* user serialize instead of
- * racing; writers for different users are never blocked by each other.
+ * Every write to `users.auth` reads the entire JSONB column, mutates part of it in memory and writes
+ * the whole column back, with no row lock and no conditional `WHERE` -- so two such writes for the
+ * same user racing is a lost update. Every read-modify-write below holds this per-user lock across
+ * both halves; writers for different users never block each other.
  */
 function authLockKey(userId: string): string {
   return `wiki:user-auth:${userId}`
 }
 
 /**
- * What a strategy's auth entry is patched with when 2FA is turned off: inactive, secret forgotten,
- * recovery codes thrown away — so setting it up again starts from a genuinely new secret rather than
- * silently re-arming the old one.
- *
- * Shared by `disableTfa()` (the user's own choice, refused when enforcement is on) and
- * `adminInvalidateTfa()` (an administrator overriding exactly that enforcement). The two methods stay
- * separate for the reason `adminInvalidateTfa`'s own doc comment gives — that is about who may ask,
- * not about what gets written, and what gets written is this.
+ * The secret is forgotten rather than kept inactive, so setting 2FA up again starts from a genuinely
+ * new one rather than silently re-arming the old.
  *
  * A factory rather than a shared constant: the value is merged into a stored JSON blob, and handing
  * two accounts the same `recoveryCodes` array would make them one array.
@@ -96,9 +69,6 @@ function clearedTfa(): Record<string, any> {
 }
 
 /**
- * Count a wrong 2FA code against a continuation token, destroying the token once `maxTfaAttempts`
- * have been used up — the client then has nothing left to continue with and has to start over.
- *
  * A token that has already been destroyed, or never existed, is not an error here: the caller is
  * about to reject the attempt either way.
  */
@@ -129,17 +99,12 @@ export async function countTfaFailure(token: string): Promise<void> {
 }
 
 /**
- * How many wrong 2FA codes a continuation token survives before it is destroyed and the user has to
- * start the login over. Retries have to be allowed — six digits get mistyped, and a code that rotates
- * every 30 seconds is regularly entered a moment too late — but an unlimited number of them against a
- * token that lives for 24 hours is a code space small enough to walk through.
+ * Retries have to be allowed — six digits get mistyped, and a code that rotates every 30 seconds is
+ * regularly entered a moment too late — but unlimited retries against a token that lives for 24
+ * hours is a code space small enough to walk through.
  */
 const maxTfaAttempts = 5
 
-/**
- * A fresh set of recovery codes, in both forms `enableTfa()`/`regenerateRecoveryCodes()` need: the
- * plaintext to hand back to the caller exactly once, and the hashed entries to store.
- */
 async function issueRecoveryCodes(): Promise<{
   plaintext: string[]
   entries: RecoveryCodeEntry[]
@@ -155,10 +120,8 @@ async function issueRecoveryCodes(): Promise<{
 }
 
 /**
- * Send the recovery-codes-generated notice for `enableTfa()`/`regenerateRecoveryCodes()`, swallowing
- * any failure so an unconfigured/unreachable mail transport never blocks the 2FA action itself that
- * already succeeded (matching `models/login.ts`'s existing swallow-and-log pattern for its own
- * login-adjacent notices, e.g. `sendPasswordResetConfirmed`).
+ * Failures are swallowed: an unconfigured or unreachable mail transport must not turn a 2FA action
+ * that already succeeded into a failed one.
  */
 async function notifyRecoveryCodesGenerated(user: any, siteId?: string): Promise<void> {
   try {
@@ -178,14 +141,9 @@ async function notifyRecoveryCodesGenerated(user: any, siteId?: string): Promise
 }
 
 /**
- * Which stored recovery code entry (if any) a normalized code matches. Every unconsumed entry is
- * checked, not just until the first hit — mirroring the constant-time discipline `verifyTotpCode`
- * uses for its drift window, so how long this takes does not depend on which one (if any) matched.
- * An already-consumed entry is skipped without comparison: it can never match again regardless of
- * what was typed, so there is nothing to hide by skipping it.
- *
- * Exported for direct unit testing — this is the one piece of recovery-code verification that has no
- * database or `CARDINAL` global in it.
+ * Every unconsumed entry is compared, not just up to the first hit, so how long this takes does not
+ * depend on which one (if any) matched. An already-consumed entry is skipped without comparison: it
+ * can never match again whatever was typed, so there is nothing to hide by skipping it.
  *
  * @returns The index of the matching entry, or -1
  */
@@ -206,12 +164,10 @@ export async function matchRecoveryCode(
 }
 
 /**
- * How many ways into the account remain if the given provider stops working: the other providers
- * linked to it, plus every registered passkey.
- *
- * A provider that is itself restricted does not count — it is no way in either. Passkeys are counted
- * whichever host they were registered against: on a multi-site instance one bound to another site
- * still leaves the account reachable, which is what this guards against.
+ * How many ways into the account remain if the given provider stops working. A provider that is
+ * itself restricted does not count — it is no way in either. Passkeys count whichever host they were
+ * registered against: on a multi-site instance one bound to another site still leaves the account
+ * reachable.
  */
 function countAlternativeLogins(user: any, strategyId: string): number {
   const auth = (user.auth ?? {}) as Record<string, any>
@@ -223,32 +179,19 @@ function countAlternativeLogins(user: any, strategyId: string): number {
 }
 
 /**
- * User credentials model
- *
- * Everything a `users` row's `auth` blob and its `userKeys` tokens are made of: local passwords, the
- * 2FA lifecycle (setup, enable, disable, verify, recovery codes) and the short-lived tokens a login
- * continuation, an email verification or a password reset is carried on.
- *
- * Split out of `models/users.ts` (MOD-F12) because it is a different subject from an account itself:
- * `users` owns who exists, what they are called and which groups they are in; this owns how they
- * prove it. Both are needed by `models/login.ts`, which is the flow that puts them together.
+ * `users` owns who exists; this owns how they prove it — the `auth` blob (passwords, the 2FA
+ * lifecycle, recovery codes) and the short-lived `userKeys` tokens.
  */
 class UserCredentials {
   /**
-   * The read-modify-write every `users.auth` change is made of, in one place.
-   *
-   * Fourteen methods — a password set or change, each 2FA transition, a recovery-code redemption, the
-   * TOTP replay counter, a provider link written on login — each wrote out the same five moves:
-   * take {@link authLockKey}'s per-user advisory lock, re-read the row INSIDE it (never trusting a
-   * `user` the caller loaded earlier, which is the whole point of the lock — see `authLockKey`'s own
-   * doc comment on the lost update this prevents), merge a patch into that strategy's entry, and
-   * write the whole `auth` blob back with a bumped `updatedAt`.
+   * The read-modify-write every `users.auth` change is made of, holding {@link authLockKey}'s
+   * per-user lock and re-reading the row INSIDE it — never trusting a `user` the caller loaded
+   * earlier, which is the whole point of the lock.
    *
    * @param mutate Given this strategy's CURRENT entry (undefined when the user has none), returns the
    *   fields to merge into it — or `null` to make the whole call a no-op, which is how a redemption
    *   that finds nothing to redeem, or a replayed TOTP code, declines to write anything at all
-   * @param opts.db Runs the read and the write on this handle rather than `CARDINAL.db`, so a caller
-   *   already inside a transaction is joined rather than raced
+   * @param opts.db Joins a caller's open transaction rather than racing it
    * @param opts.mirrorInto Copies the freshly-written blob onto a caller's own stale `user` object, so
    *   a login flow holding a row from before this write keeps reading its own change back
    * @returns Whether a write actually happened: false when the user is gone, or `mutate` declined
@@ -285,11 +228,6 @@ class UserCredentials {
   }
 
   /**
-   * The pre-flight every 2FA and password-login method makes before touching a strategy's auth entry:
-   * the user exists, it actually has an entry for this strategy, and (where the caller asks) 2FA is
-   * currently active on it. Six methods each wrote out the same two or three guards.
-   *
-   * @param opts.tfaActive Also require `tfaIsActive` on the entry
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_NOT_ACTIVE`
    */
   async requireStrategyAuth(
@@ -312,13 +250,6 @@ class UserCredentials {
     return { user, auth, entry }
   }
 
-  /**
-   * Update the local-strategy behaviour flags for a user, leaving secrets and any other linked
-   * provider untouched.
-   *
-   * @param flags Any of `mustChangePwd`, `restrictLogin`, `tfaRequired`
-   * @returns False if the user does not exist
-   */
   async setUserAuthFlags(
     id: string,
     flags: Record<string, any>,
@@ -329,7 +260,6 @@ class UserCredentials {
       CARDINAL.data.systemIds.localAuthId,
       (entry) => {
         if (!entry) {
-          // -> The user does not use local authentication, so there are no local flags to set
           return null
         }
         const patch: Record<string, any> = {}
@@ -344,11 +274,6 @@ class UserCredentials {
     )
   }
 
-  /**
-   * Set a user's local-strategy password, leaving any other linked provider untouched.
-   *
-   * @returns False if the user does not exist
-   */
   async setUserPassword({
     id,
     newPassword,
@@ -365,13 +290,6 @@ class UserCredentials {
     }))
   }
 
-  /**
-   * The authentication providers linked to a user, as its own profile page shows them.
-   *
-   * Reshaped from the stored `auth` blob the same way `getUserDetail()` does it, but reporting only
-   * what the user may act on. `isTfaRequired` is what greys out the "turn off 2FA" button, so it
-   * accounts for the strategy enforcing 2FA for everyone as well as this user being flagged for it.
-   */
   async getProfileAuthMethods(userId: string): Promise<UserProfileAuthMethod[]> {
     const user = await CARDINAL.models.users.getById(userId)
     if (!user) {
@@ -381,17 +299,12 @@ class UserCredentials {
   }
 
   /**
-   * Reshape a user's stored `auth` blob into the linked-provider list an API response carries —
-   * resolving each strategy id to its row and module definition for the display name and icon, and
-   * deriving only state from the entry, never a secret.
+   * The destructure is what keeps every secret out of the response: the admin view spreads whatever
+   * provider-specific keys are left in `rest`, so a new secret added to a stored entry has to be
+   * pulled out here too or it ships to the client.
    *
-   * The two views this serves differ in what they say about each provider, not in how they find it:
-   * the administrator's (`getUserDetail`) passes through whatever provider-specific keys the entry
-   * carries alongside the derived flags, while the user's own (`getProfileAuthMethods`) reports a
-   * fixed set and adds the two things only the account holder acts on — whether password login is on,
-   * and whether there is another way in to allow turning it off. `isTfaRequired` differs with it: the
-   * profile view greys the "turn off 2FA" button out for a strategy that enforces 2FA on everyone, so
-   * it ORs the strategy's own `enforceTfa` in; the admin view reports this user's own flag.
+   * The profile view ORs the strategy's own `enforceTfa` into `isTfaRequired` because that is what
+   * greys its "turn off 2FA" button out; the admin view reports this user's own flag alone.
    */
   async describeLinkedProviders(
     user: any,
@@ -416,9 +329,7 @@ class UserCredentials {
         rawConfig ?? {}
       const shared = {
         isPasswordSet: Boolean(password),
-        // -> Named as the profile page's own view names them, so one piece of state is not called two
-        //    things across the API. Whether 2FA is set up is `tfaIsActive` and a stored secret both:
-        //    a secret that was generated but never confirmed is not 2FA being on.
+        // -> Both halves: a secret that was generated but never confirmed is not 2FA being on.
         isTfaSetup: Boolean(tfaIsActive && tfaSecret),
         recoveryCodesRemaining: tfaIsActive
           ? ((recoveryCodes ?? []) as RecoveryCodeEntry[]).filter((entry) => !entry.usedAt).length
@@ -445,11 +356,9 @@ class UserCredentials {
   }
 
   /**
-   * Change a user's own password, having checked the current one.
-   *
    * Distinct from `setUserPassword()`, which is an administrator replacing a password it does not
-   * know. This also clears `mustChangePwd`: a user who has just chosen a password satisfies the
-   * requirement to choose one.
+   * know. Clearing `mustChangePwd` is deliberate: a user who has just chosen a password satisfies
+   * the requirement to choose one.
    *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`, `ERR_PASSWORD_TOO_SHORT` or
    *         `ERR_INCORRECT_CURRENT_PASSWORD`
@@ -474,8 +383,7 @@ class UserCredentials {
     }
 
     const auth = (user.auth ?? {}) as Record<string, any>
-    // -> Only a provider that stores a password here has one to change; an external identity provider
-    //    holds it somewhere this instance cannot reach
+    // -> An external identity provider holds the password somewhere this instance cannot reach
     if (!auth[strategyId]?.password) {
       throw new Error('ERR_INVALID_STRATEGY')
     }
@@ -494,13 +402,10 @@ class UserCredentials {
   }
 
   /**
-   * Turn password login on or off for a user's own account, which is the same `restrictLogin` flag an
-   * administrator sets from the admin area.
-   *
-   * Turning it off is refused unless something else can still sign the account in — a passkey or
-   * another linked provider — because the alternative is a user locking themselves out of their own
-   * account with one click. Turning it back on needs no such check, and the password itself is neither
-   * cleared nor asked for: a session that got this far has already been authenticated.
+   * The same `restrictLogin` flag an administrator sets from the admin area. Turning it off is
+   * refused unless something else can still sign the account in, because the alternative is a user
+   * locking themselves out with one click. Turning it back on needs no such check, and the password
+   * is neither cleared nor asked for: a session that got this far is already authenticated.
    *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`, `ERR_PASSWORD_LOGIN_NOT_APPLICABLE` or
    *         `ERR_NO_OTHER_LOGIN_METHOD`
@@ -516,8 +421,8 @@ class UserCredentials {
   }): Promise<void> {
     const { user, entry } = await this.requireStrategyAuth(userId, strategyId)
 
-    // -> The flag is only ever read by the local module's `authenticate()`, so setting it on a provider
-    //    that authenticates elsewhere would be a switch connected to nothing
+    // -> Only the local module's `authenticate()` reads the flag, so setting it on a provider that
+    //    authenticates elsewhere would be a switch connected to nothing
     const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
     if (strategy?.module !== 'local' || !entry.password) {
       throw new Error('ERR_PASSWORD_LOGIN_NOT_APPLICABLE')
@@ -535,16 +440,11 @@ class UserCredentials {
   }
 
   /**
-   * Start 2FA setup for a user: store a fresh secret, inactive, and return the QR code to scan.
+   * The secret is stored before it is proven to work, because the user has to scan it and come back
+   * with a code generated from it. It counts for nothing until `enableTfa()` marks it active, and
+   * starting the setup again simply replaces it.
    *
-   * The secret is stored before it is proven to work, because the user has to be able to scan it and
-   * come back with a code generated from it. It counts for nothing until `enableTfa()` marks it
-   * active, and starting the setup again simply replaces it.
-   *
-   * @param user The user row, whose `auth` blob is updated in place as well as saved
-   * @param siteId The site being logged into, which names the entry in the authenticator app
-   * @returns The QR code as an SVG document, and the secret it encodes — which is shown as text too,
-   *          for a user who would rather type it into an authenticator app than scan anything
+   * @param user Updated in place as well as saved
    */
   async startTfaSetup(
     user: any,
@@ -553,7 +453,7 @@ class UserCredentials {
   ): Promise<{ secret: string; tfaQRImage: string }> {
     CARDINAL.logger.debug('auth', 'generating a new 2FA secret', { user: user.id })
 
-    // -> The title is only a label in the user's authenticator app, so any site will do when the one
+    // -> The issuer is only a label in the user's authenticator app, so any site will do when the one
     //    being logged into cannot be resolved
     const site = (siteId ? CARDINAL.sites[siteId] : null) ?? Object.values(CARDINAL.sites ?? {})[0]
     const issuer = (site as any)?.config?.title || 'Wiki'
@@ -576,17 +476,12 @@ class UserCredentials {
   }
 
   /**
-   * Mark a user's stored 2FA secret as active, i.e. required from now on, and issue a fresh set of
-   * recovery codes alongside it. Called once the user has proven the secret produces the codes this
-   * server expects — from a login that owed a required setup (`loginTFA`) or from the profile page
-   * (`confirmTfaSetup`), which is why the codes are generated here rather than in either caller: both
-   * routes to becoming active go through this one place.
+   * Called once the user has proven the secret produces the codes this server expects, from either
+   * `loginTFA` or `confirmTfaSetup`. The recovery codes are issued here rather than in either caller
+   * because both routes to becoming active go through this one place.
    *
-   * @param siteId The site the enabling login/setup came in on, when known — `loginTFA` has one
-   *   (every triggering route is `/sites/:siteId/auth/*`), `confirmTfaSetup`'s own profile route
-   *   does not. Threaded into the enabled/recovery-codes notices' links via
-   *   `mail.ts#resolveMailBaseURL` (OpenProject #3386); omitted, they fall back to the instance-wide
-   *   `defaultBaseURL`, same as before.
+   * @param siteId The site the enabling login/setup came in on, when known — `confirmTfaSetup`'s own
+   *   profile route has none, and the notices then link to the instance-wide `defaultBaseURL`
    * @returns The recovery codes in plaintext. Only their hashes are stored, so this is the one and
    *          only time the caller can get at them — display or offer them for download immediately.
    */
@@ -600,12 +495,9 @@ class UserCredentials {
     )
     CARDINAL.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
 
-    // -> Recovery-codes-generated notice (OpenProject #3300). A sibling notice for 2FA itself being
-    //    enabled (#3301) belongs beside this as its own independent call, not folded into one.
     await notifyRecoveryCodesGenerated(user, siteId)
 
-    // -> A mail-send failure must not turn a successful 2FA enable into a failed one, matching
-    //    `models/login.ts#resetPassword()`'s own swallow-and-log pattern for login-adjacent notices.
+    // -> A mail-send failure must not turn a successful 2FA enable into a failed one
     try {
       await CARDINAL.models.mail.sendTfaEnabled({
         to: user.email,
@@ -625,8 +517,6 @@ class UserCredentials {
   }
 
   /**
-   * Turn 2FA off for a user and forget the secret, so that setting it up again starts from a new one.
-   *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`, `ERR_TFA_NOT_ACTIVE` or `ERR_TFA_ENFORCED`
    */
   async disableTfa(userId: string, strategyId: string): Promise<void> {
@@ -645,16 +535,11 @@ class UserCredentials {
   }
 
   /**
-   * Turn 2FA off for a user on an administrator's say-so, bypassing the `tfaRequired` /
-   * `enforceTfa` enforcement that `disableTfa()` deliberately refuses to override.
-   *
-   * A genuinely separate method rather than a parameter on `disableTfa()`: that method's whole point
-   * is to refuse this exact override for a user acting on their own account, so folding the bypass in
-   * as a flag would make the refusal something every caller has to remember to ask for, instead of
-   * something only an admin-scoped route can reach at all. Overriding enforcement is the entire
-   * reason this control exists — typically to recover a user locked out by a lost authenticator or
-   * device, where waiting for them to satisfy the requirement they are asking to be freed from isn't
-   * an option.
+   * Bypasses the `tfaRequired`/`enforceTfa` enforcement `disableTfa()` refuses to override — which
+   * is why it is a separate method rather than a flag on that one: folding the bypass in would make
+   * the refusal something every caller has to remember to ask for, instead of something only an
+   * admin-scoped route can reach at all. It exists to recover a user locked out by a lost
+   * authenticator, who cannot satisfy the requirement they are asking to be freed from.
    *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_NOT_ACTIVE`
    */
@@ -669,14 +554,9 @@ class UserCredentials {
   }
 
   /**
-   * Send the account holder their 2FA-disabled notice — shared by `disableTfa()` (their own choice)
-   * and `adminInvalidateTfa()` (an administrator's override), which both leave the account in the
-   * identical disabled state and so send the identical notice regardless of who initiated it.
-   *
-   * Locale resolves from the account holder's own `user.prefs?.locale`, never the acting admin's —
-   * load-bearing specifically for `adminInvalidateTfa()`, where the two differ. A mail-send failure
-   * must not turn a successful 2FA disable into a failed one, matching
-   * `models/login.ts#resetPassword()`'s own swallow-and-log pattern for login-adjacent notices.
+   * `user` is the account holder, never the acting admin — load-bearing for `adminInvalidateTfa()`,
+   * where the locale the notice is written in would otherwise be the wrong person's. A mail-send
+   * failure must not turn a successful 2FA disable into a failed one.
    */
   private async notifyTfaDisabled(user: any): Promise<void> {
     try {
@@ -695,18 +575,13 @@ class UserCredentials {
   }
 
   /**
-   * Whether a security code matches the 2FA secret stored for a user under one strategy -- and, if
-   * so, whether it has not already been accepted once before.
+   * Persists the highest time-step counter ever accepted as `auth[strategyId].tfaLastCounter` and
+   * refuses any code whose matched counter is not strictly greater. Without it, the ~90s of drift
+   * RFC 6238 allows would let an observed code -- shoulder-surfed, phished, screenshotted -- be
+   * replayed for as long as it stays inside that window.
    *
-   * `verifyTotpCode` returns which time-step counter the code matched (or -1); this persists the
-   * highest counter ever accepted, as `auth[strategyId].tfaLastCounter`, and refuses any code whose
-   * matched counter is not strictly greater than it. Without this, the ~90s window RFC 6238's
-   * allowed drift keeps a code valid for (three 30s steps) would let an observed code -- shoulder-
-   * surfed, phished, screenshotted -- be replayed for as long as it stays inside that window.
-   *
-   * The read-check-write runs under {@link authLockKey}'s per-user lock, re-reading the row instead
-   * of trusting the possibly-stale `user` the caller loaded earlier: two concurrent submissions of
-   * the same still-valid code must not both see themselves as the first to present it.
+   * The read-check-write runs under {@link authLockKey}'s per-user lock, so two concurrent
+   * submissions of the same still-valid code cannot both see themselves as the first to present it.
    */
   async verifyTfaCode(user: any, strategyId: string, securityCode: string): Promise<boolean> {
     const secret = ((user.auth ?? {}) as Record<string, any>)[strategyId]?.tfaSecret
@@ -724,8 +599,8 @@ class UserCredentials {
       (entry) => {
         const lastCounter = entry?.tfaLastCounter ?? -1
         if (matchedCounter <= lastCounter) {
-          // -> A code for this counter (or an earlier one) has already been accepted -- reject the
-          //    replay rather than sign in a second time on the strength of the same code.
+          // -> Already accepted once: reject the replay rather than sign in a second time on the
+          //    strength of the same code.
           return null
         }
         return { tfaLastCounter: matchedCounter }
@@ -735,17 +610,12 @@ class UserCredentials {
   }
 
   /**
-   * Whether a recovery code matches one of the unconsumed codes stored for a user's 2FA. On a match,
-   * marks that entry consumed so it cannot be redeemed a second time.
-   *
-   * The match-then-mark runs under {@link authLockKey}'s per-user lock, and re-reads the row rather
-   * than trusting the possibly-stale `user` the caller loaded earlier -- so two concurrent
+   * The match-then-mark runs under {@link authLockKey}'s per-user lock, so two concurrent
    * submissions of the same code cannot both observe it as unconsumed and both redeem it. The loser
    * of the race sees the entry already marked `usedAt` by the winner and correctly reports no match.
    *
-   * @param user The user row -- only `.id` is trusted; `.auth` is re-read fresh inside the lock, and
-   *             the caller's copy is updated in place to match once the write lands
-   * @returns Whether the code matched an unconsumed entry
+   * @param user Only `.id` is trusted; `.auth` is re-read inside the lock and the caller's copy
+   *             updated in place once the write lands
    */
   async verifyAndConsumeRecoveryCode(
     user: any,
@@ -784,17 +654,14 @@ class UserCredentials {
   }
 
   /**
-   * How many of a user's 2FA recovery codes are still unused, without ever re-displaying one.
-   *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_NOT_ACTIVE`
    */
   async getRecoveryCodesStatus(
     userId: string,
     strategyId: string
   ): Promise<{ total: number; remaining: number }> {
-    // -> No 2FA, no codes: rather than answering `{ total: 0, remaining: 0 }` for an account that
-    //    was never set up for recovery codes in the first place, this is treated the same as any
-    //    other 2FA-inactive request.
+    // -> An account with 2FA off throws rather than answering `{ total: 0, remaining: 0 }`, which
+    //    would be indistinguishable from a set of codes that has been entirely used up.
     const { entry } = await this.requireStrategyAuth(userId, strategyId, { tfaActive: true })
     const entries = (entry.recoveryCodes ?? []) as RecoveryCodeEntry[]
     return {
@@ -804,9 +671,8 @@ class UserCredentials {
   }
 
   /**
-   * Invalidate every recovery code currently stored for a user's 2FA and issue a fresh set in its
-   * place — a partially-consumed set is not topped back up to a full one, the whole thing is thrown
-   * away and replaced, used and unused codes alike.
+   * A partially-consumed set is not topped back up: the whole thing is replaced, used and unused
+   * codes alike.
    *
    * @returns The new codes in plaintext, and whether the set being replaced still had unused codes in
    *          it — the caller's cue to warn the user that codes they saved are being thrown away, not
@@ -830,22 +696,16 @@ class UserCredentials {
       `User ${userId} <${user.email}> regenerated their 2FA recovery codes`
     )
 
-    // -> Recovery-codes-generated notice (OpenProject #3300) -- the re-issuance counterpart to
-    //    `enableTfa()`'s initial-issuance call above.
     await notifyRecoveryCodesGenerated(user)
 
     return { recoveryCodes: plaintext, hadUnusedCodes }
   }
 
   /**
-   * Purge every outstanding `userKeys` row for a user -- reset-password, email-verify, TFA-setup and
-   * change-password tokens alike.
-   *
-   * The counterpart to `sessions.clearSessionsFromUser()` for deactivation (`api/users/admin.ts`'s
-   * `patch.isActive === false` path calls both): a token minted before an account was deactivated
-   * would otherwise still be redeemable afterwards. `afterLoginChecks()` would refuse the login that
-   * redemption ends in, but not before `resetPassword()` has already rewritten the password hash --
-   * purging the row here means the token never gets that far.
+   * The counterpart to `sessions.clearSessionsFromUser()` when an account is deactivated: a token
+   * minted beforehand would otherwise still be redeemable. `afterLoginChecks()` would refuse the
+   * login that redemption ends in, but not before `resetPassword()` has already rewritten the
+   * password hash -- purging the row means the token never gets that far.
    */
   async clearKeysFromUser(userId: string, db: WikiDbOrTx = CARDINAL.db): Promise<void> {
     await db.delete(userKeys).where(eq(userKeys.userId, userId))
@@ -861,16 +721,13 @@ class UserCredentials {
     meta?: Record<string, any>
   }): Promise<string> {
     CARDINAL.logger.debug('auth', 'generating a token', { kind, user: userId })
-    // -> 16 bytes = 128 bits, at or above what this field was given before. `randomToken` is
-    //    synchronous — no `await` needed.
     const token = randomToken()
     await CARDINAL.db.insert(userKeys).values({
       kind,
       token,
       meta,
-      // NOTE: ISO string rather than a Date, for the same UTC-vs-local reason as models/jobs.ts.
-      //       24 hours rather than 1 day: Temporal.Instant takes exact time units only, and in UTC
-      //       a calendar day is exactly 24 hours.
+      // -> An ISO string rather than a Date, so the value stays UTC. `{ hours: 24 }` rather than
+      //    `{ days: 1 }`: `Temporal.Instant` takes exact time units only, and throws on the latter.
       validUntil: Temporal.Now.instant()
         .add({ hours: 24 })
         .toString({ smallestUnit: 'millisecond' }) as any,
@@ -901,11 +758,6 @@ class UserCredentials {
       if (skipDelete !== true) {
         await CARDINAL.db.delete(userKeys).where(eq(userKeys.id, res.id))
       }
-      // -> BEHAVIOR CHANGE (Temporal migration): this previously read
-      //    `DateTime.utc() > DateTime.fromISO(res.validUntil)`. `validUntil` is a `timestamp`
-      //    column, so drizzle hands back a Date, and `fromISO` given a Date produced an *Invalid*
-      //    DateTime whose comparison was always false — tokens never expired. Temporal has no
-      //    Invalid sentinel to reproduce that with, so the check now works as intended.
       if (
         Temporal.Instant.compare(Temporal.Now.instant(), res.validUntil.toTemporalInstant()) > 0
       ) {
@@ -925,11 +777,9 @@ class UserCredentials {
   }
 
   /**
-   * Sweep `userKeys` rows past their `validUntil` -- a row otherwise only goes when consumed
-   * (`validateToken()` above, `register()`'s email-verification path), destroyed (`destroyToken()`
-   * above) or when its user is deleted, so a token generated and never presented (an abandoned
-   * password-reset link, an abandoned 2FA continuation) would otherwise accumulate forever. Mirrors
-   * `pageviews.ts#purgeExpired()`'s shape.
+   * A row otherwise only goes when consumed, destroyed or when its user is deleted, so a token
+   * generated and never presented -- an abandoned password-reset link, an abandoned 2FA
+   * continuation -- would accumulate forever.
    */
   async purgeExpiredKeys(): Promise<number> {
     const result = await CARDINAL.db.delete(userKeys).where(lt(userKeys.validUntil, sql`now()`))

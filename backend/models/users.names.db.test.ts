@@ -5,18 +5,6 @@ import { users } from './users.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { users as usersTable } from '../db/schema.ts'
 
-/**
- * Feature #2608's `name` derivation invariant, end to end against a real Postgres schema.
- *
- * DB-backed rather than a query-builder mock for two reasons. The invariant IS the reconciliation
- * between a patch and the row already stored — `models/users.ts#updateUser` reads the current
- * `firstName`/`lastName`/`nameLocallyEdited` and decides against them, which a stubbed `select`
- * would mostly just be re-describing. And `setupTestDb()` runs the real `db/migrations/` into a
- * fresh schema, so every assertion below is also the proof that the genesis migration's `users`
- * `CREATE TABLE` actually creates the three columns this invariant reads and writes.
- *
- * One schema for the whole file, per the `*.db.test.ts` convention.
- */
 let fixtures: TestFixtures
 
 before(async () => {
@@ -36,16 +24,11 @@ after(async () => {
 describe('users name derivation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let counter = 0
 
-  /** A collision-free address per account, so each test owns its own row. */
   function uniqueEmail(): string {
     counter += 1
     return `names-${counter}-${Date.now()}@example.com`
   }
 
-  /**
-   * The read-back oracle, local to this file rather than a method on the model — a model method
-   * whose only caller is its own test is dead code.
-   */
   async function readNames(id: string) {
     const [row] = await fixtures.db
       .select({

@@ -3,15 +3,10 @@ import { afterEach, describe, test } from 'node:test'
 import { users } from './users.ts'
 
 /**
- * Coverage for `Users.importLocalUser()` (Feature 414, Task 728): the import-capable local-provider
- * creation path that carries a pre-hashed password over verbatim instead of re-hashing it.
- *
  * `Users` reads the ambient `CARDINAL` global for everything DB/config-related, so each test installs a
  * minimal fake on `globalThis.CARDINAL` and restores whatever was there before. `getByEmail()` and
- * `setUserGroups()` are real methods on the same singleton `users` instance that `importLocalUser()`
- * calls internally (`this.getByEmail(...)`, `this.setUserGroups(...)`); rather than re-implementing
- * their own DB access in a fake `CARDINAL.db`, tests stub those two methods directly on the instance —
- * they're already-existing, separately-owned behaviour, not what this task adds.
+ * `setUserGroups()` are stubbed on the singleton itself rather than re-implemented in the fake
+ * `CARDINAL.db`, since `importLocalUser()` reaches them through `this`.
  */
 
 const LOCAL_STRATEGY_ID = 'local-auth-strategy-uuid'
@@ -53,8 +48,6 @@ function installFakeWiki(overrides: { insertResult?: { id: string }; insertError
   }
 }
 
-/** Stubs `users.getByEmail`/`users.setUserGroups` on the singleton for the duration of one test,
- * restoring the originals afterwards regardless of outcome. */
 function stubInstanceMethods(overrides: {
   getByEmail?: (...args: any[]) => any
   setUserGroups?: (...args: any[]) => any
@@ -100,8 +93,6 @@ describe('Users.importLocalUser', () => {
     assert.equal(result.status, 'created')
     assert.equal(fakeWiki.insertedRows.length, 1)
     const authEntry = fakeWiki.insertedRows[0].auth[LOCAL_STRATEGY_ID]
-    // -> Exactly the source string, not run through bcrypt.hash() (a re-hash would neither equal the
-    //    source string nor be a fixed-length transformation of it we could predict here).
     assert.equal(authEntry.password, sourceHash)
     assert.equal(authEntry.mustChangePwd, true)
     assert.equal(authEntry.restrictLogin, false)
@@ -166,7 +157,7 @@ describe('Users.importLocalUser', () => {
     raceError.code = '23505'
     const fakeWiki = installFakeWiki({ insertError: raceError })
     restoreWiki = fakeWiki.restore
-    // getByEmail found nothing at check time, but another writer wins the race before this insert lands.
+    // getByEmail finds nothing at check time; another writer wins the race before the insert lands.
     restoreInstance = stubInstanceMethods({ getByEmail: async () => null })
 
     const result = await users.importLocalUser({

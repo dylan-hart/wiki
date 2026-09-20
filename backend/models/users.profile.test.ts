@@ -12,14 +12,9 @@ import {
 import { userAvatars as userAvatarsTable, users as usersTable } from '../db/schema.ts'
 
 /**
- * One schema for the whole file rather than one per describe (TEST-F14): every `setupTestDb()` call
- * is a `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same
- * fixture. Anything a describe needs on top of that stays in its own `before()`.
- *
  * The `hasTestDatabase()` guard below is what a per-describe `{ skip }` cannot do for a FILE-level
  * hook: `describe(..., { skip })` skips the describe's own hooks and tests, but a root `before()`
- * runs regardless, so without this an unset `DATABASE_URL` would report every describe skipped AND
- * still throw out of the hook. Same shape as `models/contentSync.test.ts`'s own file-level fixture.
+ * runs regardless, so without it an unset `DATABASE_URL` still throws out of the hook.
  */
 let fixtures: TestFixtures
 
@@ -28,8 +23,6 @@ before(async () => {
     return
   }
   fixtures = await setupTestDb()
-  // -> Both locale describes below want these installed; seeded once here rather than by each of
-  //    them, which now share the one schema.
   await seedLocale(fixtures.db, { code: 'en' })
   await seedLocale(fixtures.db, { code: 'fr' })
 })
@@ -42,10 +35,8 @@ after(async () => {
 })
 
 /**
- * `updateProfile` is the write path for the profile screen's preferences, `users.prefs.locale`
- * (OpenProject #1619) included -- exercised DB-backed since it round-trips through `getById()` /
- * `updateUser()`, and `locale` validation reads the installed locale list through
- * `CARDINAL.models.locales.getLocales()`.
+ * `locale` validation reads the installed locale list through `CARDINAL.models.locales.getLocales()`,
+ * which is why the file-level fixture seeds `en` and `fr`.
  */
 describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users
@@ -93,7 +84,6 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
     assert.equal(updated?.timezone, 'America/New_York')
   })
 
-  /** Feature #2753 / Task #2765: `aesthetic` follows the same pass-through path as `appearance`. */
   test("defaults aesthetic to 'site' for a user who has never set one", async () => {
     const profile = await usersModel.getProfile(fixtures.userId)
     assert.equal(profile?.aesthetic, 'site')
@@ -107,11 +97,7 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
     assert.equal(reloaded?.aesthetic, 'cobalt')
   })
 
-  /**
-   * Feature #3051 / Task #3068: `contentWidth` follows the same site-default-with-override pass-
-   * through path as `aesthetic` above -- `'site'` defers to the site's own admin setting (resolved
-   * elsewhere, in `Index.vue`), while `'measured'`/`'full'` are stored and read back verbatim.
-   */
+  /** `'site'` is a deferral to the site's own admin setting, resolved on the frontend, not a width. */
   test("defaults contentWidth to 'site' for a user who has never set one", async () => {
     const profile = await usersModel.getProfile(fixtures.userId)
     assert.equal(profile?.contentWidth, 'site')
@@ -134,10 +120,8 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
   })
 
   /**
-   * OpenProject #2854: the knowledge graph view's five persisted controls, stored under
-   * `prefs.graph` and saved/read back as one whole object -- unlike every other prefs field above,
-   * which is a flat string with a forced default, `graph` gets NO forced default from the model:
-   * `Graph.vue` is the one place that decides what an unset control falls back to.
+   * Unlike the flat prefs fields above, `graph` gets no forced default from the model — the frontend
+   * alone decides what an unset control falls back to, so an unsaved preference reads as absent.
    */
   test('has no graph key at all for a user who has never saved one', async () => {
     const profile = await usersModel.getProfile(fixtures.userId)
@@ -189,10 +173,6 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
     assert.deepEqual(updated?.graph, { groupBy: 'tag' })
   })
 
-  /**
-   * The icon picker's one persisted control, stored under `prefs.iconPicker` -- same "no forced
-   * default, absent until saved" treatment as `graph` above.
-   */
   test('has no iconPicker key at all for a user who has never saved one', async () => {
     const profile = await usersModel.getProfile(fixtures.userId)
     assert.equal(profile?.iconPicker, undefined)
@@ -218,15 +198,6 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
   })
 })
 
-/**
- * Feature #2608, Task #2642: the profile screen authors `firstName`/`lastName` and shows the derived
- * display name, so `updateProfile` has to carry all three straight through to `updateUser` -- the one
- * owner of the derive-unless-authored rule -- and hand the halves back on the profile it answers with.
- *
- * DB-backed rather than a pass-through assertion against a stubbed `updateUser`: the interesting part
- * is that the three columns come back agreeing after a real round trip, which is exactly what a stub
- * of the method that reconciles them could not tell us.
- */
 describe('users.updateProfile name halves (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users
 
@@ -235,10 +206,9 @@ describe('users.updateProfile name halves (DB-backed)', { skip: !hasTestDatabase
   })
 
   /*
-    These tests share the file's one fixture user, and one of them deliberately AUTHORS the display
-    name -- a state that, by design, survives every later write. Reset it here rather than in each
-    test: writing a `name` that is exactly what the halves derive to is the documented way to hand an
-    account back to derivation, so this is the model's own affordance, not a test-only backdoor.
+    These tests share the file's one fixture user, and one of them authors the display name -- a
+    state that by design survives every later write. Submitting a `name` equal to what the halves
+    derive to is the model's own way back onto derivation, not a test-only backdoor.
   */
   beforeEach(async () => {
     await usersModel.updateProfile(fixtures.userId, {
@@ -309,11 +279,6 @@ describe('users.updateProfile name halves (DB-backed)', { skip: !hasTestDatabase
   })
 })
 
-/**
- * #1619/#1611: `users.prefs` gains a `locale` entry, validated against the installed locale
- * catalogue on write — the preference `models/mail.ts`'s server-side string resolver (#1623) reads
- * to address a recipient in their own language rather than always `en`.
- */
 describe('users.updateProfile locale preference (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users
 
@@ -355,9 +320,8 @@ describe('users.updateProfile locale preference (DB-backed)', { skip: !hasTestDa
 })
 
 /**
- * OpenProject #1849: `setAvatar` writes the sha1 of the exact (Sharp-normalized-or-not) bytes it
- * stores, and `getAvatarHash` reads it back without touching `data`. This round-trips the real write
- * path against a migrated database rather than re-describing its SQL.
+ * The stored hash is of the bytes as written, which Sharp may have normalized — hence hashing what
+ * `getAvatar()` hands back rather than the buffer passed to `setAvatar()`.
  */
 describe('users.setAvatar / getAvatarHash (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users
@@ -404,11 +368,8 @@ describe('users.setAvatar / getAvatarHash (DB-backed)', { skip: !hasTestDatabase
 })
 
 /**
- * `syncAvatarFromProvider` (Task #3235) is the one shared write path every provider integration
- * calls into. DB-backed for the same reason `setAvatar` above is -- the manual-avatar precedence
- * check reads `hasAvatar` back off the real row, so this round-trips the actual write path rather
- * than re-describing it. Each test starts from a clean slate (`clearAvatar` + a direct reset of
- * `avatarProviderUrl`) since this describe shares the file's one schema/user with the others.
+ * The `beforeEach` reset is needed because this describe shares the file's one fixture user with
+ * every other; nothing on the model clears `avatarProviderUrl`, hence the direct update.
  */
 describe('users.syncAvatarFromProvider (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users
@@ -457,9 +418,8 @@ describe('users.syncAvatarFromProvider (DB-backed)', { skip: !hasTestDatabase() 
   })
 
   test('a later manual upload does not retroactively clear an already-cached provider URL', async () => {
-    // -> Documents current scope: `setAvatar` only ever governs `hasAvatar`/the blob it owns, and
-    //    leaves `avatarProviderUrl` alone. `hasAvatar` is what makes the manual avatar win in
-    //    practice (any future renderer must check it first), not a cleared `avatarProviderUrl`.
+    // -> `setAvatar` governs only `hasAvatar` and the blob it owns, leaving `avatarProviderUrl`
+    //    deliberately stale: `hasAvatar` is what a renderer checks first for the manual avatar to win.
     await usersModel.syncAvatarFromProvider(fixtures.userId, 'https://provider.example/photo.jpg')
     await usersModel.setAvatar(fixtures.userId, Buffer.from('manual-avatar-bytes'))
 
@@ -483,12 +443,6 @@ describe('users.syncAvatarFromProvider (DB-backed)', { skip: !hasTestDatabase() 
     assert.equal(applied, false)
   })
 
-  /**
-   * Task #3264: this is the read half `syncAvatarFromProvider`'s own doc comment calls out as not
-   * yet built -- `getProfile()` is what `GET /users/profile` and `whoAmI`'s prefs refresh both read,
-   * so a synced URL has to actually surface there for the frontend fallback to have anything to
-   * render.
-   */
   test('surfaces through getProfile() once synced', async () => {
     await usersModel.syncAvatarFromProvider(fixtures.userId, 'https://provider.example/photo.jpg')
 
@@ -504,19 +458,6 @@ describe('users.syncAvatarFromProvider (DB-backed)', { skip: !hasTestDatabase() 
   })
 })
 
-/**
- * `userAvatars.id` carries an `onDelete: 'cascade'` foreign key to `users.id` (see `db/schema.ts`) —
- * an avatar dies with its user at the database layer, not merely through `deleteUser()` remembering
- * to clean it up. Deleting the `users` row directly, bypassing `deleteUser()` entirely, is what
- * actually exercises that the constraint (rather than app code) is what enforces it.
- */
-/**
- * Feature #2425: `getNotificationSubscriptions` / `setNotificationSubscriptions`, the boolean-map
- * view of the per-user, per-event-type email opt-in `#2481` stores as `prefs.notifications.events`
- * (see `getEmailNotificationEvents`/`setEmailNotificationEvents`, which these two adapt). DB-backed
- * for the same reason `updateProfile` above is -- this round-trips through `getById()` /
- * `updateUser()`, not just a pure merge function.
- */
 describe('users.notificationSubscriptions (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users
   let HOOK_EVENTS: typeof import('./hooks.ts').HOOK_EVENTS
@@ -603,8 +544,6 @@ describe('userAvatars cascades from users (DB-backed)', { skip: !hasTestDatabase
       .returning({ id: usersTable.id })
     const userId = avatarOwner!.id
 
-    // -> Inserted directly rather than via `setAvatar()`: this suite is about the FK's own
-    //    `onDelete: 'cascade'`, not the avatar-normalization path, so it needs no real image bytes.
     await fixtures.db
       .insert(userAvatarsTable)
       .values({ id: userId, data: Buffer.from('avatar-bytes'), hash: 'avatar-bytes-hash' })
@@ -614,8 +553,8 @@ describe('userAvatars cascades from users (DB-backed)', { skip: !hasTestDatabase
       .where(eq(userAvatarsTable.id, userId))
     assert.equal(beforeDelete.length, 1)
 
-    // -> Direct row delete, not `deleteUser()`: this is what proves the FK's own `onDelete: 'cascade'`
-    //    is doing the work, rather than an app-level call site that happens to also clear the avatar.
+    // -> The direct delete is the point: it proves `userAvatars.id`'s own `onDelete: 'cascade'` does
+    //    the work, not an app-level call site that happens to also clear the avatar.
     await fixtures.db.delete(usersTable).where(eq(usersTable.id, userId))
 
     const afterDelete = await fixtures.db
