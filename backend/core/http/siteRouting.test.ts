@@ -3,14 +3,17 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { after, before, describe, test } from 'node:test'
+import Fastify from 'fastify'
 
 import { resetAppShellCache } from '../../helpers/appShell.ts'
 import {
   isPageUrl,
   registerAppShellFallback,
+  registerSeoRedirects,
   RESERVED_ROOT_FILES,
   SERVER_ROUTE_SEGMENTS
 } from './siteRouting.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 describe('isPageUrl', () => {
   test('a plain page path addresses the page tree', () => {
@@ -139,5 +142,56 @@ describe('registerAppShellFallback', () => {
     const first = await serve('GET', '/a')
     const second = await serve('HEAD', '/b?x=1')
     assert.equal(second.body, first.body)
+  })
+})
+
+describe('registerSeoRedirects locale aliases', () => {
+  async function redirectFor(url: string, locales: Record<string, unknown>) {
+    const handle = installTestWiki({
+      sitesMappings: { '*': 'site-1' },
+      sites: { 'site-1': { config: { locales } } }
+    })
+    const app = Fastify()
+    registerSeoRedirects(app)
+    app.get('/*', async () => 'ok')
+    try {
+      const res = await app.inject({ method: 'GET', url })
+      return { status: res.statusCode, location: res.headers.location }
+    } finally {
+      await app.close()
+      handle.restore()
+    }
+  }
+
+  const base = { primary: 'en', active: ['en', 'zh-CN'], forcePrefix: false }
+  const aliased = { ...base, aliases: { 'zh-CN': 'zh' } }
+
+  test('302s the canonical spelling to the alias and keeps the query string', async () => {
+    assert.deepEqual(await redirectFor('/zh-CN/page?a=1', aliased), {
+      status: 302,
+      location: '/zh/page?a=1'
+    })
+  })
+
+  test('leaves the alias spelling alone', async () => {
+    assert.deepEqual(await redirectFor('/zh/page', aliased), { status: 200, location: undefined })
+  })
+
+  test('re-cases a mis-cased alias', async () => {
+    assert.deepEqual(await redirectFor('/ZH/page', aliased), {
+      status: 302,
+      location: '/zh/page'
+    })
+  })
+
+  test('forcePrefix sends a bare path to the primary locale alias, then settles', async () => {
+    const cfg = { ...aliased, forcePrefix: true, aliases: { en: 'e', 'zh-CN': 'zh' } }
+    assert.deepEqual(await redirectFor('/page', cfg), { status: 302, location: '/e/page' })
+    assert.deepEqual(await redirectFor('/e/page', cfg), { status: 200, location: undefined })
+    assert.deepEqual(await redirectFor('/en/page', cfg), { status: 302, location: '/e/page' })
+  })
+
+  test('without aliases the canonical spelling is untouched', async () => {
+    assert.deepEqual(await redirectFor('/zh-CN/page', base), { status: 200, location: undefined })
   })
 })
