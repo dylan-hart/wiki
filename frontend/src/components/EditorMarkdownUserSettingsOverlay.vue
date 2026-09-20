@@ -99,46 +99,33 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// PROPS
-
 /**
- * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this prop
- * (OpenProject #2530). Declared here even though this overlay opens with no initial state to read --
- * without a declared prop, the value would fall through onto this component's DOM root instead.
+ * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this prop.
+ * Declared although unused here: an undeclared prop falls through onto this component's DOM root.
  */
 defineProps({
   overlayOpts: { type: Object, default: () => ({}) }
 })
 
-// STORES
-
 const editorStore = useEditorStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   config: {
     previewShown: false,
     fontSize: 16,
     /*
-      No control here for this one -- the resize divider in `EditorMarkdown.vue` is what sets it, on
-      drag. Carried through `load()`/`save()` regardless: `save()` PUTs a full replacement of this
-      user's Markdown settings (see its own comment below), so leaving this out would silently erase
-      a saved preview width the next time this overlay's Apply button is used for the two fields it
-      DOES expose.
+      Set only by `EditorMarkdown.vue`'s resize divider, never by this overlay, but still carried
+      through `load()`/`save()`: `save()` PUTs a full replacement of the user's Markdown settings,
+      so omitting it would silently erase a dragged preview width.
     */
     previewWidth: null
   },
   loading: 0
 })
-
-// METHODS
 
 function close() {
   siteStore.$patch({ overlay: '' })
@@ -148,8 +135,7 @@ async function load() {
   state.loading++
   loading.show()
   try {
-    // -> An empty object is the correct answer for a user who has never saved any settings, so the
-    //    defaults live here rather than being treated as a failure
+    // -> An empty response is a user who has never saved settings, not a failure
     const conf = (await API_CLIENT.get('users/profile/editor-settings/markdown').json()) ?? {}
     state.config.previewShown = conf.previewShown ?? true
     state.config.fontSize = conf.fontSize ?? 16
@@ -169,12 +155,9 @@ async function load() {
 async function save() {
   state.loading++
   try {
-    // -> Replaces the whole settings object server-side (see the route's own doc comment), so
-    //    `previewWidth` rides along unchanged even though nothing on this screen edits it -- see the
-    //    comment on `state.config` above.
     const payload = {
       previewShown: state.config.previewShown,
-      // -> A number input hands back a string; the editor reads this as a pixel size
+      // -> A number input hands back a string
       fontSize: Number.parseInt(state.config.fontSize, 10),
       previewWidth: state.config.previewWidth
     }
@@ -188,7 +171,6 @@ async function save() {
     })
     close()
   } catch (err) {
-    // -> ky throws above 400, with the reason in the body
     notify({
       type: 'negative',
       message: t('editor.settings.saveFailed'),

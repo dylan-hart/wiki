@@ -8,12 +8,10 @@ const EditorMarkdown = (await import('./EditorMarkdown.vue')).default
 const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, initialContent)
 
 /*
-  OpenProject #808: both `onDidChangeModelContent` and `onDidChangeCursorPosition` are registered
-  wrapped in a 500ms `debounce()`, with no reference kept to cancel either. `onBeforeUnmount` disposes
-  the editor but, pre-fix, left any pending debounced call armed -- it fired ~500ms later against the
-  now-disposed editor, and the cursor handler's `editor.getPosition().lineNumber` crashed because a
-  disposed Monaco editor's `getPosition()` returns `null` (reproduced by `fakeEditor.getPosition` in
-  `editorMarkdownHarness.js`, via the `editorState.disposed` flag its `dispose()` sets).
+  `onDidChangeModelContent` and `onDidChangeCursorPosition` are both registered wrapped in a 500ms
+  `debounce()`. A call left armed when `onBeforeUnmount` disposes the editor fires ~500ms later
+  against it, where a disposed Monaco editor's `getPosition()` returns `null` -- reproduced by
+  `fakeEditor.getPosition` in `editorMarkdownHarness.js`, via the `editorState.disposed` flag.
 */
 describe('EditorMarkdown debounced handler cleanup on unmount (OpenProject #808)', () => {
   beforeEach(() => {
@@ -28,22 +26,18 @@ describe('EditorMarkdown debounced handler cleanup on unmount (OpenProject #808)
   it('cancels a pending cursor-position debounce on unmount, so it never fires against the disposed editor', async () => {
     const { wrapper } = await mountEditor('Line one.\nLine two.\nLine three.')
 
-    // -> The handler `onDidChangeCursorPosition` was registered with -- the debounced wrapper itself,
-    //    same as a real Monaco `onDidChangeCursorPosition(cb)` call would invoke on every move.
     const cursorPositionHandler = fakeEditor.onDidChangeCursorPosition.mock.calls[0][0]
     cursorPositionHandler({}) // -> arms the 500ms debounce, same as an author moving the caret
 
-    // -> Mount itself already called `getPosition()` once (the initial preview-tab sync) -- captured
-    //    here so the assertion below is about calls from AFTER unmount, not this legitimate earlier one.
+    // -> Mount already called `getPosition()` once (the initial preview-tab sync), so the assertion
+    //    below is about calls from AFTER unmount rather than that legitimate earlier one.
     const getPositionCallsAtUnmount = fakeEditor.getPosition.mock.calls.length
     wrapper.unmount()
 
-    // -> Pre-fix, this throws: the debounce fires here, `getPosition()` returns `null` (disposed),
-    //    and reading `.lineNumber` off it throws "Cannot read properties of null (reading
-    //    'lineNumber')" -- the exact crash from the ticket.
+    // -> An uncancelled debounce fires here, `getPosition()` returns `null` on the disposed editor,
+    //    and reading `.lineNumber` off it throws.
     expect(() => vi.advanceTimersByTime(500)).not.toThrow()
-    // -> Confirms *why* it didn't throw: the debounced call was cancelled, not merely lucky timing --
-    //    no NEW call to `getPosition()` happened once the timer was advanced.
+    // -> Cancelled, not merely lucky timing: no NEW `getPosition()` call once the timer advanced.
     expect(fakeEditor.getPosition.mock.calls.length).toBe(getPositionCallsAtUnmount)
   })
 
@@ -53,30 +47,23 @@ describe('EditorMarkdown debounced handler cleanup on unmount (OpenProject #808)
     const contentChangeHandler = fakeEditor.onDidChangeModelContent.mock.calls[0][0]
     contentChangeHandler({}) // -> arms the 500ms debounce, same as an author typing a keystroke
 
-    // -> `flushEditorContent` (what the debounced handler calls) reads `editor.getValue()` -- captured
-    //    here the same way `getPositionCallsAtUnmount` is above, so the assertion below is about calls
-    //    from AFTER unmount, not any legitimate earlier one.
+    // -> `flushEditorContent` reads `editor.getValue()`; captured so the assertion below is about
+    //    calls from AFTER unmount rather than any legitimate earlier one.
     const getValueCallsAtUnmount = fakeEditor.getValue.mock.calls.length
     wrapper.unmount()
 
     expect(() => vi.advanceTimersByTime(500)).not.toThrow()
-    // -> Pre-fix, this call count DOES advance: the debounce still fires post-dispose and re-reads
-    //    `editor.getValue()`, which is the other half of the ticket's "leaves a blank page until
-    //    refresh" symptom -- a disposed Monaco editor's `getValue()` no longer reflects the document,
-    //    so that stale/empty read would land straight in `pageStore.content`.
+    // -> An uncancelled debounce re-reads `editor.getValue()` post-dispose, where it no longer
+    //    reflects the document, and that stale read lands straight in `pageStore.content`.
     expect(fakeEditor.getValue.mock.calls.length).toBe(getValueCallsAtUnmount)
   })
 })
 
 /*
- * Mount-time `editor.focus()` (`// -> Post init`) used to run unconditionally, which raced an
- * author who clicked into the page Title field (`PageHeader.vue`'s contenteditable -- it has no
- * autofocus of its own) and started typing before Monaco's async `onMounted` -- it awaits a
- * settings/site-blocks prefetch before ever creating the editor -- had finished: the moment Monaco
- * mounted, its focus() call stole focus mid-type, and every keystroke meant for the title landed in
- * the editor instead, leaving the title empty. Caught by the Playwright smoke suite's
- * `page-publish.spec.js`, which types the title and blurs it well before this component's async
- * mount settles on a loaded CI runner.
+ * Mount-time `editor.focus()` is conditional because Monaco's `onMounted` awaits a
+ * settings/site-blocks prefetch before creating the editor: an unconditional focus lands after an
+ * author has already clicked into the page Title field (`PageHeader.vue`'s contenteditable, which
+ * has no autofocus of its own) and started typing, sending every keystroke to the editor instead.
  */
 
 describe('EditorMarkdown does not steal focus already given to another field on mount', () => {

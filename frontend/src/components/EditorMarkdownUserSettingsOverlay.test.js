@@ -35,24 +35,6 @@ function findApplyButton(wrapper) {
   return wrapper.findAll('button').find((b) => b.text().includes('Apply'))
 }
 
-/*
-  This overlay's `save()` PUTs a full replacement of `users/profile/editor-settings/markdown` (see
-  the endpoint's own doc comment in `backend/api/users/profile.ts`) -- so `previewWidth`, which
-  `EditorMarkdown.vue`'s resize divider sets and this overlay offers no control for, has to survive a
-  save made here untouched, or dragging the divider and later changing the font size in this overlay
-  would silently erase the dragged width.
-*/
-/*
-  `WInput` used to leave `min`/`max`/`step` off its inner control entirely (they fell through onto
-  the outer wrapper `<div>` instead), so this field's advertised 10-32 range was never actually
-  enforced by the browser. Asserting the real rendered `<input>` carries them is what proves that
-  regression stays fixed here, at the one call site the range is meant to protect.
-*/
-/**
- * OpenProject #2530: `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it
- * mounts as this prop -- this overlay has no use for it, but must still declare it, or the value
- * falls through onto its rendered DOM root as a stray attribute.
- */
 describe('EditorMarkdownUserSettingsOverlay overlayOpts prop (OpenProject #2530)', () => {
   it('declares overlayOpts as a prop, so it does not fall through onto the rendered DOM root', () => {
     const { wrapper } = mountOverlay({ overlayOpts: { unused: true } })

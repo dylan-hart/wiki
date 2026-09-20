@@ -7,14 +7,11 @@ const monaco = await import('monaco-editor')
 const EditorMarkdown = (await import('./EditorMarkdown.vue')).default
 
 /*
-  Monaco draws its own chrome, so the parts of `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` that
-  fall inside the source pane -- the code ground, the line-number gutter, the caret, the current-line
-  band, the code lens and the markdown token ramp -- are settled by a THEME, not by any CSS this
-  component could write. That makes the theme object the only reviewable artifact for those values,
-  which is what this suite pins: every colour below is read straight off the design file.
-
-  Companion to `editorScreenChrome.test.js`, which does the same job for everything drawn around
-  Monaco rather than inside it (OpenProject #2624).
+  Monaco draws its own chrome, so the parts of the design file that fall inside the source pane --
+  the code ground, the line-number gutter, the caret, the current-line band, the code lens and the
+  markdown token ramp -- are settled by a THEME, not by any CSS this component could write. That
+  makes the theme object the only reviewable artifact for those values, which is what this pins:
+  every colour below is read straight off the design file.
 */
 describe('EditorMarkdown Monaco theme, against Cardinal Wiki - Editor 3x.dc.html', () => {
   beforeEach(() => {
@@ -22,10 +19,8 @@ describe('EditorMarkdown Monaco theme, against Cardinal Wiki - Editor 3x.dc.html
   })
 
   /*
-    Two themes are registered on mount now, one per aesthetic (`helpers/monacoTheme.js`): the Ledger
-    definition this suite pins, and the Cobalt one derived from it. `definedTheme()` returns the
-    Ledger half, which is the one the design file below settles; `definedTheme('cobalt')` returns
-    the derivation, asserted once at the end against `Editor 3x - Cobalt`.
+    Two themes are registered on mount, one per aesthetic (`helpers/monacoTheme.js`): the Ledger
+    definition the design file settles, and the Cobalt one derived from it.
   */
   async function definedTheme(aesthetic = 'ledger') {
     await mountEditorMarkdown(EditorMarkdown, '# Prerequisites\n')
@@ -42,11 +37,6 @@ describe('EditorMarkdown Monaco theme, against Cardinal Wiki - Editor 3x.dc.html
     expect(monaco.editor.create.mock.calls[0][1].theme).toBe(name)
   })
 
-  /*
-    The mock's line 136 puts `#14171f` on the line-number CELL and leaves the column behind the text
-    on its parent's `#171b24`. Those two were the wrong way round here until #2624, which read as the
-    gutter being the lighter of the pair -- the opposite of the recess the design draws.
-  */
   it('grounds the text column one rung above the gutter, not below it', async () => {
     const { theme } = await definedTheme()
     expect(theme.colors['editor.background']).toBe('#171b24')
@@ -65,15 +55,13 @@ describe('EditorMarkdown Monaco theme, against Cardinal Wiki - Editor 3x.dc.html
   it('draws the caret in the accent and the code lens in the positive tone', async () => {
     const { theme } = await definedTheme()
     expect(theme.colors['editorCursor.foreground']).toBe('#e4676b')
-    // -> "Edit block parameters" over the fenced block, line 152 of the design file
     expect(theme.colors['editorCodeLens.foreground']).toBe('#3f7a66')
   })
 
   /*
-    Left as `rules: []` the editor inherited `vs-dark`'s own blues and oranges, which are nowhere in
-    this language -- the one surface of the app that visibly belonged to a different product. Token
-    names are Monarch's, from `monaco-editor`'s markdown grammar; a theme rule matches by prefix, so
-    these bare names cover the `.md` postfix that grammar appends.
+    Left as `rules: []` the editor inherits `vs-dark`'s own blues and oranges, which are nowhere in
+    this language. Token names are Monarch's, from `monaco-editor`'s markdown grammar; a theme rule
+    matches by prefix, so these bare names cover the `.md` postfix that grammar appends.
   */
   it('colours every markdown token the design spells out, rather than inheriting vs-dark', async () => {
     const { theme } = await definedTheme()
@@ -88,11 +76,7 @@ describe('EditorMarkdown Monaco theme, against Cardinal Wiki - Editor 3x.dc.html
   })
 
   /*
-    And the Cobalt derivation, against `ui-redesign-cobalt/Cardinal Wiki - Editor 3x - Cobalt.dc.html`
-    -- the same surface on the other aesthetic's ramp. Every value here is read off that file: the
-    text column on the card indigo, the gutter in the well below it, the caret in the untexted accent
-    and the caret's own line number in the white-text one, and the two syntax tones the handoff gives
-    Cobalt. Asserted as the whole object rather than a sample, because these come out of a MAPPING
+    Asserted as the whole object rather than a sample, because these come out of a MAPPING
     (`helpers/monacoTheme.js`) rather than being typed one by one: a role added to the Ledger theme
     with no Cobalt answer would otherwise pass straight through unnoticed.
   */

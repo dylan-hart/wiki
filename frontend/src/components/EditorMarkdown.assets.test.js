@@ -9,12 +9,10 @@ const EditorMarkdown = (await import('./EditorMarkdown.vue')).default
 const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, initialContent)
 
 /*
-  OpenProject #806 follow-up: every browser hands a clipboard-pasted file the same literal name,
-  "image.png" -- so `addPendingAsset` mints a fresh unique name for a pasted `File`, but a dropped
-  `File`'s name is real user intent and must stay untouched. These are the component-side proof that
-  each DOM source (`onEditorPaste`'s capture-phase `paste` listener on the editor's parent, vs.
-  `onEditorDrop`'s `drop` listener on the Monaco host itself) actually threads the right flag down to
-  `insertFilesAsAssets` -- `stores/editor.test.js` covers the naming logic itself directly.
+  Every browser hands a clipboard-pasted file the same literal name, "image.png", so
+  `addPendingAsset` mints a fresh unique name for a pasted `File` while a dropped `File`'s name is
+  real user intent and must stay untouched. These prove each DOM source threads the right flag down
+  to `insertFilesAsAssets`; `stores/editor.test.js` covers the naming logic itself.
 */
 describe('EditorMarkdown paste vs. drop file naming (OpenProject #806 follow-up)', () => {
   beforeEach(() => {
@@ -62,12 +60,9 @@ describe('EditorMarkdown paste vs. drop file naming (OpenProject #806 follow-up)
   })
 
   /*
-    OpenProject #2450: the cross-browser gap this fork's editor-hardening pass left open was whether
-    `clipboardData.files` is actually populated for an OS-clipboard image paste in every engine. This
-    proves the defensive fallback -- `pastedFiles()` reading `.items` when `.files` comes back empty --
-    is really wired into the capture-phase paste listener, not just available as an unused helper: a
-    paste whose `clipboardData` carries no `.files` at all, only an `.items` list, still inserts the
-    image as a pending asset instead of silently no-opping.
+    `clipboardData.files` is not populated for an OS-clipboard image paste in every engine, so
+    `pastedFiles()` falls back to reading `.items`. This proves that fallback is really wired into
+    the capture-phase paste listener rather than sitting unused.
   */
   it('still inserts a pasted image when `clipboardData.files` is empty but `.items` carries it', async () => {
     const { wrapper } = await mountEditor('')

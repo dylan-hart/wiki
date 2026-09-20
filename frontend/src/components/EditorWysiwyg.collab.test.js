@@ -20,23 +20,17 @@ import { createTestI18n } from '../../test/i18n.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Split into its own file, separate from `EditorWysiwyg.test.js`, matching
- * `EditorMarkdown.collab.test.js`'s own split from `EditorMarkdown.test.js` and for the same reason:
- * `collabEnabled` needs `siteStore.features.collaborativeEditing`, an authenticated user, an edit-mode
- * editor and a page id all at once, none of which the other file's tests set up. Unlike
- * `EditorMarkdown.collab.test.js`, the underlying editor library (`@tiptap/vue-3`) is NOT mocked here
- * -- `EditorWysiwyg.test.js` already runs the real thing under happy-dom with no trouble, and the
- * behaviour under test (`swapToCollabEditor` building a *second*, collaboration-bound `Editor`
- * instance) is only meaningful against a real one. `@/composables/collab` is still mocked, the same
- * way, since none of this needs a live `y-websocket` round-trip.
+ * Split out from `EditorWysiwyg.test.js` because `collabEnabled` needs
+ * `siteStore.features.collaborativeEditing`, an authenticated user, edit mode and a page id all at
+ * once. `@tiptap/vue-3` is deliberately left unmocked -- the behaviour under test is
+ * `swapToCollabEditor` building a *second*, collaboration-bound `Editor` -- while
+ * `@/composables/collab` is mocked, since none of this needs a live `y-websocket` round-trip.
  */
 vi.mock('@/composables/collab', () => ({
   startCollabSession: vi.fn(),
   stopCollabSession: vi.fn(),
   bindCollabEditor: vi.fn(),
-  // -> Granted by default (OpenProject #2516) -- most of this file's tests are about the editor
-  //    swap and seeding behavior, not the claim itself, so the common case stays "seed it" unless a
-  //    test below overrides this to assert the denied path.
+  // -> Granted by default; the one test asserting the denied path overrides it
   claimWysiwygSeed: vi.fn(async () => true),
   collabUserColor: vi.fn(() => '#1976D2'),
   collabStatusEffects: vi.fn((status, hasSynced) => ({
@@ -50,11 +44,8 @@ const { bindCollabEditor, claimWysiwygSeed, startCollabSession } =
   await import('@/composables/collab')
 const EditorWysiwyg = (await import('./EditorWysiwyg.vue')).default
 
-/** The schema `swapToCollabEditor`'s own editor renders against, built here to seed a fragment the
- *  same way a real collaborator's `y-tiptap` sync would have. `StarterKit` alone is enough --
- *  it carries the `paragraph`/`text` nodes every one of this test file's fixtures uses, and
- *  `prosemirrorJSONToYXmlFragment` only needs the node/mark names it is given to exist somewhere in
- *  the schema, not the full extension list `EditorWysiwyg.vue` itself configures. */
+/** `StarterKit` alone is enough: `prosemirrorJSONToYXmlFragment` only needs the node and mark names
+ *  it is handed to exist in the schema, not `EditorWysiwyg.vue`'s full extension list. */
 const schema = getSchema([StarterKit])
 
 function fakeAwareness() {
@@ -107,8 +98,7 @@ async function mountEditor(initialContent = 'Hello from Cardinal.js') {
   })
 
   const wrapper = mount(EditorWysiwyg, { global: { plugins: [i18n] } })
-  // -> `EditorContent` mounts the ProseMirror view on its own follow-up `onMounted`, same as
-  //    `EditorWysiwyg.test.js`'s own `mountEditor` documents.
+  // -> `EditorContent` mounts the ProseMirror view on a follow-up `onMounted`, hence two ticks
   await nextTick()
   await nextTick()
 
@@ -126,9 +116,7 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
   })
 
   it('does not start a session when collaboration is not enabled', async () => {
-    // -> No `pageStore.id`, no `siteStore.features.collaborativeEditing`, no authenticated user --
-    //    the exact gaps `collabEnabled` checks for, matching `EditorWysiwyg.test.js`'s default
-    //    `mountEditor`.
+    // -> The plain harness mount supplies none of the preconditions `collabEnabled` checks for
     const { wrapper } = mountWithApp(EditorWysiwyg, { stores: { page: { content: 'Hello' } } })
     await nextTick()
     await nextTick()
@@ -160,9 +148,8 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
     const { wrapper: firstWrapper, userStore } = await mountEditor()
     firstWrapper.unmount()
 
-    // -> A second mount against the SAME (module-singleton) collabStore -- exactly the "re-enter the
-    //    editor" scenario the work package this pattern comes from (#942) describes, where a leaked
-    //    first-mount watcher would still be listening alongside the second's.
+    // -> A second mount against the SAME module-singleton collabStore: a leaked first-mount watcher
+    //    would still be listening alongside the second's
     const { collabStore } = await mountEditor()
 
     collabStore.lastSave = { authorId: 'someone-else', authorName: 'Someone Else' }
@@ -198,11 +185,9 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
     })
 
     /**
-     * Task #3264: the awareness `user` field seeded here is the SAME field `composables/collab.js`
-     * writes at connect time (`provider.awareness.setLocalStateField('user', {...})`) -- Tiptap's
-     * CollaborationCaret extension overwrites it with whatever this component hands it, so a stale
-     * copy missing `avatarProviderUrl` would silently wipe out the one that connect-time write set,
-     * for as long as the WYSIWYG editor stays open.
+     * Tiptap's CollaborationCaret extension overwrites the awareness `user` field with whatever this
+     * component hands it, so a copy missing `avatarProviderUrl` silently wipes out the one
+     * `composables/collab.js` writes at connect time.
      */
     it('carries avatarProviderUrl into the awareness user field alongside hasAvatar', async () => {
       const { wrapper, collabStore, userStore } = await mountEditor('Hello from Cardinal.js')
@@ -241,15 +226,14 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
       const ytext = doc.getText('content')
 
       factory(ytext, fakeAwareness())
-      // -> `swapToCollabEditor` is async now (OpenProject #2516): the editor swap itself happens
-      //    synchronously inside `factory(...)`, but the actual seed waits on `claimWysiwygSeed`'s
-      //    promise, so a plain `nextTick()` is not enough to observe it landing.
+      // -> The swap happens synchronously inside `factory(...)`, but the seed waits on
+      //    `claimWysiwygSeed`'s promise, so a plain `nextTick()` would not see it land
       await flushPromises()
 
       expect(claimWysiwygSeed).toHaveBeenCalledWith({ siteId: null, pageId: 'page-1' })
       expect(wrapper.vm.editor.getText()).toContain('Hello from Cardinal.js')
-      // -> Not just the local editor: the seed was written through a real transaction, so the shared
-      //    fragment itself now carries it too, for the next person who joins the room.
+      // -> The seed went through a real transaction, so the shared fragment carries it for the next
+      //    person joining the room, not just the local editor
       expect(doc.getXmlFragment('wysiwygBody').toString()).toContain('Hello from Cardinal.js')
 
       wrapper.unmount()
@@ -288,9 +272,8 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
       const ytext = doc.getText('content')
 
       claimWysiwygSeed.mockImplementationOnce(async () => {
-        // -> Stands in for real content arriving mid-flight (the room's own re-check reason,
-        //    documented on `swapToCollabEditor` itself): by the time the claim round trip resolves,
-        //    someone else's content is already there.
+        // -> Stands in for a peer's content arriving mid-flight, before the claim round trip
+        //    resolves
         prosemirrorJSONToYXmlFragment(
           schema,
           paragraphDoc('A peer got there first'),
@@ -318,9 +301,8 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
       const factory = bindCollabEditor.mock.calls.at(-1)[0]
       const doc = new Y.Doc()
       const ytext = doc.getText('content')
-      // -> Stands in for what a real sync round-trip would already have applied to the shared doc
-      //    by the time `bindCollabEditor` fires -- built with the same `y-tiptap` helper the real
-      //    sync plugin uses internally, against a doc this test owns rather than the component's.
+      // -> Stands in for what a real sync round-trip would already have applied by the time
+      //    `bindCollabEditor` fires, via the same `y-tiptap` helper the sync plugin uses
       prosemirrorJSONToYXmlFragment(
         schema,
         paragraphDoc('Someone else already wrote this'),

@@ -7,15 +7,9 @@ import WMenu from './shared/WMenu.vue'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * Regression coverage for the filter/keyboard-Enter-selects-first-match flow named in task 481
- * (Feature 364)'s manual pass. `w-menu`'s own positioning (`anchoredPosition`) needs no browser to
- * run -- it is plain arithmetic over a `DOMRect` -- so the real component tree is mounted rather than
- * stubbed, per this repo's stated test preference.
- *
  * `w-menu` renders its content through `<teleport to="body">`, so it never appears under `wrapper`'s
  * own element -- queried instead through a `DOMWrapper` over `document.body`, and unmounted after
- * every test (which is what actually detaches the teleported nodes again) so one test's menu is not
- * still sitting in the document for the next.
+ * every test, which is what actually detaches the teleported nodes again.
  */
 let activeWrapper = null
 

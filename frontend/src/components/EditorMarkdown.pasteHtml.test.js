@@ -9,11 +9,10 @@ const EditorMarkdown = (await import('./EditorMarkdown.vue')).default
 const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, initialContent)
 
 /*
-  OpenProject #2448 (Feature #2417): a paste carrying `text/html` is converted to markdown via
-  `helpers/htmlToMarkdown.js` rather than left to the browser's default plain-text paste. The
-  conversion itself is `htmlToMarkdown.test.js`'s job; this is the component-side proof that
-  `onEditorPaste` actually reaches for it -- claims the event, inserts the converted markdown at the
-  cursor, and leaves a plain-text-only paste (no `text/html`) alone for Monaco to handle as before.
+  A paste carrying `text/html` is converted to markdown via `helpers/htmlToMarkdown.js` rather than
+  left to the browser's default plain-text paste. The conversion itself is
+  `htmlToMarkdown.test.js`'s job; this proves `onEditorPaste` reaches for it, and leaves a
+  plain-text-only paste for Monaco to handle.
 */
 describe('EditorMarkdown HTML paste conversion (OpenProject #2448)', () => {
   beforeEach(() => {
@@ -63,8 +62,8 @@ describe('EditorMarkdown HTML paste conversion (OpenProject #2448)', () => {
     await editorEl.trigger('paste', { clipboardData: clipboardWith({ text: 'plain text' }) })
     await flushPromises()
 
-    // -> Neither branch of `onEditorPaste` claimed it, so nothing was inserted through Monaco's edit
-    //    API -- the real browser/Monaco default (untestable here) is what would have inserted it.
+    // -> Neither branch of `onEditorPaste` claimed it, so nothing went through Monaco's edit API;
+    //    the real browser default, untestable here, is what would have inserted the text.
     expect(editorState.fakeModel.getValue()).toBe('')
   })
 
@@ -86,14 +85,11 @@ describe('EditorMarkdown HTML paste conversion (OpenProject #2448)', () => {
 })
 
 /*
-  OpenProject #2834: a same-editor copy/cut also carries a `text/html` payload -- Monaco's own "copy
-  with syntax highlighting" writes one alongside `text/plain` on every ordinary in-editor copy -- and
-  before this fix `onEditorPaste` converted it via `htmlToMarkdown` unconditionally, corrupting the
-  content (stray escaping, a blank line inserted between every original line). This is the
-  component-side proof that a same-editor-shaped paste (HTML whose reduced visible text matches its
-  own `text/plain` sibling) is left unclaimed for Monaco's default paste to handle, while a genuine
-  HTML-only paste with no matching `text/plain` (the four tests above, none of which set one) still
-  converts.
+  Monaco's own "copy with syntax highlighting" writes a `text/html` payload alongside `text/plain` on
+  every ordinary in-editor copy, so converting HTML unconditionally corrupts a same-editor
+  copy/paste (stray escaping, a blank line between every original line). A paste whose reduced
+  visible text matches its own `text/plain` sibling is therefore left for Monaco's default, while an
+  HTML paste with no matching `text/plain` still converts.
 */
 describe('EditorMarkdown same-editor copy/paste is left unconverted (OpenProject #2834)', () => {
   beforeEach(() => {
@@ -119,9 +115,8 @@ describe('EditorMarkdown same-editor copy/paste is left unconverted (OpenProject
     await editorEl.trigger('paste', { clipboardData: clipboardWith({ html, text }) })
     await flushPromises()
 
-    // -> Neither branch of `onEditorPaste` claimed the event, so nothing was inserted through
-    //    Monaco's edit API -- the real browser/Monaco default (untestable here) is what would have
-    //    pasted the plain text unchanged, with no htmlToMarkdown escaping and no inserted blank lines.
+    // -> Neither branch claimed the event, so nothing went through Monaco's edit API; the real
+    //    browser default would paste the plain text unchanged, with no escaping or blank lines.
     expect(editorState.fakeModel.getValue()).toBe('')
   })
 
@@ -143,13 +138,11 @@ describe('EditorMarkdown same-editor copy/paste is left unconverted (OpenProject
 })
 
 /*
-  OpenProject #2504: a rich-HTML paste (OneNote, Word, a webpage selection, ...) that ALSO carries
-  `text/html` -- i.e. every case `shouldClaimPaste` routes away from the bare file-paste branch above,
-  since that branch only ever fires with no accompanying text -- must not silently lose its embedded
-  images. `htmlToMarkdown.test.js` already covers the placeholder/`images` contract in isolation; this
-  is the component-side proof that `onEditorPaste` resolves those placeholders into real pending
-  assets via `fetch` + `editorStore.addPendingAsset`, the same pipeline a bare image paste already
-  uses, before the markdown reaches the cursor.
+  A rich-HTML paste (OneNote, Word, a webpage selection) must not silently lose its embedded images.
+  `htmlToMarkdown.test.js` covers the placeholder/`images` contract in isolation; this proves
+  `onEditorPaste` resolves those placeholders into real pending assets via `fetch` +
+  `editorStore.addPendingAsset`, the same pipeline a bare image paste uses, before the markdown
+  reaches the cursor.
 */
 describe('EditorMarkdown HTML paste embedded images (OpenProject #2504)', () => {
   beforeEach(() => {
@@ -247,9 +240,8 @@ describe('EditorMarkdown HTML paste embedded images (OpenProject #2504)', () => 
     const value = editorState.fakeModel.getValue()
     expect(value).toContain(`![good](${editorStore.pendingAssets[0].blobUrl})`)
     // -> Not a bare `not.toContain('bad')`: the surviving good image's blob: URL is a random
-    //    lowercase-hex UUID (`URL.createObjectURL`, stores/editor.js), which can coincidentally
-    //    contain the substring "bad" (OpenProject #2805) since b/a/d are all valid hex digits.
-    //    Assert on the failed image's actual markdown/alt-text/source instead, which cannot collide.
+    //    lowercase-hex UUID, and b/a/d are all valid hex digits, so it can contain "bad" by
+    //    coincidence. Assert on the failed image's own markdown/alt-text/source instead.
     expect(value).not.toContain('![bad]')
     expect(value).not.toContain('alt="bad"')
     expect(value).not.toContain('bad.png')

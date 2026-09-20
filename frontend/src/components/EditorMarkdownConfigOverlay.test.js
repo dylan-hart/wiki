@@ -38,12 +38,6 @@ function findSaveButton(wrapper) {
   return wrapper.findAll('button').find((b) => b.text().includes('Save'))
 }
 
-/*
-  #1796: `min`/`max` on the native number control stop the spinner, not a pasted value, and nothing
-  server-side enforces the shape either -- `backend/api/schemas/site.ts` types
-  `editors.markdown.config` as `additionalProperties: true`. The `rules` array wired onto this field
-  is what actually keeps a `0` (or any non-integer) out.
-*/
 describe('EditorMarkdownConfigOverlay tab width validation', () => {
   it('rejects a tabWidth of 0 and does not PUT the config', async () => {
     API_CLIENT.get.mockReturnValueOnce({

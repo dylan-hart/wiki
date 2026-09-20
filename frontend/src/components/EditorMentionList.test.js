@@ -73,13 +73,11 @@ describe('EditorMentionList', () => {
       command
     })
 
-    // -> Starts on row 0; wraps backward past the start to the last row.
     expect(wrapper.vm.onKeyDown({ event: { key: 'ArrowUp' } })).toBe(true)
     expect(wrapper.vm.onKeyDown({ event: { key: 'Enter' } })).toBe(true)
     expect(command).toHaveBeenCalledWith({ id: 'c', label: 'C' })
 
     command.mockClear()
-    // -> ArrowDown from the wrapped last row goes back to the first.
     expect(wrapper.vm.onKeyDown({ event: { key: 'ArrowDown' } })).toBe(true)
     expect(wrapper.vm.onKeyDown({ event: { key: 'Enter' } })).toBe(true)
     expect(command).toHaveBeenCalledWith({ id: 'a', label: 'A' })

@@ -8,11 +8,8 @@ import { useSiteStore } from '@/stores/site'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * Regression coverage for task 493: the picker has to list only what `siteStore.editors` currently
- * has active, and its copy has to be the exact `admin.editors.*Name` / `admin.editors.*Description`
- * strings `AdminEditors.vue` already shows for the same editor -- reusing those keys (asserted below
- * by their literal key names, since the test i18n instance echoes an unknown key back as itself) is
- * what keeps the two from drifting apart.
+ * The test i18n instance echoes an unknown key back as itself, so asserting the literal
+ * `admin.editors.*` key names is what proves this dialog reuses `AdminEditors.vue`'s own copy.
  */
 function mountDialog(editors) {
   setActivePinia(createPinia())

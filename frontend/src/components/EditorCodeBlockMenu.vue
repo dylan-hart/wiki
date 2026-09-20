@@ -26,9 +26,8 @@
       <w-scroll-area class="code-block-menu-list">
         <w-list dense>
           <!--
-            The handful worth reaching without typing, above the full set. Only while nothing is being
-            filtered: with a filter on, two lists to read is worse than one, and every one of these is
-            in the list below anyway.
+            Shortlist only while nothing is filtered: with a filter on, two lists to read is worse
+            than one, and every one of these is in the list below anyway.
           -->
           <template v-if="!isFiltering">
             <w-item
@@ -54,8 +53,6 @@
             <w-item-section>
               <w-item-label>{{ language.label }}</w-item-label>
             </w-item-section>
-            <!-- -> The id, because that is what ends up on the fence and what a reader of the source
-                    will see -->
             <w-item-section side>
               <div class="text-caption font-robotomono">{{ language.id }}</div>
             </w-item-section>
@@ -75,25 +72,16 @@
 import { computed, nextTick, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-// -> `lib/common`, not the `highlight.js` root -- see `renderers/markdown.js`'s import for the full
-//    reasoning. hljs is a module-singleton registry, so this file and the renderer must both import
-//    exactly this module: importing the root here (or leaving the renderer on it) would let this
-//    picker offer a language the renderer highlights differently, or vice-versa.
+// -> `lib/common`, not the `highlight.js` root: hljs is a module-singleton registry, so this file
+//    and `renderers/markdown.js` must import exactly the same module, or this picker offers a
+//    language the renderer highlights differently.
 import hljs from 'highlight.js/lib/common'
 
 /**
- * Picks the language for a fenced code block.
- *
- * The list is whatever `highlight.js/lib/common` registers -- ~36 of the most commonly written
- * languages, not the full ~190 the package ships (see the import comment above) -- asked at runtime
- * via `hljs.listLanguages()` rather than kept as a copy here, so it cannot drift from what the renderer
- * will actually highlight. Each entry carries the id that goes on the fence and the name hljs calls it;
- * the filter matches either, plus the aliases, so `md` finds Markdown and `js` finds JavaScript. A
- * language outside this set can still be typed by hand after the fence -- it just renders unhighlighted,
- * same as any unrecognized language always has.
+ * The list is asked of hljs at runtime rather than kept as a copy here, so it cannot drift from what
+ * the renderer will actually highlight. A language outside that set can still be typed by hand after
+ * the fence -- it just renders unhighlighted, as any unrecognized language does.
  */
-
-// PROPS
 
 const props = defineProps({
   anchor: {
@@ -106,25 +94,17 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 const emit = defineEmits(['select'])
-
-// I18N
 
 const { t } = useI18n()
 
 /**
- * The five worth having at the top. Labelled here rather than taking hljs's own names, which for these
- * read as `Plain text`, `HTML, XML` and `Bash` — precise, and not what someone scanning a shortlist is
- * looking for.
+ * Labelled here rather than taking hljs's own names, which for these read as `Plain text`,
+ * `HTML, XML` and `Bash` — precise, and not what someone scanning a shortlist is looking for.
  *
- * Two of the ids are not what the list below would show either:
- *   - `sh` and `md` are aliases rather than registered ids, so they are absent from that list; hljs
- *     resolves them to Bash and Markdown, which is what highlights the block.
- *   - Plain text has no id at all. A bare fence is how markdown says "no language", and it is what the
- *     renderer already treats as unhighlighted — so there is nothing to put after the backticks. The
- *     menu shows a dash where the others show their id.
+ * Two of the ids are not what the list below would show either: `sh` and `md` are aliases rather
+ * than registered ids, and plain text has no id at all — a bare fence is how markdown says "no
+ * language", so the menu shows a dash where the others show their id.
  */
 const COMMON_LANGUAGES = [
   { id: '', label: 'Plain Text' },
@@ -134,7 +114,7 @@ const COMMON_LANGUAGES = [
   { id: 'xml', label: 'XML' }
 ]
 
-/** Every registered language, by display name. Built once: the set cannot change at runtime. */
+/** Built once: hljs's registry cannot change at runtime. */
 const ALL_LANGUAGES = hljs
   .listLanguages()
   .map((id) => {
@@ -148,18 +128,12 @@ const ALL_LANGUAGES = hljs
   })
   .sort((a, b) => a.label.localeCompare(b.label))
 
-// REFS
-
 const menuRef = ref(null)
 const iptFilter = ref(null)
-
-// DATA
 
 const state = reactive({
   filter: ''
 })
-
-// COMPUTED
 
 const isFiltering = computed(() => state.filter.trim().length > 0)
 
@@ -176,9 +150,6 @@ const filtered = computed(() => {
   )
 })
 
-// METHODS
-
-/** Opens on the whole list with the caret in the filter, whatever the last visit left behind. */
 async function onShow() {
   state.filter = ''
   await nextTick()
@@ -190,7 +161,6 @@ function choose(id) {
   menuRef.value?.hide()
 }
 
-/** Enter takes the top match, so a language can be chosen without leaving the keyboard. */
 function chooseFirst() {
   const first = isFiltering.value ? filtered.value[0] : COMMON_LANGUAGES[0]
   if (first) {

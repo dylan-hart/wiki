@@ -11,15 +11,9 @@ import { useEditorStore } from '@/stores/editor'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * End-to-end coverage for OpenProject #3397's constructs (GitHub alerts, footnotes, TeX, glossary
- * term highlighting, icon shortcodes, task lists) THROUGH the real component's `buildExtensions()`
- * -- `src/editor/wysiwyg/*.test.js` already covers each extension's own parse/render/round-trip in
- * isolation; this file only proves they are actually wired in, not re-testing their internals.
- *
- * A separate file rather than an addition to `EditorWysiwyg.test.js`, deliberately: that file is
- * also being changed this round by sibling work packages (#3396, #3398, #3400) touching the same
- * `buildExtensions()` region, per the epic's coordination note -- a new file has nothing there to
- * conflict with.
+ * Proves the constructs are wired into the real component's `buildExtensions()` --
+ * `src/editor/wysiwyg/*.test.js` covers each extension's own parse/render/round-trip in isolation,
+ * so nothing here re-tests their internals.
  */
 function mountEditor(initialContent, { glossaryTerms } = {}) {
   setActivePinia(createPinia())
@@ -62,8 +56,7 @@ describe('EditorWysiwyg constructs (OpenProject #3397)', () => {
     expect(typeNames).toContain('iconShortcode')
     expect(typeNames).toContain('taskItem')
 
-    // -> A real (no-op) edit, the same way `EditorWysiwyg.test.js`'s own round-trip test triggers
-    //    `handleEditorUpdate` -> `editor.getMarkdown()` -> `pageStore.content`.
+    // -> A no-op edit, to drive `handleEditorUpdate` -> `getMarkdown()` -> `pageStore.content`
     editor.chain().focus().insertContent('').run()
     await nextTick()
     const saved = pageStore.content
@@ -111,11 +104,6 @@ describe('EditorWysiwyg constructs (OpenProject #3397)', () => {
     wrapper.unmount()
   })
 
-  /**
-   * Matches `EditorWysiwyg.test.js`'s own "text color and highlight" convention for a dropdown's
-   * children: call the menu entry's `.action()` directly (exposed via `menuBar`) rather than driving
-   * a `w-menu` open through the DOM, which its own tests don't do either.
-   */
   function findMenuItem(wrapper, key) {
     return wrapper.vm.menuBar.find((item) => item.key === key)
   }

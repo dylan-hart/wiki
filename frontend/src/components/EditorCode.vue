@@ -2,11 +2,6 @@
   <div class="editor-code">
     <div class="editor-code-main">
       <div class="editor-code-sidebar">
-        <!-- ------------------------------------------------------- -->
-        <!-- SIDE TOOLBAR -->
-        <!-- ------------------------------------------------------- -->
-        <!-- -> Straight to the File Manager, the same affordance `EditorMarkdown.vue` exposes: see the
-                note on its own `insertAssets` for why there is no separate URL/clipboard source. -->
         <w-btn
           icon="tabler:photo-plus"
           padding="sm sm"
@@ -20,14 +15,6 @@
         <w-space />
         <span class="editor-code-type">HTML</span>
       </div>
-      <!-- ------------------------------------------------------- -->
-      <!-- MONACO EDITOR -->
-      <!-- ------------------------------------------------------- -->
-      <!--
-        No preview pane: unlike markdown or AsciiDoc, this editor's raw source IS what gets rendered
-        (see the component doc comment below) -- a preview here would only ever show the reader
-        exactly what the author is already looking at, one keystroke behind.
-      -->
       <div class="editor-code-editor"><div ref="monacoRef" /></div>
     </div>
   </div>
@@ -51,59 +38,39 @@ import * as monaco from 'monaco-editor'
 import { Range } from 'monaco-editor'
 
 /**
- * The `code` editor: a raw HTML source with nothing between it and what gets stored.
+ * Raw HTML source with nothing between it and what gets stored: what the author types IS the render,
+ * so both `pageStore.content` and `pageStore.render` are set to the same string and `pageSave` sends
+ * both up unchanged. The server's own `sanitizeHtml` pass (`models/rendering.ts`'s `postProcess`) is
+ * what stands between this and a stored page, so nothing here sanitizes or transforms what is typed.
  *
- * Matches 2.5.x's `editor-code.vue` — no markdown, no rendering pipeline, no preview pane, because
- * there is nothing for a preview to show that the source does not already say directly. What the
- * author types IS the render: on every change both `pageStore.content` and `pageStore.render` are set
- * to the same string, and `pageSave` sends both up unchanged (`stores/page.js`). The server's own
- * `sanitizeHtml` pass in `models/rendering.ts`'s `postProcess` is what stands between this and a
- * stored page — the same pass the WYSIWYG editor's HTML output already goes through — so nothing here
- * needs to sanitize or otherwise transform what is typed.
- *
- * Reuses the Monaco boot/setup pattern `EditorMarkdown.vue` established (the `cardinaljs` theme, the same
- * editor options) rather than a second code-editing library, just with the language mode swapped to
- * `html` and every markdown-only feature (the formatting toolbar, the table/block code lenses, the
- * scroll-synced preview, collaborative editing) left out — none of them has anything to attach to in
- * a single pane of plain HTML.
+ * No preview pane: a preview could only ever show the author what they are already looking at.
  */
-
-// STORES
 
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
 
 /*
-  Monaco cannot read the design-token layer (`defineTheme()` takes plain hex, not `var()`), so the
-  aesthetic is applied by registering both themes and switching between them -- see
-  `helpers/monacoTheme.js`.
+  Monaco cannot read the design-token layer -- `defineTheme()` takes plain hex, not `var()` -- so the
+  aesthetic is applied by registering both themes and switching between them.
 */
 const aesthetic = useAesthetic()
 
-// STATE
-
 let editor
 /**
- * The `debounce()`-wrapped content-change handler, kept only so `onBeforeUnmount` can `cancel()` it.
- * Without this, a debounced call still pending when the component unmounts fires ~500ms later,
- * reading `editor.getValue()` off the already-`dispose()`d editor and potentially patching
- * `pageStore.content` after the session has ended (the #808 bug class; see `EditorMarkdown.vue`'s
- * matching comment) (OpenProject #943).
+ * Kept only so `onBeforeUnmount` can `cancel()` it: a call still pending at unmount fires ~500ms
+ * later, reads `editor.getValue()` off the already-`dispose()`d editor and patches
+ * `pageStore.content` after the session has ended.
  */
 let debouncedContentChange = null
 const monacoRef = ref(null)
 
 /*
- * OpenProject #834 (discussion #1738's editor-toolbar-mirroring gap, not caught by task 721/727's
- * pass since it only audited `EditorMarkdown.vue`): the side toolbar's single tooltip popped OUTWARD
- * toward the fixed physical `right`, same bug `EditorMarkdown.vue`'s own `sideToolbarTooltip` fixes --
- * see that component's comment for the full explanation. Read once at setup for the same reason: a
- * mid-edit locale switch is not a case this editor has to survive gracefully.
+ * Direction-aware so the side toolbar's tooltip opens inward in RTL rather than toward the fixed
+ * physical `right`. Read once at setup: a mid-edit locale switch is not a case this editor has to
+ * survive gracefully.
  */
 const sideToolbarTooltip = directionalAnchor(
   document.documentElement.dir,
@@ -113,20 +80,10 @@ const sideToolbarTooltip = directionalAnchor(
 const sideToolbarTooltipAnchor = sideToolbarTooltip.anchor
 const sideToolbarTooltipSelf = sideToolbarTooltip.self
 
-// METHODS
-
 function insertAssets() {
   siteStore.openFileManager({ insertMode: true })
 }
 
-/**
- * What the file manager handed back, as raw HTML at the cursor.
- *
- * `EditorMarkdown.vue`'s `insertAssetClb` writes markdown syntax for the same event; this editor's
- * source is HTML directly, so what goes in has to be markup a browser already understands on its own
- * — an `<img>` for a picture, an `<a>` for anything else, including a page, exactly the same
- * image-vs-link distinction that component's own comment draws.
- */
 function insertAssetClb(opts) {
   let content = ''
   switch (opts.type) {
@@ -162,13 +119,8 @@ function insertAtCursor(content) {
 }
 
 /**
- * Applies the editor's current value to the store immediately, bypassing the debounce below.
- *
- * Registered as `editorStore.contentFlusher` so `pageSave()` can call it before saving -- see
- * `EditorMarkdown.vue`'s matching `flushEditorContent` and the comment on `contentFlusher` in
- * `stores/page.js`'s `pageSave` for why: without it, typing then immediately clicking Save (or
- * Ctrl+S) within the 500ms debounce window saves the page without the last edits (OpenProject #943,
- * the #806 bug class).
+ * Registered as `editorStore.contentFlusher` so `pageSave()` can close the debounce window: without
+ * it, typing then immediately saving within those 500ms stores the page without the last edits.
  */
 function flushEditorContent() {
   const value = editor.getValue()
@@ -179,15 +131,13 @@ function flushEditorContent() {
   })
 }
 
-// MOUNTED
-
 onMounted(() => {
   editorStore.$patch({
     hideSideNav: true
   })
 
-  // -> Same theme `EditorMarkdown.vue` defines, redefined here rather than shared: only one editor
-  //    component is ever mounted at a time, so there is nothing to deduplicate against.
+  // -> Redefined per editor rather than shared: only one editor is ever mounted at a time, so there
+  //    is nothing to deduplicate against.
   defineMonacoThemes(monaco, {
     base: 'vs-dark',
     inherit: true,
@@ -215,12 +165,9 @@ onMounted(() => {
     wordWrap: 'on'
   })
 
-  // -> Handle content change: the raw source goes to both `content` and `render` -- see the component
-  //    doc comment for why there is no rendering step in between.
   debouncedContentChange = debounce(() => {
     editorStore.markDirty()
-    // -> What the author has typed IS the source, whatever the load did or did not deliver; see
-    //    the guard in `pageSave`
+    // -> What the author has typed IS the source, whatever the load did or did not deliver.
     pageStore.contentLoaded = true
     flushEditorContent()
   }, 500)
@@ -230,19 +177,16 @@ onMounted(() => {
 
   EVENT_BUS.on('insertAsset', insertAssetClb)
 
-  // -> See `flushEditorContent` above and `pageSave()` in `stores/page.js` for why this exists
   editorStore.contentFlusher = flushEditorContent
 })
 
 onBeforeUnmount(() => {
   EVENT_BUS.off('insertAsset', insertAssetClb)
-  // -> Only clear it if it is still this instance's -- guards against a second mount's registration
-  //    being torn down by the first's unmount in whatever order they settle in
+  // -> Only if it is still this instance's: a second mount's registration must survive the first's
+  //    unmount, in whatever order the two settle.
   if (editorStore.contentFlusher === flushEditorContent) {
     editorStore.contentFlusher = null
   }
-  // -> A pending debounced call left uncancelled fires ~500ms after unmount, against an editor that
-  //    `dispose()` (below) has already torn down (OpenProject #943, the #808 bug class).
   debouncedContentChange?.cancel()
   if (editor) {
     editor.dispose()
@@ -251,19 +195,11 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .editor-code {
   /*
-    Percentage heights all the way down rather than a viewport calc, which had to grow a new
-    hardcoded term every time a bar was added or resized above it -- most recently the breadcrumb bar
-    staying mounted through editing (OpenProject #813). `Index.vue`'s `.page-container` already hands
-    its row a definite height via `items-stretch`, which is what lets the reading column's own scroll
-    area just say `height: 100%` -- this is the editor doing the same thing instead of restating it.
-    See `EditorMarkdown.vue`'s matching comment for the fuller version.
+    Percentage heights all the way down rather than a viewport calc, which needed a new hardcoded
+    term every time a bar was added or resized above it. `Index.vue`'s `.page-container` already
+    hands its row a definite height via `items-stretch`, so this only has to say `height: 100%`.
   */
   height: 100%;
   min-height: 0;

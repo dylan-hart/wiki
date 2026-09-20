@@ -9,13 +9,8 @@ import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `monaco-editor` needs real browser layout/measurement APIs (`ResizeObserver`, text metrics, a
- * genuine contenteditable surface) that `happy-dom` -- this workspace's Vitest environment, see
- * `vitest.config.js` -- does not provide, so mounting the real editor here would be testing whether
- * happy-dom can pretend to be a browser, not this component's own logic. Mocked to the handful of
- * calls `EditorCode.vue` actually makes: `editor.create` returns one fake instance whose
- * `onDidChangeModelContent` callback and `getPosition`/`executeEdits` calls are captured so a test can
- * drive them directly, the same shape `EditorMarkdown.vue` (this component's own reused boot pattern)
- * relies on.
+ * genuine contenteditable surface) that happy-dom does not provide, so mounting the real editor here
+ * would be testing whether happy-dom can pretend to be a browser, not this component's own logic.
  */
 const fakeEditor = {
   getValue: vi.fn(() => ''),
@@ -64,7 +59,6 @@ function mountEditor(initialContent = '') {
   return { wrapper, pageStore, siteStore, editorStore }
 }
 
-/** The debounced content-change handler `EditorCode.vue` registers, captured off the fake editor. */
 function changeHandler() {
   return fakeEditor.onDidChangeModelContent.mock.calls.at(-1)[0]
 }
@@ -159,10 +153,8 @@ describe('EditorCode', () => {
   })
 
   /**
-   * OpenProject #943: `pageSave()` calls `editorStore.contentFlusher?.()` before saving specifically
-   * because the content-change handler is debounced -- without a registered flusher, typing then
-   * immediately clicking Save (or Ctrl+S) within the 500ms window saves the page without the last
-   * edits (the #806 bug class).
+   * Without a registered flusher, saving within the 500ms debounce window stores the page without
+   * the last edits.
    */
   it('registers a contentFlusher that writes the editor value immediately, bypassing the debounce', () => {
     const { pageStore, editorStore } = mountEditor('')
@@ -183,11 +175,7 @@ describe('EditorCode', () => {
     expect(editorStore.contentFlusher).toBe(null)
   })
 
-  /**
-   * OpenProject #943, the #808 bug class: a debounced content-change call still pending at unmount
-   * used to fire ~500ms later against the already-disposed editor. Typing then unmounting within the
-   * debounce window must not touch the store afterward.
-   */
+  /** A call left pending at unmount would fire ~500ms later against the already-disposed editor. */
   it('cancels the pending debounced content change on unmount instead of firing it later', () => {
     const { wrapper, pageStore } = mountEditor('original')
     fakeEditor.getValue.mockReturnValue('typed but not yet flushed')
@@ -200,9 +188,8 @@ describe('EditorCode', () => {
   })
 
   /*
-    `opens the file manager in insert mode from the sidebar button`, `stops listening for insertAsset
-    and disposes the editor on unmount` and the whole `side toolbar tooltip mirroring` describe are
-    byte-identical between this suite and its sibling markup editor's, so they live once, as a
-    `describe.each` over both components, in `editorMarkupShared.test.js`.
+    The insert-mode file-manager, unmount-teardown and side-toolbar-tooltip cases are identical
+    between this suite and its sibling markup editor's, so they live once, as a `describe.each` over
+    both components, in `editorMarkupShared.test.js`.
   */
 })

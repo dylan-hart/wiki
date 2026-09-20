@@ -14,14 +14,11 @@ import { queue } from '@/composables/notify'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * Split into its own file, separate from `EditorMarkdown.test.js`, specifically to exercise the
- * `collabEnabled` branch that file's own header comment documents as deliberately never mounted
- * there (`collabEnabled` needs `siteStore.features.collaborativeEditing`, an authenticated user, and
- * a page id all at once, none of which that file's tests set up). `@/composables/collab` is mocked
- * outright rather than pulling in the real `y-websocket`/`yjs` machinery `startCollabSession` drives
- * -- this only needs to prove the two `watch()`es EditorMarkdown registers off `collabStore` are torn
- * down on unmount (OpenProject #942), not that a live session round-trips correctly (that is
- * `composables/collab.test.js`'s job).
+ * Its own file so the `collabEnabled` branch can be mounted at all: it needs
+ * `siteStore.features.collaborativeEditing`, an authenticated user and a page id all at once.
+ * `@/composables/collab` is mocked outright rather than pulling in the real `y-websocket`/`yjs`
+ * machinery -- this only has to prove the two `watch()`es are torn down on unmount, not that a live
+ * session round-trips correctly (that is `composables/collab.test.js`'s job).
  */
 const fakeEditor = {
   getModel: vi.fn(() => ({})),
@@ -91,8 +88,8 @@ async function mountEditor() {
 
   const collabStore = useCollabStore()
 
-  // -> Same happy-dom `loadBlocks()` dynamic-import guard `EditorMarkdown.test.js`'s own
-  //    `mountEditor` documents and relies on.
+  // -> Under happy-dom `:not(:defined)` matches plain built-in tags too, so `loadBlocks()` attempts
+  //    a real dynamic import that settles late and lands in an unrelated test.
   useCommonStore().loadBlocks = vi.fn().mockResolvedValue(undefined)
 
   const i18n = createTestI18n({
@@ -145,9 +142,8 @@ describe('EditorMarkdown collab watchers (OpenProject #942)', () => {
     const { wrapper: firstWrapper, userStore } = await mountEditor()
     firstWrapper.unmount()
 
-    // -> A second mount against the SAME (module-singleton) collabStore -- exactly the "re-enter the
-    //    editor" scenario the work package describes, where a leaked first-mount watcher would still
-    //    be listening alongside the second's.
+    // -> A second mount against the SAME (module-singleton) collabStore: re-entering the editor,
+    //    where a leaked first-mount watcher would still be listening alongside the second's.
     const { collabStore } = await mountEditor()
 
     collabStore.lastSave = { authorId: 'someone-else', authorName: 'Someone Else' }

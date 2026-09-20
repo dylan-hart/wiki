@@ -9,12 +9,9 @@ import { usePageStore } from '@/stores/page'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * OpenProject #3400: the lazy on-open fallback for a page the run-once conversion job
- * (`backend/tasks/simple/convert-wysiwyg-json.ts`) hasn't gotten to yet, or couldn't parse -- a
- * legacy row still holding the pre-#3395 WYSIWYG editor's raw, serialized Tiptap JSON under
- * `content`. Before this fallback, `init()` always loaded `pageStore.content` with
- * `contentType: 'markdown'`, so a legacy row's `{"type":"doc",...}` text was fed to the markdown
- * parser as literal text and shown verbatim rather than as the document it actually describes.
+ * The lazy on-open fallback for a legacy row still holding raw, serialized Tiptap JSON under
+ * `content` -- a page the run-once conversion job (`backend/tasks/simple/convert-wysiwyg-json.ts`)
+ * has not reached, or could not parse.
  */
 function mountEditor(initialContent) {
   setActivePinia(createPinia())
@@ -50,14 +47,12 @@ describe('EditorWysiwyg legacy WYSIWYG JSON fallback (OpenProject #3400)', () =>
     await nextTick()
 
     const text = wrapper.find('.ProseMirror').text()
-    // -> The real document's text, not the raw `{"type":"doc",...}` source that a naive markdown
-    //    parse of this same string would have shown instead.
     expect(text).toContain('Legacy Title')
     expect(text).toContain('Hello legacy')
     expect(text).not.toContain('"type":"doc"')
 
-    // -> The heading/bold marks actually parsed, not just their text -- proof this went through
-    //    `contentType: 'json'`, not a markdown reparse of the JSON string.
+    // -> The marks really parsed, proving a `contentType: 'json'` load rather than a markdown
+    //    reparse of the JSON string
     expect(wrapper.vm.editor.getHTML()).toContain('<h2')
     expect(wrapper.vm.editor.getHTML()).toContain('<strong>legacy</strong>')
 
@@ -74,8 +69,7 @@ describe('EditorWysiwyg legacy WYSIWYG JSON fallback (OpenProject #3400)', () =>
     await nextTick()
     await nextTick()
 
-    // -> A real (not no-op) edit is what actually fires `onUpdate` -- an unchanged `insertContent('')`
-    //    produces no transaction at all, same as it would for any other loaded content.
+    // -> A content-changing edit, so `onUpdate` definitely fires
     wrapper.vm.editor
       .chain()
       .focus()
@@ -84,10 +78,8 @@ describe('EditorWysiwyg legacy WYSIWYG JSON fallback (OpenProject #3400)', () =>
     await nextTick()
 
     expect(pageStore.contentLoaded).toBe(true)
-    // -> Real markdown text, never starting with `{` -- `helpers/wysiwygHeadlessMarkdown.ts`'s
-    //    `isLegacyWysiwygJson()` (mirrored here client-side) would read this as already converted,
-    //    which is exactly what lets `updatePage()`'s `isLegacyWysiwygConversionSave` branch flip
-    //    `contentType` to `markdown` on this same save (`backend/models/pages.ts`).
+    // -> Must not still start with `{`: that is how the backend's `isLegacyWysiwygJson()` decides
+    //    the save has converted the row and flips its `contentType` to markdown
     expect(pageStore.content).toContain('Legacy content')
     expect(pageStore.content).toContain('edited')
     expect(pageStore.content.startsWith('{')).toBe(false)
@@ -100,8 +92,7 @@ describe('EditorWysiwyg legacy WYSIWYG JSON fallback (OpenProject #3400)', () =>
     await nextTick()
     await nextTick()
 
-    // -> Still mounts (no thrown error tore the component down) -- the literal text is shown as
-    //    markdown, the same as before this fallback existed for any row this can't parse either.
+    // -> A throw during init would have torn the component down before this
     expect(wrapper.find('.ProseMirror').exists()).toBe(true)
     expect(wrapper.find('.ProseMirror').text()).toContain('not valid json at all')
 

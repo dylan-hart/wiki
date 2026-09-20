@@ -4,9 +4,6 @@
       <div class="editor-redirect-form">
         <w-card class="pb-2">
           <w-card-header>{{ t('editor.redirect.title') }}</w-card-header>
-          <!-- ----------------------- -->
-          <!-- Title -->
-          <!-- ----------------------- -->
           <w-item>
             <blueprint-icon icon="tabler:file-plus" />
             <w-item-section>
@@ -14,10 +11,8 @@
               <w-item-label caption>{{ t('editor.redirect.pageTitleHint') }}</w-item-label>
             </w-item-section>
             <w-item-section>
-              <!--
-                The same title the header edits in place, so the two are one field with two places to
-                type it: both write to the store, and the header's watcher follows what is typed here.
-              -->
+              <!-- The same title the header edits in place: both write the store, so the two
+                   behave as one field with two places to type it. -->
               <w-input
                 dense
                 hide-bottom-space
@@ -27,9 +22,6 @@
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
-          <!-- ----------------------- -->
-          <!-- Target -->
-          <!-- ----------------------- -->
           <w-item>
             <blueprint-icon icon="tabler:player-track-next" />
             <w-item-section>
@@ -47,12 +39,8 @@
                 @click="chooseTarget" />
             </w-item-section>
           </w-item>
-          <!--
-            What was chosen, indented to the row above rather than made a row of its own: it is that
-            row's answer, and a `w-item` of its own would need an empty avatar section to line up
-            with. The icon says which kind it is, which is the only place that distinction shows now
-            that one dialog answers both halves of it.
-          -->
+          <!-- Indented under the row above rather than made a row of its own: it is that row's
+               answer, and the icon is the only place page-vs-URL shows. -->
           <div class="editor-redirect-field">
             <div class="text-body2 font-robotomono editor-redirect-target" v-if="state.target">
               <w-icon
@@ -66,9 +54,6 @@
             </div>
           </div>
           <w-separator class="my-2" inset />
-          <!-- ----------------------- -->
-          <!-- Interstitial -->
-          <!-- ----------------------- -->
           <w-item>
             <blueprint-icon icon="tabler:clock-play" />
             <w-item-section>
@@ -83,11 +68,8 @@
             </w-item-section>
           </w-item>
         </w-card>
-        <!--
-          What the page will do, spelled out, because everything above is settings and none of it says
-          what a reader arriving here actually gets. Also where a half-filled form is reported: the
-          save is refused by the server either way, and this says so before it is attempted.
-        -->
+        <!-- Spells out what a reader arriving here gets, and is where a half-filled form is
+             reported -- the server refuses that save anyway, so this warns before it is tried. -->
         <div
           class="editor-redirect-summary"
           :class="isFollowable(state) ? `is-ready` : `is-incomplete`">
@@ -121,43 +103,22 @@ import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 
 /**
- * The `redirect` editor: a page that sends its reader somewhere else.
- *
- * There is no content to write, so this is a form rather than an editor — a title, where the page
- * points, and whether the reader is told about it on the way. All three are the page's own fields:
- * the title is the page's, and the other two are its content, as JSON. See `helpers/pageRedirect.js`.
- *
- * What the page then DOES with that is `PageRedirect.vue`, which is what the page view draws in place
- * of an article.
+ * A form rather than an editor: the target and the interstitial flag ARE the page's content, stored
+ * as JSON (`helpers/pageRedirect.js`), and the title is the page's own field. `PageRedirect.vue`
+ * draws the result for a reader.
  */
-
-// STORES
 
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 
-// I18N
-
 const { t } = useI18n()
 
-// DATA
-
-/**
- * The redirection being edited, which is also exactly what gets saved — the form has no field that is
- * not one of these three. Seeded from the stored content and written back by the watcher below.
- */
 const state = reactive(parseRedirect(pageStore.content))
 
-// WATCHERS
-
 /*
-  The form IS the content, so the store follows it on every keystroke — there is nothing here that a
-  save would collect afterwards.
-
-  Immediate, and deliberately not a change: this also writes the canonical spelling of what was
-  already stored, and seeds a page being created with an empty redirection. Neither is an edit, so
-  neither may set the unsaved-changes flag — `touch` is called by the handlers instead, where a
-  person actually did something.
+  The form IS the content, so the store follows every keystroke. `immediate` canonicalizes what was
+  already stored and seeds a page being created — neither is an edit, which is why the handlers
+  call `touch()` for the unsaved-changes flag instead of this watcher.
 */
 watch(
   state,
@@ -167,9 +128,6 @@ watch(
   { immediate: true, deep: true }
 )
 
-// METHODS
-
-/** Say that the page has unsaved changes, which is what turns the header's Save button on. */
 function touch() {
   editorStore.markDirty()
 }
@@ -185,15 +143,11 @@ function setShowInterstitial(showInterstitial) {
 }
 
 /**
- * Picks where this page sends its reader: a page of this wiki, or any URL.
+ * `kind` is which of the link picker's two tabs the answer came from — an explicit choice, rather
+ * than a guess made afterwards from the shape of the string.
  *
- * One dialog for both, because they are one question — the link picker asks it the way the rest of the
- * app already asks it, and answers with which of its two tabs the answer came from. That is what
- * `kind` is: the choice somebody made, rather than a guess made afterwards from the look of the
- * string. It opens on the current target, so coming back starts from what is already set.
- *
- * Its "open in a new tab" offer is turned off. A redirection is not a link somebody clicks — the
- * reader is taken there — so there is no tab to choose, and nowhere here to store the answer.
+ * The picker's "open in a new tab" offer is off: a redirection is not a link somebody clicks, so
+ * there is no tab to choose and nowhere here to store the answer.
  */
 function chooseTarget() {
   dialog({
@@ -213,11 +167,8 @@ function chooseTarget() {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Kept flat, not nested: a `&-suffix` selector is a Sass concatenation idiom that native CSS
+   nesting silently drops. */
 .editor-redirect {
   height: 100%;
 }
@@ -236,10 +187,8 @@ function chooseTarget() {
   padding: 24px 16px 48px;
 }
 .editor-redirect {
-  /*
-    Lined up with the main section of the row above it: `w-item` pads 16px and its avatar section is
-    56px wide, so the field starts where that row's label does.
-  */
+  /* 16px of `w-item` padding plus its 56px avatar section: the field starts where the label above
+     it does. */
 }
 .editor-redirect-field {
   padding: 0 16px 8px 72px;
@@ -250,11 +199,8 @@ function chooseTarget() {
   overflow-wrap: anywhere;
 }
 .editor-redirect {
-  /*
-    The one line that says what a reader arriving at this page gets. Blue while the form is answerable
-    and amber while it is not -- the second is a warning about a save that will be refused, not an
-    error that has happened yet.
-  */
+  /* Amber, not red, while the form is incomplete: a save that will be refused is a warning, not an
+     error that has happened. */
 }
 .editor-redirect-summary {
   display: flex;

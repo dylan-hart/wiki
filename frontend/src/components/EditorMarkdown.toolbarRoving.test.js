@@ -7,11 +7,11 @@ vi.mock('monaco-editor', async () => (await import('./editorMarkdownHarness.js')
 const EditorMarkdown = (await import('./EditorMarkdown.vue')).default
 
 /**
- * Task/Feature #3350: both of `EditorMarkdown.vue`'s toolbars implement the WAI-ARIA APG "Toolbar"
- * roving-tabindex pattern (`composables/toolbarRovingTabindex.js`, unit-tested on its own), so Tab
- * from the page description lands on the Monaco editor rather than working through every toolbar
- * button first. `attachTo: document.body` is needed throughout -- `document.activeElement` and
- * `.focus()` only behave meaningfully for a connected element.
+ * Both of `EditorMarkdown.vue`'s toolbars implement the WAI-ARIA APG "Toolbar" roving-tabindex
+ * pattern (`composables/toolbarRovingTabindex.js`, unit-tested on its own), so Tab from the page
+ * description lands on the Monaco editor rather than working through every toolbar button first.
+ * `attachTo: document.body` is needed throughout -- `document.activeElement` and `.focus()` only
+ * behave meaningfully for a connected element.
  */
 function mountEditor(initialContent) {
   return mountEditorMarkdown(EditorMarkdown, initialContent, { attachTo: document.body })

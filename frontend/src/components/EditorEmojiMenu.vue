@@ -7,9 +7,8 @@
     @show="onShow">
     <div class="emoji-menu">
       <!--
-        The tabs scroll the list rather than switching what is in it: one list with headings is what
-        makes a search across everything, and a "Frequently Used" section above the groups, simple
-        enough to be obviously correct.
+        The tabs scroll the list rather than switching what is in it: one list with headings keeps a
+        search across everything, and a recents section above the groups, simple.
       -->
       <div class="emoji-menu-tabs">
         <button
@@ -25,7 +24,7 @@
         </button>
       </div>
       <div class="p-2">
-        <!-- -> `transparent`, for the same reason as the code block menu's filter: the panel is acrylic -->
+        <!-- -> `transparent`: an opaque field reads as a slab on the acrylic panel behind it -->
         <w-input
           ref="iptSearch"
           v-model="state.search"
@@ -82,8 +81,8 @@
         </template>
       </w-scroll-area>
       <w-separator />
-      <!-- -> What the pointer is over, spelled out: the grid is 1,800 lookalikes and the shortcode is
-              what actually lands in the page -->
+      <!-- -> The shortcode, not the character, is what lands in the page, so the footer spells out
+              what the pointer is over -->
       <div class="emoji-menu-preview">
         <div class="emoji-menu-preview-emoji">{{ state.preview ? state.preview[1] : '☝️' }}</div>
         <div class="min-w-0 flex-1 truncate">
@@ -106,18 +105,11 @@ import { useI18n } from 'vue-i18n'
 import { EMOJI_GROUPS } from '@/assets/emoji.generated'
 
 /**
- * Picks an emoji, as the `:shortcode:` the renderer understands.
- *
- * What goes into a page is the shortcode, not the character: that is what `markdown-it-emoji` replaces
- * and what the renderer then draws as a twemoji SVG, so a page reads the same everywhere regardless of
- * the fonts on the machine. The grid shows the characters, which is the one place the system font is
- * exactly what is wanted.
- *
- * The groups come from `assets/emoji.generated.js` — see `scripts/generate-emoji.mjs` for why the
- * grouping is generated rather than fetched or hand-kept.
+ * What goes into a page is the `:shortcode:`, not the character: that is what `markdown-it-emoji`
+ * replaces and what the renderer then draws as a twemoji SVG, so a page reads the same everywhere
+ * regardless of the fonts on the machine. The grid shows the characters, which is the one place the
+ * system font is exactly what is wanted.
  */
-
-// PROPS
 
 const props = defineProps({
   anchor: {
@@ -130,19 +122,14 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 const emit = defineEmits(['select'])
-
-// I18N
 
 const { t } = useI18n()
 
-/** How many recent picks to keep, and where. Shared across editors and pages by design. */
+/** One key for the whole app, by design: recents follow the reader into every editor. */
 const RECENT_KEY = 'wiki.emoji.recent'
 const RECENT_MAX = 27
 
-/** The tab strip, in the order the sections appear. Recents first, then Unicode's own order. */
 const GROUP_TABS = {
   smileys_emotion: { icon: 'tabler:mood-smile', label: 'editor.emoji.smileysEmotion' },
   people_body: { icon: 'tabler:hand-move', label: 'editor.emoji.peopleBody' },
@@ -157,13 +144,10 @@ const GROUP_TABS = {
 
 const RECENT_TAB = { icon: 'tabler:clock', label: 'editor.emoji.frequentlyUsed' }
 
-// REFS
-
 const menuRef = ref(null)
 const iptSearch = ref(null)
 const scrollRef = ref(null)
 
-/** Each section's heading element, which is what a tab scrolls to and what the tabs track. */
 const sectionEls = new Map()
 
 /** WScrollArea is the scrolling element itself, so its root is what has to be scrolled. */
@@ -171,17 +155,13 @@ function scrollEl() {
   return scrollRef.value?.$el ?? null
 }
 
-// DATA
-
 const state = reactive({
   search: '',
-  /** The `[shortcode, character]` under the pointer, shown in the footer. Null when nothing is. */
+  /** `[shortcode, character]` under the pointer, or null. */
   preview: null,
   recent: [],
   activeTab: 'smileys_emotion'
 })
-
-// COMPUTED
 
 const isSearching = computed(() => state.search.trim().length > 0)
 
@@ -209,9 +189,8 @@ const sections = computed(() => [
 ])
 
 /*
-  Matched on the shortcode alone, which is both the name and what gets written. Underscores are treated
-  as spaces so that `open mouth` finds `open_mouth`, and every result is a shortcode the renderer knows,
-  since that is where the list came from.
+  Matched on the shortcode alone, which is both the name and what gets written. A typed space is
+  treated as an underscore, so `open mouth` finds `open_mouth`.
 */
 const searchResults = computed(() => {
   const needle = state.search.trim().toLowerCase().replaceAll(' ', '_')
@@ -219,8 +198,6 @@ const searchResults = computed(() => {
     group.emoji.filter(([shortcode]) => shortcode.includes(needle))
   )
 })
-
-// METHODS
 
 function setSectionRef(key, el) {
   if (el) {
@@ -230,7 +207,6 @@ function setSectionRef(key, el) {
   }
 }
 
-/** Every pair by shortcode, for turning the stored recents back into something to draw. */
 const BY_SHORTCODE = new Map(EMOJI_GROUPS.flatMap((group) => group.emoji))
 
 function readRecent() {
@@ -240,8 +216,8 @@ function readRecent() {
       return []
     }
     /*
-      Only shortcodes are stored, and only ones still in the data survive being read back: a name that
-      has since gone would otherwise draw an empty cell nobody could explain.
+      Only shortcodes are stored, and only ones still in the data survive being read back: a name
+      that has since gone would otherwise draw an empty cell.
     */
     return stored
       .filter((shortcode) => BY_SHORTCODE.has(shortcode))
@@ -264,7 +240,6 @@ function rememberRecent(shortcode) {
   }
 }
 
-/** Opens on the search field, with recents as they were left. */
 async function onShow() {
   state.search = ''
   state.preview = null
@@ -275,12 +250,10 @@ async function onShow() {
 }
 
 /*
-  Both of these measure with `getBoundingClientRect`, deliberately.
-
-  `offsetTop` is relative to the nearest POSITIONED ancestor, which for these headings is the menu's
-  floating panel rather than the scroll container -- so comparing it against the container's `scrollTop`
-  was off by the panel's own offset, and every click landed on the section before the one asked for.
-  Rects are in viewport space for both sides, so the difference is the real distance.
+  `getBoundingClientRect`, not `offsetTop`: `offsetTop` is relative to the nearest POSITIONED
+  ancestor, which for these headings is the menu's floating panel rather than the scroll container,
+  so comparing it against `scrollTop` lands on the section before the one asked for. Rects are in
+  viewport space on both sides, so the difference is the real distance.
 */
 function scrollToSection(key) {
   state.activeTab = key
@@ -291,7 +264,6 @@ function scrollToSection(key) {
   }
 }
 
-/** Keeps the tab strip in step with what is on screen while scrolling. */
 function onScroll(event) {
   const listTop = event.target.getBoundingClientRect().top
   let active = sections.value[0]?.key
@@ -311,7 +283,6 @@ function choose(shortcode) {
   menuRef.value?.hide()
 }
 
-/** Enter takes the first match, so an emoji can be picked without leaving the keyboard. */
 function chooseFirst() {
   const first = isSearching.value ? searchResults.value[0] : sections.value[0]?.emoji?.[0]
   if (first) {
@@ -331,10 +302,6 @@ function chooseFirst() {
   padding: 0 4px;
 }
 
-/*
-  A tab is an icon and an underline, which is all the strip needs: the label lives in the tooltip and in
-  the heading the tab scrolls to.
-*/
 .emoji-menu-tab {
   display: flex;
   flex: 1 1 0;
@@ -381,7 +348,6 @@ function chooseFirst() {
   aspect-ratio: 1;
   align-items: center;
   justify-content: center;
-  /* -> The emoji itself, at a size worth aiming at; the system font is the point here */
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
