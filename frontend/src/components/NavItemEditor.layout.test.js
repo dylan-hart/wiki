@@ -9,18 +9,11 @@ import { createApiClientStub } from '../../test/mocks.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #2825: the "From the page tree" generated-eyebrow row didn't wrap onto its own line,
- * because `.nav-edit-item-link` never picked up `WItem.vue`'s shared `flex-wrap: wrap` (that rule is
- * scoped to the two-main-section "settings row" shape, and this row has only one main section) --
- * so the eyebrow's `flex-basis: 100%` just squeezed the row's real content (icon/label/handle) into
- * a narrow leftover column instead of dropping to a line of its own.
- *
- * Neither `jsdom` nor `happy-dom` runs a layout engine (verified elsewhere in this repo: every
- * `getBoundingClientRect()` comes back zeroed under either), so whether something actually wraps
- * onto a second line can only be checked in a real browser -- this suite mirrors
- * `shared/WSettingsRow.layout.test.js`'s harness: real headless Chromium, the app's own compiled
- * Tailwind CSS plus the component's own scoped styles (collected from what Vitest's `css: true`
- * injected into the test document), and real measured rects.
+ * Neither `jsdom` nor `happy-dom` runs a layout engine (every `getBoundingClientRect()` comes back
+ * zeroed under either), so whether the generated-eyebrow row actually wraps onto a second line can
+ * only be checked in a real browser -- this suite mirrors `shared/WSettingsRow.layout.test.js`'s
+ * harness: real headless Chromium, the app's own compiled Tailwind CSS plus the component's own
+ * scoped styles, and real measured rects.
  */
 const MESSAGES = {
   'navEdit.generatedFromTree': 'From the page tree'
@@ -71,7 +64,7 @@ function mountEditor(items) {
   })
 }
 
-/** Every `<style>` Vitest injected for the SFCs mounted so far — see `WSettingsRow.layout.test.js`. */
+/** The SFC `<style>` blocks Vitest's `css: true` injected into the test document. */
 function collectMountedStyles() {
   return [...document.querySelectorAll('style')].map((el) => el.textContent).join('\n')
 }
@@ -84,9 +77,8 @@ describe(
     let measured
 
     beforeAll(async () => {
-      // -> `beforeAll` runs before the harness's own per-test `beforeEach` (test/setup.js), which
-      //    is what normally rebuilds the `API_CLIENT`/`EVENT_BUS` globals -- set them up directly
-      //    here instead of relying on that not having run yet.
+      // -> `beforeAll` runs before `test/setup.js`'s per-test `beforeEach`, which is what normally
+      //    rebuilds the `API_CLIENT`/`EVENT_BUS` globals -- set them up directly here instead.
       globalThis.API_CLIENT = createApiClientStub()
       globalThis.EVENT_BUS = mitt()
       browser = await chromium.launch()
@@ -97,8 +89,8 @@ describe(
       const html = wrapper.html()
       const scopedCss = collectMountedStyles()
 
-      // -> The precondition, asserted rather than assumed: no scoped CSS means no wrap rule at
-      //    all, and every rect below would be measuring an unstyled DOM.
+      // -> Asserted rather than assumed: with no scoped CSS there is no wrap rule at all, and every
+      //    rect below would be measuring an unstyled DOM.
       expect(scopedCss).toContain('nav-edit-item-link')
 
       const appCss = await buildAppCss()
@@ -151,8 +143,8 @@ describe(
     })
 
     it('does not squeeze the generated row content into a narrow leftover column', () => {
-      // -> Pre-fix this measured ~56px wide; the label section should span most of the row width
-      //    once the eyebrow has its own line, not share it with the icon and handle.
+      // -> With the eyebrow on its own line the label spans most of the row width; sharing that
+      //    line with the icon and handle squeezes it under 60px.
       expect(measured.generated.label.width).toBeGreaterThan(100)
     })
 

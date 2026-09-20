@@ -1,27 +1,18 @@
 <template>
   <w-drawer class="nav-edit-drawer" :model-value="true" :width="295">
-    <!-- -> The Ledger column header: an eyebrow plus the item count, matching the handoff's own
-            "Menu items" band above the tree (`ui-redesign-nav/HANDOFF.md` §2). -->
     <div class="nav-edit-drawer-header">
       <span class="nav-edit-drawer-eyebrow">{{ t('navEdit.itemsHeading') }}</span>
       <span class="nav-edit-drawer-count">{{ state.items.length }}</span>
     </div>
     <w-scroll-area class="nav-edit flex-1 min-h-0">
-      <!--
-        The `q-list q-list--dense q-list--dark` this carried were the old framework's classes and
-        nothing defines them any more, which is why the rows had drifted to full height: the density
-        now comes from `dense` on each item, matching what NavSidebar renders.
-      -->
       <div class="nav-edit-mixed-hint text-caption" v-if="isMixed">
         {{ t('navEdit.menuSourceMixedListHint') }}
       </div>
       <!--
-        Exactly one root node per `#item` invocation, deliberately: `w-sortable` renders this slot
-        directly into the sortable container with no per-item wrapper (see its source), so SortableJS's
-        `oldIndex`/`newIndex` are DOM child positions -- a second sibling node per item (e.g. a divider
-        rendered alongside the row) would desync those from `state.items`' own indices. The generated
-        block's boundary is marked with pure CSS sibling selectors instead (`.is-generated` adjacency,
-        below) for exactly this reason.
+        Exactly one root node per `#item`: `w-sortable` renders this slot straight into the sortable
+        container with no per-item wrapper, so SortableJS's `oldIndex`/`newIndex` are DOM child
+        positions -- a second sibling node per item would desync them from `state.items`' indices.
+        The generated block's boundary is drawn with CSS sibling selectors instead.
       -->
       <w-sortable
         class="nav-edit-list"
@@ -59,11 +50,7 @@
             }"
             @click="setItem(element)"
             clickable>
-            <!--
-              -> Shown only for the first generated row after a manual one (see the CSS): the eyebrow
-                 marking `isMixed`'s generated block, which the handoff draws once above the run rather
-                 than per row.
-            -->
+            <!-- -> Rendered on every generated row; CSS shows it only on the first of the run. -->
             <span class="nav-edit-generated-eyebrow" v-if="element.generated">
               {{ t('navEdit.generatedFromTree') }}
             </span>
@@ -97,11 +84,6 @@
         </template>
       </w-sortable>
     </w-scroll-area>
-    <!--
-      -> Pinned outside the scroll area rather than scrolling with the list (it used to be the last
-         child inside `w-scroll-area`): the handoff draws it as the drawer's own bottom bar, ruled off
-         above, present whenever there is something of this menu's own to add.
-    -->
     <div class="nav-edit-bottombar" v-if="!isAuto">
       <w-btn
         style="flex: 1"
@@ -153,10 +135,6 @@
                 <w-item-label>{{ t('navEdit.clearItems') }}</w-item-label>
               </w-item-section>
             </w-item>
-            <!--
-              Hidden rather than disabled when there is nothing to copy from -- a single-locale site
-              with no other enabled site has no picker this could open onto.
-            -->
             <w-item clickable @click="openCopyDialog" v-if="canCopyFrom">
               <w-item-section side>
                 <w-icon name="tabler:file-import" />
@@ -181,19 +159,11 @@
         <p>{{ t('navEdit.noSelection') }}</p>
       </div>
       <template v-else>
-        <!-- -> The read-only notice sits ABOVE the (dimmed) card, per the handoff, rather than as a
-                banner glued to its top edge. -->
         <div class="nav-edit-callout" v-if="editingDisabled">
           <div class="nav-edit-callout__icon"><w-icon name="tabler:info-circle" size="18px" /></div>
           <p>{{ t('navEdit.menuSourceReadOnlyNotice') }}</p>
         </div>
 
-        <!--
-          One property card for every item type, per the handoff's "settings-row primitive" (the same
-          `BlueprintIcon` plate + `w-item` row this app's settings pages already draw with) -- rather
-          than three near-duplicate `w-card`s, only the type name, the parent badge and the rows inside
-          differ.
-        -->
         <w-card class="nav-edit-card" :class="{ 'nav-edit-card--disabled': editingDisabled }">
           <i class="nav-edit-card__corner nav-edit-card__corner--tl" aria-hidden="true"></i>
           <i class="nav-edit-card__corner nav-edit-card__corner--tr" aria-hidden="true"></i>
@@ -276,10 +246,9 @@
                 <w-input v-model="state.current.icon" dense :aria-label="t(`navEdit.icon`)">
                   <template #append>
                     <!--
-                      A button, not a bare `w-icon`: for a bundled icon WIcon renders an <svg> whose
-                      body is set through `v-html`, and that branch renders no slot -- so the menu
-                      inside it never existed and the control did nothing. It was also just the glyph,
-                      with no hit area of its own. Same fix as the page-properties dialog.
+                      A button, not a bare `w-icon`: for a bundled icon `WIcon` renders an <svg>
+                      whose body comes from `v-html`, and that branch renders no slot, so a `w-menu`
+                      nested inside the icon would never exist.
                     -->
                     <w-btn
                       flat
@@ -298,10 +267,9 @@
               </w-item-section>
             </w-item>
             <!--
-              A parent is a row that opens a submenu rather than a row that goes anywhere: the sidebar
-              renders it as an expansion item and never reads its target, so both fields below are
-              hidden rather than shown doing nothing. Hidden, not cleared -- unnesting the last child
-              turns the row back into an ordinary link, and it comes back with the address it had.
+              The sidebar renders a parent as an expansion item and never reads its target, so both
+              fields below would do nothing. Hidden, not cleared: unnesting the last child turns the
+              row back into an ordinary link, and it comes back with the address it had.
             -->
             <template v-if="currentIsParent">
               <w-item tag="label">
@@ -331,12 +299,6 @@
                     hide-bottom-space
                     :aria-label="t(`navEdit.target`)">
                     <template #append>
-                      <!--
-                        Beside the field rather than in place of it: a path someone knows is quicker
-                        typed than browsed to, and an external URL has nothing to browse. Same shape as
-                        the icon picker's button one row up, for the same reason -- both open a chooser
-                        for the field they sit in.
-                      -->
                       <w-btn
                         flat
                         dense
@@ -426,11 +388,6 @@
           </template>
         </w-card>
 
-        <!--
-          Structure card: nest/un-nest for a link, Delete for every type -- one card rather than the
-          per-type duplicate this used to be, matching the handoff's "header and separator items get
-          the same card with only Delete".
-        -->
         <w-card class="nav-edit-structure-card" v-if="!editingDisabled">
           <div class="nav-edit-structure-card__nest" v-if="state.current.type === `link`">
             <div class="nav-edit-structure-card__buttons">
@@ -479,22 +436,13 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { flattenMenuItems, reconstructMenuItems } from '@/helpers/navigation.js'
 
 /**
- * The item-list-plus-detail-panel navigation editor: the sortable list of items on the left, and the
- * header/link/separator property panel on the right (including the visibility-group picker).
- *
  * Deliberately ignorant of WHERE the menu it edits lives — it knows only a `siteId` and a `navId`,
- * the row `GET/PUT /sites/:siteId/navigation/:navId` addresses. That is what lets both hosts drive it:
- * `NavEditOverlay.vue` resolves `navId` from the page it is opened on (or the menu that page
- * inherits) and still owns the mode-aware `PUT .../pages/:pageId` save; `AdminNavigation.vue`'s
- * launched dialog resolves `navId` from the site id (site-wide default) or an override's own
- * `navigationId`, and saves straight to `PUT .../:navId` via `setNavItems`. Either way, saving itself
- * is the host's job: this component only builds the payload, via `buildSaveItems()`.
+ * the row `GET/PUT /sites/:siteId/navigation/:navId` addresses, which is what lets several hosts
+ * resolve `navId` their own way and drive the same editor. Saving is the host's job too: this
+ * component only builds the payload, via `buildSaveItems()`.
  */
 
-// PROPS
-
 const props = defineProps({
-  /** Site the menu belongs to. */
   siteId: {
     type: String,
     required: true
@@ -505,12 +453,8 @@ const props = defineProps({
     required: true
   },
   /**
-   * The menu's own source (`static`/`auto`/`mixed`) -- a different axis from wherever the host
-   * addresses this menu by. Left at the default for a host (e.g. `AdminNavEditDialog.vue`) that has
-   * not resolved it: `static` is what every menu was before this feature, and is the one source this
-   * component behaves for exactly as it always did. `NavEditOverlay.vue` is the one host that resolves
-   * and passes it, since it is the one host that also offers a way to change it (`NavEditMenu.vue`'s
-   * mode selector).
+   * The menu's own source (`static`/`auto`/`mixed`) — a different axis from however the host
+   * addresses this menu, and left at `static` by a host that has not resolved it.
    *
    * `auto` renders the whole list read-only, since every item is `generated` — there is nothing of
    * this menu's own to edit. `mixed` keeps add/remove/drag for the items that are NOT `generated`,
@@ -523,32 +467,19 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 const emit = defineEmits([
   'load-error',
-  /**
-   * Whether a load or a group fetch is in flight — the host's own Save button (and busy spinner)
-   * disable against this, so it is pushed out as a normal event rather than left for the host to
-   * reach for by reading `editorRef.value.loading` across the component boundary.
-   */
   'update:loading',
   /**
-   * `copyFrom()` below persists immediately (`POST .../:navId/copy`), unlike every other change in
-   * this editor -- which stays local until the host's own Save button calls `buildSaveItems()` and
-   * saves it. That means the reader-facing sidebar can go stale from this ONE action without the
-   * host ever calling its own save path -- OpenProject #1012. Pushed out as an event, matching this
-   * component's "deliberately ignorant of where the menu lives" design (see the header comment): it
-   * knows the copy just wrote to the server, not whether that menu is the one currently on screen.
+   * `copyFrom()` persists immediately, unlike every other change in this editor, which stays local
+   * until the host's own Save calls `buildSaveItems()`. So the reader-facing sidebar can go stale
+   * from this one action without the host ever running its save path — only the host knows whether
+   * the copied menu is the one currently on screen.
    */
   'copied'
 ])
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   loading: 0,
@@ -565,30 +496,19 @@ const state = reactive({
     isNested: false
   },
   groups: [],
-  /** This site's default-menu roots, one per active locale -- what "Copy from..." offers same-site. */
+  /** This site's default-menu roots, one per active locale. */
   copyLocales: [],
-  /** Other enabled sites -- what "Copy from..." offers for the cross-site case. */
   copyOtherSites: []
 })
 
-/**
- * The icon a new link item starts with.
- *
- * An Iconify reference, so that the icon picker opens on its search tab with this one selected, and so
- * that the sidebar draws it through `w-icon` like every other item. Kept to `mdi`, a set seeded on
- * every instance.
- */
+/** An Iconify reference from a set seeded on every instance, so the picker can open on it. */
 const DEFAULT_LINK_ICON = 'tabler:file-text'
 
 /**
- * The glyph a `link` row draws: its own `icon` when it has one, and otherwise a folder-vs-page
- * fallback (OpenProject #2885, porting #2826's fix here) -- `element.isFolder`, since a
- * generated (auto/mixed) folder item carries no `icon` of its own either, and without this an
- * icon-less folder row drew a blank 15px gap where the tree's own shape should be readable at a
- * glance. Not `NavSidebarItem.vue#iconFor()`'s `|| item.children?.length > 0` half of that same
- * check: `flattenMenuItem` (`helpers/navigation.js`) never puts a `children` array on a flat
- * editor row (nesting is `isNested` on the row *after* it instead), so it would always read
- * `undefined` here and never actually contribute.
+ * A generated (auto/mixed) folder item carries no `icon` of its own, so the fallback splits on
+ * `isFolder` — not `NavSidebarItem.vue#iconFor()`'s `item.children?.length` half of the same check,
+ * since `flattenMenuItem` never puts `children` on a flat editor row (nesting is `isNested` on the
+ * row *after* it instead).
  */
 function rowIcon(element) {
   return element.icon || (element.isFolder ? 'tabler:folder' : DEFAULT_LINK_ICON)
@@ -599,15 +519,10 @@ const visibilityOptions = [
   { value: true, label: t('navEdit.visibilityLimited') }
 ]
 
-// COMPUTED
-
 /**
- * Whether the link being edited is a parent — one the sidebar draws as a submenu.
- *
- * Parenthood is not a property of the item: this list is flat, and `isNested` says an item belongs to
- * whatever link comes before it, so what makes a link a parent is the item that FOLLOWS it. Which is why
- * this is asked of the list rather than read off `state.current`, and why it answers again the moment a
- * child is nested, unnested or dragged away.
+ * Parenthood is not a property of the item: the list is flat and `isNested` says an item belongs to
+ * whatever link comes before it, so what makes a link a parent is the item that FOLLOWS it. Hence
+ * asked of the list rather than read off `state.current`.
  */
 const currentIsParent = computed(() => {
   const item = state.current
@@ -618,11 +533,6 @@ const currentIsParent = computed(() => {
   return idx >= 0 && Boolean(state.items[idx + 1]?.isNested)
 })
 
-/**
- * How many items the selected parent link opens onto, for the property card's own "Parent · N
- * children" badge. Counted off the flat list rather than a real tree, matching `currentIsParent`'s
- * own reasoning: every consecutive `isNested` item right after this one belongs to it.
- */
 const currentChildCount = computed(() => {
   if (!currentIsParent.value) {
     return 0
@@ -635,7 +545,6 @@ const currentChildCount = computed(() => {
   return count
 })
 
-/** The property card's own header label -- the item type being edited, translated. */
 const currentTypeLabel = computed(() => {
   switch (state.current?.type) {
     case 'header':
@@ -649,29 +558,18 @@ const currentTypeLabel = computed(() => {
   }
 })
 
-/** Whole menu is `getNav`'s generated preview -- nothing of this menu's own to add, remove or drag. */
 const isAuto = computed(() => props.menuMode === 'auto')
 
-/** Generated and stored items share one list -- the divider/boundary rendering only applies here. */
 const isMixed = computed(() => props.menuMode === 'mixed')
 
-/** Whether the item currently open in the detail panel is one `getNav` generated, not a stored one. */
 const isCurrentGenerated = computed(() => Boolean(state.current?.generated))
 
-/**
- * Whether the detail panel's own fields (and its Delete/Nest buttons) are disabled -- either because
- * the WHOLE menu is read-only (`auto`), or because THIS item specifically is a generated one sitting
- * in an otherwise-editable `mixed` menu. Editing a generated item's fields would only be undone by the
- * next `getNav` read, which regenerates it fresh from the tree every time.
- */
+/** Editing a generated item would only be undone by the next `getNav` read, which regenerates it. */
 const editingDisabled = computed(() => isAuto.value || isCurrentGenerated.value)
 
 /**
- * `auto` disables dragging entirely -- every item is generated, so there is nothing of this menu's
- * own to reorder. `mixed` still drags normally among the non-generated items (`filter` blocks starting
- * a drag ON a generated one, `onMove` blocks dropping INTO the generated block), which is what keeps a
- * manual item from ending up interleaved with tree-walk output that would just be overwritten by the
- * next read anyway.
+ * `filter` blocks starting a drag ON a generated item, `onMove` blocks dropping INTO the generated
+ * block: a manual item interleaved with tree-walk output would just be overwritten by the next read.
  */
 const sortableOptions = computed(() => ({
   handle: '.handle',
@@ -683,13 +581,11 @@ const sortableOptions = computed(() => ({
 }))
 
 /**
- * Whether "Copy from..." has anything to offer: another locale of this site's own default menu, or
- * another enabled site (any of its locales). Hidden entirely rather than shown disabled when neither
- * holds, per the edge case a single-locale, single-site instance is in by default.
+ * `> 1` locale because this menu's own locale root is in that list. "Copy from..." is hidden rather
+ * than shown disabled when nothing qualifies: a single-locale, single-site instance has no picker
+ * this could open onto.
  */
 const canCopyFrom = computed(() => state.copyLocales.length > 1 || state.copyOtherSites.length > 0)
-
-// METHODS
 
 function setItem(item) {
   state.selected = item.id
@@ -697,14 +593,8 @@ function setItem(item) {
 }
 
 /**
- * Picks the link's target: a page of this wiki, or any URL.
- *
- * The same dialog the markdown editor's Insert Link opens, with both of its tabs — a navigation link
- * goes to either, and which one it is is the reader's question rather than this panel's. It opens on
- * whatever the field already holds, so coming back to a link that exists starts from that link.
- *
- * Its "open in a new tab" offer is turned off: this panel asks that one row down and stores the
- * answer, so a second control for it could only disagree with the toggle that is actually saved.
+ * The picker's own "open in a new tab" offer is turned off: this panel asks that one row down and
+ * stores the answer, so a second control could only disagree with the toggle that is actually saved.
  */
 function browseTarget() {
   dialog({
@@ -721,8 +611,7 @@ function browseTarget() {
 }
 
 function addItem(type) {
-  // -> Nothing of this menu's own to add to while every item is generated -- the Add button is
-  //    already hidden for `auto` (see the template), this is the defensive twin of that
+  // -> Defensive twin of the template's own `v-if="!isAuto"` on the Add button
   if (isAuto.value) {
     return
   }
@@ -753,8 +642,7 @@ function addItem(type) {
 }
 
 function removeItem(id) {
-  // -> A generated item is not this menu's own to remove -- the Delete button is already hidden for
-  //    one (see the template), this is the defensive twin of that
+  // -> Defensive twin of the template hiding Delete for a generated item
   if (state.items.find((item) => item.id === id)?.generated) {
     return
   }
@@ -764,9 +652,8 @@ function removeItem(id) {
 }
 
 function clearItems() {
-  // -> Clears only what this menu owns -- a generated item is not something a save could ever remove
-  //    (the next read regenerates it fresh from the tree regardless), so leaving it out of `items`
-  //    here would still show it right back after saving. Kept in place instead.
+  // -> Generated items are kept: a save cannot remove them (the next read regenerates them from the
+  //    tree), so dropping them here would only show them right back
   state.items = state.items.filter((item) => item.generated)
   state.selected = null
   state.current = {}
@@ -783,7 +670,7 @@ async function loadGroups() {
     const groups = await API_CLIENT.get('groups').json()
     state.groups = (groups ?? []).map((g) => ({ id: g.id, name: g.name }))
   } catch (err) {
-    // -> Without the list, per-group visibility cannot be set, but the rest of the editor still works
+    // -> A warning, not an error: only per-group visibility is lost, the rest of the editor works
     notify({
       type: 'warning',
       message: t('navEdit.groupsFailed'),
@@ -796,8 +683,8 @@ async function loadGroups() {
 async function loadMenuItems() {
   state.loading++
   try {
-    // -> `full`, because the editor has to see items limited to groups the editor is not in: saving
-    //    without them would delete them
+    // -> `full`, because the editor has to see items limited to groups it is not in: saving without
+    //    them would delete them
     const { items } = await API_CLIENT.get(`sites/${props.siteId}/navigation/${props.navId}`, {
       searchParams: { full: true }
     }).json()
@@ -815,33 +702,25 @@ async function loadMenuItems() {
 }
 
 /**
- * Builds the nested `items` payload a save PUTs, from the flat editing list.
- *
- * Thrown, not returned, on a nested item with nothing above it to nest under — the host's own
- * `save()` is what shows that as an error. `generated`-skipping and `mixed`-menu `pinned`
- * recomputation are `reconstructMenuItems`'s own concern — see its doc comment.
+ * Throws, rather than returning an error, on a nested item with nothing above it to nest under —
+ * the host's own `save()` is what shows that.
  */
 function buildSaveItems() {
   return reconstructMenuItems(state.items, { menuMode: props.menuMode })
 }
 
 /**
- * Fetches what "Copy from..." needs to decide whether it has anything to offer, and to populate its
- * picker without asking the server the same two questions again once opened: this site's own
- * default-menu roots (`GET .../navigation/roots`) and the list of other enabled sites (`GET /sites`).
- *
- * Failures are swallowed rather than surfaced via `notify()` -- unlike the group list, losing this
- * only hides an action, it does not break anything already on screen. The two calls are settled
- * independently so that a site list the current user cannot read (it needs `read:sites` /
- * `access:admin`, not just the `manage:navigation` this whole editor already requires) does not also
- * take down the same-site "copy from another locale" case, which needs neither.
+ * Failures are swallowed rather than surfaced via `notify()`: losing this only hides an action, it
+ * does not break anything already on screen. The two calls settle independently so that a site list
+ * the current user cannot read (`GET /sites` needs `read:sites` / `access:admin`, not just the
+ * `manage:navigation` this editor already requires) does not also take down the same-site "copy from
+ * another locale" case, which needs neither.
  */
 async function loadCopySources() {
   state.loading++
   // -> Wrapped as a whole, not just around the `await`: `API_CLIENT.get()` itself can throw
-  //    synchronously (a bad client-side call, or a test double standing in for a network error)
-  //    before `Promise.allSettled` ever gets to run, which would otherwise skip `state.loading--`
-  //    below and leave the editor stuck looking busy forever
+  //    synchronously before `Promise.allSettled` runs, skipping `state.loading--` below and leaving
+  //    the editor stuck looking busy
   try {
     const [rootsResult, sitesResult] = await Promise.allSettled([
       API_CLIENT.get(`sites/${props.siteId}/navigation/roots`).json(),
@@ -859,7 +738,6 @@ async function loadCopySources() {
   state.loading--
 }
 
-/** Opens the source picker, then runs the copy against whatever it answers with. */
 function openCopyDialog() {
   dialog({
     component: defineAsyncComponent(() => import('./CopyNavItemsDialog.vue')),
@@ -873,14 +751,9 @@ function openCopyDialog() {
 }
 
 /**
- * Appends a source menu's items onto this one, matching 2.5.x's merge-onto-existing "copy from
- * locale" behavior -- `replace` is not offered from here, since this editor always already has a
- * loaded, editable list of its own, and appending is the natural fit for that.
- *
- * Reloads from the server afterwards rather than splicing the response in locally, and warns the
- * admin to check the copied items: item `target` paths travel over unrewritten (a page path valid in
- * the source locale or site is not guaranteed to mean anything in this one), which is the same
- * best-effort limitation 2.5.x had.
+ * `append` only, never `replace`: this editor always already has a loaded, editable list of its own.
+ * Copied `target` paths travel over unrewritten — a page path valid in the source locale or site is
+ * not guaranteed to mean anything in this one — which is what the warning toast is for.
  */
 async function copyFrom(sourceSiteId, sourceNavId) {
   state.loading++
@@ -889,8 +762,6 @@ async function copyFrom(sourceSiteId, sourceNavId) {
       json: { sourceSiteId, sourceNavId, mode: 'append' }
     }).json()
     await loadMenuItems()
-    // -> OpenProject #1012: this already persisted server-side, unlike the rest of this editor's
-    //    changes -- see the `copied` event's own doc comment above for why the host needs telling.
     emit('copied')
     notify({
       type: 'warning',
@@ -905,14 +776,10 @@ async function copyFrom(sourceSiteId, sourceNavId) {
   state.loading--
 }
 
-/** Reloads the menu's items and the group list — the host calls this once `navId` is known. */
 async function load() {
   await Promise.all([loadMenuItems(), loadGroups(), loadCopySources()])
 }
 
-// EXPOSED
-
-/** Whether an initial load or a group fetch is in flight. */
 const loading = computed(() => state.loading > 0)
 
 defineExpose({
@@ -921,46 +788,12 @@ defineExpose({
   buildSaveItems
 })
 
-// WATCHERS
-
 watch(loading, (v) => emit('update:loading', v), { immediate: true })
-
-// MOUNTED
 
 onMounted(load)
 </script>
 
 <style scoped>
-/*
-  -- Cobalt (Task #2802) ----------------------------------------------------------------
-  `ui-redesign-nav/HANDOFF.md` §2, Cobalt column, on top of the Ledger restyle below (Task #2801) --
-  every value here is a `var(--color-*)`/`var(--radius-*)` reference onto `tailwind.css`'s
-  `body.body--cobalt` token block (Task #2767), the same way the Ledger rules read literal SCSS
-  `$variables` and the `body--dark` rules read the dark ones -- never a hardcoded hex.
-
-  Two values the handoff calls for have no token in that block yet, and are flagged rather than
-  hardcoded (see the two comments below that name them): the Cobalt "faint rule" `#eef1fb` (property
-  card internal rules) and the Cobalt "slate button" text `#1e2a5e` (this file's own outline-button
-  text and callout copy).
-
-  A THIRD, larger gap: this file's several `color="primary"` / `color="negative"` / `toggle-color=
-  "primary"` usages (the Add button, Delete button, and every Visibility segmented control) resolve
-  to `var(--q-primary)` / `var(--q-accent)` / `var(--q-negative)` -- the admin-configurable brand
-  colors, which `tailwind.css`'s own comment says get their per-aesthetic DEFAULT from
-  `helpers/aestheticDefaults.js` (Task #2768), not a `body.body--cobalt` block here. That file does
-  not exist yet, so none of those controls currently follow the aesthetic at all (they stay whatever
-  `--q-primary`/`--q-accent`/`--q-negative` resolve to site-wide) -- left untouched here rather than
-  hardcoding the handoff's `#c8303c` into this one file's buttons, which would only be right until an
-  admin picks a different accent and would still leave every OTHER `color="primary"` button on this
-  page (there are none besides Add/Delete/the segmented controls) inconsistent with it.
-*/
-
-/*
-  The Ledger drawer: the sidebar's own tint (`var(--color-tint-alt)`), not a fixed dark panel -- the drawer used
-  to be `bg-dark-6` regardless of the site's theme, which is gone along with the last hardcoded dark
-  surface in this file. `body--dark` gets its own step of the app's existing dark ramp instead, the
-  same way `TableEditorOverlay` does.
-*/
 .nav-edit-drawer {
   background-color: var(--color-tint-alt);
   border-inline-end: 1px solid var(--color-hairline);
@@ -971,12 +804,6 @@ onMounted(load)
   border-inline-end-color: var(--color-hairline-dark);
 }
 
-/*
-  Cobalt: the reader-facing sidebar's own indigo ground (`--color-admin-sidebar-bg`, `#10194a`),
-  matching the handoff's "the sidebar indigo, no border" -- the drawer's Ledger tint and Cobalt's dark
-  ground are different ROLES (a light tint strip vs. the sidebar itself), which is why this is a
-  `body--cobalt` override rather than the same token the Ledger rule above already reads.
-*/
 :global(body.body--cobalt .nav-edit-drawer) {
   background-color: var(--color-admin-sidebar-bg);
   border-inline-end: 0;
@@ -1060,12 +887,6 @@ onMounted(load)
   --w-hairline-color: #{var(--color-border-dark)};
 }
 
-/*
-  Cobalt: the grip handle and the separator's own rule both sit on the dark drawer ground now, so
-  both move to a translucent-white tone rather than the light-drawer slate above -- the handle to the
-  handoff's own row-glyph "disabled" value (`--color-text-caption`, `#5a6699`), the rule to the same
-  on-dark translucency the generated block's dashed border uses below.
-*/
 :global(body.body--cobalt .nav-edit .handle) {
   color: var(--color-text-caption);
 }
@@ -1094,12 +915,8 @@ onMounted(load)
 }
 
 /*
-  Cobalt: "padding/row-gap/radius matching `NavSidebar.vue` in Cobalt" (Task #2802's own description)
-  -- `--radius-control` gives each row Cobalt's 6px row radius (and is `0` in Ledger, so applying it
-  unconditionally below on `.nav-edit-item` is a no-op there). The row gap is approximated as a
-  bottom margin per row rather than a flex `gap`, since `w-sortable`'s items are plain block children
-  (see the template's own comment on why there is exactly one root node per item) rather than a flex
-  container this could add `gap` to directly.
+  The row gap is a per-row bottom margin rather than a flex `gap`: `w-sortable` renders its items as
+  plain block children, not a flex container this could add `gap` to.
 */
 :global(body.body--cobalt .nav-edit-list) {
   padding: 14px 10px 0;
@@ -1130,20 +947,14 @@ onMounted(load)
     background-color: var(--color-tint);
   }
 
-  /*
-    A `mixed` menu's generated block, styled apart from what this menu actually owns: dimmed and not
-    grab-cursored (the handle icon is simply omitted for one -- see the template), so a glance at the
-    list already tells the two apart before reading either the mixed-hint above the list or the detail
-    panel's disabled fields.
-  */
   &.is-generated {
     color: var(--color-slate-faint);
     cursor: default;
   }
 
   /*
-    The boundary itself, marked with a rule rather than an extra element: see the template comment on
-    `w-sortable`'s `#item` slot for why a divider cannot be a sibling DOM node here.
+    The generated block's boundary, drawn as a rule rather than an extra element: see the template's
+    `#item` slot comment for why a divider cannot be a sibling DOM node here.
   */
   &.is-generated + &:not(.is-generated),
   &:not(.is-generated) + &.is-generated {
@@ -1166,14 +977,6 @@ onMounted(load)
   }
 }
 
-/*
-  Cobalt: the row-type tables in the handoff give each row kind its own on-dark text tone (header
-  `#7f8ed1`, link `#d7deff`, generated `#5a6699`, ...) rather than one uniform row color the way
-  Ledger's `var(--color-slate)` is -- the base color here is the Link row's own tone (`--color-sidebar-text`),
-  and the header/generated rows below override it more specifically. `.is-active`'s ground reuses
-  `--nav-active-inset` (already the exact composite box-shadow the handoff calls for) rather than a
-  border, since Cobalt's selected row is an inset accent bar, not a Ledger-style border.
-*/
 :global(body.body--cobalt .nav-edit-item) {
   color: var(--color-sidebar-text);
 
@@ -1183,16 +986,12 @@ onMounted(load)
     color: var(--color-white);
     font-weight: 600;
 
-    /* -> Flagged: the handoff's own selected-row grip (`#c9d6ff`) has no token; nearest is the
-          sidebar's own on-dark text tone. */
     .handle {
       color: var(--color-sidebar-text);
     }
   }
 
   &.sortable-chosen {
-    /* -> Not spec'd explicitly for Cobalt; a faint lift off the dark ground, matching the same
-          translucent-white treatment the generated block and nested run use below. */
     background-color: rgb(255 255 255 / 0.06);
   }
 
@@ -1207,10 +1006,8 @@ onMounted(load)
 }
 
 /*
-  The generated block's own eyebrow ("From the page tree"), drawn once above the run rather than on
-  every generated row -- present in the DOM on every one (so there is exactly one root node per
-  `w-sortable` `#item`, per the template's own comment) and shown by CSS only on the row a manual item
-  (or nothing) precedes.
+  Present in the DOM on every generated row -- the `#item` slot allows only one root node per item --
+  and shown by CSS only on the row a manual item (or nothing) precedes.
 */
 .nav-edit-generated-eyebrow {
   display: none;
@@ -1260,16 +1057,10 @@ onMounted(load)
 
 .nav-edit-item-link {
   /*
-    OpenProject #2825: the row itself has only ONE main section (icon + label + trailing handle),
-    so `WItem.vue`'s shared `flex-wrap: wrap` never turns on -- that is scoped to
-    `:has(.w-item-section--main + .w-item-section--main)`, the two-main-section "settings row"
-    shape from #2822/#2823, deliberately narrowed to avoid touching an ordinary menu/nav row like
-    this one. But the generated-eyebrow span below (`.nav-edit-generated-eyebrow`, `flex-basis:
-    100%`) still needs somewhere to wrap TO when it's shown, or it just steals space on the row's
-    one unwrapped line and squeezes the icon/label/handle into whatever is left. A local,
-    unconditional `flex-wrap: wrap` here is inert for the ordinary (non-generated) row -- nothing
-    else on this row ever claims a 100% flex-basis -- so it only ever does anything once the
-    eyebrow is present.
+    `WItem.vue`'s shared `flex-wrap: wrap` is scoped to two-main-section rows, which this is not, so
+    the generated eyebrow (`flex-basis: 100%`) would have nothing to wrap TO and would instead
+    squeeze the icon/label/handle off the row's one line. Inert until the eyebrow is present --
+    nothing else on this row claims a full-width basis.
   */
   flex-wrap: wrap;
   padding: 7px 10px 7px 18px !important;
@@ -1280,13 +1071,9 @@ onMounted(load)
   }
 
   /*
-    OpenProject #2885: a nested row used to be marked with the same rail + background-wash +
-    mitred-elbow construction `NavSidebar.vue` drew for an open group's children -- #2827 already
-    dropped that reading there, and this ports the identical fix here so both views of the tree
-    stop disagreeing. Indentation is the only nesting cue left; the 10px border-inline-start stays
-    (it is the one thing providing it -- nothing else on this row declares content padding for it)
-    but goes transparent, and the mitred `::before` elbow that used to turn it out of the row above
-    is gone outright, along with its per-theme colour overrides below.
+    Indentation is the only nesting cue, and the transparent 10px `border-inline-start` is what
+    provides it -- nothing else on this row declares content padding for it -- so it is load-bearing
+    despite drawing nothing.
   */
   &.is-nested {
     margin-inline-start: 18px;
@@ -1300,13 +1087,6 @@ onMounted(load)
   }
 }
 
-/*
-  Cobalt: "Link | ... padding 7px 10px 7px 18px | `#d7deff`, icon `#7f8ed1`, 8px 10px" -- a shallower,
-  symmetric padding (no 18px indent) and a leading-icon color distinct from the row's own text color
-  (both currently paint with `currentColor` off `.nav-edit-item`'s single color -- see that rule's own
-  Cobalt override above for the text half). `:not(.handle)` excludes the trailing grip, which keeps
-  its own color from the `.handle` rule.
-*/
 :global(body.body--cobalt .nav-edit-item-link) {
   padding: 8px 10px !important;
 
@@ -1319,19 +1099,13 @@ onMounted(load)
   color: var(--color-sidebar-icon);
 }
 
-/*
-  Cobalt keeps its own, shallower indent than Ledger's 18px -- the rail/wash/radius/text-tone
-  that used to go with it were the same #2827-style darkening this whole rule was gutted for
-  above, so nothing else survives here either.
-*/
 :global(body.body--cobalt .nav-edit-item-link.is-nested) {
   margin-inline-start: 10px;
 }
 
 /*
-  Orphaned nested row: a nested link with nothing valid above it to nest under (the very first item in
-  the list, or one immediately following a header/separator) -- flagged the way `nestingWarn` promises,
-  in the accent wash rather than the app's generic `var(--color-negative)`.
+  Orphaned nested row -- a nested link with nothing valid above it to nest under -- flagged in the
+  accent wash the way `nestingWarn` promises, not the app's generic `var(--color-negative)`.
 */
 .nav-edit-item-header,
 .nav-edit-item-separator {
@@ -1357,9 +1131,8 @@ onMounted(load)
 }
 
 /*
-  Cobalt: "ground `rgba(255,77,90,.16)`, rail `#ff4d5a`" -- that rgba is `--color-accent-fill` itself
-  (`#ff4d5a` = `rgb(255 77 90)`) at 16% opacity, so it is written as the decomposed rgb() triplet
-  rather than a `color-mix()`/relative-color expression this codebase does not otherwise use.
+  The ground is `--color-accent-fill` at 16%, written as a decomposed rgb() triplet rather than the
+  `color-mix()`/relative-color expression this codebase does not otherwise use.
 */
 :global(body.body--cobalt .nav-edit-item-header + .nav-edit-item-link.is-nested),
 :global(body.body--cobalt .nav-edit-item-separator + .nav-edit-item-link.is-nested),
@@ -1392,8 +1165,6 @@ onMounted(load)
   padding: 12px 14px;
   border-top-color: var(--color-sidebar-hairline);
 }
-
-/* -- Right panel -------------------------------------------------------- */
 
 .nav-edit-panel {
   display: flex;
@@ -1442,13 +1213,6 @@ onMounted(load)
   color: var(--color-text-dark);
 }
 
-/*
-  Cobalt: "`#e6edff`, `border-left: 3px solid #1f4fd6`, radius 6px, text `#1e2a5e`" -- a flat tinted
-  card with an accent-colored start border, rather than Ledger's bordered box with a separate icon
-  gutter, so the gutter div's own background/divider are cleared below rather than restyled to match.
-  `#1e2a5e` (the same "slate button" gap the overlay header's Cancel button flags) has no token yet;
-  `--color-text-secondary` is the nearest existing one.
-*/
 :global(body.body--cobalt .nav-edit-callout) {
   border: 0;
   border-inline-start: 3px solid var(--color-accent-strong);
@@ -1467,15 +1231,9 @@ onMounted(load)
 }
 
 /*
-  Cobalt shape (Task #2767's own shape tokens): `--radius-card`/`--shadow-card` are `0`/`none` in
-  Ledger, so applying them here unconditionally (rather than behind a `body--cobalt` guard) changes
-  nothing there and gives Cobalt "white, radius 8px" with a hairline ring in place of a drop shadow
-  (OpenProject #2856's matte pass) with no separate override block needed. `overflow: hidden` is NOT
-  included here, unlike `.nav-edit-structure-card`
-  below -- Ledger's own corner marks (`.nav-edit-card__corner`, right below) are absolutely positioned
-  OUTSIDE this card's box on purpose, to overhang the edge by 4px, and `overflow: hidden` would clip
-  them; it is added Cobalt-only instead, once the marks are already hidden there (`--corner-marks:
-  none`).
+  No `overflow: hidden` here, unlike `.nav-edit-structure-card`: the corner marks below are
+  positioned OUTSIDE this card's box to overhang it by 4px, and would be clipped. Cobalt hides the
+  marks (`--corner-marks: none`), so it can afford the clip.
 */
 .nav-edit-card {
   max-width: 760px;
@@ -1493,14 +1251,9 @@ onMounted(load)
 }
 
 /*
-  The property card's own corner marks -- four short strokes at 7px, overhanging the card by 4px, in
-  the icon-stroke slate. Real elements rather than a `::before`/`::after` pair (only two pseudo-
-  elements are available and four corners are needed), the same way the design's own reference draws
-  them.
-
-  `display: var(--corner-marks)` is the same shape token every registration mark in the app answers
-  to (`block` in Ledger, `none` in Cobalt, where the card carries a radius and a shadow instead) --
-  not a `body--cobalt` override, since the token already IS the per-aesthetic switch.
+  Four real elements rather than a `::before`/`::after` pair -- only two pseudo-elements are
+  available and four corners are needed. `display: var(--corner-marks)` is itself the per-aesthetic
+  switch (`block` in Ledger, `none` in Cobalt), so no `body--cobalt` override is needed.
 */
 .nav-edit-card__corner {
   position: absolute;
@@ -1564,12 +1317,6 @@ onMounted(load)
   color: var(--color-slate-light);
 }
 
-/*
-  Cobalt: "40px white, rule `#eef1fb`; type name Barlow Condensed 600 16px `#1f4fd6`" -- white rather
-  than tinted, a taller band, and the display face/size/color the handoff gives the type name (Ledger
-  keeps the mono eyebrow treatment instead). `#eef1fb` (the Cobalt "faint rule") has no token yet;
-  `--color-hairline` is the nearest existing divider.
-*/
 :global(body.body--cobalt .nav-edit-card__header) {
   height: 40px;
   background-color: var(--color-white);
@@ -1593,7 +1340,6 @@ onMounted(load)
   text-transform: uppercase;
 }
 
-/* Cobalt: "badge `#e6edff` / `#1a3fb0`, radius 4px" -- a filled tag-style badge, not an outline. */
 :global(body.body--cobalt .nav-edit-parent-badge) {
   border: 0;
   border-radius: var(--radius-mark);
@@ -1642,12 +1388,7 @@ onMounted(load)
   color: var(--color-text-secondary);
 }
 
-/*
-  Cobalt: "glyphs indent-increase / indent-decrease, text `#38465f` / `#1f4fd6`" -- `color="slate"`
-  sets `var(--color-slate)` as an inline style (same non-aesthetic-token reasoning as the overlay
-  header's Cancel button), so this needs the same `!important` override. Unlike Cancel's, this one
-  has a real Cobalt token: `--color-accent-strong` is exactly the `#1f4fd6` the handoff calls for.
-*/
+/* `color="slate"` sets an inline style on the button, so overriding it here needs `!important`. */
 :global(body.body--cobalt .nav-edit-structure-btn) {
   color: var(--color-accent-strong) !important;
 }

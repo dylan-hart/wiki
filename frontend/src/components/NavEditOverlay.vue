@@ -4,9 +4,8 @@
       <w-icon name="tabler:layout-sidebar" left size="md" />
       <span>{{ t(`navEdit.editMenuItems`) }}</span>
       <!--
-        Which menu is on screen, when it is not this page's own: an inherited menu is shared with every
-        page that falls back to it, so a change here is not local to the page it was made from. Styled
-        as the handoff's own header pill rather than a plain caption -- see the `<style>` block below.
+        An inherited menu is shared with every page that falls back to it, so a change made here is
+        not local to the page it was made from.
       -->
       <span class="nav-edit-header-notice ms-3" v-if="isEditingInherited">
         <w-icon name="tabler:info-circle" size="12px" />
@@ -74,11 +73,8 @@ import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 import NavItemEditor from '@/components/NavItemEditor.vue'
 
-// PROPS
-
 /**
- * Initial state from whoever opened this overlay (`NavEditMenu.vue`'s `siteStore.$patch({ overlay:
- * 'NavEdit', overlayOpts: {...} })`), forwarded here by `MainOverlayDialog.vue` (OpenProject #2530).
+ * Initial state from whoever opened this overlay, forwarded here by `MainOverlayDialog.vue`.
  * `navId`/`menuMode` below read this prop, not `siteStore.overlayOpts` directly.
  */
 const props = defineProps({
@@ -86,98 +82,68 @@ const props = defineProps({
 })
 
 /**
- * The per-page half of navigation editing, opened FROM a page (via `NavEditMenu.vue`'s mode picker,
- * itself opened from the page action menu) to edit THAT page's own `navigationMode` and menu — with
- * the ancestor menu it currently inherits (if any) resolved for it as `overlayOpts.navId` (the
- * `overlay-opts` prop from `MainOverlayDialog.vue`).
- * See `navId` and `isEditingInherited` below for how that resolution plays out, and `save()` for why
- * the mode has to travel with the items rather than being fixed by which menu is on screen.
- *
- * The site-wide counterpart is `AdminNavigation.vue`, which answers "where, across the whole site,
- * has someone already deviated from the default menu" and edits the site-wide default menu directly
- * — see its own header comment for the full split. Since Task 433 both surfaces host the same
- * `NavItemEditor.vue` for the actual item list/detail-panel editing, parameterized here by `navId`
- * (resolved below) rather than by page context, so a capability added to the item model itself needs
- * no duplicate work. What each host still owns separately is how the menu is addressed and how the
- * save is framed (mode-aware here vs. mode-agnostic in the admin dialog) — see `AdminNavigation.vue`
- * for why that half does NOT come for free between the two, and needs the equivalent decision made on
- * both sides whenever it changes.
+ * The per-page half of navigation editing, opened FROM a page to edit THAT page's own
+ * `navigationMode` and menu; `AdminNavigation.vue` is the site-wide counterpart. Both host the same
+ * `NavItemEditor.vue`, parameterized by `navId` rather than by page context -- what each owns
+ * separately is how the menu is addressed and how the save is framed (mode-aware here,
+ * mode-agnostic in the admin dialog), so a change to that half needs the equivalent decision made
+ * on both sides.
  */
-
-// STORES
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   saving: 0,
-  /** Mirrors `NavItemEditor`'s own `loading` via `@update:loading`, into `isBusy` below. */
   editorLoading: false
 })
 
 /** @type {import('vue').Ref<InstanceType<typeof NavItemEditor> | null>} */
 const editorRef = ref(null)
 
-// COMPUTED
-
 /**
- * The menu being edited.
- *
- * `overlayOpts.navId` is a menu this page does not own: the one it inherits, resolved by the nav menu
- * that opened this editor, so that the sidebar a page shows can be edited from that page rather than
- * only from the ancestor holding it. Saving writes it back where it lives — see `save()`.
+ * `overlayOpts.navId` is a menu this page does not own: the one it inherits, resolved by the nav
+ * menu that opened this editor, so the sidebar a page shows can be edited from that page rather
+ * than only from the ancestor holding it.
  *
  * Otherwise the page's own menu. The home page edits the site-wide menu — the one every other page
- * inherits — which is why it goes through its resolved id rather than its own. Any other page owns a
- * menu keyed by its own id, which the server creates on the first save.
+ * inherits — which is why it goes through its resolved id rather than its own. Any other page owns
+ * a menu keyed by its own id, which the server creates on the first save.
  */
 const navId = computed(() => {
   return props.overlayOpts.navId ?? (pageStore.isHome ? pageStore.navigationId : pageStore.id)
 })
 
-/** Whether the menu on screen is an inherited one, which is shared with every page using it. */
 const isEditingInherited = computed(() => Boolean(props.overlayOpts.navId))
 
 /**
  * The resolved menu's own source (`static`/`auto`/`mixed`) -- a different axis from the entry's own
- * cascade `mode`. Resolved by `NavEditMenu.vue`'s popup before this overlay ever opens (see its
- * `loadMenuMode`) and carried here via `overlayOpts`, rather than fetched again: it is what decides
- * whether `nav-item-editor` below renders read-only (`auto`), and it travels back out again on save so
- * that a source picked in the popup but not yet saved there is not silently lost.
+ * cascade `mode`. Carried in via `overlayOpts` rather than fetched again, and sent back out on save
+ * so that a source picked in the popup but not yet saved there is not silently lost.
  *
- * Left `undefined` (not defaulted to `'static'`) rather than assumed: `nav-item-editor` already
- * defaults its own `menuMode` prop to `'static'`, and an explicit `undefined` prop value falls through
- * to a component's own default exactly the same as the prop being omitted -- so this only ever adds
- * information, never overrides the editor's default with a guess of its own.
+ * Left `undefined` rather than defaulted to `'static'`: an explicit `undefined` prop falls through
+ * to `nav-item-editor`'s own default exactly as omitting it would, so this only ever adds
+ * information, never overrides that default with a guess of its own.
  */
 const menuMode = computed(() => props.overlayOpts.menuMode)
 
 /**
- * Loading the menu, loading the group list, or saving — any of which the header spinner covers and
- * the Save button disables against.
- *
  * `state.editorLoading` tracks via a plain `@update:loading` event rather than reading
  * `editorRef.value.loading` directly: a normal parent/child event, rather than a computed reaching
  * across the component boundary into another component's exposed state.
  */
 const isBusy = computed(() => state.saving > 0 || state.editorLoading)
 
-// METHODS
-
 function close() {
   siteStore.$patch({ overlay: '' })
 }
 
 /**
- * `nav-item-editor`'s "Copy from..." action (OpenProject #1012) persists on its own, ahead of this
- * overlay's own Save button -- see `NavItemEditor.vue`'s `copied` event doc comment. Force-refetch
- * for the same reason `save()` below does: the id may not have changed even though its items did.
+ * `nav-item-editor`'s "Copy from..." action persists on its own, ahead of this overlay's own Save
+ * button. Force-refetch for the same reason `save()` below does: the id may not have changed even
+ * though its items did.
  */
 async function onCopied() {
   await siteStore.fetchNavigation(navId.value, true)
@@ -190,17 +156,13 @@ async function save() {
     const items = editorRef.value.buildSaveItems()
 
     /*
-      The mode goes with the items, because the mode is what decides which menu they belong to: with
-      `inherit` the server stores them against the menu this page inherits — the one shown on screen,
-      and the one `navId` was resolved from — rather than starting a menu of this page's own that
-      nothing would point at.
+      The mode travels with the items because it is what decides which menu they belong to: under
+      `inherit` the server stores them against the menu this page inherits — the one on screen —
+      rather than starting a menu of this page's own that nothing would point at.
     */
     const resp = await API_CLIENT.put(`sites/${siteStore.id}/navigation/pages/${pageStore.id}`, {
       json: {
         mode: props.overlayOpts.mode ?? pageStore.navigationMode,
-        // -> Carried through unchanged (see `menuMode` above): the Save button is disabled while
-        //    `auto`, so this only ever re-affirms whatever source was already resolved, or persists a
-        //    source picked in the popup but not yet saved from there
         menuMode: menuMode.value,
         items
       }
@@ -213,15 +175,13 @@ async function save() {
       navigationMode: resp.navigationMode,
       navigationId: resp.navigationId ?? null
     })
-    // -> Redraw the sidebar from what was just saved, rather than waiting for a navigation.
-    //    `forceRefresh: true` (OpenProject #1012) because the id itself may not have changed even
-    //    though its items just did -- `fetchNavigation()`'s own cache check would otherwise skip it.
+    // -> `forceRefresh: true` because the id itself may not have changed even though its items
+    //    just did -- `fetchNavigation()`'s own cache check would otherwise skip the refetch.
     await siteStore.fetchNavigation(resp.navigationId ?? navId.value, true)
     close()
   } catch (err) {
-    // -> `reconstructMenuItems()` (`helpers/navigation.js`) throws a plain error code, not a
-    //    translated string, so it stays testable with no i18n context -- translate its one thrown
-    //    code here, at the display boundary, same as every other message shown to the user.
+    // -> `reconstructMenuItems()` throws a plain error code rather than a translated string, so it
+    //    stays testable with no i18n context -- translated here, at the display boundary.
     const isNestedLinkError = err.message === 'ERR_NESTED_LINK_WITHOUT_PARENT'
     notify({
       type: 'negative',
@@ -241,9 +201,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /*
-  The header's own notice pill (`ui-redesign-nav/HANDOFF.md` §2): fixed dark-header text/border tones
-  regardless of the site's own light/dark theme, since this band never leaves `var(--color-dark-2)` -- unlike the
-  rest of this overlay, there is nothing here for a `body--dark` variant to do.
+  Fixed dark-header text/border tones regardless of the site's own light/dark theme: this band never
+  leaves `var(--color-dark-2)`, so there is nothing here for a `body--dark` variant to do.
 */
 .nav-edit-header-notice {
   display: inline-flex;
@@ -257,23 +216,14 @@ onBeforeUnmount(() => {
 }
 
 /*
-  -- Cobalt (Task #2802) ---------------------------------------------------
-  The header band itself: Ledger's `var(--color-dark-2)` (`#242b3a`, from the shared `.card-header` class every
-  full-bleed overlay uses) becomes the Cobalt overlay-header indigo `#1c2a70` here ONLY -- scoped to
-  this component's own `.nav-edit-header` class rather than touching `.card-header` itself, which
-  every other overlay (Profile, File Manager, Table Editor, ...) still shares and which is not this
-  task's to restyle.
+  Scoped to this component's own `.nav-edit-header` rather than the shared `.card-header` class,
+  which every other full-bleed overlay still uses.
 */
 :global(body.body--cobalt .nav-edit-header) {
   background-color: var(--color-admin-sidebar-raised);
   border-bottom-color: var(--color-admin-sidebar-raised);
 }
 
-/*
-  The notice pill, Cobalt: a translucent pill on the indigo header rather than Ledger's bordered box
-  -- `--radius-pill` is the token layer's own "pill" radius (12px in Cobalt, 0 in Ledger, so this rule
-  is a no-op there), and the on-dark sidebar text tokens read cleanly against the header's own tint.
-*/
 :global(body.body--cobalt .nav-edit-header-notice) {
   border: 0;
   border-radius: var(--radius-pill);
@@ -283,10 +233,8 @@ onBeforeUnmount(() => {
 }
 
 /*
-  Header action button group, Cobalt: rounded outer corners (`--radius-control`) rather than Ledger's
-  square pair -- `overflow: hidden` clips the two buttons' own square corners to the group's rounded
-  ones without needing to touch `WBtnGroup`'s own scoped divider rule, which stays exactly as it is
-  for every other caller.
+  `overflow: hidden` clips the two buttons' own square corners to the group's rounded ones, leaving
+  `WBtnGroup`'s own scoped divider rule untouched for every other caller.
 */
 :global(body.body--cobalt .nav-edit-header-actions) {
   overflow: hidden;
@@ -294,20 +242,18 @@ onBeforeUnmount(() => {
 }
 
 /*
-  Cancel text color, Cobalt: `text-color="slate"` resolves to the generic, non-aesthetic
-  `var(--color-slate)` (WBtn sets it as an inline style, which only `!important` can override from
-  outside). The handoff's own Cobalt "slate button" value (`#1e2a5e`) has no token in `tailwind.css`'s
-  Cobalt block yet -- `--color-text-secondary` (`#4a5580`) is the nearest existing one; flagging here
-  rather than adding a bespoke token or a hardcoded hex for a single button.
+  `text-color="slate"` resolves to the generic, non-aesthetic `var(--color-slate)`, which `WBtn`
+  sets as an inline style, so only `!important` overrides it from outside. Cobalt has no "slate
+  button" token yet -- `--color-text-secondary` is the nearest existing one.
 */
 :global(body.body--cobalt .nav-edit-cancel-btn) {
   color: var(--color-text-secondary) !important;
 }
 
 /*
-  Save fill, Cobalt: `color="positive"` resolves to the generic, non-aesthetic `var(--color-positive)`
-  (also an inline style -- same `!important` reasoning as Cancel above). `--color-positive-fill` IS a
-  Cobalt-scoped token (`#22a37f`) and is the one the handoff actually specifies for this button.
+  `color="positive"` resolves to the generic, non-aesthetic `var(--color-positive)`, also inline --
+  same `!important` reasoning as Cancel above. `--color-positive-fill` is the Cobalt-scoped token
+  this button wants.
 */
 :global(body.body--cobalt .nav-edit-save-btn) {
   background-color: var(--color-positive-fill) !important;

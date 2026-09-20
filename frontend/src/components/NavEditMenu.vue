@@ -1,8 +1,8 @@
 <template>
   <div class="nav-edit-menu">
-    <!-- -> Two corner marks (start/end only, matching PageNewMenu.vue's own menu-material marks --
-            a menu is a light object, the full four belong to a dialog or a card), decorative and
-            drawn just inside the panel since WMenu's popup clips overflow past its padding edge. -->
+    <!-- -> Start/end only: a menu is a light object, the full four marks belong to a dialog or a
+            card. Drawn just inside the panel -- WMenu's popup clips overflow past its padding
+            edge. -->
     <i class="nav-edit-menu__mark nav-edit-menu__mark--start" aria-hidden="true" />
     <i class="nav-edit-menu__mark nav-edit-menu__mark--end" aria-hidden="true" />
 
@@ -19,10 +19,8 @@
         class="nav-edit-menu__row"
         :class="{ 'nav-edit-menu__row--selected': state.mode === entry.value }">
         <!--
-          `dark.isActive` swaps `accent-fill` for `accent-dark`: `--color-accent-fill` has no
-          dark-mode override of its own (OpenProject #2807), so left alone the radio's ring/dot drew
-          the light-mode bright tone against a dark ground -- same swap `w-input-control`'s error
-          ring already makes in `tailwind.css`.
+          `--color-accent-fill` has no dark-mode override of its own, so left alone the radio's
+          ring/dot draws the light-mode bright tone against a dark ground.
         -->
         <w-radio
           class="nav-edit-menu__radio"
@@ -42,11 +40,7 @@
       <div class="nav-edit-menu__rule" />
       <div class="nav-edit-menu__section">
         <div class="nav-edit-menu__section-label">{{ t('navEdit.menuSourceLabel') }}</div>
-        <!--
-          `dark.isActive` swaps `accent-fill` for `accent-dark`: `--color-accent-fill` has no
-          dark-mode override of its own (OpenProject #2807), so left alone the selected segment
-          filled with the light-mode bright tone against a dark ground.
-        -->
+        <!-- Same dark-mode accent swap as the mode radios above. -->
         <w-btn-toggle
           class="nav-edit-menu__menu-source"
           v-model="state.menuMode"
@@ -97,8 +91,6 @@ import { log } from '@/helpers/log'
 
 import NavCascadeGlyph from '@/components/NavCascadeGlyph.vue'
 
-// PROPS
-
 const props = defineProps({
   menuHideHandler: {
     type: Function,
@@ -110,50 +102,30 @@ const props = defineProps({
   }
 })
 
-// DARK MODE
-
 const dark = useDark()
-
-// STORES
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   mode: 'inherit',
   /**
-   * The menu this page inherits, resolved on open for any page that is not the root — see the
-   * `inherited` endpoint.
-   *
    * Asked of the server rather than read off `pageStore.navigationId`, which only answers this while
-   * the SAVED mode is `inherit`: on a page that currently overrides, picking Inherit here has to point
-   * at the ancestor's menu, and the ancestor holding it is not something the page knows.
-   *
+   * the SAVED mode is `inherit`: on a page that currently overrides, picking Inherit here has to
+   * point at the ancestor's menu, and the ancestor holding it is not something the page knows.
    * Null means nothing to inherit: the sidebar above this page is hidden.
    */
   inheritedNavId: null,
   /**
-   * The target menu row's own source (`static`/`auto`/`mixed`) -- a different axis from `mode` above,
-   * which is this ENTRY's cascade setting. Loaded from the currently-resolved menu (`pageStore.navigationId`)
-   * on open, via `loadMenuMode`, and saved alongside `mode` as `menuMode` -- see `save()` and
-   * `updateNavigation`'s own doc comment for why the two travel separately.
+   * The target menu row's own source (`static`/`auto`/`mixed`) -- a different axis from `mode`
+   * above, which is this ENTRY's cascade setting.
    */
   menuMode: 'static',
   loading: 0
 })
 
-/*
-  The five non-root cascade rows and the root's own two, in display order -- each entry's `label`/
-  `hint` are i18n keys, not resolved strings, so `cascadeModes` below stays a cheap re-slice on
-  `isRoot` rather than a full re-translation. Copy is the handoff's own shorter table
-  (ui-redesign-nav/HANDOFF.md §1); see `backend/locales/en.json`'s `navEdit.mode*` keys.
-*/
 const CASCADE_MODES = [
   { value: 'inherit', label: 'navEdit.modeInherit', hint: 'navEdit.modeInheritHint' },
   { value: 'override', label: 'navEdit.modeOverride', hint: 'navEdit.modeOverrideHint' },
@@ -171,8 +143,6 @@ const ROOT_CASCADE_MODES = [
   { value: 'hide', label: 'navEdit.modeHide', hint: 'navEdit.modeHideHint' }
 ]
 
-// COMPUTED
-
 const isRoot = computed(() => {
   return pageStore.path === '' || pageStore.path === 'home'
 })
@@ -187,7 +157,6 @@ const menuSourceOptions = computed(() => [
   { value: 'mixed', label: t('navEdit.menuSourceMixed') }
 ])
 
-// -> The one hint line under the segmented control, changing with the selection -- see the handoff.
 const menuSourceHint = computed(() => {
   return (
     {
@@ -207,15 +176,10 @@ const canEditMenuItems = computed(() => {
 })
 
 /**
- * Suppresses every CSS transition for one frame while a load-driven assignment lands.
- *
- * Identical to `composables/dark.js`'s / `composables/aesthetic.js`'s `withoutTransitions()` --
- * duplicated rather than shared, same reasoning as those two: this owns exactly one flip (the
- * Menu Source segmented control's initial value) and doesn't depend on either of them. Without
- * this, `loadMenuMode()`'s resolve lands on `state.menuMode` while `w-btn-toggle`'s
- * `transition-[background-color,border-color,color]` utility is still animating the popup's open,
- * so the control visibly slides from the hardcoded `'static'` default to the real value
- * (OpenProject #2819) instead of just appearing already-correct.
+ * Duplicated from `composables/dark.js`'s identical helper rather than shared: this owns one flip
+ * only. Without it, `loadMenuMode()`'s resolve lands while `w-btn-toggle`'s color transition is
+ * still animating the popup's open, so the control visibly slides from the `'static'` default to
+ * the resolved value.
  */
 function withoutTransitions(fn) {
   const root = document.documentElement
@@ -223,15 +187,13 @@ function withoutTransitions(fn) {
   fn()
 
   // -> Load-bearing: forces a synchronous style recalc so the browser commits the new color WHILE
-  //    transitions are still off -- see `dark.js`'s identical comment for the full reasoning.
+  //    transitions are still off.
   void getComputedStyle(document.body).transitionDuration
 
   requestAnimationFrame(() => {
     root.classList.remove('theme-transition-suppress')
   })
 }
-
-// WATCHERS
 
 watch(
   () => state.mode,
@@ -242,17 +204,13 @@ watch(
   }
 )
 
-// METHODS
-
 /**
- * Resolves the menu this page inherits, so that Inherit can offer to edit it.
- *
  * Quiet on failure: the mode itself is what this menu is for and can still be set, so a resolution
  * that did not come back only leaves the Edit Menu Items button out.
  */
 async function loadInheritedNav() {
-  // -> Deliberately outside `state.loading`, which is what the Save button spins on: this runs as the
-  //    menu opens, and a spinner there would read as a save in flight
+  // -> Outside `state.loading`, which is what the Save button spins on: this runs as the menu
+  //    opens, and a spinner there would read as a save in flight
   try {
     const resp = await API_CLIENT.get(
       `sites/${siteStore.id}/navigation/pages/${pageStore.id}/inherited`
@@ -268,11 +226,8 @@ async function loadInheritedNav() {
 }
 
 /**
- * Resolves the currently-resolved menu's own source mode, to preselect the Menu Source selector.
- *
- * `pageStore.navigationId` is already the right target regardless of this entry's own cascade mode --
- * inheriting or owning, it is the menu this page currently shows, set by the server on every mode
- * change. Skipped entirely when there is none (`hide`/`hideExact`), and quiet on failure like
+ * `pageStore.navigationId` is the right target regardless of this entry's own cascade mode --
+ * inheriting or owning, it is the menu this page currently shows. Quiet on failure like
  * `loadInheritedNav`: the cascade mode is still usable even if this one call did not come back.
  */
 async function loadMenuMode() {
@@ -297,8 +252,8 @@ function startEditing() {
     overlayOpts: {
       mode: state.mode,
       menuMode: state.menuMode,
-      // -> A menu this page does not own: only Inherit edits one, and only away from the root, where
-      //    inheriting and owning are the same menu. See NavEditOverlay's `navId`.
+      // -> A menu this page does not own: only Inherit edits one, and only away from the root,
+      //    where inheriting and owning are the same menu.
       ...(!isRoot.value && state.mode === 'inherit' && { navId: state.inheritedNavId })
     }
   })
@@ -308,8 +263,6 @@ function startEditing() {
 async function save() {
   state.loading++
   try {
-    // -> The menu items themselves are what the overlay saves; this popup only ever saves the two
-    //    modes -- the entry's cascade (`mode`) and the resolved menu's own source (`menuMode`)
     const resp = await API_CLIENT.put(`sites/${siteStore.id}/navigation/pages/${pageStore.id}`, {
       json: { mode: state.mode, menuMode: state.menuMode }
     }).json()
@@ -322,14 +275,10 @@ async function save() {
       navigationId: resp.navigationId ?? null
     })
     /*
-      Force-refetch rather than relying on the `pageStore.navigationId` watcher `NavSidebar.vue` runs
-      (OpenProject #1012's fix, same as `NavEditOverlay.vue`'s own `save()`): that watcher only fires
-      when the id itself changes, but plenty of saves from THIS popup leave it unchanged while still
-      changing what the sidebar should show -- `menuMode` alone (`static`/`auto`/`mixed`, resolved
-      against the SAME row), or `override` <-> `overrideExact` (both resolve to this entry's own row,
-      per `updateNavigation()`). Left to the watcher, none of those redraw the sidebar until a full
-      reload re-fetches from scratch -- this is the "still reproduces" gap the item editor's own Save
-      button already closed but this popup's Save never did.
+      Force-refetch rather than relying on the `pageStore.navigationId` watcher `NavSidebar.vue`
+      runs: that watcher only fires when the id itself changes, but plenty of saves from here leave
+      it unchanged while still changing what the sidebar shows -- `menuMode` alone, or `override`
+      <-> `overrideExact` (both resolve to this entry's own row).
     */
     await siteStore.fetchNavigation(resp.navigationId ?? null, true)
     props.menuHideHandler()
@@ -342,8 +291,6 @@ async function save() {
   state.loading--
 }
 
-// MOUNTED
-
 onMounted(() => {
   state.mode = pageStore.navigationMode
   loadMenuMode()
@@ -354,21 +301,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/*
-  The Ledger card, per ui-redesign-nav/HANDOFF.md §1 -- 344px, square, a hairline edge and the
-  create-menu's own drop shadow. `position: relative` is what the corner marks below position
-  against, same reasoning as `PageNewMenu.vue`'s own `.page-new-menu`.
-*/
+/* `position: relative` is what the corner marks below position against. */
 .nav-edit-menu {
   position: relative;
   width: 344px;
   max-width: 100%;
   background-color: var(--color-surface);
   /*
-    `--border-card`/`--radius-card` (#2767) are exactly the Ledger-hairline-card /
-    Cobalt-shadow-card pair this card material needs -- Ledger's `1px solid var(--color-hairline)`
-    and `0` radius are the token's own Ledger no-op default, so reading through the token changes
-    nothing here and picks up Cobalt's borderless, radius-8px value with no override below.
+    Through the card tokens rather than literals: their Ledger values are exactly what this card
+    needs, so Cobalt's borderless, radius-8px pair then applies with no override block below.
   */
   border: var(--border-card);
   border-radius: var(--radius-card);
@@ -382,22 +323,15 @@ onMounted(() => {
 }
 
 /*
-  Cobalt (handoff): `0 10px 28px rgba(16,25,74,.18)` -- (16,25,74) is `--color-ink`'s Cobalt value
-  (#10194a) at 18% alpha, the same way Ledger's own literal above is `--color-ink`'s Ledger value
-  (#1c2233 = rgb(28,34,51)) at 16%. No rgb-channel token exists to reference this through `var()`, so
-  both stay literals -- same convention the dark-mode block above already uses for its own shadow.
-  `overflow: hidden` is Cobalt-only, per the handoff ("no marks").
+  The shadow's rgb triplet is `--color-ink`'s Cobalt value at 18% alpha, as the Ledger literal above
+  is its Ledger value at 16%. No rgb-channel token exists to express either through `var()`.
 */
 :global(body.body--cobalt .nav-edit-menu) {
   overflow: hidden;
   box-shadow: 0 10px 28px rgba(16, 25, 74, 0.18);
 }
 
-/*
-  -> Two opposite corner marks only -- see PageNewMenu.vue's own identical construction/comment.
-     `--corner-marks` (#2767) is `block` for Ledger (a no-op here) and `none` for Cobalt, which the
-     handoff calls for ("no corner marks") without a separate override block needed.
-*/
+/* -> `display: var(--corner-marks)` is how Cobalt drops the marks without an override block. */
 .nav-edit-menu__mark {
   position: absolute;
   display: var(--corner-marks);
@@ -433,12 +367,9 @@ onMounted(() => {
 }
 
 /*
-  Cobalt's faint rule (#eef1fb, per the handoff's header/hairline-between-sections/footer rows) has
-  no dedicated token -- #2767's `--color-tint` Cobalt value (#e6edff) is the SELECTED-ROW tint role,
-  not this faint-divider role, and using it here would visibly tint every rule instead of drawing a
-  hairline. `--color-hairline` (#dfe5f5) is the closest existing token both in value and in role (it
-  is what the footer's own rule already uses in Ledger) -- flagging the gap rather than hardcoding
-  #eef1fb; a follow-up to #2767 should add a distinct Cobalt "faint rule" token.
+  Cobalt's faint rule has no dedicated token: `--color-tint`'s Cobalt value is the SELECTED-ROW tint
+  role and would visibly tint every rule instead of drawing a hairline. `--color-hairline` is the
+  closest existing token in both value and role, pending one named for this role.
 */
 :global(body.body--cobalt .nav-edit-menu__header) {
   border-bottom-color: var(--color-hairline);
@@ -519,16 +450,14 @@ onMounted(() => {
 }
 
 /*
-  Cobalt widens the selected row's inset bar from 2px to 3px (handoff: "inset 3px 0 0 #ff4d5a"),
-  same color role (`--color-accent-fill`) as Ledger -- not `--nav-active-inset` (#2767), which is
-  built for `NavSidebar`'s own active item and carries `--color-accent` (the admin brand accent),
-  a different role from this row's accent-FILL highlight.
+  Same color role as Ledger (`--color-accent-fill`), not `--nav-active-inset`, which is built for
+  `NavSidebar`'s own active item and carries the admin brand accent -- a different role from this
+  row's accent-FILL highlight.
 */
 :global(body.body--cobalt .nav-edit-menu__row--selected) {
   box-shadow: inset 3px 0 0 var(--color-accent-fill);
 }
 
-/* -> Shape only -- colour comes from the `color="accent-fill"` prop, which sets it inline. */
 .nav-edit-menu :deep(.w-radio) {
   flex: none;
 }
@@ -551,19 +480,11 @@ onMounted(() => {
 }
 
 /*
-  Cobalt radio (handoff): 14px circle, unchecked border `#c5cff5`, selected ring/dot `#c8303c`.
-  #2767 doesn't redefine `--color-slate-pale` for Cobalt (it stays the Ledger #a9b7d0, correct
-  everywhere else that token is used), so there is no dedicated "pale/disabled" Cobalt token for the
-  unchecked border -- `--color-admin-sidebar-text` happens to carry the exact #c5cff5 value already,
-  reused here rather than a hardcoded hex; flagging the gap for a follow-up to give #2767 a properly-
-  named token for this role.
-
-  The selected ring/dot uses `--color-accent` (the admin white-text-accent role, `#c8303c` by
-  default under Cobalt) rather than `--color-accent-fill` (`#ff4d5a`) -- the handoff's own Cobalt
-  cell, and the same "don't reuse accent-fill for this role" rule `tailwind.css`'s token block
-  documents. `WRadio` sets the selected color as an inline style, which only plain CSS classes can
-  beat with `!important` (same convention `PageHeader.vue` already uses against `WBtn`'s own inline
-  styles).
+  `--color-slate-pale` has no Cobalt value, and no "pale/disabled" Cobalt token exists for the
+  unchecked border: `--color-admin-sidebar-text` carries the right one, pending a properly-named
+  token for this role. The selected ring/dot takes `--color-accent`, not `--color-accent-fill` --
+  see `tailwind.css`'s token block for why that role is not reused here. `WRadio` sets the selected
+  color inline, which only `!important` from a plain CSS class beats.
 */
 :global(body.body--cobalt .nav-edit-menu .w-radio > span:first-child) {
   width: 14px;
@@ -607,7 +528,6 @@ onMounted(() => {
   color: var(--color-text-dark);
 }
 
-/* Cobalt's selected label is 600, not 500 (handoff: "label 600 #10194a") -- color already matches. */
 :global(body.body--cobalt .nav-edit-menu__row--selected .nav-edit-menu__row-label) {
   font-weight: 600;
 }
@@ -621,10 +541,6 @@ onMounted(() => {
   color: var(--color-text-caption-dark);
 }
 
-/*
-  Cobalt is the only aesthetic that darkens the SELECTED row's hint text (handoff: "hint #4a5580" on
-  the selected row only) -- `--color-text-secondary`'s Cobalt value is exactly that.
-*/
 :global(body.body--cobalt .nav-edit-menu__row--selected .nav-edit-menu__row-hint) {
   color: var(--color-text-secondary);
 }
@@ -639,18 +555,12 @@ onMounted(() => {
   background-color: var(--color-hairline-dark);
 }
 
-/* Same faint-rule token gap as the header's own rule above -- see that comment. */
+/* Same faint-rule token gap as the header's own rule above. */
 :global(body.body--cobalt .nav-edit-menu__rule) {
   background-color: var(--color-hairline);
 }
 
-/*
-  The "Menu source" segmented control -- `w-btn-toggle` already draws the shared hairline/accent
-  material this needs (see WBtnToggle.vue); only two things are added here: equal-width segments
-  (its own segments size to content by default) filling the section's own 14px gutters, and the
-  30px height the handoff calls for (its own default is a `min-height` at the same value, restated
-  here as the authority for this popover rather than relied on implicitly).
-*/
+/* Equal-width segments: `w-btn-toggle`'s own segments size to content. */
 .nav-edit-menu__menu-source {
   display: flex;
   width: 100%;
@@ -662,14 +572,10 @@ onMounted(() => {
 }
 
 /*
-  OpenProject #2820: `WBtnToggle.vue`'s shared segment styling draws a border on every segment and
-  only suppresses a middle/last segment's START border -- the group's own two OUTER edges (the
-  first segment's start border, the last segment's end border) still draw. Here those sit directly
-  against `.nav-edit-menu`'s own `border: var(--border-card)` (above), double-bordering Manual's
-  left edge and Mixed's right edge. Scoped to this instance only, not the shared primitive -- no
-  other reported instance of this -- and unconditional across every theme/aesthetic, since the card
-  border it collides with is always present, unlike the Cobalt-only corner-radius rules below whose
-  `:first-child`/`:last-child` selector *pattern* this reuses.
+  `WBtnToggle.vue` suppresses only a middle/last segment's START border, so the group's two OUTER
+  edges still draw -- here, directly against this card's own border, double-bordering both ends.
+  Scoped to this instance rather than the shared primitive, and unconditional across aesthetics:
+  the card border it collides with is always present.
 */
 .nav-edit-menu :deep(.nav-edit-menu__menu-source .w-btn-toggle__segment:first-child) {
   border-inline-start-width: 0;
@@ -680,32 +586,15 @@ onMounted(() => {
 }
 
 /*
-  Cobalt (handoff): selected fill `#c8303c` with a shadow, unselected text `#1e2a5e`, outer corners
-  6px (never each segment -- see tailwind.css's own "radii sweep" comment on `--radius-control`).
+  The selected fill uses `--color-accent` (the white-text-accent role), not the
+  `--color-accent-fill` that `toggle-color` sets inline; `WBtnToggle` writes the selected segment's
+  fill and border inline, so only `!important` beats it, as with the radio above.
 
-  The selected fill uses `--color-accent` (the white-text-accent role, `#c8303c`), not
-  `--color-accent-fill` (`#ff4d5a`) that `toggle-color="accent-fill"` sets inline -- same "known
-  mockup defect" the token file documents, and the same `!important` convention as the radio above,
-  since `WBtnToggle` sets the selected segment's fill/border as inline styles too.
-
-  Unselected text (`#1e2a5e`) has no dedicated Cobalt token -- #2767 doesn't redefine `--color-slate`
-  for Cobalt (it stays the Ledger #38465f everywhere else that token is used correctly). `--color-ink`
-  (#10194a) is the closest existing token by both value and "dark, assertive UI tone" role; reused
-  here and on the footer Save button below rather than a hardcoded hex, flagging the gap for a
-  follow-up to give #2767 a proper "slate button" token (the handoff's own name for this role).
-
-  OpenProject #2813: this segment is a `w-btn-toggle__segment`, not a `WBtn`, so it can't pick up
-  `--shadow-primary` through that component's own `color="accent"` wiring -- it stays a direct,
-  hand-wired consumer on purpose, already keyed off the same `--color-accent` role #2813 decided on.
-
-  OpenProject #2902: `--color-ink` is never redefined under `body.body--cobalt.body--dark` (it stays
-  the same `#10194a` navy in both Cobalt light and dark), so this rule used to win by specificity
-  alone over `WBtnToggle.vue`'s own correct dark-mode rule for the same unselected-segment state
-  (its `--color-text-dark` global selector), painting dark navy text on the dark panel behind it --
-  unreadable. Scoping this rule to `:not(.body--dark)` is enough: with it excluded, that
-  higher-specificity Cobalt rule simply stops matching under dark mode and `WBtnToggle.vue`'s own
-  rule (`--color-text-dark`, already correct and already Cobalt-dark-aware via tailwind.css's
-  `body.body--cobalt.body--dark` token block) takes over with no duplicated color here.
+  The unselected-text rule below has no Cobalt "slate button" token to reach for -- `--color-slate`
+  is not redefined for Cobalt -- so `--color-ink` stands in there and on the footer Save button.
+  Its `:not(.body--dark)` scope is load-bearing: `--color-ink` stays navy under Cobalt dark, so
+  unscoped this rule outspecifies `WBtnToggle.vue`'s own correct dark rule and paints navy text on
+  the dark panel behind it.
 */
 :global(body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked='true']) {
   background-color: var(--color-accent) !important;
@@ -760,10 +649,6 @@ onMounted(() => {
   color: var(--color-text-dark);
 }
 
-/*
-  Cobalt (handoff): radius 6px, glyph and label `#1f4fd6` -- exactly `--color-accent-strong`'s Cobalt
-  value, already a real token, no gap.
-*/
 :global(body.body--cobalt .nav-edit-menu__edit-btn) {
   border-radius: var(--radius-control);
   color: var(--color-accent-strong);
@@ -787,9 +672,8 @@ onMounted(() => {
 }
 
 /*
-  Cobalt (handoff): chevron `#7f8ed1` -- `--color-slate-faint` isn't redefined for Cobalt, but
-  `--color-sidebar-icon` (#2767) already carries this exact value for the same "muted icon on a
-  Cobalt surface" role, reused here rather than a hardcoded hex.
+  `--color-slate-faint` isn't redefined for Cobalt; `--color-sidebar-icon` carries the right value
+  for the same "muted icon on a Cobalt surface" role.
 */
 :global(body.body--cobalt .nav-edit-menu__edit-chevron) {
   color: var(--color-sidebar-icon);
@@ -810,11 +694,8 @@ onMounted(() => {
 }
 
 /*
-  Cobalt Save fill (handoff: "slate, not red -- #38465f Ledger / #1e2a5e Cobalt"). Same missing
-  "slate button" token as the segmented control's unselected text above -- `--color-ink` reused as
-  the closest existing approximation rather than a hardcoded hex; `color="slate"` sets the fill as an
-  inline style on `WBtn`, hence `!important` (see the radio/segmented-control comments above for the
-  same convention).
+  Same missing "slate button" token as the segmented control's unselected text above; `color="slate"`
+  sets the fill as an inline style on `WBtn`, hence `!important`.
 */
 :global(body.body--cobalt .nav-edit-menu__save-btn) {
   background-color: var(--color-ink) !important;

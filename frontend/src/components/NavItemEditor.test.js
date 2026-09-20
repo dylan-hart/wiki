@@ -16,10 +16,9 @@ vi.mock('@/composables/dialog', async (importOriginal) => ({
 }))
 
 /*
-  `WMenu` (the kebab "more actions" menu) teleports its open content straight into `document.body`,
-  independent of whichever wrapper mounted it -- and nothing here unmounts a wrapper between tests, so
-  a menu left open by one test would otherwise still be sitting in `document.body` for the next one to
-  find via a plain `.w-menu` query.
+  `WMenu` teleports its open content straight into `document.body`, and nothing here unmounts a
+  wrapper between tests -- a menu left open by one test would otherwise still be sitting there for
+  the next one's `.w-menu` query to find.
 */
 afterEach(() => {
   document.body.innerHTML = ''
@@ -94,7 +93,6 @@ function mountEditor({ items = SERVER_ITEMS, groups = [], menuMode, roots = [], 
   })
 }
 
-/** Opens the kebab ("more actions") menu and returns its teleported panel. */
 async function openKebabMenu(wrapper) {
   await wrapper.find('button.ms-2').trigger('click')
   await vi.waitUntil(() => document.querySelector('.w-menu'))
@@ -155,8 +153,8 @@ describe('NavItemEditor', () => {
     })
     await vi.waitUntil(() => !wrapper.vm.loading)
 
-    // -> Loaded with a group already set, so `visibilityLimited` starts true -- select the item to
-    //    make its panel (and the toggle) appear
+    // -> Loaded with a group already set, so `visibilityLimited` starts true; selecting the item is
+    //    what makes its panel (and the toggle) appear
     await wrapper.find('.nav-edit-item-header').trigger('click')
     const toggle = wrapper.findComponent({ name: 'WBtnToggle' })
     await toggle.vm.$emit('update:modelValue', false)
@@ -264,7 +262,6 @@ describe('NavItemEditor', () => {
     expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/navigation/nav-1/copy', {
       json: { sourceSiteId: 'site-1', sourceNavId: 'nav-2', mode: 'append' }
     })
-    // -> Reloads the menu's items from the server rather than assuming the merge locally
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1', {
       searchParams: { full: true }
     })
@@ -404,11 +401,9 @@ describe('NavItemEditor', () => {
   })
 
   /**
-   * OpenProject #1012: `copyFrom()` persists immediately (`POST .../:navId/copy`), unlike every
-   * other change in this editor, which stays local until the HOST's own Save button calls
-   * `buildSaveItems()`. That means the host needs telling this one action already reached the
-   * server, which is what the `copied` event is for -- see its own doc comment on the `defineEmits`
-   * array.
+   * `copyFrom()` persists immediately, unlike every other change in this editor, which stays local
+   * until the HOST's own Save button calls `buildSaveItems()` -- so the host has to be told this
+   * one action already reached the server, which is what the `copied` event is for.
    */
   describe('copy from... (OpenProject #1012)', () => {
     it("persists the copy immediately and emits 'copied', ahead of the editor's own Save", async () => {
@@ -447,10 +442,8 @@ describe('NavItemEditor', () => {
 })
 
 /**
- * OpenProject #2074: the "Add" button used to draw a ringed plus while every other create/add
- * affordance in the app drew a bare one. The add action is settled on `tabler:plus`, so this button
- * must not drift back to a ringed variant -- `tabler:circle-plus` is the one sitting closest to it
- * in the set.
+ * The add action is settled on the bare `tabler:plus` across the app; `tabler:circle-plus` is the
+ * ringed variant sitting closest to it in the set, and the one this button could drift back to.
  */
 describe('NavItemEditor "Add" icon (OpenProject #2074)', () => {
   it('uses the settled tabler:plus add glyph, not tabler:circle-plus', async () => {
@@ -463,9 +456,9 @@ describe('NavItemEditor "Add" icon (OpenProject #2074)', () => {
 })
 
 /**
- * OpenProject #2725: the "Open Icon Picker" button drew `tabler:icons` -- the icon for the
- * picker's own "Icons" tab, not the action of opening a search/pick UI. Settled on `tabler:search`,
- * matching the same button in PagePropertiesDialog and PageRelationDialog.
+ * `tabler:icons` is the picker's own "Icons" tab glyph, not the action of opening a search/pick UI.
+ * This button is settled on `tabler:search`, matching the same one in PagePropertiesDialog and
+ * PageRelationDialog.
  */
 describe('NavItemEditor "Open Icon Picker" icon (OpenProject #2725)', () => {
   it('uses the search icon, not tabler:icons, for the icon-field picker button', async () => {
@@ -480,9 +473,8 @@ describe('NavItemEditor "Open Icon Picker" icon (OpenProject #2725)', () => {
 })
 
 /**
- * OpenProject #2885 (porting #2826's folder-icon fallback here): a generated folder item carries no
- * `icon` of its own -- the row's icon binding used to draw nothing at all for one rather than the
- * same folder-vs-page fallback `NavSidebarItem.vue#iconFor()` gives the reading sidebar's own tree.
+ * A generated folder item carries no `icon` of its own, so the row falls back the same
+ * folder-vs-page way `NavSidebarItem.vue#iconFor()` does for the reading sidebar's own tree.
  */
 describe('NavItemEditor folder icon fallback (OpenProject #2885)', () => {
   it('draws a folder icon for an icon-less generated folder row, and the page icon for an icon-less generated link row', async () => {
@@ -528,11 +520,8 @@ describe('NavItemEditor folder icon fallback (OpenProject #2885)', () => {
 })
 
 /**
- * OpenProject #2885: a nested row (`.nav-edit-item-link.is-nested`) used to carry the same
- * background-wash-plus-mitred-elbow darkening #2827 already removed from `NavSidebar.vue`'s open
- * groups. A static check on the source, for the same reason `NavSidebar.test.js`'s own
- * "removes the nested-item rail/wash/elbow" test gives: happy-dom cannot resolve a logical property
- * against `direction`, and the DOM has no way to say whether an author's stylesheet still ships a
+ * A static check on the source rather than a mounted assertion: happy-dom cannot resolve a logical
+ * property against `direction`, and the DOM has no way to say whether the stylesheet still ships a
  * `::before` rule nothing in the mounted tree happens to trigger.
  */
 describe('NavItemEditor nested-row darkening removal (OpenProject #2885)', () => {
@@ -541,28 +530,25 @@ describe('NavItemEditor nested-row darkening removal (OpenProject #2885)', () =>
     const source = readFileSync(join(dir, 'NavItemEditor.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
 
-    // -> The base (Ledger) nested rule: indentation survives, transparent -- not merely present,
-    //    since the 10px width itself has to stay for the indent depth while its color goes.
+    // -> The base (Ledger) nested rule: the 10px width has to stay for the indent depth while its
+    //    color goes, so transparent rather than merely present.
     const nestedRuleStart = styleBlock.indexOf('&.is-nested')
     const nestedRule = styleBlock.slice(nestedRuleStart, nestedRuleStart + 300)
     expect(nestedRule).toMatch(/border-inline-start\s*:\s*10px solid transparent/)
     expect(nestedRule).not.toMatch(/background-color/)
 
-    // -> Cobalt keeps its own, shallower indent, but none of the wash/rail/radius/text-tone that
-    //    used to go with it -- narrowly scoped to this one selector's own block (not the whole
-    //    style block), since `var(--color-dark-2)` and similar tokens are legitimately reused by
-    //    OTHER, unrelated rules elsewhere in this same file.
+    // -> Cobalt keeps its own, shallower indent but none of the wash/radius -- scoped to this one
+    //    selector's block, not the whole style block, since `var(--color-dark-2)` and similar
+    //    tokens are legitimately reused by other, unrelated rules in the same file.
     const cobaltNestedStart = styleBlock.indexOf('.nav-edit-item-link.is-nested)')
     const cobaltNestedRule = styleBlock.slice(cobaltNestedStart, cobaltNestedStart + 200)
     expect(cobaltNestedRule).toMatch(/margin-inline-start\s*:\s*10px/)
     expect(cobaltNestedRule).not.toMatch(/background-color/)
     expect(cobaltNestedRule).not.toMatch(/border-radius/)
 
-    // -> The three per-theme washes the WP calls out by name are gone from the NESTED-row rules
-    //    specifically (both slices above already assert that); the mitred elbow pseudo-element
-    //    rule itself, and its per-theme color overrides, are gone outright from the whole
-    //    stylesheet -- matched as an actual rule declaration (`::before {`), not prose mentioning
-    //    it (this file's own header comment on the fix does, deliberately).
+    // -> The mitred elbow pseudo-element rule and its per-theme overrides are gone from the whole
+    //    stylesheet -- matched as an actual rule declaration, not prose, since the style block's
+    //    own comments mention `::before` deliberately.
     expect(styleBlock).not.toMatch(/::before\s*\{/)
   })
 })
