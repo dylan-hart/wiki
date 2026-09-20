@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, it, mock, test } from 'node:test'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { comments as commentsTable } from '../db/schema.ts'
+import { comments as commentsTable, users as usersTable } from '../db/schema.ts'
 import type { PageActor } from './pages.ts'
 
 // Node 26 has `Temporal` natively; a dev environment on an older Node does not, so shim just enough
@@ -62,6 +62,8 @@ describe('comments model — mocked', () => {
       selectRows?: unknown[]
       countValue?: number
       getRows?: unknown[]
+      handleRows?: unknown[]
+      handleLookupError?: Error
       updateRow?: Record<string, unknown>
     } = {}
   ) {
@@ -113,6 +115,12 @@ describe('comments model — mocked', () => {
           where: (where: unknown) => ({
             limit: async (_n: number) => {
               calls.selects.push({ where })
+              if (_table === usersTable) {
+                if (config.handleLookupError) {
+                  throw config.handleLookupError
+                }
+                return config.handleRows ?? []
+              }
               return config.getRows ?? []
             }
           })
@@ -346,6 +354,33 @@ describe('comments model — mocked', () => {
       assert.match(render, /<strong>there<\/strong>/)
     })
 
+    it('resolves a stored handle case-insensitively into a mention span on create', async () => {
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({ handleRows: [{ handle: 'Bob' }] })
+      siteProviders = [{ module: 'default', isEnabled: true, hasImplementation: true, config: {} }]
+      await comments.create({ siteId: 's1', pageId: 'p1', content: 'hi @bob and @nobody' })
+      const render = calls.inserts[0].values.render as string
+      assert.match(render, /<span class="comment-mention" data-handle="Bob">@Bob<\/span>/)
+      assert.match(render, /@nobody/)
+      assert.equal(render.match(/comment-mention/g)?.length, 1)
+    })
+
+    it('does not query for handles when the content has no @mention', async () => {
+      siteProviders = [{ module: 'default', isEnabled: true, hasImplementation: true, config: {} }]
+      await comments.create({ siteId: 's1', pageId: 'p1', content: 'nothing to see' })
+      assert.equal(calls.selects.length, 0)
+    })
+
+    it('renders the comment with the mention left literal when the handle lookup fails', async () => {
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({ handleLookupError: new Error('db down') })
+      siteProviders = [{ module: 'default', isEnabled: true, hasImplementation: true, config: {} }]
+      await comments.create({ siteId: 's1', pageId: 'p1', content: 'hi @bob **there**' })
+      const render = calls.inserts[0].values.render as string
+      assert.match(render, /@bob/)
+      assert.ok(!render.includes('comment-mention'))
+      assert.match(render, /<strong>there<\/strong>/)
+      assert.equal(warnCalls[0].message, 'resolving comment mentions failed')
+    })
+
     it('degrades to a null render when a provider names a module with no comments.ts to import', async () => {
       // -> The dynamic import rejects inside `loadModule`, which logs and returns `null` itself, so
       //    `renderForSite` degrades before reaching its own try/catch around `render()`.
@@ -431,6 +466,28 @@ describe('comments model — mocked', () => {
       await comments.update('c1', { content: 'edited **content**' })
       const render = calls.updates[0].set.render as string
       assert.match(render, /<strong>content<\/strong>/)
+    })
+    it('re-resolves mentions on update, picking up a handle added by the edit', async () => {
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({
+        getRows: [{ id: 'c1', siteId: 's1' }],
+        handleRows: [{ handle: 'ann' }]
+      })
+      siteProviders = [{ module: 'default', isEnabled: true, hasImplementation: true, config: {} }]
+      await comments.update('c1', { content: 'now with @ann' })
+      const render = calls.updates[0].set.render as string
+      assert.match(render, /<span class="comment-mention" data-handle="ann">@ann<\/span>/)
+    })
+
+    it('re-resolves mentions on update, dropping a handle that no longer exists', async () => {
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({
+        getRows: [{ id: 'c1', siteId: 's1' }],
+        handleRows: []
+      })
+      siteProviders = [{ module: 'default', isEnabled: true, hasImplementation: true, config: {} }]
+      await comments.update('c1', { content: 'still says @ann' })
+      const render = calls.updates[0].set.render as string
+      assert.ok(!render.includes('comment-mention'))
+      assert.match(render, /@ann/)
     })
   })
 

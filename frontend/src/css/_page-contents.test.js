@@ -2432,3 +2432,17 @@ describe('_page-contents.css code-fence title bar, highlighted rows and start nu
     expect(source).toMatch(/pre\.codeblock,\s*\.codeblock-titled,\s*table,/)
   })
 })
+
+describe('_page-contents.css .comment-mention', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+  const rule = source.match(/\.comment-mention\s*\{([^}]*)\}/)
+
+  it('styles the mention span the comment renderer emits', () => {
+    expect(rule).not.toBeNull()
+  })
+
+  it('takes its ink from the content link token, so a re-themed site follows', () => {
+    expect(rule[1]).toMatch(/color:\s*var\(--content-link\)/)
+  })
+})
