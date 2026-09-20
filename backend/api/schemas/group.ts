@@ -96,7 +96,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   //    REGEX may deliberately use a class like `[A-Z]`; the other match kinds do not read `path`.
   groupRuleSchema['if'] = {
     properties: {
-      match: { enum: ['START', 'END', 'EXACT'] }
+      match: { enum: ['START', 'SUBTREE', 'END', 'EXACT'] }
     },
     required: ['match']
   }

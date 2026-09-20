@@ -1426,6 +1426,16 @@ describe(
       assert.equal(stored?.rules[0].path, '')
     })
 
+    test('a saved SUBTREE rule stores its path lowercased with slashes trimmed', async () => {
+      await groupsModel.updateGroup(fixtures.groupId, {
+        rules: [rule({ match: 'SUBTREE', path: '/Foo/Bar/' })]
+      })
+
+      const stored = await groupsModel.getGroupById(fixtures.groupId)
+      assert.equal(stored?.rules[0].match, 'SUBTREE')
+      assert.equal(stored?.rules[0].path, 'foo/bar')
+    })
+
     test('normalizes tags regardless of the rule’s current match kind', async () => {
       await groupsModel.updateGroup(fixtures.groupId, {
         rules: [rule({ match: 'START', path: 'engineering', tags: [' Old Tag '] })]
