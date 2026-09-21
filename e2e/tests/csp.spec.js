@@ -263,3 +263,48 @@ test.describe('Content-Security-Policy (enforced) — per-page scripts', () => {
     expect(consoleCspErrors).toEqual([])
   })
 })
+
+test.describe('Content-Security-Policy (enforced) — PWA shell', () => {
+  test('the service worker registers and the manifest is fetchable, with no CSP violation', async ({
+    page
+  }) => {
+    const consoleCspErrors = []
+    page.on('console', (msg) => {
+      if (msg.type() === 'error' && CSP_CONSOLE_PATTERN.test(msg.text())) {
+        consoleCspErrors.push(msg.text())
+      }
+    })
+    await installCspViolationRecorder(page)
+
+    const response = await page.goto('/login')
+    expect(response?.headers()['content-security-policy']).toBeTruthy()
+
+    const manifestHref = await page.locator('link[rel="manifest"]').getAttribute('href')
+    expect(manifestHref).toBeTruthy()
+
+    const registration = await page.evaluate(async () => {
+      const reg = await navigator.serviceWorker.ready
+      return { scope: reg.scope, state: reg.active?.state, scriptURL: reg.active?.scriptURL }
+    })
+    expect(registration.scope).toBe(new URL('/', page.url()).href)
+    expect(registration.scriptURL).toBe(new URL('/sw.js', page.url()).href)
+    expect(['activating', 'activated']).toContain(registration.state)
+
+    const worker = await page.request.get('/sw.js')
+    expect(worker.status()).toBe(200)
+    expect(worker.headers()['content-type']).toMatch(/javascript/)
+    expect(worker.headers()['cache-control']).toContain('no-cache')
+    expect(worker.headers()['service-worker-allowed']).toBe('/')
+
+    const manifestResponse = await page.request.get(manifestHref)
+    expect(manifestResponse.status()).toBe(200)
+    expect(manifestResponse.headers()['content-type']).toContain('application/manifest+json')
+    const manifest = await manifestResponse.json()
+    expect(manifest).toMatchObject({ start_url: '/', scope: '/', display: 'standalone' })
+    expect(manifest.name).toBeTruthy()
+    expect(manifest.icons.length).toBeGreaterThan(0)
+
+    expect(await readCspViolations(page)).toEqual([])
+    expect(consoleCspErrors).toEqual([])
+  })
+})

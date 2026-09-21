@@ -302,3 +302,13 @@ For a fresh instance that will never reach the network:
 Everything not listed above as needing network: creating/editing/publishing pages, users, groups,
 permissions, navigation, themes, the built-in `db` search engine, `disk` storage, avatars, icon sets
 already fetched or manually materialized, and re-running the locale or icon-set sideload scans.
+
+## This is not client-side offline use
+
+Cardinal.js ships an installable PWA shell: a per-site web manifest and a minimal service worker at
+`/sw.js` that exist so browsers offer to install the wiki as an app. That is **installability only**.
+The worker caches nothing (its `activate` handler deletes any `caches` entries), there is no offline
+page, and neither reading nor editing works while the client has no connection to the server; the
+browser shows its own network error. An air-gapped deployment means the _server_ has no internet
+access, with clients still reaching it over the local network. See
+`docs/decisions/2026-09-21-pwa-shell-only.md`.

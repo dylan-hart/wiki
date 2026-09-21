@@ -90,7 +90,7 @@ Legend: **C free** = Cardinal.js, free/open at every tier · **D free** = Docmos
 | **Import/migration tooling** | **None** — not even for its own predecessor, Wiki.js 2.5.x | Free-tier: ZIP, Notion, basic Confluence, PDF/DOCX import; Enterprise adds high-fidelity Confluence import | **Docmost**, and pointedly — it ships free migration from a *competitor's* format while Cardinal.js has none for its own lineage |
 | **API/extensibility** | **Free**, full Swagger-documented REST API + API keys, custom Lit block architecture | API keys/admin key management are Business+/Enterprise; no plugin/block system found | **Cardinal.js** |
 | **i18n** | Locale-scoped page rules, translation linking, hardened RTL | Free-tier, 10+ languages via Crowdin | Roughly tied — Cardinal.js deeper structurally, Docmost broader in translated-language count |
-| **Mobile / PWA / offline** | None | None (responsive web only) | **Tie** — neither has this |
+| **Mobile / PWA / offline** | Installable PWA shell (manifest and a no-op service worker); no offline reading or editing | None (responsive web only) | **Cardinal.js** on installability; neither works offline |
 | **Accessibility** | Basic, undocumented as a strength | No stated posture found | **Tie** |
 | **Admin: audit log** | Free, backs classification/approvals | Enterprise-only, paired with SIEM export | **Cardinal.js** on the free tier; Docmost's paid tier goes further (SIEM) than anything Cardinal.js has at all |
 | **Admin: metrics/ops** | Free (Prometheus, scheduler, maintenance broadcast) | Not prominently featured | **Cardinal.js** |
