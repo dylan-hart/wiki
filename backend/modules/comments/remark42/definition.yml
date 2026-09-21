@@ -12,6 +12,7 @@ props:
     title: Server URL
     hint: "Publicly reachable URL of your own Remark42 server, with the scheme and without a trailing slash (e.g. https://remark42.example.com). Remark42 is self-hosted; there is no shared instance. When security.enforceCsp is on, allow this host in both script-src and frame-src, since the shipped script-src 'self' blocks its embed script and frame."
     maxWidth: 650
+    icon: tabler:world-www
     order: 1
   siteId:
     type: String
@@ -19,6 +20,7 @@ props:
     title: Site ID
     hint: 'The site identifier Remark42 was started with (its SITE environment variable).'
     maxWidth: 450
+    icon: tabler:id
     order: 2
   theme:
     type: String
@@ -27,6 +29,7 @@ props:
     enum:
       - 'light|Light'
       - 'dark|Dark'
+    icon: tabler:palette
     order: 3
   maxShownComments:
     type: Number
@@ -34,4 +37,5 @@ props:
     title: Comments Shown
     hint: 'How many comments are drawn before the reader has to ask for more.'
     maxWidth: 200
+    icon: tabler:list-numbers
     order: 4
