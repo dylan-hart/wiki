@@ -66,7 +66,8 @@ describe('RESERVED_ROOT_FILES', () => {
       'favicon.ico',
       'metrics',
       'robots.txt',
-      'sitemap.xml'
+      'sitemap.xml',
+      'sw.js'
     ])
   })
 
@@ -245,6 +246,12 @@ describe('registerAppShellFallback', () => {
     await handler({ method, raw: { url }, hostname: 'wiki.test' }, reply)
     return sent
   }
+
+  test('the service worker path is answered as not found rather than with the app shell', async () => {
+    const sent = await serve('GET', '/sw.js')
+    assert.equal(sent.body, 'not found')
+    assert.equal(isPageUrl('/sw.js'), false)
+  })
 
   describe('status', () => {
     const plainShell = shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">')

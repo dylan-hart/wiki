@@ -31,7 +31,13 @@ import {
  * disabled hostname would 302 to an `/_error/*` page before reaching the route, and Prometheus
  * follows redirects, so it would fail parsing the SPA shell rather than report why.
  */
-export const RESERVED_ROOT_FILES = new Set(['favicon.ico', 'robots.txt', 'sitemap.xml', 'metrics'])
+export const RESERVED_ROOT_FILES = new Set([
+  'favicon.ico',
+  'robots.txt',
+  'sitemap.xml',
+  'metrics',
+  'sw.js'
+])
 
 /**
  * First path segments the SERVER itself answers. Keep in step with the underscore prefixes mounted

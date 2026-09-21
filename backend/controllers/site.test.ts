@@ -7,7 +7,7 @@ import { after, afterEach, before, describe, mock, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
-import siteRoutes, { SITE_ASSET_FALLBACKS } from './site.ts'
+import siteRoutes, { buildSiteManifest, SITE_ASSET_FALLBACKS } from './site.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import { SVG_CSP } from '../helpers/security.ts'
 import { installTestWiki } from '../test/mocks.ts'
@@ -513,5 +513,152 @@ describe('SITE_ASSET_FALLBACKS — the backend owns its branding fallback files'
       true,
       'backend/assets/branding/logo-cardinal.svg and frontend/public/_assets/logo-cardinal.svg have drifted apart'
     )
+  })
+})
+
+describe('GET /_site/current/manifest', () => {
+  const SITE: any = {
+    id: '11111111-1111-4111-8111-111111111111',
+    hostname: 'manifest.example.com',
+    isEnabled: true,
+    config: {
+      title: 'Team Handbook',
+      description: 'Everything we know',
+      assets: {},
+      theme: { colorPrimary: '#112233', colorHeader: '#445566' }
+    }
+  }
+  let currentLogo: { data: Buffer; mime: string } | null = null
+  let app: FastifyInstance
+  let handle: { restore(): void }
+
+  before(async () => {
+    handle = installTestWiki({
+      models: {
+        sites: {
+          getSiteByHostname: async ({ hostname }: { hostname: string }) =>
+            hostname === SITE.hostname ? SITE : null,
+          getSiteById: async () => null,
+          getAsset: async () => currentLogo,
+          getAssetHash: async () => null
+        }
+      }
+    })
+    app = fastify()
+    await app.register(fastifySensible)
+    await app.register(siteRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    handle.restore()
+  })
+
+  afterEach(() => {
+    currentLogo = null
+    SITE.config.assets = {}
+    SITE.isEnabled = true
+  })
+
+  test('is a manifest built from the site title and colours, installable at the origin root', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/current/manifest',
+      headers: { host: SITE.hostname }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.match(res.headers['content-type'] as string, /^application\/manifest\+json/)
+    assert.equal(res.headers['cache-control'], 'public, no-cache')
+    assert.ok(res.headers.etag)
+    const manifest = res.json()
+    assert.equal(manifest.name, 'Team Handbook')
+    assert.equal(manifest.start_url, '/')
+    assert.equal(manifest.scope, '/')
+    assert.equal(manifest.display, 'standalone')
+    assert.equal(manifest.theme_color, '#112233')
+    assert.equal(manifest.background_color, '#445566')
+    assert.equal(manifest.description, 'Everything we know')
+  })
+
+  test('falls back to the Cardinal PNG icons at 192 and 512 when no logo is uploaded', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/current/manifest',
+      headers: { host: SITE.hostname }
+    })
+    assert.deepEqual(
+      res.json().icons.map((i: any) => [i.src, i.sizes, i.type]),
+      [
+        [`/_site/${SITE.id}/icon-192`, '192x192', 'image/png'],
+        [`/_site/${SITE.id}/icon-512`, '512x512', 'image/png']
+      ]
+    )
+  })
+
+  test('points both icon sizes at the uploaded logo, typed from its bytes', async () => {
+    SITE.config.assets = { logo: true }
+    currentLogo = { data: Buffer.from('webp'), mime: 'image/webp' }
+    const res = await app.inject({
+      method: 'GET',
+      url: '/current/manifest',
+      headers: { host: SITE.hostname }
+    })
+    assert.deepEqual(
+      res.json().icons.map((i: any) => [i.src, i.sizes, i.type]),
+      [
+        [`/_site/${SITE.id}/logo`, '192x192', 'image/webp'],
+        [`/_site/${SITE.id}/logo`, '512x512', 'image/webp']
+      ]
+    )
+  })
+
+  test('declares an uploaded SVG logo as one scalable icon', () => {
+    const manifest = buildSiteManifest(SITE, { mime: svgMimeType })
+    assert.deepEqual(
+      (manifest.icons as any[]).map((i) => [i.sizes, i.type]),
+      [['any', svgMimeType]]
+    )
+  })
+
+  test('uses the default theme colours and a name when the site config has none', () => {
+    const manifest = buildSiteManifest({ id: 'x', config: {} }, null)
+    assert.equal(manifest.name, 'Cardinal.js')
+    assert.equal(manifest.theme_color, '#c14a52')
+    assert.equal(manifest.background_color, '#ffffff')
+    assert.equal('description' in manifest, false)
+  })
+
+  test('a matching If-None-Match is answered with an empty 304', async () => {
+    const first = await app.inject({
+      method: 'GET',
+      url: '/current/manifest',
+      headers: { host: SITE.hostname }
+    })
+    const second = await app.inject({
+      method: 'GET',
+      url: '/current/manifest',
+      headers: { host: SITE.hostname, 'if-none-match': first.headers.etag as string }
+    })
+    assert.equal(second.statusCode, 304)
+    assert.equal(second.body, '')
+  })
+
+  test('a disabled site does not hand out its manifest', async () => {
+    SITE.isEnabled = false
+    const res = await app.inject({
+      method: 'GET',
+      url: '/current/manifest',
+      headers: { host: SITE.hostname }
+    })
+    assert.equal(res.statusCode, 403)
+  })
+
+  test('the icon fallbacks serve a real PNG without any site upload', async () => {
+    const serverPath = path.join(import.meta.dirname, '..')
+    for (const kind of ['icon-192', 'icon-512'] as const) {
+      const bytes = await fs.readFile(path.join(serverPath, SITE_ASSET_FALLBACKS[kind]))
+      assert.equal(bytes.subarray(1, 4).toString('latin1'), 'PNG')
+    }
   })
 })
