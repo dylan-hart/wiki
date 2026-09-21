@@ -47,6 +47,13 @@ interface FolderDuplicateBody {
   title?: string
 }
 
+interface ReorderBody {
+  parentId?: string | null
+  parentPath?: string | null
+  locale?: string
+  ids: string[]
+}
+
 interface PurgeEmptyBody {
   dryRun?: boolean
 }
@@ -578,6 +585,88 @@ async function routes(app: FastifyInstance) {
           childrenCount: folder.meta?.children ?? 0
         }
       }
+    }
+  )
+
+  app.put<{ Params: { siteId: string }; Body: ReorderBody }>(
+    '/sites/:siteId/tree/order',
+    {
+      // -> No route-level `permissions`: page permissions are path-bound, checked in the handler
+      schema: {
+        summary: 'Reorder the entries of a folder',
+        description:
+          "Sets the manual order of one folder's pages and sub-folders. `parentId` and `parentPath` both address the folder, the ID winning when both are given (and its own locale winning over `locale`); neither means the site root. `ids` lists the tree entry IDs of every page and sub-folder directly in the folder, in the order they should appear -- assets are not ordered and are left out. A page and a folder sharing a name are two entries and both IDs must be listed; the pair takes the position of whichever comes first and both are given the same order, so they read as one entry.\n\nThe caller needs `manage:pages` on the folder's path. All-or-nothing: an `ids` list that is not exactly the folder's current contents (an entry added or removed since the client last listed it, or an ID from elsewhere) answers 409 and changes nothing, so the client reloads the folder and tries again.",
+        tags: ['Tree'],
+        params: { $ref: 'SiteIdParams#' },
+        body: {
+          type: 'object',
+          required: ['ids'],
+          properties: {
+            parentId: {
+              type: ['string', 'null'],
+              format: 'uuid',
+              description: 'The folder to reorder. Wins over `parentPath`.'
+            },
+            parentPath: {
+              type: ['string', 'null'],
+              maxLength: 2048,
+              description: 'Slash-separated path of the folder to reorder.'
+            },
+            locale: {
+              type: 'string',
+              maxLength: 10,
+              description: "The site's primary locale when absent."
+            },
+            ids: {
+              type: 'array',
+              maxItems: 5000,
+              uniqueItems: true,
+              items: { type: 'string', format: 'uuid' },
+              description: 'Every page and sub-folder entry ID in the folder, in the new order.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Folder reordered successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' },
+              count: { type: 'integer' }
+            }
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const siteId = req.params.siteId
+      let locale = req.body.locale ?? defaultLocale(siteId)
+      let folderPath = ''
+      if (req.body.parentId || req.body.parentPath) {
+        const folder = await CARDINAL.models.tree.getFolder({
+          id: req.body.parentId,
+          path: req.body.parentPath,
+          locale,
+          siteId
+        })
+        folderPath = folderPathOf(folder)
+        locale = folder.locale
+      }
+      if (!mayOnFolder(req, 'manage:pages', siteId, folderPath, locale)) {
+        return reply.forbidden('You are not allowed to reorder this folder.')
+      }
+      const { count } = await CARDINAL.models.tree.reorderChildren({
+        siteId,
+        locale,
+        parentId: req.body.parentId,
+        parentPath: req.body.parentPath,
+        ids: req.body.ids
+      })
+      return { ok: true, message: 'Folder reordered successfully.', count }
     }
   )
 

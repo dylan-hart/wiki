@@ -2421,6 +2421,95 @@ class Tree {
     return updated[0] as TreeRow
   }
 
+  async reorderChildren({
+    siteId,
+    locale,
+    parentId,
+    parentPath,
+    ids
+  }: {
+    siteId: string
+    locale: string
+    parentId?: string | null
+    parentPath?: string | null
+    ids: string[]
+  }): Promise<{ count: number }> {
+    if (new Set(ids).size !== ids.length) {
+      throw new CustomError('treeReorderInvalid', 'The list holds the same entry twice.', 400)
+    }
+
+    const staleError = () =>
+      new CustomError(
+        'treeReorderStale',
+        'This folder changed while you were reordering it. Reload it and try again.',
+        409
+      )
+
+    const count = await CARDINAL.db.transaction(async (tx) => {
+      let path = ''
+      let effectiveLocale = locale
+      if (parentId || parentPath) {
+        const folder = await this.getFolder({
+          id: parentId,
+          path: parentPath,
+          locale,
+          siteId,
+          db: tx
+        })
+        await tx
+          .select({ id: treeTable.id })
+          .from(treeTable)
+          .where(eq(treeTable.id, folder.id))
+          .for('update')
+        path = childPathOf(folder)
+        effectiveLocale = folder.locale
+      }
+
+      const children = await tx
+        .select({ id: treeTable.id, fileName: treeTable.fileName })
+        .from(treeTable)
+        .where(
+          and(
+            eq(treeTable.siteId, siteId),
+            eq(treeTable.locale, effectiveLocale),
+            eq(treeTable.folderPath, path),
+            inArray(treeTable.type, ['page', 'folder'])
+          )
+        )
+        .for('update')
+
+      const nameById = new Map(children.map((child) => [child.id, child.fileName]))
+      if (nameById.size !== ids.length || ids.some((id) => !nameById.has(id))) {
+        throw staleError()
+      }
+
+      const positionByName = new Map<string, number>()
+      for (const id of ids) {
+        const name = nameById.get(id)!
+        if (!positionByName.has(name)) {
+          positionByName.set(name, positionByName.size)
+        }
+      }
+
+      for (const batch of chunk(ids, TREE_UPDATE_CHUNK_SIZE)) {
+        const cases = sql.join(
+          batch.map(
+            (id) => sql`when ${id}::uuid then ${positionByName.get(nameById.get(id)!)!}::integer`
+          ),
+          sql` `
+        )
+        await tx
+          .update(treeTable)
+          .set({ sortOrder: sql`case ${treeTable.id} ${cases} end` })
+          .where(inArray(treeTable.id, batch))
+      }
+      return ids.length
+    })
+
+    CARDINAL.models.navigation.invalidateCache(siteId)
+    return { count }
+  }
+
   async deleteEntry(id: string, db: WikiDbOrTx = CARDINAL.db): Promise<boolean> {
     const entry = await this.getById(id, db)
     if (!entry) {
