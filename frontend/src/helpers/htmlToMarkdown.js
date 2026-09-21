@@ -181,7 +181,7 @@ function renestOrphanedSublists(root) {
 const UNCHECKED_GLYPH_RE = /^(\s*[-*+]\s+)[☐]️?\s?/gm
 const CHECKED_GLYPH_RE = /^(\s*[-*+]\s+)[☑✓✔]️?\s?/gm
 
-function convertCheckboxGlyphs(markdown) {
+export function convertCheckboxGlyphs(markdown) {
   return markdown.replace(UNCHECKED_GLYPH_RE, '$1[ ] ').replace(CHECKED_GLYPH_RE, '$1[x] ')
 }
 

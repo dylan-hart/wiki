@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { htmlToMarkdown } from './htmlToMarkdown'
+import { convertCheckboxGlyphs, htmlToMarkdown } from './htmlToMarkdown'
 
 describe('htmlToMarkdown', () => {
   it('returns an empty markdown string and no images for a blank or whitespace-only payload', () => {
@@ -323,5 +323,77 @@ describe('htmlToMarkdown', () => {
     expect(md).not.toMatch(/ +\n/)
     expect(md.startsWith('\n')).toBe(false)
     expect(md.endsWith('\n')).toBe(false)
+  })
+
+  describe('OneNote .htm export fixtures', () => {
+    it('converts glyph-led to-dos, inline-style emphasis and an orphaned sub-list from a full exported document', () => {
+      const html = `
+        <html><head><meta charset="utf-8"><style>p { margin: 0 }</style></head>
+        <body>
+        <ul style="list-style-type:none">
+          <li>&#9744;&nbsp;<span style="font-weight:bold">Book venue</span></li>
+          <ul>
+            <li>&#9745;&nbsp;<span style="font-style:italic">Get quote</span></li>
+            <li>&#9744;&nbsp;<span style="text-decoration:underline">Sign contract</span></li>
+          </ul>
+          <li>&#9745;&nbsp;<span style="text-decoration:line-through">Old item</span></li>
+        </ul>
+        </body></html>
+      `
+      const { markdown: md } = htmlToMarkdown(html)
+      expect(md).toMatch(/^-\s+\[ \]\s+\*\*Book venue\*\*$/m)
+      expect(md).toMatch(/^ {4}-\s+\[x\]\s+_Get quote_$/m)
+      expect(md).toMatch(/^ {4}-\s+\[ \]\s+<u>Sign contract<\/u>$/m)
+      expect(md).toMatch(/^-\s+\[x\]\s+~~Old item~~$/m)
+      expect(md).not.toMatch(/[\u2610\u2611]/)
+    })
+  })
+
+  describe('convertCheckboxGlyphs', () => {
+    it('rewrites glyph-led bullets in pandoc-shaped Markdown (wide bullet marker padding)', () => {
+      const pandoc = '-   ☐ Unchecked task\n-   ☑ Checked task\n'
+      expect(convertCheckboxGlyphs(pandoc)).toBe('-   [ ] Unchecked task\n-   [x] Checked task\n')
+    })
+
+    it('handles nested pandoc-shaped lists and every bullet marker', () => {
+      const pandoc = [
+        '-   ☐ Parent',
+        '    -   ☑ Child',
+        '        *   ☐ Grandchild',
+        '+   ☑ Plus marker'
+      ].join('\n')
+      expect(convertCheckboxGlyphs(pandoc)).toBe(
+        [
+          '-   [ ] Parent',
+          '    -   [x] Child',
+          '        *   [ ] Grandchild',
+          '+   [x] Plus marker'
+        ].join('\n')
+      )
+    })
+
+    it('treats the check-mark variants and an emoji variation selector as checked', () => {
+      expect(convertCheckboxGlyphs('- ✓ a\n- ✔ b\n- ☑\uFE0F c\n- ☐\uFE0F d')).toBe(
+        '- [x] a\n- [x] b\n- [x] c\n- [ ] d'
+      )
+    })
+
+    it('accepts a non-breaking space after the glyph', () => {
+      expect(convertCheckboxGlyphs('- ☐\u00a0Task')).toBe('- [ ] Task')
+    })
+
+    it('leaves glyphs that are not the first character of a list item alone', () => {
+      const markdown = 'A paragraph with ☐ inside.\n\n☐ not a list item\n\n- Task with ☑ mid-line'
+      expect(convertCheckboxGlyphs(markdown)).toBe(markdown)
+    })
+
+    it('is idempotent and passes glyph-free Markdown through unchanged', () => {
+      const once = convertCheckboxGlyphs('-   ☐ One\n-   ☑ Two')
+      expect(convertCheckboxGlyphs(once)).toBe(once)
+      expect(convertCheckboxGlyphs('- [ ] Already GFM\n- [x] Done')).toBe(
+        '- [ ] Already GFM\n- [x] Done'
+      )
+      expect(convertCheckboxGlyphs('')).toBe('')
+    })
   })
 })
