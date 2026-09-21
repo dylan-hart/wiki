@@ -201,14 +201,21 @@ function templateRegion(source) {
 
 const ALLOWED_BARE_ATTRS = new Set(['class', 'style', 'key', 'ref'])
 
-function isAllowedFallThrough(rawName) {
+const FALL_THROUGH_BY_TAG = {
+  'w-banner': new Set(['role']),
+  'w-input': new Set(['role', 'maxlength']),
+  'w-item': new Set(['id', 'role', 'tabindex']),
+  'w-list': new Set(['id', 'role'])
+}
+
+function isAllowedFallThrough(rawName, tag) {
   if (rawName.startsWith('v-')) return true
   if (rawName.startsWith('@') || rawName.startsWith('#')) return true
   if (rawName.startsWith('[')) return true // dynamic attribute name -- not statically resolvable
   const name = rawName.startsWith(':') ? rawName.slice(1) : rawName
   if (ALLOWED_BARE_ATTRS.has(name)) return true
   if (name.startsWith('data-') || name.startsWith('aria-')) return true
-  return false
+  return FALL_THROUGH_BY_TAG[tag]?.has(name) ?? false
 }
 
 function kebabToCamel(name) {
@@ -242,7 +249,7 @@ function findAttributeDrift(templateSource, registry) {
     ATTR_RE.lastIndex = 0
     while ((am = ATTR_RE.exec(m[2]))) {
       const rawName = am[1]
-      if (isAllowedFallThrough(rawName)) continue
+      if (isAllowedFallThrough(rawName, tag)) continue
       const propName = attrToPropName(rawName)
       if (!component.props.has(propName)) {
         violations.push({ tag, attr: rawName, propName })
@@ -358,6 +365,25 @@ describe('parser', () => {
         expect(isAllowedFallThrough(attr)).toBe(false)
       }
     )
+  })
+
+  describe('isAllowedFallThrough per tag', () => {
+    it.each([
+      ['w-banner', 'role'],
+      ['w-input', ':maxlength'],
+      ['w-item', 'tabindex'],
+      ['w-list', ':id']
+    ])('allows %s to take %s by fall-through', (tag, attr) => {
+      expect(isAllowedFallThrough(attr, tag)).toBe(true)
+    })
+
+    it.each([
+      ['w-input', ':id'],
+      ['w-btn', 'role'],
+      ['w-list', 'tabindex']
+    ])('still requires %s to declare %s', (tag, attr) => {
+      expect(isAllowedFallThrough(attr, tag)).toBe(false)
+    })
   })
 
   describe('findAttributeDrift', () => {
