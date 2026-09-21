@@ -7,6 +7,7 @@ import exportRoutes from './export.ts'
 import historyRoutes from './history.ts'
 import importRoutes from './import.ts'
 import readRoutes from './read.ts'
+import versionRoutes from './versions.ts'
 import writeRoutes from './write.ts'
 
 /**
@@ -19,6 +20,7 @@ async function routes(app: FastifyInstance) {
   await app.register(importRoutes)
   await app.register(classificationRoutes)
   await app.register(historyRoutes)
+  await app.register(versionRoutes)
   await app.register(exportRoutes)
   await app.register(draftRoutes)
   await app.register(collabRoutes)

@@ -78,6 +78,59 @@ describe(
       assert.equal(version!.via, 'editor')
     })
 
+    test('getVersionById finds a version by its id alone, without meta or the author email', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/by-id', title: 'By Id', content: '# By id' }),
+        actor
+      )
+      const { items } = await pageHistoryModel.list(fixtures.siteId, page.id)
+
+      const version = await pageHistoryModel.getVersionById(fixtures.siteId, items[0]!.id)
+      assert.ok(version)
+      assert.equal(version!.pageId, page.id)
+      assert.equal(version!.title, 'By Id')
+      assert.equal(version!.content, '# By id')
+      assert.equal(version!.contentType, 'markdown')
+      assert.ok(version!.author.name)
+      assert.equal('email' in version!.author, false)
+      assert.equal('meta' in version!, false)
+    })
+
+    test('getVersionById is scoped to the site and answers null for an unknown id', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/by-id-scoped' }),
+        actor
+      )
+      const { items } = await pageHistoryModel.list(fixtures.siteId, page.id)
+
+      assert.equal(
+        await pageHistoryModel.getVersionById('99999999-9999-4999-8999-999999999999', items[0]!.id),
+        null
+      )
+      assert.equal(
+        await pageHistoryModel.getVersionById(
+          fixtures.siteId,
+          '99999999-9999-4999-8999-999999999999'
+        ),
+        null
+      )
+    })
+
+    test('getVersionById still resolves a version once its page is deleted', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/by-id-deleted' }),
+        actor
+      )
+      const { items } = await pageHistoryModel.list(fixtures.siteId, page.id)
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const version = await pageHistoryModel.getVersionById(fixtures.siteId, items[0]!.id)
+      assert.equal(version?.pageId, page.id)
+    })
+
     test('listRecoverable lists the newest deleted version for a path with no live page', async () => {
       const page = await pagesModel.createPage(
         fixtures.siteId,

@@ -115,6 +115,17 @@ export type PageHistoryVersion = PageHistoryEntry & {
 }
 
 /**
+ * What a shareable version link carries: no `meta` and no author `email`, which the link's reader
+ * has no use for. `pageId` is how the caller finds the page to judge access against.
+ */
+export type SharedPageVersion = Omit<PageHistoryEntry, 'author'> & {
+  pageId: string
+  content: string
+  contentType: string
+  author: PageHistoryListAuthor
+}
+
+/**
  * Deliberately NOT `PageHistoryEntry`. `tags`/`classification` let the route narrow its per-row
  * `read:history` check with a TAG/TAGALL/CLASSIFICATION rule rather than a bare path/locale match,
  * and `author` carries no `email`: this listing is reachable by a caller who does NOT hold
@@ -515,6 +526,36 @@ class PageHistory {
       via,
       // -> `content` is nullable, and a version that held no source contributes no lines
       changeCount: countChangedLines(newest[1]!.content ?? '', newest[0]!.content ?? '')
+    }
+  }
+
+  async getVersionById(siteId: string, versionId: string): Promise<SharedPageVersion | null> {
+    const rows = await CARDINAL.db
+      .select({
+        ...entrySelection,
+        pageId: pageHistoryTable.pageId,
+        content: pageHistoryTable.content,
+        meta: pageHistoryTable.meta,
+        authorId: usersTable.id,
+        authorName: usersTable.name
+      })
+      .from(pageHistoryTable)
+      .leftJoin(usersTable, eq(usersTable.id, pageHistoryTable.authorId))
+      .where(and(eq(pageHistoryTable.siteId, siteId), eq(pageHistoryTable.id, versionId)))
+      .limit(1)
+
+    const row: any = rows[0]
+    if (!row) {
+      return null
+    }
+    const { author, ...entry } = toEntry(row)
+    const meta = (row.meta ?? {}) as Record<string, any>
+    return {
+      ...entry,
+      pageId: row.pageId,
+      content: row.content ?? '',
+      contentType: meta.contentType || meta.editor || 'markdown',
+      author: { id: author.id, name: author.name }
     }
   }
 
