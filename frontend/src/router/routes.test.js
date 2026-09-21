@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
 import routes from './routes.js'
+import { useSiteStore } from '@/stores/site'
 
 import { buildTestRouter } from '../../test/router.js'
 
@@ -121,5 +123,53 @@ describe('content page route meta (OpenProject #2512)', () => {
   ])('does not mark %s as a content page route', async (path, expected) => {
     await router.push(path)
     expect(Boolean(router.currentRoute.value.meta.contentPage)).toBe(expected)
+  })
+})
+
+describe('/i/:id permalink route', () => {
+  const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useSiteStore().id = 'site-1'
+  })
+
+  function failWith(status) {
+    return () =>
+      Promise.reject(Object.assign(new Error(`HTTP ${status}`), { response: { status } }))
+  }
+
+  it('redirects to the page current path', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ id: PAGE_ID, path: 'docs/moved', locale: 'en' })
+    })
+    const router = buildTestRouter(routes)
+
+    await router.push(`/i/${PAGE_ID}`)
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith(`sites/site-1/pages/${PAGE_ID}`)
+    expect(router.currentRoute.value.path).toBe('/docs/moved')
+  })
+
+  it.each([
+    ['a deleted page (404)', failWith(404)],
+    ['an unreadable page (403)', failWith(403)],
+    ['a failed request', () => Promise.reject(new Error('network'))]
+  ])('lands on /_error/notfound for %s', async (_label, json) => {
+    API_CLIENT.get.mockReturnValueOnce({ json })
+    const router = buildTestRouter(routes)
+
+    await router.push(`/i/${PAGE_ID}`)
+
+    expect(router.currentRoute.value.path).toBe('/_error/notfound')
+  })
+
+  it('lands on /_error/notfound for an id that is not a uuid, without a request', async () => {
+    const router = buildTestRouter(routes)
+
+    await router.push('/i/not-an-id')
+
+    expect(router.currentRoute.value.path).toBe('/_error/notfound')
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
   })
 })

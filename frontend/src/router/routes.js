@@ -31,6 +31,20 @@ const routes = [
     }
   },
   {
+    path: '/i/:id',
+    component: () => import('@/layouts/MainLayout.vue'),
+    beforeEnter: async (to) => {
+      const pageStore = usePageStore()
+      const siteStore = useSiteStore()
+      try {
+        const target = await pageStore.pageById(to.params.id)
+        return localizedPagePath(target.path, target.locale, siteStore.localeRouting)
+      } catch (err) {
+        return '/_error/notfound'
+      }
+    }
+  },
+  {
     path: '/_search',
     component: () => import('@/pages/Search.vue')
   },

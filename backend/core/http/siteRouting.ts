@@ -80,6 +80,7 @@ const SITE_RESOLUTION_EXEMPT_SEGMENTS = new Set(['login'])
 const SPA_APP_ROUTES: readonly RegExp[] = [
   /^\/login(\/reset-password\/[^/]+)?$/,
   /^\/a\/[^/]+$/,
+  /^\/i\/[^/]+$/,
   /^\/_(search|tags|graph)$/,
   /^\/_admin(\/.*)?$/,
   /^\/_error(\/[^/]+)?$/,
