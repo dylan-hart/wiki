@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { replyWithFile } from '../helpers/common.ts'
 import { guardSiteEnabled, resolveSiteParam } from '../helpers/siteResolution.ts'
@@ -5,8 +6,10 @@ import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import { SVG_CSP } from '../helpers/security.ts'
 import path from 'node:path'
-import type { SiteAssetKind } from '../models/sites.ts'
+import { DEFAULT_THEME_COLORS, type SiteAssetKind } from '../models/sites.ts'
 import type { FastifyInstance } from 'fastify'
+
+type SiteIconKind = 'icon-192' | 'icon-512'
 
 /**
  * What is served for each of a site's images while nobody has uploaded one. Paths are relative to
@@ -16,10 +19,12 @@ import type { FastifyInstance } from 'fastify'
  * `frontend/public/_assets/logo-cardinal.svg` is a deliberate second copy, served out of `public/` for
  * the frontend's own use; `controllers/site.test.ts` asserts the two are byte-identical.
  */
-export const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
+export const SITE_ASSET_FALLBACKS: Record<SiteAssetKind | SiteIconKind, string> = {
   logo: 'assets/branding/logo-cardinal.svg',
   favicon: 'assets/branding/favicon.ico',
-  loginBg: 'assets/branding/login-bg.jpg'
+  loginBg: 'assets/branding/login-bg.jpg',
+  'icon-192': 'assets/branding/icon-192.png',
+  'icon-512': 'assets/branding/icon-512.png'
 }
 
 /**
@@ -28,6 +33,45 @@ export const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
  * into an empty 304 rather than a re-download.
  */
 const SITE_ASSET_CACHE = 'public, no-cache'
+
+function themeColor(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value !== '' ? value : fallback
+}
+
+export function buildSiteManifest(
+  site: { id: string; config?: Record<string, any> },
+  logo: { mime: string } | null
+): Record<string, unknown> {
+  const config = site.config ?? {}
+  const title =
+    typeof config.title === 'string' && config.title.trim() !== '' ? config.title : 'Cardinal.js'
+  const base = `/_site/${site.id}`
+  const icons = !logo
+    ? [
+        { src: `${base}/icon-192`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: `${base}/icon-512`, sizes: '512x512', type: 'image/png', purpose: 'any' }
+      ]
+    : logo.mime === svgMimeType
+      ? [{ src: `${base}/logo`, sizes: 'any', type: logo.mime, purpose: 'any' }]
+      : [
+          { src: `${base}/logo`, sizes: '192x192', type: logo.mime, purpose: 'any' },
+          { src: `${base}/logo`, sizes: '512x512', type: logo.mime, purpose: 'any' }
+        ]
+  const manifest: Record<string, unknown> = {
+    name: title,
+    short_name: title.length > 12 ? title.slice(0, 12).trimEnd() : title,
+    start_url: '/',
+    scope: '/',
+    display: 'standalone',
+    theme_color: themeColor(config.theme?.colorPrimary, DEFAULT_THEME_COLORS.colorPrimary),
+    background_color: themeColor(config.theme?.colorHeader, DEFAULT_THEME_COLORS.colorHeader),
+    icons
+  }
+  if (typeof config.description === 'string' && config.description !== '') {
+    manifest.description = config.description
+  }
+  return manifest
+}
 
 async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string; resource: string } }>(
@@ -46,6 +90,19 @@ async function routes(app: FastifyInstance) {
       //    page/shell hook's disabled-site check does not cover this route
       if (guardSiteEnabled(site, reply)) {
         return reply
+      }
+
+      if (req.params.resource === 'manifest') {
+        const logo = site.config.assets?.logo
+          ? await CARDINAL.models.sites.getAsset(site.id, 'logo')
+          : null
+        const body = JSON.stringify(buildSiteManifest(site, logo))
+        const etag = `"${crypto.createHash('sha1').update(body).digest('hex')}"`
+        reply.type('application/manifest+json')
+        if (notModifiedOrPrepare(req, reply, { etag, cacheControl: SITE_ASSET_CACHE })) {
+          return reply
+        }
+        return reply.send(body)
       }
 
       const kind = req.params.resource as SiteAssetKind

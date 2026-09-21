@@ -229,6 +229,8 @@ export const ROOT_FAVICON_PATH = 'assets/branding/favicon.ico'
 /** Same reasoning, and the same value, as `controllers/site.ts`'s `SITE_ASSET_CACHE`. */
 const ROOT_FAVICON_CACHE = 'public, no-cache'
 
+export const SERVICE_WORKER_PATH = 'assets/branding/sw.js'
+
 /**
  * Must stay registered between `registerSecurity` and `registerSession`: Fastify runs plugins in
  * registration order, so moving this call is a behaviour change.
@@ -239,6 +241,12 @@ export function registerStaticAssets(app: FastifyInstance): void {
       cacheControl: ROOT_FAVICON_CACHE
     })
   )
+  app.get('/sw.js', async (req, reply) => {
+    reply.header('Service-Worker-Allowed', '/')
+    return replyWithFile(req, reply, path.join(CARDINAL.SERVERPATH, SERVICE_WORKER_PATH), {
+      cacheControl: 'no-cache'
+    })
+  })
   const assetsRoot = path.join(CARDINAL.ROOTPATH, 'assets/_assets')
   app.register(fastifyStatic, {
     prefix: '/_assets/',
