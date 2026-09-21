@@ -124,7 +124,8 @@ const FORMATS = [
   { value: 'docbook', label: 'DocBook', needsPandoc: true },
   { value: 'rst', label: 'reStructuredText', needsPandoc: true },
   { value: 'docx', label: 'Word Document (.docx)', needsPandoc: true },
-  { value: 'odt', label: 'OpenDocument Text (.odt)', needsPandoc: true }
+  { value: 'odt', label: 'OpenDocument Text (.odt)', needsPandoc: true },
+  { value: 'html', label: 'HTML (.htm, .html)', needsPandoc: true }
 ]
 
 const EXTENSION_FORMATS = {
@@ -137,7 +138,9 @@ const EXTENSION_FORMATS = {
   docbook: 'docbook',
   rst: 'rst',
   docx: 'docx',
-  odt: 'odt'
+  odt: 'odt',
+  htm: 'html',
+  html: 'html'
 }
 
 /**
