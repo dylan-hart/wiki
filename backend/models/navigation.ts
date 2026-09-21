@@ -689,6 +689,7 @@ class Navigation {
         type: treeTable.type,
         fileName: treeTable.fileName,
         title: treeTable.title,
+        sortOrder: treeTable.sortOrder,
         icon: pagesTable.icon,
         navigationMode: treeTable.navigationMode,
         holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean),
@@ -750,8 +751,8 @@ class Navigation {
       })
       .sort((a, b) =>
         compareFoldersFirst(
-          { isFolder: a.type === 'folder', title: a.title },
-          { isFolder: b.type === 'folder', title: b.title }
+          { isFolder: a.type === 'folder', title: a.title, sortOrder: a.sortOrder },
+          { isFolder: b.type === 'folder', title: b.title, sortOrder: b.sortOrder }
         )
       )
 

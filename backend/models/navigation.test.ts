@@ -1552,6 +1552,46 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     )
   })
 
+  test('generated items follow sortOrder within folders and pages, null last by title', async () => {
+    for (const name of ['alpha', 'bravo', 'charlie', 'delta']) {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: `nav-sortorder/${name}`, title: name }),
+        actor
+      )
+    }
+    for (const name of ['first-folder', 'second-folder']) {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: `nav-sortorder/${name}/inside`, title: 'Inside' }),
+        actor
+      )
+    }
+    const setOrder = (fileName: string, type: 'page' | 'folder', sortOrder: number) =>
+      fixtures.db
+        .update(treeTable)
+        .set({ sortOrder })
+        .where(
+          and(
+            eq(treeTable.siteId, fixtures.siteId),
+            eq(treeTable.folderPath, 'nav-sortorder'),
+            eq(treeTable.fileName, fileName),
+            eq(treeTable.type, type)
+          )
+        )
+    await setOrder('second-folder', 'folder', 0)
+    await setOrder('first-folder', 'folder', 1)
+    await setOrder('charlie', 'page', 0)
+    await setOrder('bravo', 'page', 1)
+
+    const items = await generate('nav-sortorder')
+
+    assert.deepEqual(
+      items.map((item) => item.label),
+      ['second-folder', 'first-folder', 'charlie', 'bravo', 'alpha', 'delta']
+    )
+  })
+
   test('an unfiltered read (the nav editor preview) shows an otherwise-empty folder too', async () => {
     await treeModel.createFolder({
       parentPath: '',
