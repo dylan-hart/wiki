@@ -1881,7 +1881,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       assert.deepEqual(
         result.folders.map((f) => f.id),
-        [nested.id, unreferenced.id].toSorted()
+        [nested.id, unreferenced.id]
       )
       for (const kept of [bare, prefixed, byId]) {
         assert.ok(await exists(kept.id))
