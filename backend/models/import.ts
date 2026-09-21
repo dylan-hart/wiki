@@ -69,7 +69,15 @@ function releasePandocSlot(): void {
  * or need options this endpoint doesn't expose, so they are left out rather than accepted and left
  * to confuse whoever picks them.
  */
-const PANDOC_IMPORT_FORMATS = ['mediawiki', 'textile', 'docbook', 'rst', 'docx', 'odt'] as const
+const PANDOC_IMPORT_FORMATS = [
+  'mediawiki',
+  'textile',
+  'docbook',
+  'rst',
+  'docx',
+  'odt',
+  'html'
+] as const
 
 export type PandocImportFormat = (typeof PANDOC_IMPORT_FORMATS)[number]
 
@@ -118,7 +126,30 @@ const IMPORT_EXTENSION_FORMATS: Record<string, ImportFormat> = {
   docbook: 'docbook',
   rst: 'rst',
   docx: 'docx',
-  odt: 'odt'
+  odt: 'odt',
+  htm: 'html',
+  html: 'html'
+}
+
+export function normalizeHtmlEncoding(data: Buffer): Buffer {
+  if (data[0] === 0xff && data[1] === 0xfe) {
+    return Buffer.from(data.subarray(2).toString('utf16le'), 'utf8')
+  }
+  if (data[0] === 0xfe && data[1] === 0xff) {
+    return Buffer.from(
+      Buffer.from(data.subarray(2, data.length - (data.length % 2)))
+        .swap16()
+        .toString('utf16le'),
+      'utf8'
+    )
+  }
+  const body = data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf ? data.subarray(3) : data
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(body)
+    return Buffer.from(body)
+  } catch {
+    return Buffer.from(new TextDecoder('windows-1252').decode(body), 'utf8')
+  }
 }
 
 /** `null` for an unrecognized or absent extension: the caller reports it rather than guessing. */
@@ -213,7 +244,10 @@ class Import {
     }
 
     await this.ensureCanImport()
-    const markdown = await this.runPandoc(format, data)
+    const markdown = await this.runPandoc(
+      format,
+      format === 'html' ? normalizeHtmlEncoding(data) : data
+    )
     if (!markdown.trim()) {
       throw new CustomError(
         'importNoContent',

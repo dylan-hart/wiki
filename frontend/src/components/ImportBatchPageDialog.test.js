@@ -477,6 +477,17 @@ describe('ImportBatchPageDialog', () => {
     expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
   })
 
+  it('offers .htm and .html in the file picker accept list and detects them as html', async () => {
+    await mountDialog()
+
+    const accept = body().find('input[type="file"]').attributes('accept').split(',')
+    expect(accept).toEqual(expect.arrayContaining(['.htm', '.html']))
+
+    await selectFiles([new File(['<p>Hi</p>'], 'page.htm', { type: 'text/html' })])
+
+    expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+  })
+
   it('saves each row with the front matter title/description/tags a markdown import returned', async () => {
     await mountDialog()
     globalThis.API_CLIENT.post.mockReturnValueOnce({

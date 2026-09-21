@@ -368,6 +368,31 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
     assert.equal((convertToMarkdown.mock.calls[1].arguments[0] as { format: string }).format, 'rst')
   })
 
+  test('autodetects the html format from .htm and .html extensions', async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'first.htm', content: '<p>First</p>' },
+      { fileName: 'second.HTML', content: '<p>Second</p>' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().ok, true)
+    assert.equal(
+      (convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format,
+      'html'
+    )
+    assert.equal(
+      (convertToMarkdown.mock.calls[1].arguments[0] as { format: string }).format,
+      'html'
+    )
+  })
+
   test("a per-file 'formats' override wins over that file's own detected extension", async () => {
     const { payload, contentType } = await buildMultipartPayload([
       { fileName: 'first.mediawiki', content: 'First', formatOverride: 'textile' },
