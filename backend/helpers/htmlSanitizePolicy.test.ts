@@ -492,3 +492,28 @@ describe('sanitizeOptions -- definition lists', () => {
     assert.equal(clean, html)
   })
 })
+
+describe('sanitizeOptions -- task list checkboxes', () => {
+  test('keeps a checkbox input with its class, checked and disabled state', () => {
+    const clean = sanitize(
+      '<li class="task-list-item"><input class="task-list-item-checkbox" checked="" disabled="" type="checkbox"> done</li>',
+      {},
+      new Set()
+    )
+
+    assert.equal(
+      clean,
+      '<li class="task-list-item"><input class="task-list-item-checkbox" checked disabled type="checkbox" /> done</li>'
+    )
+  })
+
+  test('drops an input that is not a checkbox, typed or not', () => {
+    const clean = sanitize(
+      '<p>a<input type="password" name="pw">b<input name="q">c</p>',
+      {},
+      new Set()
+    )
+
+    assert.equal(clean, '<p>abc</p>')
+  })
+})
