@@ -143,8 +143,6 @@ describe('pages API — publishState guardrail (OpenProject #2466)', () => {
   })
 
   test('going from draft to scheduled also needs publish:pages', async () => {
-    // FIXME: this sends draft -> scheduled, not the unpublish the title names -- the stubbed page
-    // always starts as 'draft'. Covering published -> draft needs a fixture that starts published.
     const res = await app.inject({
       method: 'PATCH',
       url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,

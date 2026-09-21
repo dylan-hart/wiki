@@ -197,6 +197,7 @@ Content of the second tab.
           background-color: #fff;
         }
 
+        /* _showActive sets an inline display: none on inactive panels; only !important beats it. */
         ::slotted(block-tab) {
           display: block !important;
           padding: 8px 12px;
@@ -276,10 +277,10 @@ Content of the second tab.
   }
 
   /**
-   * A heading's own `scroll-margin-top` knows nothing about the strip standing above it, so
-   * scrolling to a heading in a panel would push the tabs themselves off screen. Set on the
-   * elements because the content is slotted, and measured because the strip wraps onto any number
-   * of rows.
+   * A target's own `scroll-margin-top` knows nothing about the strip standing above it, so
+   * scrolling to one in a panel would push the tabs themselves off screen. Set on the panel and
+   * its children (a `header` tab is anchored on the panel itself) because the content is slotted,
+   * and measured because the strip wraps onto any number of rows.
    */
   _applyScrollMargin() {
     const strip = this.renderRoot.querySelector('.strip')

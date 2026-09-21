@@ -2,6 +2,8 @@ import { onBeforeUnmount, onMounted } from 'vue'
 
 const PROPERTY = '--footer-bar-height'
 
+// A route swap can mount the incoming footer before the outgoing one's cleanup runs, and that
+// cleanup must not clear the value the incoming footer just wrote.
 let owner = null
 
 export function useFooterBarHeight(target) {

@@ -28,8 +28,12 @@ const OUT = path.join(SRC, 'assets/icons.generated.js')
  */
 const BLOCKS_ROOT = path.join(ROOT, '..', 'blocks')
 
+// A module definition's per-prop, per-action and per-ref icons reach `frontend/src` only as fetched
+// module data, so the source scan cannot see them.
 const MODULES_ROOT = path.join(ROOT, '..', 'backend', 'modules')
 
+// Nested `icon:` lines only; a module's own top-level `icon:` is an asset path, not an Iconify
+// reference.
 const YAML_ICON =
   /^[ \t]+icon:[ \t]*(["']?)([a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:[-.][a-z0-9]+)*)\1[ \t]*$/gm
 

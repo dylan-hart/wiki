@@ -44,6 +44,7 @@ class CommentNotifications {
         return
       }
 
+      // -> `Hooks.emit()` already mails a subscriber to this event about the same comment.
       const alreadyMailed = new Set(
         (
           await CARDINAL.models.users.listEmailSubscribers(isEdit ? 'comment:edit' : 'comment:new')
@@ -123,6 +124,8 @@ class CommentNotifications {
         tags: page.tags ?? [],
         classification: page.classification ?? null
       }
+      // -> `read:pages` too: the mail names the page, so a reader who may see comments but not the
+      //    page must not learn its title from it.
       if (
         !CARDINAL.models.groups.checkAccess(actor, 'read:pages', ref) ||
         !CARDINAL.models.groups.checkAccess(actor, 'read:comments', ref)

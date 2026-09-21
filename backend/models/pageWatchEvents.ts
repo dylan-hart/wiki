@@ -71,6 +71,10 @@ const INBOX_LIST_LIMIT = 50
  */
 export const DIGEST_PENDING_LIMIT = 1000
 
+/**
+ * The most unread rows `unreadCount` scans, and so the largest count it can return: each scanned row
+ * costs a group-rule evaluation, and an unread backlog is unbounded.
+ */
 export const UNREAD_COUNT_SCAN_LIMIT = 100
 
 /**
@@ -164,7 +168,8 @@ class PageWatchEvents {
 
   /**
    * Capped at `INBOX_LIST_LIMIT` rather than paginated: an unbounded unread backlog is not a case
-   * this handles gracefully, and the badge it feeds (`unreadCount`) is a separate, uncapped query.
+   * this handles gracefully, and the badge it feeds (`unreadCount`) is a separate query with its own cap
+   * (`UNREAD_COUNT_SCAN_LIMIT`).
    *
    * `read:pages` is re-checked at read time (`filterReadable`), not just when the event was
    * recorded; a row that fails is dropped from the list rather than surfaced as a refusal.
@@ -267,11 +272,9 @@ class PageWatchEvents {
   }
 
   /**
-   * A separate `SELECT count(*)` rather than `listForUser(...).length`, so the badge stays accurate
-   * past `INBOX_LIST_LIMIT` instead of capping out at the list's own page size.
-   *
-   * FIXME: no `filterReadable` pass here, so this counts rows `listForUser` drops — a user who has
-   * lost `read:pages` on a page sees a badge its own list cannot account for.
+   * Runs the scan through `filterReadable`, like `listForUser`, so the badge never counts a row the
+   * inbox drops. Saturates at `UNREAD_COUNT_SCAN_LIMIT`; when the newest rows are unreadable, readable
+   * ones beyond the cap go uncounted, which under-counts rather than over-counts.
    */
   async unreadCount(userId: string, siteId: string): Promise<number> {
     const rows = await CARDINAL.db

@@ -654,6 +654,8 @@ async function routes(app: FastifyInstance) {
       if (await CARDINAL.models.groups.hasUnknownGroupIds(req.body.groups ?? [])) {
         return reply.badRequest('ERR_UNKNOWN_GROUPS')
       }
+      // -> A new account is a membership change from nothing: without this a manage:users holder
+      //    could create one inside a manage:system group.
       await CARDINAL.models.groups.assertMembershipChangeAllowed(req, [], req.body.groups ?? [])
 
       try {
@@ -885,9 +887,10 @@ async function routes(app: FastifyInstance) {
         }
 
         /*
-          Handing somebody `manage:system` by putting them in a group that carries it. Only ADDING is
-          checked: a user already in such a group is protected by `systemUserGuard` above, which has
-          refused this request before it gets here.
+          Adding or removing a group carrying manage:users, manage:groups or manage:system is a
+          privilege change: see `Groups.assertMembershipChangeAllowed`. A user already in a
+          manage:system group is protected by `systemUserGuard` above, which has refused this
+          request before it gets here.
         */
         await CARDINAL.models.groups.assertMembershipChangeAllowed(
           req,

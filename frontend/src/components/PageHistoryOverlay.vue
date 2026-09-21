@@ -627,6 +627,7 @@ function branchFrom(version) {
           content,
           render: await renderOf(full, content),
           description: '',
+          // A version's meta holds the display flags and tocDepth under `config`, unlike the page API.
           ...duplicatedPageProps({ ...full.meta, ...full.meta?.config }),
           reasonForChange: t('history.branchReason', { date: humanizeDate(t, full.versionDate) })
         }

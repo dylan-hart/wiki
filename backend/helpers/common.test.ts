@@ -161,8 +161,7 @@ describe('isHashedAssetFilename', () => {
   }
 
   // -> Entries under `assets/_assets` that are not vite build output: `renderer.js` is a
-  //    deliberately fixed entry name, the rest are hand-authored trees. `logo-cardinal.svg` is left
-  //    out because it is coincidentally hash-shaped — see the FIXME on `HASHED_ASSET_PATTERN`.
+  //    deliberately fixed entry name, the rest are hand-authored trees.
   const unhashedSamples = ['fonts', 'icons', 'illustrations', 'renderer.js', 'storage', 'svg']
 
   for (const name of unhashedSamples) {

@@ -68,7 +68,9 @@ export function stripPageExtension(urlPath, extensions) {
  * and the router's catch-all matches both alike, so the app has to decide for itself which it has
  * before treating the rest as a page path. Matching is case-insensitive (`/FR/page` counts), but
  * the code returned is always the one as stored in `activeLocaleCodes`, never the request's casing.
- * Mirrors the backend's `stripLocalePrefix` (`helpers/common.ts`).
+ * An alias is tried before the canonical code, so a link `localizedPagePath` emits always parses
+ * back; the returned code is the canonical one. Mirrors the backend's `stripLocalePrefix`
+ * (`helpers/localeRouting.ts`).
  */
 export function parseLocalePrefix(path, activeLocaleCodes, aliases) {
   if (!activeLocaleCodes?.length) {
@@ -145,7 +147,7 @@ export function resolveRouteLocale(path, query, activeLocaleCodes, primary, alia
  *
  * @param locale The link's own locale -- not necessarily the reader's current one, e.g. a breadcrumb
  *   built from a page loaded in a locale other than the site's default
- * @param siteLocales `{ useLocales, primary, forcePrefix }`, from `siteStore`
+ * @param siteLocales `{ useLocales, primary, forcePrefix, aliases }`, from `siteStore`
  */
 export function shouldPrefixLocale(locale, siteLocales) {
   if (!siteLocales?.useLocales) {
@@ -157,7 +159,7 @@ export function shouldPrefixLocale(locale, siteLocales) {
 /**
  * @param path Bare page path, with no leading slash, as `pageStore.path` / `item.path` /
  *   `node.path` store it
- * @param siteLocales `{ useLocales, primary, forcePrefix }`, from `siteStore`
+ * @param siteLocales `{ useLocales, primary, forcePrefix, aliases }`, from `siteStore`
  */
 export function localizedPagePath(path, locale, siteLocales) {
   const bare = `/${path}`

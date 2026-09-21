@@ -795,6 +795,10 @@ class Pages {
     return this.completePageCreate(siteId, created, input, actor, { origin })
   }
 
+  /**
+   * The database half of `createPage`, split out so a caller creating several pages in one
+   * transaction can commit them together and only then run `completePageCreate` for each.
+   */
   async insertPageRows(
     siteId: string,
     input: PageInput,
@@ -927,7 +931,9 @@ class Pages {
       })
     } catch (err) {
       // -> A page with no tree entry is invisible to navigation and to the file manager, which is
-      //    worse than not having saved it at all
+      //    worse than not having saved it at all. Inside a caller's transaction the failed statement
+      //    has aborted it, so a delete here would only mask the real error; their rollback removes
+      //    the page row.
       if (!tx) {
         await CARDINAL.db.delete(pagesTable).where(eq(pagesTable.id, page.id))
       }
@@ -1773,7 +1779,8 @@ class Pages {
     const newPath = normalizePath(path)
     // -> Same reasoning as `tree.renameFolder`: only checked when the path is actually changing, so
     //    a title-only (or locale-only) move of an already-grandfathered page — one whose path
-    //    predates this rule — isn't itself blocked by a shadowing first segment it never touches.
+    //    predates this rule, or a later-configured locale alias — isn't itself blocked by a
+    //    shadowing first segment it never touches.
     if (newPath !== page.path) {
       await assertPathNotReservedLocale(newPath, siteId)
     }

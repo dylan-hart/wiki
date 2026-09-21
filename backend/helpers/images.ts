@@ -174,6 +174,7 @@ async function readImageDimensions(
 ): Promise<{ width?: number; height?: number }> {
   try {
     const { width, height, pageHeight, orientation } = await sharp(data).metadata()
+    // -> An animated image reports every frame stacked in `height`; `pageHeight` is one frame
     const frameHeight = pageHeight ?? height
     if (
       !Number.isInteger(width) ||
@@ -183,6 +184,8 @@ async function readImageDimensions(
     ) {
       return {}
     }
+    // -> EXIF orientations 5-8 are a quarter turn, which is how a browser shows them, so width and
+    //    height swap
     return orientation >= 5 && orientation <= 8
       ? { width: frameHeight, height: width }
       : { width, height: frameHeight }

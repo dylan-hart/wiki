@@ -179,13 +179,6 @@ const INDENT_PX = 32
 
 const canWrite = computed(() => userStore.can('write:comments'))
 
-/**
- * FIXME: the list endpoint sends `authorId` but no resolved `canEdit`/`canDelete` flag, so this
- * falls back to the global `manage:comments` permission -- a comment's own author cannot edit or
- * delete their own comment here, even though `maySelfModerate()` (`backend/api/comments.ts`) lets
- * them. The fix is putting those flags on the wire and gating per comment.
- */
-
 const loading = ref(true)
 const comments = ref([])
 

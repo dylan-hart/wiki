@@ -379,9 +379,10 @@ const keywordMatches = shallowRef([])
 const focusNodeId = ref(null)
 
 /** The composite `${locale}:${path}` id of the graph node matching whatever sidebar row the reader
- *  has SELECTED, or `null` when nothing qualifies. Selection lives entirely in the sidebar
- *  (`composables/navSidebarDestination.js` sets `stores/graph.js#selectedPath`, a bare path); the
- *  canvas has no click state of its own. This is the one place that resolves that bare path, plus
+ *  has SELECTED, or `null` when nothing qualifies. Selection is written to
+ *  `stores/graph.js#selectedPath` (a bare path) by the sidebar
+ *  (`composables/navSidebarDestination.js`) and by the header's graph button on entry from a page;
+ *  the canvas has no click state of its own. This is the one place that resolves that bare path, plus
  *  the current locale, into the composite id the draw layer keys on.
  *
  *  ANCHOR TRUMPS SELECTED, mirroring the sidebar's own `isSelected()` guard: a clicked EMPTY folder
@@ -1545,6 +1546,11 @@ onBeforeUnmount(() => {
   align-items: stretch;
   gap: 6px;
 
+  /*
+    `--option-count` (set in the template) grows each toggle in proportion to its option count, so
+    every option across both toggles ends up the same width; the zero basis lets that count, not
+    the labels' natural widths, decide the split.
+  */
   > .w-btn-toggle {
     flex: var(--option-count, 1) 1 0;
   }

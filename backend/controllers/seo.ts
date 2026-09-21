@@ -41,9 +41,8 @@ function escapeXml(value: string): string {
 }
 
 /**
- * `robots.txt` has nothing corresponding to "index but don't follow" — that distinction belongs to a
- * page's `<meta name="robots">` tag or `X-Robots-Tag` header — so both settings gate the same line:
- * either flag turned off answers `Disallow: /`.
+ * `robots.txt` keys on `index` only: "index but don't follow" has no robots.txt form and is carried by
+ * the shell's `X-Robots-Tag` header and robots meta (`helpers/shellRobots.ts`).
  */
 export function buildRobotsTxt(config: RobotsConfig, sitemapUrl: string): string {
   const allowed = config.robots?.index !== false

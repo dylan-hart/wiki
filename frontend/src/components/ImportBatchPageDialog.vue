@@ -729,8 +729,6 @@ function rowClasses(row) {
   color: #fff;
 }
 
-/* FIXME: the `&--over`, `&--failed` and `&--saved` rules below are the same Sass concatenation the
-   comment above warns about, so they never match -- write each out as a full selector. */
 .import-batch-dropzone {
   border: 2px dashed rgba(0, 0, 0, 0.2);
   transition: border-color 0.15s ease;

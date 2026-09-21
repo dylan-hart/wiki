@@ -74,9 +74,9 @@
       </div>
       <div class="min-w-0 shrink grow basis-80" v-if="state.target">
         <!--
-          Flex rather than the 12-column grid: the infobox is a fixed 300px and the settings take
-          what is left, each dropping onto its own row when there is no room. `col-span-12` on the
-          settings would take a whole grid row and push the infobox underneath.
+          Flex rather than the 12-column grid: `col-span-12` on the settings would take a whole grid
+          row and push the infobox underneath. The settings column's `basis-80` (not `flex-1`, whose
+          zero basis never wraps) is what makes the infobox drop below it when there is no room.
         -->
         <div class="flex flex-wrap gap-4">
           <div class="min-w-0 shrink grow basis-80">

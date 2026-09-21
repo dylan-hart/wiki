@@ -1653,12 +1653,10 @@ describe('mail send wrappers set their own kind', () => {
   }
 
   test('every MailKind but approval is covered by a wrapper above', () => {
-    // -> `approval` is composed outside this model (`models/approvalNotifications.ts` builds its
-    //    own body and calls `mail.send` directly), so it has no wrapper to table here.
+    // -> `approval` and `commentMention` are composed outside this model
+    //    (`models/approvalNotifications.ts`, `models/commentNotifications.ts` build their own body
+    //    and call `mail.send` directly), so they have no wrapper to table here.
     const covered = new Set(cases.map(([, kind]) => kind))
-    // FIXME: `tfaNewDeviceLogin` has a wrapper (`sendTfaNewDeviceLogin`) yet appears in neither
-    //        `cases` nor this list, so the claim above holds only by omission. Add it to both, and
-    //        pin the list with a `Record<MailKind, true>` literal so a new member cannot be missed.
     const allKinds: Record<Exclude<MailKind, 'approval' | 'commentMention'>, true> = {
       verify: true,
       forgotPassword: true,

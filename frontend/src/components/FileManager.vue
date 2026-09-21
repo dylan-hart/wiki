@@ -1182,7 +1182,7 @@ function moveItem(item) {
   }
 }
 
-/** Only a page can be duplicated: there is no endpoint behind a folder or an asset. */
+/** An asset has no duplicate endpoint. */
 function duplicateItem(item) {
   switch (item.type) {
     case 'folder': {

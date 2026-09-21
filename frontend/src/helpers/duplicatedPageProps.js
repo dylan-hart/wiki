@@ -1,3 +1,5 @@
+// Password is absent because the API never returns it, alias because it is unique per site, and the
+// script/style fields because they need write:scripts/write:styles.
 export const DUPLICATED_PAGE_PROPS = [
   'description',
   'icon',

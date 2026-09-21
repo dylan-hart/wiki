@@ -54,8 +54,6 @@
           </template>
           <template v-if="flagsStore.experimental">
             <w-separator inset spaced="sm" />
-            <!-- -> A real navigation away from the overlay, so it closes rather than floating over
-                    whatever page it lands the reader on. -->
             <w-item
               clickable
               data-testid="profile-preview-public"

@@ -56,10 +56,6 @@ const classes = computed(() => [
   // -> `--radius-mark` (0 under Ledger, a real value under Cobalt), never a hardcoded corner.
   props.rounded ? 'rounded-full' : 'rounded-mark',
   props.outline ? 'border border-current bg-transparent' : '',
-  // -> The physical `right-0` is deliberate: the straddle is `translate-x-1/2`, a physical
-  //    transform that never mirrors under RTL, so swapping only the position half to `end` would
-  //    pull the badge the wrong way off its corner. TODO: correct the pair together -- a logical
-  //    position plus a direction-aware straddle.
   props.floating ? 'absolute top-0 end-0 translate-x-1/2 -translate-y-1/3 rtl:-translate-x-1/2' : ''
 ])
 

@@ -226,6 +226,8 @@ export function registerAppShellFallback(app: FastifyInstance): void {
             shellPage = await lookupShellPage({ siteId, urlPath: urlPath!, locale: lang })
             status = shellPage ? 200 : 404
           } catch (err: any) {
+            // -> Fail open: a DB error says nothing about whether the page exists, and a 404 would
+            //    tell crawlers to drop it.
             status = 200
             CARDINAL.logger.warn('http', 'cannot look up the page for the app shell', {
               error: err

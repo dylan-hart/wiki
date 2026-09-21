@@ -34,9 +34,9 @@ export interface GetPageArgs {
  * page, `read:source` its raw source, and a password-protected page comes back `isLocked: true` with
  * no body unless the key holds `write:pages`/`manage:pages` on it.
  *
- * `includeSource` is best-effort: without `read:source` the call still succeeds, with
- * `sourceOmitted: true` — refusing the whole read over one field would be a worse answer for an
- * agent that mostly wants the rendered content.
+ * `includeSource` is best-effort: without `read:source` (or `write:pages`/`manage:pages`, which
+ * imply it) the call still succeeds, with `sourceOmitted: true` — refusing the whole read over one
+ * field would be a worse answer for an agent that mostly wants the rendered content.
  */
 export async function handleGetPage(
   ctx: McpAuthContext,
@@ -78,8 +78,6 @@ export async function handleGetPage(
     visitorRawId: ctx.keyId
   })
 
-  // FIXME: unlike `helpers/pageAccess.ts#mayReadSource`, `write:pages`/`manage:pages` do not imply
-  //    `read:source` here, so an editor's key is refused source the REST route returns. OR in both.
   const maySeeSource = mayReadSourceAs(actor, site.id, page)
   const includeSource = Boolean(args.includeSource) && !page.isLocked && maySeeSource
 

@@ -301,8 +301,8 @@ class Sites extends ClusterReloaded {
     if (patch.config) {
       // -> Config is a JSONB blob, so it is read and merged rather than partially assigned. Arrays
       //    are replaced rather than merged index-wise, or removing an entry (a page extension, say)
-      //    would leave the original in place; `dictOverrides` is a locale -> dictionary map with no
-      //    fixed keys and the same problem, so it is replaced by key name too.
+      //    would leave the original in place; `dictOverrides` and `locales.aliases` are maps with no
+      //    fixed keys and the same problem, so they are replaced by key name too.
       const current = await CARDINAL.db
         .select({ config: sitesTable.config })
         .from(sitesTable)

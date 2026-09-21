@@ -38,10 +38,9 @@ export function passkeysAllowed(): boolean {
 const DURATION_PATTERN = /^\d+[smhdwy]$/
 
 /**
- * Round-trips through the same comma-split and `proxyAddr.compile()` that Fastify's own
- * `getTrustProxyFn` applies to a string `trustProxy` at request time, rather than a hand-written
- * address/CIDR regex, so "accepted by the admin form" cannot drift from "trusted at request time"
- * -- a trailing comma or blank entry (`'10.0.0.0/8,'`) included.
+ * Compiles through `compileTrustProxyList`, the same function `core/http/trustProxy.ts` uses at
+ * request time, so "accepted by the admin form" cannot drift from "trusted at request time" -- a
+ * trailing comma or blank entry (`'10.0.0.0/8,'`) included.
  */
 export function validateTrustProxySpec(spec: string): string | null {
   try {
@@ -54,7 +53,8 @@ export function validateTrustProxySpec(spec: string): string | null {
 
 /**
  * Most of this blob is read once, while the HTTP server is being built (`core/http/security.ts`,
- * `core/http/session.ts`), so a save here only takes effect on the next restart.
+ * `core/http/session.ts`), so a save here only takes effect on the next restart. `trustProxy` is the
+ * exception: `core/http/trustProxy.ts` re-reads it per request.
  */
 class Security {
   /**
@@ -181,7 +181,7 @@ class Security {
     }
 
     // -> A boolean (trust every/no peer) or a comma-separated address/CIDR list, passed straight
-    //    through to Fastify's own `trustProxy` option. The list form closes the tenancy-isolation
+    //    through to `core/http/trustProxy.ts`. The list form closes the tenancy-isolation
     //    gap a bare `true` leaves open: Fastify reads `X-Forwarded-Host`/`-For`/`-Proto` only from
     //    a peer the list covers, so a client can no longer steer `req.hostname` -- and therefore
     //    site resolution -- with a header of its own.

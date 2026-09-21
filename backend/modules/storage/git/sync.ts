@@ -109,10 +109,10 @@ function guessAssetBucket(relPath: string): string {
 
 /**
  * A bare `git diffSummary` carries no per-file author (only per-commit, and a commit can touch many
- * files), and there is no fixed system user to fall back on — so a pulled change is attributed to
- * whoever is registered under the target's Default Author Email, the same identity `content.ts`'s
- * `resolveAuthor` commits *out* to git under. With no such user there is nobody to attribute the
- * write to, so the import is skipped rather than fabricated.
+ * files), so a pulled change is attributed to whoever is registered under the target's Default
+ * Author Email, the same identity `content.ts`'s `resolveAuthor` commits *out* to git under. With no
+ * such user it falls back to the reserved system user (`users.ensureSystemUser()`) rather than
+ * skipping the import.
  */
 export async function resolveImportActor(target: StorageTarget): Promise<ImportActor> {
   const email = target.config?.defaultEmail
@@ -348,8 +348,9 @@ async function reattach(git: SimpleGit, branch: string, log: ScopedLogger): Prom
 }
 
 /**
- * A rebase conflict is deliberately not caught: it aborts the sync and leaves the working copy
- * mid-rebase for an administrator, the same place a hand-run `git pull --rebase` would.
+ * A rebase conflict is deliberately not caught: it fails the sync and leaves the working copy
+ * mid-rebase so an administrator can inspect it. The next pulling sync rolls that rebase back
+ * (`abortInterrupted`) and retries.
  *
  * Mass-delete guard: once page deletions reach the target's `maxDeletePercent`, only the
  * page-deletion entries are held back and logged — every other change in the diff still applies,
@@ -397,6 +398,8 @@ export async function sync(target: StorageTarget, data: Record<string, any> = {}
   }
 
   if (reattached) {
+    // -> Every file on the remote just arrived, so the diff is the whole repository; importing it
+    //    would rewrite every page from a copy of itself.
     return
   }
 

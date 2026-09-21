@@ -279,7 +279,6 @@ describe('RELAY_CHUNK_SIZE', () => {
   test('the worst-case relay envelope stays under the 8000-byte NOTIFY cap (task 478)', () => {
     // -> Every optional field populated at its real worst-case length: `i`/`to` a 10-char hex
     //    `CARDINAL.INSTANCE_ID`, `r` a 36-char page uuid, `m`/`c`/`n` generously long numbers.
-    // TODO: `t` should be 'wysiwyg-claimed', the longest `RelayEnvelope['t']`, not 'awareness'.
     const worstCase = {
       i: 'V1StGXR8_Z',
       r: '550e8400-e29b-41d4-a716-446655440000',

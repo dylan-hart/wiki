@@ -352,7 +352,8 @@ class Locales extends ClusterReloaded {
    * Whether a path segment is reserved because it names an INSTALLED locale — installed, not merely
    * active on a site: on a site with `fr` active a root folder `fr/` is unreachable, shadowed by
    * `stripLocalePrefix`, and one created while `fr` is only installed becomes unreachable the day it
-   * is activated. Case-insensitive, matching URL parsing.
+   * is activated. With `siteId`, an alias configured on that site is reserved too (per-site, where
+   * the code half is global). Case-insensitive, matching URL parsing.
    */
   async isReservedLocaleCode(segment: string, siteId?: string): Promise<boolean> {
     if (!segment) {

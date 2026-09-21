@@ -172,12 +172,6 @@ describe('the markdown editor’s own chrome', () => {
       color: token('--color-text-caption', '#57668a')
     })
   })
-
-  /*
-    `.theme--dark` is a class nothing in this app applies to anything -- `composables/dark.js` is the
-    single source of truth for dark mode and toggles `.body--dark` on `<body>` -- so any rule keyed
-    off it is permanently dead and never paints.
-  */
 })
 
 describe('the page actions rail while a page is being written', () => {

@@ -132,8 +132,8 @@ describe('Graph.vue anchor + descendants restriction (OpenProject #3333)', () =>
     }
     const wrapper = await mountGraph({ graph, initialPath: '/_graph?path=', pageLocale: 'en' })
 
-    // -> An empty `?path=` resolves to nothing (`resolveFocusNode`'s own falsy-path no-op), so this
-    //    exercises the same "no anchor" path as no query param at all.
+    // -> An empty `?path=` anchors on the root, which restricts nothing, so the whole locale stays
+    //    visible.
     const realPaths = wrapper.vm.nodes.filter((node) => !node.synthetic)
     expect(realPaths).toHaveLength(graph.nodes.length)
   })

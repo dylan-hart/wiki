@@ -1,5 +1,7 @@
 import { expect } from '@playwright/test'
 
+// In-page fetch, not `page.request`: the same-origin gate refuses a state-changing cookie-session
+// request lacking a genuine `Origin`/`Sec-Fetch-Site`.
 export async function apiFetch(page, method, path, body) {
   return page.evaluate(
     async ({ method, path, body }) => {

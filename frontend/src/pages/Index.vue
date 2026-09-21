@@ -1409,7 +1409,7 @@ body.body--cobalt .page-header {
   Tailwind utility pair that recurs in this template and across the app.
 
   `32.5px` is a measurement of the footer bar's rendered height, not a formula off
-  `--footer-bar-height`, which is a much larger conservative text-wrap estimate.
+  `--footer-bar-height`, whose fallback is a much larger conservative text-wrap estimate.
   `--article-column-pad`'s Cobalt bottom value is cut by the same 32.5px so the two net to zero: only
   the scrollbar track moves. Padding alone cannot do this job -- it lives INSIDE the scrollport.
 */
@@ -1585,11 +1585,6 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     padding: 28px 24px 28px 2px;
   }
 
-  /*
-    FIXME: `#{...}` is Sass interpolation left over from the Sass teardown and is not valid plain
-    CSS -- the custom property stores the literal text, so `WSeparator` never resolves a colour from
-    it and falls back to its own default. Both declarations should be bare `var(--color-hairline…)`.
-  */
   .w-separator {
     --w-hairline-color: var(--color-hairline);
     margin-block: 22px;

@@ -535,6 +535,9 @@ class Groups extends ClusterReloaded {
    * For the 2.5.x importer (`migration/importers/users-groups.ts`): takes already-converted
    * `permissions` and `rules` instead of seeding defaults. Always non-system — the importer skips a
    * source's own system groups, which `init()` has already seeded.
+   *
+   * A name colliding with an existing group is suffixed rather than refused, because Wiki.js 2.5
+   * allowed duplicates.
    */
   async createGroupFromImport(input: {
     name: string
@@ -622,7 +625,7 @@ class Groups extends ClusterReloaded {
   /**
    * Belt and braces alongside `helpers/pageRules.ts#ruleMatchesPage`'s own case-fold: a rule's
    * `path` goes through the normalization a page's own path is stored under, for the match kinds
-   * that compare directly against it. REGEX addresses a pattern rather than a literal path, and
+   * that compare directly against it (START, SUBTREE, END, EXACT). REGEX addresses a pattern rather than a literal path, and
    * CLASSIFICATION does not read `path` at all, so both are left untouched.
    *
    * `tags` are normalized whatever the `match`, so a rule switched away from TAG/TAGALL keeps a
@@ -822,6 +825,7 @@ class Groups extends ClusterReloaded {
     return [...ids]
   }
 
+  /** Includes the root administrators group whether or not its row carries an elevated permission. */
   async elevatedGroupIds(): Promise<string[]> {
     const rows = await CARDINAL.db
       .select({ id: groupsTable.id, permissions: groupsTable.permissions })

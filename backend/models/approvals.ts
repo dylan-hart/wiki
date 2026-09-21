@@ -71,7 +71,7 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
   content: string
   /**
    * Absent, rather than an empty string, when the reviewer holds `read:pages` on the page but not
-   * `read:source` there -- the queue entry still comes back so they can act on it, the source does
+   * `read:source` there (which `write:pages`/`manage:pages` imply) -- the queue entry still comes back so they can act on it, the source does
    * not.
    */
   pageContent?: string
@@ -569,10 +569,11 @@ class Approvals {
   }
 
   /**
-   * `pageContent` additionally requires `read:source` on the page, on top of the `read:pages` the
-   * queue itself already requires: the current page body is exactly what a direct page view withholds
-   * without it, and a pending suggestion is not a way around that. Refused with a missing field, not
-   * a 403 -- the reviewer still needs the rest of this response to act on the queue entry.
+   * `pageContent` additionally requires `read:source` (or what implies it, `mayReadSourceAs`) on the
+   * page, on top of the `read:pages` the queue itself already requires: the current page body is
+   * exactly what a direct page view withholds without it, and a pending suggestion is not a way
+   * around that. Refused with a missing field, not a 403 -- the reviewer still needs the rest of
+   * this response to act on the queue entry.
    */
   async getSubmissionForReview(
     siteId: string,

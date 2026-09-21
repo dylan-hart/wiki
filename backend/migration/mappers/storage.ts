@@ -35,9 +35,7 @@ import type { ConfigTransform } from './shared.ts'
  * declared `supportedModes`; `syncInterval` needs a real conversion rather than a rename (see
  * `convertSyncInterval`). Whichever of the two has a source value that cannot be converted is
  * reported in `droppedFields` rather than vanishing, so a caller building a migration report can name
- * what was lost. `state` is left untouched for want of any transform at all: 2.x's was module-defined
- * free-form json with no setup-wizard concept, while 3.0 pins it to
- * `{ setup: 'notconfigured'|'pendinginstall'|'configured' }`, which no source value means anything in.
+ * what was lost. `state` is never mapped: it is a 2.x-only column that 3.0 has no counterpart for.
  */
 
 /**
@@ -52,7 +50,7 @@ export interface SourceStorageRow extends SourceRecord {
   config: unknown
   /** A raw five-field cron expression in practice; the 2.x column constrained nothing. */
   syncInterval: unknown
-  /** Never mapped: 3.0's own `state` shape has no 2.x counterpart. */
+  /** Never mapped: 3.0 has no `storage.state` column. */
   state: unknown
 }
 
@@ -219,9 +217,6 @@ function convertSyncInterval(value: unknown): string | null {
   if (trimmed.length === 0) {
     return null
   }
-  // FIXME: `Temporal.Duration.from()` accepts durations `models/storage.ts`'s narrower
-  // `ISO_DURATION_PATTERN` rejects (`P1W`, a negative duration), so such a value passes through
-  // here and is then refused at write time. Validate with the model's own check instead.
   if (isIsoDuration(trimmed)) {
     return trimmed
   }

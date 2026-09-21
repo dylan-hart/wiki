@@ -29,11 +29,6 @@ export function assertLocaleActive(siteId: string, locale: string): void {
   }
 }
 
-/**
- * `stripLocalePrefix` takes a locale code off the first segment of a URL and nowhere else, so a page
- * at `fr/guide` would be unreachable — every request for it would be read as `/guide` in French.
- * Only the first segment can collide; `guide/fr` is fine.
- */
 export function isConfiguredLocaleAlias(siteId: string | undefined, segment: string): boolean {
   if (!siteId || !segment) {
     return false
@@ -52,6 +47,12 @@ export function reservedLocaleSegmentLabel(siteId: string | undefined, segment: 
   return isConfiguredLocaleAlias(siteId, segment) ? 'a locale alias' : 'an installed locale code'
 }
 
+/**
+ * `stripLocalePrefix` takes a locale code, or a configured alias of the site (`siteId`), off the
+ * first segment of a URL and nowhere else, so a page at `fr/guide` would be unreachable — every
+ * request for it would be read as `/guide` in French. Only the first segment can collide;
+ * `guide/fr` is fine.
+ */
 export async function assertPathNotReservedLocale(path: string, siteId?: string): Promise<void> {
   const firstSegment = path.split('/')[0] ?? ''
   if (await CARDINAL.models.locales.isReservedLocaleCode(firstSegment, siteId)) {
@@ -139,8 +140,8 @@ export function localePrefixRedirectTarget(
 /**
  * The other half of `localePrefixRedirectTarget`: REMOVES an explicit prefix the site's rules leave
  * bare (`/en/page` and `/page` are otherwise two URLs for the same document — the sitemap, hreflang
- * and caches all want exactly one), and re-cases a mis-cased prefix to the code as stored in
- * `active`. Null when the URL is already canonical.
+ * and caches all want exactly one), and rewrites a mis-cased or canonical-code prefix to the URL
+ * spelling (the alias when the locale has one). Null when the URL is already canonical.
  *
  * @returns The path only — the caller reattaches the query string
  */

@@ -147,8 +147,6 @@ jobs:
         working-directory: backend
         run: npx oxlint --deny-warnings
 
-      # FIXME: this step and the "Install pandoc" step after it repeat the two steps before "Backend
-      # Typecheck"; delete this pair.
       # MinIO's image lives at quay.io only and has no floating LTS-major tag, so this pins a
       # concrete RELEASE tag. .devcontainer/docker-compose.yml's `minio` service must match it.
       - name: Start MinIO (S3 emulation for backend/modules/storage/s3)

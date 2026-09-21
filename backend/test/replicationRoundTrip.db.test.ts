@@ -3,10 +3,6 @@
  * unit-level suite; this file is the round trip between them, proving the wire format one side
  * writes is what the other reads.
  *
- * TODO: nothing can drive this through a real pull — the HTTP fetch from a remote instance and the
- * cron trigger a scheduled pull needs do not exist yet. Cover the trigger once it lands; meanwhile
- * the snapshot is fed in-process instead of over HTTP.
- *
  * Two "instances" are two independent, randomly-named schemas against the SAME `DATABASE_URL`, not
  * `setupTestDb()` twice: that fixture keeps its schema/pool/`CARDINAL` handle in module-level
  * singletons, so a second call would clobber the first's bookkeeping rather than run alongside it.

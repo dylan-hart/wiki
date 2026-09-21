@@ -153,21 +153,18 @@ export function isSameOriginWebSocketHandshake(
   return false
 }
 
-/**
- * A vite build's `[name]-[hash].[ext]` filename.
- *
- * FIXME: also matches the unhashed `logo-cardinal.svg` that `frontend/public/_assets` copies into
- * the build, so it is served immutable. Rename it, or stop inferring a hash from name shape alone.
- */
+/** Vite's `[name]-[hash].[ext]` output: an 8-character base64url hash. */
 const HASHED_ASSET_PATTERN = /-([A-Za-z0-9_-]{8})\.[a-z0-9]+$/
+/** Rejects hand-authored names whose last segment is an 8-letter lowercase word (`logo-cardinal.svg`). */
 const HASH_MIX_PATTERN = /[A-Z0-9_]/
 
 /**
  * A content-hashed name can never point at different bytes, so it may be cached immutable. Meant to
- * be false for the names `frontend/vite.config.js` pins on purpose (`renderer.js`) and for the
- * hand-authored trees under `assets/_assets` that never go through vite.
+ * be false for the names `frontend/vite.config.js` pins on purpose (`renderer.js`).
  *
- * @param filename Basename only, not a full path
+ * @param relativePath Relative to `assets/_assets`. Vite writes every hashed file directly under it,
+ *   so anything in a subdirectory (`fonts/`, `icons/`, `illustrations/`, `storage/`, `svg/`) is
+ *   hand-authored and never immutable.
  */
 export function isHashedAssetFilename(relativePath: string): boolean {
   if (/[\\/]/.test(relativePath)) {

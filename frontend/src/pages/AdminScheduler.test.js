@@ -249,8 +249,6 @@ describe('AdminScheduler upcoming grouping (OpenProject #2830)', () => {
     ]
     const wrapper = await mountUpcomingTab(jobs)
 
-    // -> The Cancel Job button has no static aria-label (its tooltip labels it on hover/focus), so
-    //    select on the icon's `data-icon` hook instead.
     const cancelButton = (row) => row.find('button[aria-label="Cancel Job"]')
 
     let rows = wrapper.findAll('table tbody tr')

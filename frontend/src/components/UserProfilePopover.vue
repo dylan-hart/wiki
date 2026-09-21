@@ -79,6 +79,7 @@ import {
 } from '@/composables/profilePopover'
 import { initials } from '@/helpers/initials'
 
+// Above the shallow `WMenu` layers (6500+), below tooltips (7000).
 const POPOVER_Z = 6600
 
 const { t } = useI18n()

@@ -200,6 +200,7 @@ export function createRuntimeSampler(deps?: Partial<RuntimeSamplerDeps>) {
     collect(): RuntimeSnapshot {
       const memory = memoryUsage()
       const cpu = cpuUsage()
+      // -> An empty histogram reports min = 2^63 and mean = NaN, which must never reach the exposition
       const sampled = histogram.count > 0
       const seconds = (nanoseconds: number) => (sampled ? nanoseconds / NANOSECONDS_PER_SECOND : 0)
       const snapshot: RuntimeSnapshot = {

@@ -391,11 +391,6 @@ describe('mcp/http', () => {
   })
 })
 
-/**
- * The third claim — an ACTIVE session is never evicted — lives in `mcp/http.flaky.test.ts`: only
- * that direction can be falsified by a slow run. The two below assert that eviction HAPPENS, which
- * a slow run only makes more true.
- */
 describe('mcp/http session eviction (OpenProject #2207)', () => {
   let harness: Awaited<ReturnType<typeof createMcpSessionHarness>>
 

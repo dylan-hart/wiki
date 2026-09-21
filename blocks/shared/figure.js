@@ -61,15 +61,6 @@ export const figureStyles = css`
 `
 
 /**
- * The frame an embedded player or document is drawn in, off the same generic `--block-border`/
- * `--block-radius`/`--block-corner-marks`/`--block-mark-color` set every themed block card reads off
- * `body` (`frontend/src/css/tailwind.css`) -- so Ledger's hairline-with-corner-marks and Cobalt's
- * rounded card both come out right in either theme with no token of its own.
- *
- * TODO: no block adopts either class yet, and `.embed-frame__play` draws only the Ledger (square)
- * take -- Cobalt's round one needs a token of its own, the shapes being too different to share.
- */
-/**
  * An unfenced body has been through markdown's typographer before the block ever sees it, so what
  * failed to parse is usually not what the author typed -- hence the fence hint whenever the source
  * did not come out of a fence.

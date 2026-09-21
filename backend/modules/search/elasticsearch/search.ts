@@ -244,6 +244,9 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
   private async ensureIndex(client: Client, indexName: string, analyzer: string): Promise<void> {
     const exists = await client.indices.exists({ index: indexName })
     if (exists) {
+      // -> Gives an index created before these fields existed `keyword` mappings; left to dynamic
+      //    mapping they would become analyzed `text`, and a `term` on a hyphenated UUID matches
+      //    nothing. Documents indexed earlier lack the fields until a rebuild.
       await client.indices.putMapping({
         index: indexName,
         properties: {

@@ -106,10 +106,8 @@ describe('addScheduled (fake CARDINAL)', () => {
   })
 
   test('adds no jobs and does not throw when the schedule has no due iterations left', async () => {
-    // Fires on Feb 29th only, so the window holds no due iteration and the loop ends naturally
-    // rather than at the cap.
-    // FIXME: fails when run in the 24h05m before a Feb 29th -- derive the cron from a date outside
-    // the window instead.
+    // Fires once a year, a week from now, so the window holds no due iteration and the loop ends
+    // naturally rather than at the cap.
     const farOff = Temporal.Now.instant()
       .add({ hours: 7 * 24 })
       .toZonedDateTimeISO('UTC')
@@ -177,8 +175,6 @@ describe('addScheduled (fake CARDINAL)', () => {
     }
   })
 
-  // FIXME: asserts only the fake's own `insertedJobs`, which is empty whenever the insert throws.
-  // Assert that `addScheduled()` itself returns 0, which is what the title claims.
   test('reports zero jobs added when every addJob insert fails', async () => {
     // -> Hourly rather than minutely: nothing ever succeeds, so the 10-addition cap cannot stop the
     //    loop early and every due iteration in the window is attempted.

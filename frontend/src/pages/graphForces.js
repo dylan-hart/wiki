@@ -78,9 +78,11 @@ const DEFAULT_RADIUS = 60
 //    exploratory visual tuning belongs against a real, populated graph.
 export const RING_CHILD_CAPACITY = 6
 
-// -> How far outward each additional ring pushes its children's target radius. Comfortably past
-//    `DEFAULT_RADIUS` so a second ring separates visually rather than overlapping the first,
-//    without dominating the link/charge forces' own say over radius. Also a starting point.
+// -> Upper bound on how far outward each additional ring pushes its children's target radius;
+//    `ringRadiusStepFor` reduces it by the child-count spoke term so a large family is not counted
+//    twice. Comfortably past `DEFAULT_RADIUS` so a second ring separates visually rather than
+//    overlapping the first, without dominating the link/charge forces' own say over radius. Also a
+//    starting point.
 export const RING_RADIUS_STEP = 80
 
 export const RING_RADIUS_MIN_STEP = 40

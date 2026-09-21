@@ -326,6 +326,12 @@ class AuditLog {
     return { total, entries: rows.map(rowToEntry) }
   }
 
+  /**
+   * Keyset-paged on `(createdAt, id)`, not `OFFSET`: a row recorded mid-export is newer than
+   * everything already read, and a purge only removes the oldest rows, so neither shifts the pages
+   * still to come. The cursor timestamp travels as Postgres text because the column has microsecond
+   * precision and a `Date` truncates to milliseconds, which would skip rows sharing a millisecond.
+   */
   async *exportBatches(
     filters: AuditLogFilters = {},
     batchSize: number = AUDIT_EXPORT_BATCH_SIZE

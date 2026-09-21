@@ -91,7 +91,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       }
     }
   }
-  // -> START/END/EXACT compare `path` against a page path, which is always stored lowercased
+  // -> START/SUBTREE/END/EXACT compare `path` against a page path, which is always stored lowercased
   //    (`normalizePagePath`), so a mixed-case rule could never match -- silently, for a DENY rule.
   //    REGEX may deliberately use a class like `[A-Z]`; the other match kinds do not read `path`.
   groupRuleSchema['if'] = {

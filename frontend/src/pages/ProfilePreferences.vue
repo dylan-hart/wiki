@@ -136,7 +136,9 @@ import { useUserStore } from '@/stores/user'
   This page and `ProfileInfo.vue` edit disjoint field subsets of the SAME `users/profile` record,
   and a save PUTs the whole object, so each holds the whole profile and carries the other's fields
   through unmodified. Only one Profile section is mounted at a time (`ProfileOverlay.vue`'s
-  `<component :is>`), so this guards the round-trip, not a live race between the two.
+  `<component :is>`), so this guards the round-trip, not a live race between the two. The exception
+  is a site with `features.profile` off: the server refuses a body carrying identity fields, so
+  they are omitted from the PUT.
 */
 
 const commonStore = useCommonStore()

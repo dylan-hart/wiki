@@ -22,8 +22,8 @@
             name="tabler:chevron-down" />
         </w-btn>
         <!--
-          Shown in both modes: Path/Tags/Locale/Editor/Publish State are part of the semantic
-          route's contract too. Sort By is the one control hidden in Semantic mode -- that route
+          Filter rows are shown in both modes: every row type is part of the semantic route's
+          contract too. Sort By is the one control hidden in Semantic mode -- that route
           takes no `orderBy` (results are implicitly ordered by similarity), so it would offer a
           control that silently does nothing.
         -->
@@ -421,8 +421,8 @@ watch(
       siteStore.search = newQueryObj.q.trim().slice(0, MAX_QUERY_LENGTH)
       // -> `HeaderSearch.vue` carries its pending mode here, so a semantic search started from the
       //    header lands already in Semantic mode. A stray `mode=semantic` is not honoured where the
-      //    feature is unavailable, and no `mode` param at all (e.g. `syncTags`'s own
-      //    `router.replace` round trip) leaves whatever mode was already selected untouched.
+      //    feature is unavailable, and no `mode` param at all leaves whatever mode was already
+      //    selected untouched.
       if (newQueryObj.mode === 'semantic' && siteStore.features.semanticSearch) {
         state.mode = 'semantic'
       } else if (newQueryObj.mode === 'keyword') {
@@ -585,10 +585,9 @@ async function runSearchRequest(endpoint, searchParams, append) {
 }
 
 /**
- * Unlike the keyword path this sends the reader's query text through untouched -- a semantic query
- * has no `#tag` filter meaning to extract from it -- so the tag filter reads the sidebar's own
- * `state.selectedTags` rather than tags parsed out of the query. No `orderBy` is sent either:
- * results stay implicitly ordered by similarity.
+ * Unlike the keyword path this sends the reader's query text through untouched. Tag filters are the
+ * `#tag` tokens in the query plus any Tag rows, sent as repeated `tags` pairs. No `orderBy` is sent
+ * either: results stay implicitly ordered by similarity.
  */
 function performSemanticSearch(append) {
   const q = (siteStore.search ?? '').trim().replaceAll(/\s\s+/g, ' ')
@@ -626,7 +625,8 @@ async function performSearch(append = false) {
   q = q.trim().replaceAll(/\s\s+/g, ' ')
 
   // -> Asking the server with nothing to go on answers with the most recently updated pages, which
-  //    is not what an empty search box means
+  //    is not what an empty search box means. Exclude rows alone do not count: they narrow rather
+  //    than select.
   if (!q && queryTags.length < 1 && !hasIncludeFilter(state.filters)) {
     resetResults()
     return undefined

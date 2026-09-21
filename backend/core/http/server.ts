@@ -46,11 +46,12 @@ export function createHttpApp(): FastifyInstance {
       genReqId: () => randomUUID(),
       stream: pinoStreamToWikiLogger()
     },
-    // -> Boolean or string (`models/security.ts#validateTrustProxySpec`), passed through verbatim:
-    //    Fastify compiles a string into a `proxy-addr` trust function. Every hostname-keyed site
-    //    lookup reads `req.hostname`, so a trusted-proxy address/CIDR list here, not a bare `true`,
-    //    is what keeps an untrusted client's `X-Forwarded-Host` from steering a request to another
-    //    site -- see `docs/audits/tls-termination.md`.
+    // -> Always a function, never the raw setting: Fastify only reads X-Forwarded-Host/Proto/For
+    //    when `trustProxy` is truthy at construction, so a function is what lets an admin save turn
+    //    it on without a restart (`trustProxy.ts`). Every hostname-keyed site lookup reads
+    //    `req.hostname`, so a trusted-proxy address/CIDR list, not a bare `true`, is what keeps an
+    //    untrusted client's `X-Forwarded-Host` from steering a request to another site -- see
+    //    `docs/audits/tls-termination.md`.
     trustProxy: createLiveTrustProxy(),
     routerOptions: {
       ignoreTrailingSlash: true

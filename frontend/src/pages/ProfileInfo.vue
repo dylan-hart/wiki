@@ -298,6 +298,7 @@ const handleRule = () => state.fieldErrors.handle ?? true
 
 const canEdit = computed(() => siteStore.features?.profile)
 
+// Keep in sync with `PROFILE_PUBLIC_FIELDS` in `backend/models/users.ts`.
 const PUBLIC_FIELD_KEYS = ['location', 'jobTitle', 'pronouns']
 
 function knownPublicFields(list) {
@@ -420,6 +421,8 @@ async function save() {
         location: state.config.location,
         jobTitle: state.config.jobTitle,
         pronouns: state.config.pronouns,
+        // -> The reader's own list only, never the forced one merged in: un-forcing a field later
+        //    must reveal their own choice.
         publicFields: state.config.publicFields,
         timezone: state.config.timezone,
         dateFormat: state.config.dateFormat,

@@ -102,8 +102,6 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
     ])
   })
 
-  // TODO: drop this hook and `dbWiki` -- nothing in this file replaces the `CARDINAL` that
-  //    `setupTestDb()` installs.
   after(async () => {
     await Promise.all([a?.close(), b?.close()])
     await teardownTestDb()

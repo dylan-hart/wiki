@@ -1529,8 +1529,6 @@ onMounted(async () => {
     keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
     label: 'Save',
     precondition: '',
-    // TODO: this only swallows the browser's own save dialog -- Ctrl+S never reaches `pageSave()`,
-    //       and nothing else in the app binds it. Wire it up or drop the action.
     run() {
       debouncedContentChange?.flush()
       requestSave()
@@ -1638,13 +1636,6 @@ onBeforeUnmount(() => {
 
 <style>
 @charset "UTF-8";
-/*
-  TODO: this component's own chrome -- both toolbar bands, the source pane's frame, the preview pane's
-  -- still reads bare Ledger colour values rather than the `--color-*`/`--radius-*` tokens Cobalt
-  overrides, so it stays Ledger-flavoured under Cobalt. Legible, but off-language; a full pass is
-  dozens of call sites. The render preview itself is fine: it inherits `_page-contents.css` through
-  its `page-contents` class.
-*/
 .editor-markdown {
   /*
     Percentage heights all the way down rather than a viewport calc (`100vh` minus every fixed-height
@@ -2037,9 +2028,4 @@ onBeforeUnmount(() => {
   min-height: 34px !important;
   padding: 0 !important;
 }
-/*
-  Unnested, and at the foot of the block rather than beside the rule it overrides, because
-  `.body--dark` sits in front of the whole selector. `composables/dark.js` is the one source of truth
-  for dark mode and is what toggles that class on `<body>`.
-*/
 </style>

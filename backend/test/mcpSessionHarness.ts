@@ -4,9 +4,7 @@ import httpRoutes from '../mcp/http.ts'
 import { installTestWiki } from './mocks.ts'
 
 /**
- * The session-lifecycle half of `mcp/http.ts`'s coverage, shared by its eviction suites across two
- * test lanes. A harness rather than one test file importing another: `node --test` would run the
- * imported file's suites twice, once under each name.
+ * The session-lifecycle half of `mcp/http.ts`'s coverage.
  */
 
 export const EVICTION_TOKEN = 'token-evict'
@@ -14,6 +12,7 @@ export const EVICTION_TOKEN = 'token-evict'
 interface HarnessOptions {
   sessionIdleTtlMs: number
   sessionCap: number
+  // -> Must start above 0: lru-cache treats a recorded start of 0 as "no ttl".
   clock?: { now: () => number }
 }
 

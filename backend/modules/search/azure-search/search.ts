@@ -235,7 +235,7 @@ export interface AzureSearchFilterParams extends SearchFilters {
   hasPassword?: boolean
 }
 
-/** `tags` matches any-of, not all-of: a document qualifies if any of its tags is in the set. */
+/** `tags` is all-of unless `tagsMatch` is `any`. */
 export function buildFilter(params: AzureSearchFilterParams): string {
   const conditions = [eqFilter('siteId', params.siteId)]
   if (params.path && params.path.length > 0) {

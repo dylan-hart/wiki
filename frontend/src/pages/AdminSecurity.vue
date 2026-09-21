@@ -52,7 +52,7 @@
                 </w-card-section>
                 <w-card-section class="text-caption">
                   <div>{{ t('admin.security.warn') }}</div>
-                  <!-- These are read when the HTTP server builds its plugin chain, not per request -->
+                  <!-- These are read when the HTTP server builds its plugin chain, not per request (Trust Proxy excepted) -->
                   <div class="mt-1">{{ t('admin.security.restartRequired') }}</div>
                 </w-card-section>
               </w-card-section>
@@ -128,7 +128,7 @@
           </template>
           <!--
             `!trustProxy` is implied by `insecureCookieRiskAt` ever being set, but kept explicit so
-            flipping the toggle above hides the warning at once, not after a restart + reload.
+            flipping the toggle above hides the warning at once, not after a reload.
           -->
           <template v-if="state.config.insecureCookieRiskAt && !state.config.trustProxy">
             <div class="p-3">

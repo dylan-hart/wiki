@@ -154,10 +154,6 @@ onBeforeUnmount(disposeEditor)
   margin-bottom: 4px;
 }
 
-/*
-  FIXME: `rgba(#fff, 0.08)` is Sass syntax, invalid in plain CSS, so the border below never renders.
-  Write the color as `rgb(255 255 255 / 8%)`. `PageDraftRestoreDialog.vue` carries the same bug.
-*/
 .save-conflict-diff {
   height: 320px;
   border: 1px solid rgb(255 255 255 / 8%);
