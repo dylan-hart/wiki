@@ -133,7 +133,12 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         autoProvision: true,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
-        config: { enforceTfa: false, emailValidation: true, allowForgotPassword: true }
+        config: {
+          enforceTfa: false,
+          emailValidation: true,
+          allowForgotPassword: true,
+          allowPasswordChange: true
+        }
       }
     })
 
@@ -155,7 +160,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
           clientId: 'gh-client-a',
           clientSecret: 'gh-secret-a',
           enterpriseHost: 'github.acme.example.com',
-          allowedOrganization: ''
+          allowedOrganization: '',
+          mapGroups: false
         }
       }
     })
@@ -180,7 +186,12 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         autoProvision: false,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
-        config: { enforceTfa: false, emailValidation: true, allowForgotPassword: true }
+        config: {
+          enforceTfa: false,
+          emailValidation: true,
+          allowForgotPassword: true,
+          allowPasswordChange: true
+        }
       }
     })
 
