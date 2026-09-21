@@ -1,16 +1,24 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fileSave } from 'browser-fs-access'
 
 import AdminAuditLog from './AdminAuditLog.vue'
+
+import { queue as notifyQueue } from '@/composables/notify'
 
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
-function mountPage() {
+vi.mock('browser-fs-access', () => ({ fileSave: vi.fn() }))
+
+function mountPage({ permissions = ['manage:system'] } = {}) {
   return mountWithApp(AdminAuditLog, {
+    stores: { user: { permissions } },
     messages: {
       'admin.audit.title': 'Audit Log',
       'admin.audit.event.user.created': 'User Created',
       'admin.audit.none': 'No audit events recorded yet.',
+      'admin.audit.exportNdjson': 'Export NDJSON',
+      'admin.audit.exportFailed': 'Failed to export the audit log.',
       'admin.audit.retentionTitle': 'Retention',
       'admin.audit.retentionSubtitle': 'Entries older than this are trimmed automatically.',
       'common.actions.save': 'Save'
@@ -25,6 +33,11 @@ async function flush(wrapper) {
 }
 
 describe('AdminAuditLog', () => {
+  beforeEach(() => {
+    fileSave.mockReset()
+    notifyQueue.splice(0)
+  })
+
   it('loads entries, actors and the retention setting on mount', async () => {
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'audit-log') {
@@ -242,6 +255,115 @@ describe('AdminAuditLog', () => {
     // -> A single-purpose card whose one row names itself needs no heading strip above it.
     expect(wrapper.find('.text-subtitle1').exists()).toBe(false)
     expect(wrapper.findAll('.w-section-header')).toHaveLength(0)
+
+    wrapper.unmount()
+  })
+
+  it('hides the retention card and never loads the setting without manage:system', async () => {
+    API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve(undefined) }))
+
+    const wrapper = mountPage({ permissions: ['read:audit'] })
+    await flush(wrapper)
+
+    expect(wrapper.find('.w-settings-row').exists()).toBe(false)
+    expect(wrapper.find('.retention-save-btn').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Retention')
+    expect(API_CLIENT.get.mock.calls.map(([url]) => url)).not.toContain('audit-log/settings')
+    expect(API_CLIENT.get.mock.calls.map(([url]) => url)).toContain('audit-log')
+
+    wrapper.unmount()
+  })
+
+  it('loads the retention setting for a manage:system reader', async () => {
+    API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve(undefined) }))
+
+    const wrapper = mountPage()
+    await flush(wrapper)
+
+    expect(API_CLIENT.get.mock.calls.map(([url]) => url)).toContain('audit-log/settings')
+    expect(wrapper.find('.retention-save-btn').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('exportNdjson() fetches the unpaged, filtered export and saves it as a dated .ndjson file', async () => {
+    const blob = new Blob(['{}\n'])
+    API_CLIENT.get.mockImplementation((url) =>
+      url === 'audit-log/export'
+        ? { blob: () => Promise.resolve(blob) }
+        : { json: () => Promise.resolve(undefined) }
+    )
+    fileSave.mockResolvedValue(undefined)
+
+    const wrapper = mountPage({ permissions: ['read:audit'] })
+    await flush(wrapper)
+
+    wrapper.vm.state.filters.actorId = 'user-1'
+    wrapper.vm.state.filters.event = 'user.created'
+    API_CLIENT.get.mockClear()
+
+    const exportBtn = wrapper.findAll('button').find((b) => b.text().includes('Export NDJSON'))
+    expect(exportBtn).toBeDefined()
+    await exportBtn.trigger('click')
+    await flush(wrapper)
+
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+    const [url, opts] = API_CLIENT.get.mock.calls[0]
+    expect(url).toBe('audit-log/export')
+    expect(opts.searchParams.get('actorId')).toBe('user-1')
+    expect(opts.searchParams.get('event')).toBe('user.created')
+    expect(opts.searchParams.has('limit')).toBe(false)
+    expect(opts.searchParams.has('offset')).toBe(false)
+
+    expect(fileSave).toHaveBeenCalledTimes(1)
+    const [saved, saveOpts] = fileSave.mock.calls[0]
+    expect(saved).toBe(blob)
+    expect(saveOpts.fileName).toMatch(/^audit-log-\d{4}-\d{2}-\d{2}\.ndjson$/)
+    expect(saveOpts.extensions).toEqual(['.ndjson'])
+    expect(wrapper.vm.state.exporting).toBe(false)
+    expect(notifyQueue).toHaveLength(0)
+
+    wrapper.unmount()
+  })
+
+  it('exportNdjson() notifies when the export request fails', async () => {
+    API_CLIENT.get.mockImplementation((url) =>
+      url === 'audit-log/export'
+        ? { blob: () => Promise.reject(new Error('boom')) }
+        : { json: () => Promise.resolve(undefined) }
+    )
+
+    const wrapper = mountPage({ permissions: ['read:audit'] })
+    await flush(wrapper)
+
+    await wrapper.vm.exportNdjson()
+
+    expect(fileSave).not.toHaveBeenCalled()
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to export the audit log.'
+    })
+    expect(wrapper.vm.state.exporting).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('exportNdjson() stays silent when the user cancels the save dialog', async () => {
+    API_CLIENT.get.mockImplementation((url) =>
+      url === 'audit-log/export'
+        ? { blob: () => Promise.resolve(new Blob([])) }
+        : { json: () => Promise.resolve(undefined) }
+    )
+    fileSave.mockRejectedValue(new DOMException('cancelled', 'AbortError'))
+
+    const wrapper = mountPage({ permissions: ['read:audit'] })
+    await flush(wrapper)
+
+    await wrapper.vm.exportNdjson()
+
+    expect(fileSave).toHaveBeenCalledTimes(1)
+    expect(notifyQueue).toHaveLength(0)
+    expect(wrapper.vm.state.exporting).toBe(false)
 
     wrapper.unmount()
   })
