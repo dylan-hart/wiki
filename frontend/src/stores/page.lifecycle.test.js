@@ -208,6 +208,18 @@ describe('page store: pageCreate()', () => {
     expect(pageStore.tags).toEqual(['alpha', 'beta'])
   })
 
+  it('defaults allowComments to true, even after a page that had comments off', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter('/_create/markdown')
+    pageStore.$patch({ allowComments: false })
+
+    await pageStore.pageCreate({ editor: 'markdown' })
+
+    expect(pageStore.allowComments).toBe(true)
+  })
+
   it('defaults tags to an empty array when none is passed', async () => {
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'

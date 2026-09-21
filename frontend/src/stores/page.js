@@ -516,6 +516,7 @@ export const usePageStore = defineStore('page', {
         // -> A page being created has no stored source to lose: whatever it starts with IS the source
         contentLoaded: true,
         isBrowsable: true,
+        allowComments: true,
         /*
           A redirection is browsable like any other page and findable in none: a search result for
           one would stand in front of the page the reader actually wanted. The server settles this
