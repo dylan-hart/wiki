@@ -548,6 +548,31 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
+  test('renameFolder refuses a rename that would put a page at an exact a/<x> path, and rolls back', async () => {
+    const folder = await treeModel.createFolder({
+      pathName: 'app-route-src',
+      title: 'App Route Src',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'app-route-src/child', title: 'Child', locale: 'en' }),
+      actor
+    )
+    await assert.rejects(
+      treeModel.renameFolder({
+        folderId: folder.id,
+        siteId: fixtures.siteId,
+        pathName: 'a',
+        title: 'App Route Src'
+      }),
+      (err: any) => err.name === 'pageReservedAppRoute'
+    )
+    const [row] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+    assert.equal(row!.path, 'app-route-src/child')
+  })
+
   test('createFolder refuses a parentId belonging to another site', async () => {
     const [otherSite] = await fixtures.db
       .insert(sitesTable)

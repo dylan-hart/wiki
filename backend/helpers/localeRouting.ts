@@ -1,4 +1,5 @@
 import { CustomError } from './common.ts'
+import { reservedTwoSegmentPrefix } from './reservedPagePaths.ts'
 
 /** The part of a site's `config.locales` that URL routing reads. */
 export interface LocaleRoutingConfig {
@@ -59,6 +60,17 @@ export async function assertPathNotReservedLocale(path: string, siteId?: string)
     throw new CustomError(
       'pageReservedLocaleSegment',
       `"${firstSegment}" is ${reservedLocaleSegmentLabel(siteId, firstSegment)} and cannot begin a page path.`,
+      400
+    )
+  }
+}
+
+export function assertPathNotReservedAppRoute(path: string): void {
+  const prefix = reservedTwoSegmentPrefix(path)
+  if (prefix) {
+    throw new CustomError(
+      'pageReservedAppRoute',
+      `"${path}" is reserved for the app's own "/${prefix}/..." routes and cannot be a page path.`,
       400
     )
   }

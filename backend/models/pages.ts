@@ -10,6 +10,7 @@ import {
 } from '../helpers/common.ts'
 import {
   assertLocaleActive,
+  assertPathNotReservedAppRoute,
   assertPathNotReservedLocale,
   defaultLocale
 } from '../helpers/localeRouting.ts'
@@ -811,6 +812,7 @@ class Pages {
 
     const path = normalizePath(input.path)
     await assertPathNotReservedLocale(path, siteId)
+    assertPathNotReservedAppRoute(path)
     const locale = input.locale || defaultLocale(siteId)
     // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
     //    including one recreated by the deletion-recovery flow into a locale that no longer exists
@@ -1783,6 +1785,7 @@ class Pages {
     //    shadowing first segment it never touches.
     if (newPath !== page.path) {
       await assertPathNotReservedLocale(newPath, siteId)
+      assertPathNotReservedAppRoute(newPath)
     }
     const destLocale = locale ?? page.locale
     // -> Same rule as `createPage`: a disabled locale is not a place a page may end up

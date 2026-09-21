@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { CustomError } from './common.ts'
 import {
   assertLocaleActive,
+  assertPathNotReservedAppRoute,
   assertPathNotReservedLocale,
   defaultLocale,
   isConfiguredLocaleAlias,
@@ -195,6 +196,41 @@ describe('assertPathNotReservedLocale', () => {
     await withReservedCodes(['fr'], async () => {
       await assert.rejects(assertPathNotReservedLocale('fr'), { name: 'pageReservedLocaleSegment' })
     })
+  })
+})
+
+describe('assertPathNotReservedAppRoute', () => {
+  test('refuses an exact two-segment a/<x> or i/<x> path, as pageReservedAppRoute 400', () => {
+    for (const pagePath of ['a/guide', 'i/guide']) {
+      assert.throws(
+        () => assertPathNotReservedAppRoute(pagePath),
+        (err: CustomError) => {
+          assert.equal(err.name, 'pageReservedAppRoute')
+          assert.equal(err.statusCode, 400)
+          assert.match(err.message, new RegExp(`"${pagePath}" is reserved`))
+          return true
+        }
+      )
+    }
+  })
+
+  test('accepts the bare prefixes, deeper paths and nested prefixes', () => {
+    for (const pagePath of [
+      'a',
+      'i',
+      'a/x/y',
+      'i/x/y',
+      'docs/a/x',
+      'docs/i/x',
+      'ab/x',
+      'guide/a'
+    ]) {
+      assertPathNotReservedAppRoute(pagePath)
+    }
+  })
+
+  test('a locale-prefixed shape stays three segments and is not refused here', () => {
+    assertPathNotReservedAppRoute('fr/a/x')
   })
 })
 
