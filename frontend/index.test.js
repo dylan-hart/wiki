@@ -81,6 +81,11 @@ describe('temporal polyfill preload script (index.html)', () => {
     expect(placeholderAt).toBeLessThan(html.indexOf('temporal-polyfill-preload:start'))
   })
 
+  test('links the web app manifest through the current-site alias, like the favicon', () => {
+    const markup = fs.readFileSync(indexHtmlPath, 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+    expect(markup).toMatch(/<link\s+rel="manifest"\s+href="\/_site\/current\/manifest"\s*\/?>/)
+  })
+
   test('injects no link when Temporal is already present natively', () => {
     globalThis.Temporal = {}
     window.__wikiTemporalPolyfillUrl = '/_assets/global.esm-abc123.js'

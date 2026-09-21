@@ -9,6 +9,7 @@ import { initializeExternals } from './boot/externals'
 import { initializeI18n } from './boot/i18n'
 import { initializeIconify } from './boot/iconify'
 import './boot/monaco'
+import { initializeServiceWorker } from './boot/serviceWorker'
 import { initializeTemporal } from './boot/temporal'
 import { initializeHairlines } from './helpers/hairline'
 
@@ -36,3 +37,4 @@ initializeIconify()
 initializeExternals(router)
 initializeI18n(app, store)
 app.mount('#app')
+initializeServiceWorker()
