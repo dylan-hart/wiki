@@ -89,9 +89,11 @@ describe('profile passkeys: security.allowPasskeys', () => {
   let finalizeRegistration: ReturnType<typeof mock.fn>
   let remove: ReturnType<typeof mock.fn>
   let list: ReturnType<typeof mock.fn>
+  let record: ReturnType<typeof mock.fn>
   let security: Record<string, any>
 
   before(async () => {
+    record = mock.fn(async () => {})
     startRegistration = mock.fn(async () => ({
       registrationOptions: { challenge: 'c' },
       pending: 'p'
@@ -110,6 +112,7 @@ describe('profile passkeys: security.allowPasskeys', () => {
         config: { security },
         models: {
           passkeys: { startRegistration, finalizeRegistration, remove, list },
+          auditLog: { record },
           userCredentials: { getProfileAuthMethods: async () => [] }
         }
       }
@@ -119,10 +122,12 @@ describe('profile passkeys: security.allowPasskeys', () => {
   after(() => closeTestApp(app))
 
   beforeEach(() => {
-    for (const fn of [startRegistration, finalizeRegistration, remove, list]) {
+    for (const fn of [startRegistration, finalizeRegistration, remove, list, record]) {
       fn.mock.resetCalls()
     }
   })
+
+  const recorded = () => record.mock.calls.map((c) => c.arguments[0] as Record<string, any>)
 
   const registerBody = { name: 'Laptop', registrationResponse: { id: 'x' } }
 
@@ -142,6 +147,9 @@ describe('profile passkeys: security.allowPasskeys', () => {
         payload: registerBody
       })
       assert.equal(register.statusCode, 200)
+      assert.equal(record.mock.calls.length, 1)
+      assert.equal(recorded()[0].event, 'user.passkeyEnrolled')
+      assert.equal(recorded()[0].targetId, USER_ID)
       const auth = await app.inject({ method: 'GET', url: '/users/profile/auth', headers: session })
       assert.equal(auth.json().passkeysEnabled, true)
     })
@@ -182,6 +190,9 @@ describe('profile passkeys: security.allowPasskeys', () => {
     })
     assert.equal(del.statusCode, 204)
     assert.equal(remove.mock.calls.length, 1)
+    assert.equal(record.mock.calls.length, 1)
+    assert.equal(recorded()[0].event, 'user.passkeyRemoved')
+    assert.equal(recorded()[0].targetLabel, 'Laptop')
   })
 })
 
