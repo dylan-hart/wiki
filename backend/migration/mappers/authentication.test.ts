@@ -104,7 +104,8 @@ describe('mapAuthenticationRow', () => {
     assert.deepEqual(result.row!.config, {
       enforceTfa: false,
       emailValidation: true,
-      allowForgotPassword: true
+      allowForgotPassword: true,
+      allowPasswordChange: true
     })
   })
 
@@ -128,7 +129,8 @@ describe('mapAuthenticationRow', () => {
       clientId: 'abc',
       clientSecret: 'secret',
       enterpriseHost: 'github.example.com',
-      allowedOrganization: ''
+      allowedOrganization: '',
+      mapGroups: false
     })
   })
 
