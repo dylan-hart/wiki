@@ -536,6 +536,7 @@ CREATE TABLE "tree" (
 	"navigationId" uuid,
 	"tags" text[] DEFAULT ARRAY[]::text[] NOT NULL,
 	"meta" jsonb DEFAULT '{}' NOT NULL,
+	"sortOrder" integer,
 	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
 	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL,
 	"siteId" uuid NOT NULL

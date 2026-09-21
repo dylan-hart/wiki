@@ -2615,4 +2615,243 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(creates.length, 2)
     })
   })
+
+  describe('sortOrder (OpenProject #3729)', () => {
+    async function rowAt(folderPath: string, fileName: string, type: 'page' | 'folder' = 'page') {
+      const rows = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(
+          and(
+            eq(treeTable.siteId, fixtures.siteId),
+            eq(treeTable.locale, 'en'),
+            eq(treeTable.folderPath, folderPath),
+            eq(treeTable.fileName, fileName),
+            eq(treeTable.type, type)
+          )
+        )
+      return rows[0] ?? null
+    }
+
+    async function setOrder(
+      folderPath: string,
+      fileName: string,
+      type: 'page' | 'folder',
+      sortOrder: number | null
+    ) {
+      await fixtures.db
+        .update(treeTable)
+        .set({ sortOrder })
+        .where(
+          and(
+            eq(treeTable.siteId, fixtures.siteId),
+            eq(treeTable.locale, 'en'),
+            eq(treeTable.folderPath, folderPath),
+            eq(treeTable.fileName, fileName),
+            eq(treeTable.type, type)
+          )
+        )
+    }
+
+    async function seedPage(path: string, title: string) {
+      return pagesModel.createPage(fixtures.siteId, pageInput({ path, title, locale: 'en' }), actor)
+    }
+
+    async function seedSiblings(root: string) {
+      for (const name of ['alpha', 'bravo', 'charlie', 'delta', 'echo']) {
+        await seedPage(`${root}/${name}`, name)
+      }
+      await seedPage(`${root}/alpha-folder/inside`, 'Inside')
+      await seedPage(`${root}/zeta-folder/inside`, 'Inside')
+      await setOrder(root, 'charlie', 'page', 0)
+      await setOrder(root, 'bravo', 'page', 1)
+      await setOrder(root, 'alpha', 'page', 2)
+      await setOrder(root, 'alpha-folder', 'folder', 3)
+      await setOrder(root, 'zeta-folder', 'folder', 5)
+    }
+
+    test('getTree, listPages and browse return siblings in sortOrder, null last by title', async () => {
+      await seedSiblings('so-readers')
+
+      const tree = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'so-readers',
+        orderBy: 'sortOrder'
+      })
+      assert.deepEqual(
+        tree.map((item) => item.fileName),
+        ['charlie', 'bravo', 'alpha', 'alpha-folder', 'zeta-folder', 'delta', 'echo']
+      )
+
+      const listed = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'so-readers',
+        orderBy: 'sortOrder',
+        publicOnly: false
+      })
+      assert.deepEqual(
+        listed.map((page) => page.title),
+        ['charlie', 'bravo', 'alpha', 'delta', 'echo']
+      )
+
+      const level = await treeModel.browse({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'so-readers',
+        publicOnly: false
+      })
+      assert.deepEqual(
+        level!.items.map((item) => item.fileName),
+        ['alpha-folder', 'zeta-folder', 'charlie', 'bravo', 'alpha', 'delta', 'echo']
+      )
+    })
+
+    test('a descending getTree keeps null sortOrder rows last', async () => {
+      await seedSiblings('so-desc')
+
+      const tree = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'so-desc',
+        orderBy: 'sortOrder',
+        orderByDirection: 'desc'
+      })
+      assert.deepEqual(
+        tree.map((item) => item.fileName),
+        ['zeta-folder', 'alpha-folder', 'alpha', 'bravo', 'charlie', 'delta', 'echo']
+      )
+    })
+
+    test('a folder with every sortOrder null browses by title as before', async () => {
+      await seedPage('so-untouched/bravo', 'Bravo')
+      await seedPage('so-untouched/alpha', 'Alpha')
+      await seedPage('so-untouched/sub/inside', 'Inside')
+
+      const level = await treeModel.browse({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'so-untouched',
+        publicOnly: false
+      })
+      assert.deepEqual(
+        level!.items.map((item) => item.fileName),
+        ['sub', 'alpha', 'bravo']
+      )
+    })
+
+    test('browse treats a page and the folder sharing its name as one entry', async () => {
+      await seedPage('so-twins/guide', 'Guide')
+      await seedPage('so-twins/guide/chapter', 'Chapter')
+      await seedPage('so-twins/other', 'Other')
+      await seedPage('so-twins/aaa', 'Aaa')
+      await seedPage('so-twins/aaa/chapter', 'Aaa Chapter')
+      await setOrder('so-twins', 'other', 'page', 0)
+      await setOrder('so-twins', 'guide', 'page', 5)
+      await setOrder('so-twins', 'guide', 'folder', 1)
+      await setOrder('so-twins', 'aaa', 'page', 2)
+      await setOrder('so-twins', 'aaa', 'folder', 3)
+
+      const level = await treeModel.browse({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'so-twins',
+        publicOnly: false
+      })
+      const guide = level!.items.filter((item) => item.fileName === 'guide')
+      assert.equal(guide.length, 1)
+      assert.equal(guide[0]!.isPage && guide[0]!.isFolder, true)
+      assert.deepEqual(
+        level!.items.map((item) => item.fileName),
+        ['guide', 'aaa', 'other']
+      )
+    })
+
+    test('a new entry appends after the ordered siblings, and stays null in an unordered folder', async () => {
+      await seedPage('so-append/first', 'First')
+      await seedPage('so-append/second', 'Second')
+      assert.equal((await rowAt('so-append', 'second'))!.sortOrder, null)
+
+      await setOrder('so-append', 'first', 'page', 4)
+      await setOrder('so-append', 'second', 'page', 7)
+      await seedPage('so-append/third', 'Third')
+      assert.equal((await rowAt('so-append', 'third'))!.sortOrder, 8)
+
+      await treeModel.createFolder({
+        parentPath: 'so-append',
+        pathName: 'fourth',
+        title: 'Fourth',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      assert.equal((await rowAt('so-append', 'fourth', 'folder'))!.sortOrder, 9)
+    })
+
+    test('a new page takes the position of the folder sharing its name', async () => {
+      await seedPage('so-twin-append/other', 'Other')
+      await seedPage('so-twin-append/guide/chapter', 'Chapter')
+      await setOrder('so-twin-append', 'other', 'page', 0)
+      await setOrder('so-twin-append', 'guide', 'folder', 5)
+
+      await seedPage('so-twin-append/guide', 'Guide')
+      assert.equal((await rowAt('so-twin-append', 'guide', 'page'))!.sortOrder, 5)
+    })
+
+    test('moveEntry and moveFolder append at the destination, and clear the position in an unordered one', async () => {
+      await seedPage('so-move/dest/kept', 'Kept')
+      await setOrder('so-move/dest', 'kept', 'page', 3)
+      await seedPage('so-move/source/traveler', 'Traveler')
+      await seedPage('so-move/source/wanderer/inside', 'Inside')
+      await setOrder('so-move/source', 'traveler', 'page', 9)
+      await setOrder('so-move/source', 'wanderer', 'folder', 9)
+
+      const dest = (await rowAt('so-move', 'dest', 'folder'))!
+      const traveler = (await rowAt('so-move/source', 'traveler'))!
+      await treeModel.moveEntry({ id: traveler.id, siteId: fixtures.siteId, folderId: dest.id })
+      assert.equal((await rowAt('so-move/dest', 'traveler'))!.sortOrder, 4)
+
+      const wanderer = (await rowAt('so-move/source', 'wanderer', 'folder'))!
+      await treeModel.moveFolder({
+        folderId: wanderer.id,
+        siteId: fixtures.siteId,
+        destinationId: dest.id
+      })
+      assert.equal((await rowAt('so-move/dest', 'wanderer', 'folder'))!.sortOrder, 5)
+
+      const emptied = (await rowAt('so-move', 'source', 'folder'))!
+      await treeModel.moveFolder({
+        folderId: emptied.id,
+        siteId: fixtures.siteId,
+        parentPath: 'so-move-fresh'
+      })
+      assert.equal((await rowAt('so-move-fresh', 'source', 'folder'))!.sortOrder, null)
+    })
+
+    test('duplicateFolder carries the order of what is inside the folder', async () => {
+      await seedPage('so-dup/src/alpha', 'Alpha')
+      await seedPage('so-dup/src/bravo', 'Bravo')
+      await setOrder('so-dup/src', 'bravo', 'page', 0)
+      await setOrder('so-dup/src', 'alpha', 'page', 1)
+      const source = (await rowAt('so-dup', 'src', 'folder'))!
+
+      await treeModel.duplicateFolder({
+        id: source.id,
+        siteId: fixtures.siteId,
+        parentPath: 'so-dup-copy',
+        actor
+      })
+
+      const level = await treeModel.browse({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'so-dup-copy/src',
+        publicOnly: false
+      })
+      assert.deepEqual(
+        level!.items.map((item) => item.fileName),
+        ['bravo', 'alpha']
+      )
+    })
+  })
 })

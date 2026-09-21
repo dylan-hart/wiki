@@ -1333,6 +1333,7 @@ export const tree = pgTable(
       .notNull()
       .default(sql`ARRAY[]::text[]`),
     meta: jsonb().notNull().default({}),
+    sortOrder: integer(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     siteId: uuid()
