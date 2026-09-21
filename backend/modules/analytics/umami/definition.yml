@@ -9,10 +9,12 @@ props:
     type: String
     title: Website ID
     hint: The website ID shown in your Umami tracking code (e.g. 94db1cb1-74f4-4a40-ad6c-962362670409)
+    icon: tabler:id
     order: 1
   host:
     type: String
     title: Host
     hint: Including https:// and optionally the port. Without trailing slash. Change only when self-hosting Umami.
     default: https://cloud.umami.is
+    icon: tabler:world-www
     order: 2
