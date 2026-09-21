@@ -44,6 +44,12 @@ test.describe('readonly profile popover and per-field visibility', () => {
     await apiOk(page, 'PUT', '/_api/users/profile', { publicFields })
   }
 
+  const openOwnAboutMe = async (page) => {
+    await page.locator('.account-avbtn').click()
+    await page.getByRole('button', { name: 'Profile', exact: true }).click()
+    await page.getByRole('button', { name: 'About Me', exact: true }).click()
+  }
+
   const avatarOf = (page, person) =>
     page.getByRole('button', { name: `Open the profile of ${person.name}` })
 
@@ -162,8 +168,7 @@ test.describe('readonly profile popover and per-field visibility', () => {
   test("an owner's toggle change in their editor is reflected for another viewer", async () => {
     await setOwnPublicFields(olivePage, ['location'])
     await visit(olivePage)
-    await olivePage.locator('.account-avbtn').click()
-    await olivePage.getByRole('button', { name: 'Profile', exact: true }).click()
+    await openOwnAboutMe(olivePage)
 
     const jobTitleToggle = olivePage.getByTestId('profile-public-toggle-jobTitle')
     await expect(jobTitleToggle).toHaveAttribute('aria-checked', 'false')
@@ -212,8 +217,7 @@ test.describe('readonly profile popover and per-field visibility', () => {
       })
 
       await visit(olivePage)
-      await olivePage.locator('.account-avbtn').click()
-      await olivePage.getByRole('button', { name: 'Profile', exact: true }).click()
+      await openOwnAboutMe(olivePage)
 
       const forcedToggle = olivePage.getByTestId('profile-public-toggle-pronouns')
       await expect(forcedToggle).toHaveAttribute('aria-checked', 'true')
