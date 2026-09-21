@@ -14,6 +14,7 @@ import { lookupShellPage, type ShellPage } from '../../helpers/shellPage.ts'
 import { robotsDirective, robotsShellFragments } from '../../helpers/shellRobots.ts'
 import { themeShellFragments } from '../../helpers/shellTheme.ts'
 import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
+import { RESERVED_TWO_SEGMENT_URL_ROUTES } from '../../helpers/reservedPagePaths.ts'
 import {
   applyEmbedFrameAncestors,
   resolveRequestSite,
@@ -79,8 +80,7 @@ const SITE_RESOLUTION_EXEMPT_SEGMENTS = new Set(['login'])
 
 const SPA_APP_ROUTES: readonly RegExp[] = [
   /^\/login(\/reset-password\/[^/]+)?$/,
-  /^\/a\/[^/]+$/,
-  /^\/i\/[^/]+$/,
+  ...RESERVED_TWO_SEGMENT_URL_ROUTES,
   /^\/_(search|tags|graph)$/,
   /^\/_version\/[^/]+$/,
   /^\/_admin(\/.*)?$/,

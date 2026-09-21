@@ -523,6 +523,49 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
   })
 
+  test('createPage refuses an exact two-segment a/<x> or i/<x> path, however it is spelled', async () => {
+    for (const path of ['a/shadowed', 'i/shadowed', '/A/Shadowed/', 'i/ shadowed ']) {
+      await assert.rejects(
+        pagesModel.createPage(fixtures.siteId, pageInput({ path, locale: 'en' }), actor),
+        (err: any) => err.name === 'pageReservedAppRoute',
+        path
+      )
+    }
+  })
+
+  test('createPage allows a, i, a/x/y, i/x/y and a nested a/<x>', async () => {
+    for (const path of ['a', 'i', 'a/deep/page', 'i/deep/page', 'docs/a/nested', 'docs/i/nested']) {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path, locale: 'en' }),
+        actor
+      )
+      assert.equal(page.path, path)
+    }
+  })
+
+  test('movePage refuses a destination that is an exact two-segment a/<x> or i/<x> path', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/app-route-src', locale: 'en' }),
+      actor
+    )
+    for (const path of ['a/relocated', 'i/relocated', '/A/Relocated/']) {
+      await assert.rejects(
+        pagesModel.movePage(fixtures.siteId, page.id, { path }, actor),
+        (err: any) => err.name === 'pageReservedAppRoute',
+        path
+      )
+    }
+    const moved = await pagesModel.movePage(
+      fixtures.siteId,
+      page.id,
+      { path: 'a/relocated/deeper' },
+      actor
+    )
+    assert.equal(moved!.path, 'a/relocated/deeper')
+  })
+
   test('a NESTED segment matching an installed locale code is fine — only the first segment shadows', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,

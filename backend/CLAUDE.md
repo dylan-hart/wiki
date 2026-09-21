@@ -299,8 +299,12 @@ helpers/clusterCache.ts#ClusterReloaded`, declaring `protected readonly reloadEv
   emit then storage dispatch, both awaited, in that order. It is a module function, not a `Hooks`
   method, precisely so a caller's test can stub `CARDINAL.models.hooks` as a bare `{ emit }`.
 - **Page-placement refusals**: `helpers/localeRouting.ts#assertLocaleActive` /
-  `#assertPathNotReservedLocale`. `tree.ts`'s reserved-locale check is a deliberately different,
-  root-only error and is not these.
+  `#assertPathNotReservedLocale` / `#assertPathNotReservedAppRoute`. `tree.ts`'s reserved-locale
+  check is a deliberately different, root-only error and is not these. The app-route guard refuses
+  an exact two-segment `a/<x>` or `i/<x>` page path (the SPA's alias and id-permalink routes would
+  shadow it); `helpers/reservedPagePaths.ts` is the one definition both it and
+  `core/http/siteRouting.ts#isSpaAppRoute` read, and `tree.ts`'s descendant repath runs it too, so a
+  folder rename or move cannot produce such a path either.
 - **Large-file thresholds and the kind→category map**: `helpers/blobTarget.ts`, once — 1024-based
   units, and `fileSize >= threshold` files an asset as `large`. A storage module must not
   re-implement either.

@@ -34,7 +34,10 @@ import {
 import type { NavigationItem } from './navigation.ts'
 import { announce } from './hooks.ts'
 import type { CreatedPageRows, PageActor, PageInput } from './pages.ts'
-import { reservedLocaleSegmentLabel } from '../helpers/localeRouting.ts'
+import {
+  assertPathNotReservedAppRoute,
+  reservedLocaleSegmentLabel
+} from '../helpers/localeRouting.ts'
 
 export const TREE_UPDATE_CHUNK_SIZE = 200
 
@@ -1600,6 +1603,7 @@ class Tree {
     for (const row of rows) {
       const folderPath = decodeTreePath(row.folderPath ?? '')
       const fullPath = folderPath ? `${folderPath}/${row.fileName}` : row.fileName
+      assertPathNotReservedAppRoute(fullPath)
       pageUpdates.push({ id: row.id, path: fullPath, hash: generatePathHash(fullPath) })
     }
 
