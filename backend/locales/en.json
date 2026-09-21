@@ -3489,6 +3489,8 @@
   "pages.importBatch.destinationPath": "Destination Path",
   "pages.importBatch.dropzoneLabel": "Drag files here, or browse for them",
   "pages.importBatch.formatForFile": "Format for {file}",
+  "pages.importBatch.htmlNoContent": "This file has no content to import.",
+  "pages.importBatch.htmlReadFailed": "This file could not be read.",
   "pages.importBatch.menuLabel": "Import Multiple Pages...",
   "pages.importBatch.pageTitle": "Page Title",
   "pages.importBatch.saveAll": "Save All",

@@ -488,6 +488,191 @@ describe('ImportBatchPageDialog', () => {
     expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
   })
 
+  describe('client-side .htm conversion (OpenProject #3739)', () => {
+    const ONENOTE_HTM = `
+      <html><head><meta charset="utf-8"><style>p { margin: 0 }</style></head>
+      <body>
+      <ul style="list-style-type:none">
+        <li>&#9744;&nbsp;<span style="font-weight:bold">Book venue</span></li>
+        <ul>
+          <li>&#9745;&nbsp;<span style="font-style:italic">Get quote</span></li>
+          <li>&#9744;&nbsp;Sign contract</li>
+        </ul>
+        <li>&#9745;&nbsp;Old item</li>
+      </ul>
+      </body></html>
+    `
+
+    function htmFile(content, name = 'notes.htm') {
+      return new File([content], name, { type: 'text/html' })
+    }
+
+    async function convertFiles(files) {
+      await selectFiles(files)
+      await body().find('.import-convert-btn').trigger('click')
+      await flushPromises()
+    }
+
+    /** Markdown of every saved row keyed by its title: the review step shows only title and path. */
+    async function savedMarkdownByTitle() {
+      globalThis.API_CLIENT.post.mockImplementation(() => ({
+        json: vi.fn().mockResolvedValue({ page: { id: 'p', path: 'docs/saved' } })
+      }))
+      await body().find('.import-batch-save-btn').trigger('click')
+      await flushPromises()
+      return Object.fromEntries(
+        globalThis.API_CLIENT.post.mock.calls
+          .filter(([url]) => url === 'sites/site-1/pages')
+          .map(([, opts]) => [opts.json.title, opts.json.content])
+      )
+    }
+
+    it('converts a OneNote .htm to task-list markdown with nested indentation, without calling the server', async () => {
+      await mountDialog()
+
+      await convertFiles([htmFile(ONENOTE_HTM)])
+
+      expect(globalThis.API_CLIENT.post).not.toHaveBeenCalled()
+      const rows = body().findAll('.import-batch-row')
+      expect(rows).toHaveLength(1)
+      expect(rows[0].text()).toContain('notes.htm')
+
+      const { notes: markdown } = await savedMarkdownByTitle()
+      expect(markdown).toMatch(/^-\s+\[ \]\s+\*\*Book venue\*\*$/m)
+      expect(markdown).toMatch(/^ {4}-\s+\[x\]\s+_Get quote_$/m)
+      expect(markdown).toMatch(/^ {4}-\s+\[ \]\s+Sign contract$/m)
+      expect(markdown).toMatch(/^-\s+\[x\]\s+Old item$/m)
+      expect(markdown).not.toMatch(/[☐☑]/)
+    })
+
+    it('does not gate .htm on Pandoc being installed, and does not offer it as needing Pandoc', async () => {
+      await mountDialog({}, { pandocInstalled: false })
+
+      await convertFiles([htmFile(ONENOTE_HTM)])
+
+      expect(globalThis.API_CLIENT.post).not.toHaveBeenCalled()
+      expect(body().findAll('.import-batch-row')).toHaveLength(1)
+      expect(body().text()).not.toContain('pages.importBatch.htmlNoContent')
+    })
+
+    it('sends only the non-html files to the server and keeps every row in the original file order', async () => {
+      await mountDialog()
+      globalThis.API_CLIENT.post.mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue({
+          ok: true,
+          results: [
+            { fileName: 'a.docx', ok: true, markdown: '- ☐ from docx\n' },
+            { fileName: 'c.docx', ok: true, markdown: '# C\n' }
+          ]
+        })
+      })
+
+      await convertFiles([
+        new File(['a'], 'a.docx', { type: 'application/octet-stream' }),
+        htmFile('<p>from html</p>', 'b.htm'),
+        new File(['c'], 'c.docx', { type: 'application/octet-stream' })
+      ])
+
+      const [, opts] = globalThis.API_CLIENT.post.mock.calls[0]
+      expect(opts.body.getAll('files').map((f) => f.name)).toEqual(['a.docx', 'c.docx'])
+      expect(opts.body.getAll('formats')).toEqual(['docx', 'docx'])
+
+      const rows = body().findAll('.import-batch-row')
+      expect(rows.map((row) => row.find('.font-medium').text())).toEqual([
+        'a.docx',
+        'b.htm',
+        'c.docx'
+      ])
+      expect(await savedMarkdownByTitle()).toEqual({
+        a: '- [ ] from docx\n',
+        b: 'from html',
+        c: '# C\n'
+      })
+    })
+
+    it('applies the same checkbox post-pass to server results, so docx to-dos become task-list items', async () => {
+      await mountDialog()
+      globalThis.API_CLIENT.post.mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue({
+          ok: true,
+          results: [
+            {
+              fileName: 'todo.docx',
+              ok: true,
+              markdown: '-   ☐ open\n    -   ☑ done nested\n'
+            }
+          ]
+        })
+      })
+
+      await convertFiles([new File(['a'], 'todo.docx', { type: 'application/octet-stream' })])
+
+      const { todo: markdown } = await savedMarkdownByTitle()
+      expect(markdown).toMatch(/^-\s+\[ \]\s+open$/m)
+      expect(markdown).toMatch(/^ {4}-\s+\[x\]\s+done nested$/m)
+    })
+
+    it('leaves already-converted task-list markdown unchanged (post-pass is idempotent)', async () => {
+      await mountDialog()
+      const converted = '- [ ] open\n    - [x] done nested\n'
+      globalThis.API_CLIENT.post.mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue({
+          ok: true,
+          results: [{ fileName: 'todo.docx', ok: true, markdown: converted }]
+        })
+      })
+
+      await convertFiles([new File(['a'], 'todo.docx', { type: 'application/octet-stream' })])
+
+      expect(await savedMarkdownByTitle()).toEqual({ todo: converted })
+    })
+
+    it('fails only an empty .htm, with its own row message, and still converts its siblings', async () => {
+      await mountDialog()
+
+      await convertFiles([htmFile('   ', 'empty.htm'), htmFile('<p>ok</p>', 'fine.htm')])
+
+      const rows = body().findAll('.import-batch-row')
+      expect(rows[0].text()).toContain('pages.importBatch.htmlNoContent')
+      expect(rows[1].text()).not.toContain('pages.importBatch.htmlNoContent')
+      expect(await savedMarkdownByTitle()).toEqual({ fine: 'ok' })
+    })
+
+    it('decodes a UTF-8 BOM, UTF-16 and windows-1252 .htm export without mojibake', async () => {
+      await mountDialog()
+      const utf8Bom = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode('<p>café</p>')])
+      const utf16 = new Uint8Array([
+        0xff,
+        0xfe,
+        ...[...'<p>café</p>'].flatMap((ch) => [ch.charCodeAt(0) & 0xff, ch.charCodeAt(0) >> 8])
+      ])
+      // -> 0xE9 alone is not valid UTF-8, so this only decodes as "é" through the windows-1252 fallback
+      const cp1252 = new Uint8Array([
+        0x3c, 0x70, 0x3e, 0x63, 0x61, 0x66, 0xe9, 0x3c, 0x2f, 0x70, 0x3e
+      ])
+
+      await convertFiles([
+        htmFile(utf8Bom, 'a.htm'),
+        htmFile(utf16, 'b.htm'),
+        htmFile(cp1252, 'c.htm')
+      ])
+
+      expect(await savedMarkdownByTitle()).toEqual({ a: 'café', b: 'café', c: 'café' })
+    })
+
+    it('keeps an image reference in place of the converter placeholder', async () => {
+      await mountDialog()
+
+      await convertFiles([
+        htmFile('<p>See <img src="notes_files/image001.png" alt="diagram"></p>', 'img.htm')
+      ])
+
+      const { img: markdown } = await savedMarkdownByTitle()
+      expect(markdown).toContain('![diagram](notes_files/image001.png)')
+      expect(markdown).not.toContain('pending-image')
+    })
+  })
+
   it('saves each row with the front matter title/description/tags a markdown import returned', async () => {
     await mountDialog()
     globalThis.API_CLIENT.post.mockReturnValueOnce({
