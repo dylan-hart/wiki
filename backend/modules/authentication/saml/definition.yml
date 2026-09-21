@@ -53,7 +53,7 @@ props:
     type: String
     title: Service Provider Certificate
     hint: (optional) The public certificate matching the Service Provider Private Key above, PEM-encoded. Published in this wiki's SP metadata for identity providers that require signed AuthnRequests. Paste more than one, separated by a `|`, during a certificate rotation.
-    icon: secure
+    icon: tabler:certificate
     multiline: true
     default: ''
     order: 6
@@ -70,7 +70,7 @@ props:
     type: String
     title: Assertion Decryption Certificate
     hint: (optional) The public certificate matching the Assertion Decryption Key above, PEM-encoded. Published in this wiki's SP metadata for identity providers that encrypt assertions.
-    icon: secure
+    icon: tabler:certificate
     multiline: true
     default: ''
     order: 8
@@ -238,5 +238,5 @@ refs:
   metadataUrl:
     title: Service Provider Metadata URL
     hint: Identity provider administrators can import this URL to register this wiki without typing the values above by hand.
-    icon: internet
+    icon: tabler:world
     value: '{host}/_api/auth/{id}/metadata'
