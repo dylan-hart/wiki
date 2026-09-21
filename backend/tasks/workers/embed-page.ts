@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm'
-import { pages as pagesTable } from '../../db/schema.ts'
+import { jobs as jobsTable, pages as pagesTable } from '../../db/schema.ts'
 import { chunkText } from '../../helpers/textChunking.ts'
 import { embedText } from '../../helpers/embeddings.ts'
 
@@ -55,7 +55,28 @@ export async function embedPage(pageId: string): Promise<void> {
   })
 }
 
+async function enqueueAutoTagIfPending(pageId: string): Promise<void> {
+  const rows = await CARDINAL.db
+    .select({ autoTagPending: pagesTable.autoTagPending })
+    .from(pagesTable)
+    .where(eq(pagesTable.id, pageId))
+    .limit(1)
+  if (!rows[0]?.autoTagPending) {
+    return
+  }
+
+  await CARDINAL.db.insert(jobsTable).values({
+    id: crypto.randomUUID(),
+    task: 'autoTagPage',
+    useWorker: false,
+    payload: { pageId },
+    maxRetries: CARDINAL.config.scheduler.maxRetries,
+    createdBy: CARDINAL.INSTANCE_ID
+  })
+}
+
 export async function task(job: { payload: { pageId: string } }): Promise<void> {
   await CARDINAL.ensureDb!()
   await embedPage(job.payload.pageId)
+  await enqueueAutoTagIfPending(job.payload.pageId)
 }

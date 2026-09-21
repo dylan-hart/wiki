@@ -141,22 +141,22 @@ describe('pages: autoTagPage enqueue (pure unit, OpenProject #3593)', () => {
   }
 
   describe('createPage', () => {
-    test('a page created without tags is marked pending and the job is enqueued after the embed job', async () => {
+    test('a page created without tags is marked pending and only the embed job is enqueued at save time', async () => {
       await pagesModel.createPage('site-1', input(), actor)
 
       assert.equal(insertedValues[0]!.autoTagPending, true)
-      assert.deepEqual(tasksQueued(), ['embedPage', 'autoTagPage'])
-      assert.deepEqual(addJobCalls()[1]!.payload, { pageId: 'page-1' })
+      assert.deepEqual(tasksQueued(), ['embedPage'])
+      assert.deepEqual(addJobCalls()[0]!.payload, { pageId: 'page-1' })
     })
 
     test('an empty tags array counts as no tags', async () => {
       await pagesModel.createPage('site-1', input({ tags: [] }), actor)
 
       assert.equal(insertedValues[0]!.autoTagPending, true)
-      assert.deepEqual(tasksQueued(), ['embedPage', 'autoTagPage'])
+      assert.deepEqual(tasksQueued(), ['embedPage'])
     })
 
-    test('a page created with tags is not marked and no job is enqueued', async () => {
+    test('a page created with tags is not marked', async () => {
       await pagesModel.createPage('site-1', input({ tags: ['manual'] }), actor)
 
       assert.equal(insertedValues[0]!.autoTagPending, false)
@@ -172,13 +172,13 @@ describe('pages: autoTagPage enqueue (pure unit, OpenProject #3593)', () => {
   })
 
   describe('storeRender', () => {
-    test('a still-pending row enqueues autoTagPage exactly once, after the embed job', async () => {
+    test('a still-pending row enqueues only the embed job; tagging is left to it', async () => {
       storeRenderRow = fakeRow({ autoTagPending: true })
 
       await pagesModel.storeRender('site-1', 'page-1', '<p>x</p>', NO_SCRIPTS, 'docs/example')
 
-      assert.deepEqual(tasksQueued(), ['embedPage', 'autoTagPage'])
-      assert.deepEqual(addJobCalls()[1]!.payload, { pageId: 'page-1' })
+      assert.deepEqual(tasksQueued(), ['embedPage'])
+      assert.deepEqual(addJobCalls()[0]!.payload, { pageId: 'page-1' })
     })
 
     test('a row without the marker enqueues only the embed job', async () => {
@@ -198,12 +198,13 @@ describe('pages: autoTagPage enqueue (pure unit, OpenProject #3593)', () => {
       assert.deepEqual(tasksQueued(), [])
     })
 
-    test('a render-queued create enqueues autoTagPage once in total across create and storeRender', async () => {
+    test('a render-queued create never enqueues autoTagPage across create and storeRender', async () => {
       await pagesModel.createPage('site-1', input({ render: undefined }), actor)
       storeRenderRow = fakeRow({ autoTagPending: true })
       await pagesModel.storeRender('site-1', 'page-1', '<p>x</p>', NO_SCRIPTS, 'docs/example')
 
-      assert.equal(tasksQueued().filter((task) => task === 'autoTagPage').length, 1)
+      assert.equal(tasksQueued().filter((task) => task === 'autoTagPage').length, 0)
+      assert.equal(tasksQueued().filter((task) => task === 'embedPage').length, 1)
     })
   })
 
