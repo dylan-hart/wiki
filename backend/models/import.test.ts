@@ -5,7 +5,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { ExtensionDefinition } from './extensions.ts'
-import { buildPandocArgs, detectImportFormat, MAX_CONCURRENT_PANDOC, pandocCwd } from './import.ts'
+import {
+  buildPandocArgs,
+  detectImportFormat,
+  MAX_CONCURRENT_PANDOC,
+  normalizeHtmlEncoding,
+  pandocCwd
+} from './import.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -150,6 +156,57 @@ describe('page import (pandoc)', () => {
         data: Buffer.from('= Hello =\n\nSome content.')
       })
       assert.deepEqual(result, { markdown: '# Hello\n\nSome content.\n' })
+    } finally {
+      runPandoc.mock.restore()
+    }
+  })
+
+  test('refuses an html import with 503 when pandoc is not installed', async () => {
+    isInstalled.mock.mockImplementation(async () => false)
+
+    await assert.rejects(
+      pageImport.convertToMarkdown({ format: 'html', data: Buffer.from('<p>Hi</p>') }),
+      (err: any) => {
+        assert.equal(err.name, 'importPandocMissing')
+        assert.equal(err.statusCode, 503)
+        return true
+      }
+    )
+  })
+
+  test('refuses an html conversion that produces no usable content', async () => {
+    const runPandoc = mock.method(pageImport as any, 'runPandoc', async () => '\n')
+
+    try {
+      await assert.rejects(
+        pageImport.convertToMarkdown({ format: 'html', data: Buffer.from('<html></html>') }),
+        (err: any) => {
+          assert.equal(err.name, 'importNoContent')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    } finally {
+      runPandoc.mock.restore()
+    }
+  })
+
+  test('hands pandoc UTF-8 for an html file exported as a BOM-prefixed UTF-16 or Windows-1252 .htm', async () => {
+    const seen: string[] = []
+    const runPandoc = mock.method(pageImport as any, 'runPandoc', async (_f: string, d: Buffer) => {
+      seen.push(d.toString('utf8'))
+      return 'ok'
+    })
+
+    try {
+      const utf16 = Buffer.concat([
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from('<p>café</p>', 'utf16le')
+      ])
+      const cp1252 = Buffer.from([0x3c, 0x70, 0x3e, 0x63, 0x61, 0x66, 0xe9, 0x3c, 0x2f, 0x70, 0x3e])
+      await pageImport.convertToMarkdown({ format: 'html', data: utf16 })
+      await pageImport.convertToMarkdown({ format: 'html', data: cp1252 })
+      assert.deepEqual(seen, ['<p>café</p>', '<p>café</p>'])
     } finally {
       runPandoc.mock.restore()
     }
@@ -381,11 +438,14 @@ describe('detectImportFormat (OpenProject #1209)', () => {
     assert.equal(detectImportFormat('page.rst'), 'rst')
     assert.equal(detectImportFormat('page.docx'), 'docx')
     assert.equal(detectImportFormat('page.odt'), 'odt')
+    assert.equal(detectImportFormat('page.htm'), 'html')
+    assert.equal(detectImportFormat('page.html'), 'html')
   })
 
   test('is case-insensitive on the extension', () => {
     assert.equal(detectImportFormat('NOTES.MD'), 'markdown')
     assert.equal(detectImportFormat('Report.DOCX'), 'docx')
+    assert.equal(detectImportFormat('Page.HTM'), 'html')
   })
 
   test('returns null for an unrecognized extension', () => {
@@ -398,5 +458,26 @@ describe('detectImportFormat (OpenProject #1209)', () => {
 
   test('uses only the last extension of a multi-dot file name', () => {
     assert.equal(detectImportFormat('notes.v2.md'), 'markdown')
+  })
+})
+
+describe('normalizeHtmlEncoding', () => {
+  test('strips a UTF-8 BOM and leaves plain UTF-8 untouched', () => {
+    const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('<p>é</p>')])
+    assert.equal(normalizeHtmlEncoding(bom).toString('utf8'), '<p>é</p>')
+    assert.equal(normalizeHtmlEncoding(Buffer.from('<p>é</p>')).toString('utf8'), '<p>é</p>')
+  })
+
+  test('decodes UTF-16 big-endian by its BOM', () => {
+    const le = Buffer.from('<p>é</p>', 'utf16le')
+    const be = Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(le).swap16()])
+    assert.equal(normalizeHtmlEncoding(be).toString('utf8'), '<p>é</p>')
+  })
+
+  test('falls back to Windows-1252 for bytes that are not valid UTF-8', () => {
+    assert.equal(
+      normalizeHtmlEncoding(Buffer.from([0x93, 0x68, 0x69, 0x94])).toString('utf8'),
+      '\u201chi\u201d'
+    )
   })
 })
