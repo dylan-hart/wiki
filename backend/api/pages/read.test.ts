@@ -97,6 +97,18 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
     assert.deepEqual(countForPageCalls, [PAGE_ID])
   })
 
+  it('answers a read by page id with the current path and locale, which the /i/:id permalink redirects to', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.id, PAGE_ID)
+    assert.equal(body.path, 'some-page')
+    assert.equal(body.locale, 'en')
+  })
+
   it('reflects a page with no comments as zero, not absent', async () => {
     countForPageResult = 0
     const res = await app.inject({

@@ -46,14 +46,14 @@ props:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with their Google Workspace groups (matched by group name) on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all). Requires a Google Cloud service account with domain-wide delegation granted in the Workspace admin console (Security → Access and data control → API controls → Domain-wide delegation) for the scope https://www.googleapis.com/auth/admin.directory.group.readonly, the Admin SDK API enabled on its project, and a Workspace admin account for it to impersonate. If Google cannot be reached or refuses the lookup, the sign-in fails rather than changing any memberships.
-    icon: user-groups
+    icon: tabler:users
     default: false
     order: 5
   serviceAccountKey:
     type: String
     title: Service Account Key
     hint: The full JSON key file of the service account, pasted as-is. The account must have domain-wide delegation granted for the admin.directory.group.readonly scope in the Workspace admin console.
-    icon: password
+    icon: tabler:password
     sensitive: true
     order: 6
     if:
@@ -62,7 +62,7 @@ props:
     type: String
     title: Admin Account to Impersonate
     hint: A Workspace administrator's email address, e.g. admin@example.com. The service account impersonates it (domain-wide delegation) to read group membership, so it must be allowed to view groups in the Directory.
-    icon: user
+    icon: tabler:user
     order: 7
     if:
       - { key: 'mapGroups', eq: true }

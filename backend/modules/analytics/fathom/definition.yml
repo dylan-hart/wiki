@@ -9,4 +9,5 @@ props:
     type: String
     title: Site ID
     hint: The site ID shown in your Fathom tracking code (e.g. ABCDEFGH)
+    icon: tabler:id
     order: 1

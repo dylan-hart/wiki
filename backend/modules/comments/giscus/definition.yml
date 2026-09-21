@@ -12,6 +12,7 @@ props:
     title: Repository
     hint: "Owner and name of the public GitHub repository that stores the discussions (e.g. octocat/hello-world). It must have Discussions enabled and the giscus app installed. When security.enforceCsp is on, allow https://giscus.app in script-src and frame-src, since the shipped script-src 'self' blocks it."
     maxWidth: 650
+    icon: tabler:brand-github
     order: 1
   repoId:
     type: String
@@ -19,6 +20,7 @@ props:
     title: Repository ID
     hint: 'The repository ID giscus.app generates for you, starting with R_.'
     maxWidth: 450
+    icon: tabler:id
     order: 2
   category:
     type: String
@@ -26,6 +28,7 @@ props:
     title: Discussion Category
     hint: 'Name of the discussion category new threads are created in.'
     maxWidth: 450
+    icon: tabler:folder
     order: 3
   categoryId:
     type: String
@@ -33,6 +36,7 @@ props:
     title: Category ID
     hint: 'The category ID giscus.app generates for you, starting with DIC_.'
     maxWidth: 450
+    icon: tabler:id
     order: 4
   theme:
     type: String
@@ -43,12 +47,14 @@ props:
       - 'light|Light'
       - 'dark|Dark'
       - 'transparent_dark|Transparent dark'
+    icon: tabler:palette
     order: 5
   reactionsEnabled:
     type: Boolean
     default: true
     title: Reactions
     hint: 'Show the reaction buttons for the discussion above the comments.'
+    icon: tabler:mood-smile
     order: 6
   lang:
     type: String
@@ -56,4 +62,5 @@ props:
     title: Language
     hint: 'Language code giscus draws its own interface in.'
     maxWidth: 200
+    icon: tabler:language
     order: 7

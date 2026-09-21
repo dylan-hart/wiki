@@ -169,7 +169,7 @@ describe('docs/operations.md — operations reference', () => {
 
       // -> The Scopes subsection alone: the Levels table one heading above has the same row shape.
       const scopeTable = raw.slice(raw.indexOf('### Scopes'), raw.indexOf('### Configuration'))
-      const documented = [...scopeTable.matchAll(/^\| `([a-z]+)` \| /gm)].map((m) => m[1])
+      const documented = [...scopeTable.matchAll(/^\| `([a-z]+)`[ \t]+\| /gm)].map((m) => m[1])
 
       assert.deepEqual(
         [...documented].sort(),

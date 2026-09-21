@@ -9,10 +9,12 @@ props:
     type: String
     title: Domain
     hint: The domain of your site as registered in Plausible (e.g. wiki.example.com)
+    icon: tabler:world
     order: 1
   host:
     type: String
     title: Host
     hint: Including https:// and optionally the port. Without trailing slash. Change only when self-hosting Plausible.
     default: https://plausible.io
+    icon: tabler:world-www
     order: 2

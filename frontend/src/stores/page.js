@@ -18,6 +18,8 @@ import { usePathDisplay } from '@/composables/pathDisplay'
  */
 export const DEFAULT_PAGE_ICON = 'tabler:file-text'
 
+const PAGE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /**
  * The password fields are write-only -- the API never returns them -- so they are cleared rather
  * than carried over: left standing they hold the previous page's, or the just-saved, typed value.
@@ -388,6 +390,10 @@ export const usePageStore = defineStore('page', {
      * Returns the locale as well as the path, so the caller can build a properly-prefixed link
      * instead of landing on the primary-locale default for a translation that isn't.
      */
+    async pageVersionById(versionId) {
+      const siteStore = useSiteStore()
+      return API_CLIENT.get(`sites/${siteStore.id}/versions/${versionId}`).json()
+    },
     async pageAlias(alias) {
       const siteStore = useSiteStore()
       try {
@@ -401,6 +407,25 @@ export const usePageStore = defineStore('page', {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
         log.warn('page', 'could not resolve the page alias', err)
+        throw err
+      }
+    },
+    async pageById(id) {
+      const siteStore = useSiteStore()
+      if (!PAGE_ID_PATTERN.test(id)) {
+        throw new Error('ERR_PAGE_NOT_FOUND')
+      }
+      try {
+        const target = await API_CLIENT.get(`sites/${siteStore.id}/pages/${id}`).json()
+        if (!target?.id) {
+          throw new Error('ERR_PAGE_NOT_FOUND')
+        }
+        return target
+      } catch (err) {
+        if (err.response?.status === 404) {
+          throw new Error('ERR_PAGE_NOT_FOUND')
+        }
+        log.warn('page', 'could not resolve the page by id', err)
         throw err
       }
     },
@@ -491,6 +516,7 @@ export const usePageStore = defineStore('page', {
         // -> A page being created has no stored source to lose: whatever it starts with IS the source
         contentLoaded: true,
         isBrowsable: true,
+        allowComments: true,
         /*
           A redirection is browsable like any other page and findable in none: a search result for
           one would stand in front of the page the reader actually wanted. The server settles this
