@@ -56,8 +56,6 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
       .sort()
   }
 
-  // TODO: `ml-auto`/`mr-auto` (and `-px`) escape this pattern, which requires a numeric or
-  // bracketed size, so a physical `ml-auto` is never flagged.
   const UTILITY_PATTERN = /\b(ml|mr|pl|pr)-(?:(?:auto|px|\d+(?:\.\d+)?)\b|\[[^\]]+\])/
 
   // -> The leading `[\s;{]` anchors on the property itself rather than the tail of a longer name

@@ -35,10 +35,11 @@ function normalizePath(filePath: string): string {
 }
 
 /**
- * The database is the one durable copy of an asset's bytes, but not what answers a request for a
- * file: `/_files/` is hit by every image on every page view, so serving goes through two caches —
- * memory, holding path → metadata for `PATH_CACHE_TTL_MS` and deciding the ETag behind a browser's
- * conditional requests, and disk, under `<dataPath>/cache/files`, holding the bytes.
+ * `/_files/` is hit by every image on every page view, so serving goes through two caches — memory,
+ * holding path → metadata for `PATH_CACHE_TTL_MS` and deciding the ETag behind a browser's
+ * conditional requests, and disk, under `<dataPath>/cache/files`, holding the bytes. A miss reads
+ * the read-through targets in order, and the database last: once bytes are offloaded a read-through
+ * target can hold the only copy.
  *
  * Both caches are derived and can be deleted at any point, which is what makes a cold instance
  * correct rather than empty-handed. Nothing here is a source of truth, which is why it is a model of
@@ -88,10 +89,8 @@ class AssetServing {
   }
 
   /**
-   * An asset's bytes always live in the assets table regardless of what else is configured — a
-   * file-backed or blob module keeps its own copy in sync via `dispatchStorage` rather than being
-   * where `readContent` reads from — so the db target's `assetDelivery` settings are the default
-   * answer for whether to cache to disk and whether to redirect.
+   * The db target's `assetDelivery` settings are the default answer for whether to cache to disk and
+   * whether to redirect.
    *
    * A blob target (`s3`/`azure`/`gcs`) that both has direct access turned on and actually holds a copy
    * of the asset being served governs instead: it is the one place besides the db itself with a URL
@@ -197,9 +196,9 @@ class AssetServing {
   /**
    * A blob target's signing can fail before it ever reaches the SDK's `sign()` call — activation
    * itself throws on a bad credential or an unreachable bucket, and that throw would otherwise reach
-   * `readContent` unguarded and turn every asset request into a 500. The bytes always live in the
-   * assets table, so a signing failure is never fatal: it is treated as "no direct URL available",
-   * which sends the caller back to streaming from the database.
+   * `readContent` unguarded and turn every asset request into a 500. A signing failure is never
+   * fatal: it is treated as "no direct URL available", which sends the caller back to streaming from
+   * a read-through target or the database.
    */
   async directUrlFor(
     asset: { id: string; updatedAt: Date; fileName: string; folderPath: string },
@@ -231,8 +230,8 @@ class AssetServing {
 
   /**
    * `assetDelivery.streaming` (on by default) decides whether the disk cache is used at all: off means
-   * every request is a buffered read straight from the database, the point being that asset bytes
-   * never touch this instance's disk. `directAccess` is checked first, since a target that can hand
+   * every request is a buffered read from the database or a stream from a read-through target, the
+   * point being that asset bytes never touch this instance's disk. `directAccess` is checked first, since a target that can hand
    * out its own URL should never have its bytes read at all, cache or no cache.
    */
   async readContent(
@@ -325,8 +324,8 @@ class AssetServing {
   }
 
   /**
-   * Best effort: a full or read-only disk must not stop a file from being served — the database
-   * answers every request the cache cannot. Written under a temporary name and renamed, so a
+   * Best effort: a full or read-only disk must not stop a file from being served — a read-through
+   * target or the database answers every request the cache cannot. Written under a temporary name and renamed, so a
    * concurrent reader sees either nothing or the whole thing.
    */
   async writeContentCache(asset: { id: string; updatedAt: Date }, data: Buffer): Promise<void> {

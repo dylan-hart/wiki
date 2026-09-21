@@ -141,6 +141,11 @@ function navCacheKey(siteId: string, navId: string, locale: string, accessKey: s
   return `nav:${siteId}:${navId}:${locale}:${accessKey}`
 }
 
+/**
+ * The generated tree bakes each page's link target into the cached items, so a change to
+ * forcePrefix, aliases or the primary locale must miss the cache. Nothing else invalidates on a
+ * site locale-config edit.
+ */
 function localeRoutingKey(siteId: string): string {
   const locales = CARDINAL.sites[siteId]?.config?.locales
   return JSON.stringify([

@@ -499,8 +499,6 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .where(eq(navigationTable.siteId, targetSiteId))
     assert.equal(restoredNav.length, 1)
     assert.equal((restoredNav[0]!.items as any[])[0].label, 'Source Home')
-    // FIXME: the assertion below is vacuous -- every row is selected by `siteId`, so `every` cannot
-    //        fail. Assert the source site's own nav row survived the import instead.
     const leftoverOnSource = await fixtures.db
       .select()
       .from(navigationTable)

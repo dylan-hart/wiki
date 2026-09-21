@@ -22,7 +22,8 @@ const METRICS_PERMISSIONS = ['manage:system', 'read:metrics']
  * like a page navigation.
  *
  * Outside `/_api` also means the bearer `onRequest` hook (`core/http/authHooks.ts`) never populates
- * `req.apiKey` here, so bearer verification and the `manage:system` check are repeated below.
+ * `req.apiKey` here, so bearer verification and the permission check (`manage:system` or `read:metrics`) are repeated
+ * below.
  */
 async function routes(app: FastifyInstance) {
   let runtimeSampler: ReturnType<typeof createRuntimeSampler> | null =
@@ -91,6 +92,7 @@ async function routes(app: FastifyInstance) {
       dbPoolWaiting: pool?.waitingCount ?? 0
     }
 
+    // -> Created here only when the plugin registered before `metrics.isEnabled` was true
     runtimeSampler ??= createRuntimeSampler()
     const runtime = runtimeSampler.collect()
 

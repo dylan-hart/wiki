@@ -53,6 +53,8 @@ export function appliedFilters(rows) {
     .map((row) => ({ mode: row.mode, type: row.type, value: normalizedValue(row) }))
 }
 
+// Returns `[name, value]` pairs, not an object: an array value is joined with commas, which the
+// enum-validated `publishState` and `editor` lists reject.
 export function filtersToSearchParams(rows, { queryTags = [] } = {}) {
   const pairs = []
   const seen = new Set()

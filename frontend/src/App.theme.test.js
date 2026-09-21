@@ -1,16 +1,15 @@
 // @vitest-environment-options {"settings":{"enableJavaScriptEvaluation":true,"suppressInsecureJavaScriptEnvironmentWarning":true,"disableCSSFileLoading":true,"handleDisabledFileLoadingAsSuccess":true}}
 //
 // Two happy-dom defaults get in the way here:
-//   - `enableJavaScriptEvaluation` (off by default) is required for the injectHead/injectBody
-//     `<script>` assertions below to actually run the script.
+//   - `enableJavaScriptEvaluation` (off by default) is what makes the injectHead/injectBody "no
+//     script runs" assertions meaningful: with it off, a script would not run either way.
 //   - `disableCSSFileLoading` + `handleDisabledFileLoadingAsSuccess` quiet the `NetworkError`/
 //     `NotSupportedError` noise from `applyFonts()`'s real `<link rel="stylesheet">` elements, which
 //     have nothing to fetch from in this test run.
 //
-// The layer the per-helper suites don't cover: that `applyTheme()` WIRES each site-theme setting to
-// its helper with the right field, on the `EVENT_BUS` path a real admin save takes. A helper working
-// in isolation doesn't prove `applyTheme()` still calls it, still passes the field it means to, or
-// still calls it on every repeat trigger without piling up duplicate DOM nodes.
+// The layer the per-helper suites don't cover: that `applyTheme()` WIRES the font settings to their
+// helper with the right field, on the `EVENT_BUS` path a real admin save takes, without piling up
+// duplicate DOM nodes on repeat triggers.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -152,11 +151,6 @@ describe('App.vue applyTheme()', () => {
     expect(document.querySelector('#theme-content-font').textContent).toContain('Montserrat')
   })
 
-  /*
-    `applyTheme()` lives on `App.vue` itself, one level above `<router-view>`, so there is no
-    per-page injection call to gate: the site-wide behaviour is proved by actually navigating to a
-    non-content route rather than by reading the source.
-  */
   it('injectHead/injectBody/injectCSS add nothing on the /login route either', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()

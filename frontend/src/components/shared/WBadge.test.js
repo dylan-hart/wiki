@@ -26,8 +26,6 @@ describe('WBadge', () => {
     expect(wrapper.classes()).not.toContain('absolute')
   })
 
-  // -> The physical position is deliberate, paired with a physical straddle transform that never
-  //    mirrors under RTL on its own — see the justification on WBadge.vue's `classes` computed.
   it('pins a floating badge to the inline-end top corner, straddling it in either direction', () => {
     const wrapper = mount(WBadge, { props: { label: 1, floating: true } })
 

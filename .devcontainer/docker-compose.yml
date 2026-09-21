@@ -78,8 +78,6 @@ services:
     network_mode: service:db
     volumes:
       - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
-    # TODO: mount ./pgadmin-servers.json at /pgadmin4/servers.json; it is never loaded, so pgAdmin
-    # starts with no server registered.
 
 volumes:
   postgres-data:

@@ -87,7 +87,8 @@ export default class GitHubAuthentication {
     url.searchParams.set('redirect_uri', redirectUri)
     /*
       `user:email` is what makes the verified addresses readable; `read:org` is asked for only when an
-      organization is being enforced, since a scope nobody needs is a scope nobody should be granting.
+      organization is enforced or teams are mapped to groups, since a scope nobody needs is a scope
+      nobody should be granting.
     */
     url.searchParams.set(
       'scope',

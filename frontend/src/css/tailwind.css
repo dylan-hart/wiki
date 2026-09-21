@@ -749,14 +749,10 @@ body.body--cobalt {
   --color-footer-text: #a7b3ea;
   --color-footer-link: #ff7a84;
   /*
-    A conservative ESTIMATE, not a measurement: the footer wraps on the site's own
-    `company`/`contentLicense`/`footerExtra` TEXT, not at a stable viewport width, so a breakpoint
-    tuned to one fixture's wrap point would be a differently-fragile guess. This clears the measured
-    three-line worst case with margin.
-
-    TODO: an unusually long unbroken value can still wrap past 96px on a narrow phone, leaving the
-    drawers' bottom edge painted under the bar. Pixel-exact clearance needs the footer's rendered
-    height synced live -- a `ResizeObserver` writing this property.
+    Fallback ESTIMATE for until the footer is measured, and whenever `ResizeObserver` is
+    unavailable. The footer wraps on the site's own `company`/`contentLicense`/`footerExtra` TEXT,
+    not at a stable viewport width, so a breakpoint tuned to one fixture's wrap point would be a
+    differently-fragile guess. This clears the measured three-line worst case with margin.
   */
   --footer-bar-height: 96px;
   --color-inner-rule: #e6edff;
@@ -970,25 +966,20 @@ body.body--dark {
 }
 
 /*
-  Cobalt light. `--block-bg`, `--block-caption-fg`, `--block-eyebrow-fg` and the three accent roles
-  are safe left undeclared: the generic tokens they alias either do not change under Cobalt or are
-  not referenced only from `:root`.
-
-  FIXME: `--block-border` is not safe -- verified in real Chromium that it has the nested-var()
-  cascade bug described in the Ledger-dark block above under plain `body.body--cobalt`, resolving to
-  Ledger light's hairline rather than Cobalt's own. Restate it here, as the two shape rows below
-  already are.
+  Cobalt light. Every `--block-*` alias whose target Cobalt redefines is restated here (nested-var()
+  rule, see the Ledger-dark block above). Only `--block-bg` and `--block-accent-fg` are left
+  undeclared: `--color-white` and `--color-accent` do not change under Cobalt.
 */
 body.body--cobalt {
   --block-tint-bg: var(--color-tint);
   /* -> errorBox: Cobalt tints instead of using the card colour */
   --block-error-bg: var(--color-accent-wash);
   /*
-    Restated per the nested-var() rule (see the Ledger-dark block above): assigned only at `:root`,
-    their inner var()s keep resolving against the Ledger-light values even though the generic tokens
-    they alias ARE correctly redefined further up in this same rule, leaving every block that reads
-    them square-cornered with Ledger corner marks under Cobalt. Neither alias target changes again
-    under `body.body--cobalt.body--dark`, so no further restatement is needed there.
+    Restated per the nested-var() rule (see the Ledger-dark block above) for every alias below:
+    assigned only at `:root`, their inner var()s keep resolving against the Ledger-light values even
+    though the generic tokens they alias ARE correctly redefined further up in this same rule. The
+    shape aliases (`--block-radius`, `--block-corner-marks`) need no further restatement under
+    `body.body--cobalt.body--dark`, as neither target changes again there.
   */
   --block-radius: var(--radius-card);
   --block-corner-marks: var(--corner-marks);

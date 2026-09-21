@@ -146,9 +146,6 @@ RUN git config --system init.defaultBranch master \
 ENV npm_config_loglevel=warn
 ENV npm_config_fund=false
 
-# FIXME: colorizes root's prompt, but the image runs as `node` (USER below), whose
-# /home/node/.bashrc this never touches.
-
 COPY wait-for.sh /usr/local/bin/wait-for
 RUN chmod +rx /usr/local/bin/wait-for
 

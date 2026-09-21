@@ -139,7 +139,7 @@ defaults:
       #        fixed per block or, for `block-m365-video`, operator-supplied.
       #      - `font-src 'self' data:` -- KaTeX's bundled webfonts.
       #    Deliberately NOT covered: theme HTML injection (`site.theme.injectHead`/`injectBody`) and
-      #    the `google`/`gtm`/`matomo` analytics modules, which load scripts from their own origins.
+      #    the analytics modules, which load scripts from their own origins.
       #    Those need directives this default can't guess; `AdminSecurity.vue`'s CSP hint says so.
       #    `backend/helpers/security.test.ts` asserts this string parses as expected.
       cspDirectives: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; media-src 'self' https:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"

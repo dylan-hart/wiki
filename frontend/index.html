@@ -10,6 +10,13 @@
       content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width" />
     <title>Cardinal.js</title>
     <!--preload-links-->
+    <!--
+      Substituted by `src/build/temporalPolyfillChunk.js` with an inline script setting
+      `window.__wikiTemporalPolyfillUrl` to the hashed build URL of temporal-polyfill's 'global.esm'
+      chunk. That chunk is deliberately kept out of Vite's own modulepreload links so only a
+      feature-detect script preloads it, for the browsers that actually need it. The placeholder
+      must stay above the preload script so the URL is defined when it runs.
+    -->
     <!--temporal-polyfill-chunk-url-->
     <!-- temporal-polyfill-preload:start
       Warms the `temporal-polyfill` chunk in parallel with the eager bundle for a browser lacking
@@ -18,11 +25,6 @@
       evaluated, costing an affected browser a full extra serialised round trip before it can mount.
       The feature detect is load-bearing: a browser with native `Temporal` must receive no link at
       all, rather than fetch ~20 KB gzipped it will never execute.
-
-      FIXME: nothing substitutes `__TEMPORAL_POLYFILL_HREF__`, so the shipped preload points at the
-      literal placeholder. `src/build/temporalPolyfillChunk.js` only fills the chunk-url placeholder
-      further down, and does so after this script has already run; the href needs to come from
-      `window.__wikiTemporalPolyfillUrl`, which means emitting that assignment above this block.
     -->
     <script>
       if (typeof globalThis.Temporal === 'undefined' && window.__wikiTemporalPolyfillUrl) {
@@ -33,12 +35,6 @@
       }
     </script>
     <!-- temporal-polyfill-preload:end -->
-    <!--
-      Substituted by `src/build/temporalPolyfillChunk.js` with an inline script setting
-      `window.__wikiTemporalPolyfillUrl` to the hashed build URL of temporal-polyfill's 'global.esm'
-      chunk. That chunk is deliberately kept out of Vite's own modulepreload links so only a
-      feature-detect script preloads it, for the browsers that actually need it.
-    -->
     <!--
       No webfont is linked statically: which family applies (if any -- `theme.baseFont` /
       `theme.contentFont` can both be `'user'`, meaning "no override") is a per-site setting, known

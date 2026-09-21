@@ -114,6 +114,8 @@ async function routes(app: FastifyInstance) {
       const { actorId, event } = req.query
       const from = req.query.from ? new Date(req.query.from) : undefined
       const to = req.query.to ? new Date(req.query.to) : undefined
+      // -> Recorded before the first row is read, so an abandoned download still leaves a trail and
+      //    the export includes the record of itself.
       await CARDINAL.models.auditLog.record({
         event: 'auditLog.exported',
         actor: actorFromRequest(req),

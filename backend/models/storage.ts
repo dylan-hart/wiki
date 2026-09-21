@@ -48,7 +48,10 @@ export function getContentTypeFromExtension(ext: string): string | null {
 /** Pages and assets live in the wiki database, so this target cannot be disabled. */
 export const DB_MODULE = 'db'
 
-/** An ISO-8601 duration such as `PT5M` or `P1DT12H`, requiring at least one date or time component. */
+/**
+ * An ISO-8601 duration of exact length, such as `PT5M` or `P1DT12H`. Years, months and weeks are
+ * excluded: `isScheduleDue` cannot total them without a calendar.
+ */
 const ISO_DURATION_PATTERN = /^P(?!$)(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
 
 export function isIsoDuration(value: string): boolean {
@@ -78,8 +81,7 @@ function isValidScheduleOverride(value: string): boolean {
  * is validated inclusively -- so neither bound needs an off-by-one adjustment here.
  *
  * `Instant.add()` takes exact time units only, so a duration is flattened to milliseconds instead;
- * with no `relativeTo`, `total()` throws on a `years`/`months` component, which genuinely has no
- * fixed length without a calendar.
+ * see `ISO_DURATION_PATTERN` for what that rules out.
  *
  * @throws When `scheduleStr` is neither shape -- the caller (`tickScheduledSyncs`) logs and skips
  *   the target rather than letting this escape.

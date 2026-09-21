@@ -144,6 +144,11 @@ async function ensureBranch(git: SimpleGit, branch: string): Promise<void> {
   }
 }
 
+/**
+ * Runs in `ensureRepo` before `ensureBranch`: `git checkout` refuses to move a branch while the
+ * index is unmerged, so a stale rebase would fail `ensureRepo` itself before a later step could
+ * clean it up.
+ */
 export async function abortInterruptedRebase(git: SimpleGit, log: ScopedLogger): Promise<boolean> {
   const gitDir = (await git.revparse(['--absolute-git-dir'])).trim()
   const exists = (name: string) =>
@@ -160,6 +165,8 @@ export async function abortInterruptedRebase(git: SimpleGit, log: ScopedLogger):
 }
 
 export interface EnsureRepoOptions {
+  // -> Opt-in so a content-commit caller never rolls back a rebase an administrator is in the
+  //    middle of.
   abortInterrupted?: ScopedLogger
 }
 

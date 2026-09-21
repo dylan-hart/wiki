@@ -58,8 +58,6 @@ async function routes(app: FastifyInstance) {
         sessionCookie: req.cookies?.[sessionCookieName()] ?? null
       })
 
-      // FIXME: name the file through `exportFilenameStem(page.path)` like the Markdown/HTML export;
-      //    a nested page downloads as `docs%2Fgetting-started.pdf`.
       reply.header(
         'Content-Disposition',
         `attachment; filename="${exportFilenameStem(page.path)}.pdf"`

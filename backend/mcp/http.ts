@@ -42,7 +42,10 @@ const DEFAULT_SESSION_IDLE_TTL_MS = 30 * 60 * 1000
 
 const DEFAULT_SESSION_CAP = 1000
 
-/** Test-only overrides of the two defaults above. */
+/**
+ * Test-only overrides. `clock` replaces the cache's time source so a test can advance idle time
+ * without sleeping.
+ */
 interface HttpRoutesOptions {
   sessionIdleTtlMs?: number
   sessionCap?: number
@@ -61,6 +64,8 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
   const sessions = new LRUCache<string, McpSession>({
     max: opts.sessionCap ?? DEFAULT_SESSION_CAP,
     ttl: opts.sessionIdleTtlMs ?? DEFAULT_SESSION_IDLE_TTL_MS,
+    // -> `ttlResolution: 0`: lru-cache otherwise caches `perf.now()` for `ttlResolution` real ms,
+    //    which would read stale against an injected clock.
     ...(opts.clock ? { perf: opts.clock, ttlResolution: 0 } : {}),
     // -> Idle-based, not absolute-lifetime: every handler below `.get()`s a session before acting on
     //    it, which restarts the ttl.

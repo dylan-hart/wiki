@@ -382,8 +382,6 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
           }
         },
         pageHistory: {
-          // FIXME: the history route calls `pageHistory.list`, not `getHistory`, so the PAGE
-          // HISTORY case's call count cannot fail. Rename this stub to `list`.
           list: async () => {
             pageHistoryCalls++
             return { history: [], total: 0 }

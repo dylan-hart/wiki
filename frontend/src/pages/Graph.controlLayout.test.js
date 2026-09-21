@@ -6,7 +6,7 @@ import { mountGraph } from './graphFixtures.js'
 /**
  * A real headless Chromium, because the default DOM environment runs no layout engine: every
  * element's `getBoundingClientRect()` comes back zeroed regardless of CSS, so nothing else here can
- * tell whether this row wraps.
+ * tell whether these rows wrap or fill their width.
  */
 describe(
   'Graph.vue right-rail control rows: real layout (OpenProject #2892, #3527)',

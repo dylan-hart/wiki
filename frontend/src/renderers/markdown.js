@@ -186,6 +186,8 @@ export function parseFenceAttributes(source, unescape = (value) => value) {
   return attributes
 }
 
+// -> Values are unescaped one by one after being cut out of the info string, never over the whole
+//    string: unescaping first lets `\"` close the value it was written into.
 export function parseFenceInfo(info, unescape = (value) => value) {
   const trimmed = (info ?? '').trim()
   const boundary = trimmed.search(/\s/)
@@ -197,6 +199,9 @@ export function parseFenceInfo(info, unescape = (value) => value) {
 
 const LINE_RANGE = /^(\d+)(?:\s*-\s*(\d+))?$/
 
+// -> Ranges stay as `[from, to]` pairs rather than expanded sets, so `1-40000000` costs nothing.
+//    Malformed entries are dropped rather than thrown, since this render is both the editor preview
+//    and what gets saved.
 export function parseLineRanges(value) {
   const ranges = []
   for (const entry of (value ?? '').split(',')) {
@@ -271,6 +276,9 @@ function codeBlock(str, lang, attributes) {
   const numbered = lineCount > 1
   const rows =
     numbered || highlights.length > 0 ? lineRows(Math.max(lineCount, 1), lineStart, highlights) : ''
+  // -> An attribute, not an inline `--code-line-start` property: `ALLOWED_STYLES` in
+  //    `backend/helpers/htmlSanitizePolicy.ts` would strip the property for an author without
+  //    `write:styles`, while `class` and `data-*` survive.
   const start = lineStart === 1 ? '' : ` data-line-start="${lineStart}"`
   // -> `lang` is escaped too: it is whatever the author typed after the backticks, and a quote
   //    in it would otherwise close the attribute and inject markup into the preview
@@ -435,6 +443,8 @@ export class MarkdownRenderer {
       })
     }
 
+    // -> Owned here because markdown-it's `highlight` option is handed only the first word of the
+    //    info string
     this.md.renderer.rules.fence = (tokens, idx) => {
       const { lang, attributes } = parseFenceInfo(tokens[idx].info, (value) =>
         this.md.utils.unescapeAll(value)

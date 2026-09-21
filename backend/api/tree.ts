@@ -928,6 +928,7 @@ async function routes(app: FastifyInstance) {
   app.post<{ Params: { siteId: string; folderId: string }; Body: FolderDuplicateBody }>(
     '/sites/:siteId/tree/folders/:folderId/duplicate',
     {
+      // -> No route-level `permissions`: page permissions are path-bound, checked in the handler
       schema: {
         summary: 'Duplicate a folder',
         description:

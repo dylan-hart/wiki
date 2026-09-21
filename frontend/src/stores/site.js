@@ -249,7 +249,7 @@ export const useSiteStore = defineStore('site', {
     useLocales: (state) => {
       return state.locales?.active?.length > 1
     },
-    /** The exact triple `shouldPrefixLocale` / `localizedPagePath` take. */
+    /** The exact quad `shouldPrefixLocale` / `localizedPagePath` take. */
     localeRouting() {
       return {
         useLocales: this.useLocales,

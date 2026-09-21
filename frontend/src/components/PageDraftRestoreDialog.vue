@@ -140,9 +140,6 @@ watch(
 /*
   A fixed height plus `overflow: hidden` is enough for this prompt-sized pane: Monaco's
   `automaticLayout` fills exactly this box and its own scrollbar handles anything taller.
-
-  FIXME: `rgba(#fff, 0.08)` is Sass syntax, invalid in plain CSS, so the border below never renders.
-  Write the color as `rgb(255 255 255 / 8%)`. `PageSaveConflictDialog.vue` carries the same bug.
 */
 .draft-diff {
   height: 240px;

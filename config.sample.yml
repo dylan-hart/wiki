@@ -21,9 +21,9 @@
 #    at boot and deep-merged over both files above, key by key.
 #
 # So anything the admin area owns — `api`, `auditLog`, `auth`, `flags`,
-# `mail`, `metrics`, `pageviews`, `replication`, `security`, `userDefaults` —
-# cannot be set from this file: once the instance has booted once the stored
-# row wins. `security.trustProxy`, for one, is set on the admin Security page
+# `mail`, `metrics`, `pageviews`, `profileVisibility`, `replication`,
+# `security`, `userDefaults` — cannot be set from this file: once the instance
+# has booted once the stored row wins. `security.trustProxy`, for one, is set on the admin Security page
 # and never here. Every key documented below is file-owned.
 
 # ---------------------------------------------------------------------

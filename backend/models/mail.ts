@@ -8,9 +8,9 @@ import { generateHash } from '../helpers/common.ts'
 import { coalesce } from '../helpers/logCoalesce.ts'
 
 /**
- * Which transactional message a send is: one member per `send*` wrapper below, plus `approval` for
- * the one template composed outside this file (`models/approvalNotifications.ts`). It is what
- * `kind=` says on every mail log line, and a closed union is what keeps that field countable.
+ * Which transactional message a send is: one member per `send*` wrapper below, plus `approval` and
+ * `commentMention` for the templates composed outside this file (`models/approvalNotifications.ts`,
+ * `models/commentNotifications.ts`). It is what `kind=` says on every mail log line, and a closed union is what keeps that field countable.
  *
  * Not the failure category — `classifyMailError`'s verdict is a different question, on its own
  * `failure=` field.

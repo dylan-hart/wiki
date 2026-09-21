@@ -83,7 +83,7 @@ onMounted(async () => {
   try {
     for (const item of items) {
       state.current++
-      // -> The body is the file itself, not a multipart form; the locale is the server's to pick.
+      // -> The body is the file itself, not a multipart form.
       const resp = await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
         searchParams: {
           fileName: item.fileName,

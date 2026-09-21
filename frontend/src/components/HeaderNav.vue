@@ -235,11 +235,11 @@ const searchRowIsOpen = ref(false)
 const unreadNotifications = ref(0)
 
 /**
- * The last non-graph route, kept current by the watcher below -- where the Graph button returns to
- * on exit. Deliberately independent of the graph's own `path` query param: a reader who moves the
- * graph's root from the sidebar while still inside `/_graph` must land back on the page they were
- * reading before they opened it, not wherever the root ended up. Defaults to `/` for a session that
- * lands straight on `/_graph`.
+ * The last non-graph route, kept current by the watcher below -- the fallback exit target of the
+ * Graph button, used when `graphStore.selectedPath` is unset. Deliberately independent of the
+ * graph's own `path` query param: a reader who moves the graph's root from the sidebar while still
+ * inside `/_graph` must land back on the page they were reading before they opened it, not wherever
+ * the root ended up. Defaults to `/` for a session that lands straight on `/_graph`.
  */
 const lastNonGraphPath = ref('/')
 
@@ -356,6 +356,10 @@ function openInbox() {
  * `folderPath` being truthy -- `folderPath` is `''` for a top-level page and for the homepage, and
  * that empty string is a deliberate root-anchor request, which truthiness would collapse into "no
  * anchor requested".
+ *
+ * The page itself is also written to `graphStore.select()` before the push, so the graph opens with
+ * it selected under its folder anchor. On exit `selectedPath` is read before `router.push`, since
+ * `Graph.vue`'s unmount clears it; a selected folder path may resolve to a not-yet-existing page.
  *
  * `router.push` both ways: this is a deliberate mode change each time, unlike the sidebar's repeated
  * in-graph re-rooting (`composables/navSidebarDestination.js#graphSidebarBranch`), which prefers

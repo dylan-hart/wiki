@@ -237,8 +237,6 @@ describe(
 
       try {
         await scheduler.reapStaleJobs()
-        // TODO: drop this wait -- `reapStaleJobs()` awaits `notifier.drained()` before returning,
-        // so the queued `query()` has already run.
       } finally {
         CARDINAL.scheduler.pubsubClient = null
       }
@@ -436,9 +434,6 @@ describe(
 
         // The retry reclaims the SAME jobHistory row, which exercises the insert's ON CONFLICT DO
         // UPDATE path.
-        // FIXME: backdate `jobs.waitUntil` first, as the `lastErrorMessage` test does -- if this
-        // claim misses the requeued row, `secondReap` is 0 for the wrong reason and the test
-        // passes vacuously.
         await fixtures.db
           .update(jobsTable)
           .set({ waitUntil: pastDate(1) })

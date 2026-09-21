@@ -126,12 +126,6 @@ test.describe('admin scheduler', () => {
 
     // -> `cancelJob()` calls `load()` on success, so the count below reflects a real refetch rather
     //    than a client-side splice.
-    //
-    //    Selected by its icon, not `getByRole('button', { name: 'Cancel Job' })`: unlike its
-    //    siblings (Run Now, Retry Job) this button carries no `aria-label`, and its only text lives
-    //    in a `<w-tooltip>` that is `aria-hidden` until hovered, leaving its computed accessible
-    //    name empty. FIXME: give `AdminScheduler.vue`'s `body-cell-cancel` `<w-btn>` an
-    //    `aria-label`; the control is unreachable by name for a screen-reader user.
     await workerRow.getByRole('button', { name: 'Cancel Job' }).click()
     await expect(page.locator('.w-notification').last()).toContainText(
       'Job cancelled successfully.'

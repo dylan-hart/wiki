@@ -865,9 +865,6 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     checkAccessCalls = []
     uploadCalls = []
     const missingFolderId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-    // FIXME: the title is wrong. The `before()` stub answers a row with no `siteId`, so this 404 is
-    //    the route's wrong-site check; a genuinely unresolvable id (`null`) uploads to the root
-    //    instead, as the test below asserts. Retitle, or drop as a duplicate of the test above.
     const res = await app.inject({
       method: 'POST',
       url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${missingFolderId}`,

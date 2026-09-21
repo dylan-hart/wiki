@@ -89,7 +89,6 @@ describe('GET/DELETE /sites/:siteId/pages/:pageId/draft', () => {
       url: `/sites/${SITE_ID}/pages/${PAGE_ID}/draft`,
       headers: withSession({ authenticated: true, user: { id: 'u1' } })
     })
-    // FIXME: the title says 404, but read-without-write answers 403. Rename the test.
     assert.equal(res.statusCode, 403)
   })
 

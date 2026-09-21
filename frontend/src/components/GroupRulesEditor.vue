@@ -424,7 +424,7 @@ watch(
 )
 
 /**
- * START/END/EXACT compare `path` against a page path, which is always stored lowercased, so an
+ * START/SUBTREE/END/EXACT compare `path` against a page path, which is always stored lowercased, so an
  * uppercase character saves a rule that can never match -- silently, for a DENY. REGEX is left
  * alone: its pattern may deliberately use a character class like `[A-Z]`.
  */

@@ -402,7 +402,8 @@ function tagsQuery(tags, match) {
 }
 
 /**
- * Selected tags are ANDed server-side: toggling one on only ever narrows the results.
+ * Selected tags are ANDed server-side unless `state.tagsMatch` is `any`, where each one widens the
+ * results instead.
  *
  * A push, not a replace: each toggle is a deliberate step through the facets and the back button
  * retracing them is how a reader backs out of a browse -- unlike `Search.vue`'s `q`, which replaces

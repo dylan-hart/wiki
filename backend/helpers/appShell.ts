@@ -52,6 +52,12 @@ export function mergeShellFragments(...parts: AppShellFragments[]): AppShellFrag
 const HEAD_CLOSE_PATTERN = /<\/head\s*>/i
 const BODY_CLOSE_PATTERN = /<\/body\s*>/gi
 
+/**
+ * Both insertion points are located in the original template before either fragment is spliced, so
+ * a fragment containing `</head>` or `</body>` cannot capture the other. Fragments are sliced in
+ * verbatim rather than passed through `String.replace` (`$&` stays inert) and are the caller's to
+ * make safe.
+ */
 export function insertIntoAppShell(template: string, fragments: AppShellFragments): string {
   const { head, bodyEnd } = fragments
   const headAt = head ? template.search(HEAD_CLOSE_PATTERN) : -1

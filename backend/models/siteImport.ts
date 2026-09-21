@@ -389,8 +389,6 @@ class ImportModel {
         ownerId: importedById
       }))
 
-      // FIXME: `Promise.all` reads every blob `readArchive` staged to disk back into memory at once,
-      //        undoing that staging — read each chunk's blobs inside the insert loop below instead.
       const mappedAssetRows = assetManifest.map((meta) => ({
         row: {
           ...meta,

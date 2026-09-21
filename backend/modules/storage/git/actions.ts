@@ -156,8 +156,9 @@ export async function importAll(target: StorageTarget): Promise<void> {
 }
 
 /**
- * Local-only, matching the action's own hint text in `definition.yml`: no commit, no push, no effect
- * whatsoever on the remote — `ensureRepo` never fetches or clones, it only inits and wires up config.
+ * Never writes to the remote, matching the action's own hint text in `definition.yml`. With a
+ * `repoUrl` configured it re-clones the branch after re-initializing, via `ensureRepo` so auth and
+ * ssh config are shared with sync.
  *
  * The refusal below is load-bearing: `fs.rm` is recursive, so a blank or misconfigured
  * `localRepoPath` must never be able to turn "purge the repo" into "purge the install".

@@ -78,8 +78,7 @@ defineEmits(['update:modelValue'])
 
 /*
   `flex-wrap` is a fallback for a locale whose labels overflow the panel width, not the expected
-  layout; `justify-content: flex-end` keeps any wrapped remainder aligned with the right-aligned
-  control panel.
+  layout. Each checkbox takes an equal share of the row; a long label keeps its minimum.
 */
 .graph-client-type-filter-options {
   display: flex;

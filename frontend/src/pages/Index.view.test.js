@@ -174,8 +174,6 @@ describe('Index.vue: unpublished chip (OpenProject #817)', () => {
     pageStore.publishState = 'published'
     await wrapper.vm.$nextTick()
 
-    // FIXME: `:has-text()` is a Playwright selector, not CSS, so this never matches and the
-    // assertion holds whether or not the chip rendered. Assert on `.text-accent`, as above.
     const chip = wrapper.find('.text-accent')
     expect(chip.exists()).toBe(false)
   })

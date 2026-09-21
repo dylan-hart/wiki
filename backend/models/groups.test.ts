@@ -1364,7 +1364,7 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
 })
 
 /**
- * A rule's `tags` gets the same write-time fold `path` has for START/END/EXACT (trim/lowercase/
+ * A rule's `tags` gets the same write-time fold `path` has for START/SUBTREE/END/EXACT (trim/lowercase/
  * de-dupe, `models/groups.ts#normalizeRuleTags`). Covered here rather than as a pure unit test of
  * that function because what is worth proving is that `updateGroup` applies it and a subsequent read
  * reflects it, which needs a real row round-tripping through Postgres.

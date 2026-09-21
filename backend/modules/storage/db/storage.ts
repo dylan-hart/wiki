@@ -88,11 +88,11 @@ export async function verifyCopy(
 }
 
 /**
- * The per-asset gate is load-bearing, not an optimisation: `/_files/` can answer only by redirecting
- * to a direct-access target's own URL or by reading the db column this nulls, and `BlobDriver` has no
- * `get`/`head` to refill from — so purging an asset whose kind/size no direct-access target covers
- * would destroy its only copy. Metadata and the `tree` entry are left alone for every asset, which is
- * what the action's `definition.yml` hint promises.
+ * Nulling the bytes cannot be undone, so an asset is purged only after a covering target proves it
+ * holds an identical copy (`verifyCopy`), one asset at a time to keep memory to one file.
+ * `unverified` counts assets a target claims to cover whose copy failed the check; `skipped`, those
+ * nothing covers or whose bytes are already gone. Metadata and the `tree` entry are left alone for
+ * every asset, which is what the action's `definition.yml` hint promises.
  */
 export async function purge(
   target: StorageTarget

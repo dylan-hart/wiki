@@ -13,7 +13,7 @@ import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.
  *
  *   1. BAND — which kind of thing the rule addresses:
  *
- *        START / END / REGEX  <  TAG / TAGALL  <  EXACT  <  CLASSIFICATION
+ *        START / SUBTREE / END / REGEX  <  TAG / TAGALL  <  EXACT  <  CLASSIFICATION
  *
  *      A page's tags describe what it IS, a stronger claim than where it currently lives in the
  *      tree; naming one page exactly is stronger than a property several pages share.
@@ -25,7 +25,7 @@ import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.
  *      `geography` and a whole-site rule (empty path) is weakest. Tag and CLASSIFICATION rules
  *      score zero, so this only separates path-shaped rules.
  *
- *   3. MATCH TYPE — START < END < REGEX, TAG < TAGALL.
+ *   3. MATCH TYPE — START < SUBTREE < END < REGEX, TAG < TAGALL.
  *
  *   4. MODE — ALLOW < DENY < FORCEALLOW. A DENY overrides any ALLOW; a FORCEALLOW overrides any
  *      DENY, which is what makes a hole in an otherwise closed branch possible.
@@ -168,7 +168,7 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
 
   const pagePath = normalizePath(page.path)
   const rulePath = normalizePath(rule.path)
-  // -> Page paths are stored lowercased (`normalizePagePath`), so START/EXACT/END fold the rule's
+  // -> Page paths are stored lowercased (`normalizePagePath`), so START/SUBTREE/EXACT/END fold the rule's
   //    path to match. REGEX is excluded: lowercasing a pattern, or adding the `i` flag, would
   //    rewrite an author's intentional character class (`[A-Z]`).
   const pagePathLower = pagePath.toLowerCase()
@@ -179,6 +179,8 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
     case 'START':
       return pagePathLower.startsWith(rulePathLower)
     case 'SUBTREE': {
+      // -> START is a raw prefix, so `foo/bar` also matches `foo/barometer`; this is the folder
+      //    boundary kind, and an empty path addresses the whole site like START.
       const root = rulePathLower.replace(/\/+$/, '')
       return root === '' || pagePathLower === root || pagePathLower.startsWith(`${root}/`)
     }

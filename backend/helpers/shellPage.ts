@@ -27,10 +27,17 @@ function pagePathFromUrl(urlPath: string, locales: LocaleRoutingConfig | undefin
   } catch {
     return null
   }
+  // -> The root URL addresses the page at path `home`, as `api/pages/read.ts` does
   const path = normalizePagePath(decoded) || 'home'
   return rePagePath.test(path) ? path : null
 }
 
+/**
+ * Null covers a missing, unpublished, guest-unreadable and password-locked page identically, so the
+ * shell tells a crawler nothing a nonexistent path would not; a locked page's title and description
+ * in the head would leak what the page API blanks. Deliberately uncached: a cached positive would
+ * outlive an unpublish or rule change and keep serving that page's metadata to anonymous readers.
+ */
 export async function lookupShellPage(input: {
   siteId: string
   urlPath: string
@@ -66,6 +73,7 @@ export async function lookupShellPage(input: {
       )
     )
 
+  // -> Same guests-group predicate as `pages.listPagesForSitemap`; keep the two in step
   const guestRules = CARDINAL.models.groups.rulesForGroups([CARDINAL.data.systemIds.guestsGroupId])
   const visible = rows.filter(
     (row) =>

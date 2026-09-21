@@ -112,6 +112,10 @@ export type TagsMatch = 'all' | 'any'
 
 export const TAGS_MATCH: readonly TagsMatch[] = ['all', 'any']
 
+/**
+ * `creatorId` is the page's first creator and `authorId` its last editor. Neither is called
+ * `editor`, which is the editor-type filter.
+ */
 export interface SearchFilters {
   path?: string[]
   excludePath?: string[]

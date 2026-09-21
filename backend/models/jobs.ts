@@ -17,8 +17,9 @@ export interface JobHistoryPage {
 }
 
 /**
- * What `init()` seeds `jobSchedule` with. Exported rather than inlined there so it can be asserted
- * on without a database. No two entries may share a cron expression: entries on the same cron are
+ * What `init()` seeds `jobSchedule` with on a fresh database and `reconcileSchedule()` re-applies
+ * on every later boot, so an entry added, retimed or removed here reaches existing instances
+ * without a migration. Exported rather than inlined so it can be asserted on without a database. No two entries may share a cron expression: entries on the same cron are
  * claimed as one `processJob` batch, where one task's config write can race another's read.
  */
 export const JOB_SCHEDULE_SEED = [
@@ -148,6 +149,12 @@ class Jobs {
     })
   }
 
+  /**
+   * Reconciles only `type: 'system'` rows against `JOB_SCHEDULE_SEED`; a row of another type, even
+   * one squatting on a seeded task name (the unique index is on `task` alone), is left alone.
+   * Callers hold the `wiki:migrate` advisory lock (`core/config.ts#ensureSeeded`), which keeps
+   * concurrent boots from interleaving.
+   */
   async reconcileSchedule(): Promise<{ inserted: number; updated: number; removed: number }> {
     return CARDINAL.db.transaction(async (trx) => {
       const before = await trx

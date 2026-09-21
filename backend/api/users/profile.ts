@@ -56,8 +56,9 @@ const PROFILE_IDENTITY_FIELDS = [
 ] as const
 
 /**
- * A per-site feature, turned off where user data comes from an external identity provider. An
- * unresolvable hostname leaves it enabled.
+ * A per-site feature, turned off where user data comes from an external identity provider. It gates
+ * only the identity fields (`PROFILE_IDENTITY_FIELDS`) and the avatar routes, never display
+ * preferences. An unresolvable hostname leaves it enabled.
  */
 async function isProfileEditable(req: FastifyRequest): Promise<boolean> {
   const site = await siteForHostname(req.hostname)

@@ -3,6 +3,7 @@ import { markRaw, reactive } from 'vue'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
+// Keep in sync with `PROFILE_PUBLIC_FIELDS` in `backend/models/users.ts`, the source of truth.
 export const PROFILE_PUBLIC_FIELDS = ['location', 'jobTitle', 'pronouns']
 
 export const profilePopoverState = reactive({

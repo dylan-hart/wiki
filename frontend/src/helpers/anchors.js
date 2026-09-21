@@ -127,6 +127,12 @@ function whenScrollEnded(scroller) {
 /**
  * For a page that is already settled — a click on the contents list, say. See
  * `scrollToAnchorWhenReady` for one that has only just been rendered.
+ *
+ * A block asked to reveal something does not show it in this tick (`block-tabs` sets the open panel
+ * and Lit draws it in its own async update), so the target may have no box yet. Hence the second
+ * attempt a frame later, and hence returning true before the scroll has happened: callers use the
+ * result to decide whether to claim the click, and a target that had to be revealed is still
+ * somewhere to go.
  */
 export function scrollToAnchor(hash, { smooth = false } = {}) {
   const target = anchorTarget(hash)

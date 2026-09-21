@@ -254,6 +254,7 @@ async function save() {
     if (!active.includes(state.primary)) {
       active.push(state.primary)
     }
+    // -> Sent whole (the backend replaces the map), so an emptied field is simply absent
     const aliases = {}
     for (const code of active) {
       const alias = state.aliases[code]?.trim()

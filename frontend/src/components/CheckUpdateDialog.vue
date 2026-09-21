@@ -97,8 +97,6 @@ const state = reactive({
   latestDate: ''
 })
 
-// FIXME: hardcoded, so the dialog always reports the instance as up to date and `state.canUpgrade`
-//        never flips -- compare `state.current` against `state.latest` once the check returns.
 const status = computed(() => {
   if (state.offline) {
     return 'offline'

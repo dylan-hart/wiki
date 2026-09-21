@@ -72,8 +72,10 @@ export const apiKeys = pgTable(
 )
 
 /**
- * Instance-wide, permission-affecting events. Page content edits are deliberately absent:
- * `pageHistory` already records them per page, with the diff/restore machinery this table lacks.
+ * Instance-wide, permission-affecting events, including an account's own security events
+ * (register, password reset, 2FA and passkey enrol/remove, logout). Page content edits are
+ * deliberately absent: `pageHistory` already records them per page, with the diff/restore
+ * machinery this table lacks.
  *
  * Append-only: the only deletions are the retention job (`tasks/simple/clean-audit-log.ts`).
  */
@@ -90,7 +92,8 @@ export const auditLog = pgTable(
     //    `set null` so deleting a user is neither blocked by, nor takes down, the record of what
     //    they did.
     actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
-    // -> Snapshotted at write time: a renamed or deleted account must not rewrite history.
+    // -> `actorName` and `actorEmail` are snapshotted at write time: a renamed or deleted account
+    //    must not rewrite history.
     actorName: varchar({ length: 255 }).notNull().default(''),
     actorEmail: varchar({ length: 255 }).notNull().default(''),
     actorIp: varchar({ length: 64 }).notNull().default(''),
@@ -356,6 +359,8 @@ export const groups = pgTable(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
+  // -> Same fold as `models/login.ts#syncProviderGroups` (`trim().toLowerCase()`), so one IdP claim
+  //    can never match two groups. Keep the two in sync.
   (table) => [uniqueIndex('groups_name_normalized_idx').on(sql`lower(trim(${table.name}))`)]
 )
 
@@ -1272,7 +1277,6 @@ export const storage = pgTable(
     lastTickAt: timestamp({ withTimezone: true }),
     // -> Values for the props the module declares in its `definition.yml`
     config: jsonb().notNull().default({}),
-    // TODO: drop -- dead column, nothing reads or writes it. Held a removed setup wizard's state.
     siteId: uuid()
       .notNull()
       .references(() => sites.id)

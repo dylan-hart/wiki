@@ -1138,7 +1138,7 @@ class Tree {
     }
 
     // -> Only a root-level folder can shadow a locale prefix: a nested `fr/` never collides with the
-    //    URL parser, which only strips a locale code off the FIRST path segment
+    //    URL parser, which only strips a locale code or alias off the FIRST path segment
     if (path === '' && (await CARDINAL.models.locales.isReservedLocaleCode(name, siteId))) {
       throw new CustomError(
         'treeReservedLocaleSegment',
@@ -1463,6 +1463,8 @@ class Tree {
     let updated: TreeRow[]
     try {
       updated = (await CARDINAL.db.transaction(async (tx) => {
+        // -> Inside the transaction and after the subtree check, so a refused move leaves no new
+        //    folders
         if (!destinationId && newParent) {
           await this.getFolder({
             path: decodeTreePath(newParent),
@@ -1483,6 +1485,7 @@ class Tree {
               eq(treeTable.folderPath, oldPath)
             )
           )
+        // -> nlevel(oldPath), not newPath: unlike a rename, a move changes the path's depth
         await tx
           .update(treeTable)
           .set({
@@ -1517,6 +1520,7 @@ class Tree {
         return moved as TreeRow[]
       })) as TreeRow[]
     } catch (err: any) {
+      // -> Closes the race the `assertFolderNameFree` probe cannot
       if (isUniqueViolation(err)) {
         throw duplicateEntryError()
       }
@@ -1792,6 +1796,12 @@ class Tree {
     return { pages, assets }
   }
 
+  /**
+   * Copies the folder's whole subtree (folders, pages, assets) as independent rows in one
+   * transaction. Everything that reaches outside the database (page history, search, webhooks,
+   * storage dispatch, renders) runs only after the commit, so a failure part-way leaves nothing
+   * behind and announces nothing.
+   */
   async duplicateFolder({
     id,
     siteId,
@@ -1825,6 +1835,8 @@ class Tree {
     let folderCount = 0
 
     const copy = await CARDINAL.db.transaction(async (tx) => {
+      // -> Read before the root copy is created: a destination inside the source would otherwise
+      //    pick the new folder up as one of its own descendants and copy it again
       const rows = await tx
         .select({
           id: treeTable.id,
@@ -1914,6 +1926,7 @@ class Tree {
           showToc: config.showToc,
           tocDepth: config.tocDepth
         }
+        // -> The stored bcrypt hash travels as-is: dropping it would publish a protected page
         const created = await CARDINAL.models.pages.insertPageRows(siteId, input, actor, {
           tx,
           passwordHash: pageRow.password
@@ -1944,6 +1957,8 @@ class Tree {
           meta: row.meta as Record<string, any>,
           db: tx
         })
+        // -> Bytes and preview are copied inside postgres rather than loaded here, so a folder of
+        //    large files never sits in memory
         await tx.execute(sql`
           INSERT INTO ${assetsTable} (
             "id", "fileName", "fileExt", "isSystem", "kind", "mimeType", "fileSize", "meta",

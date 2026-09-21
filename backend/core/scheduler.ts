@@ -165,7 +165,7 @@ export default {
   scheduledRef: null as NodeJS.Timeout | null,
   tasks: null as Record<string, SimpleTask> | null,
   completionPromises: [] as CompletionPromise[],
-  /** `runJob` promises `processJob` currently has in flight, so `stop()` can drain them. */
+  /** Whole `processJob` calls and `runJob` promises, so `stop()` waits for a claim under way. */
   inFlightJobs: new Set<Promise<void>>(),
   async init() {
     this.maxWorkers =
@@ -361,6 +361,16 @@ export default {
     )
   },
 
+  /** Returns at once once `stop()` has begun. */
+  async processJob(): Promise<void> {
+    if (this.stopping) {
+      return
+    }
+    const claiming = this.claimAndRun()
+    this.inFlightJobs.add(claiming)
+    claiming.finally(() => this.inFlightJobs.delete(claiming))
+    return claiming
+  },
   /**
    * Take a batch of due jobs and run them, in two steps rather than one transaction. The claim has
    * to be atomic — the `DELETE` with `SKIP LOCKED` is what stops two instances running the same
@@ -371,15 +381,6 @@ export default {
    * The cost is that a process dying mid-job leaves the job out of the queue with an `active`
    * history row, which is what `reapStaleJobs` is for.
    */
-  async processJob(): Promise<void> {
-    if (this.stopping) {
-      return
-    }
-    const claiming = this.claimAndRun()
-    this.inFlightJobs.add(claiming)
-    claiming.finally(() => this.inFlightJobs.delete(claiming))
-    return claiming
-  },
   async claimAndRun(): Promise<void> {
     // -> Reserved synchronously, before the first `await`: `processJob` has two overlapping callers
     //    (the polling interval and the `newJob` handler) and the claim is several round trips long,
@@ -788,7 +789,8 @@ export default {
     return totalAdded
   },
   /**
-   * Clears both intervals first, so polling claims nothing new, then waits (bounded) for the
+   * Sets `stopping` first, which is what keeps both polling and the `newJob` handler from claiming
+   * anything new (clearing the intervals alone does not), then waits (bounded) for the
    * batches already in flight before destroying the worker pool under them. A batch still running
    * at the bound is abandoned: its `jobHistory` row is picked up by `reapStaleJobs()` once
    * `staleJobTimeout` elapses.
@@ -799,9 +801,6 @@ export default {
     clearInterval(this.pollingRef!)
     this.scheduledRef = null
     this.pollingRef = null
-    // FIXME: the `newJob` NOTIFY handler still calls `processJob()` until the listener closes
-    // below, so a batch can be claimed mid-drain, missed by it, and lose its worker pool. Gate
-    // `processJob` on a stopping flag.
     await this.drainInFlightJobs()
     await this.workerPool!.destroy()
     if (this.listenerHandle) {

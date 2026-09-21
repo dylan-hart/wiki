@@ -6,8 +6,6 @@ import { limitRenders } from '../../helpers/rateLimit.ts'
 import { actorFrom, mayOnPage } from '../../helpers/pageAccess.ts'
 import { recordClassificationChange } from './classification.ts'
 
-// FIXME: not a true set comparison. Against `['a', 'b']`, a duplicate-padded `['a', 'a']` reads
-// as unchanged, so `b` is dropped without the retag checks. Compare against `new Set(next)`.
 function tagSetChanged(current: string[], next: string[]): boolean {
   const currentSet = new Set(current)
   const nextSet = new Set(next)
