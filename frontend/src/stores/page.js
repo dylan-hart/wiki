@@ -390,10 +390,6 @@ export const usePageStore = defineStore('page', {
      * Returns the locale as well as the path, so the caller can build a properly-prefixed link
      * instead of landing on the primary-locale default for a translation that isn't.
      */
-    async pageVersionById(versionId) {
-      const siteStore = useSiteStore()
-      return API_CLIENT.get(`sites/${siteStore.id}/versions/${versionId}`).json()
-    },
     async pageAlias(alias) {
       const siteStore = useSiteStore()
       try {
@@ -409,6 +405,10 @@ export const usePageStore = defineStore('page', {
         log.warn('page', 'could not resolve the page alias', err)
         throw err
       }
+    },
+    async pageVersionById(versionId) {
+      const siteStore = useSiteStore()
+      return API_CLIENT.get(`sites/${siteStore.id}/versions/${versionId}`).json()
     },
     async pageById(id) {
       const siteStore = useSiteStore()
