@@ -18,7 +18,7 @@ describe('github/definition.yml', () => {
     assert.ok(prop, 'expected a mapGroups prop')
     assert.equal(prop.type, 'Boolean')
     assert.equal(prop.default, false)
-    assert.equal(prop.icon, 'user-groups')
+    assert.equal(prop.icon, 'tabler:users')
     assert.ok(prop.order > def.props.allowedOrganization.order)
   })
 
