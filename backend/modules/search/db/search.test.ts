@@ -307,7 +307,7 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const make = (path: string, overrides: Partial<PageInput> = {}) =>
         pagesModel.createPage(
           fixtures.siteId,
-          pageInput({ path, title: 'Wombat Census', publishState: 'published', ...overrides }),
+          pageInput({ path, title: 'Dugong Census', publishState: 'published', ...overrides }),
           actor
         )
       await make('wombat/alpha', { tags: ['red', 'old'] })
@@ -317,11 +317,11 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       await make('wombat/epsilon', { publishState: 'draft', tags: [] })
     })
 
-    const base = () => ({ siteId: fixtures.siteId, query: 'wombat', includeDrafts: true })
+    const base = () => ({ siteId: fixtures.siteId, query: 'dugong', includeDrafts: true })
 
     test('excludePath drops every page under any listed prefix, keeping totals exact', async () => {
       const excludePath = ['wombat/private', 'wombat/beta']
-      const first = await searchModel.query({ ...base(), excludePath, limit: 2 })
+      const first = await searchModel.query({ ...base(), actor, excludePath, limit: 2 })
       assert.equal(first.totalHits, 3)
       assert.equal(first.results.length, 2)
       const second = await searchModel.query({ ...base(), excludePath, limit: 2, offset: 2 })

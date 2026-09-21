@@ -208,6 +208,7 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
 
   test('rejects invalid searchFilters, leaving the stored list and other fields untouched', async () => {
     await usersModel.updateProfile(fixtures.userId, {
+      locale: '',
       searchFilters: [{ mode: 'include', type: 'tag', value: 'a' }]
     })
 
