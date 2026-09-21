@@ -2439,6 +2439,7 @@
   "common.page.suggestionResolvedReasonLabel": "Reason:",
   "common.page.tags": "Tags",
   "common.page.tagsMatching": "Pages matching tags",
+  "common.page.taskConflict": "This page changed since you loaded it, so the task was not updated. Reload the page to see the latest version.",
   "common.page.toc": "Table of Contents",
   "common.page.unlock": "Unlock",
   "common.page.unlockTitle": "Unlock this page",
