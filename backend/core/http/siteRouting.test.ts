@@ -90,6 +90,13 @@ describe('isSpaAppRoute', () => {
     assert.equal(isSpaAppRoute('/a/some/alias'), false)
   })
 
+  test('`/_version/:id` is an app route, a bare `/_version` or a deeper path is not', () => {
+    assert.equal(isSpaAppRoute('/_version/3f2a'), true)
+    assert.equal(isSpaAppRoute('/_version/3f2a/'), true)
+    assert.equal(isSpaAppRoute('/_version'), false)
+    assert.equal(isSpaAppRoute('/_version/3f2a/extra'), false)
+  })
+
   test('every underscore route the frontend router owns is an app route', () => {
     for (const urlPath of [
       '/_search',

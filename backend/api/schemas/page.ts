@@ -742,6 +742,49 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   app.addSchema({
+    $id: 'PageVersionShare',
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      action: { type: 'string', enum: [...pageHistoryActions] },
+      versionDate: {
+        type: 'string',
+        format: 'date-time',
+        description: 'RFC 3339 Date Time'
+      },
+      title: {
+        type: 'string',
+        description: 'The title the page had at this version.'
+      },
+      content: {
+        type: 'string',
+        description: 'The page source as of this version.'
+      },
+      contentType: {
+        type: 'string',
+        description: 'The editor the source was written for, which says how to render it.'
+      },
+      author: {
+        type: 'object',
+        description: 'Who made the change. Null id and empty name once that account is deleted.',
+        properties: {
+          id: { type: ['string', 'null'], format: 'uuid' },
+          name: { type: 'string' }
+        }
+      },
+      page: {
+        type: 'object',
+        description: 'The page this version belongs to, as it stands now.',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          path: { type: 'string' },
+          locale: { type: 'string' }
+        }
+      }
+    }
+  })
+
+  app.addSchema({
     $id: 'PageHistoryRecoverablePage',
     type: 'object',
     properties: {

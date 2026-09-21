@@ -40,6 +40,11 @@ const routes = [
     children: [{ path: '', component: () => import('@/pages/TagsBrowse.vue') }]
   },
   {
+    path: '/_version/:id',
+    component: () => import('@/layouts/MainLayout.vue'),
+    children: [{ path: '', component: () => import('@/pages/PageVersion.vue') }]
+  },
+  {
     path: '/_admin',
     component: () => import('@/layouts/AdminLayout.vue'),
     children: [

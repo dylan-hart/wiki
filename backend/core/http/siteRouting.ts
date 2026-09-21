@@ -81,6 +81,7 @@ const SPA_APP_ROUTES: readonly RegExp[] = [
   /^\/login(\/reset-password\/[^/]+)?$/,
   /^\/a\/[^/]+$/,
   /^\/_(search|tags|graph)$/,
+  /^\/_version\/[^/]+$/,
   /^\/_admin(\/.*)?$/,
   /^\/_error(\/[^/]+)?$/,
   /^\/_create(\/[^/]+)?$/,
