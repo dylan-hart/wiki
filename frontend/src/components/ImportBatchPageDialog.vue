@@ -140,6 +140,12 @@
                   :disabled="row.saveStatus === `saving` || row.saveStatus === `saved`"
                   :label="t(`pages.importBatch.destinationPath`)" />
               </div>
+              <p
+                v-if="row.unresolvedImages > 0"
+                class="import-batch-row-images text-caption text-warning mt-1">
+                <w-icon name="tabler:alert-triangle" size="xs" class="me-1" />
+                {{ t('pages.importBatch.imagesNotImported', { count: row.unresolvedImages }) }}
+              </p>
               <p v-if="row.saveMessage" class="text-caption text-negative mt-1">
                 {{ row.saveMessage }}
               </p>
@@ -191,6 +197,7 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { convertCheckboxGlyphs, htmlToMarkdown } from '@/helpers/htmlToMarkdown'
 import { normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
+import { findUnresolvedImageReferences } from '@/helpers/pendingImages'
 import { MarkdownRenderer } from '@/renderers/markdown'
 
 import { usePageStore } from '@/stores/page'
@@ -558,6 +565,7 @@ async function convert() {
           path: item.ok ? defaultPath(file ?? { name: item.fileName }) : '',
           description: item.description ?? '',
           tags: item.tags ?? [],
+          unresolvedImages: item.ok ? findUnresolvedImageReferences(item.markdown ?? '').length : 0,
           saveStatus: item.ok ? 'pending' : 'skipped',
           saveMessage: ''
         }

@@ -3528,6 +3528,7 @@
   "pages.importBatch.formatForFile": "Format for {file}",
   "pages.importBatch.htmlNoContent": "This file has no content to import.",
   "pages.importBatch.htmlReadFailed": "This file could not be read.",
+  "pages.importBatch.imagesNotImported": "{count} image reference(s) point to files that were not imported and will not display. Add those images to the wiki separately and update the links.",
   "pages.importBatch.menuLabel": "Import Multiple Pages...",
   "pages.importBatch.pageTitle": "Page Title",
   "pages.importBatch.saveAll": "Save All",

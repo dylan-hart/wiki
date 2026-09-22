@@ -806,6 +806,58 @@ describe('ImportBatchPageDialog', () => {
    * Each new page can change what an `auto`/`mixed` menu generates from the tree, so `saveAll()`
    * invalidates once at the end rather than once per row and re-walking the tree each time.
    */
+  describe('image references (OpenProject #3740)', () => {
+    async function convertRows(results) {
+      await mountDialog()
+      globalThis.API_CLIENT.post.mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue({ ok: true, results })
+      })
+      await selectFiles(
+        results.map((r) => new File(['a'], r.fileName, { type: 'application/octet-stream' }))
+      )
+      await body().find('.import-convert-btn').trigger('click')
+      await flushPromises()
+    }
+
+    it('warns on a row whose markdown references images that were not imported, counting them', async () => {
+      await convertRows([
+        {
+          fileName: 'pics.docx',
+          ok: true,
+          markdown:
+            '![a](media/image1.png)\n\n![b](./pics_files/image2.jpg)\n\n![c](https://x.test/c.png)\n'
+        },
+        { fileName: 'plain.docx', ok: true, markdown: '# Plain\n' }
+      ])
+
+      const rows = body().findAll('.import-batch-row')
+      const warning = rows[0].find('.import-batch-row-images')
+      expect(warning.exists()).toBe(true)
+      expect(warning.text()).toContain('pages.importBatch.imagesNotImported')
+      expect(rows[1].find('.import-batch-row-images').exists()).toBe(false)
+    })
+
+    it('leaves the markdown untouched and saves it with its image references intact', async () => {
+      const markdown = '![a](media/image1.png)\n'
+      await convertRows([{ fileName: 'pics.docx', ok: true, markdown }])
+
+      globalThis.API_CLIENT.post.mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue({ ok: true, page: { id: 'p1', path: 'docs/pics' } })
+      })
+      await body().find('.import-batch-save-btn').trigger('click')
+      await flushPromises()
+
+      const createCall = globalThis.API_CLIENT.post.mock.calls.at(-1)
+      expect(createCall[1].json.content).toBe(markdown)
+    })
+
+    it('shows no image warning for a row that failed to convert', async () => {
+      await convertRows([{ fileName: 'bad.docx', ok: false, message: 'Could not convert.' }])
+
+      expect(body().find('.import-batch-row-images').exists()).toBe(false)
+    })
+  })
+
   describe('same-tab navigation invalidation (OpenProject #1012)', () => {
     it('force-refetches the sidebar nav once, after at least one row saved', async () => {
       const wrapper = await convertOneGoodFile()

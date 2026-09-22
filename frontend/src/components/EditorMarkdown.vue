@@ -511,6 +511,7 @@ import {
 import * as insertCmd from '@/helpers/markdownInsert'
 import { resolveWordMarkup } from '@/helpers/markdownMarkup'
 import { findEditableTables } from '@/helpers/markdownTable'
+import { resolvePendingImages } from '@/helpers/pendingImages'
 
 import EditorCodeBlockMenu from '@/components/EditorCodeBlockMenu.vue'
 import EditorEmojiMenu from '@/components/EditorEmojiMenu.vue'
@@ -1125,42 +1126,6 @@ function insertFilesAsAssets(files, { generateUniqueName = false } = {}) {
   insertAtCursor({ content: markup.join('\n') })
 }
 
-/**
- * The async other half of `htmlToMarkdown`, which is synchronous and so hands back
- * `![alt](pending-image:N)` placeholders rather than fetching an embedded image's bytes itself.
- * `fetch` turns all three `src` shapes -- `data:`, `blob:` and `http(s):` -- into bytes uniformly. A
- * `src` that cannot be retrieved (cross-origin CORS, a `blob:` from a navigated-away tab) drops just
- * that one image.
- */
-async function resolvePendingImages(markdown, images, { refuse = false } = {}) {
-  let content = markdown
-  await Promise.all(
-    images.map(async ({ token, src, alt }) => {
-      const placeholder = `![${alt}](${token})`
-      if (refuse) {
-        content = content.split(placeholder).join('')
-        return
-      }
-      let replacement = ''
-      try {
-        const response = await fetch(src)
-        if (!response.ok) {
-          throw new Error(`Failed to fetch pasted image: ${response.status}`)
-        }
-        const blob = await response.blob()
-        const blobUrl = editorStore.addPendingAsset(blob)
-        replacement = `![${alt}](${blobUrl})`
-      } catch {
-        replacement = ''
-      }
-      // -> `token` is unique per call (see `htmlToMarkdown`), so this can only match the placeholder
-      //    it was generated for
-      content = content.split(placeholder).join(replacement)
-    })
-  )
-  return content
-}
-
 /*
   Both branches take the paste over completely -- `stopPropagation` as well as `preventDefault`,
   because this runs in capture ABOVE the editor: letting it travel on would hand the same paste to
@@ -1196,7 +1161,10 @@ async function onEditorPaste(event) {
   const { markdown, images } = htmlToMarkdown(html)
   const content =
     images.length > 0
-      ? await resolvePendingImages(markdown, images, { refuse: refuseFilesWhenSuggesting() })
+      ? await resolvePendingImages(markdown, images, {
+          refuse: refuseFilesWhenSuggesting(),
+          addPendingAsset: (blob) => editorStore.addPendingAsset(blob)
+        })
       : markdown
   insertAtCursor({ content })
 }
