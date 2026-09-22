@@ -136,7 +136,7 @@ describe('PageNewMenu: the Cardinal plate treatment', () => {
 
     const plates = wrapper.findAll('.blueprint-icon')
     // -> One per row: markdown, code, asciidoc, redirect, import, batch import, upload, new folder
-    expect(plates).toHaveLength(8)
+    expect(plates).toHaveLength(9)
     for (const plate of plates) {
       expect(plate.classes()).not.toContain('blueprint-icon--compact')
     }
@@ -154,7 +154,7 @@ describe('PageNewMenu: the Cardinal plate treatment', () => {
 
     const plates = wrapper.findAll('.blueprint-icon')
     // -> The same eight rows less the batch import, which the pointer-anchored menu does not carry
-    expect(plates).toHaveLength(7)
+    expect(plates).toHaveLength(8)
     for (const plate of plates) {
       expect(plate.classes()).toContain('blueprint-icon--compact')
     }
