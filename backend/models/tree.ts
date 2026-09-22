@@ -44,7 +44,7 @@ export const TREE_UPDATE_CHUNK_SIZE = 200
 /** Mirrors the `treeType` enum in the schema. */
 export type TreeItemType = 'folder' | 'page' | 'asset'
 
-export const TREE_ORDER_BY = ['createdAt', 'fileName', 'title', 'updatedAt'] as const
+export const TREE_ORDER_BY = ['createdAt', 'fileName', 'sortOrder', 'title', 'updatedAt'] as const
 
 export type TreeOrderBy = (typeof TREE_ORDER_BY)[number]
 
@@ -210,6 +210,7 @@ export interface TreeRow {
   title: string
   tags: string[]
   meta: Record<string, any>
+  sortOrder: number | null
   siteId: string
   createdAt: Date
   updatedAt: Date
@@ -320,10 +321,29 @@ function navTargetPath(target: string): string | null {
  * the same way the folder it was built from does.
  */
 export function compareFoldersFirst(
-  a: { isFolder: boolean; title: string },
-  b: { isFolder: boolean; title: string }
+  a: { isFolder: boolean; title: string; sortOrder?: number | null },
+  b: { isFolder: boolean; title: string; sortOrder?: number | null }
 ): number {
-  return a.isFolder === b.isFolder ? a.title.localeCompare(b.title) : a.isFolder ? -1 : 1
+  if (a.isFolder !== b.isFolder) {
+    return a.isFolder ? -1 : 1
+  }
+  const aOrder = a.sortOrder ?? null
+  const bOrder = b.sortOrder ?? null
+  if (aOrder !== bOrder) {
+    return aOrder === null ? 1 : bOrder === null ? -1 : aOrder - bOrder
+  }
+  return a.title.localeCompare(b.title)
+}
+
+function orderByClauses(orderBy: TreeOrderBy, orderByDirection: 'asc' | 'desc'): SQL[] {
+  if (orderBy === 'sortOrder') {
+    return [
+      sql`${treeTable.sortOrder} ${orderByDirection === 'desc' ? sql`DESC` : sql`ASC`} NULLS LAST`,
+      asc(treeTable.title),
+      asc(treeTable.fileName)
+    ]
+  }
+  return [(orderByDirection === 'desc' ? desc : asc)(treeTable[orderBy])]
 }
 
 export function splitPath(path: string): { folderPath: string; fileName: string } {
@@ -677,7 +697,6 @@ class Tree {
       conditions.push(or(ne(treeTable.type, 'page'), and(...pageIsVisible(pagesTable, true))))
     }
 
-    const direction = orderByDirection === 'desc' ? desc : asc
     const rows = await CARDINAL.db
       .select({
         row: treeTable,
@@ -689,7 +708,10 @@ class Tree {
       .from(treeTable)
       .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
       .where(and(...conditions))
-      .orderBy(asc(sql`nlevel(${treeTable.folderPath})`), direction(treeTable[orderBy]))
+      .orderBy(
+        asc(sql`nlevel(${treeTable.folderPath})`),
+        ...orderByClauses(orderBy, orderByDirection)
+      )
       .limit(limit)
       .offset(offset)
 
@@ -739,7 +761,6 @@ class Tree {
     const levels = depth > 0 ? `*{,${depth}}` : '*{0}'
     const pathQuery = encodedPath ? `${encodedPath}.${levels}` : levels
 
-    const direction = orderByDirection === 'desc' ? desc : asc
     const hasChildren = holdsVisibleChildPages(publicOnly, '')
     const rows = await CARDINAL.db
       .select({
@@ -765,7 +786,7 @@ class Tree {
           ...pageIsVisible(pagesTable, publicOnly)
         )
       )
-      .orderBy(direction(treeTable[orderBy]))
+      .orderBy(...orderByClauses(orderBy, orderByDirection))
       .limit(limit)
 
     // -> `row.folderPath` is still the raw dot-separated ltree form, so its segment count IS its
@@ -848,6 +869,7 @@ class Tree {
         type: treeTable.type,
         fileName: treeTable.fileName,
         title: treeTable.title,
+        sortOrder: treeTable.sortOrder,
         icon: pagesTable.icon,
         classification: pagesTable.classification,
         tags: treeTable.tags,
@@ -870,10 +892,20 @@ class Tree {
       .limit(MAX_BROWSE + 1)
 
     const merged = new Map<string, BrowseItem>()
+    const positions = new Map<string, number | null>()
     for (const row of rows.slice(0, MAX_BROWSE)) {
       if (row.type === 'folder' && !row.holdsVisiblePages) {
         continue
       }
+      const position = positions.get(row.fileName) ?? null
+      positions.set(
+        row.fileName,
+        row.sortOrder === null
+          ? position
+          : position === null
+            ? row.sortOrder
+            : Math.min(position, row.sortOrder)
+      )
       const entry = merged.get(row.fileName) ?? {
         path: basePath ? `${basePath}/${row.fileName}` : row.fileName,
         fileName: row.fileName,
@@ -901,7 +933,12 @@ class Tree {
       path: basePath,
       title,
       truncated: rows.length > MAX_BROWSE,
-      items: [...merged.values()].sort(compareFoldersFirst)
+      items: [...merged.values()].sort((a, b) =>
+        compareFoldersFirst(
+          { isFolder: a.isFolder, title: a.title, sortOrder: positions.get(a.fileName) },
+          { isFolder: b.isFolder, title: b.title, sortOrder: positions.get(b.fileName) }
+        )
+      )
     }
   }
 
@@ -1213,6 +1250,14 @@ class Tree {
       }
     }
 
+    const sortOrder = await this.nextSortOrder({
+      siteId,
+      locale: effectiveLocale,
+      folderPath: path,
+      fileName: name,
+      db
+    })
+
     let inserted
     try {
       inserted = await db
@@ -1224,6 +1269,7 @@ class Tree {
           title,
           locale: effectiveLocale,
           siteId,
+          sortOrder,
           meta: { children: 0 }
         })
         .returning()
@@ -1502,9 +1548,17 @@ class Tree {
             )
           )
 
+        const sortOrder = await this.nextSortOrder({
+          siteId: folder.siteId,
+          locale: folder.locale,
+          folderPath: newParent,
+          fileName: name,
+          excludeId: folder.id,
+          db: tx
+        })
         const moved = await tx
           .update(treeTable)
-          .set({ folderPath: newParent, updatedAt: sql`now()` })
+          .set({ folderPath: newParent, sortOrder, updatedAt: sql`now()` })
           .where(eq(treeTable.id, folder.id))
           .returning()
 
@@ -1850,6 +1904,7 @@ class Tree {
           title: treeTable.title,
           tags: treeTable.tags,
           meta: treeTable.meta,
+          sortOrder: treeTable.sortOrder,
           assetId: assetsTable.id,
           assetKind: assetsTable.kind,
           assetFileSize: assetsTable.fileSize
@@ -1981,6 +2036,24 @@ class Tree {
           kind: row.assetKind ?? 'other',
           fileSize: row.assetFileSize ?? null
         })
+      }
+
+      for (const row of rows) {
+        if (row.sortOrder === null) {
+          continue
+        }
+        await tx
+          .update(treeTable)
+          .set({ sortOrder: row.sortOrder })
+          .where(
+            and(
+              eq(treeTable.siteId, siteId),
+              eq(treeTable.locale, root.locale),
+              eq(treeTable.folderPath, relocate(row.folderPath)),
+              eq(treeTable.fileName, row.fileName),
+              eq(treeTable.type, row.type)
+            )
+          )
       }
 
       return root
@@ -2323,9 +2396,17 @@ class Tree {
     }
 
     const updated = await CARDINAL.db.transaction(async (tx) => {
+      const sortOrder = await this.nextSortOrder({
+        siteId,
+        locale: entry.locale,
+        folderPath: newPath,
+        fileName: entry.fileName,
+        excludeId: entry.id,
+        db: tx
+      })
       const moved = await tx
         .update(treeTable)
-        .set({ folderPath: newPath, updatedAt: sql`now()` })
+        .set({ folderPath: newPath, sortOrder, updatedAt: sql`now()` })
         .where(eq(treeTable.id, entry.id))
         .returning()
       await this.countTowardsFolderAt(siteId, entry.locale, oldPath, -1, tx)
@@ -2338,6 +2419,95 @@ class Tree {
 
     CARDINAL.logger.debug('pages', 'moved entry', { entry: entry.id, path: newPath })
     return updated[0] as TreeRow
+  }
+
+  async reorderChildren({
+    siteId,
+    locale,
+    parentId,
+    parentPath,
+    ids
+  }: {
+    siteId: string
+    locale: string
+    parentId?: string | null
+    parentPath?: string | null
+    ids: string[]
+  }): Promise<{ count: number }> {
+    if (new Set(ids).size !== ids.length) {
+      throw new CustomError('treeReorderInvalid', 'The list holds the same entry twice.', 400)
+    }
+
+    const staleError = () =>
+      new CustomError(
+        'treeReorderStale',
+        'This folder changed while you were reordering it. Reload it and try again.',
+        409
+      )
+
+    const count = await CARDINAL.db.transaction(async (tx) => {
+      let path = ''
+      let effectiveLocale = locale
+      if (parentId || parentPath) {
+        const folder = await this.getFolder({
+          id: parentId,
+          path: parentPath,
+          locale,
+          siteId,
+          db: tx
+        })
+        await tx
+          .select({ id: treeTable.id })
+          .from(treeTable)
+          .where(eq(treeTable.id, folder.id))
+          .for('update')
+        path = childPathOf(folder)
+        effectiveLocale = folder.locale
+      }
+
+      const children = await tx
+        .select({ id: treeTable.id, fileName: treeTable.fileName })
+        .from(treeTable)
+        .where(
+          and(
+            eq(treeTable.siteId, siteId),
+            eq(treeTable.locale, effectiveLocale),
+            eq(treeTable.folderPath, path),
+            inArray(treeTable.type, ['page', 'folder'])
+          )
+        )
+        .for('update')
+
+      const nameById = new Map(children.map((child) => [child.id, child.fileName]))
+      if (nameById.size !== ids.length || ids.some((id) => !nameById.has(id))) {
+        throw staleError()
+      }
+
+      const positionByName = new Map<string, number>()
+      for (const id of ids) {
+        const name = nameById.get(id)!
+        if (!positionByName.has(name)) {
+          positionByName.set(name, positionByName.size)
+        }
+      }
+
+      for (const batch of chunk(ids, TREE_UPDATE_CHUNK_SIZE)) {
+        const cases = sql.join(
+          batch.map(
+            (id) => sql`when ${id}::uuid then ${positionByName.get(nameById.get(id)!)!}::integer`
+          ),
+          sql` `
+        )
+        await tx
+          .update(treeTable)
+          .set({ sortOrder: sql`case ${treeTable.id} ${cases} end` })
+          .where(inArray(treeTable.id, batch))
+      }
+      return ids.length
+    })
+
+    CARDINAL.models.navigation.invalidateCache(siteId)
+    return { count }
   }
 
   async deleteEntry(id: string, db: WikiDbOrTx = CARDINAL.db): Promise<boolean> {
@@ -2420,6 +2590,13 @@ class Tree {
       type === 'page' ? await CARDINAL.models.navigation.ancestorNavId(siteId, locale, path) : null
 
     const name = await this.resolveName({ siteId, locale, path, type, fileName, onConflict, db })
+    const sortOrder = await this.nextSortOrder({
+      siteId,
+      locale,
+      folderPath: path,
+      fileName: name,
+      db
+    })
     const fullPath = path ? `${decodeTreePath(path)}/${name}` : name
 
     CARDINAL.logger.debug('pages', 'adding an entry to the tree', { type, path: fullPath })
@@ -2440,6 +2617,7 @@ class Tree {
           siteId,
           tags,
           meta,
+          sortOrder,
           ...(navigationId ? { navigationId } : {})
         })
         .returning()
@@ -2522,6 +2700,43 @@ class Tree {
       'Too many files in this folder are already named this.',
       409
     )
+  }
+
+  private async nextSortOrder({
+    siteId,
+    locale,
+    folderPath,
+    fileName,
+    excludeId,
+    db = CARDINAL.db
+  }: {
+    siteId: string
+    locale: string
+    folderPath: string
+    fileName: string
+    excludeId?: string
+    db?: WikiDbOrTx
+  }): Promise<number | null> {
+    const [row] = await db
+      .select({
+        highest: sql<number | null>`max(${treeTable.sortOrder})`,
+        twin: sql<
+          number | null
+        >`min(${treeTable.sortOrder}) filter (where ${treeTable.fileName} = ${fileName})`
+      })
+      .from(treeTable)
+      .where(
+        and(
+          eq(treeTable.siteId, siteId),
+          eq(treeTable.locale, locale),
+          eq(treeTable.folderPath, folderPath),
+          ...(excludeId ? [ne(treeTable.id, excludeId)] : [])
+        )
+      )
+    if (row?.twin != null) {
+      return row.twin
+    }
+    return row?.highest == null ? null : row.highest + 1
   }
 
   /**

@@ -44,6 +44,7 @@ const BASE_ALLOWED_TAGS = [
   */
   'iconify-icon',
   'img',
+  'input',
   'ins',
   'kbd',
   'mark',
@@ -152,7 +153,7 @@ const SVG_ATTRIBUTES = [
   'y2'
 ]
 
-const BASE_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
+const BASE_ALLOWED_ATTRIBUTES: Record<string, sanitizeHtml.AllowedAttribute[]> = {
   // -> `style` is here rather than behind `write:styles` because the renderer itself produces it:
   //    KaTeX sizes and positions every piece of a formula with inline styles. What the permission
   //    gates is which *declarations* survive inside it -- see `ALLOWED_STYLES`.
@@ -163,7 +164,7 @@ const BASE_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   //    only matters to an author working around a specific icon set's colouring.
   'iconify-icon': ['icon', 'inline', 'width', 'height', 'rotate', 'flip'],
   img: ['src', 'srcset', 'alt', 'width', 'height', 'loading', 'decoding'],
-  input: ['type', 'checked', 'disabled'],
+  input: [{ name: 'type', values: ['checkbox'] }, 'checked', 'disabled'],
   ol: ['start', 'reversed', 'type'],
   source: ['src', 'srcset', 'type', 'media'],
   td: ['colspan', 'rowspan', 'align'],
@@ -446,7 +447,7 @@ export function sanitizeOptions(
   additionalSchemes: string[] = []
 ): sanitizeHtml.IOptions {
   const allowedTags = [...BASE_ALLOWED_TAGS, ...blocks.tags]
-  const allowedAttributes: Record<string, string[]> = {
+  const allowedAttributes: Record<string, sanitizeHtml.AllowedAttribute[]> = {
     ...BASE_ALLOWED_ATTRIBUTES,
     ...blocks.attributes,
     '*': [...BASE_ALLOWED_ATTRIBUTES['*']]
@@ -485,6 +486,7 @@ export function sanitizeOptions(
     // -> `script` and `style` in the allow list are what `write:scripts` and `write:styles` mean:
     //    the library's per-call warning is the thing to silence, not the permission
     allowVulnerableTags: permissions.scripts || permissions.styles,
+    exclusiveFilter: (frame) => frame.tag === 'input' && frame.attribs.type !== 'checkbox',
     allowedSchemes: mergeAllowedSchemes(additionalSchemes),
     allowedSchemesByTag: {
       img: mergeAllowedSchemes(additionalSchemes, { allowData: true })

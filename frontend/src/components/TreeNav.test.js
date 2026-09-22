@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import Sortable from 'sortablejs'
 
 import { useDark } from '@/composables/dark'
 
@@ -82,5 +83,132 @@ describe('TreeNav: no hover or expand/collapse transitions (OpenProject #3090)',
 
     expect(source).not.toMatch(/transition\s*:/)
     expect(source).not.toMatch(/treeview-(enter|leave)/)
+  })
+})
+
+describe('TreeNav drag-to-reorder (OpenProject #3731)', () => {
+  const treeNodes = () => ({
+    a: { title: 'Alpha', fileName: 'alpha', folderPath: '', children: ['a1', 'a2', 'a3'] },
+    b: { title: 'Beta', fileName: 'beta', folderPath: '', children: [] },
+    c: { title: 'Gamma', fileName: 'gamma', folderPath: '', children: [] },
+    a1: { title: 'One', fileName: 'one', folderPath: 'alpha', children: [] },
+    a2: { title: 'Two', fileName: 'two', folderPath: 'alpha', children: [] },
+    a3: { title: 'Three', fileName: 'three', folderPath: 'alpha', children: [] }
+  })
+
+  function mountTree(props = {}) {
+    return mountWithApp(TreeNav, {
+      props: { nodes: treeNodes(), roots: ['a', 'b', 'c'], sortable: true, ...props },
+      stubs: { WMenu: true }
+    }).wrapper
+  }
+
+  function drag(list, oldIndex, newIndex) {
+    Sortable.get(list.element).option('onUpdate')({ oldIndex, newIndex })
+  }
+
+  it('emits reorder with the root level in its new id order', () => {
+    const wrapper = mountTree()
+
+    drag(wrapper.find('.treeview-sortgroup > ul'), 0, 2)
+
+    expect(wrapper.emitted('reorder')).toEqual([[null, ['b', 'c', 'a']]])
+    wrapper.unmount()
+  })
+
+  it('emits reorder with the parent folder id for a nested level', async () => {
+    const wrapper = mountTree({ selected: 'a1' })
+    await wrapper.vm.$nextTick()
+
+    drag(wrapper.findAll('.treeview-sortgroup > ul')[1], 2, 0)
+
+    expect(wrapper.emitted('reorder')).toEqual([['a', ['a3', 'a1', 'a2']]])
+    wrapper.unmount()
+  })
+
+  it('offers no sortable list unless `sortable` is set', () => {
+    const wrapper = mountTree({ sortable: false })
+
+    expect(wrapper.find('.treeview-sortgroup').exists()).toBe(false)
+    expect(wrapper.findAll('.treeview-node')).toHaveLength(4)
+    wrapper.unmount()
+  })
+})
+
+describe('TreeNav drag onto a folder (OpenProject #3732)', () => {
+  const treeNodes = () => ({
+    a: { title: 'Alpha', fileName: 'alpha', folderPath: '', children: [] },
+    b: { title: 'Beta', fileName: 'beta', folderPath: '', children: [] },
+    c: { title: 'Gamma', fileName: 'gamma', folderPath: '', children: [] }
+  })
+
+  function mountTree(props = {}) {
+    return mountWithApp(TreeNav, {
+      props: { nodes: treeNodes(), roots: ['a', 'b', 'c'], sortable: true, ...props },
+      stubs: { WMenu: true }
+    }).wrapper
+  }
+
+  function release(wrapper, oldIndex, target, y = 10) {
+    const list = wrapper.find('.treeview-sortgroup > ul').element
+    document.elementFromPoint = vi.fn(() => target)
+    const event = {
+      oldIndex,
+      newIndex: oldIndex === 0 ? 1 : 0,
+      from: list,
+      item: list.children[oldIndex],
+      originalEvent: { clientX: 4, clientY: y }
+    }
+    const sortable = Sortable.get(list)
+    sortable.option('onUpdate')(event)
+    sortable.option('onEnd')(event)
+  }
+
+  it('labels the root row and every folder row as a drop target when sortable', () => {
+    const wrapper = mountTree()
+
+    expect(
+      wrapper.findAll('[data-drop-folder-id]').map((el) => el.attributes()['data-drop-folder-id'])
+    ).toEqual(['', 'a', 'b', 'c'])
+    wrapper.unmount()
+  })
+
+  it('labels nothing when the tree is not sortable', () => {
+    const wrapper = mountTree({ sortable: false })
+
+    expect(wrapper.findAll('[data-drop-folder-id]')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('emits move, not reorder, when a folder is released on another folder', () => {
+    const wrapper = mountTree()
+    const target = wrapper.findAll('[data-drop-folder-id]')[3].element
+    target.getBoundingClientRect = () => ({ top: 0, bottom: 20, height: 20 })
+
+    release(wrapper, 0, target)
+
+    expect(wrapper.emitted('move')).toEqual([['a', 'c']])
+    expect(wrapper.emitted('reorder')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('emits move with a null folder when released on the root row', () => {
+    const wrapper = mountTree()
+    const root = wrapper.find('[data-drop-folder-id=""]').element
+
+    release(wrapper, 1, root)
+
+    expect(wrapper.emitted('move')).toEqual([['b', null]])
+    wrapper.unmount()
+  })
+
+  it('keeps reordering when the release is on no folder', () => {
+    const wrapper = mountTree()
+
+    release(wrapper, 0, null)
+
+    expect(wrapper.emitted('move')).toBeUndefined()
+    expect(wrapper.emitted('reorder')).toHaveLength(1)
+    wrapper.unmount()
   })
 })

@@ -43,7 +43,7 @@ describe('rebuild-embeddings-index task()', () => {
       .arguments
     assert.equal(scope, 'jobs')
     assert.equal(message, 'rebuildEmbeddingsIndex finished')
-    assert.deepEqual(fields, { site: 'site-1', pages: 3 })
+    assert.deepEqual(fields, { site: 'site-1', pages: 3, assets: 0 })
   })
 
   test('reports zero pages for a site with none, without throwing', async () => {
@@ -53,6 +53,15 @@ describe('rebuild-embeddings-index task()', () => {
     await task({ siteId: 'site-empty' })
 
     const [, , fields] = (globalThis as any).CARDINAL.logger.info.mock.calls[0].arguments
-    assert.deepEqual(fields, { site: 'site-empty', pages: 0 })
+    assert.deepEqual(fields, { site: 'site-empty', pages: 0, assets: 0 })
+  })
+  test('walks the site assets after its pages and reports how many it visited', async () => {
+    fakeDb([[{ id: 'page-a' }], [{ id: 'asset-a' }, { id: 'asset-b' }]])
+    ;(globalThis as any).CARDINAL.logger.info = mock.fn()
+
+    await task({ siteId: 'site-1' })
+
+    const [, , fields] = (globalThis as any).CARDINAL.logger.info.mock.calls[0].arguments
+    assert.deepEqual(fields, { site: 'site-1', pages: 1, assets: 2 })
   })
 })

@@ -1,9 +1,9 @@
 <template>
-  <div ref="containerRef" class="w-sortable">
+  <component :is="tag" ref="containerRef" class="w-sortable">
     <template v-for="(item, index) in list" :key="resolveKey(item)">
       <slot name="item" :element="item" :index="index" />
     </template>
-  </div>
+  </component>
 </template>
 
 <script setup>
@@ -17,6 +17,10 @@ import Sortable from 'sortablejs'
  * silently overrode with a wrapper of its own, so a consumer setting it never reached SortableJS.
  */
 const props = defineProps({
+  tag: {
+    type: String,
+    default: 'div'
+  },
   list: {
     type: Array,
     required: true

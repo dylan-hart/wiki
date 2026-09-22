@@ -18,7 +18,8 @@ const GLOBAL_FALLBACKS = {
   'site:editors': ['manage:sites'],
   'site:blocks': ['manage:sites'],
   'site:navigation': ['manage:navigation'],
-  'site:approvals': ['manage:sites']
+  'site:approvals': ['manage:sites'],
+  'site:templates': ['manage:sites']
 }
 
 /**

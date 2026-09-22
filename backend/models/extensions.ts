@@ -67,7 +67,7 @@ export interface ExtensionState {
  * Walks PATH rather than shelling out to `which` / `where`, which is both faster and free of any
  * quoting concerns around the name being looked up.
  */
-async function commandExists(command: string): Promise<boolean> {
+export async function commandExists(command: string): Promise<boolean> {
   const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)
   // -> On Windows the name on disk carries an extension, e.g. `git.exe`
   const suffixes =

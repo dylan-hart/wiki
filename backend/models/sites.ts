@@ -13,6 +13,7 @@ import {
   navigation as navigationTable,
   pageHistory as pageHistoryTable,
   pages as pagesTable,
+  pageTemplates as pageTemplatesTable,
   pageWatchEvents as pageWatchEventsTable,
   siteAssets as siteAssetsTable,
   sites as sitesTable,
@@ -436,6 +437,7 @@ class Sites extends ClusterReloaded {
       await tx.delete(storageTable).where(eq(storageTable.siteId, id))
       await tx.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
       await tx.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
+      await tx.delete(pageTemplatesTable).where(eq(pageTemplatesTable.siteId, id))
       await tx.delete(navigationTable).where(eq(navigationTable.siteId, id))
       // -> None of these is content the route guards on, and each outlives what it describes:
       //    `commentProviders` is re-seeded at every boot, so it blocks even a brand-new site, and

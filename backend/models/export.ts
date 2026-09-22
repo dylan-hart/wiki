@@ -128,7 +128,7 @@ class ExportModel {
       await fs.mkdir(assetsDir, { recursive: true })
       const assetManifest: Record<string, any>[] = []
       for (const asset of assetRows) {
-        const { data, preview, ...meta } = asset
+        const { data, preview, ts: _ts, searchContent: _searchContent, ...meta } = asset
         assetManifest.push(meta)
         if (data) {
           await fs.writeFile(path.join(assetsDir, `${asset.id}.data`), data)

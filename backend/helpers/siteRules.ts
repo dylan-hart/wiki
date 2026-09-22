@@ -15,7 +15,8 @@ export const SITE_PERMISSIONS = [
   'site:approvals',
   'site:login',
   'site:locale',
-  'site:editors'
+  'site:editors',
+  'site:templates'
 ]
 
 /** An empty `sites` array means every site. */

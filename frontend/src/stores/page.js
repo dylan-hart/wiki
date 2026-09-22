@@ -6,6 +6,7 @@ import { i18n } from '@/boot/i18n'
 import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
+import { useUserPagesStore } from './userPages'
 import { isHomePath, localizedPagePath, normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
 import { apiErrorBody, apiErrorMessage } from '@/helpers/apiError'
 import { log } from '@/helpers/log'
@@ -281,6 +282,9 @@ export const usePageStore = defineStore('page', {
         })
         this.applyViewerState(pageData.viewer)
         editorStore.markClean()
+        if (!withContent && pageData.editor !== 'redirect') {
+          void useUserPagesStore().recordVisit(pageData.id)
+        }
       } catch (err) {
         // -> A missing page is an ordinary outcome, not a failure: it is what puts a new instance in
         //    front of the welcome screen, and what offers to create the page anywhere else

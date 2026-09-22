@@ -140,6 +140,12 @@
                   :disabled="row.saveStatus === `saving` || row.saveStatus === `saved`"
                   :label="t(`pages.importBatch.destinationPath`)" />
               </div>
+              <p
+                v-if="row.unresolvedImages > 0"
+                class="import-batch-row-images text-caption text-warning mt-1">
+                <w-icon name="tabler:alert-triangle" size="xs" class="me-1" />
+                {{ t('pages.importBatch.imagesNotImported', { count: row.unresolvedImages }) }}
+              </p>
               <p v-if="row.saveMessage" class="text-caption text-negative mt-1">
                 {{ row.saveMessage }}
               </p>
@@ -189,7 +195,9 @@ import { isTimeoutError } from 'ky'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { convertCheckboxGlyphs, htmlToMarkdown } from '@/helpers/htmlToMarkdown'
 import { normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
+import { findUnresolvedImageReferences } from '@/helpers/pendingImages'
 import { MarkdownRenderer } from '@/renderers/markdown'
 
 import { usePageStore } from '@/stores/page'
@@ -214,7 +222,8 @@ const FORMATS = [
   { value: 'docbook', label: 'DocBook', needsPandoc: true },
   { value: 'rst', label: 'reStructuredText', needsPandoc: true },
   { value: 'docx', label: 'Word Document (.docx)', needsPandoc: true },
-  { value: 'odt', label: 'OpenDocument Text (.odt)', needsPandoc: true }
+  { value: 'odt', label: 'OpenDocument Text (.odt)', needsPandoc: true },
+  { value: 'html', label: 'HTML (.htm, .html)', needsPandoc: false }
 ]
 
 const EXTENSION_FORMATS = {
@@ -227,8 +236,12 @@ const EXTENSION_FORMATS = {
   docbook: 'docbook',
   rst: 'rst',
   docx: 'docx',
-  odt: 'odt'
+  odt: 'odt',
+  htm: 'html',
+  html: 'html'
 }
+
+const CLIENT_SIDE_FORMATS = new Set(['html'])
 
 /** Must match the backend's own `MAX_IMPORT_BATCH_FILES` (`backend/models/import.ts`). */
 const MAX_BATCH_FILES = 20
@@ -454,49 +467,109 @@ function backToSelect() {
   state.results = []
 }
 
+function decodeHtmlBytes(buffer) {
+  const bytes = new Uint8Array(buffer)
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder('utf-16le').decode(bytes.subarray(2))
+  }
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return new TextDecoder('utf-16be').decode(bytes.subarray(2))
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes)
+  }
+}
+
+function imageDestination(src) {
+  return /[\s()]/.test(src) ? `<${src}>` : src
+}
+
+async function convertHtmlFile(file) {
+  try {
+    const { markdown, images } = htmlToMarkdown(decodeHtmlBytes(await file.arrayBuffer()))
+    const resolved = images.reduce(
+      (md, { token, src, alt }) =>
+        md.replace(`![${alt}](${token})`, () => `![${alt}](${imageDestination(src)})`),
+      markdown
+    )
+    if (!resolved.trim()) {
+      return { fileName: file.name, ok: false, message: t('pages.importBatch.htmlNoContent') }
+    }
+    return { fileName: file.name, ok: true, markdown: resolved }
+  } catch {
+    return { fileName: file.name, ok: false, message: t('pages.importBatch.htmlReadFailed') }
+  }
+}
+
+async function convertOnServer(files, formats) {
+  const form = new FormData()
+  // -> One `formats` field right after each `files` field: the backend pairs a `formats` part
+  //    with whichever upload it most recently saw, so the interleaving is load-bearing. An empty
+  //    string lets the backend attempt its own detection and answer with a per-file error.
+  files.forEach((file, idx) => {
+    form.append('files', file, file.name)
+    form.append('formats', formats[idx] ?? '')
+  })
+  const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages/import/batch`, {
+    timeout: computeBatchImportTimeout(files),
+    searchParams: {
+      path: props.basePath || ''
+    },
+    body: form
+  }).json()
+  return resp?.results ?? []
+}
+
 async function convert() {
   if (!canConvert.value) {
     return
   }
   state.converting = true
   try {
-    const form = new FormData()
-    // -> One `formats` field right after each `files` field: the backend pairs a `formats` part
-    //    with whichever upload it most recently saw, so the interleaving is load-bearing. An empty
-    //    string lets the backend attempt its own detection and answer with a per-file error.
-    state.files.forEach((file, idx) => {
-      form.append('files', file, file.name)
-      form.append('formats', state.formats[idx] ?? '')
-    })
-    const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages/import/batch`, {
-      timeout: computeBatchImportTimeout(state.files),
-      searchParams: {
-        path: props.basePath || ''
-      },
-      body: form
-    }).json()
+    const indexes = state.files.map((_, idx) => idx)
+    const clientIdxs = indexes.filter((idx) => CLIENT_SIDE_FORMATS.has(state.formats[idx]))
+    const serverIdxs = indexes.filter((idx) => !CLIENT_SIDE_FORMATS.has(state.formats[idx]))
+
+    const [clientItems, serverItems] = await Promise.all([
+      Promise.all(clientIdxs.map((idx) => convertHtmlFile(state.files[idx]))),
+      serverIdxs.length
+        ? convertOnServer(
+            serverIdxs.map((idx) => state.files[idx]),
+            serverIdxs.map((idx) => state.formats[idx])
+          )
+        : []
+    ])
+    const items = []
+    clientIdxs.forEach((idx, n) => (items[idx] = clientItems[n]))
+    serverIdxs.forEach((idx, n) => (items[idx] = serverItems[n]))
 
     /*
       Zipped by index, not looked up by name: the endpoint answers one result per file in the order
       they were sent, and `state.files` is the only place `relativePath` is still reachable.
     */
-    state.results = (resp?.results ?? []).map((item, idx) => {
-      const file = state.files[idx]
-      return {
-        id: uuid(),
-        fileName: item.fileName,
-        ok: Boolean(item.ok),
-        markdown: item.markdown ?? '',
-        convertMessage: item.message ?? '',
-        // -> A title the server parsed out of front matter beats the file-name default.
-        title: item.ok ? item.title || defaultTitle(item.fileName) : '',
-        path: item.ok ? defaultPath(file ?? { name: item.fileName }) : '',
-        description: item.description ?? '',
-        tags: item.tags ?? [],
-        saveStatus: item.ok ? 'pending' : 'skipped',
-        saveMessage: ''
-      }
-    })
+    state.results = indexes
+      .filter((idx) => items[idx])
+      .map((idx) => {
+        const item = items[idx]
+        const file = state.files[idx]
+        return {
+          id: uuid(),
+          fileName: item.fileName,
+          ok: Boolean(item.ok),
+          markdown: convertCheckboxGlyphs(item.markdown ?? ''),
+          convertMessage: item.message ?? '',
+          // -> A title the server parsed out of front matter beats the file-name default.
+          title: item.ok ? item.title || defaultTitle(item.fileName) : '',
+          path: item.ok ? defaultPath(file ?? { name: item.fileName }) : '',
+          description: item.description ?? '',
+          tags: item.tags ?? [],
+          unresolvedImages: item.ok ? findUnresolvedImageReferences(item.markdown ?? '').length : 0,
+          saveStatus: item.ok ? 'pending' : 'skipped',
+          saveMessage: ''
+        }
+      })
     state.step = 'review'
   } catch (err) {
     // -> A client-side timeout while the server is still converting must not read as a failure:

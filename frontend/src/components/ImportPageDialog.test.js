@@ -109,6 +109,13 @@ describe('ImportPageDialog', () => {
     expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
   })
 
+  it('auto-detects the html format from a .htm extension', async () => {
+    await mountDialog()
+    await selectFile(new File(['<p>Hi</p>'], 'page.htm', { type: 'text/html' }))
+
+    expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+  })
+
   it('prefers the front matter title/description/tags a markdown import returns over the file name default', async () => {
     const wrapper = await mountDialog()
     globalThis.API_CLIENT.post.mockReturnValueOnce({

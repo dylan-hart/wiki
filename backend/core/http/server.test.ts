@@ -10,7 +10,8 @@ import {
   pinoStreamToWikiLogger,
   registerShutdownLogging,
   registerStaticAssets,
-  ROOT_FAVICON_PATH
+  ROOT_FAVICON_PATH,
+  SERVICE_WORKER_PATH
 } from './server.ts'
 import { registerErrorHandler } from './errors.ts'
 import { SHUTDOWN, SHUTTING_DOWN } from './shutdown.ts'
@@ -423,6 +424,7 @@ describe('registerStaticAssets', () => {
     fs.mkdirSync(path.join(rootPath, 'assets/_assets'), { recursive: true })
     fs.mkdirSync(path.join(rootPath, 'blocks/compiled'), { recursive: true })
     fs.writeFileSync(path.join(rootPath, ROOT_FAVICON_PATH), 'icon-bytes')
+    fs.writeFileSync(path.join(rootPath, SERVICE_WORKER_PATH), 'self.skipWaiting()')
     fs.writeFileSync(path.join(rootPath, 'assets/_assets/index-CL_uwIZr.js'), 'hashed')
     fs.writeFileSync(path.join(rootPath, 'assets/_assets/renderer.js'), 'unhashed')
     fs.writeFileSync(path.join(rootPath, 'assets/_assets/logo-cardinal.svg'), 'logo')
@@ -476,6 +478,24 @@ describe('registerStaticAssets', () => {
 
     assert.equal(second.statusCode, 304)
     assert.equal(second.body, '')
+  })
+
+  test('serves /sw.js as JavaScript, revalidated every load, allowed to control the whole origin', async () => {
+    const res = await app.inject({ method: 'GET', url: '/sw.js' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body, 'self.skipWaiting()')
+    assert.match(res.headers['content-type'] as string, /^text\/javascript/)
+    assert.equal(res.headers['cache-control'], 'no-cache')
+    assert.equal(res.headers['service-worker-allowed'], '/')
+  })
+
+  test('answers /sw.js without resolving any site, so an unmapped hostname still gets a worker', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/sw.js',
+      headers: { host: 'unmapped.example.com' }
+    })
+    assert.equal(res.statusCode, 200)
   })
 
   test('serves a hashed build output under /_assets/ as immutable', async () => {
@@ -532,6 +552,22 @@ describe('ROOT_FAVICON_PATH — the backend owns its own favicon.ico', () => {
       true,
       'backend/assets/branding/favicon.ico and frontend/public/favicon.ico have drifted apart'
     )
+  })
+})
+
+describe('SERVICE_WORKER_PATH — the committed worker', () => {
+  const resolved = path.join(import.meta.dirname, '..', '..', SERVICE_WORKER_PATH)
+
+  test('resolves to a real file inside backend/', () => {
+    assert.equal(fs.statSync(resolved).isFile(), true, `${resolved} is not a file`)
+  })
+
+  test('caches nothing and deletes any cache entries when it activates', () => {
+    const source = fs.readFileSync(resolved, 'utf8')
+    assert.match(source, /caches\s*\.keys\(\)/)
+    assert.match(source, /caches\.delete/)
+    assert.equal(source.includes('cache.put'), false)
+    assert.equal(source.includes('addAll'), false)
   })
 })
 

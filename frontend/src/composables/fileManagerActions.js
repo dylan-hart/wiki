@@ -5,6 +5,7 @@ import { confirm, dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { isHomePath } from '@/helpers/pagePaths'
+import { ancestorFolderIds, descendantFolderIds } from '@/helpers/treeNodes'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -178,7 +179,6 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
    * path decides which of the two endpoints is called.
    */
   function renameMovePage(item) {
-    const currentPath = item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName
     dialog({
       component: defineAsyncComponent(() => import('@/components/TreeBrowserDialog.vue')),
       componentProps: {
@@ -191,20 +191,25 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
         locale: state.locale
       }
     }).onOk((opts) => {
-      const isMove = opts.path !== currentPath
-      // -> A title-only rename never moves the page off `home`, so only an actual move needs the guard
-      if (isMove && isHomePath(currentPath)) {
-        confirm({
-          title: t('pages.homepageGuard.moveTitle'),
-          message: t('pages.homepageGuard.moveMessage', { name: item.title }),
-          cancel: true,
-          color: 'negative',
-          okLabel: t('pages.homepageGuard.proceed')
-        }).onOk(() => applyRenameOrMovePage(item, opts, isMove))
-      } else {
-        applyRenameOrMovePage(item, opts, isMove)
-      }
+      applyPageDestination(item, opts)
     })
+  }
+
+  function applyPageDestination(item, opts) {
+    const currentPath = item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName
+    const isMove = opts.path !== currentPath
+    // -> A title-only rename never moves the page off `home`, so only an actual move needs the guard
+    if (isMove && isHomePath(currentPath)) {
+      confirm({
+        title: t('pages.homepageGuard.moveTitle'),
+        message: t('pages.homepageGuard.moveMessage', { name: item.title }),
+        cancel: true,
+        color: 'negative',
+        okLabel: t('pages.homepageGuard.proceed')
+      }).onOk(() => applyRenameOrMovePage(item, opts, isMove))
+    } else {
+      applyRenameOrMovePage(item, opts, isMove)
+    }
   }
 
   async function applyRenameOrMovePage(item, opts, isMove) {
@@ -281,25 +286,27 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
         folderPath: item.folderPath,
         locale: state.locale
       }
-    }).onOk(async (destination) => {
-      try {
-        await API_CLIENT.put(`sites/${siteStore.id}/assets/${item.id}/folder`, {
-          json: { folderId: destination.folderId, parentPath: destination.parentPath }
-        }).json()
-        notify({
-          type: 'positive',
-          message: t('fileman.moveAssetSuccess')
-        })
-      } catch (err) {
-        notify({
-          type: 'negative',
-          message: t('fileman.moveAssetFailed'),
-          caption: apiErrorMessage(err, t('common.error.unexpected'))
-        })
-        return
-      }
-      await loadTree({ parentId: state.currentFolderId })
-    })
+    }).onOk((destination) => applyMoveAsset(item, destination))
+  }
+
+  async function applyMoveAsset(item, destination) {
+    try {
+      await API_CLIENT.put(`sites/${siteStore.id}/assets/${item.id}/folder`, {
+        json: destinationBody(destination)
+      }).json()
+      notify({
+        type: 'positive',
+        message: t('fileman.moveAssetSuccess')
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('fileman.moveAssetFailed'),
+        caption: apiErrorMessage(err, t('common.error.unexpected'))
+      })
+      return
+    }
+    await loadTree({ parentId: state.currentFolderId })
   }
 
   function moveFolder(item) {
@@ -310,29 +317,99 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
         folderPath: item.folderPath,
         locale: state.locale
       }
-    }).onOk(async (destination) => {
-      try {
-        await API_CLIENT.put(`sites/${siteStore.id}/tree/folders/${item.id}/parent`, {
-          json: { folderId: destination.folderId, parentPath: destination.parentPath }
-        }).json()
-        notify({
-          type: 'positive',
-          message: t('fileman.moveFolderSuccess')
-        })
-      } catch (err) {
-        notify({
-          type: 'negative',
-          message: t('fileman.moveFolderFailed'),
-          caption: apiErrorMessage(err, t('common.error.unexpected'))
-        })
-        return
+    }).onOk((destination) => applyMoveFolder(item, destination))
+  }
+
+  async function applyMoveFolder(item, destination) {
+    try {
+      await API_CLIENT.put(`sites/${siteStore.id}/tree/folders/${item.id}/parent`, {
+        json: destinationBody(destination)
+      }).json()
+      notify({
+        type: 'positive',
+        message: t('fileman.moveFolderSuccess')
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('fileman.moveFolderFailed'),
+        caption: apiErrorMessage(err, t('common.error.unexpected'))
+      })
+      return
+    }
+    if (state.currentFileId === item.id) {
+      state.currentFileId = null
+    }
+    forgetFolder(item.id)
+    treeComp.value?.resetLoaded()
+    await loadTree({ parentId: destination.folderId, types: ['folder'] })
+    await loadTree({ parentId: state.currentFolderId })
+  }
+
+  function forgetFolder(folderId) {
+    const forgotten = [folderId, ...descendantFolderIds(state.treeNodes, folderId, Infinity)]
+    for (const node of Object.values(state.treeNodes)) {
+      if (node.children?.includes(folderId)) {
+        node.children = node.children.filter((childId) => childId !== folderId)
       }
-      if (state.currentFileId === item.id) {
-        state.currentFileId = null
+    }
+    state.treeRoots = state.treeRoots.filter((rootId) => rootId !== folderId)
+    for (const id of forgotten) {
+      delete state.treeNodes[id]
+    }
+  }
+
+  function destinationBody(destination) {
+    return { folderId: destination.folderId, parentPath: destination.parentPath }
+  }
+
+  function folderDestination(folderId) {
+    if (!folderId) {
+      return { folderId: null, parentPath: '' }
+    }
+    const node = state.treeNodes[folderId]
+    return {
+      folderId,
+      parentPath: node.folderPath ? `${node.folderPath}/${node.fileName}` : node.fileName
+    }
+  }
+
+  function parentPathOf(item) {
+    return (item.type === 'folder' ? state.treeNodes[item.id]?.folderPath : item.folderPath) ?? ''
+  }
+
+  async function dropOnFolder(item, folderId) {
+    if (!item || (folderId && !state.treeNodes[folderId])) {
+      return
+    }
+    if (
+      item.type === 'folder' &&
+      (item.id === folderId || ancestorFolderIds(state.treeNodes, folderId).includes(item.id))
+    ) {
+      return
+    }
+    const destination = folderDestination(folderId)
+    if (parentPathOf(item) === destination.parentPath) {
+      return
+    }
+    switch (item.type) {
+      case 'asset': {
+        await applyMoveAsset(item, destination)
+        break
       }
-      treeComp.value?.resetLoaded()
-      await loadTree({ parentId: state.currentFolderId })
-    })
+      case 'folder': {
+        await applyMoveFolder(item, destination)
+        break
+      }
+      case 'page': {
+        applyPageDestination(item, {
+          path: destination.parentPath
+            ? `${destination.parentPath}/${item.fileName}`
+            : item.fileName
+        })
+        break
+      }
+    }
   }
 
   function previewAsset(item) {
@@ -387,6 +464,7 @@ export function useFileManagerActions({ state, treeComp, loadTree, close }) {
     renameAsset,
     moveAsset,
     moveFolder,
+    dropOnFolder,
     previewAsset,
     delAsset
   }

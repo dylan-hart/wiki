@@ -3,6 +3,9 @@ import assert from 'node:assert/strict'
 import { assets, dispositionFor } from './assets.ts'
 import { assetServing } from './assetServing.ts'
 import { installTestWiki } from '../test/mocks.ts'
+import { installFakeCommands, withEmptyPath, type FakeCommands } from '../test/fakeCommands.ts'
+
+const posix = process.platform !== 'win32'
 
 /**
  * The write half of the assets model, with `CARDINAL.db` / `CARDINAL.models.storage` stubbed rather
@@ -778,4 +781,221 @@ test('deleteOrphaned logs one line per asset, marked as a folder cascade', async
   })
   assert.equal(lines[1]!.fields.path, 'b.zip')
   assert.equal(lines[1]!.fields.cascade, 'folder')
+})
+
+test('an overwrite clears the extracted search text, which described the bytes just replaced', async () => {
+  const sets: any[] = []
+  const chain: any = {
+    from: () => chain,
+    innerJoin: () => chain,
+    where: () => chain,
+    values: () => chain,
+    limit: () => Promise.resolve([undefined]),
+    set: (values: any) => {
+      sets.push(values)
+      return chain
+    }
+  }
+  global.CARDINAL = {
+    ...global.CARDINAL,
+    ...cacheFsStubs,
+    sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
+    db: { select: () => chain, update: () => chain, delete: () => chain, insert: () => chain },
+    models: {
+      ...(global.CARDINAL as any).models,
+      tree: {
+        getEntryAt: async () => ({
+          type: 'asset',
+          id: 'asset-1',
+          fileName: 'test.txt',
+          folderPath: '',
+          title: 'test.txt'
+        })
+      },
+      hooks: { emit: () => {} },
+      storage: { dispatch: () => {} }
+    }
+  } as unknown as CardinalGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'test.txt',
+    mimeType: 'text/plain',
+    data: Buffer.from('hello'),
+    authorId: 'user-1'
+  })
+
+  const assetSet = sets.find((values) => 'fileSize' in values)
+  assert.ok(assetSet)
+  assert.equal(assetSet.searchContent, null)
+  assert.equal(assetSet.ts, null)
+})
+
+test('setSearchContent stores the text with a vector, and clears both for blank text', async () => {
+  const sets: any[] = []
+  const chain: any = {
+    where: () => Promise.resolve(),
+    set: (values: any) => {
+      sets.push(values)
+      return chain
+    }
+  }
+  global.CARDINAL = { ...global.CARDINAL, db: { update: () => chain } } as unknown as CardinalGlobal
+
+  await assets.setSearchContent('asset-1', 'quarterly report')
+  await assets.setSearchContent('asset-1', '  \n ')
+  await assets.setSearchContent('asset-1', null)
+
+  assert.equal(sets[0].searchContent, 'quarterly report')
+  assert.notEqual(sets[0].ts, null)
+  assert.equal('updatedAt' in sets[0], false)
+  assert.deepEqual(sets[1], { searchContent: null, ts: null })
+  assert.deepEqual(sets[2], { searchContent: null, ts: null })
+})
+
+function extractionJobs() {
+  const addJob = (global.CARDINAL as any).scheduler.addJob
+  return addJob.mock.calls.map((call: any) => call.arguments[0])
+}
+
+test('upload of a PDF queues text extraction for the new asset', async () => {
+  stubUploadPath(false)
+  const addJob = mock.fn(async () => ({ id: 'job-1' }))
+  global.CARDINAL = { ...global.CARDINAL, scheduler: { addJob } } as unknown as CardinalGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'report.pdf',
+    data: Buffer.from('%PDF-1.4'),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(extractionJobs(), [
+    { task: 'extractAssetText', payload: { assetId: 'asset-svg-1' } }
+  ])
+})
+
+test('upload of a non-PDF queues no extraction', async () => {
+  stubUploadPath(false)
+  const addJob = mock.fn(async () => ({ id: 'job-1' }))
+  global.CARDINAL = { ...global.CARDINAL, scheduler: { addJob } } as unknown as CardinalGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'notes.txt',
+    data: Buffer.from('hello'),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(extractionJobs(), [])
+})
+
+test('upload of an image queues OCR when tesseract is on PATH', { skip: !posix }, async () => {
+  let fake: FakeCommands | undefined
+  try {
+    fake = await installFakeCommands({ tesseract: 'exit 0' })
+    stubUploadPath(false)
+    const addJob = mock.fn(async () => ({ id: 'job-1' }))
+    global.CARDINAL = { ...global.CARDINAL, scheduler: { addJob } } as unknown as CardinalGlobal
+
+    await assets.upload({
+      siteId: 'site-1',
+      locale: 'en',
+      fileName: 'scan.png',
+      data: Buffer.from('bytes'),
+      authorId: 'user-1'
+    })
+
+    assert.deepEqual(extractionJobs(), [{ task: 'ocrAsset', payload: { assetId: 'asset-svg-1' } }])
+  } finally {
+    await fake?.restore()
+  }
+})
+
+test('upload of an image queues no OCR when tesseract is absent', async () => {
+  await withEmptyPath(async () => {
+    stubUploadPath(false)
+    const addJob = mock.fn(async () => ({ id: 'job-1' }))
+    global.CARDINAL = { ...global.CARDINAL, scheduler: { addJob } } as unknown as CardinalGlobal
+
+    await assets.upload({
+      siteId: 'site-1',
+      locale: 'en',
+      fileName: 'scan.png',
+      data: Buffer.from('bytes'),
+      authorId: 'user-1'
+    })
+
+    assert.deepEqual(extractionJobs(), [])
+  })
+})
+
+test('a scheduler failure while queueing extraction does not fail the upload', async () => {
+  stubUploadPath(false)
+  const addJob = mock.fn(async () => {
+    throw new Error('queue down')
+  })
+  global.CARDINAL = {
+    ...global.CARDINAL,
+    scheduler: { addJob },
+    logger: { info: () => {}, warn: () => {}, debug: () => {}, error: () => {} }
+  } as unknown as CardinalGlobal
+
+  const asset = await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'report.pdf',
+    data: Buffer.from('%PDF-1.4'),
+    authorId: 'user-1'
+  })
+
+  assert.equal(asset.id, 'asset-svg-1')
+})
+
+test('an overwrite of a PDF queues extraction for the existing asset id', async () => {
+  const chain: any = {
+    from: () => chain,
+    innerJoin: () => chain,
+    where: () => chain,
+    values: () => chain,
+    limit: () => Promise.resolve([undefined]),
+    set: () => chain
+  }
+  const addJob = mock.fn(async () => ({ id: 'job-1' }))
+  global.CARDINAL = {
+    ...global.CARDINAL,
+    ...cacheFsStubs,
+    scheduler: { addJob },
+    sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
+    db: { select: () => chain, update: () => chain, delete: () => chain, insert: () => chain },
+    models: {
+      ...(global.CARDINAL as any).models,
+      tree: {
+        getEntryAt: async () => ({
+          type: 'asset',
+          id: 'asset-9',
+          fileName: 'report.pdf',
+          folderPath: '',
+          title: 'report.pdf'
+        })
+      },
+      hooks: { emit: () => {} },
+      storage: { dispatch: () => {} }
+    }
+  } as unknown as CardinalGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'report.pdf',
+    data: Buffer.from('%PDF-1.4'),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(extractionJobs(), [
+    { task: 'extractAssetText', payload: { assetId: 'asset-9' } }
+  ])
 })

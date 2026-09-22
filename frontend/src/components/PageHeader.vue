@@ -109,6 +109,32 @@
         </w-btn>
         <w-btn
           class="ms-4"
+          :class="{ 'is-marked': isFavorite }"
+          v-if="showsPageMarks"
+          flat
+          :icon="isFavorite ? `tabler:star-filled` : `tabler:star`"
+          :aria-label="isFavorite ? t(`common.page.unfavorite`) : t(`common.page.favorite`)"
+          :aria-pressed="isFavorite"
+          @click="toggleFavorite">
+          <w-tooltip>
+            {{ isFavorite ? t('common.page.unfavorite') : t('common.page.favorite') }}
+          </w-tooltip>
+        </w-btn>
+        <w-btn
+          class="ms-4"
+          :class="{ 'is-marked': isPinned }"
+          v-if="showsPageMarks"
+          flat
+          :icon="isPinned ? `tabler:pin-filled` : `tabler:pin`"
+          :aria-label="isPinned ? t(`common.page.unpin`) : t(`common.page.pin`)"
+          :aria-pressed="isPinned"
+          @click="togglePin">
+          <w-tooltip>
+            {{ isPinned ? t('common.page.unpin') : t('common.page.pin') }}
+          </w-tooltip>
+        </w-btn>
+        <w-btn
+          class="ms-4"
           v-if="siteStore.theme.showPrintBtn"
           flat
           icon="tabler:printer"
@@ -288,6 +314,7 @@ import { useFlagsStore } from '@/stores/flags'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
+import { useUserPagesStore } from '@/stores/userPages'
 
 import CollabPresence from '@/components/CollabPresence.vue'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
@@ -321,6 +348,7 @@ const flagsStore = useFlagsStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
+const userPagesStore = useUserPagesStore()
 
 const router = useRouter()
 
@@ -363,6 +391,18 @@ const isRedirect = computed(() => pageStore.editor === 'redirect')
 const state = reactive({
   bellRinging: false
 })
+
+const showsPageMarks = computed(
+  () => userStore.authenticated && !isRedirect.value && !!pageStore.id && !pageStore.notFound
+)
+const isFavorite = computed(() => userPagesStore.isFavorite(pageStore.id))
+const isPinned = computed(() => userPagesStore.isPinned(pageStore.id))
+
+watch(
+  () => [userStore.authenticated, siteStore.id],
+  () => userPagesStore.load(),
+  { immediate: true }
+)
 
 const titleEl = ref(null)
 const descriptionEl = ref(null)
@@ -653,6 +693,32 @@ async function toggleWatch() {
     })
   }
 }
+
+async function toggleFavorite() {
+  const on = !isFavorite.value
+  try {
+    await userPagesStore.setFavorite(pageStore.id, on)
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t(on ? 'common.page.favoriteFailed' : 'common.page.unfavoriteFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+}
+
+async function togglePin() {
+  const on = !isPinned.value
+  try {
+    await userPagesStore.setPinned(pageStore.id, on)
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t(on ? 'common.page.pinFailed' : 'common.page.unpinFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+}
 </script>
 
 <style scoped>
@@ -690,6 +756,7 @@ async function toggleWatch() {
   `--page-header-action-fg` with it. Written one class more specific than that rule, so it wins on
   specificity rather than on source order.
 */
+.page-header-actions > .w-btn.w-btn--flat.is-marked,
 .page-header-actions > .w-btn.w-btn--flat.is-watching {
   color: var(--color-accent);
 }

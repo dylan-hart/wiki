@@ -35,6 +35,7 @@ import { navigation } from './navigation.ts'
 import { pageDrafts } from './pageDrafts.ts'
 import { pageHistory } from './pageHistory.ts'
 import { pageProblems } from './pageProblems.ts'
+import { pageTemplates } from './pageTemplates.ts'
 import { pageClassification } from './pageClassification.ts'
 import { pages } from './pages.ts'
 import { pageWatchEvents } from './pageWatchEvents.ts'
@@ -56,8 +57,10 @@ import { settings } from './settings.ts'
 import { sites } from './sites.ts'
 import { storage } from './storage.ts'
 import { tags } from './tags.ts'
+import { tasks } from './tasks.ts'
 import { tree } from './tree.ts'
 import { userCredentials } from './userCredentials.ts'
+import { userPages } from './userPages.ts'
 import { users } from './users.ts'
 
 export default {
@@ -99,6 +102,7 @@ export default {
   pageHistory,
   pageClassification,
   pageProblems,
+  pageTemplates,
   pages,
   pageWatchEvents,
   pageWatching,
@@ -119,7 +123,9 @@ export default {
   sites,
   storage,
   tags,
+  tasks,
   tree,
   userCredentials,
+  userPages,
   users
 }

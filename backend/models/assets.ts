@@ -4,6 +4,7 @@ import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
 import { makeImageThumbnail, sanitizeSvg, svgMimeType } from '../helpers/images.ts'
+import { ocrAvailable, ocrKindOf } from '../helpers/ocr.ts'
 import { announce } from './hooks.ts'
 import type { DeletedEntry } from './tree.ts'
 
@@ -356,6 +357,8 @@ class Assets {
 
     const folderPath = decodeTreePath(entry.folderPath ?? '') ?? ''
 
+    await this.enqueueTextExtraction(entry.id, fileExt, resolvedMime)
+
     await announce(
       'asset:upload',
       siteId,
@@ -449,6 +452,8 @@ class Assets {
         fileSize: data.length,
         data,
         preview,
+        searchContent: null,
+        ts: null,
         meta: sql`(coalesce(${assetsTable.meta}, '{}'::jsonb) - 'width' - 'height') || ${JSON.stringify(dimensions)}::jsonb`,
         authorId,
         updatedAt: sql`now()`
@@ -465,6 +470,8 @@ class Assets {
     //    same time and so already unreachable, but are dropped rather than left for the sweep.
     CARDINAL.models.assetServing.forgetPath(siteId, folderPath, fileName)
     await CARDINAL.models.assetServing.dropCachedContent([id])
+
+    await this.enqueueTextExtraction(id, fileExt, mimeType)
 
     await announce(
       'asset:edit',
@@ -508,6 +515,40 @@ class Assets {
         updatedAt: new Date()
       }
     )
+  }
+
+  private async enqueueTextExtraction(
+    assetId: string,
+    fileExt: string,
+    mimeType: string
+  ): Promise<void> {
+    const ocrKind = ocrKindOf(fileExt, mimeType)
+    if (!ocrKind) {
+      return
+    }
+    try {
+      if (ocrKind === 'pdf') {
+        await CARDINAL.scheduler.addJob({ task: 'extractAssetText', payload: { assetId } })
+      } else if (await ocrAvailable('image')) {
+        await CARDINAL.scheduler.addJob({ task: 'ocrAsset', payload: { assetId } })
+      }
+    } catch (err) {
+      CARDINAL.logger.warn('assets', 'could not queue text extraction', {
+        asset: assetId,
+        error: err
+      })
+    }
+  }
+
+  async setSearchContent(id: string, text: string | null): Promise<void> {
+    const content = text?.trim() ? text : null
+    await CARDINAL.db
+      .update(assetsTable)
+      .set({
+        searchContent: content,
+        ts: content === null ? null : sql`to_tsvector('simple', ${content}::text)`
+      })
+      .where(eq(assetsTable.id, id))
   }
 
   /** An asset's metadata, without its bytes. */

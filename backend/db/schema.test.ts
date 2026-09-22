@@ -708,3 +708,45 @@ describe('glossaryTerms.aliases is jsonb in the genesis migration (OpenProject #
     assert.equal(aliases.hasDefault, true)
   })
 })
+
+describe('pageTemplates table', () => {
+  const config = getTableConfig(schema.pageTemplates)
+  const columns = Object.fromEntries(config.columns.map((col) => [col.name, col]))
+
+  it('leaves locale nullable, meaning every locale, and requires the rest', () => {
+    assert.equal(columns.locale.notNull, false)
+    for (const name of ['siteId', 'name', 'description', 'editor', 'content']) {
+      assert.equal(columns[name].notNull, true, name)
+    }
+  })
+
+  it('references sites, and nulls createdBy when its user is deleted', () => {
+    const fk = (name: string) =>
+      config.foreignKeys.find((f) => f.reference().columns.some((c) => c.name === name))
+    assert.equal(getTableName(fk('siteId')!.reference().foreignTable), 'sites')
+    const createdBy = fk('createdBy')!
+    assert.equal(getTableName(createdBy.reference().foreignTable), 'users')
+    assert.equal(createdBy.onDelete, 'set null')
+  })
+
+  it('has one unique index over site, locale and lower(name)', () => {
+    const unique = config.indexes.filter((idx) => idx.config.unique)
+    assert.deepEqual(
+      unique.map((idx) => idx.config.name),
+      ['pageTemplates_siteId_locale_name_idx']
+    )
+    assert.equal(unique[0]!.config.columns.length, 3)
+  })
+
+  test('the genesis migration creates the table and its unique index', async () => {
+    const sql = await readFile(
+      path.join(MIGRATIONS_DIR, '20260913190940_main', 'migration.sql'),
+      'utf8'
+    )
+    assert.match(sql, /CREATE TABLE "pageTemplates" \(/)
+    assert.match(
+      sql,
+      /CREATE UNIQUE INDEX "pageTemplates_siteId_locale_name_idx" ON "pageTemplates" \("siteId",coalesce\("locale", ''\),lower\("name"\)\)/
+    )
+  })
+})

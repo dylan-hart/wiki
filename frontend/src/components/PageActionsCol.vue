@@ -250,6 +250,27 @@
                 ><w-item-label>{{ t('common.page.viewBacklinks') }}</w-item-label></w-item-section
               >
             </w-item>
+            <template v-if="showsFileActions && canManageTemplates">
+              <w-separator class="my-1" />
+              <w-item clickable v-if="canSaveTemplate" @click="saveAsTemplate">
+                <w-item-section class="items-center" avatar>
+                  <w-icon class="text-slate-soft" name="tabler:file-plus" size="sm" />
+                </w-item-section>
+                <w-item-section
+                  ><w-item-label>{{ t('pageTemplateSave.menuItem') }}</w-item-label></w-item-section
+                >
+              </w-item>
+              <w-item clickable @click="manageTemplates">
+                <w-item-section class="items-center" avatar>
+                  <w-icon class="text-slate-soft" name="tabler:settings" size="sm" />
+                </w-item-section>
+                <w-item-section
+                  ><w-item-label>{{
+                    t('pageTemplateManage.menuItem')
+                  }}</w-item-label></w-item-section
+                >
+              </w-item>
+            </template>
             <!--
               Duplicate, rename/move and delete live HERE rather than as three more buttons down the
               rail: icon-only buttons whose labels exist only in a tooltip do not scale in a column
@@ -299,15 +320,17 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, nextTick, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { fileSave } from 'browser-fs-access'
 
 import { confirm, dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { maySeeSiteSurface } from '@/composables/siteAdminAccess'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
+import { canSaveAsTemplate } from '@/helpers/pageTemplates'
 import {
   renameFileName,
   sanitizeBaseName,
@@ -410,6 +433,25 @@ const canConvertEditor = computed(
     (pageStore.editor === 'markdown' || pageStore.editor === 'wysiwyg') &&
     Boolean(siteStore.editors?.markdown) &&
     Boolean(siteStore.editors?.wysiwyg)
+)
+
+const canManageTemplates = computed(() =>
+  maySeeSiteSurface(userStore, 'site:templates', siteStore.id)
+)
+
+const canSaveTemplate = computed(
+  () =>
+    canManageTemplates.value && userStore.can('read:source') && canSaveAsTemplate(pageStore.editor)
+)
+
+watch(
+  () => siteStore.id,
+  (siteId) => {
+    if (siteId && userStore.authenticated && !canManageTemplates.value) {
+      userStore.fetchSitePermissions(siteId)
+    }
+  },
+  { immediate: true }
 )
 
 const canDuplicate = computed(() => userStore.can('write:pages'))
@@ -551,6 +593,46 @@ function convertEditor() {
     component: defineAsyncComponent(() => import('../components/PageConvertDialog.vue'))
   }).onOk(() => {
     pageStore.pageLoad({ id: pageStore.id })
+  })
+}
+
+async function readPageSource() {
+  if (editorStore.isActive || pageStore.contentLoaded) {
+    await editorStore.contentFlusher?.()
+    return pageStore.content
+  }
+  return API_CLIENT.get(`sites/${siteStore.id}/pages/${pageStore.id}/export`, {
+    searchParams: { format: 'markdown' }
+  }).text()
+}
+
+async function saveAsTemplate() {
+  let content
+  try {
+    content = await readPageSource()
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('pageTemplateSave.readFailed'),
+      caption: apiErrorMessage(err)
+    })
+    return
+  }
+  dialog({
+    component: defineAsyncComponent(() => import('../components/PageTemplateSaveDialog.vue')),
+    componentProps: {
+      content,
+      editor: pageStore.editor,
+      locale: pageStore.locale,
+      defaultName: pageStore.title,
+      defaultDescription: pageStore.description
+    }
+  })
+}
+
+function manageTemplates() {
+  dialog({
+    component: defineAsyncComponent(() => import('../components/PageTemplatesDialog.vue'))
   })
 }
 

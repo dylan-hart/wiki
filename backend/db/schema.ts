@@ -164,6 +164,8 @@ export const assets = pgTable(
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     data: bytea(),
     preview: bytea(),
+    searchContent: text(),
+    ts: tsvector('ts'),
     authorId: uuid()
       .notNull()
       .references(() => users.id),
@@ -171,7 +173,10 @@ export const assets = pgTable(
       .notNull()
       .references(() => sites.id)
   },
-  (table) => [index('assets_siteId_idx').on(table.siteId)]
+  (table) => [
+    index('assets_siteId_idx').on(table.siteId),
+    index('assets_ts_idx').using('gin', table.ts)
+  ]
 )
 
 export const authentication = pgTable('authentication', {
@@ -422,6 +427,31 @@ export const glossaryVersions = pgTable(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)]
+)
+
+export const pageTemplates = pgTable(
+  'pageTemplates',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    locale: varchar({ length: 255 }),
+    name: varchar({ length: 255 }).notNull(),
+    description: text().notNull().default(''),
+    editor: varchar({ length: 255 }).notNull(),
+    content: text().notNull().default(''),
+    createdBy: uuid().references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex('pageTemplates_siteId_locale_name_idx').on(
+      table.siteId,
+      sql`coalesce(${table.locale}, '')`,
+      sql`lower(${table.name})`
+    )
+  ]
 )
 
 export const hookStateEnum = pgEnum('hookState', ['pending', 'success', 'error'])
@@ -1051,6 +1081,32 @@ export const pageWatchEvents = pgTable(
   ]
 )
 
+export const userPageKindEnum = pgEnum('userPageKind', ['recent', 'favorite', 'pinned'])
+
+export const userPages = pgTable(
+  'userPages',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    pageId: uuid()
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    kind: userPageKindEnum().notNull(),
+    position: integer()
+  },
+  (table) => [
+    index('userPages_user_site_kind_idx').on(table.userId, table.siteId, table.kind),
+    uniqueIndex('userPages_user_page_kind_idx').on(table.userId, table.pageId, table.kind)
+  ]
+)
+
 /**
  * One row per page view -- a log, not a counter -- so DISTINCT visitors can be counted over any
  * trailing window rather than whatever a running total already collapsed away.
@@ -1333,6 +1389,7 @@ export const tree = pgTable(
       .notNull()
       .default(sql`ARRAY[]::text[]`),
     meta: jsonb().notNull().default({}),
+    sortOrder: integer(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     siteId: uuid()

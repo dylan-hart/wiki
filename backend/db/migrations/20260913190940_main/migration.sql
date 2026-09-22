@@ -8,6 +8,7 @@ CREATE TYPE "syncDirection" AS ENUM('push', 'pull');--> statement-breakpoint
 CREATE TYPE "treeNavigationMode" AS ENUM('inherit', 'override', 'overrideExact', 'hide', 'hideExact');--> statement-breakpoint
 CREATE TYPE "treeNavigationSource" AS ENUM('static', 'auto', 'mixed');--> statement-breakpoint
 CREATE TYPE "treeType" AS ENUM('folder', 'page', 'asset');--> statement-breakpoint
+CREATE TYPE "userPageKind" AS ENUM('recent', 'favorite', 'pinned');--> statement-breakpoint
 CREATE TABLE "apiKeys" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"name" varchar(255) NOT NULL,
@@ -50,6 +51,8 @@ CREATE TABLE "assets" (
 	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL,
 	"data" bytea,
 	"preview" bytea,
+	"searchContent" text,
+	"ts" tsvector,
 	"authorId" uuid NOT NULL,
 	"siteId" uuid NOT NULL
 );
@@ -390,6 +393,19 @@ CREATE TABLE "pageRenderQueue" (
 	"requestedById" uuid
 );
 --> statement-breakpoint
+CREATE TABLE "pageTemplates" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"siteId" uuid NOT NULL,
+	"locale" varchar(255),
+	"name" varchar(255) NOT NULL,
+	"description" text DEFAULT '' NOT NULL,
+	"editor" varchar(255) NOT NULL,
+	"content" text DEFAULT '' NOT NULL,
+	"createdBy" uuid,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "pageWatchEvents" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"action" varchar(16) NOT NULL,
@@ -536,6 +552,7 @@ CREATE TABLE "tree" (
 	"navigationId" uuid,
 	"tags" text[] DEFAULT ARRAY[]::text[] NOT NULL,
 	"meta" jsonb DEFAULT '{}' NOT NULL,
+	"sortOrder" integer,
 	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
 	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL,
 	"siteId" uuid NOT NULL
@@ -563,6 +580,17 @@ CREATE TABLE "userKeys" (
 	"userId" uuid NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "userPages" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL,
+	"userId" uuid NOT NULL,
+	"siteId" uuid NOT NULL,
+	"pageId" uuid NOT NULL,
+	"kind" "userPageKind" NOT NULL,
+	"position" integer
+);
+--> statement-breakpoint
 CREATE TABLE "users" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"email" varchar(255) NOT NULL UNIQUE,
@@ -588,6 +616,7 @@ CREATE INDEX "apiKeys_siteId_idx" ON "apiKeys" ("siteId");--> statement-breakpoi
 CREATE INDEX "apiKeys_userId_idx" ON "apiKeys" ("userId");--> statement-breakpoint
 CREATE INDEX "approvalRules_siteId_idx" ON "approvalRules" ("siteId");--> statement-breakpoint
 CREATE INDEX "assets_siteId_idx" ON "assets" ("siteId");--> statement-breakpoint
+CREATE INDEX "assets_ts_idx" ON "assets" USING gin ("ts");--> statement-breakpoint
 CREATE INDEX "auditLog_createdAt_idx" ON "auditLog" ("createdAt");--> statement-breakpoint
 CREATE INDEX "auditLog_actorId_idx" ON "auditLog" ("actorId","createdAt");--> statement-breakpoint
 CREATE INDEX "auditLog_event_idx" ON "auditLog" ("event","createdAt");--> statement-breakpoint
@@ -627,6 +656,7 @@ CREATE INDEX "pageHistory_pageId_idx" ON "pageHistory" ("pageId","versionDate");
 CREATE INDEX "pageHistory_siteId_idx" ON "pageHistory" ("siteId","locale","path","versionDate");--> statement-breakpoint
 CREATE INDEX "pageHistory_authorId_idx" ON "pageHistory" ("authorId");--> statement-breakpoint
 CREATE INDEX "pageRenderQueue_createdAt_idx" ON "pageRenderQueue" ("createdAt");--> statement-breakpoint
+CREATE UNIQUE INDEX "pageTemplates_siteId_locale_name_idx" ON "pageTemplates" ("siteId",coalesce("locale", ''),lower("name"));--> statement-breakpoint
 CREATE INDEX "pageWatchEvents_pending_idx" ON "pageWatchEvents" ("userId","notifyMode","createdAt") WHERE "deliveredAt" IS NULL;--> statement-breakpoint
 CREATE INDEX "pageWatchEvents_pageId_idx" ON "pageWatchEvents" ("pageId");--> statement-breakpoint
 CREATE INDEX "pageWatchEvents_unread_idx" ON "pageWatchEvents" ("userId","siteId","createdAt") WHERE "readAt" IS NULL;--> statement-breakpoint
@@ -663,6 +693,8 @@ CREATE UNIQUE INDEX "groups_name_normalized_idx" ON "groups" (lower(trim("name")
 CREATE INDEX "userGroups_groupId_idx" ON "userGroups" ("groupId");--> statement-breakpoint
 CREATE INDEX "userKeys_userId_idx" ON "userKeys" ("userId");--> statement-breakpoint
 CREATE UNIQUE INDEX "userKeys_token_idx" ON "userKeys" ("token");--> statement-breakpoint
+CREATE INDEX "userPages_user_site_kind_idx" ON "userPages" ("userId","siteId","kind");--> statement-breakpoint
+CREATE UNIQUE INDEX "userPages_user_page_kind_idx" ON "userPages" ("userId","pageId","kind");--> statement-breakpoint
 CREATE UNIQUE INDEX "users_handle_lower_idx" ON "users" (lower("handle"));--> statement-breakpoint
 CREATE INDEX "users_lastLoginAt_idx" ON "users" ("lastLoginAt");--> statement-breakpoint
 ALTER TABLE "apiKeys" ADD CONSTRAINT "apiKeys_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
@@ -709,6 +741,8 @@ ALTER TABLE "pageHistory" ADD CONSTRAINT "pageHistory_siteId_sites_id_fkey" FORE
 ALTER TABLE "pageRenderQueue" ADD CONSTRAINT "pageRenderQueue_pageId_pages_id_fkey" FOREIGN KEY ("pageId") REFERENCES "pages"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "pageRenderQueue" ADD CONSTRAINT "pageRenderQueue_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
 ALTER TABLE "pageRenderQueue" ADD CONSTRAINT "pageRenderQueue_requestedById_users_id_fkey" FOREIGN KEY ("requestedById") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint
+ALTER TABLE "pageTemplates" ADD CONSTRAINT "pageTemplates_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
+ALTER TABLE "pageTemplates" ADD CONSTRAINT "pageTemplates_createdBy_users_id_fkey" FOREIGN KEY ("createdBy") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "pageWatchEvents" ADD CONSTRAINT "pageWatchEvents_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
 ALTER TABLE "pageWatchEvents" ADD CONSTRAINT "pageWatchEvents_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "pageWatchEvents" ADD CONSTRAINT "pageWatchEvents_actorId_users_id_fkey" FOREIGN KEY ("actorId") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint
@@ -731,4 +765,7 @@ ALTER TABLE "tree" ADD CONSTRAINT "tree_siteId_sites_id_fkey" FOREIGN KEY ("site
 ALTER TABLE "userAvatars" ADD CONSTRAINT "userAvatars_id_users_id_fkey" FOREIGN KEY ("id") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "userGroups" ADD CONSTRAINT "userGroups_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "userGroups" ADD CONSTRAINT "userGroups_groupId_groups_id_fkey" FOREIGN KEY ("groupId") REFERENCES "groups"("id") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "userKeys" ADD CONSTRAINT "userKeys_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id");
+ALTER TABLE "userKeys" ADD CONSTRAINT "userKeys_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id");--> statement-breakpoint
+ALTER TABLE "userPages" ADD CONSTRAINT "userPages_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "userPages" ADD CONSTRAINT "userPages_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
+ALTER TABLE "userPages" ADD CONSTRAINT "userPages_pageId_pages_id_fkey" FOREIGN KEY ("pageId") REFERENCES "pages"("id") ON DELETE CASCADE;

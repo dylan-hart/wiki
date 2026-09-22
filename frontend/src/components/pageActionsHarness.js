@@ -236,6 +236,37 @@ export async function mountRailWithPendingAssets({ pendingAssets = [] } = {}) {
   return { wrapper, pageStore, siteStore, userStore, editorStore }
 }
 
+export async function mountRailWithTemplates({
+  permissions = ['read:source'],
+  sitePermissions = [],
+  sitePermissionsSiteId = 'site-1',
+  fetchedPermissions = null,
+  authenticated = true,
+  editor = 'markdown',
+  page = {}
+} = {}) {
+  const router = await createTestRouter(['/'])
+
+  if (fetchedPermissions) {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(fetchedPermissions) })
+  }
+
+  const { wrapper, pageStore, siteStore, userStore, editorStore } = mountWithApp(PageActionsCol, {
+    attachTo: document.body,
+    router,
+    messages: PAGE_ACTIONS_MESSAGES,
+    stubs: {},
+    stores: {
+      page: { id: 'page-1', path: 'docs/getting-started', editor, locale: 'en', ...page },
+      site: { id: 'site-1' },
+      user: { permissions, sitePermissions, sitePermissionsSiteId, authenticated }
+    }
+  })
+  await flushPromises()
+
+  return { wrapper, pageStore, siteStore, userStore, editorStore }
+}
+
 export function clickByLabel(label) {
   document
     .querySelector(`[aria-label="${label}"]`)

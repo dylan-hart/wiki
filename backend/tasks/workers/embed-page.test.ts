@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../../test/db.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 import type { PageActor, PageInput } from '../../models/pages.ts'
-import { embedPage } from './embed-page.ts'
+import { embedPage, task } from './embed-page.ts'
 
 /**
  * `pageEmbeddingChunks` is not in `db/schema.ts` — it is created by raw SQL, conditional on
@@ -48,6 +48,121 @@ describe('tasks/workers/embed-page -- capability off (pure)', () => {
     try {
       await embedPage('11111111-1111-4111-8111-111111111111')
       assert.equal(executeMock.mock.calls.length, 0)
+    } finally {
+      handle.restore()
+    }
+  })
+})
+
+describe('tasks/workers/embed-page task() -- autoTagPage hand-off (pure, OpenProject #3704)', () => {
+  const PAGE_ID = '11111111-1111-4111-8111-111111111111'
+  let events: string[]
+  let insertedJobs: Record<string, any>[]
+
+  function install(opts: {
+    semanticSearch: boolean
+    searchContent: string | null
+    autoTagPending: boolean
+    failDelete?: boolean
+  }) {
+    events = []
+    insertedJobs = []
+    const select = () => {
+      const node: any = Promise.resolve([
+        { searchContent: opts.searchContent, autoTagPending: opts.autoTagPending }
+      ])
+      for (const method of ['from', 'where', 'limit']) {
+        node[method] = () => node
+      }
+      return node
+    }
+    return installTestWiki({
+      capabilities: { semanticSearch: opts.semanticSearch },
+      config: { scheduler: { maxRetries: 2 } },
+      ensureDb: async () => true,
+      db: {
+        execute: async () => {
+          events.push('delete-chunks')
+          if (opts.failDelete) {
+            throw new Error('db down')
+          }
+          return { rows: [] }
+        },
+        select,
+        insert: () => ({
+          values: async (values: Record<string, any>) => {
+            events.push('enqueue')
+            insertedJobs.push(values)
+          }
+        })
+      }
+    })
+  }
+
+  test('semantic search unavailable: a pending page still gets its autoTagPage job', async () => {
+    const handle = install({ semanticSearch: false, searchContent: 'text', autoTagPending: true })
+    try {
+      await task({ payload: { pageId: PAGE_ID } })
+      assert.deepEqual(events, ['enqueue'])
+      assert.equal(insertedJobs[0]!.task, 'autoTagPage')
+      assert.deepEqual(insertedJobs[0]!.payload, { pageId: PAGE_ID })
+      assert.equal(insertedJobs[0]!.useWorker, false)
+      assert.equal(insertedJobs[0]!.maxRetries, 2)
+    } finally {
+      handle.restore()
+    }
+  })
+
+  test('empty searchContent: a pending page still gets its autoTagPage job, after the chunk delete', async () => {
+    const handle = install({ semanticSearch: true, searchContent: '', autoTagPending: true })
+    try {
+      await task({ payload: { pageId: PAGE_ID } })
+      assert.deepEqual(events, ['delete-chunks', 'enqueue'])
+    } finally {
+      handle.restore()
+    }
+  })
+
+  test('no chunks (whitespace-only content): a pending page still gets its autoTagPage job', async () => {
+    const handle = install({ semanticSearch: true, searchContent: '   ', autoTagPending: true })
+    try {
+      await task({ payload: { pageId: PAGE_ID } })
+      assert.deepEqual(events, ['delete-chunks', 'enqueue'])
+    } finally {
+      handle.restore()
+    }
+  })
+
+  test('a page that is not pending gets no autoTagPage job', async () => {
+    const handle = install({ semanticSearch: true, searchContent: '', autoTagPending: false })
+    try {
+      await task({ payload: { pageId: PAGE_ID } })
+      assert.deepEqual(insertedJobs, [])
+    } finally {
+      handle.restore()
+    }
+  })
+
+  test('a failed embed enqueues nothing, leaving the embed job to retry', async () => {
+    const handle = install({
+      semanticSearch: true,
+      searchContent: 'text',
+      autoTagPending: true,
+      failDelete: true
+    })
+    try {
+      await assert.rejects(task({ payload: { pageId: PAGE_ID } }), /db down/)
+      assert.deepEqual(insertedJobs, [])
+    } finally {
+      handle.restore()
+    }
+  })
+
+  test('the exported embedPage() never enqueues tagging', async () => {
+    const handle = install({ semanticSearch: true, searchContent: '', autoTagPending: true })
+    try {
+      await embedPage(PAGE_ID)
+      assert.deepEqual(insertedJobs, [])
     } finally {
       handle.restore()
     }
