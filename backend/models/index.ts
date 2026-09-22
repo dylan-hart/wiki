@@ -58,6 +58,7 @@ import { storage } from './storage.ts'
 import { tags } from './tags.ts'
 import { tree } from './tree.ts'
 import { userCredentials } from './userCredentials.ts'
+import { userPages } from './userPages.ts'
 import { users } from './users.ts'
 
 export default {
@@ -121,5 +122,6 @@ export default {
   tags,
   tree,
   userCredentials,
+  userPages,
   users
 }

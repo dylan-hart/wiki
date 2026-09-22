@@ -8,6 +8,7 @@ CREATE TYPE "syncDirection" AS ENUM('push', 'pull');--> statement-breakpoint
 CREATE TYPE "treeNavigationMode" AS ENUM('inherit', 'override', 'overrideExact', 'hide', 'hideExact');--> statement-breakpoint
 CREATE TYPE "treeNavigationSource" AS ENUM('static', 'auto', 'mixed');--> statement-breakpoint
 CREATE TYPE "treeType" AS ENUM('folder', 'page', 'asset');--> statement-breakpoint
+CREATE TYPE "userPageKind" AS ENUM('recent', 'favorite', 'pinned');--> statement-breakpoint
 CREATE TABLE "apiKeys" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"name" varchar(255) NOT NULL,
@@ -563,6 +564,17 @@ CREATE TABLE "userKeys" (
 	"userId" uuid NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "userPages" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL,
+	"userId" uuid NOT NULL,
+	"siteId" uuid NOT NULL,
+	"pageId" uuid NOT NULL,
+	"kind" "userPageKind" NOT NULL,
+	"position" integer
+);
+--> statement-breakpoint
 CREATE TABLE "users" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"email" varchar(255) NOT NULL UNIQUE,
@@ -663,6 +675,8 @@ CREATE UNIQUE INDEX "groups_name_normalized_idx" ON "groups" (lower(trim("name")
 CREATE INDEX "userGroups_groupId_idx" ON "userGroups" ("groupId");--> statement-breakpoint
 CREATE INDEX "userKeys_userId_idx" ON "userKeys" ("userId");--> statement-breakpoint
 CREATE UNIQUE INDEX "userKeys_token_idx" ON "userKeys" ("token");--> statement-breakpoint
+CREATE INDEX "userPages_user_site_kind_idx" ON "userPages" ("userId","siteId","kind");--> statement-breakpoint
+CREATE UNIQUE INDEX "userPages_user_page_kind_idx" ON "userPages" ("userId","pageId","kind");--> statement-breakpoint
 CREATE UNIQUE INDEX "users_handle_lower_idx" ON "users" (lower("handle"));--> statement-breakpoint
 CREATE INDEX "users_lastLoginAt_idx" ON "users" ("lastLoginAt");--> statement-breakpoint
 ALTER TABLE "apiKeys" ADD CONSTRAINT "apiKeys_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
@@ -731,4 +745,7 @@ ALTER TABLE "tree" ADD CONSTRAINT "tree_siteId_sites_id_fkey" FOREIGN KEY ("site
 ALTER TABLE "userAvatars" ADD CONSTRAINT "userAvatars_id_users_id_fkey" FOREIGN KEY ("id") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "userGroups" ADD CONSTRAINT "userGroups_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "userGroups" ADD CONSTRAINT "userGroups_groupId_groups_id_fkey" FOREIGN KEY ("groupId") REFERENCES "groups"("id") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "userKeys" ADD CONSTRAINT "userKeys_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id");
+ALTER TABLE "userKeys" ADD CONSTRAINT "userKeys_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id");--> statement-breakpoint
+ALTER TABLE "userPages" ADD CONSTRAINT "userPages_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "userPages" ADD CONSTRAINT "userPages_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
+ALTER TABLE "userPages" ADD CONSTRAINT "userPages_pageId_pages_id_fkey" FOREIGN KEY ("pageId") REFERENCES "pages"("id") ON DELETE CASCADE;
