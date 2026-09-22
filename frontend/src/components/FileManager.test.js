@@ -1444,7 +1444,7 @@ describe('FileManager folder Move action (OpenProject #3666)', () => {
       global: {
         plugins: [i18n, buildTestRouter([])],
         stubs: {
-          Tree: { template: '<div />', methods: { resetLoaded() {} } },
+          Tree: { template: '<div />', methods: { resetLoaded() {}, setLoaded() {} } },
           NewMenu: true,
           LocaleSelectorMenu: true,
           WMenu: { template: '<div><slot /></div>' }
@@ -1881,6 +1881,316 @@ describe('FileManager drag-to-reorder (OpenProject #3731)', () => {
     expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/tree/order', {
       json: { locale: 'en', ids: ['f2', 'p1', 'f1'] }
     })
+    wrapper.unmount()
+  })
+})
+
+describe('FileManager drag onto a folder (OpenProject #3732)', () => {
+  const dropI18n = createTestI18n({
+    common: {
+      error: { unexpected: 'Unexpected error' },
+      header: { searchShortcutMac: '⌘K', searchShortcutOther: 'Ctrl+K' }
+    },
+    fileman: {
+      moveAssetSuccess: 'Asset moved successfully.',
+      moveAssetFailed: 'Failed to move asset.',
+      moveFolderSuccess: 'Folder moved successfully.',
+      moveFolderFailed: 'Failed to move folder.',
+      renameMoveFailed: 'Failed to rename or move the page.',
+      folderChildrenCount: '{count} items'
+    },
+    pages: {
+      moveSuccess: 'Page moved successfully.',
+      homepageGuard: {
+        moveTitle: 'Move the Home Page?',
+        moveMessage: '**{name}** is the home page.',
+        proceed: 'Continue'
+      }
+    }
+  })
+
+  const folder = (id, fileName) => ({ id, type: 'folder', title: fileName, fileName, children: 0 })
+  const page = (id, fileName, folderPath = '') => ({
+    id,
+    type: 'page',
+    title: fileName,
+    fileName,
+    pageType: 'markdown',
+    folderPath
+  })
+  const asset = (id, fileName) => ({
+    id,
+    type: 'asset',
+    title: fileName,
+    fileName,
+    fileExt: 'png',
+    fileSize: 1,
+    folderPath: ''
+  })
+
+  let elementFromPoint
+
+  async function mountDroppable(fileList, { permitted = true } = {}) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    if (permitted) {
+      useUserStore().permissions = ['manage:pages']
+    }
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [dropI18n, buildTestRouter([])],
+        stubs: {
+          Tree: { template: '<div />', methods: { resetLoaded() {}, setLoaded() {} } },
+          NewMenu: true,
+          LocaleSelectorMenu: true,
+          WMenu: { template: '<div><slot /></div>' }
+        }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+    wrapper.vm.state.treeNodes = {
+      f1: { title: 'docs', fileName: 'docs', folderPath: '', children: ['f2'] },
+      f2: { title: 'deep', fileName: 'deep', folderPath: 'docs', children: [] },
+      f3: { title: 'other', fileName: 'other', folderPath: '', children: [] }
+    }
+    wrapper.vm.state.fileList = fileList
+    await flushPromises()
+    return { wrapper }
+  }
+
+  function rowFor(wrapper, id) {
+    const row = wrapper.find(`[data-drop-folder-id="${id}"]`).element
+    row.getBoundingClientRect = () => ({ top: 0, bottom: 40, height: 40 })
+    return row
+  }
+
+  function releaseOver(wrapper, row, oldIndex, y = 20) {
+    const list = wrapper.find('.fileman-filelist').element
+    elementFromPoint.mockReturnValue(row)
+    const event = {
+      oldIndex,
+      newIndex: oldIndex,
+      from: list,
+      item: list.children[oldIndex],
+      originalEvent: { clientX: 10, clientY: y }
+    }
+    const sortable = Sortable.get(list)
+    sortable.option('onUpdate')(event)
+    sortable.option('onEnd')(event)
+  }
+
+  beforeEach(() => {
+    notifyQueue.length = 0
+    elementFromPoint = vi.fn()
+    document.elementFromPoint = elementFromPoint
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('moves a dropped page to a path derived from the destination folder', async () => {
+    const { wrapper } = await mountDroppable([folder('f1', 'docs'), page('p1', 'intro')])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    releaseOver(wrapper, rowFor(wrapper, 'f1'), 1)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/p1/path', {
+      json: { path: 'docs/intro' }
+    })
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Page moved successfully.'
+    })
+    wrapper.unmount()
+  })
+
+  it('does not reorder when the drop lands on a folder', async () => {
+    const { wrapper } = await mountDroppable([folder('f1', 'docs'), page('p1', 'intro')])
+    API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({}) })
+
+    releaseOver(wrapper, rowFor(wrapper, 'f1'), 1)
+    await flushPromises()
+
+    expect(API_CLIENT.put).not.toHaveBeenCalledWith('sites/site-1/tree/order', expect.anything())
+    wrapper.unmount()
+  })
+
+  it('moves into a nested destination with its full folder path', async () => {
+    const { wrapper } = await mountDroppable([folder('f2', 'deep'), page('p1', 'intro')])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    releaseOver(wrapper, rowFor(wrapper, 'f2'), 1)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/p1/path', {
+      json: { path: 'docs/deep/intro' }
+    })
+    wrapper.unmount()
+  })
+
+  it('moves a dropped asset through the asset folder endpoint', async () => {
+    const { wrapper } = await mountDroppable([folder('f1', 'docs'), asset('a1', 'logo')])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    releaseOver(wrapper, rowFor(wrapper, 'f1'), 1)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/assets/a1/folder', {
+      json: { folderId: 'f1', parentPath: 'docs' }
+    })
+    wrapper.unmount()
+  })
+
+  it('moves a dropped folder through the folder parent endpoint', async () => {
+    const { wrapper } = await mountDroppable([folder('f1', 'docs'), folder('f3', 'other')])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    releaseOver(wrapper, rowFor(wrapper, 'f1'), 1)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/tree/folders/f3/parent', {
+      json: { folderId: 'f1', parentPath: 'docs' }
+    })
+    wrapper.unmount()
+  })
+
+  it('forgets a moved folder and its descendants, then reloads the destination', async () => {
+    const { wrapper } = await mountDroppable([folder('f1', 'docs'), folder('f3', 'other')])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+    wrapper.vm.state.treeRoots = ['f1', 'f3']
+    API_CLIENT.get.mockClear()
+
+    await wrapper.vm.dropOnFolder({ id: 'f1', type: 'folder' }, 'f3')
+    await flushPromises()
+
+    expect(wrapper.vm.state.treeRoots).toEqual(['f3'])
+    expect(wrapper.vm.state.treeNodes.f1).toBeUndefined()
+    expect(wrapper.vm.state.treeNodes.f2).toBeUndefined()
+    expect(API_CLIENT.get).toHaveBeenCalledWith(
+      'sites/site-1/tree',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ parentId: 'f3', types: 'folder' })
+      })
+    )
+    wrapper.unmount()
+  })
+
+  it('notifies and leaves the tree and list unchanged when the server refuses a page move', async () => {
+    const { wrapper } = await mountDroppable([folder('f1', 'docs'), page('p1', 'intro')])
+    const refusal = Object.assign(new Error('409'), {
+      data: { message: 'A page already exists at that path.' }
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(refusal) })
+    const nodesBefore = JSON.stringify(wrapper.vm.state.treeNodes)
+    const listBefore = wrapper.vm.state.fileList.map((f) => f.id)
+    API_CLIENT.get.mockClear()
+
+    releaseOver(wrapper, rowFor(wrapper, 'f1'), 1)
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to rename or move the page.'
+    })
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+    expect(JSON.stringify(wrapper.vm.state.treeNodes)).toBe(nodesBefore)
+    expect(wrapper.vm.state.fileList.map((f) => f.id)).toEqual(listBefore)
+    wrapper.unmount()
+  })
+
+  it('notifies and changes nothing when a folder move is refused with 403', async () => {
+    const { wrapper } = await mountDroppable([folder('f1', 'docs'), folder('f3', 'other')])
+    const refusal = Object.assign(new Error('403'), { data: { message: 'Not allowed.' } })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(refusal) })
+    const nodesBefore = JSON.stringify(wrapper.vm.state.treeNodes)
+
+    releaseOver(wrapper, rowFor(wrapper, 'f1'), 1)
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to move folder.',
+      caption: 'Not allowed.'
+    })
+    expect(JSON.stringify(wrapper.vm.state.treeNodes)).toBe(nodesBefore)
+    wrapper.unmount()
+  })
+
+  it('does not move a folder into itself or one of its own subfolders', async () => {
+    const { wrapper } = await mountDroppable([folder('f1', 'docs')])
+
+    await wrapper.vm.dropOnFolder({ id: 'f1', type: 'folder' }, 'f1')
+    await wrapper.vm.dropOnFolder({ id: 'f1', type: 'folder' }, 'f2')
+
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('does nothing when an entry is dropped on the folder it already sits in', async () => {
+    const { wrapper } = await mountDroppable([page('p1', 'intro', 'docs')])
+
+    await wrapper.vm.dropOnFolder(page('p1', 'intro', 'docs'), 'f1')
+
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('moves a tree folder to the root when it is dropped on the root row', async () => {
+    const { wrapper } = await mountDroppable([])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    await wrapper.vm.treeMove('f2', null)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/tree/folders/f2/parent', {
+      json: { folderId: null, parentPath: '' }
+    })
+    wrapper.unmount()
+  })
+
+  it('leaves a release near a folder row edge to reordering', async () => {
+    const { wrapper } = await mountDroppable([folder('f1', 'docs'), page('p1', 'intro')])
+    API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({}) })
+
+    releaseOver(wrapper, rowFor(wrapper, 'f1'), 1, 2)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/tree/order', expect.anything())
+    wrapper.unmount()
+  })
+
+  it('does not move without manage:pages', async () => {
+    const { wrapper } = await mountDroppable([folder('f1', 'docs'), page('p1', 'intro')], {
+      permitted: false
+    })
+
+    await wrapper.vm.listDrop({
+      oldIndex: 1,
+      from: wrapper.find('.fileman-filelist').element,
+      item: wrapper.find('.fileman-filelist').element.children[1],
+      originalEvent: { clientX: 1, clientY: 20 }
+    })
+    await wrapper.vm.treeMove('f3', 'f1')
+
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('offers only folder rows as drop targets', async () => {
+    const { wrapper } = await mountDroppable([
+      folder('f1', 'docs'),
+      page('docs', 'docs'),
+      asset('a1', 'logo')
+    ])
+
+    expect(wrapper.findAll('[data-drop-folder-id]')).toHaveLength(1)
     wrapper.unmount()
   })
 })
