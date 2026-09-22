@@ -57,6 +57,7 @@ import { settings } from './settings.ts'
 import { sites } from './sites.ts'
 import { storage } from './storage.ts'
 import { tags } from './tags.ts'
+import { tasks } from './tasks.ts'
 import { tree } from './tree.ts'
 import { userCredentials } from './userCredentials.ts'
 import { users } from './users.ts'
@@ -121,6 +122,7 @@ export default {
   sites,
   storage,
   tags,
+  tasks,
   tree,
   userCredentials,
   users
