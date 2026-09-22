@@ -397,7 +397,12 @@ async function routes(app: FastifyInstance) {
 
   app.get<{
     Params: { siteId: string }
-    Querystring: { query: string; offset?: number; limit?: number }
+    Querystring: {
+      query: string
+      kind?: 'document' | 'image' | 'other'
+      offset?: number
+      limit?: number
+    }
   }>(
     '/sites/:siteId/assets/search',
     {
@@ -415,6 +420,11 @@ async function routes(app: FastifyInstance) {
               minLength: 1,
               maxLength: 2048,
               description: 'Free text. Understands quoted phrases, `or` and `-exclusions`.'
+            },
+            kind: {
+              type: 'string',
+              enum: ['document', 'image', 'other'],
+              description: 'Only assets of this kind.'
             },
             offset: { type: 'integer', minimum: 0, default: 0 },
             limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 }
@@ -471,6 +481,7 @@ async function routes(app: FastifyInstance) {
         siteId: req.params.siteId,
         query: req.query.query,
         actor: CARDINAL.models.groups.actorForRequest(req),
+        kind: req.query.kind,
         offset: req.query.offset,
         limit: req.query.limit
       })
