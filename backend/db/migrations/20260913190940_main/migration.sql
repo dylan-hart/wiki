@@ -51,6 +51,8 @@ CREATE TABLE "assets" (
 	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL,
 	"data" bytea,
 	"preview" bytea,
+	"searchContent" text,
+	"ts" tsvector,
 	"authorId" uuid NOT NULL,
 	"siteId" uuid NOT NULL
 );
@@ -614,6 +616,7 @@ CREATE INDEX "apiKeys_siteId_idx" ON "apiKeys" ("siteId");--> statement-breakpoi
 CREATE INDEX "apiKeys_userId_idx" ON "apiKeys" ("userId");--> statement-breakpoint
 CREATE INDEX "approvalRules_siteId_idx" ON "approvalRules" ("siteId");--> statement-breakpoint
 CREATE INDEX "assets_siteId_idx" ON "assets" ("siteId");--> statement-breakpoint
+CREATE INDEX "assets_ts_idx" ON "assets" USING gin ("ts");--> statement-breakpoint
 CREATE INDEX "auditLog_createdAt_idx" ON "auditLog" ("createdAt");--> statement-breakpoint
 CREATE INDEX "auditLog_actorId_idx" ON "auditLog" ("actorId","createdAt");--> statement-breakpoint
 CREATE INDEX "auditLog_event_idx" ON "auditLog" ("event","createdAt");--> statement-breakpoint

@@ -164,6 +164,8 @@ export const assets = pgTable(
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     data: bytea(),
     preview: bytea(),
+    searchContent: text(),
+    ts: tsvector('ts'),
     authorId: uuid()
       .notNull()
       .references(() => users.id),
@@ -171,7 +173,10 @@ export const assets = pgTable(
       .notNull()
       .references(() => sites.id)
   },
-  (table) => [index('assets_siteId_idx').on(table.siteId)]
+  (table) => [
+    index('assets_siteId_idx').on(table.siteId),
+    index('assets_ts_idx').using('gin', table.ts)
+  ]
 )
 
 export const authentication = pgTable('authentication', {

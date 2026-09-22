@@ -63,16 +63,16 @@ const FALLBACK_DICTIONARY = 'simple'
 const MODULE_KEY = 'db'
 
 /** Extra rows fetched beyond the requested page, to absorb rows the reader's page rules deny. */
-const OVERFETCH_MARGIN = 25
+export const OVERFETCH_MARGIN = 25
 
-const OVERFETCH_GROWTH_FACTOR = 4
+export const OVERFETCH_GROWTH_FACTOR = 4
 
 /**
  * Ceiling on the candidate window `query()` scans. Page-rule filtering cannot be expressed in the
  * `WHERE` clause, so without a ceiling a reader denied nearly everything could turn one `query()`
  * call into an unbounded scan of the site.
  */
-const OVERFETCH_HARD_CAP = 5000
+export const OVERFETCH_HARD_CAP = 5000
 
 /**
  * Every page carries a `ts` tsvector, indexed with GIN. Which dictionary builds that vector depends
