@@ -2854,4 +2854,114 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       )
     })
   })
+
+  describe('reorderChildren (OpenProject #3730)', () => {
+    async function childRows(folderPath: string) {
+      const rows = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(
+          and(
+            eq(treeTable.siteId, fixtures.siteId),
+            eq(treeTable.locale, 'en'),
+            eq(treeTable.folderPath, folderPath),
+            inArray(treeTable.type, ['page', 'folder'])
+          )
+        )
+      return new Map(rows.map((row) => [`${row.type}:${row.fileName}`, row]))
+    }
+
+    async function seed(root: string, names: string[]) {
+      for (const name of names) {
+        await pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path: `${root}/${name}`, title: name, locale: 'en' }),
+          actor
+        )
+      }
+    }
+
+    test('writes the listed order, and browse returns it', async () => {
+      await seed('ro-basic', ['alpha', 'bravo', 'charlie'])
+      const rows = await childRows('ro-basic')
+      const id = (name: string) => rows.get(`page:${name}`)!.id
+
+      const result = await treeModel.reorderChildren({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'ro-basic',
+        ids: [id('charlie'), id('alpha'), id('bravo')]
+      })
+      assert.equal(result.count, 3)
+
+      const level = await treeModel.browse({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'ro-basic',
+        publicOnly: false
+      })
+      assert.deepEqual(
+        level!.items.map((item) => item.fileName),
+        ['charlie', 'alpha', 'bravo']
+      )
+    })
+
+    test('a page and a folder sharing a name get the same sortOrder', async () => {
+      await seed('ro-twin', ['alpha', 'guide', 'guide/inside'])
+      const rows = await childRows('ro-twin')
+      const id = (key: string) => rows.get(key)!.id
+
+      await treeModel.reorderChildren({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentPath: 'ro-twin',
+        ids: [id('page:guide'), id('page:alpha'), id('folder:guide')]
+      })
+
+      const reordered = await childRows('ro-twin')
+      assert.equal(reordered.get('page:guide')!.sortOrder, 0)
+      assert.equal(reordered.get('folder:guide')!.sortOrder, 0)
+      assert.equal(reordered.get('page:alpha')!.sortOrder, 1)
+    })
+
+    test('a stale ids[] is refused with 409 and writes nothing', async () => {
+      await seed('ro-stale', ['alpha', 'bravo'])
+      const rows = await childRows('ro-stale')
+      const alpha = rows.get('page:alpha')!.id
+
+      await assert.rejects(
+        treeModel.reorderChildren({
+          siteId: fixtures.siteId,
+          locale: 'en',
+          parentPath: 'ro-stale',
+          ids: [alpha]
+        }),
+        { statusCode: 409 }
+      )
+      await assert.rejects(
+        treeModel.reorderChildren({
+          siteId: fixtures.siteId,
+          locale: 'en',
+          parentPath: 'ro-stale',
+          ids: [alpha, randomUUID()]
+        }),
+        { statusCode: 409 }
+      )
+      const unchanged = await childRows('ro-stale')
+      assert.equal(unchanged.get('page:alpha')!.sortOrder, rows.get('page:alpha')!.sortOrder)
+      assert.equal(unchanged.get('page:bravo')!.sortOrder, rows.get('page:bravo')!.sortOrder)
+    })
+
+    test('an unknown folder is a 404', async () => {
+      await assert.rejects(
+        treeModel.reorderChildren({
+          siteId: fixtures.siteId,
+          locale: 'en',
+          parentPath: 'ro-nowhere',
+          ids: []
+        }),
+        { statusCode: 404 }
+      )
+    })
+  })
 })

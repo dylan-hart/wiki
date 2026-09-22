@@ -318,6 +318,142 @@ test('RENAME FOLDER route: refuses when a descendant page would land where the c
   )
 })
 
+const ENTRY_A = '66666666-6666-4666-8666-666666666666'
+const ENTRY_B = '77777777-7777-4777-8777-777777777777'
+
+function stubReorder(overrides: { reorderChildren?: (input: any) => Promise<any> } = {}) {
+  const calls: any[] = []
+  const tree = (globalThis as any).CARDINAL.models.tree
+  tree.getFolder = async ({ id, path }: any) => ({
+    id: id ?? FOLDER_ID,
+    siteId: ENABLED_SITE_ID,
+    fileName: path ?? 'sub',
+    folderPath: '',
+    locale: 'en',
+    meta: {}
+  })
+  tree.reorderChildren =
+    overrides.reorderChildren ??
+    (async (input: any) => {
+      calls.push(input)
+      return { count: input.ids.length }
+    })
+  return calls
+}
+
+test('REORDER route: reorders a folder the caller may manage, judged on the folder path', async () => {
+  const calls = stubReorder()
+  const checked: any[] = []
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    permission: string,
+    page: any
+  ) => {
+    checked.push({ permission, ...page })
+    return true
+  }
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${ENABLED_SITE_ID}/tree/order`,
+    payload: { parentPath: 'sub', ids: [ENTRY_B, ENTRY_A] }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), {
+    ok: true,
+    message: 'Folder reordered successfully.',
+    count: 2
+  })
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0].ids, [ENTRY_B, ENTRY_A])
+  assert.equal(calls[0].siteId, ENABLED_SITE_ID)
+  assert.equal(checked.length, 1)
+  assert.equal(checked[0].permission, 'manage:pages')
+  assert.equal(checked[0].path, 'sub')
+  assert.equal(checked[0].siteId, ENABLED_SITE_ID)
+})
+
+test('REORDER route: the site root is judged on the empty path', async () => {
+  const calls = stubReorder()
+  const checked: any[] = []
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    permission: string,
+    page: any
+  ) => {
+    checked.push({ permission, ...page })
+    return true
+  }
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${ENABLED_SITE_ID}/tree/order`,
+    payload: { ids: [ENTRY_A] }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(calls.length, 1)
+  assert.equal(checked[0].path, '')
+})
+
+test('REORDER route: refused 403 without manage:pages on the folder, and reorders nothing', async () => {
+  const calls = stubReorder()
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (_actor: any, permission: string) =>
+    permission !== 'manage:pages'
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${ENABLED_SITE_ID}/tree/order`,
+    payload: { parentId: FOLDER_ID, ids: [ENTRY_A] }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(calls.length, 0, 'reorderChildren must not run when the folder is refused')
+})
+
+test('REORDER route: a stale ids[] answers 409', async () => {
+  stubReorder({
+    reorderChildren: async () => {
+      throw new CustomError('treeReorderStale', 'This folder changed.', 409)
+    }
+  })
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = () => true
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${ENABLED_SITE_ID}/tree/order`,
+    payload: { parentId: FOLDER_ID, ids: [ENTRY_A] }
+  })
+  assert.equal(res.statusCode, 409)
+})
+
+test('REORDER route: an unknown folder answers 404 before any permission check', async () => {
+  const calls = stubReorder()
+  ;(globalThis as any).CARDINAL.models.tree.getFolder = async () => {
+    throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+  }
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = () => true
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${ENABLED_SITE_ID}/tree/order`,
+    payload: { parentPath: 'nowhere', ids: [ENTRY_A] }
+  })
+  assert.equal(res.statusCode, 404)
+  assert.equal(calls.length, 0)
+})
+
+test('REORDER route: rejects a body with a repeated or malformed id, or without ids', async () => {
+  const calls = stubReorder()
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = () => true
+  for (const payload of [
+    { ids: [ENTRY_A, ENTRY_A] },
+    { ids: ['not-a-uuid'] },
+    { parentPath: 'sub' }
+  ]) {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${ENABLED_SITE_ID}/tree/order`,
+      payload
+    })
+    assert.equal(res.statusCode, 400, JSON.stringify(payload))
+  }
+  assert.equal(calls.length, 0)
+})
+
 test('DELETE FOLDER route: refused 403 when a descendant page fails delete:pages, deleting nothing', async () => {
   const deleteFolderCalls: any[] = []
   const permissionsChecked: string[] = []
