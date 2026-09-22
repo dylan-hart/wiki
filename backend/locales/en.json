@@ -3489,6 +3489,7 @@
   "pages.importBatch.destinationPath": "Destination Path",
   "pages.importBatch.dropzoneLabel": "Drag files here, or browse for them",
   "pages.importBatch.formatForFile": "Format for {file}",
+  "pages.importBatch.imagesNotImported": "{count} image reference(s) point to files that were not imported and will not display. Add those images to the wiki separately and update the links.",
   "pages.importBatch.menuLabel": "Import Multiple Pages...",
   "pages.importBatch.pageTitle": "Page Title",
   "pages.importBatch.saveAll": "Save All",
