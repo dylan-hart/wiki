@@ -123,7 +123,7 @@ comparative-advertising rules differ in detail — keep to verifiable facts.
 6. Is this vibe-coded? 7. Who reviews the code? 8. How do you know it's secure? 9. Do you accept AI PRs? 10. What did the security review find?
 
 **Product**
-11. How is this different from Docmost / BookStack / Outline? 12. Why Postgres-only? 13. Why Node 26? 14. Resource usage / RAM? 15. ARM / Raspberry Pi? 16. Mobile app / PWA? *(No; be direct.)* 17. Notion-style databases? *(No; not planned for now.)* 18. Confluence import? *(Planned; date only if real.)* 19. What doesn't migrate from 2.x? 20. Backups and upgrades between versions? 21. SCIM? 22. Offline / air-gapped installs? *(`docs/offline-deployment.md`.)* 23. Is the MCP server safe to expose?
+11. How is this different from Docmost / BookStack / Outline? 12. Why Postgres-only? 13. Why Node 26? 14. Resource usage / RAM? 15. ARM / Raspberry Pi? 16. Mobile app / PWA? *(No native app. Installable PWA shell only, no offline use; be direct. See `docs/decisions/2026-09-21-pwa-shell-only.md`.)* 17. Notion-style databases? *(No; not planned for now.)* 18. Confluence import? *(Planned; date only if real.)* 19. What doesn't migrate from 2.x? 20. Backups and upgrades between versions? 21. SCIM? 22. Offline / air-gapped installs? *(`docs/offline-deployment.md`.)* 23. Is the MCP server safe to expose?
 
 **Sustainability**
 24. What happens if you get bored? 25. How do you make money? 26. Will features go paid later? *(AGPL, no closed edition — and legally you can't do an in-process one.)* 27. Is there a company? 28. How many maintainers? 29. Why should I trust a one-month-old project? *(Don't argue — invite them to watch the release cadence.)*
