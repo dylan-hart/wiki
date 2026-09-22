@@ -116,6 +116,16 @@ describe('bootstrapPgvector() -- optional pgvector capability (task 3095)', () =
     )
     assert.equal(indexCheck.rows.length, 1)
 
+    const assetTableCheck = await db.execute(
+      `SELECT 1 FROM information_schema.tables WHERE table_schema = '${schema}' AND table_name = 'assetEmbeddingChunks'`
+    )
+    assert.equal(assetTableCheck.rows.length, 1)
+
+    const assetIndexCheck = await db.execute(
+      `SELECT 1 FROM pg_indexes WHERE schemaname = '${schema}' AND indexname = 'assetEmbeddingChunks_embedding_idx'`
+    )
+    assert.equal(assetIndexCheck.rows.length, 1)
+
     // -> A second call (a clustered boot's second instance) must not throw on the existing objects.
     const secondResult = await bootstrapPgvector(db)
     assert.equal(secondResult, true)
