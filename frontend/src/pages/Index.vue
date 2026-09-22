@@ -115,7 +115,8 @@
               class="page-contents"
               ref="pageContents"
               v-html="pageStore.render"
-              @click="onContentClick" />
+              @click="onContentClick"
+              @change="onContentChange" />
             <template v-if="pageStore.relations && pageStore.relations.length > 0">
               <w-separator class="my-6" />
               <div class="flex flex-wrap">
@@ -412,6 +413,7 @@ import { usePageScripts } from '@/composables/pageScripts'
 import { canOpenProfilePopover, openProfilePopover } from '@/composables/profilePopover'
 import { useMinWidth } from '@/composables/screen'
 import { notify } from '@/composables/notify'
+import { useTaskToggle } from '@/composables/taskToggle'
 import { loading } from '@/composables/loading'
 import { scrollToAnchor, scrollToAnchorWhenReady } from '@/helpers/anchors'
 import { apiErrorMessage } from '@/helpers/apiError'
@@ -508,6 +510,7 @@ const state = reactive({
   tocPanelOpen: false
 })
 const pageContents = ref(null)
+const { onContentChange } = useTaskToggle(pageContents)
 const pageScroller = ref(null)
 /**
  * The mounted `<page-header>`, reached only for its exposed `titleDisplayEl`. `null` while
@@ -1152,6 +1155,10 @@ function goBack() {
 </script>
 
 <style>
+.page-contents .task-list-item-checkbox:not(:disabled) {
+  cursor: pointer;
+}
+
 /*
   Shared by the lock screen, the missing page and the redirection so the three cannot drift apart --
   `PageRedirect.vue` draws its own screens with these classes for that reason.
