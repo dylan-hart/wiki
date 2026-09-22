@@ -356,6 +356,8 @@ class Assets {
 
     const folderPath = decodeTreePath(entry.folderPath ?? '') ?? ''
 
+    await this.enqueueTextExtraction(entry.id, fileExt, resolvedMime)
+
     await announce(
       'asset:upload',
       siteId,
@@ -468,6 +470,8 @@ class Assets {
     CARDINAL.models.assetServing.forgetPath(siteId, folderPath, fileName)
     await CARDINAL.models.assetServing.dropCachedContent([id])
 
+    await this.enqueueTextExtraction(id, fileExt, mimeType)
+
     await announce(
       'asset:edit',
       siteId,
@@ -510,6 +514,24 @@ class Assets {
         updatedAt: new Date()
       }
     )
+  }
+
+  private async enqueueTextExtraction(
+    assetId: string,
+    fileExt: string,
+    mimeType: string
+  ): Promise<void> {
+    if (fileExt !== 'pdf' && mimeType !== 'application/pdf') {
+      return
+    }
+    try {
+      await CARDINAL.scheduler.addJob({ task: 'extractAssetText', payload: { assetId } })
+    } catch (err) {
+      CARDINAL.logger.warn('assets', 'could not queue text extraction', {
+        asset: assetId,
+        error: err
+      })
+    }
   }
 
   async setSearchContent(id: string, text: string | null): Promise<void> {
