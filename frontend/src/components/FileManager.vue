@@ -143,6 +143,8 @@
             @lazy-load="treeLazyLoad"
             :use-lazy-load="true"
             @context-action="treeContextAction"
+            :sortable="canReorder"
+            @reorder="treeReorder"
             :display-mode="state.displayMode" />
         </div>
       </w-scroll-area>
@@ -422,126 +424,142 @@
                 <img src="/_assets/icons/carbon-copy-empty-box.svg" alt="" />
                 <span>{{ t('common.pageSelector.folderEmptyWarning') }}</span>
               </div>
-              <w-list class="fileman-filelist" v-else :class="state.isCompact && `is-compact`">
-                <w-item
-                  v-for="item of files"
-                  :key="item.id"
-                  clickable
-                  active-class="active"
-                  :active="item.id === state.currentFileId"
-                  @click="selectItem(item)"
-                  @dblclick="doubleClickItem(item)">
-                  <w-item-section class="fileman-filelist-icon" avatar>
-                    <w-icon :name="item.icon" :size="state.isCompact ? `sm` : `xl`" />
-                  </w-item-section>
-                  <w-item-section class="fileman-filelist-label">
-                    <w-item-label>{{ usePathTitle ? item.fileName : item.title }}</w-item-label>
-                  </w-item-section>
-                  <w-item-section class="fileman-filelist-type">
-                    <div>{{ item.caption }}</div>
-                  </w-item-section>
-                  <w-item-section class="fileman-filelist-side" side v-if="item.side">
-                    <div>{{ item.side }}</div>
-                  </w-item-section>
-                  <w-menu class="translucent-menu" context-menu auto-close>
-                    <w-card class="p-2">
-                      <w-list dense style="min-width: 150px">
-                        <w-item
-                          clickable
-                          v-if="insertMode && item.type !== `folder`"
-                          @click="insertItem(item)">
-                          <w-item-section side>
-                            <w-icon name="tabler:plus" color="primary" />
-                          </w-item-section>
-                          <w-item-section>{{ t(`common.actions.insert`) }}</w-item-section>
-                        </w-item>
-                        <w-item clickable v-if="item.type === `page`" @click="editItem(item)">
-                          <w-item-section side>
-                            <w-icon name="tabler:edit" color="warning-fill" />
-                          </w-item-section>
-                          <w-item-section>{{ t(`common.actions.edit`) }}</w-item-section>
-                        </w-item>
-                        <!-- -> The route 503s without the Puppeteer extension (mirrored here via
+              <w-sortable
+                class="w-list fileman-filelist"
+                v-else
+                :class="state.isCompact && `is-compact`"
+                :list="files"
+                item-key="id"
+                :options="listSortableOptions"
+                @update="listReorder">
+                <template #item="{ element: item }">
+                  <w-item
+                    clickable
+                    active-class="active"
+                    :active="item.id === state.currentFileId"
+                    @click="selectItem(item)"
+                    @dblclick="doubleClickItem(item)">
+                    <w-item-section class="fileman-filelist-icon" avatar>
+                      <w-icon :name="item.icon" :size="state.isCompact ? `sm` : `xl`" />
+                    </w-item-section>
+                    <w-item-section class="fileman-filelist-label">
+                      <w-item-label>{{ usePathTitle ? item.fileName : item.title }}</w-item-label>
+                    </w-item-section>
+                    <w-item-section class="fileman-filelist-type">
+                      <div>{{ item.caption }}</div>
+                    </w-item-section>
+                    <w-item-section class="fileman-filelist-side" side v-if="item.side">
+                      <div>{{ item.side }}</div>
+                    </w-item-section>
+                    <w-menu class="translucent-menu" context-menu auto-close>
+                      <w-card class="p-2">
+                        <w-list dense style="min-width: 150px">
+                          <w-item
+                            clickable
+                            v-if="insertMode && item.type !== `folder`"
+                            @click="insertItem(item)">
+                            <w-item-section side>
+                              <w-icon name="tabler:plus" color="primary" />
+                            </w-item-section>
+                            <w-item-section>{{ t(`common.actions.insert`) }}</w-item-section>
+                          </w-item>
+                          <w-item clickable v-if="item.type === `page`" @click="editItem(item)">
+                            <w-item-section side>
+                              <w-icon name="tabler:edit" color="warning-fill" />
+                            </w-item-section>
+                            <w-item-section>{{ t(`common.actions.edit`) }}</w-item-section>
+                          </w-item>
+                          <!-- -> The route 503s without the Puppeteer extension (mirrored here via
                                 siteStore.pdfExportAvailable) and refuses any editor but markdown
                                 (backend/models/rendering.ts's ensureCanRender), so the button is
                                 absent rather than offered and failing. -->
-                        <w-item
-                          clickable
-                          v-if="
-                            item.type === `page` &&
-                            item.pageType === `markdown` &&
-                            siteStore.pdfExportAvailable
-                          "
-                          @click="rerenderPage(item)">
-                          <w-item-section side>
-                            <w-icon name="tabler:wand" color="warning-fill" />
-                          </w-item-section>
-                          <w-item-section>{{ t(`common.actions.rerender`) }}</w-item-section>
-                        </w-item>
-                        <w-item clickable v-if="item.type !== `folder`" @click="openItem(item)">
-                          <w-item-section side>
-                            <w-icon name="tabler:eye" color="primary" />
-                          </w-item-section>
-                          <w-item-section>{{ t(`common.actions.view`) }}</w-item-section>
-                        </w-item>
-                        <w-item clickable v-if="item.type !== `folder`" @click="copyItemURL(item)">
-                          <w-item-section side>
-                            <w-icon name="tabler:clipboard" color="primary" />
-                          </w-item-section>
-                          <w-item-section>{{ t(`common.actions.copyURL`) }}</w-item-section>
-                        </w-item>
-                        <w-item clickable v-if="item.type === `asset`" @click="downloadItem(item)">
-                          <w-item-section side>
-                            <w-icon name="tabler:download" color="primary" />
-                          </w-item-section>
-                          <w-item-section>{{ t(`common.actions.download`) }}</w-item-section>
-                        </w-item>
-                        <w-item
-                          clickable
-                          v-if="item.type === `page` || item.type === `folder`"
-                          @click="duplicateItem(item)">
-                          <w-item-section side>
-                            <w-icon name="tabler:copy" color="slate-soft" />
-                          </w-item-section>
-                          <w-item-section>{{ t('fileman.duplicateItem') }}</w-item-section>
-                        </w-item>
-                        <!--
+                          <w-item
+                            clickable
+                            v-if="
+                              item.type === `page` &&
+                              item.pageType === `markdown` &&
+                              siteStore.pdfExportAvailable
+                            "
+                            @click="rerenderPage(item)">
+                            <w-item-section side>
+                              <w-icon name="tabler:wand" color="warning-fill" />
+                            </w-item-section>
+                            <w-item-section>{{ t(`common.actions.rerender`) }}</w-item-section>
+                          </w-item>
+                          <w-item clickable v-if="item.type !== `folder`" @click="openItem(item)">
+                            <w-item-section side>
+                              <w-icon name="tabler:eye" color="primary" />
+                            </w-item-section>
+                            <w-item-section>{{ t(`common.actions.view`) }}</w-item-section>
+                          </w-item>
+                          <w-item
+                            clickable
+                            v-if="item.type !== `folder`"
+                            @click="copyItemURL(item)">
+                            <w-item-section side>
+                              <w-icon name="tabler:clipboard" color="primary" />
+                            </w-item-section>
+                            <w-item-section>{{ t(`common.actions.copyURL`) }}</w-item-section>
+                          </w-item>
+                          <w-item
+                            clickable
+                            v-if="item.type === `asset`"
+                            @click="downloadItem(item)">
+                            <w-item-section side>
+                              <w-icon name="tabler:download" color="primary" />
+                            </w-item-section>
+                            <w-item-section>{{ t(`common.actions.download`) }}</w-item-section>
+                          </w-item>
+                          <w-item
+                            clickable
+                            v-if="item.type === `page` || item.type === `folder`"
+                            @click="duplicateItem(item)">
+                            <w-item-section side>
+                              <w-icon name="tabler:copy" color="slate-soft" />
+                            </w-item-section>
+                            <w-item-section>{{ t('fileman.duplicateItem') }}</w-item-section>
+                          </w-item>
+                          <!--
                           One entry for a page: name and place are picked in the same dialog, so two
                           actions would be two ways into one form.
                         -->
-                        <w-item clickable v-if="item.type === `page`" @click="renameMovePage(item)">
-                          <w-item-section side>
-                            <w-icon name="tabler:share" color="slate-soft" />
-                          </w-item-section>
-                          <w-item-section>{{ t('fileman.renameMovePage') }}</w-item-section>
-                        </w-item>
-                        <template v-else>
-                          <w-item clickable @click="renameItem(item)">
-                            <w-item-section side>
-                              <w-icon name="tabler:arrow-forward-up" color="slate-soft" />
-                            </w-item-section>
-                            <w-item-section>{{ t('fileman.renameItem') }}</w-item-section>
-                          </w-item>
-                          <w-item clickable @click="moveItem(item)">
+                          <w-item
+                            clickable
+                            v-if="item.type === `page`"
+                            @click="renameMovePage(item)">
                             <w-item-section side>
                               <w-icon name="tabler:share" color="slate-soft" />
                             </w-item-section>
-                            <w-item-section>{{ t('fileman.moveItem') }}</w-item-section>
+                            <w-item-section>{{ t('fileman.renameMovePage') }}</w-item-section>
                           </w-item>
-                        </template>
-                        <w-item clickable @click="delItem(item)">
-                          <w-item-section side>
-                            <w-icon name="tabler:trash" color="negative" />
-                          </w-item-section>
-                          <w-item-section class="text-negative">{{
-                            t(`common.actions.delete`)
-                          }}</w-item-section>
-                        </w-item>
-                      </w-list>
-                    </w-card>
-                  </w-menu>
-                </w-item>
-              </w-list>
+                          <template v-else>
+                            <w-item clickable @click="renameItem(item)">
+                              <w-item-section side>
+                                <w-icon name="tabler:arrow-forward-up" color="slate-soft" />
+                              </w-item-section>
+                              <w-item-section>{{ t('fileman.renameItem') }}</w-item-section>
+                            </w-item>
+                            <w-item clickable @click="moveItem(item)">
+                              <w-item-section side>
+                                <w-icon name="tabler:share" color="slate-soft" />
+                              </w-item-section>
+                              <w-item-section>{{ t('fileman.moveItem') }}</w-item-section>
+                            </w-item>
+                          </template>
+                          <w-item clickable @click="delItem(item)">
+                            <w-item-section side>
+                              <w-icon name="tabler:trash" color="negative" />
+                            </w-item-section>
+                            <w-item-section class="text-negative">{{
+                              t(`common.actions.delete`)
+                            }}</w-item-section>
+                          </w-item>
+                        </w-list>
+                      </w-card>
+                    </w-menu>
+                  </w-item>
+                </template>
+              </w-sortable>
             </w-scroll-area>
           </div>
         </div>
@@ -569,13 +587,22 @@ import { useDark } from '@/composables/dark'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import Fuse from 'fuse.js/basic'
 import NewMenu from './PageNewMenu.vue'
 import Tree from './TreeNav.vue'
 import UpOneLevelBtn from './UpOneLevelBtn.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { fetchTreeEntries, mergeFolderEntries, parentFolderIdOf } from '@/helpers/treeNodes'
+import {
+  fetchTreeEntries,
+  idsWithFolderOrder,
+  mergeFolderEntries,
+  orderLike,
+  parentFolderIdOf,
+  reorderableIds,
+  reorderTreeEntries
+} from '@/helpers/treeNodes'
 import { assetUrl } from '@/helpers/assets'
 import { humanizeDate } from '@/helpers/datetime'
 import fileTypes from '@/helpers/fileTypes'
@@ -597,6 +624,7 @@ const screen = useScreen()
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 const router = useRouter()
 
@@ -764,6 +792,16 @@ const folderPath = computed(() => {
       : `/${folderNode.fileName}/`
   }
 })
+
+const canReorder = computed(() => userStore.can('manage:pages'))
+
+const listSortableOptions = computed(() => ({
+  animation: 150,
+  forceFallback: true,
+  delay: 150,
+  delayOnTouchOnly: true,
+  disabled: !canReorder.value || state.search !== '' || !state.shouldShowFolders
+}))
 
 const usePathTitle = computed(() => state.displayMode === 'path')
 
@@ -1029,6 +1067,78 @@ async function selectLocale(code) {
   state.fileList = []
   treeComp.value?.resetLoaded()
   await loadTree({ initLoad: true })
+}
+
+async function restoreFolderOrder(parentId) {
+  if (parentId) {
+    state.treeNodes[parentId].children = []
+    await loadTree({ parentId, types: parentId === state.currentFolderId ? null : ['folder'] })
+  } else {
+    await loadTree({ parentId: null, types: state.currentFolderId ? ['folder'] : null })
+  }
+}
+
+async function persistOrder(parentId, ids) {
+  await reorderTreeEntries(siteStore.id, { parentId, locale: state.locale, ids })
+}
+
+function notifyReorderFailed(err) {
+  notify({
+    type: 'negative',
+    message: t('fileman.reorderFailed'),
+    caption: apiErrorMessage(err, t('common.error.unexpected'))
+  })
+}
+
+async function treeReorder(parentId, folderIds) {
+  try {
+    const entries = await fetchTreeEntries(siteStore.id, {
+      parentId,
+      types: ['page', 'folder'],
+      locale: state.locale
+    })
+    await persistOrder(parentId, idsWithFolderOrder(entries, folderIds))
+  } catch (err) {
+    notifyReorderFailed(err)
+    await restoreFolderOrder(parentId)
+    return
+  }
+  if (parentId === state.currentFolderId) {
+    await loadTree({ parentId })
+  }
+}
+
+async function listReorder(event) {
+  if (!canReorder.value) {
+    return
+  }
+  const parentId = state.currentFolderId
+  const list = [...state.fileList]
+  list.splice(event.newIndex, 0, ...list.splice(event.oldIndex, 1))
+  state.fileList = list
+
+  const ids = reorderableIds(list)
+  try {
+    await persistOrder(parentId, ids)
+  } catch (err) {
+    notifyReorderFailed(err)
+    await loadTree({ parentId })
+    return
+  }
+
+  const folderIds = list.filter((f) => f.type === 'folder').map((f) => f.id)
+  if (parentId) {
+    const node = state.treeNodes[parentId]
+    if (node) {
+      node.children = orderLike(node.children, folderIds)
+    }
+  } else {
+    state.treeRoots = orderLike(state.treeRoots, folderIds)
+  }
+  const shown = list.filter((f) => f.type !== 'asset').map((f) => f.id)
+  if (shown.some((id, index) => id !== ids[index])) {
+    await loadTree({ parentId })
+  }
 }
 
 function treeContextAction(nodeId, action) {
@@ -1581,6 +1691,9 @@ onBeforeUnmount(() => {
 }
 .fileman-filelist > .w-item:not(:last-child) {
   border-block-end: 1px solid var(--color-tint);
+}
+.fileman-filelist > .w-item.sortable-ghost {
+  opacity: 0.4;
 }
 .fileman-filelist > .w-item.active {
   box-shadow: inset 3px 0 0 var(--color-accent-fill);

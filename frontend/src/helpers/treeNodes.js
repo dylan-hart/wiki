@@ -140,16 +140,77 @@ export function descendantFolderIds(nodes, targetId, maxDepth = 3) {
  */
 export function fetchTreeEntries(
   siteId,
-  { parentId = null, parentPath = null, types = null, locale = null, initLoad = false } = {}
+  {
+    parentId = null,
+    parentPath = null,
+    types = null,
+    locale = null,
+    initLoad = false,
+    orderBy = 'sortOrder'
+  } = {}
 ) {
   return API_CLIENT.get(`sites/${siteId}/tree`, {
     searchParams: {
+      orderBy,
       ...(parentId ? { parentId } : {}),
       ...(parentPath ? { parentPath } : {}),
       ...(types?.length > 0 ? { types: types.join(',') } : {}),
       ...(locale ? { locale } : {}),
       includeAncestors: initLoad,
       includeRootFolders: initLoad
+    }
+  }).json()
+}
+
+function groupByFileName(entries) {
+  const units = new Map()
+  for (const entry of entries ?? []) {
+    if (entry.type === 'asset') {
+      continue
+    }
+    const unit = units.get(entry.fileName)
+    if (unit) {
+      unit.push(entry)
+    } else {
+      units.set(entry.fileName, [entry])
+    }
+  }
+  return [...units.values()]
+}
+
+export function reorderableIds(entries) {
+  return groupByFileName(entries).flatMap((unit) => unit.map((entry) => entry.id))
+}
+
+export function idsWithFolderOrder(entries, folderIds) {
+  const units = groupByFileName(entries)
+  const folderUnits = units.filter((unit) => unit.some((entry) => entry.type === 'folder'))
+  const ordered = []
+  for (const folderId of folderIds) {
+    const unit = folderUnits.find((candidate) => candidate.some((entry) => entry.id === folderId))
+    if (unit && !ordered.includes(unit)) {
+      ordered.push(unit)
+    }
+  }
+  ordered.push(...folderUnits.filter((unit) => !ordered.includes(unit)))
+
+  let next = 0
+  return units.flatMap((unit) =>
+    (folderUnits.includes(unit) ? ordered[next++] : unit).map((entry) => entry.id)
+  )
+}
+
+export function orderLike(ids, order) {
+  const wanted = order.filter((id) => ids.includes(id))
+  return [...wanted, ...ids.filter((id) => !wanted.includes(id))]
+}
+
+export function reorderTreeEntries(siteId, { parentId = null, locale = null, ids }) {
+  return API_CLIENT.put(`sites/${siteId}/tree/order`, {
+    json: {
+      ...(parentId ? { parentId } : {}),
+      ...(locale ? { locale } : {}),
+      ids
     }
   }).json()
 }

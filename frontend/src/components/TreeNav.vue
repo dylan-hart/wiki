@@ -36,10 +36,14 @@ const props = defineProps({
   displayMode: {
     type: String,
     default: 'title'
+  },
+  sortable: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emit = defineEmits(['update:selected', 'lazyLoad', 'contextAction'])
+const emit = defineEmits(['update:selected', 'lazyLoad', 'contextAction', 'reorder'])
 
 const { t } = useI18n()
 
@@ -108,6 +112,10 @@ function emitLazyLoad(nodeId, isCurrent, clb) {
   }
 }
 
+function emitReorder(parentId, ids) {
+  emit('reorder', parentId, ids)
+}
+
 function setOpened(nodeId) {
   state.opened[nodeId] = true
 }
@@ -128,6 +136,8 @@ provide('opened', state.opened)
 provide('displayMode', toRef(props, 'displayMode'))
 provide('selection', selection)
 provide('emitLazyLoad', emitLazyLoad)
+provide('sortable', toRef(props, 'sortable'))
+provide('emitReorder', emitReorder)
 
 defineExpose({
   setOpened,
@@ -157,6 +167,12 @@ onMounted(() => {
 }
 .treeview-node {
   display: block;
+}
+.treeview-sortgroup {
+  display: block;
+}
+.treeview-node.sortable-ghost {
+  opacity: 0.4;
 }
 .treeview-label {
   /* -> 12px matches a toolbar's side padding, lining a row's folder icon up with the header icon */

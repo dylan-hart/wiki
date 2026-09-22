@@ -33,17 +33,32 @@
         <w-icon v-if="!selection" class="treeview-root-icon" name="tabler:chevron-right" />
       </div>
     </li>
-    <tree-node
-      v-for="node of level"
-      :key="node.id"
-      :node="node"
-      :depth="props.depth"
-      :parent-id="props.parentId" />
+    <li v-if="sortable" class="treeview-sortgroup">
+      <w-sortable
+        tag="ul"
+        class="treeview-level"
+        :list="level"
+        item-key="id"
+        :options="sortableOptions"
+        @update="handleReorder">
+        <template #item="{ element }">
+          <tree-node :node="element" :depth="props.depth" :parent-id="props.parentId" />
+        </template>
+      </w-sortable>
+    </li>
+    <template v-else>
+      <tree-node
+        v-for="node of level"
+        :key="node.id"
+        :node="node"
+        :depth="props.depth"
+        :parent-id="props.parentId" />
+    </template>
   </ul>
 </template>
 
 <script setup>
-import { computed, inject } from 'vue'
+import { computed, inject, ref } from 'vue'
 
 import TreeNode from './TreeNode.vue'
 
@@ -62,6 +77,13 @@ const roots = inject('roots')
 const nodes = inject('nodes')
 const selection = inject('selection')
 const contextActionList = inject('contextActionList')
+const sortable = inject('sortable', ref(false))
+const emitReorder = inject('emitReorder', () => {})
+
+const sortableOptions = computed(() => ({
+  animation: 150,
+  draggable: '.treeview-node'
+}))
 
 const rootContextActionList = computed(() => {
   if (props.parentId) {
@@ -89,6 +111,17 @@ const level = computed(() => {
   }
   return items
 })
+
+function handleReorder(event) {
+  const ids = level.value.map((node) => node.id)
+  ids.splice(event.newIndex, 0, ...ids.splice(event.oldIndex, 1))
+  if (props.parentId) {
+    nodes[props.parentId].children = ids
+  } else {
+    roots.value.splice(0, roots.value.length, ...ids)
+  }
+  emitReorder(props.parentId, ids)
+}
 
 function setRoot() {
   selection.value = null
