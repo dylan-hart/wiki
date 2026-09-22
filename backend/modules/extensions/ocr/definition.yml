@@ -1,0 +1,12 @@
+key: ocr
+title: OCR (Tesseract)
+description: >-
+  Reads the text out of uploaded images and scanned PDFs so it can be searched. Runs the system
+  tesseract binary as a background job (tasks/workers/ocr-asset.ts) and stores the result as the
+  asset's search content. Scanned PDFs are first rendered to page images with pdftoppm, from the
+  poppler-utils package; without it only image uploads are recognized.
+website: 'https://tesseract-ocr.github.io'
+detect:
+  type: command
+  value: tesseract
+isInstallable: false

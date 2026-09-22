@@ -1,14 +1,15 @@
 import { eq, sql } from 'drizzle-orm'
 import { assets as assetsTable } from '../../db/schema.ts'
-import { extractPdfText, queueAssetJob, storeAssetText } from '../../helpers/assetText.ts'
-import { ocrAvailable } from '../../helpers/ocr.ts'
+import { queueAssetJob, storeAssetText } from '../../helpers/assetText.ts'
+import { ocrBytes, ocrKindOf } from '../../helpers/ocr.ts'
 
-export async function extractAssetText(assetId: string): Promise<void> {
+export async function ocrAsset(assetId: string): Promise<void> {
   const rows = await CARDINAL.db
     .select({
       data: assetsTable.data,
       fileExt: assetsTable.fileExt,
       mimeType: assetsTable.mimeType,
+      searchContent: assetsTable.searchContent,
       updatedAt: sql<string>`${assetsTable.updatedAt}::text`
     })
     .from(assetsTable)
@@ -18,15 +19,25 @@ export async function extractAssetText(assetId: string): Promise<void> {
   if (!row?.data) {
     return
   }
-  if (row.fileExt !== 'pdf' && row.mimeType !== 'application/pdf') {
+  const kind = ocrKindOf(row.fileExt, row.mimeType)
+  if (!kind) {
+    return
+  }
+  if (kind === 'pdf' && row.searchContent) {
     return
   }
 
-  const result = await extractPdfText(row.data)
-  if (result.outcome === 'failed' || result.outcome === 'skipped') {
-    CARDINAL.logger.warn('worker', 'asset text extraction did not complete', {
+  const result = await ocrBytes(kind, row.data)
+  if (result.outcome === 'skipped') {
+    CARDINAL.logger.debug('worker', 'asset OCR skipped', {
       asset: assetId,
-      outcome: result.outcome,
+      reason: result.reason
+    })
+    return
+  }
+  if (result.outcome === 'failed') {
+    CARDINAL.logger.warn('worker', 'asset OCR did not complete', {
+      asset: assetId,
       reason: result.reason
     })
     return
@@ -34,13 +45,13 @@ export async function extractAssetText(assetId: string): Promise<void> {
 
   const stored = await storeAssetText(CARDINAL.db, assetId, row.updatedAt, result.text)
   if (!stored) {
-    CARDINAL.logger.debug('worker', 'asset changed during text extraction, result discarded', {
+    CARDINAL.logger.debug('worker', 'asset changed during OCR, result discarded', {
       asset: assetId
     })
     return
   }
 
-  CARDINAL.logger.debug('worker', 'extracted asset text', {
+  CARDINAL.logger.debug('worker', 'recognized asset text', {
     asset: assetId,
     chars: result.text.length,
     truncated: result.truncated,
@@ -50,13 +61,9 @@ export async function extractAssetText(assetId: string): Promise<void> {
   if (result.outcome === 'ok' && CARDINAL.capabilities?.semanticSearch) {
     await queueAssetJob('embedAsset', assetId)
   }
-
-  if (result.outcome === 'empty' && (await ocrAvailable('pdf'))) {
-    await queueAssetJob('ocrAsset', assetId)
-  }
 }
 
 export async function task(job: { payload: { assetId: string } }): Promise<void> {
   await CARDINAL.ensureDb!()
-  await extractAssetText(job.payload.assetId)
+  await ocrAsset(job.payload.assetId)
 }

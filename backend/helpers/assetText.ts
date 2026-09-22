@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { assets as assetsTable } from '../db/schema.ts'
+import { assets as assetsTable, jobs as jobsTable } from '../db/schema.ts'
 import type { WikiDb } from '../core/db.ts'
 
 export interface PdfTextLimits {
@@ -131,4 +131,18 @@ export async function storeAssetText(
     )
     .returning({ id: assetsTable.id })
   return updated.length > 0
+}
+
+export async function queueAssetJob(
+  task: 'embedAsset' | 'ocrAsset',
+  assetId: string
+): Promise<void> {
+  await CARDINAL.db.insert(jobsTable).values({
+    id: crypto.randomUUID(),
+    task,
+    useWorker: true,
+    payload: { assetId },
+    maxRetries: CARDINAL.config.scheduler.maxRetries,
+    createdBy: CARDINAL.INSTANCE_ID
+  })
 }

@@ -144,6 +144,45 @@ describe('pandoc definition.yml description accuracy (Task 665, superseded by Fe
   })
 })
 
+describe('ocr definition.yml (OpenProject #3744)', () => {
+  const loadOcr = async (): Promise<ExtensionDefinition> =>
+    load(
+      await readFile(
+        path.join(import.meta.dirname, '..', 'modules', 'extensions', 'ocr', 'definition.yml'),
+        'utf8'
+      )
+    ) as ExtensionDefinition
+
+  test('parses as a detect-only command extension for tesseract that cannot be installed from the admin area', async () => {
+    const definition = await loadOcr()
+    assert.equal(definition.key, 'ocr')
+    assert.deepEqual(definition.detect, { type: 'command', value: 'tesseract' })
+    assert.equal(definition.isInstallable, false)
+    assert.equal(definition.architectures, undefined)
+    assert.equal(definition.platforms, undefined)
+  })
+
+  test('reports not installed, and not needing a restart, when the binary is not on PATH', async () => {
+    const definition = await loadOcr()
+    extensionsModel.definitions = [definition]
+    const previous = process.env.PATH
+    process.env.PATH = dir
+    try {
+      const [state] = await extensionsModel.getExtensions()
+      assert.equal(state!.key, 'ocr')
+      assert.equal(state!.isInstalled, false)
+      assert.equal(state!.isInstallable, false)
+      assert.equal(state!.needsRestart, false)
+    } finally {
+      if (previous === undefined) {
+        delete process.env.PATH
+      } else {
+        process.env.PATH = previous
+      }
+    }
+  })
+})
+
 describe('package.json has no decorative allowScripts key (WP 2290)', () => {
   test('no allowScripts key while @lavamoat/allow-scripts is not a dependency', async () => {
     const raw = await readFile(path.join(import.meta.dirname, '..', 'package.json'), 'utf8')

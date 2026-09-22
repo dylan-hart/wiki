@@ -4,6 +4,7 @@ import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
 import { makeImageThumbnail, sanitizeSvg, svgMimeType } from '../helpers/images.ts'
+import { ocrAvailable, ocrKindOf } from '../helpers/ocr.ts'
 import { announce } from './hooks.ts'
 import type { DeletedEntry } from './tree.ts'
 
@@ -521,11 +522,16 @@ class Assets {
     fileExt: string,
     mimeType: string
   ): Promise<void> {
-    if (fileExt !== 'pdf' && mimeType !== 'application/pdf') {
+    const ocrKind = ocrKindOf(fileExt, mimeType)
+    if (!ocrKind) {
       return
     }
     try {
-      await CARDINAL.scheduler.addJob({ task: 'extractAssetText', payload: { assetId } })
+      if (ocrKind === 'pdf') {
+        await CARDINAL.scheduler.addJob({ task: 'extractAssetText', payload: { assetId } })
+      } else if (await ocrAvailable('image')) {
+        await CARDINAL.scheduler.addJob({ task: 'ocrAsset', payload: { assetId } })
+      }
     } catch (err) {
       CARDINAL.logger.warn('assets', 'could not queue text extraction', {
         asset: assetId,

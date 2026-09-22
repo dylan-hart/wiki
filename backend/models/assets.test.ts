@@ -3,6 +3,9 @@ import assert from 'node:assert/strict'
 import { assets, dispositionFor } from './assets.ts'
 import { assetServing } from './assetServing.ts'
 import { installTestWiki } from '../test/mocks.ts'
+import { installFakeCommands, withEmptyPath, type FakeCommands } from '../test/fakeCommands.ts'
+
+const posix = process.platform !== 'win32'
 
 /**
  * The write half of the assets model, with `CARDINAL.db` / `CARDINAL.models.storage` stubbed rather
@@ -888,6 +891,46 @@ test('upload of a non-PDF queues no extraction', async () => {
   })
 
   assert.deepEqual(extractionJobs(), [])
+})
+
+test('upload of an image queues OCR when tesseract is on PATH', { skip: !posix }, async () => {
+  let fake: FakeCommands | undefined
+  try {
+    fake = await installFakeCommands({ tesseract: 'exit 0' })
+    stubUploadPath(false)
+    const addJob = mock.fn(async () => ({ id: 'job-1' }))
+    global.CARDINAL = { ...global.CARDINAL, scheduler: { addJob } } as unknown as CardinalGlobal
+
+    await assets.upload({
+      siteId: 'site-1',
+      locale: 'en',
+      fileName: 'scan.png',
+      data: Buffer.from('bytes'),
+      authorId: 'user-1'
+    })
+
+    assert.deepEqual(extractionJobs(), [{ task: 'ocrAsset', payload: { assetId: 'asset-svg-1' } }])
+  } finally {
+    await fake?.restore()
+  }
+})
+
+test('upload of an image queues no OCR when tesseract is absent', async () => {
+  await withEmptyPath(async () => {
+    stubUploadPath(false)
+    const addJob = mock.fn(async () => ({ id: 'job-1' }))
+    global.CARDINAL = { ...global.CARDINAL, scheduler: { addJob } } as unknown as CardinalGlobal
+
+    await assets.upload({
+      siteId: 'site-1',
+      locale: 'en',
+      fileName: 'scan.png',
+      data: Buffer.from('bytes'),
+      authorId: 'user-1'
+    })
+
+    assert.deepEqual(extractionJobs(), [])
+  })
 })
 
 test('a scheduler failure while queueing extraction does not fail the upload', async () => {
