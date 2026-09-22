@@ -43,6 +43,10 @@
         <blueprint-icon :compact="props.contextMenu" icon="tabler:file-text" />
         <w-item-section class="pe-2">{{ t('common.newPageMenu.asciidoc') }}</w-item-section>
       </w-item>
+      <w-item clickable @click="openTemplatePicker">
+        <blueprint-icon :compact="props.contextMenu" icon="tabler:template" />
+        <w-item-section class="pe-2">{{ t('common.newPageMenu.fromTemplate') }}</w-item-section>
+      </w-item>
       <!-- -> Not an editor the site can turn off, because it authors nothing: a redirection is a page
               with a target instead of a body -->
       <w-item clickable @click="create(`redirect`)">
@@ -122,6 +126,9 @@ const ImportPageDialog = defineAsyncComponent(() => import('@/components/ImportP
 const ImportBatchPageDialog = defineAsyncComponent(
   () => import('@/components/ImportBatchPageDialog.vue')
 )
+const PageTemplatePickerDialog = defineAsyncComponent(
+  () => import('@/components/PageTemplatePickerDialog.vue')
+)
 
 const editorStore = useEditorStore()
 const flagsStore = useFlagsStore()
@@ -168,6 +175,29 @@ function openImport() {
       description,
       tags,
       content
+    })
+    loading.hide()
+  })
+}
+
+function openTemplatePicker() {
+  const locale = siteStore.useLocales ? pageStore.locale : null
+  dialog({
+    component: PageTemplatePickerDialog,
+    componentProps: {
+      basePath: props.basePath ?? '',
+      locale
+    }
+  }).onOk(async ({ template }) => {
+    loading.show()
+    emit('newPage')
+    await pageStore.pageCreate({
+      editor: template.editor,
+      basePath: props.basePath,
+      ...(locale ? { locale } : {}),
+      title: template.name,
+      description: template.description,
+      content: template.content
     })
     loading.hide()
   })
