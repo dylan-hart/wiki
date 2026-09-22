@@ -145,6 +145,7 @@
             @context-action="treeContextAction"
             :sortable="canReorder"
             @reorder="treeReorder"
+            @move="treeMove"
             :display-mode="state.displayMode" />
         </div>
       </w-scroll-area>
@@ -431,10 +432,12 @@
                 :list="files"
                 item-key="id"
                 :options="listSortableOptions"
-                @update="listReorder">
+                @update="listReorder"
+                @end="listDrop">
                 <template #item="{ element: item }">
                   <w-item
                     clickable
+                    :data-drop-folder-id="item.type === `folder` ? item.id : undefined"
                     active-class="active"
                     :active="item.id === state.currentFileId"
                     @click="selectItem(item)"
@@ -603,6 +606,7 @@ import {
   reorderableIds,
   reorderTreeEntries
 } from '@/helpers/treeNodes'
+import { dropFolderAt, holdForDrop, restoreDomPosition } from '@/helpers/dropTarget'
 import { assetUrl } from '@/helpers/assets'
 import { humanizeDate } from '@/helpers/datetime'
 import fileTypes from '@/helpers/fileTypes'
@@ -745,6 +749,7 @@ const {
   renameAsset,
   moveAsset,
   moveFolder,
+  dropOnFolder,
   previewAsset,
   delAsset
 } = useFileManagerActions({ state, treeComp, loadTree, close })
@@ -800,6 +805,7 @@ const listSortableOptions = computed(() => ({
   forceFallback: true,
   delay: 150,
   delayOnTouchOnly: true,
+  onMove: holdForDrop,
   disabled: !canReorder.value || state.search !== '' || !state.shouldShowFolders
 }))
 
@@ -1108,8 +1114,28 @@ async function treeReorder(parentId, folderIds) {
   }
 }
 
-async function listReorder(event) {
+async function listDrop(event) {
   if (!canReorder.value) {
+    return
+  }
+  const folderId = dropFolderAt(event)
+  if (folderId === undefined) {
+    return
+  }
+  const item = files.value[event.oldIndex]
+  restoreDomPosition(event)
+  await dropOnFolder(item, folderId)
+}
+
+async function treeMove(nodeId, folderId) {
+  if (!canReorder.value) {
+    return
+  }
+  await dropOnFolder({ id: nodeId, type: 'folder' }, folderId)
+}
+
+async function listReorder(event) {
+  if (!canReorder.value || dropFolderAt(event) !== undefined) {
     return
   }
   const parentId = state.currentFolderId

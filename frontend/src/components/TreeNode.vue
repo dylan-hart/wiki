@@ -4,6 +4,7 @@
       class="treeview-label"
       tabindex="0"
       role="button"
+      :data-drop-folder-id="sortable ? node.id : undefined"
       @click="handleLabelClick"
       @keydown="handleLabelKeydown"
       :class="{ active: isActive }">
@@ -52,7 +53,7 @@
 </template>
 
 <script setup>
-import { computed, inject, reactive } from 'vue'
+import { computed, inject, reactive, ref } from 'vue'
 
 import { useDark } from '@/composables/dark'
 import { isolateOnLeftClick } from '@/composables/navIsolatePreference'
@@ -82,6 +83,7 @@ const displayMode = inject('displayMode')
 const selection = inject('selection')
 const emitLazyLoad = inject('emitLazyLoad')
 const contextActionList = inject('contextActionList')
+const sortable = inject('sortable', ref(false))
 
 const state = reactive({
   isContextMenuShown: false,

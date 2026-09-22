@@ -7,6 +7,7 @@
         class="treeview-label"
         tabindex="0"
         role="button"
+        :data-drop-folder-id="sortable ? '' : undefined"
         @click="setRoot"
         @keydown="handleRootKeydown"
         :class="{ active: !selection }">
@@ -40,7 +41,8 @@
         :list="level"
         item-key="id"
         :options="sortableOptions"
-        @update="handleReorder">
+        @update="handleReorder"
+        @end="handleEnd">
         <template #item="{ element }">
           <tree-node :node="element" :depth="props.depth" :parent-id="props.parentId" />
         </template>
@@ -61,6 +63,7 @@
 import { computed, inject, ref } from 'vue'
 
 import TreeNode from './TreeNode.vue'
+import { dropFolderAt, holdForDrop, restoreDomPosition } from '@/helpers/dropTarget'
 
 const props = defineProps({
   depth: {
@@ -79,10 +82,12 @@ const selection = inject('selection')
 const contextActionList = inject('contextActionList')
 const sortable = inject('sortable', ref(false))
 const emitReorder = inject('emitReorder', () => {})
+const emitMove = inject('emitMove', () => {})
 
 const sortableOptions = computed(() => ({
   animation: 150,
-  draggable: '.treeview-node'
+  draggable: '.treeview-node',
+  onMove: holdForDrop
 }))
 
 const rootContextActionList = computed(() => {
@@ -112,7 +117,22 @@ const level = computed(() => {
   return items
 })
 
+function handleEnd(event) {
+  const folderId = dropFolderAt(event)
+  if (folderId === undefined) {
+    return
+  }
+  const node = level.value[event.oldIndex]
+  restoreDomPosition(event)
+  if (node) {
+    emitMove(node.id, folderId)
+  }
+}
+
 function handleReorder(event) {
+  if (dropFolderAt(event) !== undefined) {
+    return
+  }
   const ids = level.value.map((node) => node.id)
   ids.splice(event.newIndex, 0, ...ids.splice(event.oldIndex, 1))
   if (props.parentId) {

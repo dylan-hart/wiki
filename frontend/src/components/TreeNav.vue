@@ -43,7 +43,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:selected', 'lazyLoad', 'contextAction', 'reorder'])
+const emit = defineEmits(['update:selected', 'lazyLoad', 'contextAction', 'reorder', 'move'])
 
 const { t } = useI18n()
 
@@ -116,6 +116,10 @@ function emitReorder(parentId, ids) {
   emit('reorder', parentId, ids)
 }
 
+function emitMove(nodeId, folderId) {
+  emit('move', nodeId, folderId)
+}
+
 function setOpened(nodeId) {
   state.opened[nodeId] = true
 }
@@ -138,6 +142,7 @@ provide('selection', selection)
 provide('emitLazyLoad', emitLazyLoad)
 provide('sortable', toRef(props, 'sortable'))
 provide('emitReorder', emitReorder)
+provide('emitMove', emitMove)
 
 defineExpose({
   setOpened,
