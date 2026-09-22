@@ -779,3 +779,74 @@ test('deleteOrphaned logs one line per asset, marked as a folder cascade', async
   assert.equal(lines[1]!.fields.path, 'b.zip')
   assert.equal(lines[1]!.fields.cascade, 'folder')
 })
+
+test('an overwrite clears the extracted search text, which described the bytes just replaced', async () => {
+  const sets: any[] = []
+  const chain: any = {
+    from: () => chain,
+    innerJoin: () => chain,
+    where: () => chain,
+    values: () => chain,
+    limit: () => Promise.resolve([undefined]),
+    set: (values: any) => {
+      sets.push(values)
+      return chain
+    }
+  }
+  global.CARDINAL = {
+    ...global.CARDINAL,
+    ...cacheFsStubs,
+    sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
+    db: { select: () => chain, update: () => chain, delete: () => chain, insert: () => chain },
+    models: {
+      ...(global.CARDINAL as any).models,
+      tree: {
+        getEntryAt: async () => ({
+          type: 'asset',
+          id: 'asset-1',
+          fileName: 'test.txt',
+          folderPath: '',
+          title: 'test.txt'
+        })
+      },
+      hooks: { emit: () => {} },
+      storage: { dispatch: () => {} }
+    }
+  } as unknown as CardinalGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'test.txt',
+    mimeType: 'text/plain',
+    data: Buffer.from('hello'),
+    authorId: 'user-1'
+  })
+
+  const assetSet = sets.find((values) => 'fileSize' in values)
+  assert.ok(assetSet)
+  assert.equal(assetSet.searchContent, null)
+  assert.equal(assetSet.ts, null)
+})
+
+test('setSearchContent stores the text with a vector, and clears both for blank text', async () => {
+  const sets: any[] = []
+  const chain: any = {
+    where: () => Promise.resolve(),
+    set: (values: any) => {
+      sets.push(values)
+      return chain
+    }
+  }
+  global.CARDINAL = { ...global.CARDINAL, db: { update: () => chain } } as unknown as CardinalGlobal
+
+  await assets.setSearchContent('asset-1', 'quarterly report')
+  await assets.setSearchContent('asset-1', '  \n ')
+  await assets.setSearchContent('asset-1', null)
+
+  assert.equal(sets[0].searchContent, 'quarterly report')
+  assert.notEqual(sets[0].ts, null)
+  assert.equal('updatedAt' in sets[0], false)
+  assert.deepEqual(sets[1], { searchContent: null, ts: null })
+  assert.deepEqual(sets[2], { searchContent: null, ts: null })
+})

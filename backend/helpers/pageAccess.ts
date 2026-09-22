@@ -281,18 +281,23 @@ export function mayOnAsset(
   siteId: string,
   asset: { folderPath?: string | null; fileName: string; locale: string }
 ): boolean {
+  return mayActorOnAsset(CARDINAL.models.groups.actorForRequest(req), permission, siteId, asset)
+}
+
+export function mayActorOnAsset(
+  actor: AccessActor,
+  permission: string,
+  siteId: string,
+  asset: { folderPath?: string | null; fileName: string; locale: string }
+): boolean {
   const folder = asset.folderPath ?? ''
-  return CARDINAL.models.groups.checkAccess(
-    CARDINAL.models.groups.actorForRequest(req),
-    permission,
-    {
-      path: folder ? `${folder}/${asset.fileName}` : asset.fileName,
-      siteId,
-      locale: asset.locale,
-      // -> An asset carries no classification, so a CLASSIFICATION rule never matches one.
-      classification: null
-    }
-  )
+  return CARDINAL.models.groups.checkAccess(actor, permission, {
+    path: folder ? `${folder}/${asset.fileName}` : asset.fileName,
+    siteId,
+    locale: asset.locale,
+    // -> An asset carries no classification, so a CLASSIFICATION rule never matches one.
+    classification: null
+  })
 }
 
 /**

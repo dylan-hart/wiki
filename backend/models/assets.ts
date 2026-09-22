@@ -449,6 +449,8 @@ class Assets {
         fileSize: data.length,
         data,
         preview,
+        searchContent: null,
+        ts: null,
         meta: sql`(coalesce(${assetsTable.meta}, '{}'::jsonb) - 'width' - 'height') || ${JSON.stringify(dimensions)}::jsonb`,
         authorId,
         updatedAt: sql`now()`
@@ -508,6 +510,17 @@ class Assets {
         updatedAt: new Date()
       }
     )
+  }
+
+  async setSearchContent(id: string, text: string | null): Promise<void> {
+    const content = text?.trim() ? text : null
+    await CARDINAL.db
+      .update(assetsTable)
+      .set({
+        searchContent: content,
+        ts: content === null ? null : sql`to_tsvector('simple', ${content}::text)`
+      })
+      .where(eq(assetsTable.id, id))
   }
 
   /** An asset's metadata, without its bytes. */

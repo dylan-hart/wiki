@@ -6,6 +6,7 @@ import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
 import { dispositionFor } from '../models/assets.ts'
 import { actorFrom, mayOnAsset } from '../helpers/pageAccess.ts'
 import { limitUploads } from '../helpers/rateLimit.ts'
+import { searchAssets } from '../modules/search/db/assetSearch.ts'
 
 const assetIdParam = {
   type: 'object',
@@ -391,6 +392,88 @@ async function routes(app: FastifyInstance) {
         message: `${results.filter((r) => r.ok).length} of ${results.length} file(s) uploaded successfully.`,
         results
       }
+    }
+  )
+
+  app.get<{
+    Params: { siteId: string }
+    Querystring: { query: string; offset?: number; limit?: number }
+  }>(
+    '/sites/:siteId/assets/search',
+    {
+      schema: {
+        summary: 'Search asset contents',
+        description:
+          "Postgres full-text search over the text extracted from the assets of a site, ranked by relevance. Only assets the caller may read (`read:assets` on the asset's path) are matched, so a hit is never returned for a file `GET /sites/:siteId/assets/:assetId` would refuse. Assets whose text has not been extracted, or has none, never match.\n\n`highlight` is an excerpt with the matched terms wrapped in `<b>`, and is the only field carrying markup — the excerpt is escaped before those are added.",
+        tags: ['Assets'],
+        params: { $ref: 'SiteIdParams#' },
+        querystring: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 2048,
+              description: 'Free text. Understands quoted phrases, `or` and `-exclusions`.'
+            },
+            offset: { type: 'integer', minimum: 0, default: 0 },
+            limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 }
+          },
+          required: ['query']
+        },
+        response: {
+          200: {
+            description: 'Matching assets, plus how many there are in total',
+            type: 'object',
+            properties: {
+              results: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    fileName: { type: 'string' },
+                    fileExt: { type: 'string' },
+                    kind: { type: 'string', enum: ['document', 'image', 'other'] },
+                    mimeType: { type: 'string' },
+                    fileSize: { type: 'integer' },
+                    folderPath: { type: 'string' },
+                    title: { type: 'string' },
+                    locale: { type: 'string' },
+                    hasPreview: { type: 'boolean' },
+                    createdAt: { type: 'string', format: 'date-time' },
+                    updatedAt: { type: 'string', format: 'date-time' },
+                    relevancy: { type: 'number' },
+                    highlight: {
+                      type: ['string', 'null'],
+                      description: 'Excerpt with matched terms in `<b>`, everything else escaped.'
+                    }
+                  }
+                }
+              },
+              totalHits: {
+                type: 'integer',
+                description:
+                  'How many assets match and are visible to you, ignoring `limit` and `offset`. Counted only from rows you may read. Exact up to the scan cap; beyond it a floor.'
+              },
+              totalHitsApproximate: {
+                type: 'boolean',
+                description:
+                  '`true` when `totalHits` is a floor rather than exact: your rules dropped one or more matching rows.'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req) => {
+      return searchAssets({
+        siteId: req.params.siteId,
+        query: req.query.query,
+        actor: CARDINAL.models.groups.actorForRequest(req),
+        offset: req.query.offset,
+        limit: req.query.limit
+      })
     }
   )
 
