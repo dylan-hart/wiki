@@ -390,6 +390,19 @@ CREATE TABLE "pageRenderQueue" (
 	"requestedById" uuid
 );
 --> statement-breakpoint
+CREATE TABLE "pageTemplates" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"siteId" uuid NOT NULL,
+	"locale" varchar(255),
+	"name" varchar(255) NOT NULL,
+	"description" text DEFAULT '' NOT NULL,
+	"editor" varchar(255) NOT NULL,
+	"content" text DEFAULT '' NOT NULL,
+	"createdBy" uuid,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "pageWatchEvents" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"action" varchar(16) NOT NULL,
@@ -627,6 +640,7 @@ CREATE INDEX "pageHistory_pageId_idx" ON "pageHistory" ("pageId","versionDate");
 CREATE INDEX "pageHistory_siteId_idx" ON "pageHistory" ("siteId","locale","path","versionDate");--> statement-breakpoint
 CREATE INDEX "pageHistory_authorId_idx" ON "pageHistory" ("authorId");--> statement-breakpoint
 CREATE INDEX "pageRenderQueue_createdAt_idx" ON "pageRenderQueue" ("createdAt");--> statement-breakpoint
+CREATE UNIQUE INDEX "pageTemplates_siteId_locale_name_idx" ON "pageTemplates" ("siteId",coalesce("locale", ''),lower("name"));--> statement-breakpoint
 CREATE INDEX "pageWatchEvents_pending_idx" ON "pageWatchEvents" ("userId","notifyMode","createdAt") WHERE "deliveredAt" IS NULL;--> statement-breakpoint
 CREATE INDEX "pageWatchEvents_pageId_idx" ON "pageWatchEvents" ("pageId");--> statement-breakpoint
 CREATE INDEX "pageWatchEvents_unread_idx" ON "pageWatchEvents" ("userId","siteId","createdAt") WHERE "readAt" IS NULL;--> statement-breakpoint
@@ -709,6 +723,8 @@ ALTER TABLE "pageHistory" ADD CONSTRAINT "pageHistory_siteId_sites_id_fkey" FORE
 ALTER TABLE "pageRenderQueue" ADD CONSTRAINT "pageRenderQueue_pageId_pages_id_fkey" FOREIGN KEY ("pageId") REFERENCES "pages"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "pageRenderQueue" ADD CONSTRAINT "pageRenderQueue_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
 ALTER TABLE "pageRenderQueue" ADD CONSTRAINT "pageRenderQueue_requestedById_users_id_fkey" FOREIGN KEY ("requestedById") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint
+ALTER TABLE "pageTemplates" ADD CONSTRAINT "pageTemplates_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
+ALTER TABLE "pageTemplates" ADD CONSTRAINT "pageTemplates_createdBy_users_id_fkey" FOREIGN KEY ("createdBy") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "pageWatchEvents" ADD CONSTRAINT "pageWatchEvents_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
 ALTER TABLE "pageWatchEvents" ADD CONSTRAINT "pageWatchEvents_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "pageWatchEvents" ADD CONSTRAINT "pageWatchEvents_actorId_users_id_fkey" FOREIGN KEY ("actorId") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint

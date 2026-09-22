@@ -424,6 +424,31 @@ export const glossaryVersions = pgTable(
   (table) => [index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)]
 )
 
+export const pageTemplates = pgTable(
+  'pageTemplates',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    locale: varchar({ length: 255 }),
+    name: varchar({ length: 255 }).notNull(),
+    description: text().notNull().default(''),
+    editor: varchar({ length: 255 }).notNull(),
+    content: text().notNull().default(''),
+    createdBy: uuid().references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex('pageTemplates_siteId_locale_name_idx').on(
+      table.siteId,
+      sql`coalesce(${table.locale}, '')`,
+      sql`lower(${table.name})`
+    )
+  ]
+)
+
 export const hookStateEnum = pgEnum('hookState', ['pending', 'success', 'error'])
 export const hooks = pgTable(
   'hooks',

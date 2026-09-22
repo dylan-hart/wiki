@@ -33,6 +33,7 @@ export async function registerAllSchemas(app: FastifyInstance) {
   await import('./schemas/notification.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/page.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/pageImport.ts').then((m) => m.registerSchemas(app))
+  await import('./schemas/pageTemplate.ts').then((m) => m.registerSchemas(app))
   // -> `registerParamsSchemas`, not `registerSchemas`: path-parameter shapes, not an entity.
   await import('./schemas/params.ts').then((m) => m.registerParamsSchemas(app))
   await import('./schemas/replication.ts').then((m) => m.registerSchemas(app))
@@ -89,6 +90,7 @@ async function routes(app: FastifyInstance) {
     contentApp.register(import('./navigation.ts'))
     contentApp.register(import('./notifications.ts'))
     contentApp.register(import('./pages/index.ts'))
+    contentApp.register(import('./pageTemplates.ts'))
     contentApp.register(import('./pageviews.ts'))
     contentApp.register(import('./replication.ts'), { prefix: '/replication' })
     contentApp.register(import('./scheduler.ts'), { prefix: '/scheduler' })

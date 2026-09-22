@@ -251,7 +251,7 @@ Ask `CARDINAL.models.groups.checkAccess(actor, permission, page)`, or
 
 **Site-scoped delegation permissions** are bound to a site (not a path): `site:general`,
 `site:theme`, `site:navigation`, `site:blocks`, `site:approvals`, `site:login`, `site:locale`,
-`site:editors` (`SITE_PERMISSIONS` in `helpers/siteRules.ts`) — one per delegable admin settings
+`site:editors`, `site:templates` (`SITE_PERMISSIONS` in `helpers/siteRules.ts`) — one per delegable admin settings
 surface, for handing a non-`manage:sites` user control of specific sites without making them a full
 site administrator. A group grants them through the **same rule rows** page permissions use
 (`GroupRule.roles` is one shared vocabulary space across both kinds), just addressed by `sites`

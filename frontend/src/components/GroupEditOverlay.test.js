@@ -28,7 +28,8 @@ const SITE_PERMISSION_TITLES = {
   'site:approvals': 'Site: Approval Rules',
   'site:login': 'Site: Login & Authentication',
   'site:locale': 'Site: Locale',
-  'site:editors': 'Site: Editors'
+  'site:editors': 'Site: Editors',
+  'site:templates': 'Site: Page Templates'
 }
 
 async function mountRulesSection(groupId) {
