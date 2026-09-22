@@ -745,6 +745,8 @@
   "admin.groups.permissions.site:login.title": "Site: Login & Authentication",
   "admin.groups.permissions.site:navigation.hint": "Can manage the site's navigation menus.",
   "admin.groups.permissions.site:navigation.title": "Site: Navigation",
+  "admin.groups.permissions.site:templates.hint": "Can create, edit and delete the site's page templates (starter content for new pages).",
+  "admin.groups.permissions.site:templates.title": "Site: Page Templates",
   "admin.groups.permissions.site:theme.hint": "Can manage the site's theme and appearance.",
   "admin.groups.permissions.site:theme.title": "Site: Theme",
   "admin.groups.permissions.write:assets.hint": "Can upload new assets (such as images and files).",

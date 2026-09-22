@@ -35,6 +35,7 @@ import { navigation } from './navigation.ts'
 import { pageDrafts } from './pageDrafts.ts'
 import { pageHistory } from './pageHistory.ts'
 import { pageProblems } from './pageProblems.ts'
+import { pageTemplates } from './pageTemplates.ts'
 import { pageClassification } from './pageClassification.ts'
 import { pages } from './pages.ts'
 import { pageWatchEvents } from './pageWatchEvents.ts'
@@ -99,6 +100,7 @@ export default {
   pageHistory,
   pageClassification,
   pageProblems,
+  pageTemplates,
   pages,
   pageWatchEvents,
   pageWatching,

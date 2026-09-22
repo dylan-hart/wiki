@@ -369,7 +369,8 @@ const RULES_DATA = [
   { permission: 'site:approvals', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'site:login', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'site:locale', warning: false, restrictedForSystem: true, disabled: false },
-  { permission: 'site:editors', warning: false, restrictedForSystem: true, disabled: false }
+  { permission: 'site:editors', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:templates', warning: false, restrictedForSystem: true, disabled: false }
 ]
 
 const rules = computed(() =>

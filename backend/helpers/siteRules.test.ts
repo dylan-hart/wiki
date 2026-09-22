@@ -19,7 +19,8 @@ describe('SITE_PERMISSIONS', () => {
       'site:approvals',
       'site:login',
       'site:locale',
-      'site:editors'
+      'site:editors',
+      'site:templates'
     ])
   })
 })
