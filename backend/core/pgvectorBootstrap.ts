@@ -34,6 +34,28 @@ export async function bootstrapPgvector(db: WikiDb): Promise<boolean> {
       USING hnsw ("embedding" vector_cosine_ops)
     `)
 
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS "assetEmbeddingChunks" (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "assetId" uuid NOT NULL REFERENCES "assets"("id") ON DELETE CASCADE,
+        "chunkIndex" integer NOT NULL,
+        "chunkText" text NOT NULL,
+        "embedding" vector(384),
+        "updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+      )
+    `)
+
+    await db.execute(`
+      CREATE INDEX IF NOT EXISTS "assetEmbeddingChunks_embedding_idx"
+      ON "assetEmbeddingChunks"
+      USING hnsw ("embedding" vector_cosine_ops)
+    `)
+
+    await db.execute(`
+      CREATE INDEX IF NOT EXISTS "assetEmbeddingChunks_assetId_idx"
+      ON "assetEmbeddingChunks" ("assetId")
+    `)
+
     CARDINAL.logger.info('db', 'pgvector capability enabled', { table: 'pageEmbeddingChunks' })
     return true
   } catch (err: any) {
