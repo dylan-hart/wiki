@@ -45,6 +45,7 @@ export async function registerAllSchemas(app: FastifyInstance) {
   await import('./schemas/task.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/tree.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/user.ts').then((m) => m.registerSchemas(app))
+  await import('./schemas/userPages.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/watcher.ts').then((m) => m.registerSchemas(app))
 }
 
@@ -101,6 +102,7 @@ async function routes(app: FastifyInstance) {
     contentApp.register(import('./tags.ts'))
     contentApp.register(import('./tasks.ts'))
     contentApp.register(import('./tree.ts'))
+    contentApp.register(import('./userPages.ts'))
     contentApp.register(import('./users/index.ts'), { prefix: '/users' })
     contentApp.register(import('./watching.ts'))
   })
