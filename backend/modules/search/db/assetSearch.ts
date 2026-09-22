@@ -9,6 +9,7 @@ export interface SearchAssetsParams {
   siteId: string
   query: string
   actor: AccessActor
+  kind?: AssetSearchHit['kind']
   offset?: number
   limit?: number
 }
@@ -44,6 +45,7 @@ export async function searchAssets({
   siteId,
   query,
   actor,
+  kind,
   offset = 0,
   limit = 25
 }: SearchAssetsParams): Promise<SearchAssetsResult> {
@@ -56,6 +58,7 @@ export async function searchAssets({
   }
 
   const tsQuery = sql`websearch_to_tsquery('simple', ${terms})`
+  const kindFilter = kind ? sql`AND a.kind = ${kind}::"assetKind"` : sql``
   const rowsQuery = (queryLimit: number) => sql`
     SELECT
       a.id,
@@ -75,7 +78,7 @@ export async function searchAssets({
         ${`StartSel=${HL_START},StopSel=${HL_STOP},MaxWords=25,MinWords=10,MaxFragments=1`}) AS highlight
     FROM assets a
     INNER JOIN tree t ON t.id = a.id
-    WHERE a."siteId" = ${siteId} AND a.ts @@ ${tsQuery}
+    WHERE a."siteId" = ${siteId} AND a.ts @@ ${tsQuery} ${kindFilter}
     ORDER BY relevancy DESC, a."updatedAt" DESC, a.id
     LIMIT ${queryLimit}
   `

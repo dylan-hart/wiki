@@ -236,6 +236,72 @@
               :loading="state.loading > 0"
               @click="loadMore" />
           </div>
+          <div v-if="showAssetsSection" class="layout-search-assets" data-testid="search-assets">
+            <div class="section-header">
+              <span>{{ t('search.assetsHeading') }}</span>
+              <w-btn-toggle
+                class="layout-search-modetoggle ms-3"
+                data-testid="search-asset-kind"
+                :model-value="state.assets.kind"
+                :aria-label="t('search.assetKindLabel')"
+                :options="assetKindOptions"
+                @update:model-value="setAssetKind" />
+              <w-space />
+              <i18n-t
+                class="layout-search-count"
+                :keypath="
+                  state.assets.totalApproximate
+                    ? `search.totalResultsApprox`
+                    : `search.totalResults`
+                "
+                tag="span"
+                :plural="state.assets.total">
+                <strong>{{ state.assets.total }}</strong>
+              </i18n-t>
+            </div>
+            <div v-if="state.assets.results.length < 1" class="p-6">
+              <i18n-t keypath="search.assetsNoMatches" tag="span">
+                <strong>{{ state.assets.query }}</strong>
+              </i18n-t>
+            </div>
+            <div class="layout-search-results">
+              <a
+                v-for="item of state.assets.results"
+                :key="item.id"
+                class="layout-search-row"
+                data-testid="search-asset-row"
+                :href="assetUrl(item.folderPath, item.fileName)"
+                target="_blank"
+                rel="noopener">
+                <div class="layout-search-plate">
+                  <w-icon :name="assetKindIcons[item.kind] || assetKindIcons.other" size="18px" />
+                </div>
+                <div class="layout-search-rowbody">
+                  <div class="layout-search-rowtitle">{{ item.fileName }}</div>
+                  <div class="layout-search-rowpath">
+                    {{ assetPath(item.folderPath, item.fileName) }}
+                  </div>
+                  <div class="layout-search-rowexcerpt text-highlight" v-if="item.highlight">
+                    <span v-html="item.highlight" />
+                  </div>
+                </div>
+                <div class="layout-search-rowmeta">
+                  <div class="layout-search-rowdate">{{ formatFileSize(item.fileSize) }}</div>
+                </div>
+              </a>
+            </div>
+            <div
+              class="flex justify-center p-4"
+              v-if="state.assets.results.length < state.assets.total">
+              <w-btn
+                flat
+                color="primary"
+                data-testid="search-asset-load-more"
+                :label="t('search.loadMore')"
+                :loading="state.assets.loading"
+                @click="loadMoreAssets" />
+            </div>
+          </div>
         </w-page>
         <w-inner-loading :showing="state.loading > 0" />
       </div>
@@ -268,6 +334,8 @@ import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
 import SearchResultHopBadge from '@/components/SearchResultHopBadge.vue'
 import SearchResultSimilarityBadge from '@/components/SearchResultSimilarityBadge.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { assetPath, assetUrl } from '@/helpers/assets'
+import { formatFileSize } from '@/helpers/fileSize'
 import { log } from '@/helpers/log'
 import {
   SEARCH_FILTER_VALUE_MAX_LENGTH,
@@ -285,6 +353,14 @@ import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
 
 /** The API caps a single request at 100. */
 const RESULTS_LIMIT = 100
+
+const ASSET_RESULTS_LIMIT = 10
+
+const assetKindIcons = {
+  document: 'tabler:file-text',
+  image: 'tabler:photo',
+  other: 'tabler:file'
+}
 
 const flagsStore = useFlagsStore()
 const siteStore = useSiteStore()
@@ -324,8 +400,19 @@ const state = reactive({
    * wrong, since everything shown is something this reader may actually open.
    */
   totalApproximate: false,
-  offset: 0
+  offset: 0,
+  assets: {
+    kind: 'all',
+    query: '',
+    results: [],
+    total: 0,
+    totalApproximate: false,
+    offset: 0,
+    loading: false
+  }
 })
+
+let assetRequestId = 0
 
 /**
  * This layout's own breakpoint rather than one of the app's, and the same one `ProfileOverlay`
@@ -341,6 +428,20 @@ const searchModeOptions = computed(() => [
   { label: t('search.modeKeyword'), value: 'keyword', icon: 'tabler:file-search' },
   { label: t('search.modeSemantic'), value: 'semantic', icon: 'tabler:wand' }
 ])
+
+const assetKindOptions = computed(() => [
+  { label: t('search.assetKindAll'), value: 'all' },
+  { label: t('search.assetKindDocument'), value: 'document' },
+  { label: t('search.assetKindImage'), value: 'image' },
+  { label: t('search.assetKindOther'), value: 'other' }
+])
+
+const showAssetsSection = computed(
+  () =>
+    !isSemanticMode.value &&
+    (state.assets.results.length > 0 ||
+      (state.assets.kind !== 'all' && state.assets.query.length > 0))
+)
 
 const orderByOptions = computed(() => {
   return [
@@ -584,6 +685,76 @@ async function runSearchRequest(endpoint, searchParams, append) {
   }
 }
 
+function resetAssets() {
+  assetRequestId++
+  state.assets.query = ''
+  state.assets.results = []
+  state.assets.total = 0
+  state.assets.totalApproximate = false
+  state.assets.offset = 0
+  state.assets.loading = false
+}
+
+async function performAssetSearch(q, append = false) {
+  const requestId = ++assetRequestId
+  const offset = append ? state.assets.offset : 0
+
+  state.assets.query = q
+  state.assets.loading = true
+  try {
+    const resp = await API_CLIENT.get(`sites/${siteStore.id}/assets/search`, {
+      searchParams: [
+        ['query', q],
+        ...(state.assets.kind === 'all' ? [] : [['kind', state.assets.kind]]),
+        ['offset', offset],
+        ['limit', ASSET_RESULTS_LIMIT]
+      ]
+    }).json()
+    if (requestId !== assetRequestId) {
+      return
+    }
+    const results = resp?.results ?? []
+    state.assets.results = append ? [...state.assets.results, ...results] : results
+    state.assets.total = resp?.totalHits ?? 0
+    state.assets.totalApproximate = resp?.totalHitsApproximate ?? false
+    state.assets.offset = offset + results.length
+  } catch (err) {
+    if (requestId !== assetRequestId) {
+      return
+    }
+    log.warn('search', 'could not search asset contents', err)
+    if (!append) {
+      state.assets.results = []
+      state.assets.total = 0
+      state.assets.totalApproximate = false
+      state.assets.offset = 0
+    }
+    notify({
+      type: 'negative',
+      message: t('search.failed'),
+      caption: apiErrorMessage(err)
+    })
+  } finally {
+    if (requestId === assetRequestId) {
+      state.assets.loading = false
+    }
+  }
+}
+
+function setAssetKind(kind) {
+  if (kind === state.assets.kind) {
+    return
+  }
+  state.assets.kind = kind
+  if (state.assets.query) {
+    performAssetSearch(state.assets.query)
+  }
+}
+
+function loadMoreAssets() {
+  return performAssetSearch(state.assets.query, true)
+}
+
 /**
  * Unlike the keyword path this sends the reader's query text through untouched. Tag filters are the
  * `#tag` tokens in the query plus any Tag rows, sent as repeated `tags` pairs. No `orderBy` is sent
@@ -613,6 +784,7 @@ async function performSearch(append = false) {
     return undefined
   }
   if (isSemanticMode.value) {
+    resetAssets()
     return performSemanticSearch(append)
   }
 
@@ -629,10 +801,11 @@ async function performSearch(append = false) {
   //    than select.
   if (!q && queryTags.length < 1 && !hasIncludeFilter(state.filters)) {
     resetResults()
+    resetAssets()
     return undefined
   }
 
-  return runSearchRequest(
+  const pagesRequest = runSearchRequest(
     `sites/${siteStore.id}/pages/search`,
     [
       ...(q ? [['query', q]] : []),
@@ -642,6 +815,15 @@ async function performSearch(append = false) {
     ],
     append
   )
+
+  if (append) {
+    return pagesRequest
+  }
+  if (!q) {
+    resetAssets()
+    return pagesRequest
+  }
+  return Promise.all([pagesRequest, performAssetSearch(q)])
 }
 
 function setSearchMode(mode) {

@@ -211,7 +211,14 @@ function createSearchI18n() {
       modeToggleLabel: 'Search Mode',
       addFilter: 'Add filter',
       removeFilter: 'Remove filter',
-      filtersActive: 'Filters ({count})'
+      filtersActive: 'Filters ({count})',
+      assetsHeading: 'Files',
+      assetsNoMatches: 'No files of this type match {0}.',
+      assetKindLabel: 'File type',
+      assetKindAll: 'All',
+      assetKindDocument: 'Documents',
+      assetKindImage: 'Images',
+      assetKindOther: 'Other'
     }
   })
 }
@@ -413,7 +420,7 @@ describe('Search.vue offset paging (OpenProject #2001)', () => {
     await wrapper.vm.loadMore()
     await flushPromises()
 
-    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+    expectLastPageSearchCall(
       'sites/site-1/pages/search',
       expect.objectContaining({
         searchParams: expect.arrayContaining([['offset', 2]])
@@ -469,7 +476,7 @@ describe('Search.vue offset paging (OpenProject #2001)', () => {
     await wrapper.vm.performSearch()
     await flushPromises()
 
-    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+    expectLastPageSearchCall(
       'sites/site-1/pages/search',
       expect.objectContaining({
         searchParams: expect.arrayContaining([['offset', 0]])
@@ -511,7 +518,7 @@ describe('Search.vue filter/sort changes re-search from offset 0 (OpenProject #3
     await vi.advanceTimersByTimeAsync(500)
     await flushPromises()
 
-    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+    expectLastPageSearchCall(
       'sites/site-1/pages/search',
       expect.objectContaining({
         searchParams: expect.arrayContaining([['offset', 0]])
@@ -538,7 +545,7 @@ describe('Search.vue filter/sort changes re-search from offset 0 (OpenProject #3
     await vi.advanceTimersByTimeAsync(500)
     await flushPromises()
 
-    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+    expectLastPageSearchCall(
       'sites/site-1/pages/search',
       expect.objectContaining({
         searchParams: expect.arrayContaining([['offset', 0]])
@@ -760,7 +767,7 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     wrapper.vm.setSearchMode('keyword')
     await flushPromises()
 
-    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+    expectLastPageSearchCall(
       'sites/site-1/pages/search',
       expect.objectContaining({
         searchParams: expect.arrayContaining([
@@ -937,7 +944,7 @@ describe('Search.vue reads the mode query param (OpenProject #3138)', () => {
     })
 
     expect(wrapper.vm.state.mode).toBe('keyword')
-    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+    expectLastPageSearchCall(
       'sites/site-1/pages/search',
       expect.objectContaining({
         searchParams: expect.arrayContaining([['query', 'onboarding']])
@@ -970,7 +977,7 @@ describe('Search.vue reads the mode query param (OpenProject #3138)', () => {
     await flushPromises()
 
     expect(wrapper.vm.state.mode).toBe('keyword')
-    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+    expectLastPageSearchCall(
       'sites/site-1/pages/search',
       expect.objectContaining({
         searchParams: expect.arrayContaining([['query', 'onboarding']])
@@ -1166,11 +1173,15 @@ describe('Search.vue similarity match badge (OpenProject #3223)', () => {
 })
 
 function lastSearchParams() {
-  return API_CLIENT.get.mock.calls.at(-1)[1].searchParams
+  return searchCalls().at(-1)[1].searchParams
 }
 
 function pairNames(pairs) {
   return pairs.map(([name]) => name)
+}
+
+function expectLastPageSearchCall(url, options) {
+  expect(searchCalls().at(-1)).toEqual([url, options])
 }
 
 function searchCalls() {
@@ -1653,5 +1664,163 @@ describe('Search.vue dynamic filter rows (OpenProject #3518)', () => {
 
       expect(API_CLIENT.put).not.toHaveBeenCalled()
     })
+  })
+})
+
+const FIXTURE_ASSET = {
+  id: 'a1',
+  fileName: 'manual.pdf',
+  fileExt: 'pdf',
+  kind: 'document',
+  mimeType: 'application/pdf',
+  fileSize: 2048,
+  folderPath: 'docs',
+  title: 'manual.pdf',
+  locale: 'en',
+  hasPreview: false,
+  createdAt: '2026-08-01T00:00:00.000Z',
+  updatedAt: '2026-08-01T00:00:00.000Z',
+  relevancy: 0.4,
+  highlight: 'The wandering <b>kangaroo</b> crossed the outback'
+}
+
+async function mountSearchWithAssets({
+  initialPath = '/_search?q=kangaroo',
+  assetResponse = { results: [FIXTURE_ASSET], totalHits: 1, totalHitsApproximate: false },
+  semanticEnabled = false
+} = {}) {
+  setActivePinia(createPinia())
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+  siteStore.features.semanticSearch = semanticEnabled
+
+  API_CLIENT.get.mockImplementation((url) => ({
+    json: () =>
+      Promise.resolve(
+        url === 'sites/site-1/assets/search'
+          ? assetResponse
+          : { results: [], totalHits: 0, totalHitsApproximate: false }
+      )
+  }))
+
+  const router = await createSearchRouter(initialPath)
+  const wrapper = mount(Search, {
+    global: {
+      plugins: [router, createSearchI18n()],
+      stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
+    }
+  })
+  activeWrapper = wrapper
+  await flushPromises()
+  return { wrapper, siteStore }
+}
+
+function assetCalls() {
+  return API_CLIENT.get.mock.calls.filter(([url]) => url === 'sites/site-1/assets/search')
+}
+
+describe('Search.vue asset results section', () => {
+  it('renders an asset hit in its own section, with its highlight, linking to the file', async () => {
+    const { wrapper } = await mountSearchWithAssets()
+
+    const section = wrapper.find('[data-testid="search-assets"]')
+    expect(section.exists()).toBe(true)
+    expect(section.text()).toContain('Files')
+
+    const row = section.find('[data-testid="search-asset-row"]')
+    expect(row.attributes('href')).toBe('/_files/docs/manual.pdf')
+    expect(row.text()).toContain('manual.pdf')
+    expect(row.text()).toContain('/docs/manual.pdf')
+    expect(row.find('.layout-search-rowexcerpt b').text()).toBe('kangaroo')
+  })
+
+  it('searches assets with the words only, never the tags or page filters', async () => {
+    await mountSearchWithAssets({ initialPath: '/_search?q=kangaroo%20%23zoo' })
+
+    expect(assetCalls()).toHaveLength(1)
+    const { searchParams } = assetCalls()[0][1]
+    expect(searchParams).toEqual([
+      ['query', 'kangaroo'],
+      ['offset', 0],
+      ['limit', 10]
+    ])
+  })
+
+  it('hides the section when no asset matches and no kind is chosen', async () => {
+    const { wrapper } = await mountSearchWithAssets({
+      assetResponse: { results: [], totalHits: 0, totalHitsApproximate: false }
+    })
+
+    expect(wrapper.find('[data-testid="search-assets"]').exists()).toBe(false)
+  })
+
+  it('refetches only the assets, with the kind, when a kind is chosen', async () => {
+    const { wrapper } = await mountSearchWithAssets()
+    const pageCallsBefore = API_CLIENT.get.mock.calls.filter(
+      ([url]) => url === 'sites/site-1/pages/search'
+    ).length
+
+    const imagesButton = wrapper
+      .find('[data-testid="search-asset-kind"]')
+      .findAll('button')
+      .find((b) => b.text() === 'Images')
+    await imagesButton.trigger('click')
+    await flushPromises()
+
+    expect(assetCalls()).toHaveLength(2)
+    expect(assetCalls()[1][1].searchParams).toEqual([
+      ['query', 'kangaroo'],
+      ['kind', 'image'],
+      ['offset', 0],
+      ['limit', 10]
+    ])
+    expect(
+      API_CLIENT.get.mock.calls.filter(([url]) => url === 'sites/site-1/pages/search').length
+    ).toBe(pageCallsBefore)
+  })
+
+  it('keeps the section, with a message, when a chosen kind matches nothing', async () => {
+    const { wrapper } = await mountSearchWithAssets()
+    API_CLIENT.get.mockImplementation(() => ({
+      json: () => Promise.resolve({ results: [], totalHits: 0, totalHitsApproximate: false })
+    }))
+
+    wrapper.vm.setAssetKind('image')
+    await flushPromises()
+
+    const section = wrapper.find('[data-testid="search-assets"]')
+    expect(section.exists()).toBe(true)
+    expect(section.text()).toContain('No files of this type match kangaroo.')
+    expect(section.find('[data-testid="search-asset-row"]').exists()).toBe(false)
+  })
+
+  it('appends the next page of assets on load more', async () => {
+    const { wrapper } = await mountSearchWithAssets({
+      assetResponse: { results: [FIXTURE_ASSET], totalHits: 2, totalHitsApproximate: false }
+    })
+    API_CLIENT.get.mockImplementation(() => ({
+      json: () =>
+        Promise.resolve({
+          results: [{ ...FIXTURE_ASSET, id: 'a2', fileName: 'second.pdf' }],
+          totalHits: 2,
+          totalHitsApproximate: false
+        })
+    }))
+
+    await wrapper.find('[data-testid="search-asset-load-more"]').trigger('click')
+    await flushPromises()
+
+    expect(assetCalls().at(-1)[1].searchParams).toEqual(expect.arrayContaining([['offset', 1]]))
+    expect(wrapper.findAll('[data-testid="search-asset-row"]')).toHaveLength(2)
+  })
+
+  it('does not search assets in Semantic mode', async () => {
+    const { wrapper } = await mountSearchWithAssets({
+      initialPath: '/_search?q=kangaroo&mode=semantic',
+      semanticEnabled: true
+    })
+
+    expect(assetCalls()).toHaveLength(0)
+    expect(wrapper.find('[data-testid="search-assets"]').exists()).toBe(false)
   })
 })
