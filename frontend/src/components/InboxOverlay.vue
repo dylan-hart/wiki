@@ -39,6 +39,7 @@
 
     <w-page-container>
       <inbox-watching v-if="tab === 'watching'" />
+      <inbox-pages v-else-if="tab === 'pages'" />
       <inbox-review
         v-else
         :initial-submission-id="overlayOpts.submissionId ?? null"
@@ -53,6 +54,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useSiteStore } from '@/stores/site'
 
+import InboxPages from '@/pages/InboxPages.vue'
 import InboxReview from '@/pages/InboxReview.vue'
 import InboxWatching from '@/pages/InboxWatching.vue'
 
@@ -81,10 +83,17 @@ const sidenav = computed(() => [
     key: 'review',
     label: t('inbox.pendingReview'),
     icon: 'tabler:clipboard-check'
+  },
+  {
+    key: 'pages',
+    label: t('inbox.pages'),
+    icon: 'tabler:history'
   }
 ])
 
-const tab = ref(props.overlayOpts.tab === 'review' ? 'review' : 'watching')
+const TABS = ['watching', 'review', 'pages']
+
+const tab = ref(TABS.includes(props.overlayOpts.tab) ? props.overlayOpts.tab : 'watching')
 
 function close() {
   siteStore.$patch({ overlay: '' })

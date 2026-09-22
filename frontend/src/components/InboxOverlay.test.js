@@ -25,6 +25,7 @@ vi.mock('@/renderers/markdown', () => ({
 }))
 
 import InboxOverlay from './InboxOverlay.vue'
+import InboxPages from '@/pages/InboxPages.vue'
 import InboxReview from '@/pages/InboxReview.vue'
 import { mountWithApp } from '../../test/mount.js'
 
@@ -37,7 +38,8 @@ const messages = {
   inbox: {
     title: 'Inbox',
     inbox: 'Inbox',
-    pendingReview: 'Pending Review'
+    pendingReview: 'Pending Review',
+    pages: 'My Pages'
   }
 }
 
@@ -53,11 +55,35 @@ function mountInboxOverlay(overlayOpts) {
 }
 
 describe('InboxOverlay sidenav', () => {
-  it('renders exactly two rail entries', () => {
+  it('renders exactly three rail entries', () => {
     const { wrapper } = mountInboxOverlay()
 
     const labels = wrapper.findAll('.inbox-overlay-sidebar .w-item-label').map((el) => el.text())
-    expect(labels).toEqual(['Inbox', 'Pending Review'])
+    expect(labels).toEqual(['Inbox', 'Pending Review', 'My Pages'])
+  })
+
+  it('opens onto the Pages tab when overlayOpts.tab is "pages"', () => {
+    const { wrapper } = mountInboxOverlay({ tab: 'pages' })
+
+    expect(wrapper.vm.tab).toBe('pages')
+    expect(wrapper.findComponent(InboxPages).exists()).toBe(true)
+    expect(wrapper.findComponent(InboxReview).exists()).toBe(false)
+  })
+
+  it('falls back to the Watching tab for an unknown overlayOpts.tab', () => {
+    const { wrapper } = mountInboxOverlay({ tab: 'nonsense' })
+
+    expect(wrapper.vm.tab).toBe('watching')
+  })
+
+  it('switches to the Pages tab on a rail click', async () => {
+    const { wrapper } = mountInboxOverlay()
+
+    const items = wrapper.findAll('.inbox-overlay-sidebar .w-item')
+    await items[2].trigger('click')
+
+    expect(wrapper.vm.tab).toBe('pages')
+    expect(wrapper.findComponent(InboxPages).exists()).toBe(true)
   })
 
   it('defaults to the Watching tab with no overlayOpts', () => {
