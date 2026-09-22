@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import Sortable from 'sortablejs'
 
 import FileManager from './FileManager.vue'
 import { usePageStore } from '@/stores/page'
@@ -1692,6 +1693,194 @@ describe('FileManager folder Duplicate action (OpenProject #3669)', () => {
     await flushPromises()
 
     expect(openDialogs[0].props).toMatchObject({ mode: 'duplicatePage', itemId: 'p1' })
+    wrapper.unmount()
+  })
+})
+
+describe('FileManager drag-to-reorder (OpenProject #3731)', () => {
+  const reorderI18n = createTestI18n({
+    common: {
+      error: { unexpected: 'Unexpected error' },
+      header: { searchShortcutMac: '⌘K', searchShortcutOther: 'Ctrl+K' }
+    },
+    fileman: {
+      reorderFailed: 'Failed to reorder the folder.',
+      folderChildrenCount: '{count} items'
+    }
+  })
+
+  const folder = (id, fileName) => ({ id, type: 'folder', title: fileName, fileName, children: 0 })
+  const page = (id, fileName) => ({
+    id,
+    type: 'page',
+    title: fileName,
+    fileName,
+    pageType: 'markdown',
+    folderPath: ''
+  })
+  const asset = (id, fileName) => ({
+    id,
+    type: 'asset',
+    title: fileName,
+    fileName,
+    fileExt: 'png',
+    fileSize: 1,
+    folderPath: ''
+  })
+
+  async function mountReorderable(fileList, { permitted = true } = {}) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    if (permitted) {
+      useUserStore().permissions = ['manage:pages']
+    }
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [reorderI18n, buildTestRouter([])],
+        stubs: {
+          Tree: { template: '<div />', methods: { resetLoaded() {}, setLoaded() {} } },
+          NewMenu: true,
+          LocaleSelectorMenu: true,
+          WMenu: { template: '<div><slot /></div>' }
+        }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+    wrapper.vm.state.fileList = fileList
+    await flushPromises()
+    return { wrapper }
+  }
+
+  function drag(wrapper, oldIndex, newIndex) {
+    Sortable.get(wrapper.find('.fileman-filelist').element).option('onUpdate')({
+      oldIndex,
+      newIndex
+    })
+  }
+
+  beforeEach(() => {
+    notifyQueue.length = 0
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('PUTs the pages and folders in their new order, leaving assets out', async () => {
+    const { wrapper } = await mountReorderable([
+      folder('f1', 'docs'),
+      page('p1', 'intro'),
+      asset('a1', 'logo'),
+      page('p2', 'guide')
+    ])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    drag(wrapper, 3, 0)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/tree/order', {
+      json: { locale: 'en', ids: ['p2', 'f1', 'p1'] }
+    })
+    expect(wrapper.vm.state.fileList.map((f) => f.id)).toEqual(['p2', 'f1', 'p1', 'a1'])
+    wrapper.unmount()
+  })
+
+  it('keeps a page and a folder sharing a name together in the PUT', async () => {
+    const { wrapper } = await mountReorderable([
+      folder('f1', 'docs'),
+      page('p1', 'docs'),
+      page('p2', 'zeta')
+    ])
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    drag(wrapper, 2, 1)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/tree/order', {
+      json: { locale: 'en', ids: ['f1', 'p1', 'p2'] }
+    })
+    wrapper.unmount()
+  })
+
+  it('addresses the open folder by id', async () => {
+    const { wrapper } = await mountReorderable([page('p1', 'one'), page('p2', 'two')])
+    wrapper.vm.state.currentFolderId = 'folder-9'
+    wrapper.vm.state.treeNodes['folder-9'] = { children: [] }
+    await flushPromises()
+    wrapper.vm.state.fileList = [page('p1', 'one'), page('p2', 'two')]
+    await flushPromises()
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    drag(wrapper, 0, 1)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/tree/order', {
+      json: { parentId: 'folder-9', locale: 'en', ids: ['p2', 'p1'] }
+    })
+    wrapper.unmount()
+  })
+
+  it('notifies and reloads the folder when the server refuses the order', async () => {
+    const { wrapper } = await mountReorderable([page('p1', 'one'), page('p2', 'two')])
+    const error = Object.assign(new Error('409'), {
+      data: { message: 'This folder changed while you were reordering it.' }
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(error) })
+    API_CLIENT.get.mockClear()
+
+    drag(wrapper, 0, 1)
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to reorder the folder.',
+      caption: 'This folder changed while you were reordering it.'
+    })
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('does not reorder without manage:pages', async () => {
+    const { wrapper } = await mountReorderable([page('p1', 'one'), page('p2', 'two')], {
+      permitted: false
+    })
+
+    drag(wrapper, 0, 1)
+    await flushPromises()
+
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('turns a tree reorder of folders into a full-folder order, folder slots refilled', async () => {
+    const { wrapper } = await mountReorderable([])
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve([
+          { id: 'f1', type: 'folder', fileName: 'a' },
+          { id: 'p1', type: 'page', fileName: 'b' },
+          { id: 'f2', type: 'folder', fileName: 'c' },
+          { id: 'x1', type: 'asset', fileName: 'd.png' }
+        ])
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    await wrapper.vm.treeReorder(null, ['f2', 'f1'])
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith(
+      'sites/site-1/tree',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ types: 'page,folder', orderBy: 'sortOrder' })
+      })
+    )
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/tree/order', {
+      json: { locale: 'en', ids: ['f2', 'p1', 'f1'] }
+    })
     wrapper.unmount()
   })
 })

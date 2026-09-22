@@ -3,8 +3,13 @@ import { describe, expect, it } from 'vitest'
 import {
   ancestorFolderIds,
   descendantFolderIds,
+  fetchTreeEntries,
+  idsWithFolderOrder,
   mergeFolderEntries,
-  parentFolderIdOf
+  orderLike,
+  parentFolderIdOf,
+  reorderableIds,
+  reorderTreeEntries
 } from './treeNodes'
 
 const folder = (id, folderPath, fileName, extra = {}) => ({
@@ -199,5 +204,95 @@ describe('descendantFolderIds', () => {
 
   it('returns an empty array for an id the map has never heard of', () => {
     expect(descendantFolderIds(nodes, 'missing')).toEqual([])
+  })
+})
+
+describe('reorder helpers (OpenProject #3731)', () => {
+  const entry = (id, type, fileName) => ({ id, type, fileName })
+
+  describe('reorderableIds', () => {
+    it('leaves assets out', () => {
+      expect(
+        reorderableIds([
+          entry('p1', 'page', 'a'),
+          entry('x1', 'asset', 'b.png'),
+          entry('f1', 'folder', 'c')
+        ])
+      ).toEqual(['p1', 'f1'])
+    })
+
+    it('gathers a page and a folder sharing a name at whichever comes first', () => {
+      expect(
+        reorderableIds([
+          entry('f1', 'folder', 'docs'),
+          entry('p2', 'page', 'zeta'),
+          entry('p1', 'page', 'docs')
+        ])
+      ).toEqual(['f1', 'p1', 'p2'])
+    })
+  })
+
+  describe('idsWithFolderOrder', () => {
+    it('refills the folder slots with the new folder order and leaves pages where they were', () => {
+      const entries = [
+        entry('f1', 'folder', 'a'),
+        entry('p1', 'page', 'b'),
+        entry('f2', 'folder', 'c'),
+        entry('f3', 'folder', 'd')
+      ]
+      expect(idsWithFolderOrder(entries, ['f3', 'f1', 'f2'])).toEqual(['f3', 'p1', 'f1', 'f2'])
+    })
+
+    it('moves a folder together with the page sharing its name', () => {
+      const entries = [
+        entry('f1', 'folder', 'a'),
+        entry('p1', 'page', 'a'),
+        entry('f2', 'folder', 'b')
+      ]
+      expect(idsWithFolderOrder(entries, ['f2', 'f1'])).toEqual(['f2', 'f1', 'p1'])
+    })
+
+    it('keeps a folder the tree did not mention, after the ones it did', () => {
+      const entries = [entry('f1', 'folder', 'a'), entry('f2', 'folder', 'b')]
+      expect(idsWithFolderOrder(entries, ['f2'])).toEqual(['f2', 'f1'])
+    })
+  })
+
+  describe('orderLike', () => {
+    it('sorts by the given order, keeping ids it does not name at the end', () => {
+      expect(orderLike(['a', 'b', 'c', 'd'], ['c', 'a', 'zz'])).toEqual(['c', 'a', 'b', 'd'])
+    })
+  })
+
+  describe('reorderTreeEntries', () => {
+    it('PUTs the ids, addressing the root by omitting parentId', async () => {
+      API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+      await reorderTreeEntries('s1', { ids: ['a', 'b'] })
+
+      expect(API_CLIENT.put).toHaveBeenCalledWith('sites/s1/tree/order', {
+        json: { ids: ['a', 'b'] }
+      })
+    })
+
+    it('carries the folder and locale when given', async () => {
+      API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+      await reorderTreeEntries('s1', { parentId: 'f', locale: 'fr', ids: ['a'] })
+
+      expect(API_CLIENT.put).toHaveBeenCalledWith('sites/s1/tree/order', {
+        json: { parentId: 'f', locale: 'fr', ids: ['a'] }
+      })
+    })
+  })
+
+  describe('fetchTreeEntries', () => {
+    it('asks for manual order unless told otherwise', async () => {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+
+      await fetchTreeEntries('s1')
+
+      expect(API_CLIENT.get.mock.calls[0][1].searchParams.orderBy).toBe('sortOrder')
+    })
   })
 })

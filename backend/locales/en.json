@@ -3049,6 +3049,7 @@
   "fileman.renameItem": "Rename...",
   "fileman.renameMoveFailed": "Failed to rename or move page.",
   "fileman.renameMovePage": "Rename / Move Page...",
+  "fileman.reorderFailed": "Failed to reorder the folder.",
   "fileman.searchFolder": "Search folder...",
   "fileman.showFolders": "Show Folders",
   "fileman.svgFileType": "Scalable Vector Graphic",
