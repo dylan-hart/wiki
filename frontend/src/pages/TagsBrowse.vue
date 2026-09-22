@@ -180,6 +180,18 @@
             <template #prepend><w-icon name="tabler:sort-descending" size="14px" /></template>
           </w-select>
         </div>
+
+        <div class="tags-browse-subheader">{{ t('tasks.title') }}</div>
+        <div class="p-2">
+          <w-btn
+            class="tags-browse-tasks-link"
+            flat
+            dense
+            no-caps
+            icon="tabler:checklist"
+            :label="t('tasks.openTasks')"
+            to="/_tasks" />
+        </div>
       </div>
 
       <div class="tags-browse-results">
