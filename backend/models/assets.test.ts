@@ -850,3 +850,109 @@ test('setSearchContent stores the text with a vector, and clears both for blank 
   assert.deepEqual(sets[1], { searchContent: null, ts: null })
   assert.deepEqual(sets[2], { searchContent: null, ts: null })
 })
+
+function extractionJobs() {
+  const addJob = (global.CARDINAL as any).scheduler.addJob
+  return addJob.mock.calls.map((call: any) => call.arguments[0])
+}
+
+test('upload of a PDF queues text extraction for the new asset', async () => {
+  stubUploadPath(false)
+  const addJob = mock.fn(async () => ({ id: 'job-1' }))
+  global.CARDINAL = { ...global.CARDINAL, scheduler: { addJob } } as unknown as CardinalGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'report.pdf',
+    data: Buffer.from('%PDF-1.4'),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(extractionJobs(), [
+    { task: 'extractAssetText', payload: { assetId: 'asset-svg-1' } }
+  ])
+})
+
+test('upload of a non-PDF queues no extraction', async () => {
+  stubUploadPath(false)
+  const addJob = mock.fn(async () => ({ id: 'job-1' }))
+  global.CARDINAL = { ...global.CARDINAL, scheduler: { addJob } } as unknown as CardinalGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'notes.txt',
+    data: Buffer.from('hello'),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(extractionJobs(), [])
+})
+
+test('a scheduler failure while queueing extraction does not fail the upload', async () => {
+  stubUploadPath(false)
+  const addJob = mock.fn(async () => {
+    throw new Error('queue down')
+  })
+  global.CARDINAL = {
+    ...global.CARDINAL,
+    scheduler: { addJob },
+    logger: { info: () => {}, warn: () => {}, debug: () => {}, error: () => {} }
+  } as unknown as CardinalGlobal
+
+  const asset = await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'report.pdf',
+    data: Buffer.from('%PDF-1.4'),
+    authorId: 'user-1'
+  })
+
+  assert.equal(asset.id, 'asset-svg-1')
+})
+
+test('an overwrite of a PDF queues extraction for the existing asset id', async () => {
+  const chain: any = {
+    from: () => chain,
+    innerJoin: () => chain,
+    where: () => chain,
+    values: () => chain,
+    limit: () => Promise.resolve([undefined]),
+    set: () => chain
+  }
+  const addJob = mock.fn(async () => ({ id: 'job-1' }))
+  global.CARDINAL = {
+    ...global.CARDINAL,
+    ...cacheFsStubs,
+    scheduler: { addJob },
+    sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
+    db: { select: () => chain, update: () => chain, delete: () => chain, insert: () => chain },
+    models: {
+      ...(global.CARDINAL as any).models,
+      tree: {
+        getEntryAt: async () => ({
+          type: 'asset',
+          id: 'asset-9',
+          fileName: 'report.pdf',
+          folderPath: '',
+          title: 'report.pdf'
+        })
+      },
+      hooks: { emit: () => {} },
+      storage: { dispatch: () => {} }
+    }
+  } as unknown as CardinalGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'report.pdf',
+    data: Buffer.from('%PDF-1.4'),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(extractionJobs(), [
+    { task: 'extractAssetText', payload: { assetId: 'asset-9' } }
+  ])
+})
