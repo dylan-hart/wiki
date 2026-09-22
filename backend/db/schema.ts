@@ -1076,6 +1076,32 @@ export const pageWatchEvents = pgTable(
   ]
 )
 
+export const userPageKindEnum = pgEnum('userPageKind', ['recent', 'favorite', 'pinned'])
+
+export const userPages = pgTable(
+  'userPages',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    pageId: uuid()
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    kind: userPageKindEnum().notNull(),
+    position: integer()
+  },
+  (table) => [
+    index('userPages_user_site_kind_idx').on(table.userId, table.siteId, table.kind),
+    uniqueIndex('userPages_user_page_kind_idx').on(table.userId, table.pageId, table.kind)
+  ]
+)
+
 /**
  * One row per page view -- a log, not a counter -- so DISTINCT visitors can be counted over any
  * trailing window rather than whatever a running total already collapsed away.

@@ -60,6 +60,7 @@ import { tags } from './tags.ts'
 import { tasks } from './tasks.ts'
 import { tree } from './tree.ts'
 import { userCredentials } from './userCredentials.ts'
+import { userPages } from './userPages.ts'
 import { users } from './users.ts'
 
 export default {
@@ -125,5 +126,6 @@ export default {
   tasks,
   tree,
   userCredentials,
+  userPages,
   users
 }
