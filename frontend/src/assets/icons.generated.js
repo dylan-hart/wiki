@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `npm run icons:check` fails the build if this drifts.
 
-  378 icons.
+  381 icons.
 */
 export const BUNDLED_ICONS = {
   "la:plus": {"body":"<path fill=\"currentColor\" d=\"M15 5v10H5v2h10v10h2V17h10v-2H17V5z\"/>","width":32,"height":32},
@@ -293,6 +293,8 @@ export const BUNDLED_ICONS = {
   "tabler:photo-plus": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M12.5 21H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v6.5\"/><path stroke-linecap=\"round\" d=\"M15 8h.01\"/><path d=\"m3 16l5-5c.928-.893 2.072-.893 3 0l4 4\"/><path d=\"m14 14l1-1c.67-.644 1.45-.824 2.182-.54M16 19h6m-3-3v6\"/></g>","width":24,"height":24},
   "tabler:photo-x": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M13 21H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v7\"/><path stroke-linecap=\"round\" d=\"M15 8h.01\"/><path d=\"m3 16l5-5c.928-.893 2.072-.893 3 0l3 3m0 0l1-1c.928-.893 2.072-.893 3 0m4 9l-5-5m0 5l5-5\"/></g>","width":24,"height":24},
   "tabler:pilcrow": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M13 4v16m4-16v16m2-16H9.5a4.5 4.5 0 0 0 0 9H13\"/>","width":24,"height":24},
+  "tabler:pin": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"m15 4.5l-4 4L7 10l-1.5 1.5l7 7L14 17l1.5-4l4-4M9 15l-4.5 4.5M14.5 4L20 9.5\"/>","width":24,"height":24},
+  "tabler:pin-filled": {"body":"<path fill=\"currentColor\" d=\"m15.113 3.21l.094.083l5.5 5.5a1 1 0 0 1-1.175 1.59l-3.172 3.171l-1.424 3.797a1 1 0 0 1-.158.277l-.07.08l-1.5 1.5a1 1 0 0 1-1.32.082l-.095-.083L9 16.415l-3.793 3.792a1 1 0 0 1-1.497-1.32l.083-.094L7.585 15l-2.792-2.793a1 1 0 0 1-.083-1.32l.083-.094l1.5-1.5a1 1 0 0 1 .258-.187l.098-.042l3.796-1.425l3.171-3.17a1 1 0 0 1 1.497-1.26z\"/>","width":24,"height":24},
   "tabler:player-pause": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M6 6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zm8 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1z\"/>","width":24,"height":24},
   "tabler:player-play": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M7 4v16l13-8z\"/>","width":24,"height":24},
   "tabler:player-stop": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M5 7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z\"/>","width":24,"height":24},
@@ -343,6 +345,7 @@ export const BUNDLED_ICONS = {
   "tabler:stack-2": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M12 4L4 8l8 4l8-4zm-8 8l8 4l8-4M4 16l8 4l8-4\"/>","width":24,"height":24},
   "tabler:stack-3": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M12 2L4 6l8 4l8-4zm-8 8l8 4l8-4M4 18l8 4l8-4M4 14l8 4l8-4\"/>","width":24,"height":24},
   "tabler:star": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"m12 17.75l-6.172 3.245l1.179-6.873l-5-4.867l6.9-1l3.086-6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z\"/>","width":24,"height":24},
+  "tabler:star-filled": {"body":"<path fill=\"currentColor\" d=\"m8.243 7.34l-6.38.925l-.113.023a1 1 0 0 0-.44 1.684l4.622 4.499l-1.09 6.355l-.013.11a1 1 0 0 0 1.464.944l5.706-3l5.693 3l.1.046a1 1 0 0 0 1.352-1.1l-1.091-6.355l4.624-4.5l.078-.085a1 1 0 0 0-.633-1.62l-6.38-.926l-2.852-5.78a1 1 0 0 0-1.794 0z\"/>","width":24,"height":24},
   "tabler:strikethrough": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M5 12h14m-3-5.5A4 2 0 0 0 12 5h-1a3.5 3.5 0 0 0 0 7h2a3.5 3.5 0 0 1 0 7h-1.5a4 2 0 0 1-4-1.5\"/>","width":24,"height":24},
   "tabler:subscript": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"m5 7l8 10m-8 0l8-10m8 13h-4l3.5-4a1.73 1.73 0 0 0-3.5-2\"/>","width":24,"height":24},
   "tabler:sun": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M8 12a4 4 0 1 0 8 0a4 4 0 1 0-8 0m-5 0h1m8-9v1m8 8h1m-9 8v1M5.6 5.6l.7.7m12.1-.7l-.7.7m0 11.4l.7.7m-12.1-.7l-.7.7\"/>","width":24,"height":24},
