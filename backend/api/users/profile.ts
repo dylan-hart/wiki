@@ -795,7 +795,7 @@ async function routes(app: FastifyInstance) {
                         canDisconnect: {
                           type: 'boolean',
                           description:
-                            'Whether this provider may be disconnected with `DELETE /users/profile/auth/:strategyId`: false for the local strategy, and false when it is the last way into the account.'
+                            'Whether this provider may be disconnected with `DELETE /users/profile/auth/:strategyId`: false for the local strategy, and false when it is the last way into the account. A password counts as a way in only once the account holder has chosen one or been given one, never the unknown one written when a provider created the account.'
                         },
                         recoveryCodesRemaining: {
                           type: 'integer',

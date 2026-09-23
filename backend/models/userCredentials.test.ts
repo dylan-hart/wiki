@@ -81,4 +81,44 @@ describe('userCredentials.countAlternativeLogins', () => {
     const linked = { ...user, auth: { ...user.auth, 'strategy-c': {} } }
     assert.equal(countAlternativeLogins(linked, STRATEGY), 1)
   })
+
+  describe('a stored password', () => {
+    const LOCAL = 'strategy-local'
+
+    function withLocal(entry: Record<string, any>) {
+      return { auth: { [STRATEGY]: { id: 'p1' }, [LOCAL]: entry } }
+    }
+
+    test('counts when the account holder knows it', () => {
+      withSecurity({ allowPasskeys: false })
+      assert.equal(
+        countAlternativeLogins(withLocal({ password: 'hash', isPasswordKnown: true }), STRATEGY),
+        1
+      )
+    })
+
+    test('does not count when it was generated for a provider-provisioned account', () => {
+      withSecurity({ allowPasskeys: false })
+      assert.equal(
+        countAlternativeLogins(withLocal({ password: 'hash', isPasswordKnown: false }), STRATEGY),
+        0
+      )
+    })
+
+    test('does not count when nothing recorded whether it is known', () => {
+      withSecurity({ allowPasskeys: false })
+      assert.equal(countAlternativeLogins(withLocal({ password: 'hash' }), STRATEGY), 0)
+    })
+
+    test('does not count when password login is restricted, known or not', () => {
+      withSecurity({ allowPasskeys: false })
+      assert.equal(
+        countAlternativeLogins(
+          withLocal({ password: 'hash', isPasswordKnown: true, restrictLogin: true }),
+          STRATEGY
+        ),
+        0
+      )
+    })
+  })
 })

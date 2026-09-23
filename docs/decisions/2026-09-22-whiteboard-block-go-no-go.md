@@ -4,6 +4,9 @@
 embeddable whiteboard/ink block for freehand drawing in pages). **Status:** Accepted. The project
 owner confirmed it in the #3714 deep-dive.
 
+**Superseded in part by** [2026-09-23-whiteboard-line-per-stroke-format.md](2026-09-23-whiteboard-line-per-stroke-format.md)
+(#3777): the body is now one stroke per line, not one compact JSON line.
+
 ## Recommendation
 
 **Go**, scoped to a freehand ink block, not a diagramming whiteboard.

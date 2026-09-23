@@ -465,6 +465,7 @@ class Login {
         // -> Nothing signs in with it: this account authenticates at the provider, and the local
         //    strategy's own entry is what a password would live under.
         password: randomToken(24),
+        isPasswordKnown: false,
         groups: strategy.autoEnrollGroups ?? [],
         isVerified: true
       })
@@ -1438,7 +1439,7 @@ class Login {
       await CARDINAL.models.userCredentials.patchStrategyAuth(
         user.id,
         strategyId,
-        () => ({ password: passwordHash, mustChangePwd: false }),
+        () => ({ password: passwordHash, isPasswordKnown: true, mustChangePwd: false }),
         { mirrorInto: user }
       )
 
@@ -1567,7 +1568,7 @@ class Login {
     await CARDINAL.models.userCredentials.patchStrategyAuth(
       user.id,
       strategyId,
-      () => ({ password: passwordHash, mustChangePwd: false }),
+      () => ({ password: passwordHash, isPasswordKnown: true, mustChangePwd: false }),
       { mirrorInto: user }
     )
     await CARDINAL.models.auditLog.record({

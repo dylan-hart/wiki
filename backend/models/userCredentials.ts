@@ -180,7 +180,10 @@ export async function matchRecoveryCode(
 export function countAlternativeLogins(user: any, strategyId: string): number {
   const auth = (user.auth ?? {}) as Record<string, any>
   const otherProviders = Object.entries(auth).filter(
-    ([id, config]) => id !== strategyId && !config?.restrictLogin
+    ([id, config]) =>
+      id !== strategyId &&
+      !config?.restrictLogin &&
+      (!config?.password || config.isPasswordKnown === true)
   ).length
   const passkeys = passkeysAllowed() ? ((user.passkeys ?? {}).authenticators ?? []).length : 0
   return otherProviders + passkeys
@@ -308,6 +311,7 @@ class UserCredentials {
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
     return this.patchStrategyAuth(id, CARDINAL.data.systemIds.localAuthId, () => ({
       password: passwordHash,
+      isPasswordKnown: true,
       mustChangePwd: mustChangePassword
     }))
   }
@@ -429,6 +433,7 @@ class UserCredentials {
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
     await this.patchStrategyAuth(userId, strategyId, () => ({
       password: passwordHash,
+      isPasswordKnown: true,
       mustChangePwd: false
     }))
   }

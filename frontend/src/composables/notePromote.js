@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { noteExcerpt } from '@/helpers/noteExcerpt'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { MarkdownRenderer } from '@/renderers/markdown'
 
@@ -12,10 +13,11 @@ import { useEditorStore } from '@/stores/editor'
 import { useSiteStore } from '@/stores/site'
 
 export function promoteDefaultTitle(note) {
-  return (note?.title ?? '').trim() || (note?.excerpt ?? '').trim()
+  const firstLine = typeof note?.content === 'string' ? noteExcerpt(note.content) : note?.excerpt
+  return (note?.title ?? '').trim() || (firstLine ?? '').trim()
 }
 
-export function useNotePromote() {
+export function useNotePromote({ beforeSubmit = null } = {}) {
   const { t } = useI18n()
   const router = useRouter()
   const siteStore = useSiteStore()
@@ -54,6 +56,7 @@ export function useNotePromote() {
 
   async function finish(note, destination) {
     try {
+      await beforeSubmit?.(note)
       const result = await submit(note, destination)
       notify({ type: 'positive', message: t('notes.promote.success') })
       await router.push(localizedPagePath(result.path, result.locale, siteStore.localeRouting))

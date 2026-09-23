@@ -32,10 +32,10 @@ function answerDialog(result) {
   })
 }
 
-function mountPromote(router) {
+function mountPromote(router, options) {
   const Host = defineComponent({
     setup() {
-      return useNotePromote()
+      return useNotePromote(options)
     },
     render: () => null
   })
@@ -56,6 +56,12 @@ describe('promoteDefaultTitle', () => {
     expect(promoteDefaultTitle({ title: null, excerpt: 'first line' })).toBe('first line')
     expect(promoteDefaultTitle({ title: '  ', excerpt: '' })).toBe('')
     expect(promoteDefaultTitle(undefined)).toBe('')
+  })
+
+  it('reads the first line from the live content over a stored excerpt', () => {
+    expect(
+      promoteDefaultTitle({ title: null, excerpt: 'old line', content: '## New line\n\nmore' })
+    ).toBe('New line')
   })
 })
 
@@ -126,6 +132,79 @@ describe('useNotePromote().promote', () => {
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/notes/note-1')
     expect(API_CLIENT.post.mock.calls[0][1].json.noteUpdatedAt).toBe('2026-09-23T11:00:00.000Z')
+  })
+
+  it('runs beforeSubmit first, then sends what the note holds once it has settled', async () => {
+    answerDialog({ path: 'docs/idea', title: 'Idea' })
+    const note = {
+      id: 'note-1',
+      title: 'Idea',
+      content: 'Old body',
+      updatedAt: '2026-09-23T10:00:00.000Z'
+    }
+    const beforeSubmit = vi.fn(async (target) => {
+      expect(API_CLIENT.post).not.toHaveBeenCalled()
+      target.content = 'New body'
+      target.updatedAt = '2026-09-23T10:05:00.000Z'
+    })
+    const { wrapper } = mountPromote(router, { beforeSubmit })
+
+    await wrapper.vm.promote(note)
+
+    expect(beforeSubmit).toHaveBeenCalledWith(note)
+    const body = API_CLIENT.post.mock.calls[0][1].json
+    expect(body.noteUpdatedAt).toBe('2026-09-23T10:05:00.000Z')
+    expect(body.render).toContain('New body')
+  })
+
+  it('stops before posting when beforeSubmit refuses', async () => {
+    answerDialog({ path: 'docs/idea', title: 'Idea' })
+    const { wrapper } = mountPromote(router, {
+      beforeSubmit: () => Promise.reject(new Error('notes.saveFailed'))
+    })
+    const push = vi.spyOn(router, 'push')
+
+    const result = await wrapper.vm.promote({
+      id: 'note-1',
+      title: 'Idea',
+      content: 'Body',
+      updatedAt: '2026-09-23T10:00:00.000Z'
+    })
+
+    expect(result).toBeNull()
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'negative',
+        message: 'notes.promote.failed',
+        caption: 'notes.saveFailed'
+      })
+    )
+  })
+
+  it("captions a refusal with the server's own message", async () => {
+    answerDialog({ path: 'docs/taken', title: 'Idea' })
+    const refusal = Object.assign(new Error('Request failed with status code 409'), {
+      data: { error: 'pageDuplicatePath', message: 'A page already exists at this path.' }
+    })
+    API_CLIENT.post.mockImplementation(() => ({ json: () => Promise.reject(refusal) }))
+    const { wrapper } = mountPromote(router)
+
+    await wrapper.vm.promote({
+      id: 'note-1',
+      title: 'Idea',
+      content: 'Body',
+      updatedAt: '2026-09-23T10:00:00.000Z'
+    })
+
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'negative',
+        message: 'notes.promote.failed',
+        caption: 'A page already exists at this path.'
+      })
+    )
   })
 
   it('reports a refusal and stays put', async () => {

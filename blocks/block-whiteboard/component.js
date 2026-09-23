@@ -9,13 +9,13 @@ import {
   DEFAULT_COLOR,
   DEFAULT_SIZE,
   PRESSURE_SCALE,
+  appendStroke,
   clampNumber,
   exceedsCap,
-  measureBoard,
+  measureBody,
   parseBoard,
   serializeBoard,
-  strokePath,
-  utf8Length
+  strokePath
 } from './board.js'
 import { MAX_BLOCK_BYTES, MAX_POINTS, MAX_STROKES } from './limits.js'
 
@@ -38,7 +38,7 @@ export class BlockWhiteboardElement extends LitElement {
       'Freehand ink with pen pressure. Drawn on in the editor, read-only on the published page.',
     icon: 'tabler:scribble',
     template: `\`\`\`whiteboard
-{"v":1,"w":800,"h":450,"s":[]}
+{"v":2,"w":800,"h":450}
 \`\`\``
   }
 
@@ -101,6 +101,7 @@ export class BlockWhiteboardElement extends LitElement {
   constructor() {
     super()
     this._board = null
+    this._dropped = 0
     this._loadError = null
     this._full = false
     this._live = null
@@ -149,10 +150,12 @@ export class BlockWhiteboardElement extends LitElement {
     const result = parseBoard(source)
     if (result.error) {
       this._board = null
+      this._dropped = 0
       this._loadError = result
       return
     }
     this._board = result.board
+    this._dropped = result.dropped
     this._loadError = null
   }
 
@@ -168,7 +171,7 @@ export class BlockWhiteboardElement extends LitElement {
     if (!canvas) {
       return false
     }
-    if (this._board.s.length >= MAX_STROKES) {
+    if (this._board.s.length + this._dropped >= MAX_STROKES) {
       this._full = true
       return false
     }
@@ -251,8 +254,9 @@ export class BlockWhiteboardElement extends LitElement {
       return
     }
     const next = { ...this._board, s: [...this._board.s, stroke] }
-    const body = serializeBoard(next)
-    if (exceedsCap({ bytes: utf8Length(body), ...measureBoard(next) })) {
+    const base = this._board === this._lastDispatchedBoard ? this._lastDispatched : this._source
+    const body = base ? appendStroke(base, stroke) : serializeBoard(next)
+    if (exceedsCap(measureBody(body))) {
       this._full = true
       return
     }

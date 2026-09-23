@@ -15,7 +15,7 @@ export const WHITEBOARD_BLOCK = 'whiteboard'
 export const WHITEBOARD_TAG = 'block-whiteboard'
 export const WHITEBOARD_LANGUAGE = 'whiteboard'
 export const WHITEBOARD_CHANGE_EVENT = 'whiteboard-change'
-export const EMPTY_WHITEBOARD_BODY = '{"v":1,"w":800,"h":450,"s":[]}'
+export const EMPTY_WHITEBOARD_BODY = '{"v":2,"w":800,"h":450}'
 
 export const whiteboardInsertPluginKey = new PluginKey('whiteboardInsert')
 
@@ -134,6 +134,16 @@ export function insertWhiteboardInto(tr, from, to) {
   return inserted
 }
 
+export function appendedSuffix(current, body) {
+  const start = current.length - current.trimStart().length
+  const end = start + current.trim().length
+  const kept = current.slice(start, end)
+  if (body.length <= kept.length || !body.startsWith(kept)) {
+    return null
+  }
+  return { at: end, text: body.slice(kept.length) }
+}
+
 function stopUndoCapturing(state) {
   yUndoPluginKey.getState(state)?.undoManager?.stopCapturing()
 }
@@ -161,7 +171,10 @@ export function applyWhiteboardBody(view, target, body, onRefuse) {
 
   const { schema } = state
   const tr = state.tr
-  if (code) {
+  const appended = code ? appendedSuffix(current, body) : null
+  if (appended) {
+    tr.insertText(appended.text, code.pos + 1 + appended.at)
+  } else if (code) {
     tr.replaceWith(code.pos + 1, code.pos + code.node.nodeSize - 1, schema.text(body))
   } else {
     tr.insert(

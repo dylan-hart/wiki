@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `npm run icons:check` fails the build if this drifts.
 
-  385 icons.
+  386 icons.
 */
 export const BUNDLED_ICONS = {
   "la:plus": {"body":"<path fill=\"currentColor\" d=\"M15 5v10H5v2h10v10h2V17h10v-2H17V5z\"/>","width":32,"height":32},
@@ -146,6 +146,7 @@ export const BUNDLED_ICONS = {
   "tabler:eye": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M10 12a2 2 0 1 0 4 0a2 2 0 0 0-4 0\"/><path d=\"M21 12q-3.6 6-9 6t-9-6q3.6-6 9-6t9 6\"/></g>","width":24,"height":24},
   "tabler:eye-off": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M10.585 10.587a2 2 0 0 0 2.829 2.828\"/><path d=\"M16.681 16.673A8.7 8.7 0 0 1 12 18q-5.4 0-9-6q1.908-3.18 4.32-4.674m2.86-1.146A9 9 0 0 1 12 6q5.4 0 9 6q-1 1.665-2.138 2.87M3 3l18 18\"/></g>","width":24,"height":24},
   "tabler:file": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M14 3v4a1 1 0 0 0 1 1h4\"/><path d=\"M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2\"/></g>","width":24,"height":24},
+  "tabler:file-arrow-right": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M14 3v4a1 1 0 0 0 1 1h4\"/><path d=\"M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2m-8-6h6\"/><path d=\"M12.5 17.5L15 15l-2.5-2.5\"/></g>","width":24,"height":24},
   "tabler:file-code": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M14 3v4a1 1 0 0 0 1 1h4\"/><path d=\"M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2\"/><path d=\"m10 13l-1 2l1 2m4-4l1 2l-1 2\"/></g>","width":24,"height":24},
   "tabler:file-description": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M14 3v4a1 1 0 0 0 1 1h4\"/><path d=\"M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2m-8-4h6m-6-4h6\"/></g>","width":24,"height":24},
   "tabler:file-export": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M14 3v4a1 1 0 0 0 1 1h4\"/><path d=\"M11.5 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v5m-5 6h7m-3-3l3 3l-3 3\"/></g>","width":24,"height":24},

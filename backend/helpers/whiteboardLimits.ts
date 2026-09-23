@@ -15,25 +15,36 @@ export function whiteboardBodyBytes(body: string): number {
   return Buffer.byteLength(body.trim(), 'utf8')
 }
 
-export function countWhiteboardStrokes(body: string): { strokes: number; points: number } {
-  let parsed: unknown
+function parseLine(line: string): unknown {
   try {
-    parsed = JSON.parse(body)
+    return JSON.parse(line)
   } catch {
+    return undefined
+  }
+}
+
+export function countWhiteboardStrokes(body: string): { strokes: number; points: number } {
+  const text = body.trim()
+  if (!text) {
     return { strokes: 0, points: 0 }
   }
-  const strokes = (parsed as { s?: unknown } | null)?.s
-  if (!Array.isArray(strokes)) {
-    return { strokes: 0, points: 0 }
-  }
+  let strokes = 0
   let points = 0
-  for (const stroke of strokes) {
-    const p = (stroke as { p?: unknown } | null)?.p
+  for (const line of text.split('\n').slice(1)) {
+    if (line.trim() === '') {
+      continue
+    }
+    strokes++
+    const stroke = parseLine(line)
+    const p =
+      typeof stroke === 'object' && stroke !== null && !Array.isArray(stroke)
+        ? (stroke as { p?: unknown }).p
+        : undefined
     if (Array.isArray(p)) {
       points += Math.floor(p.length / 3)
     }
   }
-  return { strokes: strokes.length, points }
+  return { strokes, points }
 }
 
 export function findWhiteboardCapViolation(bodies: string[]): WhiteboardCapViolation | null {

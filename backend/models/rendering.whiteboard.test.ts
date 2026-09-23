@@ -23,12 +23,8 @@ const PERMISSIONS = { scripts: false, styles: false }
 
 function board(strokes: number, pointsPerStroke = 1): string {
   const p = Array.from({ length: pointsPerStroke * 3 }, (_, i) => i % 100)
-  return JSON.stringify({
-    v: 1,
-    w: 800,
-    h: 450,
-    s: Array.from({ length: strokes }, () => ({ c: '#1f2937', z: 4, p }))
-  })
+  const stroke = JSON.stringify({ c: '#1f2937', z: 4, p })
+  return ['{"v":2,"w":800,"h":450}', ...Array.from({ length: strokes }, () => stroke)].join('\n')
 }
 
 function block(body: string, preClass = 'codeblock-whiteboard'): string {
@@ -47,6 +43,7 @@ async function refusal(html: string): Promise<any> {
 describe('rendering.postProcess: whiteboard size cap', () => {
   test('keeps a board within the cap byte for byte', async () => {
     const body = board(20, 50)
+    assert.equal(body.split('\n').length, 21)
     const result = await rendering.postProcess('site-1', `<p>Intro</p>${block(body)}`, PERMISSIONS)
 
     assert.ok(result.render.includes('<block-whiteboard><pre class="codeblock-whiteboard">'))
@@ -79,6 +76,12 @@ describe('rendering.postProcess: whiteboard size cap', () => {
   test('refuses a block over 2,000 strokes', async () => {
     const err = await refusal(block(board(2001)))
     assert.equal(err.statusCode, 400)
+    assert.match(err.message, /2001 strokes/)
+  })
+
+  test('counts a stroke line that does not parse toward the stroke cap', async () => {
+    await rendering.postProcess('site-1', block(board(2000)), PERMISSIONS)
+    const err = await refusal(block(`${board(2000)}\n{"c":"#1f2937","z":4,"p":[1,2`))
     assert.match(err.message, /2001 strokes/)
   })
 
@@ -131,7 +134,7 @@ describe('rendering.postProcess: whiteboard bodies stay out of search text', () 
   test('drops a class-less first pre inside the block and a bare whiteboard fence', async () => {
     const result = await rendering.postProcess(
       'site-1',
-      `<p>One</p>\n${block('{"v":1}', 'codeblock hljs')}\n<pre class="codeblock-whiteboard"><code>{"v":1}</code></pre>\n<p>Two</p>`,
+      `<p>One</p>\n${block(board(1), 'codeblock hljs')}\n<pre class="codeblock-whiteboard"><code>${board(1)}</code></pre>\n<p>Two</p>`,
       PERMISSIONS
     )
 

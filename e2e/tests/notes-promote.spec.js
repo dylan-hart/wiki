@@ -72,3 +72,55 @@ test('a captured note with a dropped image becomes a page that renders the image
   expect(response.status()).toBe(200)
   expect(response.headers()['content-type']).toMatch(/^image\//)
 })
+
+test("the open note's Promote to Page button turns an edited note into a page", async ({
+  page
+}) => {
+  await loginAsAdmin(page)
+  const siteId = await currentSiteId(page)
+  const slug = uniqueSlug()
+  const notesApi = `/_api/sites/${siteId}/notes`
+
+  const section = await apiOk(page, 'POST', `${notesApi}/sections`, { title: `E2E UI ${slug}` })
+  const sectionId = idOf(section, 'section')
+  const note = await apiOk(page, 'POST', notesApi, { sectionId, content: 'Seed' })
+  const noteId = idOf(note, 'note')
+
+  const upload = await uploadNoteImage(page, siteId, noteId, `ui-sketch-${slug}.png`)
+  expect(upload.status, JSON.stringify(upload.body)).toBe(200)
+  await apiOk(page, 'PUT', `${notesApi}/${noteId}`, {
+    content: `# Idea ${slug}\n\nFirst thought\n\n![sketch](${upload.body.url})\n`
+  })
+
+  await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
+    key: `notes.lastSection.${siteId}`,
+    value: sectionId
+  })
+  await page.goto('/_notes')
+
+  const body = page.locator('.notes-page-wysiwyg [contenteditable="true"]')
+  await expect(body.getByText('First thought')).toBeVisible()
+
+  await body.getByText('First thought').click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' saved')
+  await expect(page.locator('.notes-save-indicator')).toHaveText('Saved')
+
+  await page.keyboard.type(' then pending')
+  await page.getByRole('button', { name: 'Promote to Page' }).click()
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByLabel('Page Title')).toHaveValue(`Idea ${slug}`)
+  const path = `e2e-ui-promoted-${slug}`
+  await dialog.getByLabel('Path Name').fill(path)
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/${path}$`))
+  await expect(page.locator('.page-contents')).toContainText('First thought saved then pending')
+  const image = page.locator('.page-contents img[alt="sketch"]')
+  await expect(image).toHaveAttribute('src', new RegExp(`^/_files/ui-sketch-${slug}\\.png$`))
+  await expect.poll(() => image.evaluate((img) => img.complete && img.naturalWidth > 0)).toBe(true)
+
+  const gone = await apiFetch(page, 'GET', `${notesApi}/${noteId}`)
+  expect(gone.status).toBe(404)
+})
