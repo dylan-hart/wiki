@@ -12,6 +12,9 @@ describe('pages: a save over the whiteboard cap is refused before anything is wr
   const NO_SCRIPTS = { scripts: false, styles: false }
   const actor: PageActor = { id: 'user-1', permissions: ['manage:system'], groupIds: [] }
   const OVERSIZED = `<block-whiteboard><pre class="codeblock-whiteboard"><code>${'x'.repeat(262145)}</code></pre></block-whiteboard>`
+  const OVERSIZED_MARKDOWN = `Intro\n\n::block-whiteboard\n\`\`\`whiteboard\n${'x'.repeat(262145)}\n\`\`\`\n::\n`
+  const WITHIN_MARKDOWN =
+    'Hi\n\n::block-whiteboard\n```whiteboard\n{"v":2,"w":800,"h":450}\n{"c":"#1f2937","z":6,"p":[1,1,50]}\n```\n::\n'
   const WITHIN = `<p>Hi</p>\n<block-whiteboard><pre class="codeblock-whiteboard"><code>{"v":2,"w":800,"h":450}\n{"c":"#1f2937","z":6,"p":[1,1,50]}</code></pre></block-whiteboard>`
 
   function fakeRow(): any {
@@ -139,6 +142,39 @@ describe('pages: a save over the whiteboard cap is refused before anything is wr
       refusedWith400
     )
     assert.deepEqual(writes, [])
+  })
+
+  test('createPage refuses oversized markdown that comes with no render at all', async () => {
+    await assert.rejects(
+      pagesModel.createPage(
+        'site-1',
+        { path: 'docs/example', title: 'Example', editor: 'markdown', content: OVERSIZED_MARKDOWN },
+        actor
+      ),
+      refusedWith400
+    )
+    assert.deepEqual(writes, [])
+  })
+
+  test('updatePage refuses oversized markdown whose render holds no board, before any write', async () => {
+    for (const render of [undefined, '<p>Hi</p>']) {
+      await assert.rejects(
+        pagesModel.updatePage('site-1', 'page-1', { content: OVERSIZED_MARKDOWN, render }, actor),
+        refusedWith400
+      )
+    }
+    assert.deepEqual(writes, [])
+  })
+
+  test('saves markdown whose board is within the cap', async () => {
+    await pagesModel.createPage(
+      'site-1',
+      { path: 'docs/example', title: 'Example', editor: 'wysiwyg', content: WITHIN_MARKDOWN },
+      actor
+    )
+    await pagesModel.updatePage('site-1', 'page-1', { content: WITHIN_MARKDOWN }, actor)
+    assert.ok(writes.includes('insert'))
+    assert.ok(writes.includes('update'))
   })
 
   test('storeRender refuses the queued render and leaves the stored row alone', async () => {
