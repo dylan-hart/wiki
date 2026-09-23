@@ -188,6 +188,7 @@ class Sites extends ClusterReloaded {
               browse: true,
               collaborativeEditing: true,
               comments: false,
+              notes: true,
               // -> Site-wide kill switch for *executing* per-page scripts/styles, ANDed with the
               //    `write:scripts`/`write:styles` grants, which gate authoring only.
               pageScripts: false,
@@ -510,6 +511,7 @@ class Sites extends ClusterReloaded {
           browse: true,
           collaborativeEditing: true,
           comments: false,
+          notes: true,
           pageScripts: false,
           profile: true,
           reasonForChange: 'optional',

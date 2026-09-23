@@ -174,6 +174,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           comments: {
             type: 'boolean'
           },
+          notes: {
+            type: 'boolean',
+            description:
+              'Whether personal notes are available on this site. On by default: a site whose config has no `notes` key is treated as on (`helpers/notes.ts#notesEnabled`), and the site payload always carries the resolved value.'
+          },
           pageScripts: {
             type: 'boolean',
             description:
