@@ -9,8 +9,10 @@ import generate, {
   API_URL,
   API_VERSION,
   DEFAULT_MODEL,
+  EFFORT_MODELS,
   FALLBACK_BETA,
   MAX_OUTPUT_TOKENS,
+  MIN_OUTPUT_TOKENS,
   buildRequest,
   extractText
 } from './ai.ts'
@@ -96,7 +98,8 @@ describe('buildRequest()', () => {
     assert.deepEqual(body, {
       model: 'claude-sonnet-5',
       max_tokens: MAX_OUTPUT_TOKENS,
-      messages: [{ role: 'user', content: PROMPT }]
+      messages: [{ role: 'user', content: PROMPT }],
+      output_config: { effort: 'low' }
     })
   })
 
@@ -105,13 +108,55 @@ describe('buildRequest()', () => {
     assert.equal(body.system, 'Be terse.')
   })
 
-  test('honours a smaller maxOutputTokens and clamps a larger or invalid one', () => {
+  test('raises a small maxOutputTokens to the floor, honours one in range and clamps a larger or invalid one', () => {
     const at = (maxOutputTokens: number) =>
       buildRequest(PROMPT, { siteId: 's1', maxOutputTokens }, API_KEY, 'm').body.max_tokens
-    assert.equal(at(512), 512)
+    assert.equal(MIN_OUTPUT_TOKENS, 4096)
+    assert.equal(at(512), MIN_OUTPUT_TOKENS)
+    assert.equal(at(1024), MIN_OUTPUT_TOKENS)
+    assert.equal(at(2048), MIN_OUTPUT_TOKENS)
+    assert.equal(at(8192), 8192)
     assert.equal(at(1_000_000), MAX_OUTPUT_TOKENS)
     assert.equal(at(0), MAX_OUTPUT_TOKENS)
     assert.equal(at(Number.NaN), MAX_OUTPUT_TOKENS)
+  })
+
+  test('asks an effort-capable model for low effort and leaves room for thinking', () => {
+    const { body } = buildRequest(
+      PROMPT,
+      { siteId: 's1', maxOutputTokens: 1024 },
+      API_KEY,
+      'claude-opus-5'
+    )
+    assert.deepEqual(body.output_config, { effort: 'low' })
+    assert.ok((body.max_tokens as number) >= 4096)
+    assert.equal(body.thinking, undefined)
+  })
+
+  test('sets low effort on every listed model', () => {
+    assert.deepEqual([...EFFORT_MODELS].sort(), [
+      'claude-fable-5',
+      'claude-fable-5-1',
+      'claude-opus-4-6',
+      'claude-opus-4-7',
+      'claude-opus-4-8',
+      'claude-opus-5',
+      'claude-opus-5-5',
+      'claude-sonnet-4-6',
+      'claude-sonnet-5'
+    ])
+    for (const model of EFFORT_MODELS) {
+      const { body } = buildRequest(PROMPT, { siteId: 's1' }, API_KEY, model)
+      assert.deepEqual(body.output_config, { effort: 'low' }, model)
+    }
+  })
+
+  test('sends no effort to Haiku 4.5 or an unlisted model id', () => {
+    for (const model of ['claude-haiku-4-5', 'claude-opus-5-20260101', 'my-custom-model']) {
+      const { body } = buildRequest(PROMPT, { siteId: 's1', maxOutputTokens: 1024 }, API_KEY, model)
+      assert.equal(body.output_config, undefined, model)
+      assert.equal(body.max_tokens, MIN_OUTPUT_TOKENS, model)
+    }
   })
 
   test('opts a fallback-capable model into server-side refusal fallbacks', () => {
@@ -169,7 +214,8 @@ describe('generate()', () => {
     assert.ok(init.signal instanceof AbortSignal)
     const sent = JSON.parse(init.body as string)
     assert.equal(sent.model, 'claude-sonnet-5')
-    assert.equal(sent.max_tokens, 1024)
+    assert.equal(sent.max_tokens, MIN_OUTPUT_TOKENS)
+    assert.deepEqual(sent.output_config, { effort: 'low' })
     assert.equal(sent.system, 'Be terse.')
     assert.deepEqual(sent.messages, [{ role: 'user', content: PROMPT }])
   })
