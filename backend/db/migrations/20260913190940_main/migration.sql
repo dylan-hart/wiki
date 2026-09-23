@@ -332,6 +332,41 @@ CREATE TABLE "navigation" (
 	"siteId" uuid NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "noteImages" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"siteId" uuid NOT NULL,
+	"userId" uuid NOT NULL,
+	"noteId" uuid NOT NULL,
+	"fileName" varchar(255) NOT NULL,
+	"mimeType" varchar(255) NOT NULL,
+	"fileSize" integer NOT NULL,
+	"data" bytea NOT NULL,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "noteSections" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"siteId" uuid NOT NULL,
+	"userId" uuid NOT NULL,
+	"title" varchar(255) DEFAULT '' NOT NULL,
+	"position" integer DEFAULT 0 NOT NULL,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "notes" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"siteId" uuid NOT NULL,
+	"userId" uuid NOT NULL,
+	"sectionId" uuid NOT NULL,
+	"title" varchar(255),
+	"content" text DEFAULT '' NOT NULL,
+	"excerpt" varchar(255) DEFAULT '' NOT NULL,
+	"position" integer DEFAULT 0 NOT NULL,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "pageDrafts" (
 	"pageId" uuid PRIMARY KEY,
 	"siteId" uuid NOT NULL,
@@ -646,6 +681,10 @@ CREATE UNIQUE INDEX "jobSchedule_task_idx" ON "jobSchedule" ("task");--> stateme
 CREATE INDEX "jobs_waitUntil_createdAt_idx" ON "jobs" ("waitUntil","createdAt");--> statement-breakpoint
 CREATE INDEX "locales_language_idx" ON "locales" ("language");--> statement-breakpoint
 CREATE UNIQUE INDEX "navigation_siteId_locale_idx" ON "navigation" ("siteId","locale");--> statement-breakpoint
+CREATE INDEX "noteImages_noteId_idx" ON "noteImages" ("noteId");--> statement-breakpoint
+CREATE INDEX "noteSections_user_site_idx" ON "noteSections" ("userId","siteId","position");--> statement-breakpoint
+CREATE INDEX "notes_sectionId_position_idx" ON "notes" ("sectionId","position");--> statement-breakpoint
+CREATE INDEX "notes_user_site_idx" ON "notes" ("userId","siteId");--> statement-breakpoint
 CREATE INDEX "pageDrafts_updatedAt_idx" ON "pageDrafts" ("updatedAt");--> statement-breakpoint
 CREATE UNIQUE INDEX "pageEditSubmissionApprovals_submission_reviewer_idx" ON "pageEditSubmissionApprovals" ("submissionId","reviewerId");--> statement-breakpoint
 CREATE INDEX "pageEditSubmissions_pageId_idx" ON "pageEditSubmissions" ("pageId");--> statement-breakpoint
@@ -727,6 +766,14 @@ ALTER TABLE "glossaryVersions" ADD CONSTRAINT "glossaryVersions_actorId_users_id
 ALTER TABLE "hooks" ADD CONSTRAINT "hooks_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "icons" ADD CONSTRAINT "icons_prefix_iconSets_prefix_fkey" FOREIGN KEY ("prefix") REFERENCES "iconSets"("prefix");--> statement-breakpoint
 ALTER TABLE "navigation" ADD CONSTRAINT "navigation_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
+ALTER TABLE "noteImages" ADD CONSTRAINT "noteImages_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "noteImages" ADD CONSTRAINT "noteImages_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "noteImages" ADD CONSTRAINT "noteImages_noteId_notes_id_fkey" FOREIGN KEY ("noteId") REFERENCES "notes"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "noteSections" ADD CONSTRAINT "noteSections_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "noteSections" ADD CONSTRAINT "noteSections_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "notes" ADD CONSTRAINT "notes_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "notes" ADD CONSTRAINT "notes_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "notes" ADD CONSTRAINT "notes_sectionId_noteSections_id_fkey" FOREIGN KEY ("sectionId") REFERENCES "noteSections"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "pageDrafts" ADD CONSTRAINT "pageDrafts_pageId_pages_id_fkey" FOREIGN KEY ("pageId") REFERENCES "pages"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "pageDrafts" ADD CONSTRAINT "pageDrafts_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
 ALTER TABLE "pageDrafts" ADD CONSTRAINT "pageDrafts_authorId_users_id_fkey" FOREIGN KEY ("authorId") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint

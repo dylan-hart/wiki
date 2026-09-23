@@ -523,6 +523,28 @@ describe('site store: features.pageScripts default', () => {
   })
 })
 
+describe('site store: features.notes default', () => {
+  it('defaults to true, matching a site with no notes key', () => {
+    const store = useSiteStore()
+
+    expect(store.features.notes).toBe(true)
+  })
+
+  it('applySiteInfo() lets a backend-sent features.notes: false turn it off', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ features: { notes: false } }))
+
+    expect(store.features.notes).toBe(false)
+  })
+
+  it('applySiteInfo() without a notes key keeps it on', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ features: { search: true } }))
+
+    expect(store.features.notes).toBe(true)
+  })
+})
+
 describe('site store: fetchExtensionsStatus()', () => {
   it('populates extensionsStatus from the endpoint and marks it loaded', async () => {
     const store = useSiteStore()
