@@ -472,6 +472,7 @@ import {
 import { useI18n } from 'vue-i18n'
 
 import { useAesthetic } from '@/composables/aesthetic'
+import { promptViaDialog, registerAiCursorActions } from '@/composables/aiAssistCursorActions'
 import { dialog } from '@/composables/dialog'
 import { useMarkdownCollab } from '@/composables/markdownCollab'
 import { notify } from '@/composables/notify'
@@ -1262,6 +1263,22 @@ watch(
   }
 )
 
+const AiPromptDialog = defineAsyncComponent(() => import('./AiPromptDialog.vue'))
+
+async function generateWithAi({ action, text, prompt }) {
+  const result = await API_CLIENT.post(`sites/${siteStore.id}/ai/generate`, {
+    json: {
+      action,
+      text,
+      ...(prompt ? { prompt } : {}),
+      ...(pageStore.id ? { pageId: pageStore.id } : {}),
+      path: pageStore.path,
+      locale: pageStore.locale
+    }
+  }).json()
+  return result?.text ?? null
+}
+
 onMounted(async () => {
   editorStore.$patch({
     hideSideNav: true
@@ -1501,6 +1518,15 @@ onMounted(async () => {
       debouncedContentChange?.flush()
       requestSave()
     }
+  })
+
+  registerAiCursorActions(editor, {
+    t,
+    askPrompt: ({ action, required }) =>
+      promptViaDialog(dialog, AiPromptDialog, { action, required }),
+    generate: generateWithAi,
+    notify,
+    errorMessage: (err) => apiErrorMessage(err, t('editor.aiCursor.failed'))
   })
 
   debouncedContentChange = debounce((ev) => {
