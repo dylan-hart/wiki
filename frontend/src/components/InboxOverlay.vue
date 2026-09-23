@@ -60,8 +60,8 @@ import InboxWatching from '@/pages/InboxWatching.vue'
 
 /**
  * Initial state from whoever opened this overlay (`siteStore.openOverlay('Inbox', opts)`): `tab`
- * picks which of the two sections opens; `submissionId`/`from` are `InboxReview`'s own initial
- * state, passed straight through.
+ * picks which section opens; `submissionId`/`from` are `InboxReview`'s own initial state, passed
+ * straight through.
  */
 const props = defineProps({
   overlayOpts: { type: Object, default: () => ({}) }

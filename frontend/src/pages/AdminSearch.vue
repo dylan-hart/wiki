@@ -464,8 +464,9 @@ function normalizeMinMatch(value) {
 }
 
 /**
- * On failure, re-fetches the semantic setting rather than leaving the toggle showing what the reader
- * clicked: a stale `state.semanticAvailable` lets a click through that the server then refuses.
+ * On failure, re-fetches the card's settings rather than leaving the controls showing what the
+ * reader entered: a stale `state.semanticAvailable` lets a click through that the server then
+ * refuses.
  */
 async function saveSemanticEnabled() {
   const thresholdValid = autoTagThresholdInput.value?.validate() ?? true

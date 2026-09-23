@@ -16,6 +16,7 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/pages/:pageId/tasks/:index',
     {
+      // -> No route-level `permissions`: page-rule permissions, checked in the handler.
       schema: {
         summary: 'Tick or untick one task item of a page',
         description:

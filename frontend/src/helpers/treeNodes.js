@@ -136,6 +136,8 @@ export function descendantFolderIds(nodes, targetId, maxDepth = 3) {
  * @param {string[]|null} [params.types] Entry types to ask for; omitted asks for all of them.
  * @param {string|null} [params.locale]
  * @param {boolean} [params.initLoad]
+ * @param {string} [params.orderBy] A `TREE_ORDER_BY` value; `sortOrder` by default, so every reader
+ *   sees manual order.
  * @returns {Promise<Array<object>>}
  */
 export function fetchTreeEntries(
@@ -178,6 +180,11 @@ function groupByFileName(entries) {
   return [...units.values()]
 }
 
+/**
+ * The ids `PUT sites/:siteId/tree/order` wants: pages and folders only (assets are not ordered),
+ * with a page and a folder sharing a `fileName` adjacent, since the route gives the pair one
+ * position.
+ */
 export function reorderableIds(entries) {
   return groupByFileName(entries).flatMap((unit) => unit.map((entry) => entry.id))
 }

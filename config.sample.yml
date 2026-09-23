@@ -59,6 +59,14 @@ db:
     # key: path/to/key.pem
     # pfx: path/to/cert.pfx
     # passphrase: xyz123
+  # Optional: a direct route to Postgres for the connections that need a real
+  # session (the LISTEN/NOTIFY clients), for when host/port above point at a
+  # pooler such as PgBouncer. Only host and port differ. Ignored while
+  # DATABASE_URL is set: use DATABASE_DIRECT_URL (a full connection string,
+  # which also wins over this block) instead. See docs/pgbouncer-deployment.md.
+  # direct:
+  #   host: postgres.internal
+  #   port: 5432
 
 # ---------------------------------------------------------------------
 # Postgres connection pool

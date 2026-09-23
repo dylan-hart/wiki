@@ -335,6 +335,8 @@ async function routes(app: FastifyInstance) {
 
       let linkUserId: string | undefined
       if (req.query.mode === 'link') {
+        // -> A connect started from another site is how an attacker gets their own provider
+        //    identity bound to a victim's account. An absent header (older browsers) is allowed.
         const fetchSite = req.headers['sec-fetch-site']
         if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') {
           return reply.forbidden('Cross-origin request blocked')

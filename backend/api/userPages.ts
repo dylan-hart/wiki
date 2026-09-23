@@ -20,6 +20,10 @@ function markRoutes(
   app.put<{ Params: PageParams }>(
     url,
     {
+      /*
+        No route-level `permissions`: a page is readable by a group's rules, not by the group-wide
+        list that hook consults. `loadReadablePage` is the gate.
+      */
       schema: {
         summary: `Add a page to ${noun}s`,
         description: `Adds the page to the caller's ${noun}s. A page already there answers 200 and changes nothing, so the button can be pressed twice. A page the caller cannot read answers 404 as though it did not exist. A password-protected page is not refused: the caller may already see its title and path, which is all the list carries.`,
@@ -84,6 +88,8 @@ function markRoutes(
       if (!userId) {
         return reply
       }
+      // -> The page is NOT loaded first: a row for a page that has since become unreadable must
+      //    stay removable.
       await CARDINAL.models.userPages.remove({ userId, pageId: req.params.pageId, kind })
       return { ok: true, [flag]: false }
     }
@@ -94,6 +100,10 @@ async function routes(app: FastifyInstance) {
   app.put<{ Params: PageParams }>(
     '/sites/:siteId/pages/:pageId/visit',
     {
+      /*
+        No route-level `permissions`: a page is readable by a group's rules, not by the group-wide
+        list that hook consults. `loadReadablePage` is the gate.
+      */
       schema: {
         summary: 'Record a visit to a page',
         description:
@@ -116,6 +126,8 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply
       }
+      // -> `isLocked` goes unchecked on purpose: the list carries only page metadata, never the
+      //    body, and a locked page's own read already shows all of it.
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
       if (!page) {
         return reply.notFound('This page does not exist.')

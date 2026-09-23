@@ -401,6 +401,10 @@ const state = reactive({
    */
   totalApproximate: false,
   offset: 0,
+  /**
+   * A separate list from the page results: own endpoint and paging, and neither saved filter rows
+   * nor `orderBy` apply. `kind` outlives a query so a chosen type keeps narrowing the next search.
+   */
   assets: {
     kind: 'all',
     query: '',
@@ -436,6 +440,10 @@ const assetKindOptions = computed(() => [
   { label: t('search.assetKindOther'), value: 'other' }
 ])
 
+/**
+ * A kind that narrows to nothing keeps the section up: hiding it would strand the reader on that
+ * kind.
+ */
 const showAssetsSection = computed(
   () =>
     !isSemanticMode.value &&
@@ -710,6 +718,7 @@ async function performAssetSearch(q, append = false) {
         ['limit', ASSET_RESULTS_LIMIT]
       ]
     }).json()
+    // -> A newer search or kind change started while this one was in flight; its answer wins.
     if (requestId !== assetRequestId) {
       return
     }
@@ -784,6 +793,7 @@ async function performSearch(append = false) {
     return undefined
   }
   if (isSemanticMode.value) {
+    // -> The semantic route reads pages only; no asset search runs in Semantic mode.
     resetAssets()
     return performSemanticSearch(append)
   }
@@ -805,6 +815,7 @@ async function performSearch(append = false) {
     return undefined
   }
 
+  // -> Asset text is matched against the words alone: tags and filter rows describe pages.
   const pagesRequest = runSearchRequest(
     `sites/${siteStore.id}/pages/search`,
     [

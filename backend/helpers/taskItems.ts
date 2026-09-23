@@ -16,6 +16,11 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * Mirrors the frontend task-list plugin's rule, so an item's `index` is also its checkbox's
+ * position in the rendered page. Code blocks never yield list-item tokens, so a `- [ ]` in one is
+ * not an item.
+ */
 export function parseTaskItems(markdown: string): TaskItem[] {
   const tokens = md.parse(markdown, {})
   const items: TaskItem[] = []
@@ -43,6 +48,10 @@ export function parseTaskItems(markdown: string): TaskItem[] {
   return items
 }
 
+/**
+ * Returns `null` when the item at `index` is gone or its text differs (whitespace collapsed): the
+ * caller's view of the page is stale.
+ */
 export function setTaskItem(
   markdown: string,
   index: number,
@@ -67,6 +76,7 @@ export function setTaskItem(
   lines[item.line] = `${prefix}[${checked ? 'x' : ' '}]${source!.slice(prefix.length + 3)}`
   const next = lines.join('\n')
 
+  // -> Refuses a rewrite that moved anything but the one marker, rather than storing it.
   const after = parseTaskItems(next)
   const onlyThisChanged =
     after.length === before.length &&

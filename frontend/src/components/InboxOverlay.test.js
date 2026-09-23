@@ -48,7 +48,7 @@ function mountInboxOverlay(overlayOpts) {
     props: overlayOpts ? { overlayOpts } : {},
     messages,
     routes: ['/'],
-    // -> Both tabs' content fetches off `siteStore.id` on mount; seeded so those calls take their
+    // -> Each tab's content fetches off `siteStore.id` on mount; seeded so those calls take their
     //    real path instead of the "no site yet" guard clause.
     stores: { site: { id: 'site-1' } }
   })

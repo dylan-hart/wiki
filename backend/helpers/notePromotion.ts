@@ -105,6 +105,8 @@ export async function promoteNote(input: PromoteNoteInput): Promise<PromoteNoteR
   const afterCommit: Array<() => Promise<void>> = []
 
   const outcome = await CARDINAL.db.transaction(async (tx) => {
+    // -> Locked so a concurrent autosave waits for this transaction and then finds no note, instead
+    //    of writing content that the deletion below would silently throw away.
     const [note] = await tx
       .select({
         id: notesTable.id,
@@ -134,6 +136,10 @@ export async function promoteNote(input: PromoteNoteInput): Promise<PromoteNoteR
 
     const content = note.content ?? ''
     const refs = findNoteImageRefs(content, siteId)
+    // -> Only images the content still shows are re-homed. An image the note no longer references
+    //    goes with the note. One copied in from another of the caller's notes is duplicated as an
+    //    asset and stays with that note. Another user's image never matches, because of the
+    //    `userId` filter.
     const images =
       refs.length > 0
         ? (

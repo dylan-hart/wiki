@@ -104,6 +104,10 @@ describe('login.linkProviderToAccount', () => {
   })
 })
 
+/**
+ * Driven directly, as in `login.providers.test.ts`, with the user lookups stubbed: the account a
+ * returning provider login resolves to is what is under test.
+ */
 describe('login.findOrCreateProviderUser resolves a connected identity by its stored link', () => {
   const linkedUser = {
     id: 'user-linked',

@@ -14,9 +14,9 @@ import {
 */
 
 /**
- * `block-diagram`, `block-kroki`, `block-plantuml` and `block-drawio` read their source out of the
- * `<pre>` markdown's own fence handling leaves behind — never rendered or escaped away, since each
- * block draws it client-side (Mermaid, draw.io) or hands it to an image server (Kroki, PlantUML).
+ * Each of these blocks reads its source out of the `<pre>` that markdown's own fence handling
+ * leaves behind. The source is never rendered or escaped away, because the block draws it
+ * client-side or hands it to an image server.
  */
 describe('MarkdownRenderer fenced diagram handoff', () => {
   it.each(['mermaid', 'kroki', 'plantuml', 'drawio', 'whiteboard'])(

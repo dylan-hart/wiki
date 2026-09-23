@@ -55,6 +55,11 @@ async function routes(app: FastifyInstance) {
     Querystring: { pageId?: string; path?: string; locale?: string }
   }>(
     '/sites/:siteId/ai/status',
+    /*
+      No route-level permissions: `write:pages` is a page rule permission, which
+      `config.permissions` cannot express. `helpers/aiAssist.ts#evaluateAiAssist` checks it in the
+      handler.
+    */
     {
       schema: {
         summary: 'Get the writing assistant status for the caller',
@@ -93,6 +98,11 @@ async function routes(app: FastifyInstance) {
     }
   }>(
     '/sites/:siteId/ai/generate',
+    /*
+      No route-level permissions: `write:pages` is a page rule permission, which
+      `config.permissions` cannot express. `helpers/aiAssist.ts#evaluateAiAssist` checks it in the
+      handler.
+    */
     {
       schema: {
         summary: 'Run a writing assistant action',

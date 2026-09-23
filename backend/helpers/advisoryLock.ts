@@ -66,6 +66,9 @@ let lockPool: Pool | null = null
  * `dbManager.init()`; every real boot path populates `CARDINAL.dbManager.config` first.
  */
 function getLockPool(): Pool {
+  // TODO: session-level locks break under a transaction-mode pooler on the query config; route
+  // this pool (and the boot lock in db.ts#syncSchemas / config.ts#ensureSeeded) through
+  // dbManager's direct connection.
   if (!lockPool) {
     lockPool = CARDINAL.dbManager?.config
       ? new Pool({

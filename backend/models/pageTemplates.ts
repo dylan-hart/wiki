@@ -62,6 +62,8 @@ function normalizeLocale(siteId: string, locale: string | null | undefined): str
   return locale
 }
 
+// -> `&` is masked first so every `&lt;`/`&gt;` sanitize-html emits in text is its own and
+//    `textFilter` can undo it; otherwise markdown's `>` and `<` come back entity-escaped.
 function sanitizeSource(html: string, options: sanitizeHtml.IOptions): string {
   const masked = html.replaceAll('&', MASK)
   const cleaned = sanitizeHtml(masked, {
@@ -166,6 +168,8 @@ class PageTemplates {
       values.locale = normalizeLocale(siteId, patch.locale)
     }
     const editor = values.editor ?? existing.editor
+    // -> Only re-sanitized when sent (or when `editor` changes the sanitizer): a rename by a
+    //    lower-privileged editor must not strip a higher-privileged author's markup.
     if (patch.content !== undefined || (values.editor && values.editor !== existing.editor)) {
       values.content = await this.sanitizeContent(
         siteId,

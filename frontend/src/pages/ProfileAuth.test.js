@@ -11,8 +11,7 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 /*
   The write-action tests need `confirm(...).onOk(cb)` to fire its callback immediately rather than
-  wait on a rendered WConfirmDialog. No other test here clicks into a menu item that reaches
-  `confirm()`/`dialog()`, so mocking both file-wide is safe.
+  wait on a rendered WConfirmDialog.
 */
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -326,8 +325,6 @@ describe('ProfileAuth on the settings pattern', () => {
       }
     })
 
-    // -> `mountWithApp` rather than this file's own `mountPage`: a passkey row renders its created
-    //    date through `humanizeDate()`, which reads `userStore` and so needs a Pinia instance.
     const { wrapper } = mountWithApp(ProfileAuth, {
       messages: { ...MESSAGES, common: { ...MESSAGES.common, datetime: '{date} at {time}' } }
     })

@@ -1529,6 +1529,11 @@ onBeforeUnmount(() => {
   gap: 5px;
   width: 100%;
 
+  /*
+    `WBtnToggle` never wraps a segment's label, so at this panel's content width its stock padding
+    pushes the three-option OVER toggle past the panel edge; scoped here so no other caller is
+    affected.
+  */
   :deep(.w-btn-toggle__segment) {
     flex: 1 1 0;
     justify-content: center;
@@ -1537,9 +1542,7 @@ onBeforeUnmount(() => {
 }
 
 /*
-  `flex-wrap` is a genuine fallback for a locale whose combined option labels run long. The
-  `:deep()` override exists because `WBtnToggle`'s stock segment padding wraps even the English
-  labels at this panel's content width; it is scoped to this row so no other caller is affected.
+  `flex-wrap` is a genuine fallback for a locale whose combined option labels run long.
 */
 .graph-view-control-row {
   display: flex;

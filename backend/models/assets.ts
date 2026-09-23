@@ -218,9 +218,11 @@ class Assets {
   /**
    * Store an uploaded file.
    *
-   * A file already at this name is settled per the site's {@link UploadConflictBehavior}. An
-   * overwrite returns the existing asset's ID, and the name is sanitized, so a caller that means to
-   * link to what it just uploaded must read the returned name and ID rather than assume its own.
+   * A file already at this name is settled per the site's {@link UploadConflictBehavior}, except
+   * inside a caller's `tx`, where the arrival always takes the next free name: `replace()` writes
+   * outside the transaction, and a promotion must never overwrite another page's file. An overwrite
+   * returns the existing asset's ID, and the name is sanitized, so a caller that means to link to
+   * what it just uploaded must read the returned name and ID rather than assume its own.
    *
    * @param folderId The site root when absent.
    */
@@ -252,7 +254,15 @@ class Assets {
     createdAt?: string
     /** Same reasoning as {@link createdAt}, for `updatedAt`. */
     updatedAt?: string
+    /**
+     * Writes the tree and asset rows through the caller's transaction (`helpers/notePromotion.ts`).
+     */
     tx?: WikiTx
+    /**
+     * Receives the text-extraction job, the `asset:upload` announcement and the log line instead of
+     * running them. The caller runs them only once its transaction has committed, because a hook or
+     * storage dispatch for a rolled-back asset would announce a file that does not exist.
+     */
     afterCommit?: Array<() => Promise<void>>
   }): Promise<Asset> {
     const safeName = sanitizeFileName(fileName)
@@ -356,7 +366,9 @@ class Assets {
         ...(updatedAt ? { updatedAt: new Date(updatedAt) } : {})
       })
     } catch (err) {
-      // -> Nothing points at the tree row now, and leaving it would show a file the site cannot serve
+      // -> Nothing points at the tree row now, and leaving it would show a file the site cannot
+      //    serve. Inside a caller's transaction the failed statement has aborted it, and its
+      //    rollback removes the row instead.
       if (!tx) {
         await CARDINAL.db.delete(treeTable).where(eq(treeTable.id, entry.id))
       }
@@ -562,6 +574,10 @@ class Assets {
     }
   }
 
+  /**
+   * Leaves `updatedAt` alone: it is the served file's ETag, and this changes no byte of it. A blank
+   * `text` clears the vector too, so a file whose extraction found nothing stops matching.
+   */
   async setSearchContent(id: string, text: string | null): Promise<void> {
     const content = text?.trim() ? text : null
     await CARDINAL.db

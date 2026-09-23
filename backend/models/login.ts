@@ -348,6 +348,13 @@ class Login {
     return this.afterLoginChecks(user, strategy.id, { ip, siteId }, { skipChangePwd: true }, req)
   }
 
+  /**
+   * Skips everything a provider login does besides binding the identity: no group sync, no avatar
+   * or name fill, and no session. The provider's address need not match the account's.
+   *
+   * @throws `ERR_EMAIL_NOT_ALLOWED`, `ERR_LINK_NOT_SIGNED_IN`, `ERR_LINK_ALREADY_LINKED` or
+   *         `ERR_LINK_IDENTITY_IN_USE`
+   */
   async linkProviderToAccount({
     userId,
     strategy,
@@ -397,12 +404,15 @@ class Login {
     const email = profile.email.toLowerCase().trim()
     const firstName = (profile.firstName ?? '').trim()
     const lastName = (profile.lastName ?? '').trim()
+    // -> The stored link first: a provider connected through `linkProviderToAccount()` may report
+    //    an address that belongs to nobody, or to a different account.
     let user =
       (await CARDINAL.models.users.getByProviderLink(strategy.id, profile.id)) ??
       (await CARDINAL.models.users.getByEmail(email))
 
     // -> Before anything else: a system account (the seeded Guest row) must never be reachable
-    //    through a provider, and `getByEmail()` has no `isSystem` filter, unlike its siblings.
+    //    through a provider, and neither `getByProviderLink()` nor `getByEmail()` filters
+    //    `isSystem`.
     if (user?.isSystem) {
       CARDINAL.models.flags.authDebug(
         `Provider login for <${email}> refused: address belongs to a system account`

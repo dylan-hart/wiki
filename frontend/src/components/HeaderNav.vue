@@ -74,7 +74,7 @@
           :aria-label="searchRowIsOpen ? t(`common.actions.close`) : t(`common.header.search`)"
           :aria-expanded="searchRowIsOpen"
           @click="toggleSearchRow" />
-        <!-- One button for the five: an icon whose meaning is only in a tooltip is nothing a touch
+        <!-- One button for the row: an icon whose meaning is only in a tooltip is nothing a touch
              screen can offer, and by 900px they are crowding the site title too -->
         <header-actions-menu v-if="isActionsCollapsed" />
         <template v-else>

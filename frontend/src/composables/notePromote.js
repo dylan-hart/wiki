@@ -35,6 +35,11 @@ export function useNotePromote() {
     return md.render(content, { pagePath })
   }
 
+  /**
+   * The render is made here because the markdown pipeline exists only in the browser. Without it the
+   * server can only queue a Puppeteer render. `noteUpdatedAt` lets the server refuse a render made
+   * from a version of the note it is not about to promote.
+   */
   async function submit(note, { path, title }) {
     const source = await loadSource(note)
     const body = { path, title }

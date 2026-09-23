@@ -34,6 +34,10 @@ const templateParams = {
   required: ['siteId', 'templateId']
 }
 
+/**
+ * No route-level permissions: `write:pages` is a page permission and `site:templates` a site one,
+ * neither of which the `config.permissions` hook can check, so each handler asks in its own body.
+ */
 async function routes(app: FastifyInstance) {
   app.get<{ Params: SiteParams; Querystring: { basePath?: string; locale?: string } }>(
     '/sites/:siteId/page-templates',

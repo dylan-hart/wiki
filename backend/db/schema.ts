@@ -446,6 +446,8 @@ export const pageTemplates = pgTable(
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
+    // -> `coalesce` because Postgres treats NULLs as distinct in a unique index, which would let two
+    //    all-locale templates share a name.
     uniqueIndex('pageTemplates_siteId_locale_name_idx').on(
       table.siteId,
       sql`coalesce(${table.locale}, '')`,

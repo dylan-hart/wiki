@@ -71,9 +71,9 @@ const METRIC_DEFS: { key: keyof MetricsSnapshot; name: string; help: string }[] 
 ]
 
 /**
- * Prometheus text exposition format (version 0.0.4). Hand-rolled rather than pulled in via
- * `prom-client`: every series is a gauge computed elsewhere, with no counters, histograms or
- * per-request registry to justify a client library's bookkeeping.
+ * Prometheus text exposition format (version 0.0.4), hand-rolled rather than via `prom-client`: the
+ * series are few and fixed, and the only per-event state (`helpers/pubsub.ts#notifierStats`) is a
+ * handful of plain numbers per notifier, too little to justify a client library's registry.
  */
 export function formatPrometheusMetrics(snapshot: MetricsSnapshot): string {
   const lines: string[] = []

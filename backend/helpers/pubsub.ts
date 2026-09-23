@@ -118,8 +118,9 @@ const LISTENER_COUNT = 3
  *
  * `max` is exact, not padded -- a listener reconnects in place, so there is never an extra
  * concurrent checkout. `min: 0` because an idle slot costs a live server connection for nothing.
- * The timeout makes a saturated pool fail fast rather than hang. `config` is the query pool's own
- * connection config, so how the database is reached is resolved once, in `core/db.ts`'s `init()`.
+ * The timeout makes a saturated pool fail fast rather than hang. `config` is resolved once, in
+ * `core/db.ts`'s `init()`: the query pool's own connection config unless `resolveDirectConnection`
+ * points it past a pooler.
  */
 export function createListenerPool(config: PoolConfig): Pool {
   return new Pool({

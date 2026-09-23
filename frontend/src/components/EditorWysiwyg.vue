@@ -564,9 +564,11 @@ function insertAssetClb(opts) {
 }
 
 /**
- * Nothing is uploaded here: each file becomes a pending asset held against a `blob:` URL, and
- * `UploadPendingAssetsDialog` sends it on save and reports back where it landed --
- * `reloadEditorContent` below is this editor's half of applying that.
+ * On a page, nothing is uploaded here: each file becomes a pending asset held against a `blob:`
+ * URL, and `UploadPendingAssetsDialog` sends it on save and reports back where it landed --
+ * `reloadEditorContent` below is this editor's half of applying that. A note (the `content` prop)
+ * has no save step to defer to, so `insertFilesAsNoteUploads` uploads each file at once and
+ * inserts only the URL it gets back; a `blob:` URL would otherwise be autosaved into the note.
  *
  * `generateUniqueName` is for the paste path only; see `addPendingAsset` for why a drop's own
  * filename is kept and a clipboard paste's is not.

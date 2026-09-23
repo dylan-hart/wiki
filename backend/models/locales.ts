@@ -42,8 +42,8 @@ export function computeCompleteness(
 }
 
 /**
- * The per-key override `sideloadFromDataPath` needs in place of a full-row replacement: a pack
- * naming one key must leave every other string already stored for that locale untouched.
+ * A per-key override rather than a full-row replacement: a source naming one key must leave every
+ * other string already stored for that locale untouched.
  */
 export function mergeLocaleStrings(
   base: Record<string, unknown>,

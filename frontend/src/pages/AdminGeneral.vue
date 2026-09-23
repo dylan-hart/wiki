@@ -660,6 +660,8 @@ const {
         security: {
           embedAllowedOrigins: parseEmbedAllowedOrigins(config.security?.embedAllowedOrigins)
         },
+        // FIXME: `features.collaborativeEditing` has a toggle on this page but is never sent, so
+        //        changing it is silently dropped on save.
         features: {
           browse: config.features?.browse ?? false,
           comments: config.features?.comments ?? false,

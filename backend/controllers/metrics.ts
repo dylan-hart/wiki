@@ -13,10 +13,6 @@ import type { FastifyInstance } from 'fastify'
 const METRICS_PERMISSIONS = ['manage:system', 'read:metrics']
 
 /**
- * Prometheus scrape endpoint. Every series is a plain gauge already computed elsewhere, so the
- * exposition writer is hand-rolled in `helpers/metrics.ts` rather than pulling in `prom-client` —
- * there are no counters, histograms or registries to justify a client library.
- *
  * Deliberately not under `/_api`: Prometheus scrapes a fixed path with no session, and its own
  * convention is an unprefixed `/metrics`. This is the one server-owned route without a leading
  * underscore, so a wiki page created at this exact path is unreachable, and `metrics` must stay in

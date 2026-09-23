@@ -115,6 +115,9 @@ async function routes(app: FastifyInstance) {
     }
   })
 
+  // No route-level permissions: notes belong to their owner alone, so no global, page or site
+  // permission applies. `notesCaller` requires a signed-in user and the site's `features.notes`,
+  // and every model call is filtered on (siteId, userId), so another user's row answers 404.
   app.get<{ Params: SiteParams }>(
     '/sites/:siteId/notes/sections',
     {
@@ -200,6 +203,8 @@ async function routes(app: FastifyInstance) {
         return reply
       }
       const { siteId } = req.params
+      // Checked here, not left to the model, so that one foreign id rejects the whole reorder
+      // with 404 before anything is written.
       const owned = new Set(
         (await CARDINAL.models.notes.listSections(siteId, userId)).map((s) => s.id)
       )
@@ -346,6 +351,8 @@ async function routes(app: FastifyInstance) {
       if (!(await ownsSection(siteId, userId, sectionId))) {
         return reply.notFound(SECTION_MISSING)
       }
+      // Checked here, not left to the model, so that one foreign id rejects the whole reorder
+      // with 404 before anything is written.
       const inSection = new Set(
         ((await CARDINAL.models.notes.listNotes(siteId, userId, sectionId)) ?? []).map((n) => n.id)
       )

@@ -383,8 +383,9 @@ const isEditing = computed(() => editorStore.isActive && !isSuggesting.value)
 /**
  * True of a redirection being read, edited or created alike, since `pageCreate` puts the editor on
  * the page store as well. What it takes out of this row is everything addressed to a READER —
- * watching the page, suggesting a change to it — since nobody stays on a redirection long enough
- * for those to mean anything. The title, the icon and Edit belong to whoever maintains it and stay.
+ * watching, favoriting or pinning the page, suggesting a change to it — since nobody stays on a
+ * redirection long enough for those to mean anything. The title, the icon and Edit belong to
+ * whoever maintains it and stay.
  */
 const isRedirect = computed(() => pageStore.editor === 'redirect')
 
@@ -751,10 +752,10 @@ async function togglePin() {
 }
 
 /*
-  The watched state as a class rather than `WBtn`'s `color` prop: that prop writes an inline colour
-  on the button root, which always beats the rule above and would drag the unwatched state off
-  `--page-header-action-fg` with it. Written one class more specific than that rule, so it wins on
-  specificity rather than on source order.
+  The watched, favorited and pinned states as a class rather than `WBtn`'s `color` prop: that prop
+  writes an inline colour on the button root, which always beats the rule above and would drag the
+  unmarked state off `--page-header-action-fg` with it. Written one class more specific than that
+  rule, so it wins on specificity rather than on source order.
 */
 .page-header-actions > .w-btn.w-btn--flat.is-marked,
 .page-header-actions > .w-btn.w-btn--flat.is-watching {

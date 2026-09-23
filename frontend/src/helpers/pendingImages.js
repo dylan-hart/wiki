@@ -1,9 +1,8 @@
 /**
- * The async other half of `htmlToMarkdown`, which is synchronous and so hands back
- * `![alt](pending-image:N)` placeholders rather than fetching an embedded image's bytes itself.
- * `fetch` turns all three `src` shapes -- `data:`, `blob:` and `http(s):` -- into bytes uniformly. A
- * `src` that cannot be retrieved (cross-origin CORS, a `blob:` from a navigated-away tab) drops just
- * that one image.
+ * Async other half of `htmlToMarkdown`, which hands back `![alt](pending-image:N)` placeholders.
+ * `fetch` turns `data:`, `blob:` and `http(s):` sources into bytes; an unretrievable `src` (CORS, a
+ * `blob:` from a closed tab) drops just that image. `keepReferences` leaves the original `src` in
+ * place instead of fetching, for callers that cannot upload assets.
  */
 export async function resolvePendingImages(
   markdown,
@@ -51,6 +50,10 @@ function isResolvable(reference) {
   return /^(?:https?:|data:)/i.test(reference) || reference.startsWith('/')
 }
 
+/**
+ * Scans prose only: fenced and inline code are stripped first so documentation showing image syntax
+ * is not counted. `data:`, http(s) and root-absolute sources count as resolvable.
+ */
 export function findUnresolvedImageReferences(markdown) {
   const prose = markdown.replace(FENCED_CODE, '').replace(INLINE_CODE, '')
   const found = []

@@ -406,6 +406,7 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/assets/search',
     {
+      /* No route-level `permissions`: as for the upload route above. */
       schema: {
         summary: 'Search asset contents',
         description:

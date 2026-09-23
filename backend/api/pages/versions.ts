@@ -5,6 +5,8 @@ async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string; versionId: string } }>(
     '/sites/:siteId/versions/:versionId',
     {
+      // -> No route-level `permissions`: `read:history` is a page permission, checked against the
+      //    page the version belongs to in the handler
       schema: {
         summary: 'Get a shareable page version',
         description:
@@ -33,6 +35,9 @@ async function routes(app: FastifyInstance) {
       if (!version) {
         return reply.notFound('This version does not exist.')
       }
+      // -> Judged on the page as it stands NOW, not the path the version was written at; a deleted
+      //    page 404s here although its history rows outlive it (`pageHistory.pageId` is not a
+      //    foreign key)
       const page = await requireReadablePage(req, reply, req.params.siteId, version.pageId, {
         permission: 'read:history',
         forbiddenMessage: "You are not allowed to read this page's history."

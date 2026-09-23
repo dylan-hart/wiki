@@ -53,6 +53,7 @@ export async function searchAssets({
   if (!terms) {
     return emptyResult()
   }
+  // -> A coarse hint only: `mayActorOnAsset` below is the gate, per row.
   if (!CARDINAL.models.groups.mayHoldPermissionSomewhere(actor, ['read:assets'], siteId)) {
     return emptyResult()
   }

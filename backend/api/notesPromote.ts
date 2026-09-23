@@ -17,6 +17,11 @@ async function routes(app: FastifyInstance) {
   app.post<{ Params: { siteId: string; noteId: string }; Body: NotePromoteBody }>(
     '/sites/:siteId/notes/:noteId/promote',
     {
+      /*
+        No route-level permissions: `write:pages`, `publish:pages` and `write:assets` are page-rule
+        permissions at the destination, checked in the handler and in
+        `helpers/notePromotion.ts#promoteNote`.
+      */
       schema: {
         summary: 'Promote a note to a wiki page',
         description:

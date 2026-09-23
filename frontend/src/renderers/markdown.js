@@ -246,10 +246,9 @@ function lineRows(lineCount, lineStart, highlights) {
 function codeBlock(str, lang, attributes) {
   if (['drawio', 'kroki', 'mermaid', 'plantuml', 'whiteboard'].includes(lang)) {
     /*
-      Left as source, deliberately: the diagram is drawn by the block whose body this fence is
-      (`block-diagram`, `block-plantuml`, `block-kroki`, `block-drawio`), each of which reads
-      the text back out of this `pre`. A fence outside any block keeps the panel the stylesheet
-      gives it, which reads as "a diagram nobody has drawn" rather than as a code sample.
+      Left as source, deliberately: the block whose body this fence is reads the text back out of
+      this `pre` and draws it itself. A fence outside any block, or under a disabled block, stays a
+      quiet panel rather than highlighted code.
     */
     return `<pre class="codeblock-${lang}"><code>${escape(str)}</code></pre>`
   }

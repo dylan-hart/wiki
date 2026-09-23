@@ -61,8 +61,9 @@ declare module 'fastify' {
      */
     unlockedPages?: string[]
     /**
-     * The redirect login in progress: an answer whose `state` is not the one this session sent is
-     * not this session's answer, and the PKCE verifier never leaves here.
+     * The redirect login, or `mode: 'link'` connect, in progress: an answer whose `state` is not
+     * the one this session sent is not this session's answer, and the PKCE verifier never leaves
+     * here.
      *
      * One at a time, deliberately — a second attempt replaces the first rather than leaving a set of
      * open states to be matched against.
@@ -81,6 +82,11 @@ declare module 'fastify' {
       redirect: string
       /** An ISO instant, so that a stale flow can be refused. */
       startedAt: string
+      /**
+       * Set when the flow starts and never read from the callback's query, so a login cannot be
+       * turned into a connect (or back) mid-flight. `linkUserId` is the account a connect binds to;
+       * the callback refuses once the session is no longer signed in as it.
+       */
       mode?: 'login' | 'link'
       linkUserId?: string
     }

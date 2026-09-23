@@ -76,6 +76,8 @@ const currentPagePath = computed(() =>
 const errorMessage = computed(() => t(`history.versionLink.${state.error}`))
 
 async function renderVersion(version) {
+  // -> Sanitized in the browser: an old version's source is untrusted HTML (`allowHTML`), and
+  //    unlike a saved page it never passed the server's `helpers/htmlSanitizePolicy.ts`
   if (version.contentType === 'html') {
     return DOMPurify.sanitize(version.content)
   }

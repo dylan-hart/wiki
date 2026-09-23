@@ -800,6 +800,7 @@ const folderPath = computed(() => {
 
 const canReorder = computed(() => userStore.can('manage:pages'))
 
+// -> `forceFallback`: native drag would trip `.fileman-droptarget`'s upload handlers
 const listSortableOptions = computed(() => ({
   animation: 150,
   forceFallback: true,

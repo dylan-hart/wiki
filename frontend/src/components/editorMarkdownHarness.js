@@ -51,10 +51,10 @@ export function createFakeModel(initialValue) {
 }
 
 /**
- * One object rather than four module-level `let`s: an importer cannot assign to an imported
- * binding, and several suites set the caret before triggering an action. `disposed` lets
- * `getPosition` return `null` the way real Monaco does once torn down, rather than continuing to
- * answer with the last position.
+ * One object rather than module-level `let`s: an importer cannot assign to an imported binding,
+ * and several suites set the caret before triggering an action. `disposed` lets `getPosition`
+ * return `null` the way real Monaco does once torn down, rather than continuing to answer with the
+ * last position.
  */
 export const editorState = {
   fakeModel: null,

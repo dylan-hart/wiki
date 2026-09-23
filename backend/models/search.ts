@@ -30,7 +30,9 @@ const ENGINE_INIT_TIMEOUT_MS = 30_000
  * The per-site search settings that belong to no engine. `dictOverrides` is a free-form locale ->
  * dictionary map rather than a scalar prop; `semanticEnabled` is engine-independent (semantic search
  * is always backed by Postgres/pgvector) and is ANDed with the instance-wide
- * `CARDINAL.capabilities.semanticSearch` before the feature is reachable.
+ * `CARDINAL.capabilities.semanticSearch` before the feature is reachable. `semanticMinMatch` is a
+ * 0-100 percentage on `SearchResultSimilarityBadge.vue`'s scale, not a distance: keep it in step
+ * with that formula (`semanticSearch.ts#maxDistanceForMinMatch` inverts it). `0` means no floor.
  */
 export interface SearchConfig {
   dictOverrides: Record<string, string>

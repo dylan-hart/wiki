@@ -129,6 +129,8 @@ function handleEnd(event) {
   }
 }
 
+// -> Mutates `nodes`/`roots` in place: SortableJS has already moved the DOM, so the data has to
+//    follow or the next patch fights it
 function handleReorder(event) {
   if (dropFolderAt(event) !== undefined) {
     return

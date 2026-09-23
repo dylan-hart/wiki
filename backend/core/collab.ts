@@ -74,6 +74,12 @@ export const PEER_STATE_TIMEOUT = 500
 
 const PEER_PRESENCE_TTL = 15 * 1000
 
+/**
+ * How long a room buffers its outgoing relay. Every NOTIFY commits on its own and queues behind
+ * postgres's single notify lock, so a typist's per-keystroke updates go out as one
+ * `Y.mergeUpdates` payload per window, and cursors as the latest state per client. Local sockets
+ * are never delayed; an awareness removal skips the window so a departed cursor does not linger.
+ */
 export const RELAY_UPDATE_WINDOW = 50
 
 export const RELAY_AWARENESS_WINDOW = 100
@@ -375,9 +381,9 @@ export default {
 
   /**
    * Whether another instance is currently running, asked so that the single-instance case — very
-   * much the common one — does not spend {@link PEER_STATE_TIMEOUT} waiting for an answer that
-   * cannot come. Instances are not registered anywhere: their relay connections name themselves in
-   * `pg_stat_activity`.
+   * much the common one — neither spends {@link PEER_STATE_TIMEOUT} waiting for an answer that
+   * cannot come nor sends a NOTIFY per keystroke nobody receives ({@link relay}). Instances are not
+   * registered anywhere: their relay connections name themselves in `pg_stat_activity`.
    */
   async hasPeers(): Promise<boolean> {
     if (Date.now() - this.peerPresence.checkedAt < PEER_PRESENCE_TTL) {
@@ -962,6 +968,7 @@ export default {
   queueRelayUpdate(room: CollabRoom, update: Uint8Array): void {
     const outbox = room.relayOutbox
     outbox.updates.push(update)
+    // -> A room already closed or shut down sends at once: no timer may outlive its room
     if (this.rooms.get(room.pageId) !== room) {
       this.flushRelayUpdates(room)
       return
@@ -991,6 +998,7 @@ export default {
     for (const clientId of clients) {
       outbox.awarenessClients.add(clientId)
     }
+    // -> A room already closed or shut down sends at once: no timer may outlive its room
     if (removal || this.rooms.get(room.pageId) !== room) {
       this.flushRelayAwareness(room)
       return
@@ -1025,7 +1033,13 @@ export default {
     this.flushRelayAwareness(room)
   },
 
-  /** Publish a message to the other instances, split into chunks postgres will accept. */
+  /**
+   * Publish a message to the other instances, split into chunks postgres will accept. `update` and
+   * `awareness` are dropped while no peer is known, and held in order behind a presence check while
+   * that answer is stale. Nothing else is gated: a starting peer's `hello` is what reveals it (any
+   * message from a peer marks it present, {@link receiveRelay}), and the `state` reply carries
+   * whatever was dropped before it.
+   */
   relay(message: Omit<RelayEnvelope, 'i'>): void {
     if (!this.listenClient) {
       return
@@ -1053,9 +1067,9 @@ export default {
   },
 
   /**
-   * Never awaited — every caller is a Yjs handler reacting to an edit or a cursor moving, and a
-   * keystroke cannot wait for a round trip to postgres. The notifier (`helpers/pubsub.ts`) queues
-   * sends, which is what makes that safe on a single client.
+   * Never awaited: callers are Yjs handlers and the relay-outbox flushes, none of which can wait
+   * for a round trip to postgres. The notifier (`helpers/pubsub.ts`) queues sends, which is what
+   * makes that safe on a single client.
    */
   publish(envelope: RelayEnvelope): void {
     notifier.send(NOTIFY_CHANNEL, JSON.stringify(envelope))

@@ -8,6 +8,8 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/tasks',
     {
+      // -> No route-level `permissions`: `read:pages` is a page rule permission, which that hook
+      //    cannot check — decided per page by `models/tasks.ts#listOpenTasks`.
       schema: {
         summary: 'List the unchecked task items across a site',
         description:

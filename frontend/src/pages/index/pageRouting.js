@@ -53,10 +53,10 @@ export async function enterCreateMode(route, { router, t }) {
       return
     }
     /*
-      This route never reaches `loadPageForRoute`'s own permission fetch, so without this every
-      page-permission-gated control reads as denied for the whole create session. `pageStore.path`/
-      `.locale`, not `pageCreateArgs`: `pageCreate` is what resolves the actual target path -- a
-      default `new-page` slug when the route carried none.
+      Asked before `pageCreate` opens the editor: `/_create` makes no server call of its own, so
+      this is all that keeps a reader without `write:pages` out of a working compose screen (the
+      save is refused server-side regardless). It also feeds the editor's page-permission-gated
+      controls, since this route never reaches `loadPageForRoute`'s own fetch.
     */
     await userStore.fetchPagePermissions(pageCreateArgs.path, pageCreateArgs.locale)
     if (!userStore.can('write:pages')) {

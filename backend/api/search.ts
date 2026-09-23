@@ -17,8 +17,8 @@ async function withDbSearchExtras(
 }
 
 /**
- * The general search settings (`dictOverrides`, `semanticEnabled`) hold no secret, so they take
- * `manage:sites` like the rest of a site's settings. An engine's config can hold credentials, so
+ * The general search settings hold no secret, so they take `manage:sites` like the rest of a
+ * site's settings. An engine's config can hold credentials, so
  * the engine-picker routes take `manage:system`, as `api/storage.ts` does; `refresh` and the
  * rebuilds take it too, since a rebuild runs engine code.
  *

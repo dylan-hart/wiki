@@ -84,7 +84,9 @@ export function tabHeadingLevel(header: string | undefined): number | null {
 class Rendering {
   /**
    * What the author is not granted is stripped rather than rejected: pasting a snippet carrying a
-   * tracking script should save the page without it, not fail with an error nobody can act on.
+   * tracking script should save the page without it, not fail with an error nobody can act on. An
+   * over-cap whiteboard is the exception and refuses the save, since trimming strokes would destroy
+   * the drawing.
    */
   async postProcess(
     siteId: string,
@@ -393,8 +395,9 @@ class Rendering {
   }
 
   /**
-   * Works on a copy: scripts and styles read as text but are not prose, and a page carrying them
-   * would otherwise turn up in search results for whatever its code happens to mention.
+   * Works on a copy: scripts, styles and whiteboard stroke JSON read as text but are not prose, and
+   * a page carrying them would otherwise turn up in search results for whatever they happen to
+   * contain.
    */
   private extractText($: cheerio.CheerioAPI): string {
     const $copy = cheerio.load($.html(), null, false)

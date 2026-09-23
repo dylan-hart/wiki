@@ -486,6 +486,8 @@ export function sanitizeOptions(
     // -> `script` and `style` in the allow list are what `write:scripts` and `write:styles` mean:
     //    the library's per-call warning is the thing to silence, not the permission
     allowVulnerableTags: permissions.scripts || permissions.styles,
+    // -> `input` is allowed only as a checkbox: it is what the task-list renderer emits, and a bare
+    //    or typed input would otherwise let content draw a form field.
     exclusiveFilter: (frame) => frame.tag === 'input' && frame.attribs.type !== 'checkbox',
     allowedSchemes: mergeAllowedSchemes(additionalSchemes),
     allowedSchemesByTag: {

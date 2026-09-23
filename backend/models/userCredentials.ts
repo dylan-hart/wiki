@@ -172,6 +172,10 @@ export async function matchRecoveryCode(
  * itself restricted does not count — it is no way in either. Passkeys count whichever host they were
  * registered against: on a multi-site instance one bound to another site still leaves the account
  * reachable.
+ * FIXME: a local entry counts whenever it is unrestricted, including the random password
+ * `users.createUser()` writes for an account a provider auto-provisioned. That password is no way
+ * in that the account holder knows, so `unlinkStrategy()` can remove such an account's only
+ * provider.
  */
 export function countAlternativeLogins(user: any, strategyId: string): number {
   const auth = (user.auth ?? {}) as Record<string, any>
@@ -429,6 +433,15 @@ class UserCredentials {
     }))
   }
 
+  /**
+   * `patchStrategyAuth()` can only merge into an entry, so this is its sibling for deleting one,
+   * under the same {@link authLockKey} lock. The not-linked and last-way-in checks run inside the
+   * lock: two concurrent removals of an account's only two providers would each see the other as a
+   * way in.
+   *
+   * @throws `ERR_UNLINK_LOCAL_STRATEGY`, `ERR_INVALID_USER`, `ERR_UNLINK_NOT_LINKED` or
+   *         `ERR_UNLINK_LAST_LOGIN_METHOD`
+   */
   async unlinkStrategy({
     userId,
     strategyId,
@@ -806,6 +819,14 @@ class UserCredentials {
     return { recoveryCodes: plaintext, hadUnusedCodes }
   }
 
+  /**
+   * The cross-account "identity already linked elsewhere" check runs inside this user's lock but
+   * not the other account's, so two accounts connecting the same provider identity at the same
+   * moment can both succeed; `users.getByProviderLink()` then resolves to whichever account was
+   * created first.
+   *
+   * @throws `ERR_LINK_NOT_SIGNED_IN`, `ERR_LINK_ALREADY_LINKED` or `ERR_LINK_IDENTITY_IN_USE`
+   */
   async linkStrategy({
     userId,
     strategyId,
