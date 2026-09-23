@@ -8,6 +8,7 @@ import {
   validateModuleConfig
 } from '../helpers/moduleRegistry.ts'
 import { withTimeout } from '../helpers/timeout.ts'
+import { AUTO_TAG_MAX_TAGS, AUTO_TAG_THRESHOLD } from '../helpers/autoTag.ts'
 import type { AccessActor } from './groups.ts'
 import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { pages as pagesTable } from '../db/schema.ts'
@@ -34,6 +35,8 @@ const ENGINE_INIT_TIMEOUT_MS = 30_000
 export interface SearchConfig {
   dictOverrides: Record<string, string>
   semanticEnabled: boolean
+  autoTagThreshold: number
+  autoTagMaxTags: number
 }
 
 /**
@@ -467,7 +470,9 @@ class Search {
       | undefined
     return {
       dictOverrides: (config?.dictOverrides ?? {}) as Record<string, string>,
-      semanticEnabled: config?.semanticEnabled ?? false
+      semanticEnabled: config?.semanticEnabled ?? false,
+      autoTagThreshold: config?.autoTagThreshold ?? AUTO_TAG_THRESHOLD,
+      autoTagMaxTags: config?.autoTagMaxTags ?? AUTO_TAG_MAX_TAGS
     }
   }
 

@@ -488,7 +488,12 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {}, semanticEnabled: false }
+      config: {
+        dictOverrides: {},
+        semanticEnabled: false,
+        autoTagThreshold: 0.15,
+        autoTagMaxTags: 3
+      }
     })
   })
 
@@ -501,7 +506,12 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: { en: 'english' }, semanticEnabled: false }
+      config: {
+        dictOverrides: { en: 'english' },
+        semanticEnabled: false,
+        autoTagThreshold: 0.15,
+        autoTagMaxTags: 3
+      }
     })
   })
 
@@ -514,7 +524,12 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {}, semanticEnabled: true }
+      config: {
+        dictOverrides: {},
+        semanticEnabled: true,
+        autoTagThreshold: 0.15,
+        autoTagMaxTags: 3
+      }
     })
   })
 
@@ -537,7 +552,12 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {}, semanticEnabled: false }
+      config: {
+        dictOverrides: {},
+        semanticEnabled: false,
+        autoTagThreshold: 0.15,
+        autoTagMaxTags: 3
+      }
     })
   })
 })

@@ -65,7 +65,12 @@ before(async () => {
         refreshFromDisk: async () => {
           refreshCalls++
         },
-        getConfig: (_siteId: string) => ({ dictOverrides, semanticEnabled }),
+        getConfig: (_siteId: string) => ({
+          dictOverrides,
+          semanticEnabled,
+          autoTagThreshold: 0.15,
+          autoTagMaxTags: 3
+        }),
         getAvailableDictionaries: async () => availableDictionaries
       },
       sites: {
@@ -246,6 +251,60 @@ test('PATCH .../search 400s when neither dictOverrides nor semanticEnabled is pr
   assert.equal(res.statusCode, 400)
 })
 
+test('PATCH .../search stores autoTagThreshold and autoTagMaxTags as given', async () => {
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/search`,
+    payload: { autoTagThreshold: 0.3, autoTagMaxTags: 5 }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(updateSiteCalls.at(-1), [
+    SITE_ID,
+    { config: { search: { config: { autoTagThreshold: 0.3, autoTagMaxTags: 5 } } } }
+  ])
+})
+
+test('PATCH .../search accepts the autoTagThreshold bounds 0 and 1', async () => {
+  for (const autoTagThreshold of [0, 1]) {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/search`,
+      payload: { autoTagThreshold }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(updateSiteCalls.at(-1), [
+      SITE_ID,
+      { config: { search: { config: { autoTagThreshold } } } }
+    ])
+  }
+})
+
+for (const autoTagThreshold of [-0.01, 1.01, 15]) {
+  test(`PATCH .../search 400s for autoTagThreshold ${autoTagThreshold}, outside 0-1`, async () => {
+    const before = updateSiteCalls.length
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/search`,
+      payload: { autoTagThreshold }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateSiteCalls.length, before)
+  })
+}
+
+for (const autoTagMaxTags of [0, 21, 2.5]) {
+  test(`PATCH .../search 400s for autoTagMaxTags ${autoTagMaxTags}`, async () => {
+    const before = updateSiteCalls.length
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/search`,
+      payload: { autoTagMaxTags }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateSiteCalls.length, before)
+  })
+}
+
 test('GET .../search/semantic 404s for a site that does not exist', async () => {
   const res = await app.inject({
     method: 'GET',
@@ -259,7 +318,12 @@ test('GET .../search/semantic reports the stored setting and the instance capabi
   ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: false }
   const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/search/semantic` })
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(res.json(), { enabled: true, available: false })
+  assert.deepEqual(res.json(), {
+    enabled: true,
+    available: false,
+    autoTagThreshold: 0.15,
+    autoTagMaxTags: 3
+  })
   semanticEnabled = false
 })
 

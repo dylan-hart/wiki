@@ -21,7 +21,8 @@ describe('auto-tag-page task()', () => {
   let pageUpdates: Record<string, any>[]
   let treeUpdates: Record<string, any>[]
   let updatedRow: any
-  let search: { updated: ReturnType<typeof mock.fn> }
+  let search: { updated: ReturnType<typeof mock.fn>; getConfig: ReturnType<typeof mock.fn> }
+  let autoTagConfig: { autoTagThreshold: number; autoTagMaxTags: number }
   let glossary: { invalidateCache: ReturnType<typeof mock.fn> }
   let getTags: ReturnType<typeof mock.fn>
 
@@ -47,7 +48,15 @@ describe('auto-tag-page task()', () => {
     pageUpdates = []
     treeUpdates = []
     updatedRow = undefined
-    search = { updated: mock.fn(async () => {}) }
+    autoTagConfig = { autoTagThreshold: 0.15, autoTagMaxTags: 3 }
+    search = {
+      updated: mock.fn(async () => {}),
+      getConfig: mock.fn((_siteId: string) => ({
+        dictOverrides: {},
+        semanticEnabled: true,
+        ...autoTagConfig
+      }))
+    }
     glossary = { invalidateCache: mock.fn() }
     getTags = mock.fn(async (siteId: string) =>
       (tagsBySite[siteId] ?? []).map((tag) => ({ tag, usageCount: 1 }))
@@ -130,6 +139,42 @@ describe('auto-tag-page task()', () => {
 
     assert.deepEqual(pageUpdates[0].tags, ['kubernetes', 'docker'])
     assert.deepEqual(treeUpdates[0].tags, ['kubernetes', 'docker'])
+  })
+
+  test("reads the threshold and max tags off the page's own site", async () => {
+    page!.siteId = 'site-b'
+
+    await task({ pageId: 'page-1' })
+
+    assert.deepEqual(
+      search.getConfig.mock.calls.map((call) => call.arguments[0]),
+      ['site-b']
+    )
+  })
+
+  test("applies the site's configured threshold rather than the default", async () => {
+    tagsBySite['site-a'] = ['docker', 'production']
+
+    await task({ pageId: 'page-1' })
+    assert.deepEqual(pageUpdates[0].tags, ['docker', 'production'])
+
+    pageUpdates = []
+    treeUpdates = []
+    page!.tags = []
+    page!.autoTagPending = true
+    autoTagConfig.autoTagThreshold = 0.5
+
+    await task({ pageId: 'page-1' })
+    assert.deepEqual(pageUpdates[0].tags, ['docker'])
+  })
+
+  test("caps the added tags at the site's configured max", async () => {
+    tagsBySite['site-a'] = ['docker', 'production']
+    autoTagConfig.autoTagMaxTags = 1
+
+    await task({ pageId: 'page-1' })
+
+    assert.deepEqual(pageUpdates[0].tags, ['docker'])
   })
 
   test('applies nothing and does not throw when semantic search is off', async () => {

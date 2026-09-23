@@ -167,13 +167,56 @@
             :loading="state.loading > 0"
             :aria-label="t('admin.search.semanticEnabled')" />
         </w-settings-row>
+        <w-settings-row
+          icon="tabler:tags"
+          control-width="auto"
+          :label="t('admin.search.autoTagThreshold')"
+          :hint="t('admin.search.autoTagThresholdHint')">
+          <div style="width: 140px">
+            <w-input
+              ref="autoTagThresholdInput"
+              dense
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              v-model.number="state.autoTagThresholdPercent"
+              :rules="autoTagThresholdRules"
+              hide-bottom-space
+              lazy-rules="ondemand"
+              :disabled="!state.semanticAvailable"
+              suffix="%"
+              :aria-label="t('admin.search.autoTagThreshold')" />
+          </div>
+        </w-settings-row>
+        <w-settings-row
+          icon="tabler:hash"
+          control-width="auto"
+          :label="t('admin.search.autoTagMaxTags')"
+          :hint="t('admin.search.autoTagMaxTagsHint')">
+          <div style="width: 140px">
+            <w-input
+              ref="autoTagMaxTagsInput"
+              dense
+              type="number"
+              min="1"
+              :max="AUTO_TAG_MAX_TAGS_LIMIT"
+              step="1"
+              v-model.number="state.autoTagMaxTags"
+              :rules="autoTagMaxTagsRules"
+              hide-bottom-space
+              lazy-rules="ondemand"
+              :disabled="!state.semanticAvailable"
+              :aria-label="t('admin.search.autoTagMaxTags')" />
+          </div>
+        </w-settings-row>
       </w-settings-card>
     </div>
   </w-page>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useAdminSettings } from '@/composables/adminSettings'
@@ -190,6 +233,13 @@ import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
+import {
+  AUTO_TAG_MAX_TAGS_LIMIT,
+  isValidAutoTagMaxTags,
+  isValidAutoTagPercent,
+  percentToThreshold,
+  thresholdToPercent
+} from '@/helpers/autoTagThreshold'
 
 const DB_ENGINE_KEY = 'db'
 
@@ -215,7 +265,9 @@ const { state, load } = useAdminSettings({
     semanticEnabled: false,
     semanticAvailable: false,
     semanticSaving: false,
-    semanticRebuildLoading: false
+    semanticRebuildLoading: false,
+    autoTagThresholdPercent: 15,
+    autoTagMaxTags: 3
   },
   fetch: async (siteId) => {
     const [engines, semantic] = await Promise.all([
@@ -227,10 +279,26 @@ const { state, load } = useAdminSettings({
   onLoaded: ({ engines, semantic }) => {
     applyEngines(engines, { resetSelection: adminStore.currentSiteId !== loadedSiteId })
     loadedSiteId = adminStore.currentSiteId
-    state.semanticEnabled = semantic?.enabled ?? false
-    state.semanticAvailable = semantic?.available ?? false
+    applySemantic(semantic)
   }
 })
+
+const autoTagThresholdInput = ref(null)
+const autoTagMaxTagsInput = ref(null)
+
+const autoTagThresholdRules = [
+  (val) => isValidAutoTagPercent(val) || t('admin.search.autoTagThresholdInvalid')
+]
+const autoTagMaxTagsRules = [
+  (val) => isValidAutoTagMaxTags(val) || t('admin.search.autoTagMaxTagsInvalid')
+]
+
+function applySemantic(semantic) {
+  state.semanticEnabled = semantic?.enabled ?? false
+  state.semanticAvailable = semantic?.available ?? false
+  state.autoTagThresholdPercent = thresholdToPercent(semantic?.autoTagThreshold ?? 0.15)
+  state.autoTagMaxTags = semantic?.autoTagMaxTags ?? 3
+}
 
 const selectedEngine = computed(
   () => state.engines.find((eng) => eng.key === state.selectedEngineKey) || null
@@ -374,10 +442,19 @@ async function rebuild() {
  * clicked: a stale `state.semanticAvailable` lets a click through that the server then refuses.
  */
 async function saveSemanticEnabled() {
+  const thresholdValid = autoTagThresholdInput.value?.validate() ?? true
+  const maxTagsValid = autoTagMaxTagsInput.value?.validate() ?? true
+  if (!thresholdValid || !maxTagsValid) {
+    return
+  }
   state.semanticSaving = true
   try {
     await API_CLIENT.patch(`sites/${adminStore.currentSiteId}/search`, {
-      json: { semanticEnabled: state.semanticEnabled }
+      json: {
+        semanticEnabled: state.semanticEnabled,
+        autoTagThreshold: percentToThreshold(state.autoTagThresholdPercent),
+        autoTagMaxTags: state.autoTagMaxTags
+      }
     }).json()
     notify({
       type: 'positive',
@@ -393,8 +470,7 @@ async function saveSemanticEnabled() {
       const semantic = await API_CLIENT.get(
         `sites/${adminStore.currentSiteId}/search/semantic`
       ).json()
-      state.semanticEnabled = semantic.enabled
-      state.semanticAvailable = semantic.available
+      applySemantic(semantic)
     } catch {
       // -> The failed-save toast above is enough; the re-fetch failing too isn't worth a second one.
     }

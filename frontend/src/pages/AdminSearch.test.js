@@ -530,9 +530,24 @@ describe('semantic search setting (task #3104)', () => {
     vi.restoreAllMocks()
   })
 
-  function mockLoad({ enabled = false, available = false } = {}) {
+  function mockLoad({
+    enabled = false,
+    available = false,
+    autoTagThreshold = 0.15,
+    autoTagMaxTags = 3
+  } = {}) {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([engine()]) })
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ enabled, available }) })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ enabled, available, autoTagThreshold, autoTagMaxTags })
+    })
+  }
+
+  function thresholdInputOf(wrapper) {
+    return wrapper.find('input[aria-label="admin.search.autoTagThreshold"]')
+  }
+
+  function maxTagsInputOf(wrapper) {
+    return wrapper.find('input[aria-label="admin.search.autoTagMaxTags"]')
   }
 
   function toggleOf(wrapper) {
@@ -582,9 +597,82 @@ describe('semantic search setting (task #3104)', () => {
     await flushPromises()
 
     expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/search', {
-      json: { semanticEnabled: true }
+      json: { semanticEnabled: true, autoTagThreshold: 0.15, autoTagMaxTags: 3 }
     })
     expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
+  })
+
+  it('shows the stored auto-tag threshold as a straight percentage, not an inverted one', async () => {
+    mockLoad({ enabled: true, available: true, autoTagThreshold: 0.3, autoTagMaxTags: 5 })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    expect(thresholdInputOf(wrapper).element.value).toBe('30')
+    expect(maxTagsInputOf(wrapper).element.value).toBe('5')
+  })
+
+  it('saves an edited percentage back as a 0-1 fraction alongside max tags', async () => {
+    mockLoad({ enabled: true, available: true })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    await thresholdInputOf(wrapper).setValue('25')
+    await maxTagsInputOf(wrapper).setValue('4')
+
+    API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await applyBtnOf(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/search', {
+      json: { semanticEnabled: true, autoTagThreshold: 0.25, autoTagMaxTags: 4 }
+    })
+  })
+
+  it('refuses to save an out-of-range percentage or max tags', async () => {
+    mockLoad({ enabled: true, available: true })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    await thresholdInputOf(wrapper).setValue('150')
+    await applyBtnOf(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.patch).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('admin.search.autoTagThresholdInvalid')
+
+    await thresholdInputOf(wrapper).setValue('15')
+    await maxTagsInputOf(wrapper).setValue('0')
+    await applyBtnOf(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.patch).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('admin.search.autoTagMaxTagsInvalid')
+  })
+
+  it('falls back to the 15% / 3 defaults when the server reports no auto-tag settings', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([engine()]) })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ enabled: false, available: true })
+    })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    expect(thresholdInputOf(wrapper).element.value).toBe('15')
+    expect(maxTagsInputOf(wrapper).element.value).toBe('3')
+  })
+
+  it('disables the auto-tag fields when semantic search is unavailable', async () => {
+    mockLoad({ enabled: false, available: false })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    expect(thresholdInputOf(wrapper).attributes('disabled')).toBeDefined()
+    expect(maxTagsInputOf(wrapper).attributes('disabled')).toBeDefined()
   })
 
   it('notifies semanticSaveFailed and re-fetches the current value when the save is rejected', async () => {
