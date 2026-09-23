@@ -83,7 +83,7 @@ describe('header nav regression (source)', () => {
   })
 
   it.each([
-    ['components/HeaderNav.vue', 7],
+    ['components/HeaderNav.vue', 8],
     ['layouts/AdminLayout.vue', 1],
     ['components/AccountMenu.vue', 1]
   ])('%s puts every header-nav-btn on the shared class too', (file, count) => {
