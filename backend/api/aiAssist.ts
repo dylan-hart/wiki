@@ -59,7 +59,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get the writing assistant status for the caller',
         description:
-          "Whether the caller may use the Markdown editor's writing assistant right now, and how much of their daily allowance is left. Reading it uses none of the allowance. `reason` names the first check that refused, in the order the generate route applies them: `guest`, `disabled` (`features.aiAssist` is off), `forbidden` (no `write:pages` on the page named by `pageId`, or by `path` and `locale`; skipped when neither is given), `capReached`, `unconfigured` (no AI provider is set up for the site).",
+          "Whether the caller may use the Markdown editor's writing assistant right now, and how much of their daily allowance is left. Reading it uses none of the allowance. `reason` names the first check that refused, in the order the generate route applies them: `guest`, `disabled` (`ai.assist` is off), `forbidden` (no `write:pages` on the page named by `pageId`, or by `path` and `locale`; skipped when neither is given), `capReached`, `unconfigured` (no AI provider is available for the site: none is selected, the instance is offline, or the selected provider has no implementation or fails its configuration check).",
         tags: ['AI'],
         params: { $ref: 'SiteIdParams#' },
         querystring: {
@@ -97,7 +97,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Run a writing assistant action',
         description:
-          "Runs one of the Markdown editor's writing assistant actions through the site's AI provider and returns the text to insert. The prompt templates live on the server. Checks run in this order: 401 for a guest, 403 when `features.aiAssist` is off, 403 without `write:pages` on the page, 429 (with `Retry-After`) once the caller's daily allowance (`features.aiAssistDailyCap`) is used up, and 503 when no provider is configured or the provider returns nothing. One unit of the allowance is used just before the provider is called, and it is not refunded if the call fails.",
+          "Runs one of the Markdown editor's writing assistant actions through the site's AI provider and returns the text to insert. The prompt templates live on the server. Checks run in this order: 401 for a guest, 403 when `ai.assist` is off, 403 without `write:pages` on the page, 429 (with `Retry-After`) once the caller's daily allowance (`ai.assistDailyCap`) is used up, and 503 when no provider is available or the provider returns nothing. One unit of the allowance is used just before the provider is called, and it is not refunded if the call fails.",
         tags: ['AI'],
         params: { $ref: 'SiteIdParams#' },
         body: {

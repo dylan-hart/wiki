@@ -52,20 +52,15 @@ export const AI_ASSIST_REFUSALS: Record<AiAssistReason, { statusCode: number; me
 }
 
 export function aiAssistEnabled(siteConfig: Record<string, any> | undefined): boolean {
-  return siteConfig?.features?.aiAssist === true
+  return siteConfig?.ai?.assist === true
 }
 
 export function aiAssistDailyCap(siteConfig: Record<string, any> | undefined): number {
-  const cap = Number(siteConfig?.features?.aiAssistDailyCap)
+  const cap = Number(siteConfig?.ai?.assistDailyCap)
   if (!Number.isFinite(cap) || cap < 1) {
     return AI_ASSIST_DEFAULT_DAILY_CAP
   }
   return Math.min(Math.floor(cap), AI_ASSIST_MAX_DAILY_CAP)
-}
-
-export function aiProviderConfigured(siteConfig: Record<string, any> | undefined): boolean {
-  const provider = siteConfig?.ai?.provider
-  return typeof provider === 'string' && provider.length > 0
 }
 
 export function aiAssistQuotaKey(siteId: string, userId: string): string {
@@ -141,7 +136,8 @@ export async function evaluateAiAssist(
   if (!counter.allowed) {
     return refuse('capReached', actor.id, counter)
   }
-  if (!aiProviderConfigured(siteConfig)) {
+  const registry = aiRegistry()
+  if (!registry || !(await registry.availability(siteId)).available) {
     return refuse('unconfigured', actor.id, counter)
   }
 
@@ -232,12 +228,14 @@ export function buildAiAssistPrompt({
           .join('\n\n'),
         maxOutputTokens: 1024
       }
-    case 'expand':
+    case 'expand': {
+      const instructions = prompt?.trim() ?? ''
       return {
         system: SYSTEM_PROMPT,
         prompt: [
           'Continue writing from where the text below ends, in the same voice and style.',
           'Reply with only the new text that follows on, not the text you were given.',
+          instructions ? `<instructions>\n${instructions}\n</instructions>` : '',
           language,
           wrapText(text)
         ]
@@ -245,6 +243,7 @@ export function buildAiAssistPrompt({
           .join('\n\n'),
         maxOutputTokens: 1024
       }
+    }
     case 'generate':
       return {
         system: SYSTEM_PROMPT,
@@ -264,9 +263,11 @@ export function buildAiAssistPrompt({
   }
 }
 
-type AiRegistry = Pick<typeof aiModel, 'generate'>
+type AiRegistry = Pick<typeof aiModel, 'availability' | 'generate'>
 
 export function aiRegistry(): AiRegistry | null {
-  const ai = CARDINAL.models.ai as AiRegistry | undefined
-  return typeof ai?.generate === 'function' ? ai : null
+  const ai = CARDINAL.models.ai as Partial<AiRegistry> | undefined
+  return typeof ai?.availability === 'function' && typeof ai?.generate === 'function'
+    ? (ai as AiRegistry)
+    : null
 }

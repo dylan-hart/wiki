@@ -10,7 +10,7 @@ import {
   teardownTestDb,
   type TestFixtures
 } from '../test/db.ts'
-import { generatePathHash } from '../helpers/common.ts'
+import { encodeTreePath, generatePathHash } from '../helpers/common.ts'
 import {
   assets as assetsTable,
   navigation as navigationTable,
@@ -2625,7 +2625,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
           and(
             eq(treeTable.siteId, fixtures.siteId),
             eq(treeTable.locale, 'en'),
-            eq(treeTable.folderPath, folderPath),
+            eq(treeTable.folderPath, encodeTreePath(folderPath)),
             eq(treeTable.fileName, fileName),
             eq(treeTable.type, type)
           )
@@ -2646,7 +2646,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
           and(
             eq(treeTable.siteId, fixtures.siteId),
             eq(treeTable.locale, 'en'),
-            eq(treeTable.folderPath, folderPath),
+            eq(treeTable.folderPath, encodeTreePath(folderPath)),
             eq(treeTable.fileName, fileName),
             eq(treeTable.type, type)
           )

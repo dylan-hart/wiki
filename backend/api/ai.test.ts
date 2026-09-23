@@ -175,7 +175,92 @@ describe('GET /sites/:siteId/ai/providers', () => {
   })
 })
 
+function getAi(permissions = ADMIN, siteId = SITE_ID) {
+  return app.inject({
+    method: 'GET',
+    url: `/sites/${siteId}/ai`,
+    headers: { 'x-test-permissions': permissions }
+  })
+}
+
+describe('GET /sites/:siteId/ai', () => {
+  test('refuses a caller without manage:system, manage:sites included', async () => {
+    assert.equal((await getAi(SITE_ADMIN)).statusCode, 403)
+  })
+
+  test('returns the selected provider and the writing assistant settings', async () => {
+    sites[SITE_ID].config.ai = {
+      provider: 'fake',
+      providers: { fake: { apiKey: SECRET } },
+      assist: true,
+      assistDailyCap: 20
+    }
+    const res = await getAi()
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), { provider: 'fake', assist: true, assistDailyCap: 20 })
+    assert.ok(!res.body.includes(SECRET))
+  })
+
+  test('falls back to off and the default cap when nothing is stored', async () => {
+    const res = await getAi()
+    assert.deepEqual(res.json(), { provider: '', assist: false, assistDailyCap: 50 })
+  })
+})
+
 describe('PUT /sites/:siteId/ai', () => {
+  test('refuses the writing assistant settings from a caller without manage:system', async () => {
+    const res = await putAi({ provider: '', assist: true, assistDailyCap: 100000 }, SITE_ADMIN)
+    assert.equal(res.statusCode, 403)
+    assert.deepEqual(sites[SITE_ID].config.ai, { provider: '', providers: {} })
+  })
+
+  test('saves the writing assistant settings even with no provider selected', async () => {
+    const res = await putAi({ provider: '', assist: true, assistDailyCap: 75 })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(sites[SITE_ID].config.ai, {
+      provider: '',
+      providers: {},
+      assist: true,
+      assistDailyCap: 75
+    })
+    assert.deepEqual(auditCalls[0].detail, {
+      changedFields: ['ai'],
+      provider: '',
+      assist: true,
+      assistDailyCap: 75
+    })
+  })
+
+  test('saves the writing assistant settings alongside a provider selection', async () => {
+    const res = await putAi({
+      provider: 'fake',
+      config: { apiKey: SECRET },
+      assist: true,
+      assistDailyCap: 10
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(sites[SITE_ID].config.ai.provider, 'fake')
+    assert.equal(sites[SITE_ID].config.ai.assist, true)
+    assert.equal(sites[SITE_ID].config.ai.assistDailyCap, 10)
+  })
+
+  test('leaves the stored writing assistant settings alone when the body omits them', async () => {
+    sites[SITE_ID].config.ai = { provider: '', providers: {}, assist: true, assistDailyCap: 30 }
+    const res = await putAi({ provider: 'fake', config: { apiKey: SECRET } })
+    assert.equal(res.statusCode, 200)
+    assert.equal(sites[SITE_ID].config.ai.assist, true)
+    assert.equal(sites[SITE_ID].config.ai.assistDailyCap, 30)
+    assert.deepEqual(auditCalls[0].detail, { changedFields: ['ai'], provider: 'fake' })
+  })
+
+  for (const assistDailyCap of [0, -1, 1.5, 100001]) {
+    test(`refuses a daily cap of ${assistDailyCap}, writing nothing`, async () => {
+      const res = await putAi({ provider: '', assist: true, assistDailyCap })
+      assert.equal(res.statusCode, 400)
+      assert.deepEqual(sites[SITE_ID].config.ai, { provider: '', providers: {} })
+    })
+  }
+
   test('refuses a caller without manage:system', async () => {
     const res = await putAi({ provider: 'fake', config: { apiKey: SECRET } }, SITE_ADMIN)
     assert.equal(res.statusCode, 403)

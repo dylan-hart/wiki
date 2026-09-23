@@ -110,6 +110,7 @@ describe('isSpaAppRoute', () => {
       '/_search',
       '/_tags',
       '/_graph',
+      '/_tasks',
       '/_admin',
       '/_admin/dashboard',
       '/_admin/site-1/general',
