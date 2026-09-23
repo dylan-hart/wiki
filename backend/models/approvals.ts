@@ -804,7 +804,7 @@ class Approvals {
         page.id,
         { content, ...(render && { render }) },
         actor,
-        submitterRenderPermissions
+        { renderPermissions: submitterRenderPermissions }
       )
     } catch (err: any) {
       await this.revertFailedFinalization(submissionId)
