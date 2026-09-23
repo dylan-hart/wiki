@@ -50,13 +50,23 @@
         </aside>
         <section class="notes-page-editor">
           <template v-if="state.current">
-            <w-input
-              class="notes-page-title"
-              :model-value="state.current.title ?? ''"
-              :placeholder="titlePlaceholder"
-              :aria-label="t('notes.noteTitle')"
-              hide-bottom-space
-              @update:model-value="onTitleInput" />
+            <div class="notes-page-header">
+              <w-input
+                class="notes-page-title"
+                :model-value="state.current.title ?? ''"
+                :placeholder="titlePlaceholder"
+                :aria-label="t('notes.noteTitle')"
+                hide-bottom-space
+                @update:model-value="onTitleInput" />
+              <w-btn
+                flat
+                color="primary"
+                icon="tabler:file-arrow-right"
+                class="notes-page-promote"
+                :label="t('notes.promote.action')"
+                :loading="state.promoting"
+                @click="promoteCurrent" />
+            </div>
             <editor-wysiwyg
               :key="state.current.id"
               class="notes-page-wysiwyg"
@@ -96,6 +106,7 @@ import { confirm } from '@/composables/dialog'
 import { useMeta } from '@/composables/meta'
 import { createNoteAutosave } from '@/composables/noteAutosave'
 import { notesApi } from '@/composables/notesApi'
+import { useNotePromote } from '@/composables/notePromote'
 import { notify } from '@/composables/notify'
 
 import { noteExcerpt } from '@/helpers/noteExcerpt'
@@ -131,7 +142,8 @@ const state = reactive({
   notesLoading: false,
   current: null,
   noteLoading: false,
-  focusBody: false
+  focusBody: false,
+  promoting: false
 })
 
 const notesEnabled = computed(() => siteStore.features?.notes !== false)
@@ -139,11 +151,19 @@ const notesEnabled = computed(() => siteStore.features?.notes !== false)
 const api = computed(() => notesApi(siteStore.id))
 
 const autosave = createNoteAutosave({
-  save: (noteId, patch) => api.value.updateNote(noteId, patch),
+  save: async (noteId, patch) => {
+    const saved = await api.value.updateNote(noteId, patch)
+    if (saved?.updatedAt && state.current?.id === noteId) {
+      state.current.updatedAt = saved.updatedAt
+    }
+    return saved
+  },
   onError: () => {
     notify({ type: 'negative', message: t('notes.saveFailed') })
   }
 })
+
+const { promote } = useNotePromote({ beforeSubmit: flushBeforePromote })
 
 const saveIndicator = computed(() => {
   switch (autosave.state.status) {
@@ -479,6 +499,33 @@ async function uploadFile(file) {
   }
 }
 
+async function flushBeforePromote(note) {
+  await autosave.flush(note.id)
+  if (autosave.hasPending(note.id)) {
+    throw new Error(t('notes.saveFailed'))
+  }
+}
+
+async function promoteCurrent() {
+  const note = state.current
+  if (!note || state.promoting) {
+    return
+  }
+  state.promoting = true
+  try {
+    const result = await promote(note)
+    if (result) {
+      autosave.cancel(note.id)
+      state.notes = state.notes.filter((n) => n.id !== note.id)
+      if (state.current?.id === note.id) {
+        state.current = null
+      }
+    }
+  } finally {
+    state.promoting = false
+  }
+}
+
 async function consumeNewQuery() {
   if (route.query.new !== '1') {
     return
@@ -602,9 +649,19 @@ defineExpose({ state, autosave })
   min-width: 0;
   overflow-y: auto;
 }
-.notes-page-title {
+.notes-page-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 12px 16px 0;
+}
+.notes-page-title {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 1.4rem;
+}
+.notes-page-promote {
+  flex: 0 0 auto;
 }
 .notes-page-wysiwyg {
   flex: 1 1 auto;

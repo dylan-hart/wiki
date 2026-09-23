@@ -3547,6 +3547,7 @@
   "notes.noteTitle": "Note title",
   "notes.notes": "Notes",
   "notes.pickOrAdd": "Pick a note from the list, or add a new one.",
+  "notes.promote.action": "Promote to Page",
   "notes.promote.failed": "Could not promote the note to a page.",
   "notes.promote.success": "The note is now a page.",
   "notes.renameNote": "Rename",
