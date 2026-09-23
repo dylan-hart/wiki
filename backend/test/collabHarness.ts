@@ -54,7 +54,9 @@ export function makeInstance(id: string): any {
     addressConnections: new Map(),
     listenClient: {},
     relaySeq: 0,
-    peerPresence: { known: false, checkedAt: 0 }
+    peerPresence: { known: false, checkedAt: 0 },
+    peerCheck: null,
+    peerGated: []
   }
 }
 
