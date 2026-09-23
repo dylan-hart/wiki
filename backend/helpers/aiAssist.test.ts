@@ -96,6 +96,7 @@ describe('evaluateAiAssist: the gate in front of the provider call', () => {
           checkAccess: () => true,
           groupIdsForRequest: () => []
         },
+        pages: { getPage: async () => null },
         rateLimits: { peek: peekMock, consume: consumeMock },
         ...(registry ? { ai: registry } : {})
       }

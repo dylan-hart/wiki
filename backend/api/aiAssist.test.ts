@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import aiAssistRoutes from './aiAssist.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 import { AI_ASSIST_WINDOW_SECONDS } from '../helpers/aiAssist.ts'
+import { generatePathHash } from '../helpers/common.ts'
 import { ai } from '../models/ai.ts'
 
 const SITE_ID = '11111111-1111-4111-8111-111111111111'
@@ -236,6 +237,78 @@ describe('aiAssist routes', () => {
       const res = await generate({ pageId: PAGE_ID })
       assert.equal(res.statusCode, 403)
       assert.equal(generateMock.mock.calls.length, 0)
+    })
+
+    describe('without a pageId, a page already at the path', () => {
+      const SECRET_PAGE = {
+        id: PAGE_ID,
+        path: 'docs/secret',
+        locale: 'en',
+        tags: ['secret'],
+        classification: null,
+        isLocked: false
+      }
+
+      beforeEach(() => {
+        getPageMock = mock.fn(async () => SECRET_PAGE)
+        // -> A TAG DENY on `secret` for write:pages: nothing else is refused.
+        checkAccessMock = mock.fn(
+          (_actor: any, permission: string, page: any) =>
+            !(permission === 'write:pages' && (page.tags ?? []).includes('secret'))
+        )
+      })
+
+      test('is looked up by its normalized path and locale', async () => {
+        await generate({ path: '/Docs/Secret/', locale: 'en' })
+        const lookup = getPageMock.mock.calls[0]?.arguments[0]
+        assert.equal(lookup.siteId, SITE_ID)
+        assert.equal(lookup.hash, generatePathHash('docs/secret'))
+        assert.equal(lookup.locale, 'en')
+      })
+
+      test('is judged as that page, so a tag DENY on write:pages answers 403', async () => {
+        const res = await generate({ path: 'docs/secret', locale: 'en' })
+        assert.equal(res.statusCode, 403)
+        assert.equal(consumeMock.mock.calls.length, 0)
+        assert.equal(generateMock.mock.calls.length, 0)
+      })
+
+      test('answers the same 403 as naming it by pageId', async () => {
+        const byPath = await generate({ path: 'docs/secret', locale: 'en' })
+        const byId = await generate({ path: 'docs/secret', locale: 'en', pageId: PAGE_ID })
+        assert.equal(byPath.statusCode, 403)
+        assert.equal(byId.statusCode, 403)
+      })
+
+      test('the caller cannot read answers 403, even with write:pages on it', async () => {
+        checkAccessMock = mock.fn((_actor: any, permission: string) => permission !== 'read:pages')
+        const res = await generate({ path: 'docs/secret', locale: 'en' })
+        assert.equal(res.statusCode, 403)
+        assert.equal(generateMock.mock.calls.length, 0)
+      })
+
+      test('is reported forbidden by the status route too', async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: `${STATUS_URL}?path=docs/secret&locale=en`
+        })
+        assert.equal(res.json().reason, 'forbidden')
+      })
+    })
+
+    test('without a pageId and with no page at the path, write:pages is judged on the path', async () => {
+      getPageMock = mock.fn(async () => null)
+      const res = await generate({ path: '/Docs/New-Page', locale: 'en' })
+      assert.equal(res.statusCode, 200)
+      const writeCheck = checkAccessMock.mock.calls.find(
+        (call: any) => call.arguments[1] === 'write:pages'
+      )
+      assert.deepEqual(writeCheck?.arguments[2], {
+        path: 'docs/new-page',
+        locale: 'en',
+        classification: null,
+        siteId: SITE_ID
+      })
     })
 
     test('with the cap used up it answers 429 with Retry-After and never calls the provider', async () => {
