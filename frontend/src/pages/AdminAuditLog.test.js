@@ -38,6 +38,14 @@ describe('AdminAuditLog', () => {
     notifyQueue.splice(0)
   })
 
+  it('offers the sign-in method events in the event filter', () => {
+    const wrapper = mountPage()
+    const values = wrapper.vm.eventOptions.map((opt) => opt.value)
+
+    expect(values).toContain('user.signInMethodAdded')
+    expect(values).toContain('user.signInMethodRemoved')
+  })
+
   it('loads entries, actors and the retention setting on mount', async () => {
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'audit-log') {

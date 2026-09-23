@@ -23,6 +23,7 @@ import { log } from '@/helpers/log'
 import { parseLocalePrefix, resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
 import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
 import { useAesthetic } from '@/composables/aesthetic'
+import { handleAuthLinkResult, readAuthLinkResult } from '@/composables/authLinkResult'
 import { useDark } from '@/composables/dark'
 import { confirm } from '@/composables/dialog'
 import { useDirection } from '@/composables/direction'
@@ -457,11 +458,21 @@ EVENT_BUS.on('applyTheme', () => {
   applyTheme()
 })
 
-router.afterEach(() => {
+router.afterEach((to, from, failure) => {
   if (!state.isInitialized) {
     state.isInitialized = true
     applyTheme()
     document.querySelector('.init-loading').remove()
+  }
+  if (!failure && readAuthLinkResult(to.query)) {
+    applyLocale(commonStore.locale).then(() => {
+      handleAuthLinkResult(router.currentRoute.value, {
+        router,
+        siteStore,
+        userStore,
+        t: i18n.t
+      })
+    })
   }
   /*
     `afterEach` fires for an aborted navigation too. A second navigation blocked by the open discard

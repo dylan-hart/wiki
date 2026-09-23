@@ -722,3 +722,137 @@ describe('UserEditOverlay settings-row toggles against the Cobalt mockup (OpenPr
     }
   })
 })
+
+describe('UserEditOverlay disconnect a linked provider', () => {
+  const OIDC = {
+    authId: 'strat-oidc',
+    strategyKey: 'oidc',
+    strategyIcon: 'oidc.svg',
+    authName: 'Corp SSO',
+    config: { key: 'jane-oidc-id', canDisconnect: true }
+  }
+  const GITHUB = {
+    authId: 'strat-github',
+    strategyKey: 'github',
+    strategyIcon: 'github.svg',
+    authName: 'GitHub',
+    config: { key: 'jane-gh-id', canDisconnect: true }
+  }
+  const MESSAGES = {
+    'admin.users.providerDisconnect': 'Disconnect',
+    'admin.users.providerDisconnectConfirm': 'Disconnect {provider}?',
+    'admin.users.providerDisconnectSuccess': 'Sign-in method disconnected.',
+    'admin.users.providerDisconnectFailed': 'Failed to disconnect the sign-in method.',
+    'admin.users.providerDisconnectOnlyMethod': 'This is the only way this user can sign in.',
+    'error.ERR_UNLINK_LAST_LOGIN_METHOD': 'This is the only way to sign in to the account.'
+  }
+
+  async function mountWithProviders({ providers, canManage = true, afterDelete }) {
+    const user = { ...USER, auth: [...USER.auth, ...providers] }
+    let deleted = false
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'groups') {
+        return { json: () => Promise.resolve([]) }
+      }
+      if (url === `users/${USER.id}`) {
+        return { json: () => Promise.resolve(deleted && afterDelete ? afterDelete : user) }
+      }
+      if (url === `users/${USER.id}/passkeys`) {
+        return { json: () => Promise.resolve({ ok: true, passkeys: [] }) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+    API_CLIENT.delete.mockImplementation(() => {
+      deleted = true
+      return Promise.resolve({})
+    })
+
+    const router = await createTestRouter(['/u/:section'], '/u/auth')
+    const { wrapper } = mountWithApp(UserEditOverlay, {
+      router,
+      messages: MESSAGES,
+      stores: {
+        admin: { overlayOpts: { id: USER.id } },
+        user: { permissions: canManage ? ['manage:users'] : [] }
+      }
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  function disconnectButtons(wrapper) {
+    return wrapper.findAll('button[aria-label="Disconnect"]')
+  }
+
+  it('deletes the provider after a destructive confirmation and refreshes only the linked list', async () => {
+    const wrapper = await mountWithProviders({
+      providers: [OIDC, GITHUB],
+      afterDelete: {
+        ...USER,
+        auth: [{ ...USER.auth[0], config: { ...USER.auth[0].config } }, GITHUB]
+      }
+    })
+    wrapper.vm.state.user.auth[0].config.mustChangePwd = true
+
+    expect(disconnectButtons(wrapper)).toHaveLength(2)
+    await disconnectButtons(wrapper)[0].trigger('click')
+    const pending = openDialogs[openDialogs.length - 1]
+    expect(pending.props).toMatchObject({
+      message: 'Disconnect Corp SSO?',
+      destructive: true,
+      persistent: true
+    })
+    expect(API_CLIENT.delete).not.toHaveBeenCalled()
+
+    await pending.handlers.ok[0]()
+    await flushPromises()
+
+    expect(API_CLIENT.delete).toHaveBeenCalledWith(`users/${USER.id}/auth/strat-oidc`)
+    expect(wrapper.text()).not.toContain('Corp SSO')
+    expect(wrapper.text()).toContain('GitHub')
+    expect(wrapper.vm.state.user.auth[0].config.mustChangePwd).toBe(true)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Sign-in method disconnected.'
+    })
+  })
+
+  it('disables Disconnect, with the reason, on the last way the user can sign in', async () => {
+    const wrapper = await mountWithProviders({
+      providers: [{ ...OIDC, config: { ...OIDC.config, canDisconnect: false } }]
+    })
+
+    const [button] = disconnectButtons(wrapper)
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('This is the only way this user can sign in.')
+  })
+
+  it('offers no Disconnect to a read-only viewer', async () => {
+    const wrapper = await mountWithProviders({ providers: [OIDC], canManage: false })
+
+    expect(wrapper.text()).toContain('Corp SSO')
+    expect(disconnectButtons(wrapper)).toHaveLength(0)
+  })
+
+  it('reports a refused disconnect with the localized server error', async () => {
+    const wrapper = await mountWithProviders({ providers: [OIDC] })
+    API_CLIENT.delete.mockImplementation(() =>
+      Promise.reject(
+        Object.assign(new Error('Bad Request'), {
+          data: { message: 'ERR_UNLINK_LAST_LOGIN_METHOD' }
+        })
+      )
+    )
+
+    await disconnectButtons(wrapper)[0].trigger('click')
+    await openDialogs[openDialogs.length - 1].handlers.ok[0]()
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to disconnect the sign-in method.',
+      caption: 'This is the only way to sign in to the account.'
+    })
+    expect(wrapper.text()).toContain('Corp SSO')
+  })
+})

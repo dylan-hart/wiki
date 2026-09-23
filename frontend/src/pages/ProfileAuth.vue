@@ -44,6 +44,11 @@
                 {{ t('profile.tfaRecoveryCodesLow') }}
               </div>
             </template>
+            <div
+              v-if="auth.strategyKey !== `local` && !auth.config.canDisconnect"
+              class="text-grey">
+              {{ t('profile.authDisconnectOnlyMethod') }}
+            </div>
           </template>
           <!--
             One trigger rather than a row of buttons: the settings row keeps its whole control
@@ -145,8 +150,54 @@
               </w-btn>
             </div>
           </template>
+          <w-btn
+            v-else
+            class="acrylic-btn"
+            flat
+            icon="tabler:settings"
+            color="primary"
+            :aria-label="t(`profile.authActions`)">
+            <w-menu class="translucent-menu" auto-close anchor="bottom right" self="top right">
+              <w-list dense padding style="min-width: 240px">
+                <w-item
+                  clickable
+                  :disabled="!auth.config.canDisconnect"
+                  @click="disconnectProvider(auth)">
+                  <w-item-section avatar class="!min-w-0 !pe-2">
+                    <w-icon name="tabler:trash" class="text-negative dark:text-accent-dark" />
+                  </w-item-section>
+                  <w-item-section class="text-negative">
+                    {{ t('profile.authDisconnect') }}
+                  </w-item-section>
+                </w-item>
+              </w-list>
+            </w-menu>
+          </w-btn>
         </w-settings-row>
       </w-settings-card>
+
+      <template v-if="connectableStrategies.length > 0">
+        <div class="text-body2 mt-6">{{ t('profile.authConnectInfo') }}</div>
+        <w-settings-card class="mt-4" :title="t('profile.authConnect')">
+          <w-settings-row
+            v-for="str of connectableStrategies"
+            :key="str.id"
+            control-width="auto"
+            :icon="`img:` + str.activeStrategy.strategy.icon"
+            :label="str.activeStrategy.displayName">
+            <w-btn
+              class="acrylic-btn"
+              flat
+              icon="tabler:plus"
+              color="primary"
+              type="a"
+              :href="connectUrl(str)"
+              :aria-label="
+                t(`profile.authConnectWith`, { provider: str.activeStrategy.displayName })
+              " />
+          </w-settings-row>
+        </w-settings-card>
+      </template>
 
       <div class="text-body2 mt-6">{{ t('profile.passkeysIntro') }}</div>
       <!--
@@ -197,11 +248,12 @@ import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { profileSaving } from '@/composables/profileSaving'
 import { confirm, dialog } from '@/composables/dialog'
-import { onMounted, reactive } from 'vue'
+import { computed, onMounted, reactive } from 'vue'
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
 import { localizeError } from '@/helpers/localization'
+import { useSiteStore } from '@/stores/site'
 
 import ChangePwdDialog from '@/components/ChangePwdDialog.vue'
 import SetupTfaDialog from '@/components/SetupTfaDialog.vue'
@@ -209,6 +261,8 @@ import RecoveryCodesDialog from '@/components/RecoveryCodesDialog.vue'
 import PasskeyCreateDialog from '@/components/PasskeyCreateDialog.vue'
 
 const { t } = useI18n()
+
+const siteStore = useSiteStore()
 
 useMeta(() => ({
   title: t('profile.auth')
@@ -221,8 +275,19 @@ const state = reactive({
   // -> Keyed by authId, one entry per local strategy with 2FA active. An absent entry means either
   //    not applicable or a failed status fetch, and both render the same: no remaining-count line.
   recoveryCodesStatus: {},
+  siteStrategies: [],
   loading: 0
 })
+
+const REDIRECT_MAX_LENGTH = 255
+
+const connectableStrategies = computed(() =>
+  state.siteStrategies.filter(
+    (str) =>
+      str.activeStrategy?.strategy?.useForm === false &&
+      !state.authMethods.some((auth) => auth.authId === str.id)
+  )
+)
 
 async function fetchAuthMethods() {
   state.loading++
@@ -265,6 +330,57 @@ async function fetchRecoveryCodesStatuses() {
       }
     })
   )
+}
+
+async function fetchSiteStrategies() {
+  if (!siteStore.id) {
+    return
+  }
+  try {
+    state.siteStrategies =
+      (await API_CLIENT.get(`sites/${siteStore.id}/auth/strategies`).json()) ?? []
+  } catch {
+    state.siteStrategies = []
+  }
+}
+
+function connectUrl(str) {
+  const path = window.location.pathname
+  const params = new URLSearchParams({
+    mode: 'link',
+    siteId: siteStore.id,
+    redirect: path.length <= REDIRECT_MAX_LENGTH ? path : '/'
+  })
+  return `/_api/auth/${str.id}/authorize?${params.toString()}`
+}
+
+function disconnectProvider(auth) {
+  confirm({
+    title: t('common.actions.confirm'),
+    message: t('profile.authDisconnectConfirm', { provider: auth.authName }),
+    destructive: true,
+    persistent: true,
+    okLabel: t('profile.authDisconnect')
+  }).onOk(async () => {
+    loading.show()
+    profileSaving.begin()
+    try {
+      await API_CLIENT.delete(`users/profile/auth/${encodeURIComponent(auth.authId)}`)
+      notify({
+        type: 'positive',
+        message: t('profile.authDisconnectSuccess')
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('profile.authDisconnectFailed'),
+        caption: localizeError(apiErrorMessage(err), t)
+      })
+    }
+    await fetchAuthMethods()
+    loading.hide()
+    profileSaving.end()
+  })
 }
 
 function isRecoveryCodesLow(authId) {
@@ -492,5 +608,6 @@ async function deactivatePasskey(pkey) {
 
 onMounted(() => {
   fetchAuthMethods()
+  fetchSiteStrategies()
 })
 </script>
