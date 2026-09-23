@@ -14,6 +14,7 @@ const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 
 const FORK_INVENTED_SURFACES = [
   ['components/TableEditorOverlay.vue', 'a table-editor concept'],
+  ['pages/AdminAi.vue', 'an AI-provider concept'],
   ['pages/AdminApprovals.vue', 'a page-approval-rules concept'],
   ['pages/AdminClassification.vue', 'a classification-guardrail concept'],
   ['pages/AdminFlags.vue', 'a feature-flags concept'],

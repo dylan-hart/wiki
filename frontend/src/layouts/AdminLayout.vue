@@ -492,6 +492,15 @@
               </w-item-section>
               <w-item-section>{{ t('admin.analytics.title') }}</w-item-section>
             </w-item>
+            <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/ai`"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:system`)">
+              <w-item-section avatar>
+                <w-icon name="tabler:sparkles" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.ai.title') }}</w-item-section>
+            </w-item>
           </template>
           <template v-if="userStore.can(`manage:system`)">
             <w-item-label class="admin-nav-section" header>{{

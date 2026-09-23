@@ -253,6 +253,10 @@ class Sites extends ClusterReloaded {
             analytics: {
               providers: {}
             },
+            ai: {
+              provider: '',
+              providers: {}
+            },
             search: {
               engine: 'db',
               config: {
@@ -556,6 +560,10 @@ class Sites extends ClusterReloaded {
           conflictBehavior: 'overwrite'
         },
         analytics: {
+          providers: {}
+        },
+        ai: {
+          provider: '',
           providers: {}
         },
         search: {
