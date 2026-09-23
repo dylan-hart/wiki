@@ -65,13 +65,8 @@ test('a captured note with a dropped image becomes a page that renders the image
 
   await page.goto(`/${path}`)
   const image = page.locator('.page-contents img[alt="sketch"]')
-  await expect(image).toHaveAttribute(
-    'src',
-    new RegExp(`^/_files/e2e-notes/sketch-${slug}\\.png$`)
-  )
-  await expect
-    .poll(() => image.evaluate((img) => img.complete && img.naturalWidth > 0))
-    .toBe(true)
+  await expect(image).toHaveAttribute('src', new RegExp(`^/_files/e2e-notes/sketch-${slug}\\.png$`))
+  await expect.poll(() => image.evaluate((img) => img.complete && img.naturalWidth > 0)).toBe(true)
 
   const response = await page.request.get(await image.getAttribute('src'))
   expect(response.status()).toBe(200)
