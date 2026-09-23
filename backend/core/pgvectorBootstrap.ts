@@ -56,7 +56,9 @@ export async function bootstrapPgvector(db: WikiDb): Promise<boolean> {
       ON "assetEmbeddingChunks" ("assetId")
     `)
 
-    CARDINAL.logger.info('db', 'pgvector capability enabled', { table: 'pageEmbeddingChunks' })
+    CARDINAL.logger.info('db', 'pgvector capability enabled', {
+      tables: 'pageEmbeddingChunks,assetEmbeddingChunks'
+    })
     return true
   } catch (err: any) {
     CARDINAL.logger.warn('db', 'pgvector capability unavailable, semantic search disabled', {
