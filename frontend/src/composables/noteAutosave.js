@@ -89,7 +89,10 @@ export function createNoteAutosave({ save, delay = 800, onError = null }) {
     refreshStatus()
   }
 
-  function hasPending() {
+  function hasPending(noteId = null) {
+    if (noteId) {
+      return pending.has(noteId) || inflight.has(noteId)
+    }
     return pending.size > 0 || inflight.size > 0
   }
 

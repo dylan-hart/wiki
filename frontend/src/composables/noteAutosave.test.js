@@ -124,6 +124,24 @@ describe('createNoteAutosave', () => {
     expect(autosave.state.status).toBe('saved')
   })
 
+  it('answers hasPending for one note without counting the others', async () => {
+    const save = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({})
+    const autosave = createNoteAutosave({ save, delay: 100 })
+
+    autosave.schedule('n1', { content: 'stuck' })
+    await vi.advanceTimersByTimeAsync(150)
+    autosave.schedule('n2', { content: 'queued' })
+
+    expect(autosave.hasPending('n1')).toBe(true)
+    expect(autosave.hasPending('n2')).toBe(true)
+    expect(autosave.hasPending('n3')).toBe(false)
+
+    await autosave.flush('n2')
+    expect(autosave.hasPending('n2')).toBe(false)
+    expect(autosave.hasPending('n1')).toBe(true)
+    expect(autosave.hasPending()).toBe(true)
+  })
+
   it('cancel drops a note that is about to be deleted', async () => {
     const save = vi.fn(async () => ({}))
     const autosave = createNoteAutosave({ save, delay: 100 })
