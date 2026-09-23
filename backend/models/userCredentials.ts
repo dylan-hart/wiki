@@ -183,11 +183,12 @@ function isUsableLogin(strategyId: string, entry: any): boolean {
 }
 
 /**
- * How many ways into the account remain if the given provider stops working, counting only
- * {@link isUsableLogin} entries. Passkeys count whichever host they were registered against: on a
- * multi-site instance one bound to another site still leaves the account reachable.
+ * How many ways into the account remain if the given provider stops working — or, with no provider
+ * named, how many it has at all — counting only {@link isUsableLogin} entries. Passkeys count
+ * whichever host they were registered against: on a multi-site instance one bound to another site
+ * still leaves the account reachable.
  */
-export function countAlternativeLogins(user: any, strategyId: string): number {
+export function countAlternativeLogins(user: any, strategyId?: string): number {
   const auth = (user.auth ?? {}) as Record<string, any>
   const otherProviders = Object.entries(auth).filter(
     ([id, config]) => id !== strategyId && isUsableLogin(id, config)

@@ -223,4 +223,45 @@ describe('DELETE /users/:userId/auth/:strategyId (DB-backed)', { skip: !hasTestD
       headers
     })
   }
+
+  describe('DELETE /users/:userId/passkeys/:passkeyId', () => {
+    async function passkeyOnlyAccount(): Promise<string> {
+      const userId = await CARDINAL.models.users.createUser({
+        name: 'Passkey User',
+        email: `passkey-${Math.random().toString(36).slice(2)}@example.com`,
+        password: 'chosenpwd1'
+      })
+      await CARDINAL.models.userCredentials.setUserAuthFlags(userId, { restrictLogin: true })
+      await CARDINAL.models.passkeys.saveStore(userId, {
+        authenticators: [{ id: 'k1', name: 'Laptop' } as any]
+      })
+      return userId
+    }
+
+    function revoke(userId: string) {
+      return app.inject({
+        method: 'DELETE',
+        url: `/users/${userId}/passkeys/k1`,
+        headers: sessionHeaders(['manage:users'])
+      })
+    }
+
+    test('refuses to revoke the passkey that is the only way into the account', async () => {
+      const userId = await passkeyOnlyAccount()
+
+      const res = await revoke(userId)
+      assert.equal(res.statusCode, 400)
+      assert.equal(res.json().message, 'ERR_PASSKEY_LAST_LOGIN_METHOD')
+      assert.equal((await CARDINAL.models.passkeys.list(userId)).length, 1)
+    })
+
+    test('revokes it once the account has another way in', async () => {
+      const userId = await passkeyOnlyAccount()
+      await CARDINAL.models.userCredentials.setUserAuthFlags(userId, { restrictLogin: false })
+
+      const res = await revoke(userId)
+      assert.equal(res.statusCode, 204)
+      assert.equal((await CARDINAL.models.passkeys.list(userId)).length, 0)
+    })
+  })
 })
