@@ -1455,6 +1455,7 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     moves in here and `--content-bleed` goes to `0`: a card clips at its corner.
   */
   > .page-contents {
+    display: flow-root;
     background-color: var(--float-bg);
     padding: var(--article-card-pad);
     border-radius: var(--radius-card);
