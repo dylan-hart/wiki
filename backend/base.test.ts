@@ -102,3 +102,15 @@ test('base.yml has no dev.logQueries key', async () => {
   assert.ok(parsed.defaults?.config?.dev, 'expected defaults.config.dev to exist in base.yml')
   assert.equal(Object.hasOwn(parsed.defaults.config.dev, 'logQueries'), false)
 })
+
+test('base.yml declares db.direct with null host and port, so the direct route is off by default', async () => {
+  const raw = await fs.readFile(BASE_YML_PATH, 'utf8')
+  const parsed = load(raw) as any
+  const direct = parsed.defaults?.config?.db?.direct
+
+  assert.deepEqual(
+    direct,
+    { host: null, port: null },
+    'db.direct must declare host and port (so config.yml entries under it are not flagged as unknown keys) and default both to null'
+  )
+})

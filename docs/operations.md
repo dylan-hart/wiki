@@ -475,6 +475,8 @@ unnamed volume that is not what you restored into.
   detail
 - [`docs/migration/migration-runbook.md`](migration/migration-runbook.md) — the one-time 2.5.x → 3.0
   cutover, not an in-place upgrade
+- [`docs/pgbouncer-deployment.md`](pgbouncer-deployment.md) — connection arithmetic per instance,
+  PgBouncer in front of the query pool, and the direct LISTEN/NOTIFY connection
 - [`docs/versioning.md`](versioning.md) — what triggers a release and how versions are numbered
 - [`docs/release-checklist.md`](release-checklist.md) — the pre-release gate a release manager runs
 - [`docs/variances.md`](variances.md) — recorded divergences from a recognized public standard
