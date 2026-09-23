@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, test } from 'node:test'
 import { load } from 'js-yaml'
 import { parseModuleProps } from '../helpers/moduleProps.ts'
 import { installTestWiki } from '../test/mocks.ts'
+import { ai } from './ai.ts'
 import type { AiProviderGenerate } from './ai.ts'
 
 const AI_MODULES_DIR = path.join(import.meta.dirname, '..', 'modules', 'ai')
@@ -112,6 +113,49 @@ for (const key of moduleKeys) {
       const result = await generate(PROMPT, { siteId: 'site-1' }, { apiKey: SECRET, model: 'm' })
       assert.equal(result, null)
       assertNothingLeaked()
+    })
+
+    test('a request failing with the key quoted in its error message logs no key material', async () => {
+      // -> What undici throws for a key it cannot put in a header, verbatim but for the key.
+      globalThis.fetch = (async () => {
+        throw new TypeError(`Headers.append: "${SECRET}\nx" is an invalid header value.`)
+      }) as typeof fetch
+      const generate = await importGenerate(key)
+      const result = await generate(PROMPT, { siteId: 'site-1' }, { apiKey: SECRET, model: 'm' })
+      assert.equal(result, null)
+      assert.ok(logged.length > 0, 'the failure is still logged')
+      assertNothingLeaked()
+    })
+
+    describe('saving an apiKey', () => {
+      const definitions = ai.definitions
+
+      beforeEach(async () => {
+        CARDINAL.SERVERPATH = path.join(import.meta.dirname, '..')
+        await ai.refreshFromDisk()
+      })
+
+      afterEach(() => {
+        ai.definitions = definitions
+      })
+
+      for (const [label, apiKey] of [
+        ['a line feed', 'sk-abc\ndef'],
+        ['a carriage return', 'sk-abc\rdef'],
+        ['a NUL', 'sk-abc\u0000def'],
+        ['a space', 'sk-abc def'],
+        ['a tab', 'sk-abc\tdef'],
+        ['a character outside ASCII', 'sk-abc\u2028def']
+      ]) {
+        test(`is refused with ${label} inside the key`, () => {
+          assert.match(ai.validateProviderConfig(key, { apiKey }) ?? '', /^API Key is not valid/)
+        })
+      }
+
+      test('is accepted for a printable ASCII key, surrounding whitespace included', () => {
+        assert.equal(ai.validateProviderConfig(key, { apiKey: SECRET }), null)
+        assert.equal(ai.validateProviderConfig(key, { apiKey: ` ${SECRET}\n` }), null)
+      })
     })
   })
 }

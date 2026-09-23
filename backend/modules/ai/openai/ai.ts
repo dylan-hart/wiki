@@ -100,6 +100,20 @@ function errorFields(body: unknown): { type?: unknown; code?: unknown } {
   return { type: error.type, code: error.code }
 }
 
+/**
+ * What a failure is logged as, never the error itself: a key fetch cannot put in a header (one
+ * with a control character inside it) comes back as a TypeError whose message quotes the whole
+ * header value, key included.
+ */
+function failureFields(err: unknown): LogFields {
+  const error = err as { name?: unknown; code?: unknown; cause?: { code?: unknown } } | null
+  const code = error?.code ?? error?.cause?.code
+  return {
+    errorName: typeof error?.name === 'string' ? error.name : typeof err,
+    ...(typeof code === 'string' ? { errorCode: code } : {})
+  }
+}
+
 export default async function generate(
   prompt: string,
   context: OpenAiGenerateContext,
@@ -154,7 +168,7 @@ export default async function generate(
       if (context?.signal?.aborted) {
         log.debug('ai generation cancelled by the caller', { model })
       } else {
-        log.warn('ai generation request failed', { model, error: err as Error })
+        log.warn('ai generation request failed', { model, ...failureFields(err) })
       }
       return null
     }
@@ -185,7 +199,7 @@ export default async function generate(
     }
     return text
   } catch (err) {
-    log.warn('ai generation failed', { error: err as Error })
+    log.warn('ai generation failed', failureFields(err))
     return null
   }
 }
