@@ -228,12 +228,14 @@ export function buildAiAssistPrompt({
           .join('\n\n'),
         maxOutputTokens: 1024
       }
-    case 'expand':
+    case 'expand': {
+      const instructions = prompt?.trim() ?? ''
       return {
         system: SYSTEM_PROMPT,
         prompt: [
           'Continue writing from where the text below ends, in the same voice and style.',
           'Reply with only the new text that follows on, not the text you were given.',
+          instructions ? `<instructions>\n${instructions}\n</instructions>` : '',
           language,
           wrapText(text)
         ]
@@ -241,6 +243,7 @@ export function buildAiAssistPrompt({
           .join('\n\n'),
         maxOutputTokens: 1024
       }
+    }
     case 'generate':
       return {
         system: SYSTEM_PROMPT,
