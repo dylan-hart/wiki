@@ -1135,7 +1135,7 @@
   "admin.replication.sourceUrlHint": "Base URL of the instance this instance pulls a full snapshot from on schedule.",
   "admin.replication.subtitle": "Configure scheduled replication from another instance",
   "admin.replication.title": "Replication",
-  "admin.replication.warning": "Enabling replication schedules a periodic wipe-and-replace pull: this instance's own content, users and settings will be replaced with a snapshot from the source instance.",
+  "admin.replication.warning": "Enabling replication schedules a periodic wipe-and-replace pull: this instance's own content, users and settings will be replaced with a snapshot from the source instance. Personal notes are not part of a snapshot, so every user's notes on this instance are deleted.",
   "admin.scheduler.active": "Active",
   "admin.scheduler.activeNone": "There are no active jobs at the moment.",
   "admin.scheduler.attempt": "Attempt",

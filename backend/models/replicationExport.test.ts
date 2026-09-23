@@ -11,6 +11,8 @@ import {
   comments as commentsTable,
   groups as groupsTable,
   navigation as navigationTable,
+  noteSections as noteSectionsTable,
+  notes as notesTable,
   settings as settingsTable,
   sites as sitesTable
 } from '../db/schema.ts'
@@ -230,6 +232,28 @@ describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase
 
     const exportedNavigation = JSON.parse(entries['navigation.json']!.toString('utf8'))
     assert.ok(exportedNavigation.some((n: any) => n.id === navRow!.id && n.siteId === secondSiteId))
+  })
+
+  test('buildSnapshot leaves personal notes out', async () => {
+    const [section] = await fixtures.db
+      .insert(noteSectionsTable)
+      .values({ siteId: fixtures.siteId, userId: fixtures.userId, title: 'Private section' })
+      .returning({ id: noteSectionsTable.id })
+    await fixtures.db.insert(notesTable).values({
+      siteId: fixtures.siteId,
+      userId: fixtures.userId,
+      sectionId: section!.id,
+      content: 'only-the-owner-reads-this'
+    })
+
+    const result = await replicationExportModel.buildSnapshot()
+    const entries = await readTarball(result.filePath)
+
+    for (const [name, data] of Object.entries(entries)) {
+      assert.doesNotMatch(name, /note/i)
+      assert.ok(!data.includes('only-the-owner-reads-this'), `${name} carries a note`)
+      assert.ok(!data.includes(section!.id), `${name} carries a note section`)
+    }
   })
 
   test('purgeExpired removes nothing when everything is fresh', async () => {
