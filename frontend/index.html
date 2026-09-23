@@ -36,6 +36,19 @@
       }
     </script>
     <!-- temporal-polyfill-preload:end -->
+    <script>
+      function ignoreSkippedViewTransition(event) {
+        var transition = event.viewTransition
+        if (!transition) {
+          return
+        }
+        var ignore = function () {}
+        transition.ready.catch(ignore)
+        transition.finished.catch(ignore)
+      }
+      window.addEventListener('pagereveal', ignoreSkippedViewTransition)
+      window.addEventListener('pageswap', ignoreSkippedViewTransition)
+    </script>
     <!--
       No webfont is linked statically: which family applies (if any -- `theme.baseFont` /
       `theme.contentFont` can both be `'user'`, meaning "no override") is a per-site setting, known

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { TEMPORAL_POLYFILL_PLACEHOLDER } from './src/build/temporalPolyfillChunk.js'
@@ -93,5 +93,67 @@ describe('temporal polyfill preload script (index.html)', () => {
     new Function(script)()
 
     expect(document.head.querySelector('link[rel="modulepreload"]')).toBeNull()
+  })
+})
+
+describe('view transition rejection guard (index.html)', () => {
+  const guardScriptRe = /<script>([^<]*?pagereveal[^<]*?)<\/script>/
+
+  function extractGuardScript() {
+    const match = fs.readFileSync(indexHtmlPath, 'utf8').match(guardScriptRe)
+    if (!match) {
+      throw new Error('Could not find the inline pagereveal guard script in index.html.')
+    }
+    return match[1]
+  }
+
+  function transitionEvent(type, viewTransition) {
+    const event = new Event(type)
+    event.viewTransition = viewTransition
+    return event
+  }
+
+  function skippedTransition() {
+    const skipped = () => Promise.reject(new DOMException('Transition was skipped', 'AbortError'))
+    const ready = skipped()
+    const finished = skipped()
+    return {
+      ready,
+      finished,
+      readyCatch: vi.spyOn(ready, 'catch'),
+      finishedCatch: vi.spyOn(finished, 'catch')
+    }
+  }
+
+  test('is a classic inline script in <head>, ahead of the deferred main.js module', () => {
+    const html = fs.readFileSync(indexHtmlPath, 'utf8')
+    const scriptTag = html.match(guardScriptRe)[0]
+    const scriptAt = html.indexOf(scriptTag)
+    expect(scriptTag).not.toMatch(/type=["']module["']/)
+    expect(scriptTag).not.toMatch(/\b(defer|async)\b/)
+    expect(scriptAt).toBeLessThan(html.indexOf('</head>'))
+    expect(scriptAt).toBeLessThan(html.indexOf('src="/src/main.js"'))
+  })
+
+  test.each(['pagereveal', 'pageswap'])(
+    'handles a skipped transition on %s so it never surfaces as an unhandled rejection',
+    async (type) => {
+      new Function(extractGuardScript())()
+      const transition = skippedTransition()
+
+      window.dispatchEvent(transitionEvent(type, transition))
+
+      expect(transition.readyCatch).toHaveBeenCalledWith(expect.any(Function))
+      expect(transition.finishedCatch).toHaveBeenCalledWith(expect.any(Function))
+      await expect(transition.readyCatch.mock.results[0].value).resolves.toBeUndefined()
+      await expect(transition.finishedCatch.mock.results[0].value).resolves.toBeUndefined()
+    }
+  )
+
+  test('ignores a navigation that carries no view transition', () => {
+    new Function(extractGuardScript())()
+
+    expect(() => window.dispatchEvent(transitionEvent('pagereveal', null))).not.toThrow()
+    expect(() => window.dispatchEvent(new Event('pagereveal'))).not.toThrow()
   })
 })
