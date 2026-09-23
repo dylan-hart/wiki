@@ -1,0 +1,22 @@
+key: anthropic
+title: Anthropic
+icon: '/_assets/icons/ultraviolet-bot.svg'
+description: 'Generates text with Claude models through the Anthropic API. Selected text and prompts are sent to Anthropic for processing.'
+vendor: Anthropic
+website: 'https://www.anthropic.com'
+props:
+  apiKey:
+    type: String
+    title: API Key
+    hint: An Anthropic API key, created under API Keys in the Claude Console.
+    icon: tabler:key
+    sensitive: true
+    required: true
+    order: 1
+  model:
+    type: String
+    title: Model
+    hint: The Claude model ID requests are sent to, e.g. claude-opus-5 or claude-sonnet-5.
+    icon: tabler:brain
+    default: claude-opus-5
+    order: 2
