@@ -11,13 +11,10 @@ import {
   whiteboardBodyBytes
 } from './whiteboardLimits.ts'
 
+const HEADER = '{"v":2,"w":800,"h":450}'
+
 function board(strokes: number[][]): string {
-  return JSON.stringify({
-    v: 1,
-    w: 800,
-    h: 450,
-    s: strokes.map((p) => ({ c: '#1f2937', z: 4, p }))
-  })
+  return [HEADER, ...strokes.map((p) => JSON.stringify({ c: '#1f2937', z: 4, p }))].join('\n')
 }
 
 function triples(count: number): number[] {
@@ -42,7 +39,7 @@ describe('whiteboardLimits: whiteboardBodyBytes', () => {
 })
 
 describe('whiteboardLimits: countWhiteboardStrokes', () => {
-  test('counts strokes and floor(p.length / 3) points per stroke', () => {
+  test('counts one stroke per line after the header and floor(p.length / 3) points each', () => {
     assert.deepEqual(
       countWhiteboardStrokes(
         board([
@@ -57,17 +54,37 @@ describe('whiteboardLimits: countWhiteboardStrokes', () => {
     )
   })
 
-  test('an empty board is zero strokes', () => {
+  test('an empty body and a header line alone are zero strokes', () => {
+    assert.deepEqual(countWhiteboardStrokes(''), { strokes: 0, points: 0 })
     assert.deepEqual(countWhiteboardStrokes(board([])), { strokes: 0, points: 0 })
+    assert.deepEqual(countWhiteboardStrokes(`\n  ${HEADER}\n\n`), { strokes: 0, points: 0 })
   })
 
-  test('malformed or off-format JSON counts as nothing rather than throwing', () => {
-    assert.deepEqual(countWhiteboardStrokes('{not json'), { strokes: 0, points: 0 })
-    assert.deepEqual(countWhiteboardStrokes('null'), { strokes: 0, points: 0 })
-    assert.deepEqual(countWhiteboardStrokes('{"s":"x"}'), { strokes: 0, points: 0 })
-    assert.deepEqual(countWhiteboardStrokes('{"s":[null,{"p":"x"},{"p":[1,2,3]}]}'), {
-      strokes: 3,
+  test('counts every non-blank line as a stroke, even one that does not parse, and never throws', () => {
+    const body = [
+      HEADER,
+      '{"c":"#000","z":2,"p":[1,1,1,2,2,2]}',
+      '',
+      '{"c":"#000","z":2,"p":[1,1',
+      '{"c":"#000","z":2}',
+      '{"c":"#000","z":2,"p":[3,3,3,4,4,4,5,5,5]}'
+    ].join('\n')
+    assert.deepEqual(countWhiteboardStrokes(body), { strokes: 4, points: 5 })
+    assert.deepEqual(countWhiteboardStrokes(`${HEADER}\nnull\n{"p":"x"}\n[1,2,3]\n{"p":[1,2,3]}`), {
+      strokes: 4,
       points: 1
+    })
+  })
+
+  test('counts stroke lines whatever the header line holds', () => {
+    assert.deepEqual(countWhiteboardStrokes('{not json\n{"p":[1,2,3]}'), { strokes: 1, points: 1 })
+    assert.deepEqual(countWhiteboardStrokes('{not json'), { strokes: 0, points: 0 })
+  })
+
+  test('reads CRLF line ends the same as LF', () => {
+    assert.deepEqual(countWhiteboardStrokes(`${HEADER}\r\n{"p":[1,2,3]}\r\n\r\n{"p":[4,5,6]}`), {
+      strokes: 2,
+      points: 2
     })
   })
 })
@@ -106,6 +123,13 @@ describe('whiteboardLimits: findWhiteboardCapViolation', () => {
   test('refuses a block with too many strokes', () => {
     const violation = findWhiteboardCapViolation([
       board(Array.from({ length: 2001 }, () => [1, 2, 3]))
+    ])
+    assert.deepEqual(violation, { kind: 'strokes', actual: 2001, limit: 2000 })
+  })
+
+  test('counts a damaged stroke line toward the stroke cap', () => {
+    const violation = findWhiteboardCapViolation([
+      board(Array.from({ length: 2000 }, () => [1, 2, 3])) + '\n{broken'
     ])
     assert.deepEqual(violation, { kind: 'strokes', actual: 2001, limit: 2000 })
   })

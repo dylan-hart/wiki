@@ -12,7 +12,7 @@ describe('pages: a save over the whiteboard cap is refused before anything is wr
   const NO_SCRIPTS = { scripts: false, styles: false }
   const actor: PageActor = { id: 'user-1', permissions: ['manage:system'], groupIds: [] }
   const OVERSIZED = `<block-whiteboard><pre class="codeblock-whiteboard"><code>${'x'.repeat(262145)}</code></pre></block-whiteboard>`
-  const WITHIN = `<p>Hi</p>\n<block-whiteboard><pre class="codeblock-whiteboard"><code>{"v":1,"w":800,"h":450,"s":[]}</code></pre></block-whiteboard>`
+  const WITHIN = `<p>Hi</p>\n<block-whiteboard><pre class="codeblock-whiteboard"><code>{"v":2,"w":800,"h":450}\n{"c":"#1f2937","z":6,"p":[1,1,50]}</code></pre></block-whiteboard>`
 
   function fakeRow(): any {
     return {

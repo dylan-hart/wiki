@@ -78,7 +78,8 @@ describe('noteExcerpt', () => {
     const content = [
       '::block-whiteboard',
       '```whiteboard',
-      '{"v":1,"w":800,"h":450,"s":[]}',
+      '{"v":2,"w":800,"h":450}',
+      '{"c":"#1f2937","z":6,"p":[1,1,50]}',
       '```',
       '::',
       '',

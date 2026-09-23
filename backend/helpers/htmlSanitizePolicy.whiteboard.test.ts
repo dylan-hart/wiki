@@ -106,19 +106,11 @@ describe('sanitizeOptions -- a drawing stored as inline SVG in page HTML', () =>
 })
 
 describe('sanitizeOptions -- a drawing stored as a fenced body inside a block', () => {
-  const json = JSON.stringify({
-    v: 1,
-    strokes: [
-      {
-        c: '#000',
-        w: 2,
-        p: [
-          [0, 0],
-          [10, 10]
-        ]
-      }
-    ]
-  })
+  const json = [
+    JSON.stringify({ v: 2, w: 800, h: 450 }),
+    JSON.stringify({ c: '#000', z: 2, p: [0, 0, 50, 10, 10, 50] }),
+    JSON.stringify({ c: '#000', z: 2, p: [20, 20, 50] })
+  ].join('\n')
   const fenced =
     '<block-whiteboard caption="Plan" drawingKey="board-1" src="/b.svg" onclick="alert(1)" data-x="1">' +
     `<pre class="codeblock-whiteboard"><code>${json.replaceAll('"', '&quot;')}</code></pre>` +
@@ -141,8 +133,8 @@ describe('sanitizeOptions -- a drawing stored as a fenced body inside a block', 
   })
 
   test('applies no size limit of its own to the body', () => {
-    const points = Array.from({ length: 60000 }, (_, i) => [i, i * 2])
-    const big = JSON.stringify({ v: 1, strokes: [{ c: '#000', w: 2, p: points }] })
+    const points = Array.from({ length: 60000 }, (_, i) => [i, i * 2, 50]).flat()
+    const big = `{"v":2,"w":800,"h":450}\n${JSON.stringify({ c: '#000', z: 2, p: points })}`
     assert.ok(big.length > 500_000)
     const out = sanitize(
       `<block-whiteboard><pre class="codeblock-whiteboard"><code>${big.replaceAll('"', '&quot;')}</code></pre></block-whiteboard>`

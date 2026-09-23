@@ -11,7 +11,9 @@ import {
   WHITEBOARD_MAX_STROKES
 } from './whiteboardLimits.ts'
 
-const EMPTY_BOARD = '{"v":1,"w":800,"h":450,"s":[]}'
+const EMPTY_BOARD = '{"v":2,"w":800,"h":450}'
+const DRAWN_BOARD =
+  '{"v":2,"w":800,"h":450}\n{"c":"#1f2937","z":6,"p":[1,1,50]}\n{"c":"#1f2937","z":6,"p":[2,2,50]}'
 
 function board(body: string, indent = ''): string {
   return [
@@ -34,9 +36,9 @@ function thrown(fn: () => void): any {
 
 describe('whiteboardBodiesInMarkdown', () => {
   test('finds the body of each whiteboard block fence', () => {
-    const md = `# Title\n\nSome text\n\n${board(EMPTY_BOARD)}\n\nMore\n\n${board('{"v":1,"s":[1]}')}\n`
+    const md = `# Title\n\nSome text\n\n${board(EMPTY_BOARD)}\n\nMore\n\n${board(DRAWN_BOARD)}\n`
 
-    assert.deepEqual(whiteboardBodiesInMarkdown(md), [EMPTY_BOARD, '{"v":1,"s":[1]}'])
+    assert.deepEqual(whiteboardBodiesInMarkdown(md), [EMPTY_BOARD, DRAWN_BOARD])
   })
 
   test('finds a bare whiteboard fence and a tilde fence', () => {
@@ -52,9 +54,9 @@ describe('whiteboardBodiesInMarkdown', () => {
   })
 
   test('strips the indentation of a whiteboard nested in a list item', () => {
-    const md = `- item\n\n${board(EMPTY_BOARD, '  ')}\n`
+    const md = `- item\n\n${board(DRAWN_BOARD, '  ')}\n`
 
-    assert.deepEqual(whiteboardBodiesInMarkdown(md), [EMPTY_BOARD])
+    assert.deepEqual(whiteboardBodiesInMarkdown(md), [DRAWN_BOARD])
   })
 
   test('an unclosed whiteboard fence still counts, up to the end of the note', () => {
@@ -101,9 +103,9 @@ describe('assertNoteContentWithinCap', () => {
   })
 
   test('refuses a whiteboard with too many strokes', () => {
-    const strokes = Array.from({ length: WHITEBOARD_MAX_STROKES + 1 }, () => ({ p: [] }))
+    const strokes = Array.from({ length: WHITEBOARD_MAX_STROKES + 1 }, () => '{"p":[]}')
     const err = thrown(() =>
-      assertNoteContentWithinCap(board(JSON.stringify({ v: 1, s: strokes })))
+      assertNoteContentWithinCap(board([EMPTY_BOARD, ...strokes].join('\n')))
     )
 
     assert.equal(err?.name, 'noteWhiteboardTooLarge')
