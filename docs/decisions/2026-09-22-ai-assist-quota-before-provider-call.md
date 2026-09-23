@@ -27,7 +27,9 @@ the fifth step writes to the counter:
 3. No `write:pages` on the page gives 403.
 4. The allowance being used up gives 429 with `Retry-After`. This check reads the counter through
    `RateLimits.peek()` without writing to it.
-5. No provider being configured gives 503.
+5. No provider being available gives 503. `models/ai.ts#availability()` decides this, so no
+   provider selected, offline mode, a provider module with no `ai.ts` and stored provider config
+   that fails validation are all refused here.
 6. One unit of the allowance is consumed.
 7. The provider is called. A `null` result gives 503.
 
@@ -49,7 +51,7 @@ times out or returns nothing.**
   none of them had spent yet. Spending up front means the atomic upsert in `consume()` does the
   counting, so concurrent requests cannot exceed the cap between them.
 - **The refusals that cost nothing come first.** A guest, a disabled site, a missing permission, a
-  used-up allowance and an unconfigured provider are all refused before any quota is used. A
+  used-up allowance and an unavailable provider are all refused before any quota is used. A
   misconfigured site therefore never uses up a user's day.
 
 ## Consequences
