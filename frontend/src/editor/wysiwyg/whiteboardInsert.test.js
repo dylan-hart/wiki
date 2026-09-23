@@ -75,6 +75,18 @@ describe('isDrawShortcut', () => {
     expect(isDrawShortcut({ ...base, key: 'π', metaKey: true }, true)).toBe(true)
     expect(isDrawShortcut({ ...base, code: 'KeyO', key: 'p', metaKey: true }, true)).toBe(false)
   })
+
+  it('leaves AltGr+P alone, which Windows reports as Ctrl+Alt+P', () => {
+    const altGraph = (key) => key === 'AltGraph'
+    const noModifier = () => false
+
+    expect(
+      isDrawShortcut({ ...base, key: 'ö', ctrlKey: true, getModifierState: altGraph }, false)
+    ).toBe(false)
+    expect(isDrawShortcut({ ...base, ctrlKey: true, getModifierState: noModifier }, false)).toBe(
+      true
+    )
+  })
 })
 
 describe('isPenContact', () => {

@@ -32,6 +32,11 @@ export function isDrawShortcut(event, mac = isMacPlatform()) {
   if (event.code !== 'KeyP' || !event.altKey || event.shiftKey) {
     return false
   }
+  // -> AltGr arrives on Windows as Ctrl+Alt, so without this AltGr+P -- the character key for `ö`
+  //    and others on several layouts -- would insert a board instead of typing.
+  if (event.getModifierState?.('AltGraph')) {
+    return false
+  }
   return mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
 }
 
