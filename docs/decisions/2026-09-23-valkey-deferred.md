@@ -107,7 +107,9 @@ Reopen Valkey support when any of the following happens:
   not.
 
 `cardinaljs_pubsub_notify_dropped_total{channel,reason}` rising is worth investigating too, but it
-points to a connection or availability problem, not to throughput.
+points to a connection or availability problem, not to throughput. The exception is
+`reason="no_peer"` on a single instance, which counts the edits the collab relay withholds for want
+of a peer and climbs with ordinary editing there.
 
 ### Before scoping Valkey: run the benchmark
 

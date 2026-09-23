@@ -8,6 +8,11 @@ export interface Notifier {
   send(channel: string, payload: string): void
   /** Resolves once everything queued so far has gone out, for an orderly shutdown. */
   drained(): Promise<void>
+  /**
+   * Counts `count` notifications the caller discarded before ever handing them to {@link send}, for
+   * a caller that has its own reason not to publish -- see {@link NotifierStats}' drop counters.
+   */
+  discard(reason: 'no_client' | 'no_peer', count?: number): void
 }
 
 export const NOTIFY_DURATION_BUCKETS: readonly number[] = [
@@ -19,6 +24,8 @@ export interface NotifierStats {
   sent: number
   droppedError: number
   droppedNoClient: number
+  /** Withheld by the caller because no other instance was known to be running to receive it. */
+  droppedNoPeer: number
   queueDepth: number
   durationBuckets: number[]
   durationSum: number
@@ -35,6 +42,7 @@ function registerNotifier(label: string): NotifierStats {
       sent: 0,
       droppedError: 0,
       droppedNoClient: 0,
+      droppedNoPeer: 0,
       queueDepth: 0,
       durationBuckets: NOTIFY_DURATION_BUCKETS.map(() => 0),
       durationSum: 0,
@@ -101,6 +109,13 @@ export function createNotifier(client: () => PoolClient | null, label: string): 
     },
     drained(): Promise<void> {
       return tail
+    },
+    discard(reason: 'no_client' | 'no_peer', count = 1): void {
+      if (reason === 'no_client') {
+        stats.droppedNoClient += count
+      } else {
+        stats.droppedNoPeer += count
+      }
     }
   }
 }
