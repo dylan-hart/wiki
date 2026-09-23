@@ -3515,6 +3515,8 @@
   "navEdit.visibilityAll": "Everyone",
   "navEdit.visibilityHint": "Whether to show the menu item to everyone or just selected groups.",
   "navEdit.visibilityLimited": "Selected Groups",
+  "notes.promote.failed": "Could not promote the note to a page.",
+  "notes.promote.success": "The note is now a page.",
   "pageActions.cancelRename": "Cancel Rename",
   "pageActions.confirmRename": "Confirm Rename",
   "pageActions.copyPageContent": "Copy Page Content",

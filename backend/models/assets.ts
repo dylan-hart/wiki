@@ -7,6 +7,7 @@ import { makeImageThumbnail, sanitizeSvg, svgMimeType } from '../helpers/images.
 import { ocrAvailable, ocrKindOf } from '../helpers/ocr.ts'
 import { announce } from './hooks.ts'
 import type { DeletedEntry } from './tree.ts'
+import type { WikiTx } from '../core/db.ts'
 
 const THUMBNAIL_SIZE = { width: 320, height: 200 }
 
@@ -232,7 +233,9 @@ class Assets {
     data,
     authorId,
     createdAt,
-    updatedAt
+    updatedAt,
+    tx,
+    afterCommit
   }: {
     siteId: string
     locale: string
@@ -249,6 +252,8 @@ class Assets {
     createdAt?: string
     /** Same reasoning as {@link createdAt}, for `updatedAt`. */
     updatedAt?: string
+    tx?: WikiTx
+    afterCommit?: Array<() => Promise<void>>
   }): Promise<Asset> {
     const safeName = sanitizeFileName(fileName)
     if (!safeName) {
@@ -271,7 +276,7 @@ class Assets {
     const preview = thumbnail?.data ?? null
     const dimensions = dimensionsOf(thumbnail)
 
-    const behavior = this.conflictBehaviorFor(siteId)
+    const behavior: UploadConflictBehavior = tx ? 'new' : this.conflictBehaviorFor(siteId)
     const occupant =
       behavior === 'new'
         ? null
@@ -329,12 +334,13 @@ class Assets {
         fileSize: fileData.length,
         fileExt,
         mimeType: resolvedMime
-      }
+      },
+      ...(tx ? { db: tx } : {})
     })
     const storedName = entry.fileName
 
     try {
-      await CARDINAL.db.insert(assetsTable).values({
+      await (tx ?? CARDINAL.db).insert(assetsTable).values({
         id: entry.id,
         fileName: storedName,
         fileExt,
@@ -351,40 +357,56 @@ class Assets {
       })
     } catch (err) {
       // -> Nothing points at the tree row now, and leaving it would show a file the site cannot serve
-      await CARDINAL.db.delete(treeTable).where(eq(treeTable.id, entry.id))
+      if (!tx) {
+        await CARDINAL.db.delete(treeTable).where(eq(treeTable.id, entry.id))
+      }
       throw err
     }
 
     const folderPath = decodeTreePath(entry.folderPath ?? '') ?? ''
 
-    await this.enqueueTextExtraction(entry.id, fileExt, resolvedMime)
-
-    await announce(
-      'asset:upload',
-      siteId,
-      {
-        id: entry.id,
-        fileName: storedName,
-        folderPath,
-        siteId,
-        authorId
-      },
-      {
-        metadata: { fileSize: fileData.length, mimeType: resolvedMime, kind },
-        dispatchExtra: { kind, fileSize: fileData.length }
+    const settle = async (effect: () => unknown): Promise<void> => {
+      if (afterCommit) {
+        afterCommit.push(async () => {
+          await effect()
+        })
+      } else {
+        await effect()
       }
+    }
+
+    await settle(() => this.enqueueTextExtraction(entry.id, fileExt, resolvedMime))
+
+    await settle(() =>
+      announce(
+        'asset:upload',
+        siteId,
+        {
+          id: entry.id,
+          fileName: storedName,
+          folderPath,
+          siteId,
+          authorId
+        },
+        {
+          metadata: { fileSize: fileData.length, mimeType: resolvedMime, kind },
+          dispatchExtra: { kind, fileSize: fileData.length }
+        }
+      )
     )
 
     // -> Logged from the model rather than the route, so every upload path (file manager, MCP,
     //    importer, storage sync) produces the identical line.
-    CARDINAL.logger.info('assets', 'uploaded', {
-      site: siteId,
-      asset: entry.id,
-      path: assetPath(folderPath, storedName),
-      bytes: fileData.length,
-      kind,
-      ...actorFields(authorId)
-    })
+    await settle(() =>
+      CARDINAL.logger.info('assets', 'uploaded', {
+        site: siteId,
+        asset: entry.id,
+        path: assetPath(folderPath, storedName),
+        bytes: fileData.length,
+        kind,
+        ...actorFields(authorId)
+      })
+    )
 
     return {
       id: entry.id,
