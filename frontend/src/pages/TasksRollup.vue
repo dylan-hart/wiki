@@ -145,6 +145,12 @@ const state = reactive({
 
 const hasFilters = computed(() => state.tags.length > 0 || Boolean(state.folder))
 
+// -> Only the newest request may write `state`: a slower, older response landing after it would
+//    otherwise put back results for a filter that is no longer selected.
+let latestRequest = 0
+// -> The filter `state.results` was fetched with, so a Load More continues only that list
+let resultsFilter = null
+
 function splitTags(raw) {
   return (raw ?? '')
     .split(',')
@@ -190,27 +196,37 @@ function clearFilters() {
 }
 
 async function fetchTasks(append = false) {
-  const offset = append ? state.results.length : 0
-  const folder = state.folder.trim()
+  const filter = filterQuery(state.tags, state.folder)
+  const filterKey = JSON.stringify(filter)
+  const appending = append && filterKey === resultsFilter
+  const offset = appending ? state.results.length : 0
+  const request = ++latestRequest
   state.loading++
   try {
     const resp = await API_CLIENT.get(`sites/${siteStore.id}/tasks`, {
       searchParams: {
-        ...(state.tags.length > 0 ? { tag: state.tags.join(',') } : {}),
-        ...(folder ? { folder } : {}),
+        ...filter,
         offset,
         limit: PAGE_SIZE
       }
     }).json()
+    if (request !== latestRequest) {
+      return
+    }
     const results = resp?.results ?? []
-    state.results = append ? [...state.results, ...results] : results
+    state.results = appending ? [...state.results, ...results] : results
     state.totalHits = resp?.totalHits ?? 0
     state.totalItems = resp?.totalItems ?? 0
+    resultsFilter = filterKey
   } catch (err) {
-    if (!append) {
+    if (request !== latestRequest) {
+      return
+    }
+    if (!appending) {
       state.results = []
       state.totalHits = 0
       state.totalItems = 0
+      resultsFilter = null
     }
     notify({
       type: 'negative',
@@ -218,7 +234,9 @@ async function fetchTasks(append = false) {
       caption: apiErrorMessage(err)
     })
   } finally {
-    state.loaded = true
+    if (request === latestRequest) {
+      state.loaded = true
+    }
     state.loading--
   }
 }
