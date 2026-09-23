@@ -19,6 +19,7 @@ import {
 } from './board.js'
 import { MAX_BLOCK_BYTES, MAX_POINTS, MAX_STROKES } from './limits.js'
 
+const EDITOR_ROOT = '.ProseMirror'
 const EDITABLE_ANCESTOR = '.ProseMirror[contenteditable="true"]'
 
 function capturePointer(el, pointerId) {
@@ -112,6 +113,7 @@ export class BlockWhiteboardElement extends LitElement {
     this._pen = false
     this._paths = new WeakMap()
     this._observer = null
+    this._editableObserver = null
     this._darkMode = new DarkMode(this)
     this._i18n = new I18n(this)
   }
@@ -121,12 +123,26 @@ export class BlockWhiteboardElement extends LitElement {
     this._readBody()
     this._observer = new MutationObserver(() => this._readBody())
     this._observer.observe(this, { childList: true, subtree: true, characterData: true })
+    // -> `drawingMode` is read at render time, and an editor that goes from read-only to editable
+    //    (the collab editor, once its session is refused) changes nothing inside this element. The
+    //    canvas has to re-render to pick up `is-drawing` before the first touch lands, since
+    //    `touch-action` is settled when a gesture starts.
+    const root = this.closest(EDITOR_ROOT)
+    if (root) {
+      this._editableObserver = new MutationObserver(() => this.requestUpdate())
+      this._editableObserver.observe(root, {
+        attributes: true,
+        attributeFilter: ['contenteditable']
+      })
+    }
   }
 
   disconnectedCallback() {
     super.disconnectedCallback()
     this._observer?.disconnect()
     this._observer = null
+    this._editableObserver?.disconnect()
+    this._editableObserver = null
     this._activePointer = null
     this._live = null
   }

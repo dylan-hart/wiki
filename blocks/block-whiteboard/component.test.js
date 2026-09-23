@@ -360,6 +360,22 @@ describe('block-whiteboard', () => {
       expect(changes).toHaveLength(1)
     })
 
+    it('turns touch-action off as soon as a read-only editor becomes editable', async () => {
+      const el = await mountBoard(BOARD, { editor: true, editable: false })
+      const root = el.parentElement
+      expect(canvasOf(el).classList.contains('is-drawing')).toBe(false)
+
+      root.setAttribute('contenteditable', 'true')
+      await Promise.resolve()
+      await el.updateComplete
+      expect(canvasOf(el).classList.contains('is-drawing')).toBe(true)
+
+      root.setAttribute('contenteditable', 'false')
+      await Promise.resolve()
+      await el.updateComplete
+      expect(canvasOf(el).classList.contains('is-drawing')).toBe(false)
+    })
+
     it("does not read a collaborator's caret label in the fence as part of the body", async () => {
       const el = await mountBoard(BOARD, { editor: true })
       const changes = nextChange(el)
