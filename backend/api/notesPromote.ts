@@ -51,7 +51,7 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Promoting a note requires a logged in user.')
       }
-      if (!(await notesEnabled(siteId))) {
+      if (!notesEnabled(siteId)) {
         throw new CustomError('notesDisabled', 'Notes are turned off on this site.', 403)
       }
 
