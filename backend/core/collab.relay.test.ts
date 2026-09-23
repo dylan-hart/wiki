@@ -99,6 +99,7 @@ describe('(c) chunked relay reassembly when the sender is gone mid-burst', () =>
       "sanity check: both instances' independent stored-page fallback must be byte-identical"
     )
 
+    sender.peerPresence = { known: true, checkedAt: Date.now() }
     ;(globalThis as any).CARDINAL.INSTANCE_ID = 'SENDER'
     senderRoom.doc.transact(() => {
       senderRoom.doc.getText('content').insert(0, `BIG EDIT: ${'z'.repeat(20000)}`)

@@ -274,6 +274,8 @@ export default {
   addressConnections: new Map<string, number>(),
   relaySeq: 0,
   peerPresence: { known: false, checkedAt: 0 },
+  peerCheck: null as Promise<boolean> | null,
+  peerGated: [] as Omit<RelayEnvelope, 'i'>[],
   pingTimer: null as NodeJS.Timeout | null,
 
   /**
@@ -346,6 +348,9 @@ export default {
     }
     this.rooms.clear()
     await Promise.all(pendingDraftFlushes)
+    if (this.peerCheck) {
+      await this.peerCheck
+    }
     if (this.listenerHandle) {
       // -> Whatever is still on its way out goes out first: releasing the client from under a
       //    notification in flight would fail that one for no reason
@@ -362,10 +367,21 @@ export default {
    * `pg_stat_activity`.
    */
   async hasPeers(): Promise<boolean> {
-    const now = Date.now()
-    if (now - this.peerPresence.checkedAt < PEER_PRESENCE_TTL) {
+    if (Date.now() - this.peerPresence.checkedAt < PEER_PRESENCE_TTL) {
       return this.peerPresence.known
     }
+    return this.refreshPeers()
+  },
+
+  refreshPeers(): Promise<boolean> {
+    this.peerCheck ??= this.checkPeers().finally(() => {
+      this.peerCheck = null
+    })
+    return this.peerCheck
+  },
+
+  async checkPeers(): Promise<boolean> {
+    const now = Date.now()
     const ownName = `Cardinal.js - ${CARDINAL.INSTANCE_ID}:COLLAB`
     try {
       const result = await CARDINAL.db.execute(
@@ -373,15 +389,43 @@ export default {
               AND application_name LIKE 'Cardinal.js - %:COLLAB'
               AND application_name <> ${ownName} LIMIT 1`
       )
-      this.peerPresence = { known: result.rows.length > 0, checkedAt: now }
+      if (!this.peerPresenceProvenSince(now)) {
+        this.peerPresence = { known: result.rows.length > 0, checkedAt: Date.now() }
+      }
     } catch (err: any) {
       // -> Assume company: a wasted timeout is a far smaller mistake than duplicating a page's text
       CARDINAL.logger.warn('collab', 'could not determine whether peer instances are running', {
         error: err
       })
-      this.peerPresence = { known: true, checkedAt: now }
+      this.peerPresence = { known: true, checkedAt: Date.now() }
     }
+    this.flushPeerGated()
     return this.peerPresence.known
+  },
+
+  peerPresenceProvenSince(since: number): boolean {
+    return this.peerPresence.known && this.peerPresence.checkedAt >= since
+  },
+
+  flushPeerGated(): void {
+    const held = this.peerGated
+    this.peerGated = []
+    if (!this.peerPresence.known) {
+      return
+    }
+    for (const message of held) {
+      this.relay(message)
+    }
+  },
+
+  mayRelayToPeers(message: Omit<RelayEnvelope, 'i'>): boolean {
+    const fresh = Date.now() - this.peerPresence.checkedAt < PEER_PRESENCE_TTL
+    if (fresh && this.peerGated.length === 0) {
+      return this.peerPresence.known
+    }
+    this.peerGated.push(message)
+    void this.refreshPeers()
+    return false
   },
 
   /**
@@ -903,6 +947,9 @@ export default {
     if (!this.listenClient) {
       return
     }
+    if ((message.t === 'update' || message.t === 'awareness') && !this.mayRelayToPeers(message)) {
+      return
+    }
     const envelope: RelayEnvelope = { ...message, i: CARDINAL.INSTANCE_ID }
     const payload = envelope.p
     if (!payload || payload.length <= RELAY_CHUNK_SIZE) {
@@ -935,6 +982,7 @@ export default {
     if (envelope.i === CARDINAL.INSTANCE_ID) {
       return
     }
+    this.peerPresence = { known: true, checkedAt: Date.now() }
     if (envelope.to && envelope.to !== CARDINAL.INSTANCE_ID) {
       return
     }
