@@ -3,10 +3,15 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { CustomError } from '../helpers/common.ts'
 import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import { detectImageMime } from '../helpers/images.ts'
-import { assertNoteContentWithinCap, NOTE_MAX_TITLE_LENGTH } from '../helpers/noteContent.ts'
+import {
+  assertNoteContentWithinCap,
+  NOTE_IMAGE_QUOTA_BYTES,
+  NOTE_MAX_TITLE_LENGTH
+} from '../helpers/noteContent.ts'
 import { notesEnabled } from '../helpers/notes.ts'
 import { NOTE_SEARCH_MAX_LIMIT, searchNotes } from '../helpers/notesSearch.ts'
 import { requireActorId } from '../helpers/pageAccess.ts'
+import { limitUploads } from '../helpers/rateLimit.ts'
 
 const NOTES_REQUIRED = 'Notes require a logged in user.'
 const NOTES_DISABLED = 'Notes are turned off on this site.'
@@ -577,9 +582,12 @@ async function routes(app: FastifyInstance) {
   app.post<{ Params: NoteParams }>(
     '/sites/:siteId/notes/:noteId/images',
     {
+      // -> The same per-caller upload limit as the asset and block upload routes, tighter than the
+      //    generic `/_api/*` ceiling.
+      preHandler: limitUploads,
       schema: {
         summary: 'Add an image to a note',
-        description: `A \`multipart/form-data\` body carrying one file. PNG, JPEG, GIF and WebP are accepted, decided by the bytes rather than the declared type; SVG is not. At most ${Math.round((CARDINAL.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The image is readable only by the note's owner, from the returned \`url\`.`,
+        description: `A \`multipart/form-data\` body carrying one file. PNG, JPEG, GIF and WebP are accepted, decided by the bytes rather than the declared type; SVG is not. At most ${Math.round((CARDINAL.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The image is readable only by the note's owner, from the returned \`url\`.\n\nThe images in one user's notes on one site may take ${NOTE_IMAGE_QUOTA_BYTES / 1024 / 1024} MB in all; past that the upload answers 413 \`noteImageQuotaExceeded\`. An image that no note shows any more is deleted by the nightly \`purgeNoteImages\` job once it is a day old.`,
         tags: ['Notes'],
         consumes: ['multipart/form-data'],
         params: noteParams,

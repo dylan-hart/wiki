@@ -109,6 +109,7 @@ import { notesApi } from '@/composables/notesApi'
 import { useNotePromote } from '@/composables/notePromote'
 import { notify } from '@/composables/notify'
 
+import { apiErrorBody } from '@/helpers/apiError'
 import { noteExcerpt } from '@/helpers/noteExcerpt'
 
 import { useSiteStore } from '@/stores/site'
@@ -493,8 +494,13 @@ async function uploadFile(file) {
   try {
     const uploaded = await api.value.uploadImage(noteId, file)
     return uploaded?.url ? { url: uploaded.url, name: file.name } : null
-  } catch {
-    notify({ type: 'negative', message: t('notes.imageUploadFailed') })
+  } catch (err) {
+    // -> The server's message says why, e.g. that the note image quota is used up.
+    notify({
+      type: 'negative',
+      message: t('notes.imageUploadFailed'),
+      caption: apiErrorBody(err)?.message
+    })
     return null
   }
 }

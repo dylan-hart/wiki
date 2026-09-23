@@ -5,6 +5,15 @@ export const NOTE_MAX_CONTENT_BYTES = 2_097_152
 
 export const NOTE_MAX_TITLE_LENGTH = 255
 
+/**
+ * The most image bytes one user may keep in their notes on one site. Note images are `bytea` in
+ * postgres (see `docs/decisions/2026-09-23-personal-notes-data-model.md`), so without a ceiling one
+ * account could grow the database without bound. Counted over every image the user still has
+ * stored, including ones removed from a note that `models/notes.ts#purgeOrphanImages` has not yet
+ * swept.
+ */
+export const NOTE_IMAGE_QUOTA_BYTES = 104_857_600
+
 const FENCE_OPEN = /^(\s*)(`{3,}|~{3,})\s*([^\s`]*)/
 
 export function whiteboardBodiesInMarkdown(markdown: string): string[] {

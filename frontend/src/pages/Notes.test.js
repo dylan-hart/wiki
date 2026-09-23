@@ -461,6 +461,28 @@ describe('Notes screen', () => {
     expect(API_CLIENT.post.mock.calls).toHaveLength(calls)
   })
 
+  it('says why an image upload was refused, e.g. a used-up quota', async () => {
+    fakeServer({
+      sections: [{ id: 's1', title: 'Work' }],
+      notes: [{ id: 'n1', sectionId: 's1', title: 'A', content: '', excerpt: '' }]
+    })
+    await mountNotes()
+    API_CLIENT.post.mockImplementationOnce(() => ({
+      json: () =>
+        Promise.reject(refusal(413, 'noteImageQuotaExceeded', 'Your note images are full.'))
+    }))
+
+    const image = new File(['x'], 'shot.png', { type: 'image/png' })
+    expect(await editor().props('uploadFile')(image)).toBeNull()
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'negative',
+        message: 'notes.imageUploadFailed',
+        caption: 'Your note images are full.'
+      })
+    )
+  })
+
   describe('?new=1 from the quick-note entry points', () => {
     it('creates a default section when the user has none, then a note in it', async () => {
       const db = fakeServer()

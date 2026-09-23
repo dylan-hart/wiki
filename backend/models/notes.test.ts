@@ -1,7 +1,7 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
   noteImages as noteImagesTable,
@@ -10,6 +10,7 @@ import {
   sites as sitesTable,
   users as usersTable
 } from '../db/schema.ts'
+import { NOTE_IMAGE_QUOTA_BYTES } from '../helpers/noteContent.ts'
 import { mergeOrder } from './notes.ts'
 
 describe('mergeOrder', () => {
@@ -419,6 +420,127 @@ describe('notes (DB-backed)', { skip: !hasTestDatabase() }, () => {
         []
       )
       assert.equal(await notesModel.listImages(fixtures.siteId, otherUserId, note.id), null)
+    })
+  })
+
+  describe('image quota', () => {
+    test('refuses an image that would take one user past the quota on a site, and only there', async () => {
+      const userId = await createUser('notes-quota@example.com')
+      const section = await notesModel.createSection(fixtures.siteId, userId, { title: 'Full' })
+      const note = (await notesModel.createNote(fixtures.siteId, userId, {
+        sectionId: section.id
+      }))!
+      // -> The quota counts `fileSize`, so one row can stand for almost the whole allowance.
+      await fixtures.db.insert(noteImagesTable).values({
+        siteId: fixtures.siteId,
+        userId,
+        noteId: note.id,
+        fileName: 'big.png',
+        mimeType: 'image/png',
+        fileSize: NOTE_IMAGE_QUOTA_BYTES - 10,
+        data: Buffer.from([0])
+      })
+      const image = (bytes: number) => ({
+        fileName: 'a.png',
+        mimeType: 'image/png',
+        data: Buffer.alloc(bytes, 1)
+      })
+
+      await assert.rejects(
+        notesModel.addImage(fixtures.siteId, userId, note.id, image(11)),
+        (err: any) => err.name === 'noteImageQuotaExceeded' && err.statusCode === 413
+      )
+      assert.equal(await fixtures.db.$count(noteImagesTable, eq(noteImagesTable.userId, userId)), 1)
+
+      assert.ok(await notesModel.addImage(fixtures.siteId, userId, note.id, image(10)))
+
+      const elsewhere = await notesModel.createSection(otherSiteId, userId, { title: 'Other' })
+      const otherNote = (await notesModel.createNote(otherSiteId, userId, {
+        sectionId: elsewhere.id
+      }))!
+      assert.ok(
+        await notesModel.addImage(otherSiteId, userId, otherNote.id, image(11)),
+        'the quota is per site'
+      )
+    })
+  })
+
+  describe('purgeOrphanImages', () => {
+    test('deletes old images no note of their owner mentions, and keeps the rest', async () => {
+      const userId = await createUser('notes-orphans@example.com')
+      const section = await notesModel.createSection(fixtures.siteId, userId, { title: 'Pics' })
+      const note = (await notesModel.createNote(fixtures.siteId, userId, {
+        sectionId: section.id
+      }))!
+      const sibling = (await notesModel.createNote(fixtures.siteId, userId, {
+        sectionId: section.id
+      }))!
+      const farSection = await notesModel.createSection(otherSiteId, userId, { title: 'Far' })
+      const far = (await notesModel.createNote(otherSiteId, userId, {
+        sectionId: farSection.id
+      }))!
+      const add = async () =>
+        (await notesModel.addImage(fixtures.siteId, userId, note.id, {
+          fileName: 'a.png',
+          mimeType: 'image/png',
+          data: Buffer.from([1, 2, 3])
+        }))!.id
+      const shown = await add()
+      const removed = await add()
+      const copied = await add()
+      const copiedFar = await add()
+      const recent = await add()
+      const url = (imageId: string) =>
+        `/_api/sites/${fixtures.siteId}/notes/${note.id}/images/${imageId}`
+
+      await notesModel.updateNote(fixtures.siteId, userId, note.id, {
+        content: `Kept ![a](${url(shown)})`
+      })
+      await notesModel.updateNote(fixtures.siteId, userId, sibling.id, {
+        content: `Pasted here ![a](${url(copied).toUpperCase()})`
+      })
+      await notesModel.updateNote(otherSiteId, userId, far.id, {
+        content: `On another site ![a](${url(copiedFar)})`
+      })
+
+      const strangerId = await createUser('notes-orphans-stranger@example.com')
+      const strangerSection = await notesModel.createSection(fixtures.siteId, strangerId, {
+        title: 'Theirs'
+      })
+      const strangerNote = (await notesModel.createNote(fixtures.siteId, strangerId, {
+        sectionId: strangerSection.id,
+        content: `Mentions someone else's image ${removed}`
+      }))!
+      const strangerOrphan = (await notesModel.addImage(
+        fixtures.siteId,
+        strangerId,
+        strangerNote.id,
+        {
+          fileName: 'b.png',
+          mimeType: 'image/png',
+          data: Buffer.from([4])
+        }
+      ))!.id
+
+      await fixtures.db
+        .update(noteImagesTable)
+        .set({ createdAt: sql`now() - interval '25 hours'` })
+        .where(inArray(noteImagesTable.id, [shown, removed, copied, copiedFar, strangerOrphan]))
+
+      assert.equal(await notesModel.purgeOrphanImages(), 2)
+
+      const left = await fixtures.db
+        .select({ id: noteImagesTable.id })
+        .from(noteImagesTable)
+        .where(
+          inArray(noteImagesTable.id, [shown, removed, copied, copiedFar, recent, strangerOrphan])
+        )
+      assert.deepEqual(
+        new Set(left.map((row) => row.id)),
+        new Set([shown, copied, copiedFar, recent]),
+        "an image another user's note names is still an orphan; a recent one waits out the grace"
+      )
+      assert.equal(await notesModel.purgeOrphanImages(), 0)
     })
   })
 

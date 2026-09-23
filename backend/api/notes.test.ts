@@ -3,6 +3,7 @@ import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import notesRoutes, { noteImageUrl } from './notes.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import { CustomError } from '../helpers/common.ts'
 import { WHITEBOARD_MAX_BLOCK_BYTES } from '../helpers/whiteboardLimits.ts'
 
 const SITE_ID = '11111111-1111-4111-8111-111111111111'
@@ -87,6 +88,7 @@ describe('notes routes', () => {
   let model: Record<string, ReturnType<typeof mock.fn>>
   let searchRows: any[]
   let executeCalls: number
+  let consumeUpload: ReturnType<typeof mock.fn>
 
   function setNotesFlag(value: boolean | undefined) {
     const features = CARDINAL.sites[SITE_ID]!.config.features as Record<string, unknown>
@@ -134,6 +136,7 @@ describe('notes routes', () => {
         db: { select: () => chain(() => searchRows) },
         models: {
           groups: { groupIdsForRequest: () => [] },
+          rateLimits: { consume: (...args: any[]) => consumeUpload(...args) },
           notes: Object.fromEntries(
             MODEL_METHODS.map((name) => [name, (...args: any[]) => model[name]!(...args)])
           )
@@ -149,6 +152,7 @@ describe('notes routes', () => {
     setNotesFlag(true)
     searchRows = []
     executeCalls = 0
+    consumeUpload = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
     model = {
       listSections: mock.fn(async () => [section(SECTION_ID, 0), section(OTHER_SECTION_ID, 1)]),
       createSection: mock.fn(async (_s: string, _u: string, { title }: any) => ({
@@ -629,6 +633,46 @@ describe('notes routes', () => {
       assert.equal(input.mimeType, 'image/png')
       assert.equal(input.fileName, 'evil name.png')
       assert.ok(Buffer.from(input.data).equals(PNG))
+    })
+
+    test('an upload spends the caller’s upload budget, and a spent budget answers 429 first', async () => {
+      const { payload, headers } = await multipart(PNG)
+      const upload = () =>
+        app.inject({ method: 'POST', url: `${BASE}/${NOTE_ID}/images`, payload, headers })
+
+      assert.equal((await upload()).statusCode, 200)
+      assert.equal(consumeUpload.mock.calls[0]?.arguments[0], `upload:${OWNER_ID}`)
+
+      // -> Another user, so the ban this memoizes does not reach the other tests.
+      session = { authenticated: true, user: { id: MOVE_TARGET_ID }, permissions: [] }
+      consumeUpload.mock.mockImplementation(async () => ({
+        allowed: false,
+        hits: 21,
+        retryAfter: 60
+      }))
+      const refused = await upload()
+
+      assert.equal(refused.statusCode, 429)
+      assert.equal(refused.headers['retry-after'], '60')
+      assert.equal(model.addImage!.mock.calls.length, 1)
+    })
+
+    test('an upload past the image quota answers 413 with its own error code', async () => {
+      model.addImage = mock.fn(async () => {
+        throw new CustomError('noteImageQuotaExceeded', 'Over the note image quota.', 413)
+      })
+      const { payload, headers } = await multipart(PNG)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `${BASE}/${NOTE_ID}/images`,
+        payload,
+        headers
+      })
+
+      assert.equal(res.statusCode, 413)
+      assert.equal(res.json().error, 'noteImageQuotaExceeded')
+      assert.equal(res.json().message, 'Over the note image quota.')
     })
 
     test('noteImageUrl is the pinned format', () => {

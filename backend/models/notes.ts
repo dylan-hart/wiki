@@ -1,4 +1,5 @@
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { chunk } from 'es-toolkit/array'
+import { and, asc, eq, gt, inArray, lt, sql } from 'drizzle-orm'
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
 import {
@@ -6,8 +7,22 @@ import {
   noteSections as noteSectionsTable,
   notes as notesTable
 } from '../db/schema.ts'
-import { isValidUuid } from '../helpers/common.ts'
+import { CustomError, isValidUuid } from '../helpers/common.ts'
+import { NOTE_IMAGE_QUOTA_BYTES } from '../helpers/noteContent.ts'
 import { noteExcerpt } from '../helpers/notes.ts'
+
+/**
+ * How long an image no note shows is kept before `purgeOrphanImages` deletes it. Long enough that
+ * undo, or pasting the image back into the note, still finds it, and that an upload whose note was
+ * closed before the editor could insert it is not swept while that is still plausible.
+ */
+export const NOTE_IMAGE_ORPHAN_GRACE_HOURS = 24
+
+const ORPHAN_SCAN_BATCH = 100
+
+const ORPHAN_DELETE_CHUNK = 1000
+
+const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 
 export interface NoteSection {
   id: string
@@ -394,6 +409,25 @@ class Notes {
       if (!note) {
         return null
       }
+      // -> Serializes one user's uploads on one site, so two arriving together cannot each see
+      //    room for itself and pass the quota between them.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${`noteImages:${siteId}:${userId}`}))`
+      )
+      const [usage] = await tx
+        .select({
+          used: sql<number>`coalesce(sum(${noteImagesTable.fileSize}), 0)`.mapWith(Number)
+        })
+        .from(noteImagesTable)
+        .where(and(eq(noteImagesTable.siteId, siteId), eq(noteImagesTable.userId, userId)))
+      const used = usage?.used ?? 0
+      if (used + data.length > NOTE_IMAGE_QUOTA_BYTES) {
+        throw new CustomError(
+          'noteImageQuotaExceeded',
+          `Your note images on this site already take ${formatMiB(used)} MB, and this one would pass the ${formatMiB(NOTE_IMAGE_QUOTA_BYTES)} MB limit. The image was not added. Images removed from a note free their space within two days.`,
+          413
+        )
+      }
       const [row] = await tx
         .insert(noteImagesTable)
         .values({ siteId, userId, noteId, fileName, mimeType, fileSize: data.length, data })
@@ -456,6 +490,82 @@ class Notes {
       )
       .orderBy(asc(noteImagesTable.createdAt), asc(noteImagesTable.id))
   }
+
+  /**
+   * Deletes every image older than `NOTE_IMAGE_ORPHAN_GRACE_HOURS` that none of its owner's notes
+   * mentions any more: removed from its note, or uploaded while the note was being switched away
+   * from and so never inserted. Otherwise such an image would only ever go with its note.
+   *
+   * An image counts as mentioned if its id appears anywhere in any of its owner's notes, on any
+   * site. That is broader than the URL `helpers/notePromotion.ts#findNoteImageRefs` matches, on
+   * purpose: an image pasted into another note, even on another site, keeps working, and a false
+   * match only keeps an image a little longer. Each owner is scanned in one transaction that holds
+   * their notes `FOR SHARE`, so an autosave landing mid-scan waits rather than slipping a reference
+   * in after it was read.
+   */
+  async purgeOrphanImages(): Promise<number> {
+    const owners = await CARDINAL.db
+      .selectDistinct({ userId: noteImagesTable.userId })
+      .from(noteImagesTable)
+      .where(lt(noteImagesTable.createdAt, orphanCutoff()))
+    let purged = 0
+    for (const { userId } of owners) {
+      purged += await purgeOrphanImagesOf(userId)
+    }
+    return purged
+  }
+}
+
+function orphanCutoff() {
+  return sql`now() - make_interval(hours => ${NOTE_IMAGE_ORPHAN_GRACE_HOURS})`
+}
+
+async function purgeOrphanImagesOf(userId: string): Promise<number> {
+  return CARDINAL.db.transaction(async (tx) => {
+    const candidates = await tx
+      .select({ id: noteImagesTable.id })
+      .from(noteImagesTable)
+      .where(and(eq(noteImagesTable.userId, userId), lt(noteImagesTable.createdAt, orphanCutoff())))
+    if (candidates.length === 0) {
+      return 0
+    }
+    const mentioned = new Set<string>()
+    let after: string | null = null
+    for (;;) {
+      const rows: { id: string; content: string }[] = await tx
+        .select({ id: notesTable.id, content: notesTable.content })
+        .from(notesTable)
+        .where(
+          and(eq(notesTable.userId, userId), after === null ? undefined : gt(notesTable.id, after))
+        )
+        .orderBy(asc(notesTable.id))
+        .limit(ORPHAN_SCAN_BATCH)
+        .for('share')
+      for (const row of rows) {
+        for (const match of row.content.matchAll(UUID_IN_TEXT)) {
+          mentioned.add(match[0].toLowerCase())
+        }
+      }
+      if (rows.length < ORPHAN_SCAN_BATCH) {
+        break
+      }
+      after = rows.at(-1)!.id
+    }
+    const orphans = candidates.map((row) => row.id).filter((id) => !mentioned.has(id))
+    let deleted = 0
+    for (const ids of chunk(orphans, ORPHAN_DELETE_CHUNK)) {
+      const rows = await tx
+        .delete(noteImagesTable)
+        .where(and(eq(noteImagesTable.userId, userId), inArray(noteImagesTable.id, ids)))
+        .returning({ id: noteImagesTable.id })
+      deleted += rows.length
+    }
+    return deleted
+  })
+}
+
+function formatMiB(bytes: number): string {
+  return (bytes / 1024 / 1024).toFixed(1).replace(/\.0$/, '')
 }
 
 function nextNotePosition(sectionId: string) {
