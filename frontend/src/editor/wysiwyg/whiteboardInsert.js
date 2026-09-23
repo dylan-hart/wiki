@@ -133,13 +133,17 @@ export function insertWhiteboardInto(tr, from, to) {
     return null
   }
 
+  // -> The caret goes on a line of its own after the board. Searching forward from there for any
+  //    textblock would, when the next node is another board (or any block), land inside that
+  //    block's hidden code block, where typing edits its body unseen.
   const after = inserted + tr.doc.nodeAt(inserted).nodeSize
   const $after = tr.doc.resolve(after)
+  const { paragraph } = tr.doc.type.schema.nodes
   if (
-    !$after.nodeAfter &&
-    $after.parent.canReplaceWith($after.index(), $after.index(), tr.doc.type.schema.nodes.paragraph)
+    !$after.nodeAfter?.isTextblock &&
+    $after.parent.canReplaceWith($after.index(), $after.index(), paragraph)
   ) {
-    tr.insert(after, tr.doc.type.schema.nodes.paragraph.create())
+    tr.insert(after, paragraph.create())
   }
   tr.setSelection(Selection.near(tr.doc.resolve(after), 1))
   return inserted

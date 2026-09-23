@@ -131,6 +131,38 @@ describe('insertWhiteboard command', () => {
     expect(editor.commands.insertWhiteboard()).toBe(true)
     expect(editor.getMarkdown().trim()).toBe(BOARD)
   })
+
+  it('puts the caret on a new line after the board when another board follows it', () => {
+    createEditor('Intro\n\n' + BOARD)
+    const introEnd = findPos(editor.state.doc, (node) => node.isText && node.text === 'Intro') + 5
+    editor.commands.setTextSelection(introEnd)
+
+    expect(editor.commands.insertWhiteboard()).toBe(true)
+
+    const { doc, selection } = editor.state
+    expect(doc.child(1).attrs.block).toBe('whiteboard')
+    expect(doc.child(2).type.name).toBe('paragraph')
+    expect(doc.child(3).attrs.block).toBe('whiteboard')
+    expect(selection.$head.depth).toBe(1)
+    expect(selection.$head.index(0)).toBe(2)
+
+    editor.commands.insertContent('typed')
+    expect(editor.state.doc.child(2).textContent).toBe('typed')
+    expect(editor.state.doc.child(3).textContent).toBe(EMPTY_WHITEBOARD_BODY)
+  })
+
+  it('reuses a line that already follows the board rather than adding another', () => {
+    createEditor('Intro\n\nAfter')
+    const introEnd = findPos(editor.state.doc, (node) => node.isText && node.text === 'Intro') + 5
+    editor.commands.setTextSelection(introEnd)
+
+    editor.commands.insertWhiteboard()
+
+    const { doc, selection } = editor.state
+    expect(doc.childCount).toBe(3)
+    expect(selection.$head.parent.textContent).toBe('After')
+    expect(selection.$head.parentOffset).toBe(0)
+  })
 })
 
 describe('the empty board', () => {
