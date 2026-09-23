@@ -25,6 +25,7 @@
     "lit": "3.3.3",
     "mermaid": "11.17.2",
     "pdfjs-dist": "6.3.289",
+    "perfect-freehand": "1.2.3",
     "swagger-ui": "5.32.14",
     "uqr": "0.1.3"
   },

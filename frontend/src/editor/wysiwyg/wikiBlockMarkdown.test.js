@@ -133,3 +133,64 @@ describe('WikiBlock markdown: attribute round-trip', () => {
     expectRenderEqualRoundTrip('::block-youtube{id="dQw4w9WgXcQ"}\n::')
   })
 })
+
+describe('WikiBlock markdown: block-whiteboard', () => {
+  const whiteboard = readAllBlockDefinitions().find(
+    ({ dirName }) => dirName === 'block-whiteboard'
+  ).definition
+
+  const whiteboardMarkdown = (body) => `::block-whiteboard\n\`\`\`whiteboard\n${body}\n\`\`\`\n::`
+
+  function fencedBody(html) {
+    return new DOMParser()
+      .parseFromString(html, 'text/html')
+      .querySelector('block-whiteboard pre')
+      ?.textContent.trim()
+  }
+
+  function board(strokes, pointsEach) {
+    return JSON.stringify({
+      v: 1,
+      w: 800,
+      h: 450,
+      s: Array.from({ length: strokes }, (_, s) => ({
+        c: '#3366cc',
+        z: 6,
+        p: Array.from({ length: pointsEach }, (_, i) => [
+          Math.round(Math.sin(s + i / 7) * 390 + 400),
+          Math.round(Math.cos(s * 2 + i / 5) * 220 + 225),
+          (s * 7 + i) % 101
+        ]).flat()
+      }))
+    })
+  }
+
+  it('inserts an empty board in the pinned format', () => {
+    expect(fencedBody(renderHtml(blockMarkdown(whiteboard)))).toBe('{"v":1,"w":800,"h":450,"s":[]}')
+  })
+
+  it('keeps a drawn board’s JSON body byte for byte through the editor', () => {
+    const body = board(20, 50)
+    const roundTripped = expectRenderEqualRoundTrip(whiteboardMarkdown(body))
+
+    expect(fencedBody(renderHtml(roundTripped))).toBe(body)
+  })
+
+  it('keeps a hostile body with a bare :: line and markup inside its own fence', () => {
+    const body = '{"v":1,"s":[],\n::\n"c":"</pre><script>alert(1)</script>"}'
+    const roundTripped = expectRenderEqualRoundTrip(whiteboardMarkdown(body))
+
+    expect(fencedBody(renderHtml(roundTripped))).toBe(body)
+    expect(renderHtml(roundTripped)).not.toContain('<script>')
+  })
+
+  it('keeps a board near the 256 KiB block cap intact', () => {
+    const body = board(200, 110)
+    expect(new TextEncoder().encode(body).length).toBeGreaterThan(200 * 1024)
+    expect(new TextEncoder().encode(body).length).toBeLessThanOrEqual(262144)
+
+    const roundTripped = expectRenderEqualRoundTrip(whiteboardMarkdown(body))
+
+    expect(fencedBody(renderHtml(roundTripped))).toBe(body)
+  })
+})
