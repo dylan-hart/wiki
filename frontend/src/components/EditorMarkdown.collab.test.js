@@ -34,6 +34,7 @@ const fakeEditor = {
   updateOptions: vi.fn(),
   addCommand: vi.fn(() => 'fake-command-id'),
   addAction: vi.fn(() => ({ dispose: vi.fn() })),
+  createContextKey: vi.fn(() => ({ set: vi.fn(), get: vi.fn(() => false), reset: vi.fn() })),
   onDidChangeModelContent: vi.fn(),
   onDidChangeCursorPosition: vi.fn(),
   revealLineInCenterIfOutsideViewport: vi.fn(),

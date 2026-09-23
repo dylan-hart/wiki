@@ -472,6 +472,13 @@ import {
 import { useI18n } from 'vue-i18n'
 
 import { useAesthetic } from '@/composables/aesthetic'
+import {
+  AI_ASSIST_CONTEXT_KEY,
+  AI_MAX_TEXT_LENGTH,
+  aiErrorMessage,
+  aiGenerate,
+  fetchAiStatus
+} from '@/composables/aiAssist'
 import { dialog } from '@/composables/dialog'
 import { useMarkdownCollab } from '@/composables/markdownCollab'
 import { notify } from '@/composables/notify'
@@ -587,6 +594,8 @@ let debouncedContentChange = null
 let debouncedCursorPositionChange = null
 /** Cleared at unmount: left to fire, it calls `.focus()` on an editor `dispose()` has torn down. */
 let insertAssetFocusTimeout = null
+let aiAssistContextKey = null
+let aiRequestInFlight = false
 const monacoRef = ref(null)
 const editorPreviewContainerRef = ref(null)
 const editorMidRef = ref(null)
@@ -943,6 +952,81 @@ async function toggleMarkup({ start, end }) {
   }
 
   editor.executeEdits('', edits, cursors.length === edits.length ? cursors : undefined)
+}
+
+async function refreshAiStatus() {
+  if (!aiAssistContextKey) {
+    return
+  }
+  const status = await fetchAiStatus(siteStore.id)
+  aiAssistContextKey?.set(status.available)
+}
+
+async function runAiSelectionAction(action) {
+  if (!aiAssistContextKey?.get()) {
+    return
+  }
+  if (aiRequestInFlight) {
+    notify({ type: 'warning', message: t('editor.ai.busy') })
+    return
+  }
+  const selection = editor.getSelection()
+  const text = selection ? editor.getModel().getValueInRange(selection) : ''
+  if (!text.trim()) {
+    notify({ type: 'negative', message: t('editor.markup.noSelectionError') })
+    return
+  }
+  if (text.length > AI_MAX_TEXT_LENGTH) {
+    notify({
+      type: 'negative',
+      message: t('editor.ai.errors.tooLong', { max: AI_MAX_TEXT_LENGTH })
+    })
+    return
+  }
+
+  aiRequestInFlight = true
+  const target = editor.createDecorationsCollection([
+    {
+      range: selection,
+      options: {
+        stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
+      }
+    }
+  ])
+  const dismissWorking = notify({ type: 'info', message: t('editor.ai.working'), timeout: 0 })
+  try {
+    const result = await aiGenerate(siteStore.id, {
+      action,
+      text,
+      pageId: pageStore.id,
+      path: pageStore.path,
+      locale: pageStore.locale
+    })
+    if (!aiAssistContextKey) {
+      return
+    }
+    const range = target.getRange(0)
+    if (!range || editor.getModel().getValueInRange(range) !== text) {
+      notify({ type: 'warning', message: t('editor.ai.selectionChanged') })
+      return
+    }
+    if (!result) {
+      notify({ type: 'negative', message: t('editor.ai.errors.empty') })
+      return
+    }
+    editor.pushUndoStop()
+    editor.executeEdits('ai', [{ range, text: result, forceMoveMarkers: true }])
+    editor.pushUndoStop()
+  } catch (err) {
+    if (aiAssistContextKey) {
+      notify({ type: 'negative', message: aiErrorMessage(err, t) })
+    }
+  } finally {
+    dismissWorking()
+    target.clear()
+    aiRequestInFlight = false
+    refreshAiStatus()
+  }
 }
 
 /**
@@ -1503,6 +1587,32 @@ onMounted(async () => {
     }
   })
 
+  aiAssistContextKey = editor.createContextKey(AI_ASSIST_CONTEXT_KEY, false)
+
+  editor.addAction({
+    contextMenuGroupId: 'markdown.extension.writing',
+    contextMenuOrder: 0,
+    id: 'cardinal.ai.rewriteSelection',
+    label: t('editor.ai.rewrite'),
+    precondition: `${AI_ASSIST_CONTEXT_KEY} && editorHasSelection`,
+    run() {
+      return runAiSelectionAction('rewrite')
+    }
+  })
+
+  editor.addAction({
+    contextMenuGroupId: 'markdown.extension.writing',
+    contextMenuOrder: 1,
+    id: 'cardinal.ai.summarizeSelection',
+    label: t('editor.ai.summarize'),
+    precondition: `${AI_ASSIST_CONTEXT_KEY} && editorHasSelection`,
+    run() {
+      return runAiSelectionAction('summarize')
+    }
+  })
+
+  refreshAiStatus()
+
   debouncedContentChange = debounce((ev) => {
     editorStore.markDirty()
     // -> What the author has typed IS the source, whatever the load did or did not deliver; see
@@ -1594,6 +1704,7 @@ onBeforeUnmount(() => {
   debouncedContentChange?.cancel()
   debouncedCursorPositionChange?.cancel()
   clearTimeout(insertAssetFocusTimeout)
+  aiAssistContextKey = null
   // -> Before the editor goes: the collab watchers still reach for it and the binding holds the model
   stopCollab()
   if (editor) {
