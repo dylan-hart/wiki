@@ -1135,6 +1135,67 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  app.delete<{ Params: { userId: string; strategyId: string } }>(
+    '/:userId/auth/:strategyId',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: "Disconnect a sign-in method from a user's account",
+        description:
+          'The administrator counterpart of `DELETE /users/profile/auth/:strategyId`, with the same refusals: never the local strategy, never a provider that is not linked, and never the last way into the account. The account holder is emailed a notice, and the audit log records the administrator as the actor.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            strategyId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['userId', 'strategyId']
+        },
+        response: {
+          204: {
+            description: 'Sign-in method disconnected successfully'
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const user = await CARDINAL.models.users.getById(req.params.userId)
+      if (!user) {
+        return reply.notFound('User does not exist.')
+      }
+
+      const systemUserRefusal = await systemUserGuard(req, user.id)
+      if (systemUserRefusal) {
+        throw systemUserRefusal
+      }
+
+      try {
+        await CARDINAL.models.userCredentials.unlinkStrategy({
+          userId: user.id,
+          strategyId: req.params.strategyId,
+          actor: actorFromRequest(req)
+        })
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
+      }
+
+      return reply.code(204).send()
+    }
+  )
+
   app.post<{ Params: { userId: string }; Body: { strategyId: string } }>(
     '/:userId/tfa/invalidate',
     {
