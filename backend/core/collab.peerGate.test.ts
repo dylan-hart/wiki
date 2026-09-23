@@ -199,6 +199,7 @@ describe('a second instance starting inside the presence TTL', () => {
     roomA.doc.transact(() => {
       roomA.doc.getText('content').insert(0, 'BEFORE B: ')
     })
+    a.flushRelayUpdates(roomA)
     assert.equal(aSent.length, 0, 'A is alone, so nothing leaves it')
 
     b.peerPresence = { known: true, checkedAt: Date.now() }
@@ -211,11 +212,13 @@ describe('a second instance starting inside the presence TTL', () => {
     roomA.doc.transact(() => {
       roomA.doc.getText('content').insert(0, 'AFTER B ON A: ')
     })
+    a.flushRelayUpdates(roomA)
     ;(globalThis as any).CARDINAL.INSTANCE_ID = 'B'
     roomB.doc.transact(() => {
       const text = roomB.doc.getText('content')
       text.insert(text.length, ' AFTER A ON B')
     })
+    b.flushRelayUpdates(roomB)
 
     const expected = roomA.doc.getText('content').toString()
     assert.ok(expected.startsWith('AFTER B ON A: BEFORE B: '))
