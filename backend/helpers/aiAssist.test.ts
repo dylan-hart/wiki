@@ -177,6 +177,28 @@ describe('buildAiAssistPrompt', () => {
     assert.match(built.prompt, /only the new text/)
   })
 
+  test('expand wraps the author instructions in an <instructions> block after the continuation instruction', () => {
+    const built = buildAiAssistPrompt({
+      action: 'expand',
+      text: 'Once',
+      prompt: '  Add a worked example  ',
+      locale: 'en'
+    })
+    assert.match(built.prompt, /<instructions>\nAdd a worked example\n<\/instructions>/)
+    const instructionsAt = built.prompt.indexOf('<instructions>')
+    assert.ok(built.prompt.indexOf('only the new text') < instructionsAt)
+    assert.ok(instructionsAt < built.prompt.indexOf('<text>'))
+  })
+
+  test('expand with no instructions, or whitespace only, builds the same prompt as before', () => {
+    const bare = buildAiAssistPrompt({ action: 'expand', text: 'Once', locale: 'en' })
+    assert.doesNotMatch(bare.prompt, /<instructions>/)
+    for (const prompt of ['', '   \n\t']) {
+      const built = buildAiAssistPrompt({ action: 'expand', text: 'Once', prompt, locale: 'en' })
+      assert.equal(built.prompt, bare.prompt)
+    }
+  })
+
   test('generate with no surrounding text names the page locale and omits the <text> block', () => {
     const built = buildAiAssistPrompt({
       action: 'generate',
