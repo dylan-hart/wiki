@@ -11,7 +11,7 @@ import {
   users as usersTable
 } from '../db/schema.ts'
 import { NOTE_IMAGE_QUOTA_BYTES } from '../helpers/noteContent.ts'
-import { mergeOrder } from './notes.ts'
+import { mergeOrder, NoteConflictError } from './notes.ts'
 
 describe('mergeOrder', () => {
   test('puts the requested ids first and keeps the rest in their current order', () => {
@@ -250,6 +250,52 @@ describe('notes (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       assert.equal(titleOnly?.title, 'New')
       assert.equal(titleOnly?.content, '**Second** version', 'an omitted field is left alone')
+    })
+
+    test('update with expectedUpdatedAt saves only over that version, and otherwise hands back the stored note', async () => {
+      const section = await notesModel.createSection(fixtures.siteId, fixtures.userId, {
+        title: 'Tabs'
+      })
+      const note = (await notesModel.createNote(fixtures.siteId, fixtures.userId, {
+        sectionId: section.id,
+        content: 'v1'
+      }))!
+      const seen = note.updatedAt.toISOString()
+
+      const first = await notesModel.updateNote(
+        fixtures.siteId,
+        fixtures.userId,
+        note.id,
+        { content: 'v2 from tab A' },
+        { expectedUpdatedAt: seen }
+      )
+      assert.equal(first?.content, 'v2 from tab A')
+
+      await assert.rejects(
+        notesModel.updateNote(
+          fixtures.siteId,
+          fixtures.userId,
+          note.id,
+          { content: 'v2 from tab B' },
+          { expectedUpdatedAt: seen }
+        ),
+        (err: any) =>
+          err instanceof NoteConflictError &&
+          err.statusCode === 409 &&
+          err.current.content === 'v2 from tab A' &&
+          err.current.updatedAt.getTime() === first!.updatedAt.getTime()
+      )
+      const stored = await notesModel.getNote(fixtures.siteId, fixtures.userId, note.id)
+      assert.equal(stored?.content, 'v2 from tab A', 'a refused save writes nothing')
+
+      const retried = await notesModel.updateNote(
+        fixtures.siteId,
+        fixtures.userId,
+        note.id,
+        { content: 'v3' },
+        { expectedUpdatedAt: first!.updatedAt.toISOString() }
+      )
+      assert.equal(retried?.content, 'v3')
     })
 
     test('moving to an owned section appends there; a foreign section is refused and changes nothing', async () => {

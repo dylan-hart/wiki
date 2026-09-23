@@ -63,6 +63,20 @@ export interface NoteTxOptions {
   tx?: WikiTx
 }
 
+/**
+ * `updateNote` was told which save the caller last saw (`expectedUpdatedAt`) and the note has been
+ * saved since, from another tab or device. Carries the note as it is stored now, so the caller can
+ * keep both versions rather than overwrite one.
+ */
+export class NoteConflictError extends CustomError {
+  current: Note
+
+  constructor(current: Note) {
+    super('noteConflict', 'This note was saved somewhere else since it was opened here.', 409)
+    this.current = current
+  }
+}
+
 const sectionColumns = {
   id: noteSectionsTable.id,
   title: noteSectionsTable.title,
@@ -278,11 +292,17 @@ class Notes {
     })
   }
 
+  /**
+   * With `expectedUpdatedAt`, refuses with `NoteConflictError`, writing nothing, unless the note's
+   * `updatedAt` is still that instant. Compared at millisecond precision, which is what the API
+   * hands out and a client sends back.
+   */
   async updateNote(
     siteId: string,
     userId: string,
     noteId: string,
-    patch: { title?: string | null; content?: string; sectionId?: string }
+    patch: { title?: string | null; content?: string; sectionId?: string },
+    { expectedUpdatedAt }: { expectedUpdatedAt?: string } = {}
   ): Promise<Note | null> {
     if (!isValidUuid(noteId)) {
       return null
@@ -292,12 +312,18 @@ class Notes {
     }
     return CARDINAL.db.transaction(async (tx) => {
       const [current] = await tx
-        .select({ sectionId: notesTable.sectionId })
+        .select(noteColumns)
         .from(notesTable)
         .where(ownsNote(siteId, userId, noteId))
         .for('update')
       if (!current) {
         return null
+      }
+      if (
+        expectedUpdatedAt !== undefined &&
+        current.updatedAt.getTime() !== new Date(expectedUpdatedAt).getTime()
+      ) {
+        throw new NoteConflictError(current)
       }
       const set: PgUpdateSetSource<typeof notesTable> = { updatedAt: sql`now()` }
       if (patch.title !== undefined) {

@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import notesRoutes, { noteImageUrl } from './notes.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 import { CustomError } from '../helpers/common.ts'
+import { NoteConflictError } from '../models/notes.ts'
 import { WHITEBOARD_MAX_BLOCK_BYTES } from '../helpers/whiteboardLimits.ts'
 
 const SITE_ID = '11111111-1111-4111-8111-111111111111'
@@ -484,8 +485,46 @@ describe('notes routes', () => {
       assert.deepEqual(res.json(), { updatedAt: '2026-09-23T11:00:00.000Z' })
       assert.deepEqual(model.updateNote!.mock.calls[0]?.arguments.slice(2), [
         NOTE_ID,
-        { content: 'New body' }
+        { content: 'New body' },
+        { expectedUpdatedAt: undefined }
       ])
+    })
+
+    test('update passes the version it was made from on to the model', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `${BASE}/${NOTE_ID}`,
+        payload: { content: 'New body', expectedUpdatedAt: '2026-09-23T10:00:00.000Z' }
+      })
+
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(model.updateNote!.mock.calls[0]?.arguments.slice(3), [
+        { content: 'New body' },
+        { expectedUpdatedAt: '2026-09-23T10:00:00.000Z' }
+      ])
+    })
+
+    test('an update made from an older version answers 409 noteConflict with the stored note', async () => {
+      const stored = note(NOTE_ID, {
+        content: 'Saved in another tab',
+        updatedAt: new Date('2026-09-23T12:00:00Z')
+      })
+      model.updateNote = mock.fn(async () => {
+        throw new NoteConflictError(stored as any)
+      })
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: `${BASE}/${NOTE_ID}`,
+        payload: { content: 'Typed here', expectedUpdatedAt: '2026-09-23T10:00:00.000Z' }
+      })
+
+      assert.equal(res.statusCode, 409)
+      const body = res.json()
+      assert.equal(body.error, 'noteConflict')
+      assert.equal(body.note.id, NOTE_ID)
+      assert.equal(body.note.content, 'Saved in another tab')
+      assert.equal(body.note.updatedAt, '2026-09-23T12:00:00.000Z')
     })
 
     test('update clears a title sent as null or blank', async () => {

@@ -12,6 +12,7 @@ import { notesEnabled } from '../helpers/notes.ts'
 import { NOTE_SEARCH_MAX_LIMIT, searchNotes } from '../helpers/notesSearch.ts'
 import { requireActorId } from '../helpers/pageAccess.ts'
 import { limitUploads } from '../helpers/rateLimit.ts'
+import { NoteConflictError } from '../models/notes.ts'
 
 const NOTES_REQUIRED = 'Notes require a logged in user.'
 const NOTES_DISABLED = 'Notes are turned off on this site.'
@@ -493,14 +494,19 @@ async function routes(app: FastifyInstance) {
 
   app.put<{
     Params: NoteParams
-    Body: { title?: string | null; content?: string; sectionId?: string }
+    Body: {
+      title?: string | null
+      content?: string
+      sectionId?: string
+      expectedUpdatedAt?: string
+    }
   }>(
     '/sites/:siteId/notes/:noteId',
     {
       schema: {
         summary: 'Update a note',
         description:
-          "Saves whichever of the title and content are sent, and moves the note to the end of another of the caller's sections when `sectionId` is sent. This is what autosave calls.",
+          "Saves whichever of the title and content are sent, and moves the note to the end of another of the caller's sections when `sectionId` is sent. This is what autosave calls.\n\nWith `expectedUpdatedAt`, the save goes through only if the note is still at that `updatedAt`. If it was saved since, from another tab or device, nothing is written and the answer is 409 `noteConflict` carrying the note as it is stored now.",
         tags: ['Notes'],
         params: noteParams,
         body: {
@@ -509,7 +515,12 @@ async function routes(app: FastifyInstance) {
           properties: {
             title: { type: ['string', 'null'], maxLength: NOTE_MAX_TITLE_LENGTH },
             content: { type: 'string' },
-            sectionId: uuid
+            sectionId: uuid,
+            expectedUpdatedAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'The `updatedAt` of the version this save was made from.'
+            }
           }
         },
         response: {
@@ -519,6 +530,18 @@ async function routes(app: FastifyInstance) {
             properties: { updatedAt: { type: 'string', format: 'date-time' } }
           },
           400: { $ref: 'ApiError#' },
+          409: {
+            description:
+              'The note was saved since `expectedUpdatedAt`; nothing was written. `error` is `noteConflict`.',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              error: { type: 'string' },
+              statusCode: { type: 'integer' },
+              message: { type: 'string' },
+              note: { description: 'The note as it is stored now', $ref: 'Note#' }
+            }
+          },
           413: { $ref: 'ApiError#' },
           ...NOTE_ERRORS
         }
@@ -548,7 +571,23 @@ async function routes(app: FastifyInstance) {
       if (sectionId !== undefined) {
         changes.sectionId = sectionId
       }
-      const note = await CARDINAL.models.notes.updateNote(siteId, userId, noteId, changes)
+      let note
+      try {
+        note = await CARDINAL.models.notes.updateNote(siteId, userId, noteId, changes, {
+          expectedUpdatedAt: req.body.expectedUpdatedAt
+        })
+      } catch (err: any) {
+        if (err instanceof NoteConflictError) {
+          return reply.code(409).send({
+            ok: false,
+            error: err.name,
+            statusCode: 409,
+            message: err.message,
+            note: err.current
+          })
+        }
+        throw err
+      }
       if (!note) {
         return reply.notFound(NOTE_MISSING)
       }
