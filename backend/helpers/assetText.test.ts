@@ -71,6 +71,8 @@ describe('extractPdfText', () => {
 })
 
 describe('storeAssetText', () => {
+  const BYTES = Buffer.from('the file the text was read from')
+
   function stubDb(rows: unknown[]) {
     const sets: any[] = []
     const wheres: any[] = []
@@ -90,19 +92,19 @@ describe('storeAssetText', () => {
 
   test('stores the text with a vector and reports the write', async () => {
     const { db, sets } = stubDb([{ id: 'a' }])
-    assert.equal(await storeAssetText(db, 'a', '2026-01-01 00:00:00+00', 'hello world'), true)
+    assert.equal(await storeAssetText(db, 'a', BYTES, 'hello world'), true)
     assert.equal(sets[0].searchContent, 'hello world')
     assert.notEqual(sets[0].ts, null)
   })
 
   test('blank text clears both columns', async () => {
     const { db, sets } = stubDb([{ id: 'a' }])
-    await storeAssetText(db, 'a', '2026-01-01 00:00:00+00', ' \n ')
+    await storeAssetText(db, 'a', BYTES, ' \n ')
     assert.deepEqual(sets[0], { searchContent: null, ts: null })
   })
 
   test('reports no write when the asset changed since it was read', async () => {
     const { db } = stubDb([])
-    assert.equal(await storeAssetText(db, 'a', '2026-01-01 00:00:00+00', 'stale'), false)
+    assert.equal(await storeAssetText(db, 'a', BYTES, 'stale'), false)
   })
 })

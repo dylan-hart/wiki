@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { assets as assetsTable } from '../../db/schema.ts'
 import { extractPdfText, queueAssetJob, storeAssetText } from '../../helpers/assetText.ts'
 import { ocrAvailable } from '../../helpers/ocr.ts'
@@ -8,8 +8,7 @@ export async function extractAssetText(assetId: string): Promise<void> {
     .select({
       data: assetsTable.data,
       fileExt: assetsTable.fileExt,
-      mimeType: assetsTable.mimeType,
-      updatedAt: sql<string>`${assetsTable.updatedAt}::text`
+      mimeType: assetsTable.mimeType
     })
     .from(assetsTable)
     .where(eq(assetsTable.id, assetId))
@@ -32,7 +31,7 @@ export async function extractAssetText(assetId: string): Promise<void> {
     return
   }
 
-  const stored = await storeAssetText(CARDINAL.db, assetId, row.updatedAt, result.text)
+  const stored = await storeAssetText(CARDINAL.db, assetId, row.data, result.text)
   if (!stored) {
     CARDINAL.logger.debug('worker', 'asset changed during text extraction, result discarded', {
       asset: assetId

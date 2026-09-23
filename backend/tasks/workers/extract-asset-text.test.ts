@@ -142,18 +142,29 @@ describe('tasks/workers/extract-asset-text (DB-backed)', { skip: !hasTestDatabas
   })
 
   test('a result computed for bytes since replaced is discarded', async () => {
-    const id = await insertAsset(buildTextPdf(['old file text']))
-    const read = await fixtures.db.execute(
-      sql`SELECT "updatedAt"::text AS "updatedAt" FROM "assets" WHERE "id" = ${id}`
-    )
-    const staleStamp = (read.rows[0] as { updatedAt: string }).updatedAt
+    const oldBytes = buildTextPdf(['old file text'])
+    const id = await insertAsset(oldBytes)
 
     await fixtures.db
       .update(assetsTable)
-      .set({ searchContent: null, ts: null, updatedAt: sql`now() + interval '1 microsecond'` })
+      .set({ data: buildTextPdf(['new file text']), searchContent: null, ts: null })
       .where(eq(assetsTable.id, id))
 
-    assert.equal(await storeAssetText(fixtures.db, id, staleStamp, 'old file text'), false)
+    assert.equal(await storeAssetText(fixtures.db, id, oldBytes, 'old file text'), false)
     assert.equal((await readAsset(id)).searchContent, null)
+  })
+
+  test('a result is kept when the asset was only renamed meanwhile', async () => {
+    const bytes = buildTextPdf(['renamed file text'])
+    const id = await insertAsset(bytes)
+
+    // -> What `models/assets.ts#renameAsset` writes: a new name and a new modification time
+    await fixtures.db
+      .update(assetsTable)
+      .set({ fileName: 'renamed.pdf', updatedAt: sql`now() + interval '1 second'` })
+      .where(eq(assetsTable.id, id))
+
+    assert.equal(await storeAssetText(fixtures.db, id, bytes, 'renamed file text'), true)
+    assert.equal((await readAsset(id)).searchContent, 'renamed file text')
   })
 })

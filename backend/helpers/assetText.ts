@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { assets as assetsTable, jobs as jobsTable } from '../db/schema.ts'
 import type { WikiDb } from '../core/db.ts'
@@ -113,13 +114,20 @@ export async function extractPdfText(
   }
 }
 
+/**
+ * Writes only while the asset still holds `extractedFrom`, the bytes the text was read out of, and
+ * answers whether it did. The guard is the bytes themselves rather than `updatedAt`, which a rename
+ * also bumps: it leaves the file as it was, and a result discarded then is never redone,
+ * since nothing queues another extraction for a file whose contents did not change.
+ */
 export async function storeAssetText(
   db: WikiDb,
   assetId: string,
-  expectedUpdatedAt: string,
+  extractedFrom: Uint8Array,
   text: string
 ): Promise<boolean> {
   const content = text.trim() ? text : null
+  const digest = createHash('sha256').update(extractedFrom).digest('hex')
   const updated = await db
     .update(assetsTable)
     .set({
@@ -127,7 +135,7 @@ export async function storeAssetText(
       ts: content === null ? null : sql`to_tsvector('simple', ${content}::text)`
     })
     .where(
-      sql`${assetsTable.id} = ${assetId} AND ${assetsTable.updatedAt}::text = ${expectedUpdatedAt}`
+      sql`${assetsTable.id} = ${assetId} AND sha256(${assetsTable.data}) = decode(${digest}, 'hex')`
     )
     .returning({ id: assetsTable.id })
   return updated.length > 0

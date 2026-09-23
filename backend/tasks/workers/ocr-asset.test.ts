@@ -193,6 +193,29 @@ describe('tasks/workers/ocr-asset (DB-backed)', { skip: !hasTestDatabase() }, ()
   )
 
   test(
+    'keeps the result when the asset is only renamed while OCR runs',
+    { skip: !posix },
+    async () => {
+      CARDINAL.capabilities = { semanticSearch: false }
+      const id = await insertAsset(IMAGE)
+      fake = await installFakeCommands({
+        tesseract: `cat >/dev/null\nsleep 0.3\nprintf "still this file"`
+      })
+
+      const running = ocrAsset(id)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      // -> What `models/assets.ts#renameAsset` writes: a new name and a new modification time
+      await fixtures.db
+        .update(assetsTable)
+        .set({ fileName: 'renamed.png', updatedAt: sql`now() + interval '1 second'` })
+        .where(eq(assetsTable.id, id))
+      await running
+
+      assert.equal((await readAsset(id)).searchContent, 'still this file')
+    }
+  )
+
+  test(
     'a text file named like an image is never handed to tesseract',
     { skip: !posix },
     async () => {
