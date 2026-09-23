@@ -1,12 +1,18 @@
 import { after, afterEach, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { eq, sql } from 'drizzle-orm'
 import { assets as assetsTable, jobs as jobsTable } from '../../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../../test/db.ts'
 import { installFakeCommands, withEmptyPath, type FakeCommands } from '../../test/fakeCommands.ts'
+import { pngHeader } from '../../test/rasterFixtures.ts'
 import { ocrAsset, task } from './ocr-asset.ts'
 
 const posix = process.platform !== 'win32'
+
+/** Just a header: the stand-in tesseract never decodes what it is fed. */
+const IMAGE = pngHeader(640, 480)
 
 describe('tasks/workers/ocr-asset (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -74,7 +80,7 @@ describe('tasks/workers/ocr-asset (DB-backed)', { skip: !hasTestDatabase() }, ()
 
   test('is skipped, not failed, when tesseract is absent', async () => {
     const warn = mock.method(CARDINAL.logger, 'warn')
-    const id = await insertAsset(Buffer.from('image bytes'))
+    const id = await insertAsset(IMAGE)
 
     await withEmptyPath(async () => {
       await assert.doesNotReject(ocrAsset(id))
@@ -100,7 +106,7 @@ describe('tasks/workers/ocr-asset (DB-backed)', { skip: !hasTestDatabase() }, ()
       fake = await installFakeCommands({
         tesseract: 'cat >/dev/null\nprintf "Whiteboard roadmap Q3"'
       })
-      const id = await insertAsset(Buffer.from('image bytes'))
+      const id = await insertAsset(IMAGE)
 
       await ocrAsset(id)
 
@@ -113,7 +119,7 @@ describe('tasks/workers/ocr-asset (DB-backed)', { skip: !hasTestDatabase() }, ()
   test('task() reads the asset id from the job payload', { skip: !posix }, async () => {
     CARDINAL.capabilities = { semanticSearch: false }
     fake = await installFakeCommands({ tesseract: 'cat >/dev/null\nprintf "Routed by payload"' })
-    const id = await insertAsset(Buffer.from('image bytes'))
+    const id = await insertAsset(IMAGE)
 
     await task({ payload: { assetId: id } })
 
@@ -126,7 +132,7 @@ describe('tasks/workers/ocr-asset (DB-backed)', { skip: !hasTestDatabase() }, ()
     async () => {
       CARDINAL.capabilities = { semanticSearch: true }
       fake = await installFakeCommands({ tesseract: 'cat >/dev/null\nprintf "Embed this"' })
-      const id = await insertAsset(Buffer.from('image bytes'))
+      const id = await insertAsset(IMAGE)
 
       await ocrAsset(id)
 
@@ -142,7 +148,7 @@ describe('tasks/workers/ocr-asset (DB-backed)', { skip: !hasTestDatabase() }, ()
     async () => {
       CARDINAL.capabilities = { semanticSearch: true }
       fake = await installFakeCommands({ tesseract: 'cat >/dev/null\nprintf "  \\n"' })
-      const id = await insertAsset(Buffer.from('image bytes'))
+      const id = await insertAsset(IMAGE)
 
       await ocrAsset(id)
 
@@ -156,7 +162,7 @@ describe('tasks/workers/ocr-asset (DB-backed)', { skip: !hasTestDatabase() }, ()
     { skip: !posix },
     async () => {
       fake = await installFakeCommands({ tesseract: 'cat >/dev/null\nexit 1' })
-      const id = await insertAsset(Buffer.from('image bytes'))
+      const id = await insertAsset(IMAGE)
 
       await assert.doesNotReject(ocrAsset(id))
 
@@ -169,7 +175,7 @@ describe('tasks/workers/ocr-asset (DB-backed)', { skip: !hasTestDatabase() }, ()
     { skip: !posix },
     async () => {
       CARDINAL.capabilities = { semanticSearch: false }
-      const id = await insertAsset(Buffer.from('old bytes'))
+      const id = await insertAsset(IMAGE)
       fake = await installFakeCommands({
         tesseract: `cat >/dev/null\nsleep 0.3\nprintf "stale text"`
       })
@@ -183,6 +189,44 @@ describe('tasks/workers/ocr-asset (DB-backed)', { skip: !hasTestDatabase() }, ()
       await running
 
       assert.equal((await readAsset(id)).searchContent, null)
+    }
+  )
+
+  test(
+    'keeps the result when the asset is only renamed while OCR runs',
+    { skip: !posix },
+    async () => {
+      CARDINAL.capabilities = { semanticSearch: false }
+      const id = await insertAsset(IMAGE)
+      fake = await installFakeCommands({
+        tesseract: `cat >/dev/null\nsleep 0.3\nprintf "still this file"`
+      })
+
+      const running = ocrAsset(id)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      // -> What `models/assets.ts#renameAsset` writes: a new name and a new modification time
+      await fixtures.db
+        .update(assetsTable)
+        .set({ fileName: 'renamed.png', updatedAt: sql`now() + interval '1 second'` })
+        .where(eq(assetsTable.id, id))
+      await running
+
+      assert.equal((await readAsset(id)).searchContent, 'still this file')
+    }
+  )
+
+  test(
+    'a text file named like an image is never handed to tesseract',
+    { skip: !posix },
+    async () => {
+      CARDINAL.capabilities = { semanticSearch: false }
+      fake = await installFakeCommands({ tesseract: 'touch "$0.ran"\nprintf "SECRET PAYROLL"' })
+      const id = await insertAsset(Buffer.from('/var/lib/wiki/data/cache/files/other-site.png\n'))
+
+      await ocrAsset(id)
+
+      assert.equal((await readAsset(id)).searchContent, null)
+      assert.equal(existsSync(path.join(fake.dir, 'tesseract.ran')), false)
     }
   )
 
