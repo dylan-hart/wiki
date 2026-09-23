@@ -6,9 +6,9 @@ describe('parseTaskItems', () => {
   test('lists items in document order with their state and source line', () => {
     const items = parseTaskItems('# Todo\n\n- [ ] one\n- [x] two\n- [X] three\n- plain\n')
     assert.deepEqual(items, [
-      { index: 0, text: 'one', checked: false, line: 2 },
-      { index: 1, text: 'two', checked: true, line: 3 },
-      { index: 2, text: 'three', checked: true, line: 4 }
+      { index: 0, text: 'one', visibleText: 'one', checked: false, line: 2 },
+      { index: 1, text: 'two', visibleText: 'two', checked: true, line: 3 },
+      { index: 2, text: 'three', visibleText: 'three', checked: true, line: 4 }
     ])
   })
 
@@ -35,6 +35,22 @@ describe('parseTaskItems', () => {
 
   test('ignores a marker that is not followed by a space or text', () => {
     assert.deepEqual(parseTaskItems('- [ ]\n- [] none\n- [y] none\n- [ ]x\n'), [])
+  })
+
+  test('visibleText keeps what the render shows and drops inline HTML and link targets', () => {
+    const items = parseTaskItems(
+      '- [ ] call <!-- the real number is 555 --> <span data-note="secret">Bob</span> **now**\n' +
+        '- [ ] see [the plan](https://internal.example/plan) and `a < b` ![alt text](x.png)\n' +
+        '- [ ] line one\n  line two &amp; \\<b\\>\n'
+    )
+    assert.deepEqual(
+      items.map((item) => item.visibleText),
+      ['call Bob now', 'see the plan and a < b alt text', 'line one line two & <b>']
+    )
+    assert.equal(
+      items[0]!.text,
+      'call <!-- the real number is 555 --> <span data-note="secret">Bob</span> **now**'
+    )
   })
 
   test('reads a loose item', () => {
