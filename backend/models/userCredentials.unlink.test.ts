@@ -1,8 +1,15 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { setTimeout as delay } from 'node:timers/promises'
 import bcrypt from 'bcryptjs'
 import { and, eq } from 'drizzle-orm'
-import { assertUnlinkable, isLocalStrategy, userCredentials } from './userCredentials.ts'
+import {
+  assertUnlinkable,
+  authLockKey,
+  isLocalStrategy,
+  userCredentials
+} from './userCredentials.ts'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 import { installTestWiki } from '../test/mocks.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { auditLog as auditLogTable, users as usersTable } from '../db/schema.ts'
@@ -534,6 +541,107 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
 
     await userCredentials.setUserPassword({ id: userId, newPassword: 'adminchosen1' })
     assert.equal((await authOf(userId))[LOCAL_ID].isPasswordKnown, true)
+  })
+
+  describe('setPasswordLoginEnabled', () => {
+    function localStrategy(t: any): void {
+      t.mock.method(CARDINAL.models.authentication, 'getStrategyById', async (id: string) => ({
+        id,
+        module: id === LOCAL_ID ? 'local' : 'test-oidc'
+      }))
+    }
+
+    test('turns password login off while a provider remains a way in', async (t) => {
+      localStrategy(t)
+      const userId = await seedUser({
+        [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+        [OIDC_ID]: { id: 'p' }
+      })
+
+      await userCredentials.setPasswordLoginEnabled({
+        userId,
+        strategyId: LOCAL_ID,
+        isEnabled: false
+      })
+      assert.equal((await authOf(userId))[LOCAL_ID].restrictLogin, true)
+    })
+
+    test('refuses to turn it off when nothing else signs the account in', async (t) => {
+      localStrategy(t)
+      const userId = await seedUser({ [LOCAL_ID]: { password: 'hash', isPasswordKnown: true } })
+
+      await assert.rejects(
+        userCredentials.setPasswordLoginEnabled({
+          userId,
+          strategyId: LOCAL_ID,
+          isEnabled: false
+        }),
+        /ERR_NO_OTHER_LOGIN_METHOD/
+      )
+      assert.equal((await authOf(userId))[LOCAL_ID].restrictLogin, undefined)
+    })
+
+    test('refuses an account that does not exist', async (t) => {
+      localStrategy(t)
+      await assert.rejects(
+        userCredentials.setPasswordLoginEnabled({
+          userId: UNKNOWN_USER_ID,
+          strategyId: LOCAL_ID,
+          isEnabled: false
+        }),
+        /ERR_INVALID_USER/
+      )
+    })
+
+    test('checks the row as it is once the lock is held, not as it was before', async (t) => {
+      localStrategy(t)
+      const userId = await seedUser({
+        [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+        [OIDC_ID]: { id: 'p' }
+      })
+
+      let pending!: Promise<void>
+      await withAdvisoryLock(authLockKey(userId), async () => {
+        pending = userCredentials.setPasswordLoginEnabled({
+          userId,
+          strategyId: LOCAL_ID,
+          isEnabled: false
+        })
+        pending.catch(() => {})
+        // -> Long enough for a read taken outside the lock to have happened already; then the
+        //    provider goes, the way a concurrent `unlinkStrategy()` holding the lock would take it
+        await delay(300)
+        await fixtures.db
+          .update(usersTable)
+          .set({ auth: { [LOCAL_ID]: { password: 'hash', isPasswordKnown: true } } })
+          .where(eq(usersTable.id, userId))
+      })
+
+      await assert.rejects(pending, /ERR_NO_OTHER_LOGIN_METHOD/)
+      assert.equal((await authOf(userId))[LOCAL_ID].restrictLogin, undefined)
+    })
+
+    test('and a concurrent disconnect of the only provider cannot both succeed', async (t) => {
+      localStrategy(t)
+      t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
+      const userId = await seedUser({
+        [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+        [OIDC_ID]: { id: 'p' }
+      })
+
+      const results = await Promise.allSettled([
+        userCredentials.setPasswordLoginEnabled({ userId, strategyId: LOCAL_ID, isEnabled: false }),
+        userCredentials.unlinkStrategy({
+          userId,
+          strategyId: OIDC_ID,
+          actor: { id: userId, name: 'Unlink User' }
+        })
+      ])
+
+      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1)
+      const auth = await authOf(userId)
+      assert.ok(auth[OIDC_ID] || !auth[LOCAL_ID].restrictLogin)
+    })
   })
 
   describe('a disconnected identity at its next login', () => {

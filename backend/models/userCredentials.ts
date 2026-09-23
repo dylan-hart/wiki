@@ -57,7 +57,7 @@ export interface RecoveryCodeEntry {
  * same user racing is a lost update. Every read-modify-write below holds this per-user lock across
  * both halves; writers for different users never block each other.
  */
-function authLockKey(userId: string): string {
+export function authLockKey(userId: string): string {
   return `wiki:user-auth:${userId}`
 }
 
@@ -220,9 +220,11 @@ class UserCredentials {
    * per-user lock and re-reading the row INSIDE it — never trusting a `user` the caller loaded
    * earlier, which is the whole point of the lock.
    *
-   * @param mutate Given this strategy's CURRENT entry (undefined when the user has none), returns the
-   *   fields to merge into it — or `null` to make the whole call a no-op, which is how a redemption
-   *   that finds nothing to redeem, or a replayed TOTP code, declines to write anything at all
+   * @param mutate Given this strategy's CURRENT entry (undefined when the user has none) and the row
+   *   it was read from, returns the fields to merge into it — or `null` to make the whole call a
+   *   no-op, which is how a redemption that finds nothing to redeem, or a replayed TOTP code,
+   *   declines to write anything at all. A throw aborts the write and propagates, which is how a
+   *   check that has to see the current row (another way in, an existing link) refuses.
    * @param opts.db Joins a caller's open transaction rather than racing it
    * @param opts.mirrorInto Copies the freshly-written blob onto a caller's own stale `user` object, so
    *   a login flow holding a row from before this write keeps reading its own change back
@@ -232,7 +234,8 @@ class UserCredentials {
     userId: string,
     strategyId: string,
     mutate: (
-      entry: Record<string, any> | undefined
+      entry: Record<string, any> | undefined,
+      current: any
     ) => Record<string, any> | null | Promise<Record<string, any> | null>,
     opts: { db?: WikiDbOrTx; mirrorInto?: { auth: unknown } } = {}
   ): Promise<boolean> {
@@ -243,7 +246,7 @@ class UserCredentials {
         return false
       }
       const currentAuth = (current.auth ?? {}) as Record<string, any>
-      const patch = await mutate(currentAuth[strategyId])
+      const patch = await mutate(currentAuth[strategyId], current)
       if (patch === null) {
         return false
       }
@@ -520,6 +523,10 @@ class UserCredentials {
    * locking themselves out with one click. Turning it back on needs no such check, and the password
    * is neither cleared nor asked for: a session that got this far is already authenticated.
    *
+   * Every check runs on the row re-read inside {@link authLockKey}'s lock, as `unlinkStrategy()`'s
+   * do: turning password login off while a provider is disconnected would otherwise have each see
+   * the other as the way in that remains.
+   *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`, `ERR_PASSWORD_LOGIN_NOT_APPLICABLE` or
    *         `ERR_NO_OTHER_LOGIN_METHOD`
    */
@@ -532,23 +539,30 @@ class UserCredentials {
     strategyId: string
     isEnabled: boolean
   }): Promise<void> {
-    const { user, entry } = await this.requireStrategyAuth(userId, strategyId)
-
-    // -> Only the local module's `authenticate()` reads the flag, so setting it on a provider that
-    //    authenticates elsewhere would be a switch connected to nothing
     const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
-    if (strategy?.module !== 'local' || !entry.password) {
-      throw new Error('ERR_PASSWORD_LOGIN_NOT_APPLICABLE')
-    }
 
-    if (!isEnabled && countAlternativeLogins(user, strategyId) < 1) {
-      throw new Error('ERR_NO_OTHER_LOGIN_METHOD')
+    let email = ''
+    const written = await this.patchStrategyAuth(userId, strategyId, (entry, current) => {
+      if (!entry) {
+        throw new Error('ERR_INVALID_STRATEGY')
+      }
+      // -> Only the local module's `authenticate()` reads the flag, so setting it on a provider
+      //    that authenticates elsewhere would be a switch connected to nothing
+      if (strategy?.module !== 'local' || !entry.password) {
+        throw new Error('ERR_PASSWORD_LOGIN_NOT_APPLICABLE')
+      }
+      if (!isEnabled && countAlternativeLogins(current, strategyId) < 1) {
+        throw new Error('ERR_NO_OTHER_LOGIN_METHOD')
+      }
+      email = current.email
+      return { restrictLogin: !isEnabled }
+    })
+    if (!written) {
+      throw new Error('ERR_INVALID_USER')
     }
-
-    await this.patchStrategyAuth(userId, strategyId, () => ({ restrictLogin: !isEnabled }))
 
     CARDINAL.models.flags.authDebug(
-      `User ${userId} <${user.email}> turned password login ${isEnabled ? 'on' : 'off'}`
+      `User ${userId} <${email}> turned password login ${isEnabled ? 'on' : 'off'}`
     )
   }
 
