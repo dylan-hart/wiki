@@ -1,8 +1,8 @@
 # Decision: whiteboard block go/no-go
 
 **Date:** 2026-09-22 · **Context:** OpenProject #3736, closing Feature #3711 (Investigate an
-embeddable whiteboard/ink block for freehand drawing in pages). **Status:** Proposed. #3734 leaves
-the persistence choice to the project owner, so this record recommends and does not ratify.
+embeddable whiteboard/ink block for freehand drawing in pages). **Status:** Accepted. The project
+owner confirmed it in the #3714 deep-dive.
 
 ## Recommendation
 
