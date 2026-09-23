@@ -1,4 +1,5 @@
 import type { LogFields } from '../../../core/logger.ts'
+import type { AiProviderContext } from '../../../models/ai.ts'
 
 export const RESPONSES_URL = 'https://api.openai.com/v1/responses'
 
@@ -8,12 +9,7 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 4096
 
 export const DEFAULT_TIMEOUT_MS = 60_000
 
-export interface OpenAiGenerateContext {
-  siteId: string
-  system?: string
-  maxOutputTokens?: number
-  signal?: AbortSignal
-}
+export type OpenAiGenerateContext = AiProviderContext
 
 export interface OpenAiConfig {
   apiKey?: unknown
