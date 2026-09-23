@@ -140,6 +140,8 @@ export function installCollabHarness(): CollabHarness {
 
   afterEach(() => {
     for (const room of createdRooms) {
+      clearTimeout(room.relayOutbox?.updateTimer)
+      clearTimeout(room.relayOutbox?.awarenessTimer)
       room.awareness.destroy()
       room.doc.destroy()
     }
