@@ -7,7 +7,13 @@ import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
 import { useUserPagesStore } from './userPages'
-import { isHomePath, localizedPagePath, normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
+import {
+  isHomePath,
+  localizedPagePath,
+  normalizePagePath,
+  pagePathHash,
+  resolveCreatePath
+} from '@/helpers/pagePaths'
 import { apiErrorBody, apiErrorMessage } from '@/helpers/apiError'
 import { log } from '@/helpers/log'
 import { duplicatedPageProps } from '@/helpers/duplicatedPageProps'
@@ -450,16 +456,6 @@ export const usePageStore = defineStore('page', {
 
       await editorStore.ensureConfigs()
 
-      if (path?.startsWith('/')) {
-        path = path.substring(1)
-      }
-      if (basePath?.startsWith('/')) {
-        basePath = basePath.substring(1)
-      }
-      if (basePath?.endsWith('/')) {
-        basePath = basePath.substring(0, basePath.length - 1)
-      }
-
       if (!this.router.currentRoute.value.path.startsWith('/_create/') && !fromNavigate) {
         editorStore.$patch({ ignoreRouteChange: true })
         /*
@@ -488,12 +484,7 @@ export const usePageStore = defineStore('page', {
         editor
       })
 
-      let newPath = path
-      if (!path && path !== '') {
-        const parentPath =
-          basePath || basePath === '' ? basePath : this.path.split('/').slice(0, -1).join('/')
-        newPath = parentPath ? `${parentPath}/new-page` : 'new-page'
-      }
+      const newPath = resolveCreatePath({ path, basePath, currentPath: this.path })
 
       const carriedProps = { ...carry }
       if (!carriedProps.icon) {

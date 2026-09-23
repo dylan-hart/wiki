@@ -5,7 +5,7 @@ import { notify } from '@/composables/notify'
 import { scrollToAnchorWhenReady } from '@/helpers/anchors'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { collectBlocksToLoad } from '@/helpers/blockScan'
-import { parseLocalePrefix } from '@/helpers/pagePaths'
+import { parseLocalePrefix, resolveCreatePath } from '@/helpers/pagePaths'
 
 import { useCommonStore } from '@/stores/common'
 import { useEditorStore } from '@/stores/editor'
@@ -39,24 +39,31 @@ export async function enterCreateMode(route, { router, t }) {
     return router.replace('/')
   }
   loading.show()
-  const pageCreateArgs = { editor: route.params.editor, fromNavigate: true }
-  if (route.query.path) {
-    pageCreateArgs.path = route.query.path
-  }
-  if (route.query.locale) {
-    pageCreateArgs.locale = route.query.locale
+  const pageCreateArgs = {
+    editor: route.params.editor,
+    fromNavigate: true,
+    path: resolveCreatePath({ path: route.query.path || undefined, currentPath: pageStore.path }),
+    locale: route.query.locale || pageStore.locale
   }
   // -> `pageCreate` can reject (its own `fetchConfigs()` call is a network request); unguarded,
   //    that leaves the full-screen loading overlay up forever.
   try {
-    await pageStore.pageCreate(pageCreateArgs)
+    if (!userStore.authenticated) {
+      router.replace('/_error/unauthorized')
+      return
+    }
     /*
       This route never reaches `loadPageForRoute`'s own permission fetch, so without this every
       page-permission-gated control reads as denied for the whole create session. `pageStore.path`/
       `.locale`, not `pageCreateArgs`: `pageCreate` is what resolves the actual target path -- a
       default `new-page` slug when the route carried none.
     */
-    await userStore.fetchPagePermissions(pageStore.path, pageStore.locale)
+    await userStore.fetchPagePermissions(pageCreateArgs.path, pageCreateArgs.locale)
+    if (!userStore.can('write:pages')) {
+      router.replace('/_error/unauthorized')
+      return
+    }
+    await pageStore.pageCreate(pageCreateArgs)
   } catch (err) {
     notify({ type: 'negative', message: apiErrorMessage(err) })
     router.replace('/')

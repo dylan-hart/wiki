@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { enterCreateMode, enterEditMode, loadPageForRoute } from './pageRouting'
+import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -10,6 +11,13 @@ import { stubRouter } from '../../../test/fixtures.js'
 
 function fakeRouter() {
   return { push: vi.fn(), replace: vi.fn() }
+}
+
+function stubPermissionFetch(userStore, { authenticated = true, grants = ['write:pages'] } = {}) {
+  userStore.authenticated = authenticated
+  return vi.spyOn(userStore, 'fetchPagePermissions').mockImplementation(async () => {
+    userStore.pagePermissions = grants
+  })
 }
 
 beforeEach(() => {
@@ -23,7 +31,7 @@ describe('enterCreateMode() fetches page permissions for the resolved create pat
     const pageStore = usePageStore()
     pageStore.router = stubRouter()
     const userStore = useUserStore()
-    const fetchSpy = vi.spyOn(userStore, 'fetchPagePermissions').mockResolvedValue()
+    const fetchSpy = stubPermissionFetch(userStore)
 
     const route = {
       params: { editor: 'markdown' },
@@ -41,7 +49,7 @@ describe('enterCreateMode() fetches page permissions for the resolved create pat
     const pageStore = usePageStore()
     pageStore.router = stubRouter()
     const userStore = useUserStore()
-    const fetchSpy = vi.spyOn(userStore, 'fetchPagePermissions').mockResolvedValue()
+    const fetchSpy = stubPermissionFetch(userStore)
 
     const route = { params: { editor: 'markdown' }, query: {} }
     const router = fakeRouter()
@@ -65,11 +73,11 @@ describe('enterCreateMode() fetches page permissions for the resolved create pat
     expect(router.replace).toHaveBeenCalledWith('/')
   })
 
-  it('never fetches permissions when pageCreate itself rejects', async () => {
+  it('returns to / without opening the editor when pageCreate itself rejects', async () => {
     const pageStore = usePageStore()
     pageStore.router = stubRouter()
     const userStore = useUserStore()
-    const fetchSpy = vi.spyOn(userStore, 'fetchPagePermissions')
+    stubPermissionFetch(userStore)
     // -> `pageCreate` awaits `editorStore.ensureConfigs()` first, which rejects with no site id
     const siteStore = useSiteStore()
     siteStore.id = ''
@@ -79,8 +87,107 @@ describe('enterCreateMode() fetches page permissions for the resolved create pat
 
     await enterCreateMode(route, { router, t: (key) => key })
 
-    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(useEditorStore().isActive).toBe(false)
     expect(router.replace).toHaveBeenCalledWith('/')
+  })
+})
+
+describe('enterCreateMode() refuses a session without write:pages before opening the editor (OpenProject #3757)', () => {
+  const route = { params: { editor: 'markdown' }, query: { path: 'guides/new-guide' } }
+
+  it('sends an anonymous visitor to the unauthorized screen without asking the server', async () => {
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    const userStore = useUserStore()
+    const fetchSpy = stubPermissionFetch(userStore, { authenticated: false })
+    const pageCreateSpy = vi.spyOn(pageStore, 'pageCreate')
+    const router = fakeRouter()
+
+    await enterCreateMode(route, { router, t: (key) => key })
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(pageCreateSpy).not.toHaveBeenCalled()
+    expect(useEditorStore().isActive).toBe(false)
+    expect(router.replace).toHaveBeenCalledWith('/_error/unauthorized')
+  })
+
+  it('refuses a logged-in user who lacks write:pages at the target path', async () => {
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    const userStore = useUserStore()
+    const fetchSpy = stubPermissionFetch(userStore, { grants: ['read:pages'] })
+    const pageCreateSpy = vi.spyOn(pageStore, 'pageCreate')
+    const router = fakeRouter()
+
+    await enterCreateMode(route, { router, t: (key) => key })
+
+    expect(fetchSpy).toHaveBeenCalledWith('guides/new-guide', pageStore.locale)
+    expect(pageCreateSpy).not.toHaveBeenCalled()
+    expect(useEditorStore().isActive).toBe(false)
+    expect(router.replace).toHaveBeenCalledWith('/_error/unauthorized')
+  })
+
+  it('refuses when the permission lookup itself fails', async () => {
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    const userStore = useUserStore()
+    userStore.authenticated = true
+    globalThis.API_CLIENT.post.mockImplementationOnce(() => {
+      throw new Error('network')
+    })
+    const router = fakeRouter()
+
+    await enterCreateMode(route, { router, t: (key) => key })
+
+    expect(useEditorStore().isActive).toBe(false)
+    expect(router.replace).toHaveBeenCalledWith('/_error/unauthorized')
+  })
+
+  it('opens the editor in create mode for a user holding write:pages there', async () => {
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    const userStore = useUserStore()
+    stubPermissionFetch(userStore)
+    const router = fakeRouter()
+
+    await enterCreateMode(route, { router, t: (key) => key })
+
+    const editorStore = useEditorStore()
+    expect(editorStore.isActive).toBe(true)
+    expect(editorStore.mode).toBe('create')
+    expect(pageStore.path).toBe('guides/new-guide')
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('lets manage:system through whatever the page rules say', async () => {
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    const userStore = useUserStore()
+    userStore.permissions = ['manage:system']
+    stubPermissionFetch(userStore, { grants: [] })
+    const router = fakeRouter()
+
+    await enterCreateMode(route, { router, t: (key) => key })
+
+    expect(useEditorStore().isActive).toBe(true)
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('asks about the same default path pageCreate lands on when the route carries none', async () => {
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.path = 'guides/intro'
+    const userStore = useUserStore()
+    const fetchSpy = stubPermissionFetch(userStore)
+    const router = fakeRouter()
+
+    await enterCreateMode(
+      { params: { editor: 'markdown' }, query: {} },
+      { router, t: (key) => key }
+    )
+
+    expect(fetchSpy).toHaveBeenCalledWith('guides/new-page', pageStore.locale)
+    expect(pageStore.path).toBe('guides/new-page')
   })
 })
 
