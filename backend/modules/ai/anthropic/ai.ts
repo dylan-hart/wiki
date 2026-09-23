@@ -6,9 +6,22 @@ export const API_URL = 'https://api.anthropic.com/v1/messages'
 export const API_VERSION = '2023-06-01'
 export const DEFAULT_MODEL = 'claude-opus-5'
 export const MAX_OUTPUT_TOKENS = 16000
+export const MIN_OUTPUT_TOKENS = 4096
 export const TIMEOUT_MS = 60_000
 export const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 export const FALLBACK_MODELS: ReadonlySet<string> = new Set(['claude-opus-5', 'claude-fable-5-1'])
+export const EFFORT = 'low'
+export const EFFORT_MODELS: ReadonlySet<string> = new Set([
+  'claude-opus-5',
+  'claude-opus-5-5',
+  'claude-fable-5',
+  'claude-fable-5-1',
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-sonnet-5',
+  'claude-sonnet-4-6'
+])
 
 export type AiGenerateContext = AiProviderContext
 
@@ -26,7 +39,7 @@ function resolveMaxTokens(requested: number | undefined): number {
   if (typeof requested !== 'number' || !Number.isFinite(requested) || requested < 1) {
     return MAX_OUTPUT_TOKENS
   }
-  return Math.min(Math.floor(requested), MAX_OUTPUT_TOKENS)
+  return Math.min(Math.max(Math.floor(requested), MIN_OUTPUT_TOKENS), MAX_OUTPUT_TOKENS)
 }
 
 export function buildRequest(
@@ -47,6 +60,9 @@ export function buildRequest(
   }
   if (context.system) {
     body.system = context.system
+  }
+  if (EFFORT_MODELS.has(model)) {
+    body.output_config = { effort: EFFORT }
   }
   if (FALLBACK_MODELS.has(model)) {
     headers['anthropic-beta'] = FALLBACK_BETA
