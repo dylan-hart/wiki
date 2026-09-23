@@ -81,6 +81,8 @@ declare module 'fastify' {
       redirect: string
       /** An ISO instant, so that a stale flow can be refused. */
       startedAt: string
+      mode?: 'login' | 'link'
+      linkUserId?: string
     }
     idpSession?: {
       strategyId: string

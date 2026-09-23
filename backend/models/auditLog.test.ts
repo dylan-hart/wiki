@@ -36,6 +36,7 @@ const SELF_SERVICE_EVENTS = [
   'user.tfaDisabled',
   'user.passkeyEnrolled',
   'user.passkeyRemoved',
+  'user.signInMethodAdded',
   'user.loggedOut'
 ] as const satisfies readonly AuditEvent[]
 

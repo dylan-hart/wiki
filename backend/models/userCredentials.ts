@@ -726,6 +726,68 @@ class UserCredentials {
     return { recoveryCodes: plaintext, hadUnusedCodes }
   }
 
+  async linkStrategy({
+    userId,
+    strategyId,
+    identity,
+    methodName,
+    siteId,
+    ip
+  }: {
+    userId: string
+    strategyId: string
+    identity: { id: string; email: string }
+    methodName: string
+    siteId?: string
+    ip?: string
+  }): Promise<void> {
+    const written = await this.patchStrategyAuth(userId, strategyId, async (entry) => {
+      if (entry) {
+        throw new Error('ERR_LINK_ALREADY_LINKED')
+      }
+      const holder = await CARDINAL.models.users.getByProviderLink(strategyId, identity.id)
+      if (holder) {
+        throw new Error(
+          holder.id === userId ? 'ERR_LINK_ALREADY_LINKED' : 'ERR_LINK_IDENTITY_IN_USE'
+        )
+      }
+      return { id: identity.id, email: identity.email }
+    })
+    if (!written) {
+      throw new Error('ERR_LINK_NOT_SIGNED_IN')
+    }
+
+    const user = await CARDINAL.models.users.getById(userId)
+    if (!user) {
+      return
+    }
+    CARDINAL.models.flags.authDebug(`User ${userId} connected sign-in strategy ${strategyId}`)
+    await CARDINAL.models.auditLog.record({
+      event: 'user.signInMethodAdded',
+      actor: { id: userId, name: user.name, email: user.email, ip },
+      targetType: 'user',
+      targetId: userId,
+      targetLabel: user.email,
+      detail: { strategyId },
+      siteId: siteId || null
+    })
+    try {
+      await CARDINAL.models.mail.sendSignInMethodAdded({
+        to: user.email,
+        name: user.name,
+        methodName,
+        userId,
+        locale: (user.prefs as Record<string, any> | null)?.locale,
+        siteId: siteId || undefined
+      })
+    } catch (err: any) {
+      CARDINAL.logger.warn('auth', 'sending the sign-in-method-added notice failed', {
+        user: userId,
+        error: err
+      })
+    }
+  }
+
   /**
    * The counterpart to `sessions.clearSessionsFromUser()` when an account is deactivated: a token
    * minted beforehand would otherwise still be redeemable. `afterLoginChecks()` would refuse the
