@@ -3,6 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 
 import AdminAi from './AdminAi.vue'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 const MASK = '********'
 
@@ -59,8 +60,16 @@ function providers({ selected = '' } = {}) {
   ]
 }
 
-async function mountLoaded(list) {
-  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(list) })
+const ASSIST_OFF = { provider: '', assist: false, assistDailyCap: 50 }
+
+let served
+
+async function mountLoaded(list, settings = ASSIST_OFF) {
+  served = { providers: list, settings }
+  stubApi({
+    'sites/site-1/ai/providers': () => served.providers,
+    'sites/site-1/ai': () => served.settings
+  })
   const { wrapper } = mountWithApp(AdminAi, {
     stores: { admin: { currentSiteId: 'site-1' } }
   })
@@ -81,9 +90,10 @@ async function pick(wrapper, label) {
 }
 
 describe('AdminAi', () => {
-  it('loads the providers for the administered site', async () => {
+  it('loads the providers and the AI settings for the administered site', async () => {
     await mountLoaded(providers())
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/ai/providers')
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/ai')
   })
 
   it('shows no provider form while no provider is selected', async () => {
@@ -105,9 +115,7 @@ describe('AdminAi', () => {
     await wrapper.find('input[aria-label="Model"]').setValue('claude-bigger')
 
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve(providers({ selected: 'anthropic' }))
-    })
+    served.providers = providers({ selected: 'anthropic' })
     await applyButton(wrapper).trigger('click')
     await flushPromises()
 
@@ -116,7 +124,9 @@ describe('AdminAi', () => {
     expect(url).toBe('sites/site-1/ai')
     expect(options.json).toEqual({
       provider: 'anthropic',
-      config: { apiKey: MASK, model: 'claude-bigger' }
+      config: { apiKey: MASK, model: 'claude-bigger' },
+      assist: false,
+      assistDailyCap: 50
     })
   })
 
@@ -126,15 +136,15 @@ describe('AdminAi', () => {
     await wrapper.find('input[aria-label="API Key"]').setValue('sk-new')
 
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve(providers({ selected: 'openai' }))
-    })
+    served.providers = providers({ selected: 'openai' })
     await applyButton(wrapper).trigger('click')
     await flushPromises()
 
     expect(API_CLIENT.put.mock.calls[0][1].json).toEqual({
       provider: 'openai',
-      config: { apiKey: 'sk-new', model: 'gpt-default' }
+      config: { apiKey: 'sk-new', model: 'gpt-default' },
+      assist: false,
+      assistDailyCap: 50
     })
   })
 
@@ -143,11 +153,14 @@ describe('AdminAi', () => {
     await pick(wrapper, 'admin.ai.providerNone')
 
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(providers()) })
+    served.providers = providers()
     await applyButton(wrapper).trigger('click')
     await flushPromises()
 
-    expect(API_CLIENT.put.mock.calls[0]).toEqual(['sites/site-1/ai', { json: { provider: '' } }])
+    expect(API_CLIENT.put.mock.calls[0]).toEqual([
+      'sites/site-1/ai',
+      { json: { provider: '', assist: false, assistDailyCap: 50 } }
+    ])
   })
 
   it('reloads after a save, so the fresh masked listing replaces what was typed', async () => {
@@ -156,13 +169,11 @@ describe('AdminAi', () => {
     await wrapper.find('input[aria-label="API Key"]').setValue('sk-typed')
 
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve(providers({ selected: 'anthropic' }))
-    })
+    served.providers = providers({ selected: 'anthropic' })
     await applyButton(wrapper).trigger('click')
     await flushPromises()
 
-    expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(4)
     expect(wrapper.find('input[aria-label="API Key"]').element.value).toBe(MASK)
   })
 
@@ -176,5 +187,70 @@ describe('AdminAi', () => {
       .find((el) => el.text().includes('admin.ai.providerUnavailable'))
     expect(row).toBeDefined()
     expect(row.attributes('aria-disabled')).toBe('true')
+  })
+
+  it('hides the daily limit field while the writing assistant is off', async () => {
+    const wrapper = await mountLoaded(providers())
+    expect(wrapper.find('[aria-label="admin.ai.allowAssist"]').exists()).toBe(true)
+    expect(wrapper.find('input[aria-label="admin.ai.assistDailyCap"]').exists()).toBe(false)
+  })
+
+  it('loads stored writing assistant settings and round-trips an edited daily limit', async () => {
+    const wrapper = await mountLoaded(providers({ selected: 'anthropic' }), {
+      provider: 'anthropic',
+      assist: true,
+      assistDailyCap: 20
+    })
+    const capInput = wrapper.get('input[aria-label="admin.ai.assistDailyCap"]')
+    expect(capInput.element.value).toBe('20')
+    await capInput.setValue('75')
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await applyButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.put.mock.calls[0][1].json).toEqual({
+      provider: 'anthropic',
+      config: { apiKey: MASK, model: 'claude-default' },
+      assist: true,
+      assistDailyCap: 75
+    })
+  })
+
+  it('saves the writing assistant settings with no provider selected', async () => {
+    const wrapper = await mountLoaded(providers())
+    await wrapper.get('[aria-label="admin.ai.allowAssist"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('input[aria-label="admin.ai.assistDailyCap"]').setValue('12')
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await applyButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.put.mock.calls[0]).toEqual([
+      'sites/site-1/ai',
+      { json: { provider: '', assist: true, assistDailyCap: 12 } }
+    ])
+  })
+
+  it.each([
+    ['', 50],
+    ['0', 50],
+    ['-4', 50],
+    ['12.7', 12],
+    ['999999', 100000]
+  ])('sends a daily limit of %j as %i', async (typed, sent) => {
+    const wrapper = await mountLoaded(providers(), {
+      provider: '',
+      assist: true,
+      assistDailyCap: 20
+    })
+    await wrapper.get('input[aria-label="admin.ai.assistDailyCap"]').setValue(typed)
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await applyButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.put.mock.calls[0][1].json.assistDailyCap).toBe(sent)
   })
 })

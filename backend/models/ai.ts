@@ -40,6 +40,11 @@ export interface AiAvailability {
   reason: AiUnavailableReason | null
 }
 
+export interface AiAssistSettings {
+  assist?: boolean
+  assistDailyCap?: number
+}
+
 export interface AiProviderDefinition {
   key: string
   title: string
@@ -174,10 +179,20 @@ class Ai {
   async selectProvider(
     siteId: string,
     key: string,
-    incoming: Record<string, any> = {}
+    incoming: Record<string, any> = {},
+    assistSettings: AiAssistSettings = {}
   ): Promise<boolean> {
+    const assist: AiAssistSettings = {}
+    if (assistSettings.assist !== undefined) {
+      assist.assist = assistSettings.assist
+    }
+    if (assistSettings.assistDailyCap !== undefined) {
+      assist.assistDailyCap = assistSettings.assistDailyCap
+    }
     if (!key) {
-      return CARDINAL.models.sites.updateSite(siteId, { config: { ai: { provider: '' } } })
+      return CARDINAL.models.sites.updateSite(siteId, {
+        config: { ai: { provider: '', ...assist } }
+      })
     }
     const stored = (CARDINAL.sites[siteId]?.config?.ai?.providers?.[key] ?? {}) as Record<
       string,
@@ -185,7 +200,7 @@ class Ai {
     >
     const config = this.buildProviderConfig(key, incoming, stored)
     return CARDINAL.models.sites.updateSite(siteId, {
-      config: { ai: { provider: key, providers: { [key]: config } } }
+      config: { ai: { provider: key, providers: { [key]: config }, ...assist } }
     })
   }
 

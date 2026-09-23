@@ -364,7 +364,7 @@ test('the Site schema declares banner with bounded plain-text title and content'
   await app.close()
 })
 
-test('the Site schema accepts features.aiAssist and a bounded integer features.aiAssistDailyCap', async () => {
+test('the Site schema strips the writing assistant settings from features, keeping declared keys', async () => {
   const app = await buildTestApp({
     schemas: [registerSchemas],
     ajv: true,
@@ -373,31 +373,23 @@ test('the Site schema accepts features.aiAssist and a bounded integer features.a
       instance.put(
         '/features',
         { schema: { body: { $ref: 'Site#/properties/features' } } },
-        async () => ({ ok: true })
+        async (req) => ({ body: req.body })
       )
     }
   })
 
-  const accepted = await app.inject({
+  const res = await app.inject({
     method: 'PUT',
     url: '/features',
-    payload: { aiAssist: true, aiAssistDailyCap: 25 }
+    payload: { aiAssist: true, aiAssistDailyCap: 100000, comments: true }
   })
-  assert.equal(accepted.statusCode, 200)
-
-  for (const aiAssistDailyCap of [0, -1, 1.5, 100001]) {
-    const refused = await app.inject({
-      method: 'PUT',
-      url: '/features',
-      payload: { aiAssist: true, aiAssistDailyCap }
-    })
-    assert.equal(refused.statusCode, 400, `aiAssistDailyCap ${aiAssistDailyCap} should be refused`)
-  }
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json().body, { comments: true })
 
   await closeTestApp(app)
 })
 
-test('buildSitePayload passes features.aiAssist and aiAssistDailyCap through to the public payload', async () => {
+test('buildSitePayload carries no writing assistant settings in the public payload', async () => {
   const wikiHandle = installTestWiki({
     config: {},
     models: {
@@ -413,13 +405,15 @@ test('buildSitePayload passes features.aiAssist and aiAssistDailyCap through to 
       hostname: 'example.test',
       isEnabled: true,
       config: {
-        features: { aiAssist: true, aiAssistDailyCap: 12 },
+        features: { comments: true },
+        ai: { provider: '', providers: {}, assist: true, assistDailyCap: 12 },
         locales: { primary: 'en', active: ['en'] },
         search: { engine: 'db', config: {} }
       }
     })
-    assert.equal(payload.features.aiAssist, true)
-    assert.equal(payload.features.aiAssistDailyCap, 12)
+    assert.ok(!('aiAssist' in payload.features))
+    assert.ok(!('aiAssistDailyCap' in payload.features))
+    assert.ok(!('ai' in payload))
   } finally {
     wikiHandle.restore()
   }

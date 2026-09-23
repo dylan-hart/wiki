@@ -20,25 +20,19 @@ const USER_ID = 'user-1'
 
 describe('aiAssist config readers', () => {
   test('the flag is on only when it is literally true', () => {
-    assert.equal(aiAssistEnabled({ features: { aiAssist: true } }), true)
-    assert.equal(aiAssistEnabled({ features: { aiAssist: 'true' } }), false)
-    assert.equal(aiAssistEnabled({ features: {} }), false)
+    assert.equal(aiAssistEnabled({ ai: { assist: true } }), true)
+    assert.equal(aiAssistEnabled({ ai: { assist: 'true' } }), false)
+    assert.equal(aiAssistEnabled({ ai: {} }), false)
     assert.equal(aiAssistEnabled(undefined), false)
   })
 
   test('the daily cap falls back to the default when missing or unusable, and is clamped', () => {
-    assert.equal(aiAssistDailyCap({ features: { aiAssistDailyCap: 10 } }), 10)
-    assert.equal(aiAssistDailyCap({ features: { aiAssistDailyCap: 7.9 } }), 7)
-    assert.equal(aiAssistDailyCap({ features: {} }), AI_ASSIST_DEFAULT_DAILY_CAP)
-    assert.equal(
-      aiAssistDailyCap({ features: { aiAssistDailyCap: 0 } }),
-      AI_ASSIST_DEFAULT_DAILY_CAP
-    )
-    assert.equal(
-      aiAssistDailyCap({ features: { aiAssistDailyCap: 'x' } }),
-      AI_ASSIST_DEFAULT_DAILY_CAP
-    )
-    assert.equal(aiAssistDailyCap({ features: { aiAssistDailyCap: 1e9 } }), AI_ASSIST_MAX_DAILY_CAP)
+    assert.equal(aiAssistDailyCap({ ai: { assistDailyCap: 10 } }), 10)
+    assert.equal(aiAssistDailyCap({ ai: { assistDailyCap: 7.9 } }), 7)
+    assert.equal(aiAssistDailyCap({ ai: {} }), AI_ASSIST_DEFAULT_DAILY_CAP)
+    assert.equal(aiAssistDailyCap({ ai: { assistDailyCap: 0 } }), AI_ASSIST_DEFAULT_DAILY_CAP)
+    assert.equal(aiAssistDailyCap({ ai: { assistDailyCap: 'x' } }), AI_ASSIST_DEFAULT_DAILY_CAP)
+    assert.equal(aiAssistDailyCap({ ai: { assistDailyCap: 1e9 } }), AI_ASSIST_MAX_DAILY_CAP)
     assert.equal(aiAssistDailyCap(undefined), AI_ASSIST_DEFAULT_DAILY_CAP)
   })
 
@@ -71,13 +65,13 @@ describe('evaluateAiAssist: the gate in front of the provider call', () => {
     handle = null
   })
 
-  function install(features: Record<string, any>, peek: (...args: any[]) => Promise<any>) {
+  function install(assist: Record<string, any>, peek: (...args: any[]) => Promise<any>) {
     const peekMock = mock.fn(peek)
     handle = installTestWiki({
       sites: {
         [SITE_ID]: {
           id: SITE_ID,
-          config: { features, ai: { provider: 'anthropic', providers: {} } }
+          config: { ai: { provider: 'anthropic', providers: {}, ...assist } }
         }
       },
       models: {
@@ -96,7 +90,7 @@ describe('evaluateAiAssist: the gate in front of the provider call', () => {
   const target = { path: 'a/page', locale: 'en' }
 
   test('flag off: refused as disabled, before the counter is even read', async () => {
-    const peek = install({ aiAssist: false }, async () => ({ allowed: true, hits: 0 }))
+    const peek = install({ assist: false }, async () => ({ allowed: true, hits: 0 }))
     const { status } = await evaluateAiAssist(req, SITE_ID, target)
     assert.equal(status.available, false)
     assert.equal(status.reason, 'disabled')
@@ -104,7 +98,7 @@ describe('evaluateAiAssist: the gate in front of the provider call', () => {
   })
 
   test('flag on and under the cap: the check passes', async () => {
-    install({ aiAssist: true, aiAssistDailyCap: 3 }, async () => ({
+    install({ assist: true, assistDailyCap: 3 }, async () => ({
       allowed: true,
       hits: 1,
       retryAfter: 0,
@@ -117,7 +111,7 @@ describe('evaluateAiAssist: the gate in front of the provider call', () => {
   })
 
   test('cap exhausted: refused as capReached, with when to retry', async () => {
-    install({ aiAssist: true, aiAssistDailyCap: 3 }, async () => ({
+    install({ assist: true, assistDailyCap: 3 }, async () => ({
       allowed: false,
       hits: 3,
       retryAfter: 600,
