@@ -142,7 +142,11 @@ describe('the empty board', () => {
 describe('appendedSuffix', () => {
   it('finds the text a new body adds after the current one', () => {
     expect(appendedSuffix('H', 'H\nS')).toEqual({ at: 1, text: '\nS' })
-    expect(appendedSuffix('', 'H')).toEqual({ at: 0, text: 'H' })
+  })
+
+  it('ends a first stroke on an empty fence with a line break, so two of them stay two lines', () => {
+    expect(appendedSuffix('', 'H\nS')).toEqual({ at: 0, text: 'H\nS\n' })
+    expect(appendedSuffix('\n', 'H\nS')).toEqual({ at: 1, text: 'H\nS\n' })
   })
 
   it('measures against the trimmed text the block reads, inserting before trailing whitespace', () => {
@@ -228,6 +232,48 @@ describe('applyWhiteboardBody', () => {
     const step = onlyStep(dispatched[0])
     expect(step.to).toBeGreaterThan(step.from)
     expect(whiteboardBodyOf(boardTarget().node)).toBe(EMPTY_WHITEBOARD_BODY)
+  })
+
+  it('reads and appends across every code block a board holds, as the block does', () => {
+    createEditor(
+      '::block-whiteboard\n```whiteboard\n' +
+        EMPTY_WHITEBOARD_BODY +
+        '\n' +
+        STROKE +
+        '\n```\n\n```whiteboard\n' +
+        EMPTY_WHITEBOARD_BODY +
+        '\n```\n::'
+    )
+    const current = EMPTY_WHITEBOARD_BODY + '\n' + STROKE + '\n' + EMPTY_WHITEBOARD_BODY
+    expect(whiteboardBodyOf(boardTarget().node)).toBe(current)
+    expect(pageWhiteboardBytes(editor.state.doc)).toBe(current.length)
+    const dispatched = capture()
+
+    applyWhiteboardBody(editor.view, boardTarget(), current + '\n' + STROKE)
+
+    const step = onlyStep(dispatched[0])
+    expect(step.text).toBe('\n' + STROKE)
+    const { node } = boardTarget()
+    expect(node.childCount).toBe(2)
+    expect(node.child(1).textContent).toBe(EMPTY_WHITEBOARD_BODY + '\n' + STROKE)
+  })
+
+  it('folds a board back into one code block when it replaces the body', () => {
+    createEditor(
+      '::block-whiteboard\n```whiteboard\n' +
+        EMPTY_WHITEBOARD_BODY +
+        '\n' +
+        STROKE +
+        '\n```\n\n```whiteboard\n' +
+        EMPTY_WHITEBOARD_BODY +
+        '\n```\n::'
+    )
+
+    applyWhiteboardBody(editor.view, boardTarget(), EMPTY_WHITEBOARD_BODY)
+
+    const { node } = boardTarget()
+    expect(node.childCount).toBe(1)
+    expect(whiteboardBodyOf(node)).toBe(EMPTY_WHITEBOARD_BODY)
   })
 
   it('still refuses a body with an unreadable header', () => {

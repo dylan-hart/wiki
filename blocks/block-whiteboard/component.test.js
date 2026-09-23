@@ -404,6 +404,29 @@ describe('block-whiteboard', () => {
       )
     })
 
+    it('reads every fence in the body, so two first strokes that each added one both draw', async () => {
+      const el = await mountBlock('block-whiteboard', {
+        html: `<pre>${EMPTY}\n{"c":"#3366cc","z":4,"p":[1,1,50]}</pre><pre>${EMPTY}\n{"c":"#3366cc","z":4,"p":[2,2,50]}</pre>`,
+        parent: editorRoot()
+      })
+      const changes = nextChange(el)
+
+      expect(errorOf(el)).toBeNull()
+      expect(pathsOf(el)).toHaveLength(2)
+
+      await drawStroke(el, [
+        [100, 100],
+        [150, 150]
+      ])
+
+      expect(
+        changes[0].detail.body.startsWith(
+          [...el.querySelectorAll('pre')].map((pre) => pre.textContent).join('\n')
+        )
+      ).toBe(true)
+      expect(pathsOf(el)).toHaveLength(3)
+    })
+
     it('records pen pressure, and a fixed mid pressure for mouse and touch', async () => {
       const el = await mountBoard(EMPTY, { editor: true })
       const changes = nextChange(el)

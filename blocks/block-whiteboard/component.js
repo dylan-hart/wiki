@@ -1,6 +1,6 @@
 import { LitElement, css, html, svg } from 'lit'
 
-import { readFencedSource } from '../shared/body.js'
+import { documentText } from '../shared/body.js'
 import { I18n } from '../shared/i18n.js'
 import { renderError } from '../shared/render.js'
 import { errorBox } from '../shared/styles.js'
@@ -21,6 +21,20 @@ import { MAX_BLOCK_BYTES, MAX_POINTS, MAX_STROKES } from './limits.js'
 
 const EDITOR_ROOT = '.ProseMirror'
 const EDITABLE_ANCESTOR = '.ProseMirror[contenteditable="true"]'
+
+/**
+ * Every fence in the body, joined, where the shared `readFencedSource` reads only the first. Two
+ * collaborators drawing the first stroke on a board that had no fence yet each insert one, and
+ * Yjs keeps both: reading only the first would drop the other's stroke. A repeated header line is
+ * not a stroke, so `parseBoard` skips it. The server and the editor read a board the same way.
+ */
+export function readWhiteboardSource(el) {
+  const fences = el.querySelectorAll('pre')
+  if (fences.length === 0) {
+    return documentText(el).trim()
+  }
+  return Array.from(fences, documentText).join('\n').trim()
+}
 
 function capturePointer(el, pointerId) {
   try {
@@ -152,7 +166,7 @@ export class BlockWhiteboardElement extends LitElement {
   }
 
   _readBody() {
-    const { source } = readFencedSource(this)
+    const source = readWhiteboardSource(this)
     if (source === this._source) {
       return
     }
