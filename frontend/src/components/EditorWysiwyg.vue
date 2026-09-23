@@ -97,7 +97,7 @@ import {
   withTextAlignMarkdown
 } from '@/helpers/wysiwygStyleAttrs'
 
-import { createBlockLoader, WikiBlock } from '@/editor/wysiwyg'
+import { createBlockLoader, WhiteboardInsert, WikiBlock } from '@/editor/wysiwyg'
 
 import LinkPickerDialog from '@/components/LinkPickerDialog.vue'
 
@@ -139,10 +139,12 @@ import {
   FootnoteDefinition,
   TexMath,
   IconShortcode,
-  GlossaryTermHighlight
+  GlossaryTermHighlight,
+  WHITEBOARD_LANGUAGE
 } from '@/editor/wysiwyg'
 
 const lowlight = createLowlight(common)
+lowlight.registerAlias({ plaintext: [WHITEBOARD_LANGUAGE] })
 
 const collabStore = useCollabStore()
 const commonStore = useCommonStore()
@@ -219,6 +221,7 @@ const menuBar = computed(() =>
     insertLink: () => insertLink(),
     openFileManager: (opts) => siteStore.openFileManager(opts),
     insertBlock: () => insertBlock(),
+    insertWhiteboard: () => insertWhiteboard(),
     t
   })
 )
@@ -291,6 +294,7 @@ function buildExtensions(collab) {
     withStyleSpanMarkdown(TextStyle),
     Typography,
     WikiBlock.configure({ loadBlock: createBlockLoader(commonStore, siteStore) }),
+    WhiteboardInsert.configure({ onRefuse: refuseWhiteboard }),
     Markdown,
     ...(collab
       ? [
@@ -453,6 +457,26 @@ function insertBlock() {
   siteStore.$patch({
     overlay: 'BlockPicker'
   })
+}
+
+const WHITEBOARD_REFUSAL_KEYS = {
+  blockBytes: 'editor.whiteboard.blockTooLarge',
+  strokes: 'editor.whiteboard.blockTooLarge',
+  points: 'editor.whiteboard.blockTooLarge',
+  invalid: 'editor.whiteboard.invalidBody',
+  pageBytes: 'editor.whiteboard.pageTooLarge',
+  pageBytesInsert: 'editor.whiteboard.pageFull'
+}
+
+function refuseWhiteboard(reason) {
+  notify({
+    type: 'warning',
+    message: t(WHITEBOARD_REFUSAL_KEYS[reason] ?? WHITEBOARD_REFUSAL_KEYS.blockBytes)
+  })
+}
+
+function insertWhiteboard() {
+  editor.value.chain().focus().insertWhiteboard().run()
 }
 
 /**
