@@ -1050,3 +1050,102 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
     )
   })
 })
+
+/**
+ * `CARDINAL.SERVERPATH` holds the bundled `en.json`/`de.json`, `CARDINAL.config.dataPath` the
+ * operator's sideload directory. Every bundled and sideload file is back-dated a day, so a row
+ * written during the test is always fresher than both -- the case where the freshness checks alone
+ * would keep a stale or polluted row.
+ */
+describe(
+  'refreshFromDisk() precedence: bundled en, then sideloaded overrides (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let localesModel: typeof import('./locales.ts').locales
+    let scratchDir: string
+    let sideloadDir: string
+    const bundledEn = { key0: 'value0', key1: 'value1', key2: 'value2', key3: 'value3' }
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ locales: localesModel } = await import('./locales.ts'))
+      scratchDir = await mkdtemp(path.join(tmpdir(), 'wiki-locales-precedence-'))
+      await mkdir(path.join(scratchDir, 'server/locales'), { recursive: true })
+      await writeFile(path.join(scratchDir, 'server/locales/en.json'), JSON.stringify(bundledEn))
+      await writeFile(
+        path.join(scratchDir, 'server/locales/de.json'),
+        JSON.stringify({ key0: 'wert0', key1: 'wert1' })
+      )
+      for (const file of ['en.json', 'de.json']) {
+        await utimes(path.join(scratchDir, 'server/locales', file), dayAgo, dayAgo)
+      }
+      CARDINAL.SERVERPATH = path.join(scratchDir, 'server')
+      CARDINAL.ROOTPATH = scratchDir
+      CARDINAL.config.dataPath = path.join(scratchDir, 'data')
+      sideloadDir = path.join(scratchDir, 'data/locales')
+    })
+
+    beforeEach(async () => {
+      await rm(sideloadDir, { recursive: true, force: true })
+      await mkdir(sideloadDir, { recursive: true })
+      await fixtures.db.delete(localesTable)
+      await localesModel.reloadCache()
+    })
+
+    after(async () => {
+      await rm(scratchDir, { recursive: true, force: true })
+      await teardownTestDb()
+    })
+
+    async function sideload(code: string, strings: Record<string, string>): Promise<void> {
+      const file = path.join(sideloadDir, `${code}.json`)
+      await writeFile(file, JSON.stringify({ name: code, language: code, strings }))
+      await utimes(file, dayAgo, dayAgo)
+    }
+
+    async function storedStrings(code: string) {
+      const [row] = await fixtures.db
+        .select({ strings: localesTable.strings })
+        .from(localesTable)
+        .where(eq(localesTable.code, code))
+      assert.ok(row, `expected a ${code} row`)
+      return row!.strings
+    }
+
+    test('an en row fresher than the bundled file, written by something else, is replaced by the bundled strings', async () => {
+      await seedLocale(fixtures.db, { code: 'en' })
+      await fixtures.db
+        .update(localesTable)
+        .set({ strings: { key0: 'Wiki.js version', upstreamOnly: 'x' }, updatedAt: sql`now()` })
+        .where(eq(localesTable.code, 'en'))
+
+      await localesModel.refreshFromDisk()
+
+      assert.deepEqual(await storedStrings('en'), bundledEn)
+      assert.equal(((await localesModel.getStrings('en')) as any).key0, 'value0')
+    })
+
+    test("an operator's en sideload override survives that replacement", async () => {
+      await seedLocale(fixtures.db, { code: 'en' })
+      await fixtures.db
+        .update(localesTable)
+        .set({ strings: { ...bundledEn, key1: 'polluted' }, updatedAt: sql`now()` })
+        .where(eq(localesTable.code, 'en'))
+      await sideload('en', { key1: 'customized' })
+
+      await localesModel.refreshFromDisk()
+
+      assert.deepEqual(await storedStrings('en'), { ...bundledEn, key1: 'customized' })
+    })
+
+    test('a bundled locale written from disk keeps a sideloaded override on top', async () => {
+      await sideload('de', { key0: 'EINS (customized)' })
+
+      await localesModel.refreshFromDisk()
+
+      assert.deepEqual(await storedStrings('de'), { key0: 'EINS (customized)', key1: 'wert1' })
+    })
+  }
+)

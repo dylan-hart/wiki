@@ -70,6 +70,11 @@ export async function task(): Promise<TaskResult | void> {
       langFilenameParts.push(lang.script)
     }
     const langFilename = langFilenameParts.join('-')
+    // -> English is not a translation: upstream's `en.json` is Wiki.js's own source strings, and
+    //    Cardinal.js's are the bundled `locales/en.json`, which `refreshFromDisk()` owns
+    if (langFilename === 'en') {
+      continue
+    }
 
     CARDINAL.logger.debug('locale', 'fetching updates', { locale: langFilename })
 
