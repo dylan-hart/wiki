@@ -82,7 +82,7 @@ export default defineConfig({
   webServer: {
     command: 'node backend',
     cwd: '..',
-    url: BASE_URL,
+    url: `${BASE_URL}/_ready`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
     stdout: 'pipe',
