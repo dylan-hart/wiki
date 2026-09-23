@@ -48,6 +48,12 @@
           </w-item-section>
           <page-new-menu hide-asset-btn @new-page="close" />
         </w-item>
+        <w-item v-if="quickNoteAvailable" clickable @click="openQuickNoteFromMenu">
+          <w-item-section avatar>
+            <w-icon name="tabler:note" class="text-teal" />
+          </w-item-section>
+          <w-item-section>{{ t('common.header.quickNote') }}</w-item-section>
+        </w-item>
         <!--
           -> `write:pages` counts too, for an author whose rules cover the pages but not the assets
              beside them, since the editor sends them here to insert an image. The endpoints behind
@@ -112,6 +118,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useQuickNote } from '@/composables/quickNote'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
@@ -128,6 +135,8 @@ const userStore = useUserStore()
 
 const { t } = useI18n()
 
+const { available: quickNoteAvailable, open: openQuickNote } = useQuickNote()
+
 const menu = ref(null)
 
 const canUseFileManager = computed(
@@ -142,6 +151,7 @@ const canUseFileManager = computed(
 const hasActionRows = computed(
   () =>
     userStore.can('write:pages') ||
+    quickNoteAvailable.value ||
     canUseFileManager.value ||
     userStore.authenticated ||
     userStore.can('access:admin')
@@ -163,6 +173,11 @@ function close() {
 function openFileManager() {
   close()
   siteStore.openFileManager()
+}
+
+function openQuickNoteFromMenu() {
+  close()
+  openQuickNote()
 }
 
 function openInbox() {

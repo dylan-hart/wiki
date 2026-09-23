@@ -466,3 +466,51 @@ describe('HeaderNav Graph nav button branching (OpenProject #3313)', () => {
     expect(pushSpy).toHaveBeenCalledWith('/fr/other/page')
   })
 })
+
+describe('HeaderNav quick note button', () => {
+  async function mountWide({ authenticated = true, notes } = {}) {
+    const { wrapper, siteStore, userStore, router } = await mountHeaderNav({
+      routes: ['/', '/_notes']
+    })
+    useMinWidth(600).value = true
+    useMinWidth(900).value = true
+    userStore.authenticated = authenticated
+    if (notes !== undefined) {
+      siteStore.features.notes = notes
+    }
+    await flushPromises()
+    return { wrapper, router }
+  }
+
+  it('opens /_notes with a new note for a signed-in user', async () => {
+    const { wrapper, router } = await mountWide()
+
+    const button = wrapper.find('[aria-label="common.header.quickNote"]')
+    expect(button.exists()).toBe(true)
+    expect(button.find('[data-icon="tabler:note"]').exists()).toBe(true)
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/_notes?new=1')
+  })
+
+  it('advertises the shortcut', async () => {
+    const { wrapper } = await mountWide()
+
+    expect(
+      wrapper.find('[aria-label="common.header.quickNote"]').attributes('aria-keyshortcuts')
+    ).toBe('Meta+Alt+N Control+Alt+N')
+  })
+
+  it('is hidden from a guest', async () => {
+    const { wrapper } = await mountWide({ authenticated: false })
+
+    expect(wrapper.find('[aria-label="common.header.quickNote"]').exists()).toBe(false)
+  })
+
+  it('is hidden when the site turns notes off', async () => {
+    const { wrapper } = await mountWide({ notes: false })
+
+    expect(wrapper.find('[aria-label="common.header.quickNote"]').exists()).toBe(false)
+  })
+})

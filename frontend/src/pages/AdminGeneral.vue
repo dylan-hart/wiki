@@ -179,6 +179,17 @@
           <w-settings-row
             tag="label"
             control-width="auto"
+            icon="tabler:notebook"
+            :label="t(`admin.general.allowNotes`)"
+            :hint="t(`admin.general.allowNotesHint`)">
+            <w-toggle
+              v-model="state.config.features.notes"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.allowNotes`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
             icon="tabler:code"
             :label="t(`admin.general.allowPageScripts`)"
             :hint="t(`admin.general.allowPageScriptsHint`)">
@@ -527,6 +538,7 @@ function defaultConfig() {
     },
     features: {
       comments: false,
+      notes: true,
       pageScripts: false,
       reasonForChange: 'required',
       profile: false
@@ -605,6 +617,10 @@ const {
       title: site.banner?.title ?? '',
       content: site.banner?.content ?? ''
     },
+    features: {
+      ...site.features,
+      notes: site.features?.notes ?? true
+    },
     pageExtensions: site.pageExtensions.join(','),
     allowedUrlSchemes: (site.allowedUrlSchemes ?? []).join(','),
     security: {
@@ -647,6 +663,7 @@ const {
         features: {
           browse: config.features?.browse ?? false,
           comments: config.features?.comments ?? false,
+          notes: config.features?.notes ?? true,
           pageScripts: config.features?.pageScripts ?? false,
           profile: config.features?.profile ?? false,
           reasonForChange: config.features?.reasonForChange ?? 'required',
