@@ -395,9 +395,10 @@ window stays with `manage:system`.
 ## Metrics
 
 `GET /metrics` (deliberately outside `/_api` — see the header comment in
-`backend/controllers/metrics.ts` for why) exposes a small, fixed set of Prometheus gauges when
-`metrics.isEnabled` is turned on in config: active scheduler workers, total pages, total users, total
-groups, cluster node count, queued jobs and database pool state, plus Node runtime gauges for the
+`backend/controllers/metrics.ts` for why) exposes a small, fixed set of Prometheus series when
+`metrics.isEnabled` is turned on in config: gauges for active scheduler workers, total pages, total
+users, total groups, cluster node count, queued jobs and database pool state, the Postgres NOTIFY
+series described [below](#postgres-notify-series), plus Node runtime gauges for the
 serving process: memory (`cardinaljs_process_resident_memory_bytes`, `..._heap_used_bytes`,
 `..._heap_total_bytes`, `..._external_memory_bytes`), `cardinaljs_process_uptime_seconds`, cumulative
 CPU time (`..._cpu_user_seconds_total`, `..._cpu_system_seconds_total`) and event-loop delay
@@ -408,6 +409,40 @@ in base units (bytes, seconds) and computed from built-in Node APIs, with no cli
 not a general request/latency/error-rate exporter —
 there are no HTTP-level counters or histograms here, by deliberate scope decision (task 594), not an
 oversight.
+
+### Postgres NOTIFY series
+
+Cross-instance messaging rides on Postgres `LISTEN`/`NOTIFY`, and each instance sends its NOTIFYs
+through three serial notifiers (`backend/helpers/pubsub.ts#createNotifier`). Each series carries a
+`channel` label naming the notifier, not the Postgres channel: `event bus` (cluster events —
+cache reloads, maintenance broadcasts), `scheduler` (job queued/completed wake-ups) and
+`collaboration relay` (collaborative-editing updates between instances).
+
+| Series                                                                           | Type      | What it tells you                                                                                                                                                                   |
+| -------------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cardinaljs_pubsub_notify_sent_total{channel}`                                   | counter   | NOTIFYs this instance has sent. `rate()` over it is the per-instance NOTIFY send rate.                                                                                              |
+| `cardinaljs_pubsub_notify_dropped_total{channel,reason}`                         | counter   | NOTIFYs discarded unsent. `reason="error"`: `pg_notify` failed (each one also logs a `db` warning). `reason="no_client"`: no listener connection was open, e.g. during a reconnect. |
+| `cardinaljs_pubsub_notify_queue_depth{channel}`                                  | gauge     | NOTIFYs queued behind the serial notifier, including the one in flight.                                                                                                             |
+| `cardinaljs_pubsub_notify_duration_seconds{channel}` (`_bucket`/`_sum`/`_count`) | histogram | Round-trip time of each successful `pg_notify`, not counting time spent queued. Buckets run from 1 ms to 2.5 s.                                                                     |
+
+Reading them:
+
+- **A queue depth that stays above zero, or keeps climbing, means that notifier is saturated**: it
+  cannot send NOTIFYs as fast as the instance produces them. A single scrape catching a depth of 1
+  or 2 is normal, since a NOTIFY is in flight at that moment. Compare the depth against
+  `rate(cardinaljs_pubsub_notify_sent_total[5m])` and the duration histogram's p99. A rising round
+  trip with a steady send rate points at Postgres or the network. A rising send rate with a steady
+  round trip points at load.
+- **Delivery is at-most-once.** A NOTIFY counted under `dropped_total` is gone, not retried. A
+  non-zero `no_client` rate outside a reconnect window means a listener is failing to come back.
+- **`collaboration relay` stays near zero on a single instance.** Document updates and cursor
+  movements are relayed only while another instance is running, so this counter climbs during
+  collaborative editing only in a multi-instance deployment. It is the series to watch when judging
+  whether Postgres pubsub still has headroom for collaborative editing.
+- **The counters are per process** and restart from zero when the instance restarts, the same as
+  any Prometheus counter. `rate()` and `increase()` handle the reset. Only the serving process is
+  scraped. Worker threads have no listener connection and cannot send a NOTIFY, and their attempts
+  are not counted here.
 
 Access requires a **Bearer API key** whose owner holds the `manage:system` or the `read:metrics`
 global permission. Prefer `read:metrics`: create a service user in a group holding only that

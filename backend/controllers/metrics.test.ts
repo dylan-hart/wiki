@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import type { FastifyInstance } from 'fastify'
 import metricsRoutes from './metrics.ts'
+import { createNotifier } from '../helpers/pubsub.ts'
 import { groups as groupsTable, pages as pagesTable, users as usersTable } from '../db/schema.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
@@ -212,7 +213,10 @@ describe('GET /metrics', () => {
       'the existing series are unchanged and come first'
     )
 
-    const runtimeLines = res.body.slice(existingSeries.length).trimEnd().split('\n')
+    const runtimeLines = res.body
+      .slice(existingSeries.length, res.body.indexOf('# HELP cardinaljs_pubsub_'))
+      .trimEnd()
+      .split('\n')
     const sampleNames = runtimeLines.filter((l) => !l.startsWith('#')).map((l) => l.split(' ')[0])
     assert.deepEqual(sampleNames, [
       'cardinaljs_process_resident_memory_bytes',
@@ -231,5 +235,41 @@ describe('GET /metrics', () => {
     for (const line of runtimeLines.filter((l) => !l.startsWith('#'))) {
       assert.match(line, /^[a-z0-9_]+ \d+(\.\d+)?(e-\d+)?$/, `finite, non-negative sample: ${line}`)
     }
+  })
+
+  test('appends the pubsub NOTIFY series last, labelled per notifier, rising as NOTIFYs go out', async () => {
+    const client = { query: async () => ({ rows: [] }) }
+    const notifier = createNotifier(() => client as any, 'metrics scrape: relay')
+
+    const scrape = async () => {
+      const res = await app.inject(SCRAPE)
+      assert.equal(res.statusCode, 200)
+      return res.body
+    }
+    const sentLine = (count: number) =>
+      `cardinaljs_pubsub_notify_sent_total{channel="metrics scrape: relay"} ${count}\n`
+
+    assert.ok((await scrape()).includes(sentLine(0)))
+
+    notifier.send('wiki_collab', '{}')
+    notifier.send('wiki_collab', '{}')
+    notifier.send('wiki_collab', '{}')
+    await notifier.drained()
+
+    const body = await scrape()
+    assert.ok(body.includes(sentLine(3)), body)
+    assert.ok(
+      body.includes('cardinaljs_pubsub_notify_queue_depth{channel="metrics scrape: relay"} 0\n')
+    )
+    assert.ok(
+      body.includes(
+        'cardinaljs_pubsub_notify_duration_seconds_count{channel="metrics scrape: relay"} 3\n'
+      )
+    )
+    assert.ok(
+      body.indexOf('# HELP cardinaljs_pubsub_') >
+        body.indexOf('cardinaljs_nodejs_eventloop_delay_p99_seconds'),
+      'pubsub series follow the runtime series'
+    )
   })
 })

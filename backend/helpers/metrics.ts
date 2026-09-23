@@ -1,4 +1,5 @@
 import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks'
+import { NOTIFY_DURATION_BUCKETS, type NotifierStats } from './pubsub.ts'
 
 export interface MetricsSnapshot {
   activeWorkers: number
@@ -226,4 +227,72 @@ export function createRuntimeSampler(deps?: Partial<RuntimeSamplerDeps>) {
       histogram.disable()
     }
   }
+}
+
+function escapeLabelValue(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('\n', '\\n')
+}
+
+function labelSet(labels: Record<string, string>): string {
+  const pairs = Object.entries(labels).map(([key, value]) => `${key}="${escapeLabelValue(value)}"`)
+  return `{${pairs.join(',')}}`
+}
+
+const PUBSUB_SENT = 'cardinaljs_pubsub_notify_sent_total'
+const PUBSUB_DROPPED = 'cardinaljs_pubsub_notify_dropped_total'
+const PUBSUB_QUEUE_DEPTH = 'cardinaljs_pubsub_notify_queue_depth'
+const PUBSUB_DURATION = 'cardinaljs_pubsub_notify_duration_seconds'
+
+export function formatPubsubMetrics(stats: readonly NotifierStats[]): string {
+  const lines: string[] = []
+
+  lines.push(
+    `# HELP ${PUBSUB_SENT} Postgres NOTIFYs this instance has sent, per notifier.`,
+    `# TYPE ${PUBSUB_SENT} counter`
+  )
+  for (const s of stats) {
+    lines.push(`${PUBSUB_SENT}${labelSet({ channel: s.channel })} ${s.sent}`)
+  }
+
+  lines.push(
+    `# HELP ${PUBSUB_DROPPED} NOTIFYs discarded without being sent: reason "error" when pg_notify ` +
+      'failed, "no_client" when the notifier had no open listener connection.',
+    `# TYPE ${PUBSUB_DROPPED} counter`
+  )
+  for (const s of stats) {
+    for (const [reason, value] of [
+      ['error', s.droppedError],
+      ['no_client', s.droppedNoClient]
+    ] as const) {
+      lines.push(`${PUBSUB_DROPPED}${labelSet({ channel: s.channel, reason })} ${value}`)
+    }
+  }
+
+  lines.push(
+    `# HELP ${PUBSUB_QUEUE_DEPTH} NOTIFYs queued on this instance's serial notifier, including the ` +
+      'one in flight. A depth that keeps growing means the notifier cannot keep up.',
+    `# TYPE ${PUBSUB_QUEUE_DEPTH} gauge`
+  )
+  for (const s of stats) {
+    lines.push(`${PUBSUB_QUEUE_DEPTH}${labelSet({ channel: s.channel })} ${s.queueDepth}`)
+  }
+
+  lines.push(
+    `# HELP ${PUBSUB_DURATION} Round-trip time of a successful pg_notify, in seconds, excluding ` +
+      'time spent queued behind earlier NOTIFYs.',
+    `# TYPE ${PUBSUB_DURATION} histogram`
+  )
+  for (const s of stats) {
+    NOTIFY_DURATION_BUCKETS.forEach((le, i) => {
+      const labels = labelSet({ channel: s.channel, le: String(le) })
+      lines.push(`${PUBSUB_DURATION}_bucket${labels} ${s.durationBuckets[i]}`)
+    })
+    lines.push(
+      `${PUBSUB_DURATION}_bucket${labelSet({ channel: s.channel, le: '+Inf' })} ${s.durationCount}`
+    )
+    lines.push(`${PUBSUB_DURATION}_sum${labelSet({ channel: s.channel })} ${s.durationSum}`)
+    lines.push(`${PUBSUB_DURATION}_count${labelSet({ channel: s.channel })} ${s.durationCount}`)
+  }
+
+  return lines.join('\n') + '\n'
 }

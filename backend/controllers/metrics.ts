@@ -3,9 +3,11 @@ import { getClusterNodes } from '../api/system/info.ts'
 import {
   createRuntimeSampler,
   formatPrometheusMetrics,
+  formatPubsubMetrics,
   formatRuntimeMetrics,
   type MetricsSnapshot
 } from '../helpers/metrics.ts'
+import { notifierStats } from '../helpers/pubsub.ts'
 import type { FastifyInstance } from 'fastify'
 
 const METRICS_PERMISSIONS = ['manage:system', 'read:metrics']
@@ -98,7 +100,11 @@ async function routes(app: FastifyInstance) {
 
     return reply
       .type('text/plain; version=0.0.4; charset=utf-8')
-      .send(formatPrometheusMetrics(snapshot) + formatRuntimeMetrics(runtime))
+      .send(
+        formatPrometheusMetrics(snapshot) +
+          formatRuntimeMetrics(runtime) +
+          formatPubsubMetrics(notifierStats())
+      )
   })
 }
 
