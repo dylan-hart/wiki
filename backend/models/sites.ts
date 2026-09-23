@@ -184,6 +184,8 @@ class Sites extends ClusterReloaded {
               }
             },
             features: {
+              aiAssist: false,
+              aiAssistDailyCap: 50,
               browse: true,
               collaborativeEditing: true,
               comments: false,
@@ -497,6 +499,8 @@ class Sites extends ClusterReloaded {
           }
         },
         features: {
+          aiAssist: false,
+          aiAssistDailyCap: 50,
           browse: true,
           collaborativeEditing: true,
           comments: false,

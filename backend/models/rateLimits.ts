@@ -16,6 +16,10 @@ export interface RateLimitVerdict {
   retryAfter: number
 }
 
+export interface RateLimitPeek extends RateLimitVerdict {
+  resetsIn: number
+}
+
 /**
  * A fixed window per key, with a ban for going over it. Every attempt is one statement, and the
  * statement decides everything: whether the window has rolled over, whether the ban has lifted, what
@@ -80,6 +84,34 @@ class RateLimits {
       hits: Number(row?.hits ?? 0),
       retryAfter: row?.isBanned ? Number(row.retryAfter) : 0
     }
+  }
+
+  async peek(key: string, policy: RateLimitPolicy): Promise<RateLimitPeek> {
+    const window = sql`make_interval(secs => ${policy.windowSeconds})`
+    const result = await CARDINAL.db.execute(sql`
+      select
+        "hits",
+        coalesce("bannedUntil" > now(), false) as "isBanned",
+        greatest(0, ceil(extract(epoch from coalesce("bannedUntil", now()) - now())))::int as "banLeft",
+        ("bannedUntil" is not null or "windowStartedAt" <= now() - ${window}) as "rolledOver",
+        greatest(0, ceil(extract(epoch from "windowStartedAt" + ${window} - now())))::int as "resetsIn"
+      from "rateLimits"
+      where "key" = ${key}
+    `)
+    const row = result.rows[0] as
+      | { hits: number; isBanned: boolean; banLeft: number; rolledOver: boolean; resetsIn: number }
+      | undefined
+    if (row?.isBanned) {
+      const banLeft = Number(row.banLeft)
+      return { allowed: false, hits: Number(row.hits), retryAfter: banLeft, resetsIn: banLeft }
+    }
+    if (!row || row.rolledOver) {
+      return { allowed: true, hits: 0, retryAfter: 0, resetsIn: 0 }
+    }
+    const hits = Number(row.hits)
+    const resetsIn = Number(row.resetsIn)
+    const allowed = hits < policy.max
+    return { allowed, hits, retryAfter: allowed ? 0 : resetsIn, resetsIn }
   }
 
   async reset(key: string): Promise<void> {
