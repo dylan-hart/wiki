@@ -37,8 +37,7 @@
     </script>
     <!-- temporal-polyfill-preload:end -->
     <script>
-      function ignoreSkippedViewTransition(event) {
-        var transition = event.viewTransition
+      function ignoreSkippedViewTransition(transition) {
         if (!transition) {
           return
         }
@@ -46,8 +45,12 @@
         transition.ready.catch(ignore)
         transition.finished.catch(ignore)
       }
-      window.addEventListener('pagereveal', ignoreSkippedViewTransition)
-      window.addEventListener('pageswap', ignoreSkippedViewTransition)
+      function ignoreEventViewTransition(event) {
+        ignoreSkippedViewTransition(event.viewTransition)
+      }
+      ignoreSkippedViewTransition(document.activeViewTransition)
+      window.addEventListener('pagereveal', ignoreEventViewTransition)
+      window.addEventListener('pageswap', ignoreEventViewTransition)
     </script>
     <!--
       No webfont is linked statically: which family applies (if any -- `theme.baseFont` /
