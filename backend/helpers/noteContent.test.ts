@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import {
-  assertNoteContentWithinCap,
-  NOTE_MAX_CONTENT_BYTES,
-  whiteboardBodiesInMarkdown
-} from './noteContent.ts'
+import { assertNoteContentWithinCap, NOTE_MAX_CONTENT_BYTES } from './noteContent.ts'
 import {
   WHITEBOARD_MAX_BLOCK_BYTES,
   WHITEBOARD_MAX_PAGE_BYTES,
@@ -12,8 +8,6 @@ import {
 } from './whiteboardLimits.ts'
 
 const EMPTY_BOARD = '{"v":2,"w":800,"h":450}'
-const DRAWN_BOARD =
-  '{"v":2,"w":800,"h":450}\n{"c":"#1f2937","z":6,"p":[1,1,50]}\n{"c":"#1f2937","z":6,"p":[2,2,50]}'
 
 function board(body: string, indent = ''): string {
   return [
@@ -33,40 +27,6 @@ function thrown(fn: () => void): any {
   }
   return null
 }
-
-describe('whiteboardBodiesInMarkdown', () => {
-  test('finds the body of each whiteboard block fence', () => {
-    const md = `# Title\n\nSome text\n\n${board(EMPTY_BOARD)}\n\nMore\n\n${board(DRAWN_BOARD)}\n`
-
-    assert.deepEqual(whiteboardBodiesInMarkdown(md), [EMPTY_BOARD, DRAWN_BOARD])
-  })
-
-  test('finds a bare whiteboard fence and a tilde fence', () => {
-    const md = '```whiteboard\nA\n```\n\n~~~~ whiteboard\nB\n~~~~\n'
-
-    assert.deepEqual(whiteboardBodiesInMarkdown(md), ['A', 'B'])
-  })
-
-  test('ignores other code fences, including one that quotes a whiteboard fence', () => {
-    const md = '````markdown\n```whiteboard\nquoted\n```\n````\n\n```js\nconst a = 1\n```\n'
-
-    assert.deepEqual(whiteboardBodiesInMarkdown(md), [])
-  })
-
-  test('strips the indentation of a whiteboard nested in a list item', () => {
-    const md = `- item\n\n${board(DRAWN_BOARD, '  ')}\n`
-
-    assert.deepEqual(whiteboardBodiesInMarkdown(md), [DRAWN_BOARD])
-  })
-
-  test('an unclosed whiteboard fence still counts, up to the end of the note', () => {
-    assert.deepEqual(whiteboardBodiesInMarkdown('```whiteboard\nA\nB'), ['A\nB'])
-  })
-
-  test('handles CRLF line endings', () => {
-    assert.deepEqual(whiteboardBodiesInMarkdown('```whiteboard\r\nA\r\n```\r\n'), ['A'])
-  })
-})
 
 describe('assertNoteContentWithinCap', () => {
   test('accepts ordinary content with a whiteboard inside the caps', () => {
@@ -100,6 +60,17 @@ describe('assertNoteContentWithinCap', () => {
 
     assert.equal(err?.name, 'noteWhiteboardTooLarge')
     assert.match(err.message, /total/)
+  })
+
+  test('refuses a whiteboard fence inside a quote, as the renderer draws it', () => {
+    const quoted = board('x'.repeat(WHITEBOARD_MAX_BLOCK_BYTES + 1))
+      .split('\n')
+      .map((line) => `> ${line}`)
+      .join('\n')
+
+    const err = thrown(() => assertNoteContentWithinCap(quoted))
+
+    assert.equal(err?.name, 'noteWhiteboardTooLarge')
   })
 
   test('refuses a whiteboard with too many strokes', () => {
