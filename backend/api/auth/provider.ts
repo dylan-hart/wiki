@@ -35,15 +35,43 @@ export function loginErrorUrl(redirect: string, code: string): string {
   return `/login?${params.toString()}`
 }
 
+const LINK_RESULT_PARAMS = ['authLink', 'authLinkError', 'strategyId']
+
+export function linkResultUrl(redirect: string, params: Record<string, string>): string {
+  const absolute = /^[a-z][a-z0-9+.-]*:/i.test(redirect)
+  const url = new URL(redirect || '/', 'http://link.invalid')
+  for (const key of LINK_RESULT_PARAMS) {
+    url.searchParams.delete(key)
+  }
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value)
+  }
+  return absolute ? url.toString() : `${url.pathname}${url.search}${url.hash}`
+}
+
+function errorCode(err: any): string {
+  return typeof err?.message === 'string' && /^ERR_[A-Z0-9_]+$/.test(err.message)
+    ? err.message
+    : 'ERR_LOGIN_FAILED'
+}
+
 class CallbackFlowError extends Error {
   redirect: string
   code: string
+  link: boolean
 
-  constructor(redirect: string, code: string) {
+  constructor(redirect: string, code: string, link = false) {
     super(code)
     this.redirect = redirect
     this.code = code
+    this.link = link
   }
+}
+
+function callbackFlowErrorUrl(err: CallbackFlowError): string {
+  return err.link
+    ? linkResultUrl(err.redirect, { authLinkError: err.code })
+    : loginErrorUrl(err.redirect, err.code)
 }
 
 /**
@@ -59,6 +87,7 @@ function matchCallbackFlow(
 ): { flow: NonNullable<FastifyRequest['session']['authFlow']>; redirect: string } {
   const flow = req.session.authFlow
   const redirect = flow?.redirect ?? '/'
+  const link = flow?.mode === 'link'
   if (
     !flow ||
     flow.strategyId !== strategyId ||
@@ -73,7 +102,7 @@ function matchCallbackFlow(
       `Callback for strategy ${strategyId} from ${req.ip} did not match this session's login`
     )
     req.session.authFlow = undefined
-    throw new CallbackFlowError(redirect, 'ERR_LOGIN_EXPIRED')
+    throw new CallbackFlowError(redirect, 'ERR_LOGIN_EXPIRED', link)
   }
   // -> Spent, whatever happens next: one callback per login
   req.session.authFlow = undefined
@@ -82,10 +111,78 @@ function matchCallbackFlow(
     CARDINAL.models.flags.authDebug(
       `Provider refused the login for strategy ${flow.strategyId}: ${error} ${errorDescription ?? ''}`
     )
-    throw new CallbackFlowError(redirect, 'ERR_LOGIN_FAILED')
+    throw new CallbackFlowError(redirect, 'ERR_LOGIN_FAILED', link)
   }
 
   return { flow, redirect }
+}
+
+type CallbackExtra = {
+  code?: string
+  ticket?: string
+  body?: Record<string, any>
+  currentUrl: string
+}
+
+function fetchProviderProfile(
+  req: FastifyRequest,
+  instance: any,
+  strategyId: string,
+  flow: NonNullable<FastifyRequest['session']['authFlow']>,
+  extra: CallbackExtra
+): Promise<ProviderProfile> {
+  return instance.profile({
+    redirectUri: callbackUrl(req, strategyId),
+    state: flow.state,
+    nonce: flow.nonce,
+    codeVerifier: flow.codeVerifier,
+    authnRequestId: flow.authnRequestId,
+    currentUrl: extra.currentUrl,
+    code: extra.code,
+    ticket: extra.ticket,
+    body: extra.body
+  })
+}
+
+async function finishProviderLink(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  flow: NonNullable<FastifyRequest['session']['authFlow']>,
+  redirect: string,
+  extra: CallbackExtra
+) {
+  const refuse = (code: string) => reply.redirect(linkResultUrl(redirect, { authLinkError: code }))
+
+  const strategy = await CARDINAL.models.authentication.getStrategyById(flow.strategyId)
+  const instance = CARDINAL.auth.strategies[flow.strategyId] as any
+  if (!strategy?.isEnabled || typeof instance?.profile !== 'function') {
+    return refuse('ERR_LINK_STRATEGY_UNSUPPORTED')
+  }
+
+  const userId = req.session.authenticated ? req.session.user?.id : undefined
+  if (!userId || !flow.linkUserId || userId !== flow.linkUserId) {
+    CARDINAL.models.flags.authDebug(
+      `Refused to connect strategy ${strategy.id}: the session is no longer signed in as the user who started it`
+    )
+    return refuse('ERR_LINK_NOT_SIGNED_IN')
+  }
+
+  try {
+    const profile = await fetchProviderProfile(req, instance, strategy.id, flow, extra)
+    await CARDINAL.models.login.linkProviderToAccount({
+      userId,
+      strategy,
+      profile,
+      siteId: flow.siteId,
+      ip: req.ip
+    })
+    return reply.redirect(linkResultUrl(redirect, { authLink: 'added', strategyId: strategy.id }))
+  } catch (err: any) {
+    CARDINAL.models.flags.authDebug(
+      `Connecting ${strategy.module} strategy ${strategy.id} to user ${userId} failed: ${err.message}`
+    )
+    return refuse(errorCode(err))
+  }
 }
 
 async function finishProviderLogin(
@@ -93,7 +190,7 @@ async function finishProviderLogin(
   reply: FastifyReply,
   flow: NonNullable<FastifyRequest['session']['authFlow']>,
   redirect: string,
-  extra: { code?: string; ticket?: string; body?: Record<string, any>; currentUrl: string }
+  extra: CallbackExtra
 ) {
   const strategy = await CARDINAL.models.authentication.getStrategyById(flow.strategyId)
   const instance = CARDINAL.auth.strategies[flow.strategyId] as any
@@ -104,17 +201,7 @@ async function finishProviderLogin(
   // -> Outside the `try` so the `catch` can still name whoever the provider said this was
   let profile: ProviderProfile | undefined
   try {
-    const resolvedProfile: ProviderProfile = await instance.profile({
-      redirectUri: callbackUrl(req, strategy.id),
-      state: flow.state,
-      nonce: flow.nonce,
-      codeVerifier: flow.codeVerifier,
-      authnRequestId: flow.authnRequestId,
-      currentUrl: extra.currentUrl,
-      code: extra.code,
-      ticket: extra.ticket,
-      body: extra.body
-    })
+    const resolvedProfile = await fetchProviderProfile(req, instance, strategy.id, flow, extra)
     profile = resolvedProfile
     const result = await CARDINAL.models.login.loginWithProvider(
       { siteId: flow.siteId, strategy, profile: resolvedProfile, ip: req.ip },
@@ -156,10 +243,36 @@ async function finishProviderLogin(
   }
 }
 
+async function linkRefusal(
+  req: FastifyRequest,
+  strategy: { id: string; isEnabled: boolean } | null | undefined,
+  instance: any
+): Promise<{ code?: string; userId?: string }> {
+  const userId = req.session.authenticated ? req.session.user?.id : undefined
+  if (!userId) {
+    return { code: 'ERR_LINK_NOT_SIGNED_IN' }
+  }
+  if (
+    !strategy?.isEnabled ||
+    typeof instance?.authorizationUrl !== 'function' ||
+    typeof instance?.profile !== 'function'
+  ) {
+    return { code: 'ERR_LINK_STRATEGY_UNSUPPORTED' }
+  }
+  const user = await CARDINAL.models.users.getById(userId)
+  if (!user) {
+    return { code: 'ERR_LINK_NOT_SIGNED_IN' }
+  }
+  if (((user.auth ?? {}) as Record<string, any>)[strategy.id]) {
+    return { code: 'ERR_LINK_ALREADY_LINKED' }
+  }
+  return { userId }
+}
+
 async function routes(app: FastifyInstance) {
   app.get<{
     Params: { strategyId: string }
-    Querystring: { siteId?: string; redirect?: string }
+    Querystring: { siteId?: string; redirect?: string; mode?: 'login' | 'link' }
   }>(
     '/auth/:strategyId/authorize',
     {
@@ -187,6 +300,13 @@ async function routes(app: FastifyInstance) {
               maxLength: 255,
               description:
                 'Where to send the user once they are logged in. A path on this wiki; anything else is ignored.'
+            },
+            mode: {
+              type: 'string',
+              enum: ['login', 'link'],
+              default: 'login',
+              description:
+                "`link` connects the provider to the signed-in account instead of logging anyone in. Every outcome is a redirect to `redirect`, carrying `authLink=added&strategyId=<id>` or `authLinkError=<code>` (`ERR_LINK_STRATEGY_UNSUPPORTED`, `ERR_LINK_NOT_SIGNED_IN`, `ERR_LINK_ALREADY_LINKED`, `ERR_LINK_IDENTITY_IN_USE`, `ERR_EMAIL_NOT_ALLOWED`, or a provider failure's own code)."
             }
           }
         },
@@ -196,6 +316,10 @@ async function routes(app: FastifyInstance) {
             type: 'string'
           },
           302: { description: 'Redirect to the identity provider', type: 'null' },
+          403: {
+            $ref: 'ApiError#',
+            description: 'A `mode=link` start that another site initiated.'
+          },
           404: { $ref: 'ApiError#', description: 'No such strategy, or it is disabled.' }
         }
       }
@@ -203,6 +327,28 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       const strategy = await CARDINAL.models.authentication.getStrategyById(req.params.strategyId)
       const instance = CARDINAL.auth.strategies[req.params.strategyId] as any
+      const redirect = isFollowableRedirectTarget(req.query.redirect, {
+        allowAbsolute: absoluteRedirectsAllowed()
+      })
+        ? req.query.redirect!
+        : '/'
+
+      let linkUserId: string | undefined
+      if (req.query.mode === 'link') {
+        const fetchSite = req.headers['sec-fetch-site']
+        if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') {
+          return reply.forbidden('Cross-origin request blocked')
+        }
+        const refusal = await linkRefusal(req, strategy, instance)
+        if (refusal.code) {
+          CARDINAL.models.flags.authDebug(
+            `Refused to start connecting strategy ${req.params.strategyId} from ${req.ip}: ${refusal.code}`
+          )
+          return reply.redirect(linkResultUrl(redirect, { authLinkError: refusal.code }))
+        }
+        linkUserId = refusal.userId
+      }
+
       if (!strategy?.isEnabled || typeof instance?.authorizationUrl !== 'function') {
         return reply.notFound('There is no such login provider.')
       }
@@ -221,12 +367,9 @@ async function routes(app: FastifyInstance) {
         //    `AuthFlow.authnRequestId` in `models/authentication.ts` for why it is generated here.
         authnRequestId: `_${randomToken(30)}`,
         // -> An open redirect is how a login page is turned into a lure
-        redirect: isFollowableRedirectTarget(req.query.redirect, {
-          allowAbsolute: absoluteRedirectsAllowed()
-        })
-          ? req.query.redirect!
-          : '/',
-        startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
+        redirect,
+        startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }),
+        ...(linkUserId ? { mode: 'link' as const, linkUserId } : { mode: 'login' as const })
       }
       req.session.authFlow = flow
 
@@ -252,7 +395,11 @@ async function routes(app: FastifyInstance) {
           strategy: strategy.id,
           error: err
         })
-        return reply.redirect(loginErrorUrl(flow.redirect, err.message))
+        return reply.redirect(
+          linkUserId
+            ? linkResultUrl(flow.redirect, { authLinkError: errorCode(err) })
+            : loginErrorUrl(flow.redirect, err.message)
+        )
       }
     }
   )
@@ -278,7 +425,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Finish a login at an identity provider',
         description:
-          "Where the provider sends the browser back. The answer is only accepted if it matches the flow this session started — same strategy, same `state`, and within the time a login takes — after which the module turns the code into an account and the session is established. Ends in a redirect either way: to where the login was heading, or to the login screen carrying an error code.\n\nThis is the URL an administrator registers with the provider; it is shown on the strategy's own page in the admin area.",
+          "Where the provider sends the browser back. The answer is only accepted if it matches the flow this session started — same strategy, same `state`, and within the time a login takes — after which the module turns the code into an account and the session is established. Ends in a redirect either way: to where the login was heading, or to the login screen carrying an error code.\n\nA flow started with `mode=link` never logs anyone in: it connects the provider to the account that started it, provided the session is still signed in as that account, and redirects back to where it started with `authLink` or `authLinkError`.\n\nThis is the URL an administrator registers with the provider; it is shown on the strategy's own page in the admin area.",
         tags: ['Authentication'],
         params: {
           type: 'object',
@@ -305,12 +452,13 @@ async function routes(app: FastifyInstance) {
         ))
       } catch (err: any) {
         if (err instanceof CallbackFlowError) {
-          return reply.redirect(loginErrorUrl(err.redirect, err.code))
+          return reply.redirect(callbackFlowErrorUrl(err))
         }
         throw err
       }
 
-      return finishProviderLogin(req, reply, flow, redirect, {
+      const finish = flow.mode === 'link' ? finishProviderLink : finishProviderLogin
+      return finish(req, reply, flow, redirect, {
         code: req.query.code,
         ticket: req.query.ticket,
         currentUrl: `${callbackUrl(req, req.params.strategyId)}?${new URLSearchParams(req.query as Record<string, string>).toString()}`
@@ -359,12 +507,13 @@ async function routes(app: FastifyInstance) {
         ;({ flow, redirect } = matchCallbackFlow(req, req.params.strategyId, req.body?.RelayState))
       } catch (err: any) {
         if (err instanceof CallbackFlowError) {
-          return reply.redirect(loginErrorUrl(err.redirect, err.code))
+          return reply.redirect(callbackFlowErrorUrl(err))
         }
         throw err
       }
 
-      return finishProviderLogin(req, reply, flow, redirect, {
+      const finish = flow.mode === 'link' ? finishProviderLink : finishProviderLogin
+      return finish(req, reply, flow, redirect, {
         body: req.body,
         currentUrl: callbackUrl(req, req.params.strategyId)
       })
