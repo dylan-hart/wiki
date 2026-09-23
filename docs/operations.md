@@ -418,12 +418,12 @@ through three serial notifiers (`backend/helpers/pubsub.ts#createNotifier`). Eac
 cache reloads, maintenance broadcasts), `scheduler` (job queued/completed wake-ups) and
 `collaboration relay` (collaborative-editing updates between instances).
 
-| Series                                                                           | Type      | What it tells you                                                                                                                                                                   |
-| -------------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cardinaljs_pubsub_notify_sent_total{channel}`                                   | counter   | NOTIFYs this instance has sent. `rate()` over it is the per-instance NOTIFY send rate.                                                                                              |
-| `cardinaljs_pubsub_notify_dropped_total{channel,reason}`                         | counter   | NOTIFYs discarded unsent. `reason="error"`: `pg_notify` failed (each one also logs a `db` warning). `reason="no_client"`: no listener connection was open, e.g. during a reconnect. |
-| `cardinaljs_pubsub_notify_queue_depth{channel}`                                  | gauge     | NOTIFYs queued behind the serial notifier, including the one in flight.                                                                                                             |
-| `cardinaljs_pubsub_notify_duration_seconds{channel}` (`_bucket`/`_sum`/`_count`) | histogram | Round-trip time of each successful `pg_notify`, not counting time spent queued. Buckets run from 1 ms to 2.5 s.                                                                     |
+| Series                                                                           | Type      | What it tells you                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `cardinaljs_pubsub_notify_sent_total{channel}`                                   | counter   | NOTIFYs this instance has sent. `rate()` over it is the per-instance NOTIFY send rate.                                                                                                                                                                                                           |
+| `cardinaljs_pubsub_notify_dropped_total{channel,reason}`                         | counter   | NOTIFYs discarded unsent. `reason="error"`: `pg_notify` failed (each one also logs a `db` warning). `reason="no_client"`: no listener connection was open, e.g. during a reconnect. `reason="no_peer"`: withheld because no other instance was known to be running (`collaboration relay` only). |
+| `cardinaljs_pubsub_notify_queue_depth{channel}`                                  | gauge     | NOTIFYs queued behind the serial notifier, including the one in flight.                                                                                                                                                                                                                          |
+| `cardinaljs_pubsub_notify_duration_seconds{channel}` (`_bucket`/`_sum`/`_count`) | histogram | Round-trip time of each successful `pg_notify`, not counting time spent queued. Buckets run from 1 ms to 2.5 s.                                                                                                                                                                                  |
 
 Reading them:
 
@@ -439,6 +439,13 @@ Reading them:
   movements are relayed only while another instance is running, so this counter climbs during
   collaborative editing only in a multi-instance deployment. It is the series to watch when judging
   whether Postgres pubsub still has headroom for collaborative editing.
+- **`reason="no_peer"` climbs during editing on a single instance, and that is expected.** Every
+  edit and cursor move the relay withholds for want of a peer is counted there instead of under
+  `sent_total`. On a multi-instance deployment it should stay flat: a rising `no_peer` rate there
+  means the instances cannot see each other's relay connections in `pg_stat_activity`, and edits are
+  not crossing between them until the next resync. Collaborative editing recovers from both
+  `no_client` and `no_peer` drops on its own: once the listener reconnects, or a peer turns up after
+  none was known, every open room exchanges state with its peers.
 - **The counters are per process** and restart from zero when the instance restarts, the same as
   any Prometheus counter. `rate()` and `increase()` handle the reset. Only the serving process is
   scraped. Worker threads have no listener connection and cannot send a NOTIFY, and their attempts

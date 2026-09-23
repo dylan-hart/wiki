@@ -56,20 +56,23 @@ export function makeInstance(id: string): any {
     relaySeq: 0,
     peerPresence: { known: false, checkedAt: 0 },
     peerCheck: null,
-    peerGated: []
+    peerGated: [],
+    relayInterrupted: false
   }
 }
 
 /**
  * `CARDINAL.INSTANCE_ID` is toggled to whichever side is "currently running" for the length of each
  * synchronous hop, so the receiving clone sees what a NOTIFY delivery from a second process would.
+ * A clone whose `listenClient` is `null` is not LISTENing, so it misses the delivery, as a real
+ * instance whose listener connection is reconnecting does.
  */
 export function wire(a: any, b: any): void {
   const byId: Record<string, any> = { [a.__id]: a, [b.__id]: b }
   for (const inst of [a, b]) {
     inst.publish = (envelope: any) => {
       for (const target of Object.values(byId)) {
-        if (target.__id === envelope.i) {
+        if (target.__id === envelope.i || !target.listenClient) {
           continue
         }
         const previous = (globalThis as any).CARDINAL.INSTANCE_ID
