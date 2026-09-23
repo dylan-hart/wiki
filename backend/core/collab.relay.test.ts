@@ -103,6 +103,7 @@ describe('(c) chunked relay reassembly when the sender is gone mid-burst', () =>
     senderRoom.doc.transact(() => {
       senderRoom.doc.getText('content').insert(0, `BIG EDIT: ${'z'.repeat(20000)}`)
     })
+    sender.flushRelayUpdates(senderRoom)
 
     assert.ok(
       sentChunks.length >= 2 && sentChunks.every((c) => c.m !== undefined),
@@ -196,7 +197,13 @@ describe('(d) pageSaved() to an instance with no open room for that page', () =>
     inst.rooms.set('page-6', {
       doc,
       pageId: 'page-6',
-      draftPersist: { timer: null, pendingSince: null }
+      draftPersist: { timer: null, pendingSince: null },
+      relayOutbox: {
+        updates: [],
+        updateTimer: null,
+        awarenessClients: new Set(),
+        awarenessTimer: null
+      }
     })
     const info = { versionDate: '2026-08-18T00:00:00.000Z', authorId: 'u1', authorName: 'Ada' }
 

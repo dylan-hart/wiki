@@ -74,6 +74,10 @@ export const PEER_STATE_TIMEOUT = 500
 
 const PEER_PRESENCE_TTL = 15 * 1000
 
+export const RELAY_UPDATE_WINDOW = 50
+
+export const RELAY_AWARENESS_WINDOW = 100
+
 /**
  * How long edits must settle before a room's state is persisted as the autosave draft. Short enough
  * that an ordinary pause in typing flushes, since a crash can land at any moment.
@@ -158,6 +162,14 @@ interface CollabRoom {
    * carries WYSIWYG content: a client only asks while its own fragment is empty.
    */
   wysiwygSeeded: boolean
+  relayOutbox: RelayOutbox
+}
+
+interface RelayOutbox {
+  updates: Uint8Array[]
+  updateTimer: NodeJS.Timeout | null
+  awarenessClients: Set<number>
+  awarenessTimer: NodeJS.Timeout | null
 }
 
 interface DraftPersistState {
@@ -333,6 +345,7 @@ export default {
     this.partials.clear()
     const pendingDraftFlushes: Promise<void>[] = []
     for (const room of this.rooms.values()) {
+      this.flushRelayOutbox(room)
       for (const conn of room.conns.keys()) {
         conn.close(1001, 'Server is shutting down')
       }
@@ -563,7 +576,13 @@ export default {
       provisional: true,
       draftPersist: { timer: null, pendingSince: null, inFlight: null },
       lastAuthorName: null,
-      wysiwygSeeded: false
+      wysiwygSeeded: false,
+      relayOutbox: {
+        updates: [],
+        updateTimer: null,
+        awarenessClients: new Set(),
+        awarenessTimer: null
+      }
     }
     this.rooms.set(page.id, room)
 
@@ -576,7 +595,7 @@ export default {
         this.send(conn, message)
       }
       if (origin !== RELAYED) {
-        this.relay({ r: room.pageId, t: 'update', p: Buffer.from(update).toString('base64') })
+        this.queueRelayUpdate(room, update)
         // -> The seed and a peer's state apply as `RELAYED` too, so only a local edit gets here
         this.scheduleDraftPersist(room)
       }
@@ -607,11 +626,7 @@ export default {
           this.send(conn, message)
         }
         if (origin !== RELAYED) {
-          this.relay({
-            r: room.pageId,
-            t: 'awareness',
-            p: Buffer.from(update).toString('base64')
-          })
+          this.queueRelayAwareness(room, changed, removed.length > 0)
         }
       }
     )
@@ -800,6 +815,7 @@ export default {
     if (room.conns.size > 0 || this.rooms.get(room.pageId) !== room) {
       return
     }
+    this.flushRelayOutbox(room)
     if (room.draftPersist.timer) {
       this.flushDraftPersist(room)
     }
@@ -875,6 +891,7 @@ export default {
     let clearAfter: Promise<void> = Promise.resolve()
     if (room) {
       room.doc.getMap('meta').set('lastSave', info)
+      this.flushRelayUpdates(room)
       clearAfter = cancelPendingDraftPersist(room)
     } else {
       this.relay({ r: pageId, t: 'saved', p: JSON.stringify(info) })
@@ -896,6 +913,72 @@ export default {
     const room = this.rooms.get(pageId)
     const clearAfter = room ? cancelPendingDraftPersist(room) : Promise.resolve()
     return clearAfter.then(() => CARDINAL.models.pageDrafts.clear(pageId))
+  },
+
+  queueRelayUpdate(room: CollabRoom, update: Uint8Array): void {
+    const outbox = room.relayOutbox
+    outbox.updates.push(update)
+    if (this.rooms.get(room.pageId) !== room) {
+      this.flushRelayUpdates(room)
+      return
+    }
+    if (!outbox.updateTimer) {
+      outbox.updateTimer = setTimeout(() => this.flushRelayUpdates(room), RELAY_UPDATE_WINDOW)
+      outbox.updateTimer.unref?.()
+    }
+  },
+
+  flushRelayUpdates(room: CollabRoom): void {
+    const outbox = room.relayOutbox
+    if (outbox.updateTimer) {
+      clearTimeout(outbox.updateTimer)
+      outbox.updateTimer = null
+    }
+    if (outbox.updates.length === 0) {
+      return
+    }
+    const merged = outbox.updates.length === 1 ? outbox.updates[0] : Y.mergeUpdates(outbox.updates)
+    outbox.updates = []
+    this.relay({ r: room.pageId, t: 'update', p: Buffer.from(merged).toString('base64') })
+  },
+
+  queueRelayAwareness(room: CollabRoom, clients: number[], removal: boolean): void {
+    const outbox = room.relayOutbox
+    for (const clientId of clients) {
+      outbox.awarenessClients.add(clientId)
+    }
+    if (removal || this.rooms.get(room.pageId) !== room) {
+      this.flushRelayAwareness(room)
+      return
+    }
+    if (!outbox.awarenessTimer) {
+      outbox.awarenessTimer = setTimeout(
+        () => this.flushRelayAwareness(room),
+        RELAY_AWARENESS_WINDOW
+      )
+      outbox.awarenessTimer.unref?.()
+    }
+  },
+
+  flushRelayAwareness(room: CollabRoom): void {
+    const outbox = room.relayOutbox
+    if (outbox.awarenessTimer) {
+      clearTimeout(outbox.awarenessTimer)
+      outbox.awarenessTimer = null
+    }
+    if (outbox.awarenessClients.size === 0) {
+      return
+    }
+    const update = awarenessProtocol.encodeAwarenessUpdate(room.awareness, [
+      ...outbox.awarenessClients
+    ])
+    outbox.awarenessClients.clear()
+    this.relay({ r: room.pageId, t: 'awareness', p: Buffer.from(update).toString('base64') })
+  },
+
+  flushRelayOutbox(room: CollabRoom): void {
+    this.flushRelayUpdates(room)
+    this.flushRelayAwareness(room)
   },
 
   /** Publish a message to the other instances, split into chunks postgres will accept. */
