@@ -174,3 +174,20 @@ describe('/i/:id permalink route', () => {
     expect(API_CLIENT.get).not.toHaveBeenCalled()
   })
 })
+
+describe('/_notes route', () => {
+  const router = buildTestRouter(routes)
+
+  it('renders the notes screen without the site sidebar, and is not a content page', async () => {
+    await router.push('/_notes?new=1')
+    const route = router.currentRoute.value
+    expect(route.matched.map((record) => record.path)).toEqual(['/_notes', '/_notes'])
+    expect(route.meta.hideSideNav).toBe(true)
+    expect(Boolean(route.meta.contentPage)).toBe(false)
+    expect(route.query.new).toBe('1')
+
+    const view = route.matched.at(-1).components.default
+    const component = typeof view === 'function' ? (await view()).default : view
+    expect(component.__name).toBe('Notes')
+  })
+})

@@ -15,6 +15,7 @@ import {
   connectListener,
   createListenerPool,
   createNotifier,
+  verifyListenerDelivery,
   type ListenerHandle
 } from '../helpers/pubsub.ts'
 import { acquireAdvisoryLock, type AdvisoryLockHandle } from '../helpers/advisoryLock.ts'
@@ -257,6 +258,66 @@ export function resolvePoolSizeOptions(
   return workerMode ? { min: 0, max: 1 } : configuredPool
 }
 
+export type DirectConnectionSource = 'DATABASE_DIRECT_URL' | 'db.direct'
+
+export interface DirectConnectionInput {
+  directUrl?: string | null
+  direct?: { host?: unknown; port?: unknown } | null
+  queryFromUrl: boolean
+}
+
+export interface DirectConnection {
+  config: PoolConfig
+  source: DirectConnectionSource | null
+  ignoredDirectBlock: boolean
+}
+
+function isSet(value: unknown): boolean {
+  return value !== null && value !== undefined && String(value).trim() !== ''
+}
+
+export function resolveDirectConnection(
+  queryConfig: PoolConfig,
+  input: DirectConnectionInput
+): DirectConnection {
+  if (isSet(input.directUrl)) {
+    return {
+      config: {
+        connectionString: String(input.directUrl).trim(),
+        ...(queryConfig.ssl !== undefined ? { ssl: queryConfig.ssl } : {})
+      },
+      source: 'DATABASE_DIRECT_URL',
+      ignoredDirectBlock: false
+    }
+  }
+
+  const host = input.direct?.host
+  const port = input.direct?.port
+  if (!isSet(host) && !isSet(port)) {
+    return { config: queryConfig, source: null, ignoredDirectBlock: false }
+  }
+  if (input.queryFromUrl) {
+    return { config: queryConfig, source: null, ignoredDirectBlock: true }
+  }
+
+  let resolvedPort = queryConfig.port
+  if (isSet(port)) {
+    resolvedPort = Number(String(port).trim())
+    if (!Number.isInteger(resolvedPort) || resolvedPort < 1 || resolvedPort > 65535) {
+      throw new Error(`db.direct.port must be a port number, got "${String(port)}"`)
+    }
+  }
+  return {
+    config: {
+      ...queryConfig,
+      host: isSet(host) ? String(host).trim() : queryConfig.host,
+      port: resolvedPort
+    },
+    source: 'db.direct',
+    ignoredDirectBlock: false
+  }
+}
+
 export default {
   pool: null as Pool | null,
   /**
@@ -368,9 +429,21 @@ export default {
     this.pool.on('connect', instrumentSlowQueries)
 
     // -> A worker thread never opens a LISTEN/NOTIFY client.
+    let directSource: DirectConnectionSource | null = null
     if (!workerMode) {
+      const direct = resolveDirectConnection(this.config, {
+        directUrl: process.env.DATABASE_DIRECT_URL,
+        direct: CARDINAL.config.db.direct,
+        queryFromUrl: Boolean(process.env.DATABASE_URL)
+      })
+      if (direct.ignoredDirectBlock) {
+        CARDINAL.logger.warn('db', 'db.direct is ignored while DATABASE_URL is set', {
+          use: 'DATABASE_DIRECT_URL'
+        })
+      }
+      directSource = direct.source
       this.listenerPool = createListenerPool({
-        ...this.config,
+        ...direct.config,
         options: `-c search_path=${CARDINAL.config.db.schema}`
       })
     }
@@ -390,6 +463,14 @@ export default {
       process.exit(1)
     }
 
+    if (!workerMode) {
+      await verifyListenerDelivery({
+        listenerPool: this.listenerPool!,
+        notify: (channel, payload) =>
+          this.pool!.query('SELECT pg_notify($1, $2)', [channel, payload])
+      })
+    }
+
     await this.dropSchemaIfDev(db)
 
     let migrationsApplied = 0
@@ -406,6 +487,7 @@ export default {
       postgres: this.VERSION,
       schema: CARDINAL.config.db.schema,
       ...(workerMode ? {} : { migrations: migrationsApplied }),
+      ...(directSource ? { listeners: directSource } : {}),
       ms: Date.now() - startedAt
     })
 

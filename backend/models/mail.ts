@@ -31,6 +31,8 @@ export type MailKind =
   | 'tfaDisabled'
   | 'tfaRecoveryCodesGenerated'
   | 'tfaNewDeviceLogin'
+  | 'signInMethodAdded'
+  | 'signInMethodRemoved'
 
 export interface MailMessage {
   to: string
@@ -576,6 +578,41 @@ class MailModel {
     )
   }
 
+  async sendSignInMethodRemoved({
+    to,
+    name,
+    methodName,
+    userId,
+    locale,
+    siteId
+  }: {
+    to: string
+    name: string
+    methodName: string
+    userId?: string
+    locale?: string | null
+    siteId?: string
+  }): Promise<void> {
+    const link = this.buildLink('/login', this.resolveMailBaseURL(siteId))
+    const key = 'signInMethodRemoved'
+    await this.send({
+      to,
+      kind: 'signInMethodRemoved',
+      userId,
+      subject: await CARDINAL.models.locales.resolveString(locale, `mail.${key}.subject`),
+      text: await CARDINAL.models.locales.resolveString(locale, `mail.${key}.text`, {
+        name,
+        method: methodName,
+        link
+      }),
+      html: await CARDINAL.models.locales.resolveString(locale, `mail.${key}.html`, {
+        name: escapeHtml(name),
+        method: escapeHtml(methodName),
+        link
+      })
+    })
+  }
+
   /**
    * Notice sent when a 2FA-gated login completes from a device/IP `models/login.ts`'s fingerprint
    * check has not seen before for this account — never on a login from an already-known one.
@@ -607,6 +644,41 @@ class MailModel {
       { name, ip: ip || '(unknown)', link },
       { kind: 'tfaNewDeviceLogin', userId }
     )
+  }
+
+  async sendSignInMethodAdded({
+    to,
+    name,
+    methodName,
+    userId,
+    locale,
+    siteId
+  }: {
+    to: string
+    name: string
+    methodName: string
+    userId?: string
+    locale?: string | null
+    siteId?: string
+  }): Promise<void> {
+    const link = this.buildLink('/login', this.resolveMailBaseURL(siteId))
+    const locales = CARDINAL.models.locales
+    await this.send({
+      to,
+      kind: 'signInMethodAdded',
+      userId,
+      subject: await locales.resolveString(locale, 'mail.signInMethodAdded.subject'),
+      text: await locales.resolveString(locale, 'mail.signInMethodAdded.text', {
+        name,
+        method: methodName,
+        link
+      }),
+      html: await locales.resolveString(locale, 'mail.signInMethodAdded.html', {
+        name,
+        method: escapeHtml(methodName),
+        link
+      })
+    })
   }
 
   /**

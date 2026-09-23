@@ -111,6 +111,7 @@ describe('isSpaAppRoute', () => {
       '/_tags',
       '/_graph',
       '/_tasks',
+      '/_notes',
       '/_admin',
       '/_admin/dashboard',
       '/_admin/site-1/general',
@@ -126,7 +127,15 @@ describe('isSpaAppRoute', () => {
   })
 
   test('an unknown underscore path, a page path and a junk path are not', () => {
-    for (const urlPath of ['/_nope', '/_searchx', '/docs/guide', '/wp-login.php', '/', '/loginx']) {
+    for (const urlPath of [
+      '/_nope',
+      '/_searchx',
+      '/_notes/extra',
+      '/docs/guide',
+      '/wp-login.php',
+      '/',
+      '/loginx'
+    ]) {
       assert.equal(isSpaAppRoute(urlPath), false, urlPath)
     }
   })
@@ -299,6 +308,7 @@ describe('registerAppShellFallback', () => {
         '/_search',
         '/_tags',
         '/_graph',
+        '/_notes',
         '/_error/notfound',
         '/_create/markdown',
         '/_edit/docs/guide'

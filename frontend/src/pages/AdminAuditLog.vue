@@ -271,6 +271,8 @@ const AUDIT_EVENTS = [
   'user.passkeyEnrolled',
   'user.passkeyRemoved',
   'user.loggedOut',
+  'user.signInMethodAdded',
+  'user.signInMethodRemoved',
   'group.created',
   'group.updated',
   'group.deleted',

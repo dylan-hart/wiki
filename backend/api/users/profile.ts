@@ -792,6 +792,11 @@ async function routes(app: FastifyInstance) {
                           description:
                             'Whether the account has another way in — a passkey or another linked provider — and may therefore turn password login off.'
                         },
+                        canDisconnect: {
+                          type: 'boolean',
+                          description:
+                            'Whether this provider may be disconnected with `DELETE /users/profile/auth/:strategyId`: false for the local strategy, and false when it is the last way into the account.'
+                        },
                         recoveryCodesRemaining: {
                           type: 'integer',
                           description:
@@ -825,6 +830,47 @@ async function routes(app: FastifyInstance) {
         passkeys: await CARDINAL.models.passkeys.list(userId),
         passkeysEnabled: passkeysAllowed()
       }
+    }
+  )
+
+  app.delete<{ Params: { strategyId: string } }>(
+    '/profile/auth/:strategyId',
+    {
+      schema: {
+        summary: "Disconnect a sign-in method from the logged in user's own account",
+        description:
+          'Removes the link to an external provider, so it can no longer sign this account in. Refused for the local strategy (turn password login off with `PUT /users/profile/password-login` instead), for a provider that is not linked, and when it is the last way into the account. The account holder is emailed a notice, and the removal is recorded in the audit log.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            strategyId: { type: 'string', format: 'uuid' }
+          },
+          required: ['strategyId']
+        },
+        response: {
+          204: {
+            description: 'Sign-in method disconnected successfully'
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const userId = sessionUserId(req)
+
+      try {
+        await CARDINAL.models.userCredentials.unlinkStrategy({
+          userId,
+          strategyId: req.params.strategyId,
+          actor: actorFromRequest(req)
+        })
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
+      }
+
+      return reply.code(204).send()
     }
   )
 

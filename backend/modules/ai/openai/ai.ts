@@ -11,10 +11,23 @@ export const DEFAULT_TIMEOUT_MS = 60_000
 
 export const REASONING_EFFORT = 'low'
 
+export const HIGH_REASONING_EFFORT = 'high'
+
 const REASONING_MODEL = /^(gpt-5|o\d)/
 
+const CHAT_MODEL = /^gpt-5(\.\d+)?-chat(-|$)/
+
+const HIGH_EFFORT_ONLY_MODEL = /^gpt-5(\.\d+)?-pro(-|$)/
+
 export function isReasoningModel(model: string): boolean {
-  return REASONING_MODEL.test(model)
+  return REASONING_MODEL.test(model) && !CHAT_MODEL.test(model)
+}
+
+export function reasoningEffort(model: string): string | undefined {
+  if (!isReasoningModel(model)) {
+    return undefined
+  }
+  return HIGH_EFFORT_ONLY_MODEL.test(model) ? HIGH_REASONING_EFFORT : REASONING_EFFORT
 }
 
 export type OpenAiGenerateContext = AiProviderContext
@@ -114,6 +127,7 @@ export default async function generate(
     }
     const model = trimmedString(config?.model) || DEFAULT_MODEL
     const reasoning = isReasoningModel(model)
+    const effort = reasoningEffort(model)
     const system = trimmedString(context?.system)
     const timeout = AbortSignal.timeout(DEFAULT_TIMEOUT_MS)
     const signal = context?.signal ? AbortSignal.any([context.signal, timeout]) : timeout
@@ -130,7 +144,7 @@ export default async function generate(
           model,
           ...(system ? { instructions: system } : {}),
           input: prompt,
-          ...(reasoning ? { reasoning: { effort: REASONING_EFFORT } } : {}),
+          ...(effort ? { reasoning: { effort } } : {}),
           max_output_tokens: outputTokenCap(context?.maxOutputTokens, reasoning),
           store: false
         }),

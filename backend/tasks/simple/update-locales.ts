@@ -1,6 +1,6 @@
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import { setTimeout } from 'node:timers/promises'
-import { sql } from 'drizzle-orm'
-import { locales as localesTable } from '../../db/schema.ts'
 import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
@@ -60,6 +60,7 @@ export async function task(): Promise<TaskResult | void> {
   }
 
   let updated = 0
+  let baseStrings: Record<string, unknown> | undefined
   for (const lang of languages) {
     const langFilenameParts = [lang.language]
     if (lang.region) {
@@ -79,22 +80,22 @@ export async function task(): Promise<TaskResult | void> {
     const strings = stringsResp.ok ? await stringsResp.json() : null
 
     if (strings && isFlatStringMap(strings)) {
-      await CARDINAL.db
-        .insert(localesTable)
-        .values({
-          code: langFilename,
+      baseStrings ??= JSON.parse(
+        await readFile(path.join(CARDINAL.SERVERPATH, 'locales/en.json'), 'utf8')
+      ) as Record<string, unknown>
+      await CARDINAL.models.locales.mergeDownloadedStrings(
+        langFilename,
+        {
           name: lang.name,
           nativeName: lang.localizedName,
           language: lang.language,
           region: lang.region ?? '',
           script: lang.script ?? '',
-          isRTL: lang.isRtl,
-          strings
-        })
-        .onConflictDoUpdate({
-          target: localesTable.code,
-          set: { strings, updatedAt: sql`now()` }
-        })
+          isRTL: lang.isRtl
+        },
+        strings,
+        baseStrings
+      )
       updated++
       CARDINAL.logger.debug('locale', 'updated strings', { locale: langFilename })
     } else if (strings) {

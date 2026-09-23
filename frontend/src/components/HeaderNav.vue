@@ -88,6 +88,19 @@
             <w-tooltip>{{ t('common.header.createNewPage') }}</w-tooltip>
             <new-menu />
           </w-btn>
+          <w-btn
+            v-if="quickNoteAvailable"
+            class="flush-hover-btn header-nav-btn"
+            flat
+            icon="tabler:note"
+            color="slate-soft"
+            :aria-label="t('common.header.quickNote')"
+            aria-keyshortcuts="Meta+Alt+N Control+Alt+N"
+            @click="openQuickNote">
+            <w-tooltip>
+              {{ t('common.header.quickNoteTooltip', { shortcut: quickNoteShortcut }) }}
+            </w-tooltip>
+          </w-btn>
           <!--
             -> `write:pages` counts too, for an author whose rules cover the pages but not the assets
                beside them, since the editor sends them here to insert an image. The endpoints behind
@@ -181,9 +194,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
+import { useQuickNote } from '@/composables/quickNote'
 import { useMinWidth } from '@/composables/screen'
 
 import { localizedPagePath } from '@/helpers/pagePaths'
+import { isApplePlatform } from '@/helpers/platform'
 import { useCommonStore } from '@/stores/common'
 import { useGraphStore } from '@/stores/graph'
 import { usePageStore } from '@/stores/page'
@@ -227,6 +242,11 @@ const router = useRouter()
 const GRAPH_ROUTE_PATH = '/_graph'
 
 const { t } = useI18n()
+
+const { available: quickNoteAvailable, open: openQuickNote } = useQuickNote()
+const quickNoteShortcut = isApplePlatform()
+  ? t('common.header.quickNoteShortcutMac')
+  : t('common.header.quickNoteShortcutOther')
 
 const searchRow = ref(null)
 

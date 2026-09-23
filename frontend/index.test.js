@@ -156,4 +156,32 @@ describe('view transition rejection guard (index.html)', () => {
     expect(() => window.dispatchEvent(transitionEvent('pagereveal', null))).not.toThrow()
     expect(() => window.dispatchEvent(new Event('pagereveal'))).not.toThrow()
   })
+
+  describe('an inbound transition skipped before pagereveal', () => {
+    afterEach(() => {
+      delete document.activeViewTransition
+    })
+
+    test('handles the transition already active while <head> parses, which pagereveal reports as null', async () => {
+      const transition = skippedTransition()
+      Object.defineProperty(document, 'activeViewTransition', {
+        configurable: true,
+        value: transition
+      })
+
+      new Function(extractGuardScript())()
+      window.dispatchEvent(transitionEvent('pagereveal', null))
+
+      expect(transition.readyCatch).toHaveBeenCalledWith(expect.any(Function))
+      expect(transition.finishedCatch).toHaveBeenCalledWith(expect.any(Function))
+      await expect(transition.readyCatch.mock.results[0].value).resolves.toBeUndefined()
+      await expect(transition.finishedCatch.mock.results[0].value).resolves.toBeUndefined()
+    })
+
+    test('runs without throwing when the browser has no document.activeViewTransition', () => {
+      expect('activeViewTransition' in document).toBe(false)
+
+      expect(() => new Function(extractGuardScript())()).not.toThrow()
+    })
+  })
 })

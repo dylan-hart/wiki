@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import { performance } from 'node:perf_hooks'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Pool, type Notification, type PoolClient, type PoolConfig } from 'pg'
 
@@ -6,6 +8,57 @@ export interface Notifier {
   send(channel: string, payload: string): void
   /** Resolves once everything queued so far has gone out, for an orderly shutdown. */
   drained(): Promise<void>
+}
+
+export const NOTIFY_DURATION_BUCKETS: readonly number[] = [
+  0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5
+]
+
+export interface NotifierStats {
+  channel: string
+  sent: number
+  droppedError: number
+  droppedNoClient: number
+  queueDepth: number
+  durationBuckets: number[]
+  durationSum: number
+  durationCount: number
+}
+
+const notifierRegistry = new Map<string, NotifierStats>()
+
+function registerNotifier(label: string): NotifierStats {
+  let stats = notifierRegistry.get(label)
+  if (!stats) {
+    stats = {
+      channel: label,
+      sent: 0,
+      droppedError: 0,
+      droppedNoClient: 0,
+      queueDepth: 0,
+      durationBuckets: NOTIFY_DURATION_BUCKETS.map(() => 0),
+      durationSum: 0,
+      durationCount: 0
+    }
+    notifierRegistry.set(label, stats)
+  }
+  return stats
+}
+
+function observeDuration(stats: NotifierStats, seconds: number): void {
+  NOTIFY_DURATION_BUCKETS.forEach((le, i) => {
+    if (seconds <= le) {
+      stats.durationBuckets[i]++
+    }
+  })
+  stats.durationSum += seconds
+  stats.durationCount++
+}
+
+export function notifierStats(): NotifierStats[] {
+  return [...notifierRegistry.values()]
+    .map((stats) => ({ ...stats, durationBuckets: [...stats.durationBuckets] }))
+    .sort((a, b) => (a.channel < b.channel ? -1 : a.channel > b.channel ? 1 : 0))
 }
 
 /**
@@ -19,17 +72,30 @@ export interface Notifier {
  * dropped at shutdown; a notification sent while it returns `null` is discarded, not buffered.
  */
 export function createNotifier(client: () => PoolClient | null, label: string): Notifier {
+  const stats = registerNotifier(label)
   let tail: Promise<void> = Promise.resolve()
   return {
     send(channel: string, payload: string): void {
+      stats.queueDepth++
       tail = tail.then(async () => {
         try {
-          await client()?.query('SELECT pg_notify($1, $2)', [channel, payload])
+          const live = client()
+          if (!live) {
+            stats.droppedNoClient++
+            return
+          }
+          const started = performance.now()
+          await live.query('SELECT pg_notify($1, $2)', [channel, payload])
+          stats.sent++
+          observeDuration(stats, (performance.now() - started) / 1000)
         } catch (err: any) {
+          stats.droppedError++
           CARDINAL.logger.warn('db', 'publishing a notification failed', {
             channel: label,
             error: err
           })
+        } finally {
+          stats.queueDepth--
         }
       })
     },
@@ -62,6 +128,60 @@ export function createListenerPool(config: PoolConfig): Pool {
     max: LISTENER_COUNT,
     connectionTimeoutMillis: config.connectionTimeoutMillis ?? 5000
   })
+}
+
+export const LISTENER_CHECK_CHANNEL = 'cardinal_listener_check'
+
+export class ListenerDeliveryError extends Error {
+  constructor(timeoutMs: number) {
+    super(
+      `A notification sent through the query pool did not reach a listener connection within ${timeoutMs}ms. ` +
+        'LISTEN is most likely going through a transaction-mode connection pooler, or reaching a ' +
+        'different server than the query pool. Point DATABASE_DIRECT_URL or db.direct straight at ' +
+        'Postgres; see docs/pgbouncer-deployment.md.'
+    )
+    this.name = 'ListenerDeliveryError'
+  }
+}
+
+export interface ListenerCheckOptions {
+  listenerPool: Pool
+  notify: (channel: string, payload: string) => Promise<unknown>
+  timeoutMs?: number
+}
+
+export async function verifyListenerDelivery(opts: ListenerCheckOptions): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 5000
+  const nonce = randomUUID()
+  const client = await opts.listenerPool.connect()
+  client.on('error', () => {})
+
+  let markReceived: () => void = () => {}
+  const received = new Promise<void>((resolve) => {
+    markReceived = resolve
+  })
+  const onNotification = (msg: Notification): void => {
+    if (msg.channel === LISTENER_CHECK_CHANNEL && msg.payload === nonce) {
+      markReceived()
+    }
+  }
+  client.on('notification', onNotification)
+
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await client.query(`LISTEN ${LISTENER_CHECK_CHANNEL}`)
+    await opts.notify(LISTENER_CHECK_CHANNEL, nonce)
+    const timedOut = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), timeoutMs)
+    })
+    if ((await Promise.race([received, timedOut])) === 'timeout') {
+      throw new ListenerDeliveryError(timeoutMs)
+    }
+  } finally {
+    clearTimeout(timer)
+    client.off('notification', onNotification)
+    client.release(true)
+  }
 }
 
 export interface ListenerHandle {

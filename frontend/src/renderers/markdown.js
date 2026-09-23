@@ -244,7 +244,7 @@ function lineRows(lineCount, lineStart, highlights) {
 }
 
 function codeBlock(str, lang, attributes) {
-  if (['drawio', 'kroki', 'mermaid', 'plantuml'].includes(lang)) {
+  if (['drawio', 'kroki', 'mermaid', 'plantuml', 'whiteboard'].includes(lang)) {
     /*
       Left as source, deliberately: the diagram is drawn by the block whose body this fence is
       (`block-diagram`, `block-plantuml`, `block-kroki`, `block-drawio`), each of which reads

@@ -452,6 +452,19 @@ class Users {
     return res?.[0] ?? null
   }
 
+  async getByProviderLink(strategyId: string, providerId: string) {
+    if (!strategyId || providerId === undefined || providerId === null || providerId === '') {
+      return null
+    }
+    const res = await CARDINAL.db
+      .select()
+      .from(usersTable)
+      .where(sql`${usersTable.auth} -> ${strategyId}::text ->> 'id' = ${String(providerId)}::text`)
+      .orderBy(usersTable.createdAt)
+      .limit(1)
+    return res?.[0] ?? null
+  }
+
   async ensureSystemUser(): Promise<string> {
     const id: string = CARDINAL.data.systemIds.systemUserId
     await CARDINAL.db

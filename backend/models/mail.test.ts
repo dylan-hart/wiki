@@ -785,6 +785,36 @@ describe('mail template senders', () => {
     assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
   })
 
+  test('sendSignInMethodRemoved names the removed method and links at the given siteId hostname', async () => {
+    await mail.sendSignInMethodRemoved({
+      to: 'ada@example.com',
+      name: 'Ada',
+      methodName: 'Okta',
+      siteId: DEFAULT_SITE_ID
+    })
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+    assert.equal(msg.subject, enStrings['mail.signInMethodRemoved.subject'])
+    assert.match(msg.text, /Ada/)
+    assert.match(msg.text, /"Okta"/)
+    assert.match(msg.html, /<strong>Okta<\/strong>/)
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
+  })
+
+  test('sendSignInMethodRemoved escapes the method and user names in the HTML body only', async () => {
+    await mail.sendSignInMethodRemoved({
+      to: 'ada@example.com',
+      name: 'Ada <b>',
+      methodName: 'R&D <SSO>'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /R&amp;D &lt;SSO&gt;/)
+    assert.match(msg.html, /Ada &lt;b&gt;/)
+    assert.doesNotMatch(msg.html, /<SSO>/)
+    assert.match(msg.text, /R&D <SSO>/)
+    assert.match(msg.text, /Ada <b>/)
+  })
+
   test('sendTfaNewDeviceLogin links at the given siteId hostname (OpenProject #3386)', async () => {
     await mail.sendTfaNewDeviceLogin({
       to: 'ada@example.com',
@@ -793,6 +823,24 @@ describe('mail template senders', () => {
       siteId: DEFAULT_SITE_ID
     })
     const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
+  })
+
+  test('sendSignInMethodAdded names the method, escaping it in the HTML part only', async () => {
+    await mail.sendSignInMethodAdded({
+      to: 'ada@example.com',
+      name: 'Ada',
+      methodName: 'Acme <SSO>',
+      siteId: DEFAULT_SITE_ID
+    })
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+    assert.equal(msg.kind, 'signInMethodAdded')
+    assert.match(msg.subject, /sign-in method/i)
+    assert.match(msg.text, /Ada/)
+    assert.match(msg.text, /Acme <SSO>/)
+    assert.match(msg.html, /Acme &lt;SSO&gt;/)
+    assert.doesNotMatch(msg.html, /<SSO>/)
     assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
   })
 
@@ -1641,6 +1689,28 @@ describe('mail send wrappers set their own kind', () => {
       'sendTfaNewDeviceLogin',
       'tfaNewDeviceLogin',
       () => mail.sendTfaNewDeviceLogin({ to: 'a@example.com', name: 'A', userId: 'u1' })
+    ],
+    [
+      'sendSignInMethodAdded',
+      'signInMethodAdded',
+      () =>
+        mail.sendSignInMethodAdded({
+          to: 'a@example.com',
+          name: 'A',
+          methodName: 'GitHub',
+          userId: 'u1'
+        })
+    ],
+    [
+      'sendSignInMethodRemoved',
+      'signInMethodRemoved',
+      () =>
+        mail.sendSignInMethodRemoved({
+          to: 'a@example.com',
+          name: 'A',
+          methodName: 'Okta',
+          userId: 'u1'
+        })
     ]
   ]
 
@@ -1670,7 +1740,9 @@ describe('mail send wrappers set their own kind', () => {
       tfaEnabled: true,
       tfaDisabled: true,
       tfaRecoveryCodesGenerated: true,
-      tfaNewDeviceLogin: true
+      tfaNewDeviceLogin: true,
+      signInMethodAdded: true,
+      signInMethodRemoved: true
     }
     const all = Object.keys(allKinds) as MailKind[]
     for (const kind of all) {

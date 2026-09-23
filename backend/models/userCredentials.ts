@@ -13,6 +13,7 @@ import { randomToken } from '../helpers/randomToken.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
 import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 import { generateRecoveryCodes, normalizeRecoveryCode } from '../helpers/recoveryCodes.ts'
+import type { AuditActor } from './auditLog.ts'
 
 /**
  * `config` is a pass-through of the stored `auth` entry minus every secret it holds (the password
@@ -38,6 +39,7 @@ export interface UserProfileAuthMethod {
     isPasswordLoginEnabled: boolean
     canChangePassword: boolean
     canDisablePasswordLogin: boolean
+    canDisconnect: boolean
     /** 0 when 2FA is off, not the leftovers of a previous setup. */
     recoveryCodesRemaining: number
   }
@@ -178,6 +180,20 @@ export function countAlternativeLogins(user: any, strategyId: string): number {
   ).length
   const passkeys = passkeysAllowed() ? ((user.passkeys ?? {}).authenticators ?? []).length : 0
   return otherProviders + passkeys
+}
+
+export function isLocalStrategy(strategyId: string, module: string | null | undefined): boolean {
+  return strategyId === CARDINAL.data.systemIds?.localAuthId || module === 'local'
+}
+
+export function assertUnlinkable(user: any, strategyId: string): void {
+  const auth = (user.auth ?? {}) as Record<string, any>
+  if (!auth[strategyId]) {
+    throw new Error('ERR_UNLINK_NOT_LINKED')
+  }
+  if (countAlternativeLogins(user, strategyId) < 1) {
+    throw new Error('ERR_UNLINK_LAST_LOGIN_METHOD')
+  }
 }
 
 /**
@@ -337,6 +353,9 @@ class UserCredentials {
           ? ((recoveryCodes ?? []) as RecoveryCodeEntry[]).filter((entry) => !entry.usedAt).length
           : 0
       }
+      const canDisconnect =
+        !isLocalStrategy(strategyId, strategy?.module) &&
+        countAlternativeLogins(user, strategyId) > 0
       providers.push({
         authId: strategyId,
         authName: strategy?.displayName || definition?.title || strategy?.module || 'Unknown',
@@ -351,9 +370,10 @@ class UserCredentials {
               isPasswordLoginEnabled: !rawConfig?.restrictLogin,
               canChangePassword:
                 (strategy?.config as Record<string, any>)?.allowPasswordChange !== false,
-              canDisablePasswordLogin: countAlternativeLogins(user, strategyId) > 0
+              canDisablePasswordLogin: countAlternativeLogins(user, strategyId) > 0,
+              canDisconnect
             }
-          : { ...rest, ...shared, isTfaRequired: Boolean(tfaRequired) }
+          : { ...rest, ...shared, isTfaRequired: Boolean(tfaRequired), canDisconnect }
       })
     }
     return providers
@@ -407,6 +427,66 @@ class UserCredentials {
       password: passwordHash,
       mustChangePwd: false
     }))
+  }
+
+  async unlinkStrategy({
+    userId,
+    strategyId,
+    actor
+  }: {
+    userId: string
+    strategyId: string
+    actor: AuditActor
+  }): Promise<void> {
+    const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
+    if (isLocalStrategy(strategyId, strategy?.module)) {
+      throw new Error('ERR_UNLINK_LOCAL_STRATEGY')
+    }
+
+    const user: any = await withAdvisoryLock(authLockKey(userId), async () => {
+      const current = await CARDINAL.models.users.getById(userId)
+      if (!current) {
+        throw new Error('ERR_INVALID_USER')
+      }
+      assertUnlinkable(current, strategyId)
+      const remaining = { ...((current.auth ?? {}) as Record<string, any>) }
+      delete remaining[strategyId]
+      await CARDINAL.db
+        .update(usersTable)
+        .set({ auth: remaining, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+      return current
+    })
+
+    const definition = CARDINAL.data.authentication?.find((d: any) => d.key === strategy?.module)
+    const methodName = strategy?.displayName || definition?.title || strategy?.module || 'Unknown'
+    const byAdmin = actor.id !== userId
+
+    CARDINAL.models.flags.authDebug(
+      `User ${userId} had sign-in method ${strategyId} removed${byAdmin ? ' by an administrator' : ''}`
+    )
+    await CARDINAL.models.auditLog.record({
+      event: 'user.signInMethodRemoved',
+      actor,
+      targetType: 'user',
+      targetId: userId,
+      targetLabel: user.email,
+      detail: { strategyId, strategyKey: strategy?.module ?? 'unknown', byAdmin }
+    })
+    try {
+      await CARDINAL.models.mail.sendSignInMethodRemoved({
+        to: user.email,
+        name: user.name,
+        userId: user.id,
+        locale: user.prefs?.locale,
+        methodName
+      })
+    } catch (err: any) {
+      CARDINAL.logger.warn('auth', 'sending the sign-in-method-removed notice failed', {
+        user: user.id,
+        error: err
+      })
+    }
   }
 
   /**
@@ -724,6 +804,68 @@ class UserCredentials {
     await notifyRecoveryCodesGenerated(user)
 
     return { recoveryCodes: plaintext, hadUnusedCodes }
+  }
+
+  async linkStrategy({
+    userId,
+    strategyId,
+    identity,
+    methodName,
+    siteId,
+    ip
+  }: {
+    userId: string
+    strategyId: string
+    identity: { id: string; email: string }
+    methodName: string
+    siteId?: string
+    ip?: string
+  }): Promise<void> {
+    const written = await this.patchStrategyAuth(userId, strategyId, async (entry) => {
+      if (entry) {
+        throw new Error('ERR_LINK_ALREADY_LINKED')
+      }
+      const holder = await CARDINAL.models.users.getByProviderLink(strategyId, identity.id)
+      if (holder) {
+        throw new Error(
+          holder.id === userId ? 'ERR_LINK_ALREADY_LINKED' : 'ERR_LINK_IDENTITY_IN_USE'
+        )
+      }
+      return { id: identity.id, email: identity.email }
+    })
+    if (!written) {
+      throw new Error('ERR_LINK_NOT_SIGNED_IN')
+    }
+
+    const user = await CARDINAL.models.users.getById(userId)
+    if (!user) {
+      return
+    }
+    CARDINAL.models.flags.authDebug(`User ${userId} connected sign-in strategy ${strategyId}`)
+    await CARDINAL.models.auditLog.record({
+      event: 'user.signInMethodAdded',
+      actor: { id: userId, name: user.name, email: user.email, ip },
+      targetType: 'user',
+      targetId: userId,
+      targetLabel: user.email,
+      detail: { strategyId },
+      siteId: siteId || null
+    })
+    try {
+      await CARDINAL.models.mail.sendSignInMethodAdded({
+        to: user.email,
+        name: user.name,
+        methodName,
+        userId,
+        locale: (user.prefs as Record<string, any> | null)?.locale,
+        siteId: siteId || undefined
+      })
+    } catch (err: any) {
+      CARDINAL.logger.warn('auth', 'sending the sign-in-method-added notice failed', {
+        user: userId,
+        error: err
+      })
+    }
   }
 
   /**

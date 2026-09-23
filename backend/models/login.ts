@@ -348,6 +348,32 @@ class Login {
     return this.afterLoginChecks(user, strategy.id, { ip, siteId }, { skipChangePwd: true }, req)
   }
 
+  async linkProviderToAccount({
+    userId,
+    strategy,
+    profile,
+    siteId,
+    ip
+  }: {
+    userId: string
+    strategy: AuthStrategy
+    profile: ProviderProfile
+    siteId?: string
+    ip?: string
+  }): Promise<void> {
+    const email = (profile.email ?? '').toLowerCase().trim()
+    this.assertAllowedProviderEmail(strategy, email)
+    const definition = CARDINAL.data.authentication?.find((d: any) => d.key === strategy.module)
+    await CARDINAL.models.userCredentials.linkStrategy({
+      userId,
+      strategyId: strategy.id,
+      identity: { id: profile.id, email },
+      methodName: strategy.displayName || definition?.title || strategy.module,
+      siteId,
+      ip
+    })
+  }
+
   /**
    * Finds the account, creating and linking one if the strategy accepts new users — and syncs group
    * membership either way.
@@ -371,7 +397,9 @@ class Login {
     const email = profile.email.toLowerCase().trim()
     const firstName = (profile.firstName ?? '').trim()
     const lastName = (profile.lastName ?? '').trim()
-    let user = await CARDINAL.models.users.getByEmail(email)
+    let user =
+      (await CARDINAL.models.users.getByProviderLink(strategy.id, profile.id)) ??
+      (await CARDINAL.models.users.getByEmail(email))
 
     // -> Before anything else: a system account (the seeded Guest row) must never be reachable
     //    through a provider, and `getByEmail()` has no `isSystem` filter, unlike its siblings.

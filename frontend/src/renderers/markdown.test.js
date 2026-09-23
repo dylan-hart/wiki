@@ -19,7 +19,7 @@ import {
  * block draws it client-side (Mermaid, draw.io) or hands it to an image server (Kroki, PlantUML).
  */
 describe('MarkdownRenderer fenced diagram handoff', () => {
-  it.each(['mermaid', 'kroki', 'plantuml', 'drawio'])(
+  it.each(['mermaid', 'kroki', 'plantuml', 'drawio', 'whiteboard'])(
     'leaves a ```%s fence as an escaped <pre> for the block to read, not a rendered diagram',
     (lang) => {
       const md = new MarkdownRenderer({})
@@ -31,7 +31,7 @@ describe('MarkdownRenderer fenced diagram handoff', () => {
     }
   )
 
-  it.each(['mermaid', 'kroki', 'plantuml', 'drawio'])(
+  it.each(['mermaid', 'kroki', 'plantuml', 'drawio', 'whiteboard'])(
     'escapes markup written inside a ```%s fence rather than interpolating it raw',
     (lang) => {
       const md = new MarkdownRenderer({})
@@ -48,6 +48,18 @@ describe('MarkdownRenderer fenced diagram handoff', () => {
    * generic-code treatment as any other unrecognised language rather than to a base64-decoding
    * special case that skips escaping.
    */
+  it('leaves a whiteboard body inside ::block-whiteboard as a quiet pre whose text is the JSON', () => {
+    const body = '{"v":1,"w":800,"h":450,"s":[{"c":"#1f2937","z":4,"p":[1,2,3,4,5,6]}]}'
+    const html = new MarkdownRenderer({}).render(
+      `::block-whiteboard\n\`\`\`whiteboard\n${body}\n\`\`\`\n::\n`
+    )
+
+    expect(html).toMatch(/<block-whiteboard[^>]*>\s*<pre class="codeblock-whiteboard"><code>/)
+    expect(html).not.toContain('hljs')
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    expect(doc.querySelector('block-whiteboard pre').textContent).toBe(`${body}\n`)
+  })
+
   it('treats a ```diagram fence as ordinary, escaped code rather than unescaped raw HTML', () => {
     const md = new MarkdownRenderer({})
     // -> Base64 for "<script>alert(1)</script>"
@@ -1115,7 +1127,7 @@ describe('MarkdownRenderer -- fence info-string attributes (OpenProject #3578)',
     expect(html).toContain('data-line-start="3"')
   })
 
-  it.each(['drawio', 'kroki', 'mermaid', 'plantuml'])(
+  it.each(['drawio', 'kroki', 'mermaid', 'plantuml', 'whiteboard'])(
     'ignores every attribute on a %s diagram fence',
     (lang) => {
       const html = render(`${lang} title="T" linesStart=5 linesHighlight=1`, 'A --> B')
@@ -1171,7 +1183,7 @@ describe('MarkdownRenderer -- fence title bar (OpenProject #3583)', () => {
     expect(plain).not.toContain('codeblock-title')
   })
 
-  it.each(['drawio', 'kroki', 'mermaid', 'plantuml'])(
+  it.each(['drawio', 'kroki', 'mermaid', 'plantuml', 'whiteboard'])(
     'never draws a bar on a %s diagram',
     (lang) => {
       const html = render(`${lang} title="Ignored"`, 'A --> B')

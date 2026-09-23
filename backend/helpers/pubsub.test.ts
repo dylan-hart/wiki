@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { after, beforeEach, describe, test } from 'node:test'
-import { connectListener, createListenerPool, createNotifier } from './pubsub.ts'
+import {
+  connectListener,
+  createListenerPool,
+  createNotifier,
+  notifierStats,
+  NOTIFY_DURATION_BUCKETS
+} from './pubsub.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
@@ -292,5 +298,188 @@ describe('createNotifier', () => {
     await notifier.drained()
 
     assert.deepEqual(warnings, [])
+  })
+})
+
+describe('createNotifier instrumentation', () => {
+  function statsFor(label: string) {
+    const stats = notifierStats().find((s) => s.channel === label)
+    assert.ok(stats, `no stats registered for ${label}`)
+    return stats
+  }
+
+  class GatedClient {
+    queries: unknown[][] = []
+    private gates: Array<{ resolve: () => void; reject: (err: Error) => void }> = []
+    query(text: string, params: unknown[]): Promise<void> {
+      this.queries.push([text, params])
+      return new Promise((resolve, reject) => {
+        this.gates.push({ resolve: () => resolve(), reject })
+      })
+    }
+    async settleNext(err?: Error): Promise<void> {
+      while (this.gates.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      const gate = this.gates.shift()!
+      if (err) {
+        gate.reject(err)
+      } else {
+        gate.resolve()
+      }
+    }
+  }
+
+  test('registers under its label with zeroed stats before anything is sent', () => {
+    createNotifier(() => null, 'instrumentation: fresh')
+
+    assert.deepEqual(statsFor('instrumentation: fresh'), {
+      channel: 'instrumentation: fresh',
+      sent: 0,
+      droppedError: 0,
+      droppedNoClient: 0,
+      queueDepth: 0,
+      durationBuckets: NOTIFY_DURATION_BUCKETS.map(() => 0),
+      durationSum: 0,
+      durationCount: 0
+    })
+  })
+
+  test('the sent counter rises with every NOTIFY a collaboration relay notifier sends', async () => {
+    const client = new FakeClient()
+    const notifier = createNotifier(() => client as any, 'collaboration relay')
+    const before = statsFor('collaboration relay').sent
+
+    for (let i = 0; i < 5; i++) {
+      notifier.send('wiki_collab', `{"t":"update","i":${i}}`)
+    }
+    await notifier.drained()
+
+    const stats = statsFor('collaboration relay')
+    assert.equal(stats.sent, before + 5)
+    assert.equal(client.queries.length, 5)
+    assert.equal(stats.durationCount, 5)
+    assert.ok(stats.durationSum >= 0)
+    assert.equal(stats.queueDepth, 0)
+  })
+
+  test('queue depth counts every queued NOTIFY, including the one in flight, and falls as each settles', async () => {
+    const client = new GatedClient()
+    const notifier = createNotifier(() => client as any, 'instrumentation: depth')
+
+    notifier.send('wiki', '1')
+    notifier.send('wiki', '2')
+    notifier.send('wiki', '3')
+    assert.equal(statsFor('instrumentation: depth').queueDepth, 3)
+
+    await client.settleNext()
+    await client.settleNext()
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(statsFor('instrumentation: depth').queueDepth, 1)
+    assert.equal(statsFor('instrumentation: depth').sent, 2)
+
+    await client.settleNext()
+    await notifier.drained()
+    assert.equal(statsFor('instrumentation: depth').queueDepth, 0)
+    assert.equal(statsFor('instrumentation: depth').sent, 3)
+  })
+
+  test('a failed pg_notify counts as dropped with reason error and does not stop the next send', async () => {
+    const client = new GatedClient()
+    const notifier = createNotifier(() => client as any, 'instrumentation: errors')
+
+    notifier.send('wiki', 'fails')
+    notifier.send('wiki', 'succeeds')
+    await client.settleNext(new Error('connection reset'))
+    await client.settleNext()
+    await notifier.drained()
+
+    const stats = statsFor('instrumentation: errors')
+    assert.equal(stats.droppedError, 1)
+    assert.equal(stats.sent, 1)
+    assert.equal(stats.durationCount, 1)
+    assert.equal(stats.queueDepth, 0)
+    assert.ok(warnings.some((w) => w.message === 'publishing a notification failed'))
+  })
+
+  test('a send with no live client counts as dropped with reason no_client, not as sent', async () => {
+    const notifier = createNotifier(() => null, 'instrumentation: no client')
+
+    notifier.send('wiki', '{}')
+    notifier.send('wiki', '{}')
+    await notifier.drained()
+
+    const stats = statsFor('instrumentation: no client')
+    assert.equal(stats.droppedNoClient, 2)
+    assert.equal(stats.sent, 0)
+    assert.equal(stats.durationCount, 0)
+    assert.equal(stats.queueDepth, 0)
+  })
+
+  test('a getter that throws counts as dropped with reason error', async () => {
+    const notifier = createNotifier(() => {
+      throw new Error('no scheduler yet')
+    }, 'instrumentation: throwing getter')
+
+    notifier.send('scheduler', '{}')
+    await notifier.drained()
+
+    const stats = statsFor('instrumentation: throwing getter')
+    assert.equal(stats.droppedError, 1)
+    assert.equal(stats.queueDepth, 0)
+  })
+
+  test('round-trip time lands in cumulative buckets, skipping every bucket below it', async () => {
+    const slowClient = {
+      query: () => new Promise((resolve) => setTimeout(resolve, 80))
+    }
+    const notifier = createNotifier(() => slowClient as any, 'instrumentation: buckets')
+
+    notifier.send('wiki', '1')
+    await notifier.drained()
+
+    const stats = statsFor('instrumentation: buckets')
+    assert.equal(stats.durationCount, 1)
+    assert.ok(stats.durationSum >= 0.05, `durationSum = ${stats.durationSum}`)
+    NOTIFY_DURATION_BUCKETS.forEach((le, i) => {
+      if (le <= 0.05) {
+        assert.equal(stats.durationBuckets[i], 0, `le=${le}`)
+      }
+      if (i > 0) {
+        assert.ok(
+          stats.durationBuckets[i] >= stats.durationBuckets[i - 1],
+          `le=${le} is cumulative`
+        )
+      }
+    })
+  })
+
+  test('two notifiers sharing a label add into one series; distinct labels stay apart', async () => {
+    const a = createNotifier(() => new FakeClient() as any, 'instrumentation: shared')
+    const b = createNotifier(() => new FakeClient() as any, 'instrumentation: shared')
+    const c = createNotifier(() => new FakeClient() as any, 'instrumentation: separate')
+
+    a.send('wiki', '1')
+    b.send('wiki', '2')
+    c.send('wiki', '3')
+    await Promise.all([a.drained(), b.drained(), c.drained()])
+
+    assert.equal(statsFor('instrumentation: shared').sent, 2)
+    assert.equal(statsFor('instrumentation: separate').sent, 1)
+  })
+
+  test('notifierStats() returns copies sorted by label, so a caller cannot corrupt the registry', () => {
+    createNotifier(() => null, 'instrumentation: zz')
+    createNotifier(() => null, 'instrumentation: aa')
+
+    const snapshot = notifierStats()
+    const labels = snapshot.map((s) => s.channel)
+    assert.deepEqual(labels, [...labels].sort())
+
+    const copy = snapshot.find((s) => s.channel === 'instrumentation: aa')!
+    copy.sent = 999
+    copy.durationBuckets[0] = 999
+    assert.equal(statsFor('instrumentation: aa').sent, 0)
+    assert.equal(statsFor('instrumentation: aa').durationBuckets[0], 0)
   })
 })

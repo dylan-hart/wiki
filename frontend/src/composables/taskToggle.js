@@ -89,7 +89,7 @@ export function useTaskToggle(container) {
     }
     const text = await taskItemText(pageStore.content, index)
     if (text === null) {
-      throw Object.assign(new Error('The task is not in the page source.'), { conflict: true })
+      throw Object.assign(new Error(t('common.page.taskConflict')), { conflict: true })
     }
     const resp = await API_CLIENT.put(
       `sites/${siteStore.id}/pages/${pageStore.id}/tasks/${index}`,

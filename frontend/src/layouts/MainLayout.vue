@@ -270,6 +270,7 @@ const isAtLeastSm = useMinWidth(600)
 
 const isSidebarAvailable = computed(() => {
   return (
+    !route.meta.hideSideNav &&
     siteStore.showSideNav &&
     !siteStore.sideNavIsDisabled &&
     !(editorStore.isActive && editorStore.hideSideNav)

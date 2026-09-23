@@ -234,6 +234,34 @@ class Locales extends ClusterReloaded {
     return { loaded, skipped }
   }
 
+  async mergeDownloadedStrings(
+    code: string,
+    meta: Omit<SideloadLocalePack, 'strings'>,
+    downloaded: Record<string, string>,
+    baseStrings: Record<string, unknown>
+  ): Promise<number> {
+    const existingRows = await CARDINAL.db
+      .select({ strings: localesTable.strings })
+      .from(localesTable)
+      .where(eq(localesTable.code, code))
+      .limit(1)
+    const storedStrings =
+      existingRows.length === 1 && isPlainObject(existingRows[0].strings)
+        ? (existingRows[0].strings as Record<string, unknown>)
+        : {}
+    const mergedStrings = mergeLocaleStrings(storedStrings, downloaded)
+    const completeness = computeCompleteness(baseStrings, mergedStrings)
+    await CARDINAL.db
+      .insert(localesTable)
+      .values({ code, ...meta, strings: mergedStrings, completeness })
+      .onConflictDoUpdate({
+        target: localesTable.code,
+        set: { strings: mergedStrings, completeness, updatedAt: sql`now()` }
+      })
+    this.invalidateStringsCache(code)
+    return completeness
+  }
+
   async refreshFromDisk({ force = false }: { force?: boolean } = {}): Promise<false | void> {
     try {
       const localesMeta = (await import('../locales/metadata.js')).default

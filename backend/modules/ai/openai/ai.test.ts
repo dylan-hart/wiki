@@ -9,8 +9,10 @@ import { installTestWiki } from '../../../test/mocks.ts'
 import generate, {
   DEFAULT_MAX_OUTPUT_TOKENS,
   DEFAULT_MODEL,
+  HIGH_REASONING_EFFORT,
   isReasoningModel,
   REASONING_EFFORT,
+  reasoningEffort,
   RESPONSES_URL
 } from './ai.ts'
 
@@ -213,8 +215,76 @@ describe('modules/ai/openai generate()', () => {
     assert.equal(body.max_output_tokens, 1024)
   })
 
+  test('sends no reasoning field and no token floor for gpt-5-chat-latest', async () => {
+    const fetchFn = stubFetch(async () => jsonResponse(completed(OUTPUT)))
+
+    await generate(
+      PROMPT,
+      { siteId: 'site-1', maxOutputTokens: 1024 },
+      { apiKey: API_KEY, model: 'gpt-5-chat-latest' }
+    )
+
+    const body = JSON.parse(fetchFn.mock.calls[0]!.arguments[1].body as string)
+    assert.equal('reasoning' in body, false)
+    assert.equal(body.max_output_tokens, 1024)
+  })
+
+  test('sends high reasoning effort and keeps the token floor for gpt-5-pro', async () => {
+    const fetchFn = stubFetch(async () => jsonResponse(completed(OUTPUT)))
+
+    await generate(
+      PROMPT,
+      { siteId: 'site-1', maxOutputTokens: 1024 },
+      { apiKey: API_KEY, model: 'gpt-5-pro' }
+    )
+
+    const body = JSON.parse(fetchFn.mock.calls[0]!.arguments[1].body as string)
+    assert.equal(HIGH_REASONING_EFFORT, 'high')
+    assert.deepEqual(body.reasoning, { effort: 'high' })
+    assert.equal(body.max_output_tokens, DEFAULT_MAX_OUTPUT_TOKENS)
+  })
+
+  test('sends no reasoning field for an unknown model id', async () => {
+    const fetchFn = stubFetch(async () => jsonResponse(completed(OUTPUT)))
+
+    await generate(
+      PROMPT,
+      { siteId: 'site-1', maxOutputTokens: 1024 },
+      { apiKey: API_KEY, model: 'some-future-model' }
+    )
+
+    const body = JSON.parse(fetchFn.mock.calls[0]!.arguments[1].body as string)
+    assert.equal('reasoning' in body, false)
+    assert.equal(body.max_output_tokens, 1024)
+  })
+
+  for (const [model, expected] of [
+    ['gpt-5', 'low'],
+    ['gpt-5-mini', 'low'],
+    ['gpt-5.1', 'low'],
+    ['gpt-5-codex', 'low'],
+    ['o1-pro', 'low'],
+    ['o3-pro', 'low'],
+    ['gpt-5-pro', 'high'],
+    ['gpt-5-pro-2025-10-06', 'high'],
+    ['gpt-5.2-pro', 'high'],
+    ['gpt-5-chat-latest', undefined],
+    ['gpt-5.1-chat-latest', undefined],
+    ['gpt-4.1', undefined],
+    ['gpt-4o', undefined],
+    ['my-gpt-5-pro-proxy', undefined],
+    ['some-future-model', undefined]
+  ] as const) {
+    test(`reasoningEffort(${JSON.stringify(model)}) is ${JSON.stringify(expected)}`, () => {
+      assert.equal(reasoningEffort(model), expected)
+    })
+  }
+
   for (const [model, expected] of [
     ['gpt-5', true],
+    ['gpt-5-pro', true],
+    ['gpt-5-chat-latest', false],
+    ['gpt-5.1-chat-latest', false],
     ['gpt-5-mini', true],
     ['gpt-5-nano', true],
     ['o1', true],
