@@ -1,10 +1,17 @@
 import { reactive } from 'vue'
 
-export function createNoteAutosave({ save, delay = 800, onError = null }) {
+/**
+ * `delay` is the pause in typing that triggers a save. `minInterval` is the least time between two
+ * saves of the same note, however the pauses fall: every save is a request against the per-user
+ * `/_api` rate limit, and a steady typist pausing just past `delay` would otherwise spend it fast
+ * enough to be banned. The last edit is always saved, only later; `flush()` does not wait.
+ */
+export function createNoteAutosave({ save, delay = 800, minInterval = 3000, onError = null }) {
   const state = reactive({ status: 'idle' })
   const pending = new Map()
   const timers = new Map()
   const inflight = new Map()
+  const lastSentAt = new Map()
   const failed = new Set()
   let savedOnce = false
 
@@ -25,30 +32,51 @@ export function createNoteAutosave({ save, delay = 800, onError = null }) {
     timers.delete(noteId)
   }
 
+  function arm(noteId) {
+    clearTimer(noteId)
+    const sinceLast = Date.now() - (lastSentAt.get(noteId) ?? -Infinity)
+    timers.set(
+      noteId,
+      setTimeout(
+        () => {
+          timers.delete(noteId)
+          run(noteId)
+        },
+        Math.max(delay, minInterval - sinceLast)
+      )
+    )
+  }
+
+  /** Sends one save of whatever is pending; resolves `true` once it is stored, `false` if not. */
   function run(noteId) {
     if (inflight.has(noteId)) {
       return inflight.get(noteId)
     }
     if (!pending.has(noteId)) {
-      return Promise.resolve()
+      return Promise.resolve(true)
     }
+    clearTimer(noteId)
+    const patch = pending.get(noteId)
+    pending.delete(noteId)
+    lastSentAt.set(noteId, Date.now())
     const job = (async () => {
-      while (pending.has(noteId)) {
-        const patch = pending.get(noteId)
-        pending.delete(noteId)
-        try {
-          await save(noteId, patch)
-          failed.delete(noteId)
-          savedOnce = true
-        } catch (err) {
-          pending.set(noteId, { ...patch, ...pending.get(noteId) })
-          failed.add(noteId)
-          onError?.(err, noteId)
-          break
-        }
+      try {
+        await save(noteId, patch)
+        failed.delete(noteId)
+        savedOnce = true
+        return true
+      } catch (err) {
+        pending.set(noteId, { ...patch, ...pending.get(noteId) })
+        failed.add(noteId)
+        onError?.(err, noteId)
+        return false
       }
     })().finally(() => {
       inflight.delete(noteId)
+      // -> Edits made while this save was in flight go out on their own timer, still spaced.
+      if (pending.has(noteId) && !failed.has(noteId) && !timers.has(noteId)) {
+        arm(noteId)
+      }
       refreshStatus()
     })
     inflight.set(noteId, job)
@@ -58,28 +86,24 @@ export function createNoteAutosave({ save, delay = 800, onError = null }) {
 
   function schedule(noteId, patch) {
     pending.set(noteId, { ...pending.get(noteId), ...patch })
-    clearTimer(noteId)
-    timers.set(
-      noteId,
-      setTimeout(() => {
-        timers.delete(noteId)
-        run(noteId)
-      }, delay)
-    )
+    arm(noteId)
     refreshStatus()
+  }
+
+  async function drain(noteId) {
+    for (;;) {
+      clearTimer(noteId)
+      await inflight.get(noteId)
+      clearTimer(noteId)
+      if (!pending.has(noteId) || !(await run(noteId))) {
+        return
+      }
+    }
   }
 
   async function flush(noteId = null) {
     const ids = noteId ? [noteId] : [...new Set([...pending.keys(), ...inflight.keys()])]
-    for (const id of ids) {
-      clearTimer(id)
-    }
-    await Promise.all(
-      ids.map(async (id) => {
-        await inflight.get(id)
-        await run(id)
-      })
-    )
+    await Promise.all(ids.map(drain))
   }
 
   function cancel(noteId) {
