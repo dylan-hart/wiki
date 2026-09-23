@@ -279,6 +279,28 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       assert.equal(tokenRow, undefined)
     })
 
+    test('a reset makes a password nobody knew one the account holder knows', async () => {
+      const strategyId = await createStrategy()
+      registerLiveStrategy(strategyId)
+      const userId = await createLocalUser(strategyId, { email: 'reset-known@example.com' })
+      await userCredentials.patchStrategyAuth(userId, strategyId, () => ({
+        isPasswordKnown: false
+      }))
+      const token = await userCredentials.generateToken({
+        kind: 'resetPwd',
+        userId,
+        meta: { strategyId }
+      })
+
+      await login.resetPassword(
+        { siteId: fixtures.siteId, strategyId, token, newPassword: 'brandnewpwd1' },
+        req()
+      )
+
+      const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
+      assert.equal((row!.auth as Record<string, any>)[strategyId].isPasswordKnown, true)
+    })
+
     test('allowPasswordChange off still completes a reset', async () => {
       const strategyId = await createStrategy({ allowPasswordChange: false })
       registerLiveStrategy(strategyId)
@@ -304,7 +326,10 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       const strategyId = await createStrategy({ allowPasswordChange: false })
       registerLiveStrategy(strategyId)
       const userId = await createLocalUser(strategyId, { email: 'forced-off@example.com' })
-      await userCredentials.patchStrategyAuth(userId, strategyId, () => ({ mustChangePwd: true }))
+      await userCredentials.patchStrategyAuth(userId, strategyId, () => ({
+        mustChangePwd: true,
+        isPasswordKnown: false
+      }))
       const continuationToken = await userCredentials.generateToken({
         kind: 'changePwd',
         userId,
@@ -321,6 +346,7 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       const auth = (row!.auth as Record<string, any>)[strategyId]
       assert.equal(await bcrypt.compare('brandnewpwd1', auth.password), true)
       assert.equal(auth.mustChangePwd, false)
+      assert.equal(auth.isPasswordKnown, true)
     })
 
     test('allowPasswordChange off refuses a profile change with ERR_PASSWORD_CHANGE_DISABLED', async () => {

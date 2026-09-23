@@ -533,6 +533,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const created = await users.getByEmail('alan@example.com')
     assert.ok(created)
     assert.equal(created!.isVerified, true)
+    assert.equal((created!.auth as Record<string, any>)[strategyId].isPasswordKnown, true)
     assert.equal(sendVerifyEmailMock.mock.calls.length, 0)
   })
 

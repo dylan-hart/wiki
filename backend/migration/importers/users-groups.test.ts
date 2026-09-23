@@ -286,6 +286,7 @@ describe('createProviderFallbackUserConverter', () => {
     const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
     assert.equal(authEntry.mustChangePwd, true)
     assert.ok(authEntry.password.startsWith('$2')) // -> a bcrypt hash, not a plaintext/placeholder string
+    assert.equal(authEntry.isPasswordKnown, false)
     assert.ok(outcome.providerFallback)
     assert.deepEqual(outcome.providerFallback, {
       email: 'firebase.user@example.com',
@@ -1179,6 +1180,7 @@ describe('createLocalUserConverter', () => {
     if (outcome.status !== 'created') return
     const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
     assert.equal(authEntry.password, '$2a$12$fakehash')
+    assert.equal(authEntry.isPasswordKnown, true)
   })
 
   test('never writes migratedFallbackProvider — a genuine local-provider source user has no foreign providerKey to record (Task 2558)', async () => {

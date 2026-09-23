@@ -410,6 +410,7 @@ export function createProviderFallbackUserConverter(
       auth: {
         [options.localStrategyId]: {
           password: await bcrypt.hash(randomToken(24), BCRYPT_ROUNDS),
+          isPasswordKnown: false,
           mustChangePwd: true,
           restrictLogin: false,
           tfaIsActive: tfa.tfaIsActive,
@@ -495,6 +496,7 @@ export function createLocalUserConverter(options: LocalUserConverterOptions): Us
       auth: {
         [options.localStrategyId]: {
           password: passwordHash,
+          isPasswordKnown: true,
           mustChangePwd: coerceSourceBoolean(source.mustChangePwd) ?? false,
           restrictLogin: false,
           tfaIsActive: tfa.tfaIsActive,

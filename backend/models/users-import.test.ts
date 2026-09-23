@@ -96,6 +96,7 @@ describe('Users.importLocalUser', () => {
     assert.equal(authEntry.password, sourceHash)
     assert.equal(authEntry.mustChangePwd, true)
     assert.equal(authEntry.restrictLogin, false)
+    assert.equal(authEntry.isPasswordKnown, true)
   })
 
   test('always resets tfaIsActive/tfaSecret rather than carrying them over (explicit decision, not just a default)', async () => {
