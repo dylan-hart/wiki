@@ -212,7 +212,9 @@ export class BlockWhiteboardElement extends LitElement {
     if (!this.drawingMode) {
       return
     }
-    if (event.pointerType === 'mouse' && event.button !== 0) {
+    // -> The primary button only, for every pointer type: a pen's barrel button (2) and eraser
+    //    end (5) are not the tip, the same rule `isPenContact` applies in the editor.
+    if (event.button !== 0) {
       return
     }
     event.stopPropagation()

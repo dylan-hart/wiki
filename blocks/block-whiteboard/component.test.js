@@ -330,6 +330,36 @@ describe('block-whiteboard', () => {
       expect(changes).toHaveLength(0)
     })
 
+    it("draws only with a pen's tip, not its barrel button or eraser end", async () => {
+      const el = await mountBoard(BOARD, { editor: true })
+      const changes = nextChange(el)
+      const reached = vi.fn()
+      el.parentElement.addEventListener('pointerdown', reached)
+
+      for (const button of [2, 5]) {
+        await drawStroke(
+          el,
+          [
+            [1, 1],
+            [9, 9]
+          ],
+          { pointerType: 'pen', button }
+        )
+      }
+      expect(changes).toHaveLength(0)
+      expect(reached).toHaveBeenCalledTimes(2)
+
+      await drawStroke(
+        el,
+        [
+          [1, 1],
+          [9, 9]
+        ],
+        { pointerType: 'pen', button: 0 }
+      )
+      expect(changes).toHaveLength(1)
+    })
+
     it("does not read a collaborator's caret label in the fence as part of the body", async () => {
       const el = await mountBoard(BOARD, { editor: true })
       const changes = nextChange(el)
