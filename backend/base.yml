@@ -17,6 +17,9 @@ defaults:
       sslOptions:
         auto: true
       schema: wiki
+      direct:
+        host: ~
+        port: ~
     pool:
       min: 1
       # Explicit, at double node-postgres's default of 10: a few concurrent requests against a

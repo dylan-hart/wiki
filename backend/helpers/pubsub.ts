@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Pool, type Notification, type PoolClient, type PoolConfig } from 'pg'
 
@@ -62,6 +63,60 @@ export function createListenerPool(config: PoolConfig): Pool {
     max: LISTENER_COUNT,
     connectionTimeoutMillis: config.connectionTimeoutMillis ?? 5000
   })
+}
+
+export const LISTENER_CHECK_CHANNEL = 'cardinal_listener_check'
+
+export class ListenerDeliveryError extends Error {
+  constructor(timeoutMs: number) {
+    super(
+      `A notification sent through the query pool did not reach a listener connection within ${timeoutMs}ms. ` +
+        'LISTEN is most likely going through a transaction-mode connection pooler, or reaching a ' +
+        'different server than the query pool. Point DATABASE_DIRECT_URL or db.direct straight at ' +
+        'Postgres; see docs/pgbouncer-deployment.md.'
+    )
+    this.name = 'ListenerDeliveryError'
+  }
+}
+
+export interface ListenerCheckOptions {
+  listenerPool: Pool
+  notify: (channel: string, payload: string) => Promise<unknown>
+  timeoutMs?: number
+}
+
+export async function verifyListenerDelivery(opts: ListenerCheckOptions): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 5000
+  const nonce = randomUUID()
+  const client = await opts.listenerPool.connect()
+  client.on('error', () => {})
+
+  let markReceived: () => void = () => {}
+  const received = new Promise<void>((resolve) => {
+    markReceived = resolve
+  })
+  const onNotification = (msg: Notification): void => {
+    if (msg.channel === LISTENER_CHECK_CHANNEL && msg.payload === nonce) {
+      markReceived()
+    }
+  }
+  client.on('notification', onNotification)
+
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await client.query(`LISTEN ${LISTENER_CHECK_CHANNEL}`)
+    await opts.notify(LISTENER_CHECK_CHANNEL, nonce)
+    const timedOut = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), timeoutMs)
+    })
+    if ((await Promise.race([received, timedOut])) === 'timeout') {
+      throw new ListenerDeliveryError(timeoutMs)
+    }
+  } finally {
+    clearTimeout(timer)
+    client.off('notification', onNotification)
+    client.release(true)
+  }
 }
 
 export interface ListenerHandle {
