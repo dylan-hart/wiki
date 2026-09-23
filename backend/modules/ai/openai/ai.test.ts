@@ -6,7 +6,13 @@ import { afterEach, beforeEach, describe, mock, test } from 'node:test'
 import { load } from 'js-yaml'
 
 import { installTestWiki } from '../../../test/mocks.ts'
-import generate, { DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_MODEL, RESPONSES_URL } from './ai.ts'
+import generate, {
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  DEFAULT_MODEL,
+  isReasoningModel,
+  REASONING_EFFORT,
+  RESPONSES_URL
+} from './ai.ts'
 
 const API_KEY = 'sk-test-SECRET-key-1234567890'
 const PROMPT = 'Rewrite this sentence: the quick brown fox'
@@ -162,6 +168,68 @@ describe('modules/ai/openai generate()', () => {
       )
     }
   })
+
+  test('sends low reasoning effort and a token floor for gpt-5-mini under a 1024 cap', async () => {
+    const fetchFn = stubFetch(async () => jsonResponse(completed(OUTPUT)))
+
+    await generate(
+      PROMPT,
+      { siteId: 'site-1', maxOutputTokens: 1024 },
+      { apiKey: API_KEY, model: 'gpt-5-mini' }
+    )
+
+    const body = JSON.parse(fetchFn.mock.calls[0]!.arguments[1].body as string)
+    assert.equal(REASONING_EFFORT, 'low')
+    assert.equal(body.reasoning?.effort, 'low')
+    assert.ok(body.max_output_tokens >= 4096, `max_output_tokens was ${body.max_output_tokens}`)
+    assert.equal(body.max_output_tokens, DEFAULT_MAX_OUTPUT_TOKENS)
+  })
+
+  test('keeps a reasoning model cap above the floor as requested', async () => {
+    const fetchFn = stubFetch(async () => jsonResponse(completed(OUTPUT)))
+
+    await generate(
+      PROMPT,
+      { siteId: 'site-1', maxOutputTokens: 8192 },
+      { apiKey: API_KEY, model: 'o3' }
+    )
+
+    const body = JSON.parse(fetchFn.mock.calls[0]!.arguments[1].body as string)
+    assert.equal(body.max_output_tokens, 8192)
+    assert.deepEqual(body.reasoning, { effort: 'low' })
+  })
+
+  test('sends neither reasoning effort nor a token floor for gpt-4.1', async () => {
+    const fetchFn = stubFetch(async () => jsonResponse(completed(OUTPUT)))
+
+    await generate(
+      PROMPT,
+      { siteId: 'site-1', maxOutputTokens: 1024 },
+      { apiKey: API_KEY, model: 'gpt-4.1' }
+    )
+
+    const body = JSON.parse(fetchFn.mock.calls[0]!.arguments[1].body as string)
+    assert.equal('reasoning' in body, false)
+    assert.equal(body.max_output_tokens, 1024)
+  })
+
+  for (const [model, expected] of [
+    ['gpt-5', true],
+    ['gpt-5-mini', true],
+    ['gpt-5-nano', true],
+    ['o1', true],
+    ['o3', true],
+    ['o4-mini', true],
+    ['gpt-4.1', false],
+    ['gpt-4.1-mini', false],
+    ['gpt-4o', false],
+    ['omni-moderation-latest', false],
+    ['my-gpt-5-proxy', false]
+  ] as const) {
+    test(`isReasoningModel(${JSON.stringify(model)}) is ${expected}`, () => {
+      assert.equal(isReasoningModel(model), expected)
+    })
+  }
 
   for (const config of [{}, { apiKey: '' }, { apiKey: '   ' }, { apiKey: 42 }, null, undefined]) {
     test(`returns null without calling the API when the key is missing (${JSON.stringify(config)})`, async () => {
