@@ -14,7 +14,11 @@ describe('noteExcerpt', () => {
   it('skips fences, rules and block markers', () => {
     expect(noteExcerpt('```js\nconst a = 1\n```\nafter the code')).toBe('after the code')
     expect(noteExcerpt('---\nafter the rule')).toBe('after the rule')
-    expect(noteExcerpt('::block-whiteboard\n```whiteboard\n{"v":1}\n```\n::\nbelow')).toBe('below')
+    expect(
+      noteExcerpt(
+        '::block-whiteboard\n```whiteboard\n{"v":2}\n{"c":"#000000","z":6,"p":[1,1,50]}\n```\n::\nbelow'
+      )
+    ).toBe('below')
   })
 
   it('is empty for an empty note', () => {

@@ -8,13 +8,16 @@ import { WikiBlock } from './wikiBlockNode'
 import {
   EMPTY_WHITEBOARD_BODY,
   WhiteboardInsert,
+  appendedSuffix,
+  applyWhiteboardBody,
   enclosingWhiteboard,
   insertWhiteboardInto,
   isDrawShortcut,
   isMacPlatform,
   isPenContact,
   pageWhiteboardBytes,
-  penInsertRange
+  penInsertRange,
+  whiteboardBodyOf
 } from './whiteboardInsert'
 
 const BOARD = '::block-whiteboard\n```whiteboard\n' + EMPTY_WHITEBOARD_BODY + '\n```\n::'
@@ -127,5 +130,115 @@ describe('insertWhiteboard command', () => {
     createEditor('')
     expect(editor.commands.insertWhiteboard()).toBe(true)
     expect(editor.getMarkdown().trim()).toBe(BOARD)
+  })
+})
+
+describe('the empty board', () => {
+  it('is a format 2 header line with no strokes', () => {
+    expect(EMPTY_WHITEBOARD_BODY).toBe('{"v":2,"w":800,"h":450}')
+  })
+})
+
+describe('appendedSuffix', () => {
+  it('finds the text a new body adds after the current one', () => {
+    expect(appendedSuffix('H', 'H\nS')).toEqual({ at: 1, text: '\nS' })
+    expect(appendedSuffix('', 'H')).toEqual({ at: 0, text: 'H' })
+  })
+
+  it('measures against the trimmed text the block reads, inserting before trailing whitespace', () => {
+    expect(appendedSuffix('H\n', 'H\nS')).toEqual({ at: 1, text: '\nS' })
+    expect(appendedSuffix('H  \n\n', 'H\nS')).toEqual({ at: 1, text: '\nS' })
+    expect(appendedSuffix('\n  H\n', 'H\nS')).toEqual({ at: 4, text: '\nS' })
+  })
+
+  it('declines a body that does not extend the current one', () => {
+    expect(appendedSuffix('H\nA', 'H\nB')).toBeNull()
+    expect(appendedSuffix('H\nA', 'H')).toBeNull()
+    expect(appendedSuffix('H\n', 'H')).toBeNull()
+    expect(appendedSuffix('H', 'H')).toBeNull()
+  })
+})
+
+describe('applyWhiteboardBody', () => {
+  const STROKE = '{"c":"#1f2937","z":6,"p":[1,1,50]}'
+
+  function boardTarget() {
+    let target = null
+    editor.state.doc.descendants((node, pos) => {
+      if (!target && node.attrs?.block === 'whiteboard') {
+        target = { node, pos }
+      }
+      return !target
+    })
+    return target
+  }
+
+  function capture() {
+    const dispatched = []
+    const dispatch = editor.view.dispatch.bind(editor.view)
+    editor.view.dispatch = (tr) => {
+      dispatched.push(tr)
+      dispatch(tr)
+    }
+    return dispatched
+  }
+
+  function onlyStep(tr) {
+    expect(tr.steps).toHaveLength(1)
+    const { from, to, slice } = tr.steps[0].toJSON()
+    return { from, to, text: slice?.content?.map((node) => node.text).join('') ?? '' }
+  }
+
+  it('inserts only the appended line at the end of the code block text', () => {
+    createEditor(BOARD)
+    const dispatched = capture()
+    const target = boardTarget()
+    const textEnd = target.pos + 2 + EMPTY_WHITEBOARD_BODY.length
+
+    expect(applyWhiteboardBody(editor.view, target, EMPTY_WHITEBOARD_BODY + '\n' + STROKE)).toBe(
+      true
+    )
+
+    expect(onlyStep(dispatched[0])).toEqual({ from: textEnd, to: textEnd, text: '\n' + STROKE })
+    expect(whiteboardBodyOf(boardTarget().node)).toBe(EMPTY_WHITEBOARD_BODY + '\n' + STROKE)
+  })
+
+  it('appends before trailing whitespace in the code block, which the block never sees', () => {
+    createEditor(BOARD)
+    const start = boardTarget().pos + 2
+    editor.view.dispatch(editor.state.tr.insertText('\n\n', start + EMPTY_WHITEBOARD_BODY.length))
+    const dispatched = capture()
+
+    applyWhiteboardBody(editor.view, boardTarget(), EMPTY_WHITEBOARD_BODY + '\n' + STROKE)
+
+    const step = onlyStep(dispatched[0])
+    expect(step.from).toBe(start + EMPTY_WHITEBOARD_BODY.length)
+    expect(step.to).toBe(step.from)
+    expect(whiteboardBodyOf(boardTarget().node)).toBe(
+      EMPTY_WHITEBOARD_BODY + '\n' + STROKE + '\n\n'
+    )
+  })
+
+  it('replaces the whole text when the new body is not an extension of the old', () => {
+    createEditor(BOARD.replace(EMPTY_WHITEBOARD_BODY, EMPTY_WHITEBOARD_BODY + '\n' + STROKE))
+    const dispatched = capture()
+
+    applyWhiteboardBody(editor.view, boardTarget(), EMPTY_WHITEBOARD_BODY)
+
+    const step = onlyStep(dispatched[0])
+    expect(step.to).toBeGreaterThan(step.from)
+    expect(whiteboardBodyOf(boardTarget().node)).toBe(EMPTY_WHITEBOARD_BODY)
+  })
+
+  it('still refuses a body with an unreadable header', () => {
+    createEditor(BOARD)
+    const refusals = []
+
+    expect(
+      applyWhiteboardBody(editor.view, boardTarget(), '{broken\n' + STROKE, (reason) =>
+        refusals.push(reason)
+      )
+    ).toBe(false)
+    expect(refusals).toEqual(['invalid'])
   })
 })

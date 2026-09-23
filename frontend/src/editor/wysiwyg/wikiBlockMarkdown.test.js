@@ -149,35 +149,36 @@ describe('WikiBlock markdown: block-whiteboard', () => {
   }
 
   function board(strokes, pointsEach) {
-    return JSON.stringify({
-      v: 1,
-      w: 800,
-      h: 450,
-      s: Array.from({ length: strokes }, (_, s) => ({
-        c: '#3366cc',
-        z: 6,
-        p: Array.from({ length: pointsEach }, (_, i) => [
-          Math.round(Math.sin(s + i / 7) * 390 + 400),
-          Math.round(Math.cos(s * 2 + i / 5) * 220 + 225),
-          (s * 7 + i) % 101
-        ]).flat()
-      }))
-    })
+    return [
+      JSON.stringify({ v: 2, w: 800, h: 450 }),
+      ...Array.from({ length: strokes }, (_, s) =>
+        JSON.stringify({
+          c: '#3366cc',
+          z: 6,
+          p: Array.from({ length: pointsEach }, (_, i) => [
+            Math.round(Math.sin(s + i / 7) * 390 + 400),
+            Math.round(Math.cos(s * 2 + i / 5) * 220 + 225),
+            (s * 7 + i) % 101
+          ]).flat()
+        })
+      )
+    ].join('\n')
   }
 
   it('inserts an empty board in the pinned format', () => {
-    expect(fencedBody(renderHtml(blockMarkdown(whiteboard)))).toBe('{"v":1,"w":800,"h":450,"s":[]}')
+    expect(fencedBody(renderHtml(blockMarkdown(whiteboard)))).toBe('{"v":2,"w":800,"h":450}')
   })
 
-  it('keeps a drawn board’s JSON body byte for byte through the editor', () => {
+  it('keeps a drawn board’s one-stroke-per-line body byte for byte through the editor', () => {
     const body = board(20, 50)
+    expect(body.split('\n')).toHaveLength(21)
     const roundTripped = expectRenderEqualRoundTrip(whiteboardMarkdown(body))
 
     expect(fencedBody(renderHtml(roundTripped))).toBe(body)
   })
 
   it('keeps a hostile body with a bare :: line and markup inside its own fence', () => {
-    const body = '{"v":1,"s":[],\n::\n"c":"</pre><script>alert(1)</script>"}'
+    const body = '{"v":2}\n::\n{"c":"</pre><script>alert(1)</script>","p":[]}'
     const roundTripped = expectRenderEqualRoundTrip(whiteboardMarkdown(body))
 
     expect(fencedBody(renderHtml(roundTripped))).toBe(body)

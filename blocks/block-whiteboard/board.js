@@ -2,7 +2,7 @@ import { getStroke } from 'perfect-freehand'
 
 import { MAX_BLOCK_BYTES, MAX_POINTS, MAX_STROKES } from './limits.js'
 
-export const FORMAT_VERSION = 1
+export const FORMAT_VERSION = 2
 export const DEFAULT_WIDTH = 800
 export const DEFAULT_HEIGHT = 450
 export const MIN_SIDE = 16
@@ -47,16 +47,33 @@ export function emptyBoard() {
   return { w: DEFAULT_WIDTH, h: DEFAULT_HEIGHT, s: [] }
 }
 
-export function pointCount(stroke) {
-  return Math.floor(stroke.p.length / 3)
+function parseLine(line) {
+  try {
+    return JSON.parse(line)
+  } catch {
+    return undefined
+  }
 }
 
-export function measureBoard(board) {
+function strokeLinesOf(text) {
+  return text
+    .split('\n')
+    .slice(1)
+    .filter((line) => line.trim() !== '')
+}
+
+function pointsOf(raw) {
+  return isPlainObject(raw) && Array.isArray(raw.p) ? Math.floor(raw.p.length / 3) : 0
+}
+
+export function measureBody(source) {
+  const text = (source ?? '').trim()
+  const lines = text ? strokeLinesOf(text) : []
   let points = 0
-  for (const stroke of board.s) {
-    points += pointCount(stroke)
+  for (const line of lines) {
+    points += pointsOf(parseLine(line))
   }
-  return { strokes: board.s.length, points }
+  return { bytes: utf8Length(text), strokes: lines.length, points }
 }
 
 export function exceedsCap({ bytes, strokes, points }) {
@@ -82,56 +99,59 @@ function normalizeStroke(raw, w, h) {
 export function parseBoard(source) {
   const text = (source ?? '').trim()
   if (!text) {
-    return { board: emptyBoard() }
+    return { board: emptyBoard(), dropped: 0 }
   }
   if (utf8Length(text) > MAX_BLOCK_BYTES) {
     return { error: 'tooLarge' }
   }
 
-  let data
-  try {
-    data = JSON.parse(text)
-  } catch {
+  const header = parseLine(text.split('\n', 1)[0])
+  if (!isPlainObject(header) || header.v === undefined) {
     return { error: 'invalid' }
   }
-  if (!isPlainObject(data)) {
-    return { error: 'invalid' }
-  }
-  if (data.v !== undefined && data.v !== FORMAT_VERSION) {
-    return { error: 'version', version: String(data.v).slice(0, 32) }
+  if (header.v !== FORMAT_VERSION) {
+    return { error: 'version', version: String(header.v).slice(0, 32) }
   }
 
-  const rawStrokes = data.s ?? []
-  if (!Array.isArray(rawStrokes)) {
-    return { error: 'invalid' }
-  }
-  if (rawStrokes.length > MAX_STROKES) {
+  const strokeLines = strokeLinesOf(text)
+  if (strokeLines.length > MAX_STROKES) {
     return { error: 'tooLarge' }
   }
 
+  const rawStrokes = []
   let points = 0
-  for (const raw of rawStrokes) {
-    if (!isPlainObject(raw) || !Array.isArray(raw.p)) {
-      return { error: 'invalid' }
+  for (const line of strokeLines) {
+    const raw = parseLine(line)
+    if (isPlainObject(raw) && Array.isArray(raw.p)) {
+      rawStrokes.push(raw)
+      points += pointsOf(raw)
     }
-    points += Math.floor(raw.p.length / 3)
   }
   if (points > MAX_POINTS) {
     return { error: 'tooLarge' }
   }
 
-  const w = Math.round(clampNumber(data.w, MIN_SIDE, MAX_SIDE, DEFAULT_WIDTH))
-  const h = Math.round(clampNumber(data.h, MIN_SIDE, MAX_SIDE, DEFAULT_HEIGHT))
-  return { board: { w, h, s: rawStrokes.map((raw) => normalizeStroke(raw, w, h)) } }
+  const w = Math.round(clampNumber(header.w, MIN_SIDE, MAX_SIDE, DEFAULT_WIDTH))
+  const h = Math.round(clampNumber(header.h, MIN_SIDE, MAX_SIDE, DEFAULT_HEIGHT))
+  return {
+    board: { w, h, s: rawStrokes.map((raw) => normalizeStroke(raw, w, h)) },
+    dropped: strokeLines.length - rawStrokes.length
+  }
+}
+
+export function serializeStroke({ c, z, p }) {
+  return JSON.stringify({ c, z, p })
 }
 
 export function serializeBoard(board) {
-  return JSON.stringify({
-    v: FORMAT_VERSION,
-    w: board.w,
-    h: board.h,
-    s: board.s.map(({ c, z, p }) => ({ c, z, p }))
-  })
+  return [
+    JSON.stringify({ v: FORMAT_VERSION, w: board.w, h: board.h }),
+    ...board.s.map(serializeStroke)
+  ].join('\n')
+}
+
+export function appendStroke(source, stroke) {
+  return `${source}\n${serializeStroke(stroke)}`
 }
 
 function fmt(n) {
