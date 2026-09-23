@@ -354,6 +354,7 @@ function localUserRow(input: {
   lastName?: string
   /** Nothing here calls `bcrypt.hash()`; every caller hashes (or carries) its own. */
   passwordHash: string
+  isPasswordKnown: boolean
   mustChangePassword: boolean
   isActive: boolean
   isVerified: boolean
@@ -381,6 +382,7 @@ function localUserRow(input: {
     auth: {
       [input.strategyId]: {
         password: input.passwordHash,
+        isPasswordKnown: input.isPasswordKnown,
         mustChangePwd: input.mustChangePassword,
         restrictLogin: false,
         tfaIsActive: false,
@@ -659,6 +661,7 @@ class Users {
     lastName,
     email,
     password,
+    isPasswordKnown = true,
     groups = [],
     mustChangePassword = false,
     isVerified = true
@@ -669,6 +672,7 @@ class Users {
     lastName?: string
     email: string
     password: string
+    isPasswordKnown?: boolean
     groups?: string[]
     mustChangePassword?: boolean
     /**
@@ -699,6 +703,7 @@ class Users {
             firstName: names.firstName,
             lastName: names.lastName,
             passwordHash,
+            isPasswordKnown,
             mustChangePassword,
             isActive: true,
             isVerified
@@ -815,6 +820,7 @@ class Users {
             firstName: names.firstName,
             lastName: names.lastName,
             passwordHash,
+            isPasswordKnown: true,
             mustChangePassword,
             isActive,
             isVerified,
@@ -1553,6 +1559,7 @@ class Users {
         //    than being stuck behind an "authored" marker.
         firstName: 'Administrator',
         passwordHash: await bcrypt.hash(adminPassword, BCRYPT_ROUNDS),
+        isPasswordKnown: true,
         mustChangePassword: !process.env.ADMIN_PASS,
         isActive: true,
         isVerified: true

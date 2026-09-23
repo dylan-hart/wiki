@@ -237,6 +237,10 @@ describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() },
     const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
     assert.ok(row)
     assert.equal(row!.email, 'ordinary-atomic@example.com')
+    assert.equal(
+      (row!.auth as Record<string, any>)['atomic-create-test-strategy'].isPasswordKnown,
+      true
+    )
 
     const memberships = await fixtures.db
       .select()
@@ -514,6 +518,10 @@ describe('users.importLocalUser (DB-backed)', { skip: !hasTestDatabase() }, () =
     const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, result.id))
     assert.equal(row!.isActive, false)
     assert.ok(row!.createdAt)
+    assert.equal(
+      (row!.auth as Record<string, any>)['import-local-auth-strategy-id'].isPasswordKnown,
+      true
+    )
   })
 })
 

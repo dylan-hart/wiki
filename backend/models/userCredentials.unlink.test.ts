@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import bcrypt from 'bcryptjs'
 import { and, eq } from 'drizzle-orm'
 import { assertUnlinkable, isLocalStrategy, userCredentials } from './userCredentials.ts'
 import { installTestWiki } from '../test/mocks.ts'
@@ -90,6 +91,25 @@ describe('userCredentials.assertUnlinkable', () => {
     const user = { auth: { [OIDC_ID]: { id: 'p1' }, [SAML_ID]: { id: 'p2' } } }
     assert.doesNotThrow(() => assertUnlinkable(user, OIDC_ID))
   })
+
+  test('a password the account holder knows counts as another way in', () => {
+    const user = {
+      auth: { [LOCAL_ID]: { password: 'hash', isPasswordKnown: true }, [OIDC_ID]: { id: 'p1' } }
+    }
+    assert.doesNotThrow(() => assertUnlinkable(user, OIDC_ID))
+  })
+
+  test('the random password a provider-provisioned account was given does not count', () => {
+    const user = {
+      auth: { [LOCAL_ID]: { password: 'hash', isPasswordKnown: false }, [OIDC_ID]: { id: 'p1' } }
+    }
+    assert.throws(() => assertUnlinkable(user, OIDC_ID), /ERR_UNLINK_LAST_LOGIN_METHOD/)
+  })
+
+  test('a password with no record of being known does not count', () => {
+    const user = { auth: { [LOCAL_ID]: { password: 'hash' }, [OIDC_ID]: { id: 'p1' } } }
+    assert.throws(() => assertUnlinkable(user, OIDC_ID), /ERR_UNLINK_LAST_LOGIN_METHOD/)
+  })
 })
 
 describe('userCredentials.unlinkStrategy refuses the local strategy before touching the account', () => {
@@ -173,7 +193,9 @@ describe('userCredentials.describeLinkedProviders reports canDisconnect', () => 
   }
 
   test('the local strategy is never disconnectable, a provider with another way in is', async () => {
-    const user = { auth: { [LOCAL_ID]: { password: 'hash' }, [OIDC_ID]: { id: 'p1' } } }
+    const user = {
+      auth: { [LOCAL_ID]: { password: 'hash', isPasswordKnown: true }, [OIDC_ID]: { id: 'p1' } }
+    }
     const expected = { [LOCAL_ID]: false, [OIDC_ID]: true }
     assert.deepEqual(
       byId(await userCredentials.describeLinkedProviders(user, { forProfile: true })),
@@ -188,6 +210,18 @@ describe('userCredentials.describeLinkedProviders reports canDisconnect', () => 
       byId(await userCredentials.describeLinkedProviders(user, { forProfile: true })),
       { [LOCAL_ID]: false, [OIDC_ID]: false }
     )
+  })
+
+  test('a provider-provisioned account cannot disconnect its only provider', async () => {
+    const user = {
+      auth: { [LOCAL_ID]: { password: 'hash', isPasswordKnown: false }, [OIDC_ID]: { id: 'p1' } }
+    }
+    const expected = { [LOCAL_ID]: false, [OIDC_ID]: false }
+    assert.deepEqual(
+      byId(await userCredentials.describeLinkedProviders(user, { forProfile: true })),
+      expected
+    )
+    assert.deepEqual(byId(await userCredentials.describeLinkedProviders(user)), expected)
   })
 
   test('two providers each leave the other as a way in', async () => {
@@ -238,7 +272,7 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
   test('removes the entry, records the actor and notifies the account holder', async (t) => {
     const sendMock = t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
     const userId = await seedUser({
-      [LOCAL_ID]: { password: 'hash' },
+      [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
       [OIDC_ID]: { id: 'provider-1', email: 'x@example.com' }
     })
 
@@ -250,7 +284,7 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
 
     const auth = await authOf(userId)
     assert.equal(auth[OIDC_ID], undefined)
-    assert.deepEqual(auth[LOCAL_ID], { password: 'hash' })
+    assert.deepEqual(auth[LOCAL_ID], { password: 'hash', isPasswordKnown: true })
 
     const entries = await fixtures.db
       .select()
@@ -273,7 +307,10 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
 
   test('a removal by the account holder records byAdmin: false', async (t) => {
     t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
-    const userId = await seedUser({ [LOCAL_ID]: { password: 'hash' }, [OIDC_ID]: { id: 'p' } })
+    const userId = await seedUser({
+      [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+      [OIDC_ID]: { id: 'p' }
+    })
 
     await userCredentials.unlinkStrategy({
       userId,
@@ -294,7 +331,10 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
     t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {
       throw new Error('ERR_MAIL_NOT_CONFIGURED')
     })
-    const userId = await seedUser({ [LOCAL_ID]: { password: 'hash' }, [OIDC_ID]: { id: 'p' } })
+    const userId = await seedUser({
+      [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
+      [OIDC_ID]: { id: 'p' }
+    })
 
     await userCredentials.unlinkStrategy({
       userId,
@@ -363,6 +403,104 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
     assert.equal(Object.keys(await authOf(userId)).length, 1)
   })
 
+  describe('an account a provider provisioned', () => {
+    let loginModel: any
+
+    before(async () => {
+      loginModel = (await import('./login.ts')).login
+    })
+
+    async function provision(): Promise<string> {
+      const user = await loginModel.findOrCreateProviderUser(
+        {
+          id: OIDC_ID,
+          module: 'test-oidc',
+          displayName: 'Test Provider',
+          isEnabled: true,
+          autoProvision: true,
+          allowedEmailRegex: '',
+          autoEnrollGroups: [],
+          trustEmailForLinking: false,
+          config: {}
+        },
+        {
+          id: `sso-${Math.random().toString(36).slice(2)}`,
+          email: `sso-${Math.random().toString(36).slice(2)}@example.com`,
+          name: 'Provisioned User'
+        }
+      )
+      return user.id
+    }
+
+    function unlink(userId: string) {
+      return userCredentials.unlinkStrategy({
+        userId,
+        strategyId: OIDC_ID,
+        actor: { id: userId, name: 'Provisioned User' }
+      })
+    }
+
+    test('cannot disconnect its only provider', async (t) => {
+      const sendMock = t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
+      const userId = await provision()
+
+      await assert.rejects(unlink(userId), /ERR_UNLINK_LAST_LOGIN_METHOD/)
+      assert.ok((await authOf(userId))[OIDC_ID])
+      assert.equal(sendMock.mock.callCount(), 0)
+    })
+
+    test('can, once an administrator has set it a password', async (t) => {
+      t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
+      const userId = await provision()
+      await userCredentials.setUserPassword({ id: userId, newPassword: 'adminchosen1' })
+
+      await unlink(userId)
+      assert.equal((await authOf(userId))[OIDC_ID], undefined)
+    })
+  })
+
+  test('a registered local account can disconnect a provider it linked', async (t) => {
+    t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
+    const userId = await usersModel.createUser({
+      name: 'Registered User',
+      email: `registered-${Math.random().toString(36).slice(2)}@example.com`,
+      password: 'chosenpwd1'
+    })
+    await userCredentials.patchStrategyAuth(userId, OIDC_ID, () => ({ id: 'linked-provider' }))
+
+    await userCredentials.unlinkStrategy({
+      userId,
+      strategyId: OIDC_ID,
+      actor: { id: userId, name: 'Registered User' }
+    })
+    assert.equal((await authOf(userId))[OIDC_ID], undefined)
+  })
+
+  test('changing its own password makes a password with no record of being known count', async () => {
+    const userId = await seedUser({
+      [LOCAL_ID]: { password: await bcrypt.hash('currentpwd1', 4) },
+      [OIDC_ID]: { id: 'p' }
+    })
+
+    await userCredentials.changeOwnPassword({
+      userId,
+      strategyId: LOCAL_ID,
+      currentPassword: 'currentpwd1',
+      newPassword: 'brandnewpwd1'
+    })
+    assert.equal((await authOf(userId))[LOCAL_ID].isPasswordKnown, true)
+  })
+
+  test('an administrator setting a password marks it known', async () => {
+    const userId = await seedUser({
+      [LOCAL_ID]: { password: 'hash', isPasswordKnown: false },
+      [OIDC_ID]: { id: 'p' }
+    })
+
+    await userCredentials.setUserPassword({ id: userId, newPassword: 'adminchosen1' })
+    assert.equal((await authOf(userId))[LOCAL_ID].isPasswordKnown, true)
+  })
+
   describe('a disconnected identity at its next login', () => {
     let loginModel: any
 
@@ -387,7 +525,7 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
     async function seedAndUnlink(t: any): Promise<{ userId: string; email: string }> {
       t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
       const userId = await seedUser({
-        [LOCAL_ID]: { password: 'hash' },
+        [LOCAL_ID]: { password: 'hash', isPasswordKnown: true },
         [OIDC_ID]: { id: 'provider-identity' }
       })
       const email = ((await usersModel.getById(userId)) as any).email

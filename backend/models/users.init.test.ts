@@ -88,6 +88,7 @@ describe('users.init — admin password seeding', () => {
         'the old fixed default must no longer verify'
       )
       assert.equal(row.auth[IDS.authModuleId].mustChangePwd, true)
+      assert.equal(row.auth[IDS.authModuleId].isPasswordKnown, true)
 
       assert.equal(
         errorLog.mock.callCount(),
@@ -150,6 +151,7 @@ describe('users.init — admin password seeding', () => {
         true
       )
       assert.equal(row.auth[IDS.authModuleId].mustChangePwd, false)
+      assert.equal(row.auth[IDS.authModuleId].isPasswordKnown, true)
       assert.equal(
         errorLog.mock.callCount(),
         0,

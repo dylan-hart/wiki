@@ -202,6 +202,19 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
     )
   })
 
+  test('a new account records its generated local password as one nobody knows', async () => {
+    const created = await findOrCreate(baseStrategy({ id: 'unknown-password-strategy' }), {
+      id: 'unknown-password-account',
+      email: 'unknown-password@example.com',
+      name: 'Provisioned'
+    })
+
+    const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, created.id))
+    const localAuth = (row!.auth as Record<string, any>)['placeholder-local-auth-id']
+    assert.ok(localAuth.password)
+    assert.equal(localAuth.isPasswordKnown, false)
+  })
+
   test('still refuses a brand-new address when the strategy does not accept registration', async () => {
     await assert.rejects(
       findOrCreate(baseStrategy({ id: 'closed-strategy', autoProvision: false }), {
