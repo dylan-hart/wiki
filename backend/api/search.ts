@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import type { SearchEngine } from '../models/search.ts'
 
 const DB_ENGINE_KEY = 'db'
+const AUTO_TAG_MAX_TAGS_LIMIT = 20
 
 async function withDbSearchExtras(
   engines: SearchEngine[],
@@ -31,7 +32,12 @@ async function routes(app: FastifyInstance) {
    */
   app.patch<{
     Params: { siteId: string }
-    Body: { dictOverrides?: Record<string, string>; semanticEnabled?: boolean }
+    Body: {
+      dictOverrides?: Record<string, string>
+      semanticEnabled?: boolean
+      autoTagThreshold?: number
+      autoTagMaxTags?: number
+    }
   }>(
     '/sites/:siteId/search',
     {
@@ -41,7 +47,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Update the search configuration of a site',
         description:
-          'Every dictionary named in `dictOverrides` must exist in this database, otherwise indexing would fail later, long after the setting was accepted. Changing a mapping affects pages the next time they are indexed — rebuild the index to apply it to existing content. `semanticEnabled` may only be set to `true` when semantic search is available on this instance.',
+          'Every dictionary named in `dictOverrides` must exist in this database, otherwise indexing would fail later, long after the setting was accepted. Changing a mapping affects pages the next time they are indexed — rebuild the index to apply it to existing content. `semanticEnabled` may only be set to `true` when semantic search is available on this instance. `autoTagThreshold` and `autoTagMaxTags` apply to pages auto-tagged after the change; tags already applied are left as they are.',
         tags: ['Search'],
         params: { $ref: 'SiteIdParams#' },
         body: {
@@ -56,6 +62,19 @@ async function routes(app: FastifyInstance) {
               type: 'boolean',
               description:
                 'Whether semantic (embedding) search is enabled for this site. Rejected when `true` if semantic search is not available on this instance.'
+            },
+            autoTagThreshold: {
+              type: 'number',
+              minimum: 0,
+              maximum: 1,
+              description:
+                "The minimum token-overlap score (0-1, higher means more overlap) an existing tag must reach against a page's text to be auto-applied to it. A fraction, not a distance: 0.15 means 15% overlap required."
+            },
+            autoTagMaxTags: {
+              type: 'integer',
+              minimum: 1,
+              maximum: AUTO_TAG_MAX_TAGS_LIMIT,
+              description: 'The most tags auto-tagging adds to any one page.'
             }
           }
         },
@@ -79,7 +98,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (req.body.dictOverrides === undefined && req.body.semanticEnabled === undefined) {
+      if (
+        req.body.dictOverrides === undefined &&
+        req.body.semanticEnabled === undefined &&
+        req.body.autoTagThreshold === undefined &&
+        req.body.autoTagMaxTags === undefined
+      ) {
         return reply.badRequest('No search settings provided to update.')
       }
 
@@ -106,6 +130,12 @@ async function routes(app: FastifyInstance) {
       if (req.body.semanticEnabled !== undefined) {
         patch.semanticEnabled = req.body.semanticEnabled
       }
+      if (req.body.autoTagThreshold !== undefined) {
+        patch.autoTagThreshold = req.body.autoTagThreshold
+      }
+      if (req.body.autoTagMaxTags !== undefined) {
+        patch.autoTagMaxTags = req.body.autoTagMaxTags
+      }
 
       const updated = await CARDINAL.models.sites.updateSite(req.params.siteId, {
         config: { search: { config: patch } }
@@ -128,9 +158,9 @@ async function routes(app: FastifyInstance) {
         permissions: ['manage:sites']
       },
       schema: {
-        summary: "Get a site's semantic search setting",
+        summary: "Get a site's semantic search and auto-tagging settings",
         description:
-          "`available` reflects `CARDINAL.capabilities.semanticSearch` (instance-wide: whether pgvector is usable at all); `enabled` is this site's own stored setting, independent of `available`. The feature is reachable only when both are true.",
+          "`available` reflects `CARDINAL.capabilities.semanticSearch` (instance-wide: whether pgvector is usable at all); `enabled` is this site's own stored setting, independent of `available`. The feature is reachable only when both are true. `autoTagThreshold` (a 0-1 overlap fraction, higher is stricter) and `autoTagMaxTags` tune auto-tagging, which runs on embedded page text and so only while semantic search is available.",
         tags: ['Search'],
         params: { $ref: 'SiteIdParams#' },
         response: {
@@ -139,7 +169,9 @@ async function routes(app: FastifyInstance) {
             type: 'object',
             properties: {
               enabled: { type: 'boolean' },
-              available: { type: 'boolean' }
+              available: { type: 'boolean' },
+              autoTagThreshold: { type: 'number' },
+              autoTagMaxTags: { type: 'integer' }
             }
           },
           401: { $ref: 'ApiError#' },
@@ -148,9 +180,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
+      const config = CARDINAL.models.search.getConfig(req.params.siteId)
       return {
-        enabled: CARDINAL.models.search.getConfig(req.params.siteId).semanticEnabled,
-        available: CARDINAL.capabilities?.semanticSearch ?? false
+        enabled: config.semanticEnabled,
+        available: CARDINAL.capabilities?.semanticSearch ?? false,
+        autoTagThreshold: config.autoTagThreshold,
+        autoTagMaxTags: config.autoTagMaxTags
       }
     }
   )
