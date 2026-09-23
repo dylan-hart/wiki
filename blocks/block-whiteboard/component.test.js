@@ -330,6 +330,34 @@ describe('block-whiteboard', () => {
       expect(changes).toHaveLength(0)
     })
 
+    it("does not read a collaborator's caret label in the fence as part of the body", async () => {
+      const el = await mountBoard(BOARD, { editor: true })
+      const changes = nextChange(el)
+      const code = document.createElement('code')
+      code.textContent = BOARD
+      const caret = document.createElement('span')
+      caret.setAttribute('contenteditable', 'false')
+      caret.className = 'ProseMirror-widget'
+      caret.innerHTML =
+        '<span class="collaboration-carets__caret"><div class="collaboration-carets__label">Alice</div></span>'
+      code.prepend(caret)
+      el.querySelector('pre').replaceChildren(code)
+      await Promise.resolve()
+      await el.updateComplete
+
+      expect(errorOf(el)).toBeNull()
+      expect(pathsOf(el)).toHaveLength(1)
+
+      await drawStroke(el, [
+        [100, 100],
+        [150, 150]
+      ])
+
+      expect(changes[0].detail.body).toBe(
+        BOARD + '\n{"c":"#1f2937","z":6,"p":[100,100,50,150,150,50]}'
+      )
+    })
+
     it('records pen pressure, and a fixed mid pressure for mouse and touch', async () => {
       const el = await mountBoard(EMPTY, { editor: true })
       const changes = nextChange(el)

@@ -38,6 +38,20 @@ describe('shared/body.js: readFencedSource()', () => {
     expect(readFencedSource(el)).toEqual({ source: '', fenced: false })
   })
 
+  it("skips an editor widget's text, such as a collaborator's caret label inside the fence", () => {
+    const el = bodyWith(
+      '<pre><code>A <span contenteditable="false" class="ProseMirror-widget"><span><div>Alice</div></span></span>--&gt; B</code></pre>'
+    )
+
+    expect(readFencedSource(el)).toEqual({ source: 'A --> B', fenced: true })
+  })
+
+  it('skips an editor widget in an unfenced body too', () => {
+    const el = bodyWith('<p>x <span contenteditable="false">Bob</span>= 1</p>')
+
+    expect(readFencedSource(el).source).toBe('x = 1')
+  })
+
   it('prefers the fence even when there is other content beside it', () => {
     const el = bodyWith('<p>ignored</p><pre>kept</pre>')
 
