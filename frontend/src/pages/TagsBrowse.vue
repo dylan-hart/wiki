@@ -187,6 +187,7 @@
             class="tags-browse-tasks-link"
             flat
             dense
+            no-caps
             icon="tabler:checklist"
             :label="t('tasks.openTasks')"
             to="/_tasks" />
