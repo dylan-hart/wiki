@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import { registerSchemas } from './site.ts'
 import { buildSitePayload } from '../sites.ts'
 import { installTestWiki } from '../../test/mocks.ts'
+import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
  * An editor missing from the `Site` schema's `editors` is silently dropped by Fastify's schema-based
@@ -361,4 +362,65 @@ test('the Site schema declares banner with bounded plain-text title and content'
   assert.equal(banner.content.maxLength, 2000)
 
   await app.close()
+})
+
+test('the Site schema accepts features.aiAssist and a bounded integer features.aiAssistDailyCap', async () => {
+  const app = await buildTestApp({
+    schemas: [registerSchemas],
+    ajv: true,
+    session: false,
+    routes: async (instance) => {
+      instance.put(
+        '/features',
+        { schema: { body: { $ref: 'Site#/properties/features' } } },
+        async () => ({ ok: true })
+      )
+    }
+  })
+
+  const accepted = await app.inject({
+    method: 'PUT',
+    url: '/features',
+    payload: { aiAssist: true, aiAssistDailyCap: 25 }
+  })
+  assert.equal(accepted.statusCode, 200)
+
+  for (const aiAssistDailyCap of [0, -1, 1.5, 100001]) {
+    const refused = await app.inject({
+      method: 'PUT',
+      url: '/features',
+      payload: { aiAssist: true, aiAssistDailyCap }
+    })
+    assert.equal(refused.statusCode, 400, `aiAssistDailyCap ${aiAssistDailyCap} should be refused`)
+  }
+
+  await closeTestApp(app)
+})
+
+test('buildSitePayload passes features.aiAssist and aiAssistDailyCap through to the public payload', async () => {
+  const wikiHandle = installTestWiki({
+    config: {},
+    models: {
+      renderQueue: { isAvailable: async () => false },
+      blocks: { getSiteBlocks: async () => [] },
+      navigation: { ensureSiteNav: async () => 'nav-id' },
+      commentProviders: { getActiveProvider: async () => null }
+    }
+  })
+  try {
+    const payload = await buildSitePayload({
+      id: 'site-id',
+      hostname: 'example.test',
+      isEnabled: true,
+      config: {
+        features: { aiAssist: true, aiAssistDailyCap: 12 },
+        locales: { primary: 'en', active: ['en'] },
+        search: { engine: 'db', config: {} }
+      }
+    })
+    assert.equal(payload.features.aiAssist, true)
+    assert.equal(payload.features.aiAssistDailyCap, 12)
+  } finally {
+    wikiHandle.restore()
+  }
 })

@@ -69,6 +69,7 @@ async function routes(app: FastifyInstance) {
     contentApp.addHook('preHandler', siteEnabledPreHandler)
 
     contentApp.register(import('./ai.ts'))
+    contentApp.register(import('./aiAssist.ts'))
     contentApp.register(import('./analytics.ts'))
     contentApp.register(import('./apiKeys.ts'), { prefix: '/api-keys' })
     contentApp.register(import('./approvals.ts'))

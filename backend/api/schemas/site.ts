@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { pathDisplayCaseStyles } from '../../models/sites.ts'
+import { AI_ASSIST_MAX_DAILY_CAP } from '../../helpers/aiAssist.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   app.addSchema({
@@ -164,6 +165,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       features: {
         type: 'object',
         properties: {
+          aiAssist: {
+            type: 'boolean',
+            description:
+              "Whether the Markdown editor's writing assistant (rewrite, summarize, expand, generate from a prompt) is offered on this site. Off by default. It is checked before `write:pages`, and turning it on grants nobody a permission: a user still needs `write:pages` on the page, an AI provider must be configured, and each user is held to `aiAssistDailyCap`."
+          },
+          aiAssistDailyCap: {
+            type: 'integer',
+            minimum: 1,
+            maximum: AI_ASSIST_MAX_DAILY_CAP,
+            description:
+              'How many writing assistant actions each user may run on this site per 24-hour window. The window is fixed and starts at the first action.'
+          },
           browse: {
             type: 'boolean'
           },
