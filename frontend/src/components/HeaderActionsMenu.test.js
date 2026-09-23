@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 
 import HeaderActionsMenu from './HeaderActionsMenu.vue'
 import { mountWithApp } from '../../test/mount.js'
@@ -65,5 +66,54 @@ describe('HeaderActionsMenu avatar fallback', () => {
     const wrapper = await openMenu()
 
     expect(wrapper.find('.w-item img').exists()).toBe(false)
+  })
+})
+
+describe('HeaderActionsMenu quick note row', () => {
+  async function openMenu({ authenticated = true, notes } = {}) {
+    const { wrapper, router } = mountWithApp(HeaderActionsMenu, {
+      routes: ['/', '/_notes'],
+      messages: {
+        common: { header: { moreActions: 'More actions', quickNote: 'Quick Note' } }
+      },
+      stores: {
+        user: (store) => store.$patch({ authenticated }),
+        site: (store) => {
+          if (notes !== undefined) {
+            store.features.notes = notes
+          }
+        }
+      }
+    })
+    await router.isReady()
+    await wrapper.find('[aria-label="More actions"]').trigger('click')
+    return { wrapper, router }
+  }
+
+  function quickNoteRow(wrapper) {
+    return wrapper.findAll('.w-item').find((item) => item.text().includes('Quick Note'))
+  }
+
+  it('opens /_notes with a new note', async () => {
+    const { wrapper, router } = await openMenu()
+
+    const row = quickNoteRow(wrapper)
+    expect(row.find('[data-icon="tabler:note"]').exists()).toBe(true)
+    await row.trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/_notes?new=1')
+  })
+
+  it('is absent for a guest', async () => {
+    const { wrapper } = await openMenu({ authenticated: false })
+
+    expect(quickNoteRow(wrapper)).toBeUndefined()
+  })
+
+  it('is absent when the site turns notes off', async () => {
+    const { wrapper } = await openMenu({ notes: false })
+
+    expect(quickNoteRow(wrapper)).toBeUndefined()
   })
 })

@@ -248,6 +248,7 @@ describe('AdminGeneral save() field round-trip', () => {
       features: {
         browse: true,
         comments: true,
+        notes: true,
         pageScripts: true,
         profile: true,
         reasonForChange: 'optional',
@@ -527,5 +528,63 @@ describe('AdminGeneral load() error handling (OpenProject #947)', () => {
     expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative', caption: 'Network error' })
 
     wrapper.unmount()
+  })
+})
+
+describe('AdminGeneral Allow Notes toggle', () => {
+  async function mountWithFeatures(features) {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ ...FIXTURE_SITE, features })
+    })
+    const router = await createTestRouter(
+      ['/_admin/:siteid/general'],
+      `/_admin/${FIXTURE_SITE.id}/general`
+    )
+    const { wrapper } = mountWithApp(AdminGeneral, {
+      router,
+      stores: { admin: { currentSiteId: FIXTURE_SITE.id }, user: { permissions: ['manage:sites'] } }
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  async function applyAndReadFeatures(wrapper) {
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([FIXTURE_SITE]) })
+    const applyBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('common.actions.apply'))
+    await applyBtn.trigger('click')
+    await flushPromises()
+    const [, options] = API_CLIENT.put.mock.calls[0]
+    return options.json.features
+  }
+
+  function notesToggle(wrapper) {
+    return wrapper.get('[role="switch"][aria-label="admin.general.allowNotes"]')
+  }
+
+  it('shows a site with no stored flag as on, and saves it as on', async () => {
+    const wrapper = await mountWithFeatures({ ...FIXTURE_SITE.features })
+
+    expect(wrapper.text()).toContain('admin.general.allowNotesHint')
+    expect(notesToggle(wrapper).attributes('aria-checked')).toBe('true')
+    expect((await applyAndReadFeatures(wrapper)).notes).toBe(true)
+  })
+
+  it('loads a stored off flag and saves it back off', async () => {
+    const wrapper = await mountWithFeatures({ ...FIXTURE_SITE.features, notes: false })
+
+    expect(notesToggle(wrapper).attributes('aria-checked')).toBe('false')
+    expect((await applyAndReadFeatures(wrapper)).notes).toBe(false)
+  })
+
+  it('sends the flipped value after the toggle is clicked', async () => {
+    const wrapper = await mountWithFeatures({ ...FIXTURE_SITE.features, notes: true })
+
+    await notesToggle(wrapper).trigger('click')
+
+    expect(notesToggle(wrapper).attributes('aria-checked')).toBe('false')
+    expect((await applyAndReadFeatures(wrapper)).notes).toBe(false)
   })
 })

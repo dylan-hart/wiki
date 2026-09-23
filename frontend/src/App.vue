@@ -27,6 +27,7 @@ import { useDark } from '@/composables/dark'
 import { confirm } from '@/composables/dialog'
 import { useDirection } from '@/composables/direction'
 import { notify } from '@/composables/notify'
+import { useQuickNoteShortcut } from '@/composables/quickNote'
 
 import UserProfilePopover from '@/components/UserProfilePopover.vue'
 import WDialogHost from '@/components/shared/WDialogHost.vue'
@@ -63,6 +64,8 @@ const userStore = useUserStore()
 const i18n = useI18n({ useScope: 'global' })
 
 const router = useRouter()
+
+useQuickNoteShortcut()
 
 const state = reactive({
   isInitialized: false
