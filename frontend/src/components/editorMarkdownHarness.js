@@ -21,6 +21,18 @@ export function createFakeModel(initialValue) {
     getLineCount: () => lines.length,
     getLineContent: (lineNumber) => lines[lineNumber - 1] ?? '',
     getLineMaxColumn: (lineNumber) => (lines[lineNumber - 1] ?? '').length + 1,
+    getValueInRange(range) {
+      const selected = lines.slice(range.startLineNumber - 1, range.endLineNumber)
+      if (selected.length === 0) {
+        return ''
+      }
+      if (selected.length === 1) {
+        return selected[0].slice(range.startColumn - 1, range.endColumn - 1)
+      }
+      selected[0] = selected[0].slice(range.startColumn - 1)
+      selected[selected.length - 1] = selected[selected.length - 1].slice(0, range.endColumn - 1)
+      return selected.join('\n')
+    },
     applyEdit({ range, text }) {
       const startLine = lines[range.startLineNumber - 1] ?? ''
       const endLine = lines[range.endLineNumber - 1] ?? ''
@@ -48,6 +60,8 @@ export const editorState = {
   fakeModel: null,
   cursorPosition: null,
   registeredActions: null,
+  contextKeys: {},
+  decorationCollections: [],
   disposed: false
 }
 
@@ -78,6 +92,31 @@ export const fakeEditor = {
   // -> `null` exercises `onEditorDrop`'s `if (target?.position)` no-op guard, which is all a
   //    happy-dom drop event needs.
   getTargetAtClientPoint: vi.fn(() => null),
+  getSelection: vi.fn(() => fakeEditor.getSelections()[0]),
+  createContextKey: vi.fn((key, defaultValue) => {
+    editorState.contextKeys[key] = defaultValue
+    return {
+      set: vi.fn((value) => {
+        editorState.contextKeys[key] = value
+      }),
+      get: () => editorState.contextKeys[key],
+      reset: vi.fn(() => {
+        editorState.contextKeys[key] = defaultValue
+      })
+    }
+  }),
+  createDecorationsCollection: vi.fn((decorations = []) => {
+    const collection = {
+      ranges: decorations.map((decoration) => decoration.range),
+      getRange: vi.fn((index) => collection.ranges[index] ?? null),
+      clear: vi.fn(() => {
+        collection.ranges = []
+      })
+    }
+    editorState.decorationCollections.push(collection)
+    return collection
+  }),
+  pushUndoStop: vi.fn(),
   executeEdits: vi.fn((_source, edits) => {
     for (const edit of edits) {
       editorState.fakeModel.applyEdit(edit)
@@ -109,12 +148,15 @@ export const fakeEditor = {
 export function monacoMock() {
   return {
     editor: {
+      TrackedRangeStickiness: { NeverGrowsWhenTypingAtEdges: 1 },
       defineTheme: vi.fn(),
       create: vi.fn((_el, opts) => {
         editorState.fakeModel = createFakeModel(opts.value ?? '')
         editorState.cursorPosition = { lineNumber: editorState.fakeModel.getLineCount(), column: 1 }
         editorState.disposed = false
         editorState.registeredActions = {}
+        editorState.contextKeys = {}
+        editorState.decorationCollections = []
         return fakeEditor
       })
     },
