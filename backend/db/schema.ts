@@ -1107,6 +1107,72 @@ export const userPages = pgTable(
   ]
 )
 
+export const noteSections = pgTable(
+  'noteSections',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id, { onDelete: 'cascade' }),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: varchar({ length: 255 }).notNull().default(''),
+    position: integer().notNull().default(0),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [index('noteSections_user_site_idx').on(table.userId, table.siteId, table.position)]
+)
+
+export const notes = pgTable(
+  'notes',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id, { onDelete: 'cascade' }),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sectionId: uuid()
+      .notNull()
+      .references(() => noteSections.id, { onDelete: 'cascade' }),
+    title: varchar({ length: 255 }),
+    content: text().notNull().default(''),
+    excerpt: varchar({ length: 255 }).notNull().default(''),
+    position: integer().notNull().default(0),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index('notes_sectionId_position_idx').on(table.sectionId, table.position),
+    index('notes_user_site_idx').on(table.userId, table.siteId)
+  ]
+)
+
+export const noteImages = pgTable(
+  'noteImages',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id, { onDelete: 'cascade' }),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    noteId: uuid()
+      .notNull()
+      .references(() => notes.id, { onDelete: 'cascade' }),
+    fileName: varchar({ length: 255 }).notNull(),
+    mimeType: varchar({ length: 255 }).notNull(),
+    fileSize: integer().notNull(),
+    data: bytea().notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [index('noteImages_noteId_idx').on(table.noteId)]
+)
+
 /**
  * One row per page view -- a log, not a counter -- so DISTINCT visitors can be counted over any
  * trailing window rather than whatever a running total already collapsed away.

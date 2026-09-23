@@ -418,3 +418,38 @@ test('buildSitePayload carries no writing assistant settings in the public paylo
     wikiHandle.restore()
   }
 })
+
+test('buildSitePayload always sends features.notes as a boolean, on when the key is absent', async () => {
+  const wikiHandle = installTestWiki({
+    config: { docsBase: '' },
+    models: {
+      renderQueue: { isAvailable: async () => false },
+      blocks: { getSiteBlocks: async () => [] },
+      navigation: { ensureSiteNav: async () => 'nav-id' },
+      commentProviders: { getActiveProvider: async () => null }
+    }
+  })
+
+  try {
+    const payloadFor = async (config: Record<string, any>) =>
+      buildSitePayload({ id: 'site-id', hostname: 'example.test', isEnabled: true, config })
+
+    assert.equal((await payloadFor({})).features.notes, true)
+    assert.equal((await payloadFor({ features: { browse: true } })).features.notes, true)
+    assert.equal((await payloadFor({ features: { notes: true } })).features.notes, true)
+    assert.equal((await payloadFor({ features: { notes: false } })).features.notes, false)
+  } finally {
+    wikiHandle.restore()
+  }
+})
+
+test('the Site schema declares features.notes as a boolean', async () => {
+  const app = fastify()
+  await registerSchemas(app)
+  await app.ready()
+
+  const siteSchema = app.getSchema('Site') as any
+  assert.equal(siteSchema.properties.features.properties.notes.type, 'boolean')
+
+  await app.close()
+})
