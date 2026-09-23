@@ -1,5 +1,8 @@
 import { after, before, beforeEach, describe, test, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../../test/db.ts'
 import { locales as localesTable } from '../../db/schema.ts'
@@ -40,15 +43,25 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
   let fixtures: TestFixtures
   let task: typeof import('./update-locales.ts').task
   let originalFetch: typeof fetch
+  let scratchDir: string
 
   before(async () => {
     fixtures = await setupTestDb()
     ;({ task } = await import('./update-locales.ts'))
     originalFetch = globalThis.fetch
+
+    scratchDir = await mkdtemp(path.join(tmpdir(), 'update-locales-test-'))
+    await mkdir(path.join(scratchDir, 'locales'), { recursive: true })
+    await writeFile(
+      path.join(scratchDir, 'locales/en.json'),
+      JSON.stringify({ welcome: 'Welcome', bye: 'Goodbye', save: 'Save', cancel: 'Cancel' })
+    )
+    CARDINAL.SERVERPATH = scratchDir
   })
 
   after(async () => {
     globalThis.fetch = originalFetch
+    await rm(scratchDir, { recursive: true, force: true })
     await teardownTestDb()
   })
 
@@ -120,6 +133,94 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
       .where(eq(localesTable.language, 'fr-t2'))
     assert.equal(rows.length, 1)
     assert.deepEqual(rows[0]!.strings, { welcome: 'Bienvenue!' })
+  })
+
+  async function seedLocale(code: string, strings: unknown, completeness = 0): Promise<void> {
+    await fixtures.db.insert(localesTable).values({
+      code,
+      name: code,
+      nativeName: code,
+      language: code,
+      region: '',
+      script: '',
+      isRTL: false,
+      strings: strings as Record<string, unknown>,
+      completeness
+    })
+  }
+
+  async function storedRow(code: string) {
+    const [row] = await fixtures.db
+      .select({ strings: localesTable.strings, completeness: localesTable.completeness })
+      .from(localesTable)
+      .where(eq(localesTable.code, code))
+    assert.ok(row, `expected a ${code} row`)
+    return row!
+  }
+
+  test('keeps stored strings the download does not contain, e.g. sideloaded or Cardinal-only keys', async () => {
+    await seedLocale('fr-t6', {
+      welcome: 'Bienvenue (ancien)',
+      save: 'Enregistrer (sideloaded)',
+      'cardinal.only': 'Seulement Cardinal'
+    })
+    stubFetch([makeLang('fr-t6', 'French')], {
+      'fr-t6': { welcome: 'Bienvenue', bye: 'Au revoir' }
+    })
+
+    await task()
+
+    const row = await storedRow('fr-t6')
+    assert.deepEqual(row.strings, {
+      welcome: 'Bienvenue',
+      bye: 'Au revoir',
+      save: 'Enregistrer (sideloaded)',
+      'cardinal.only': 'Seulement Cardinal'
+    })
+  })
+
+  test('computes completeness off the merged strings against the bundled en strings', async () => {
+    await seedLocale('fr-t7', { save: 'Enregistrer', cancel: 'Annuler' }, 0)
+    stubFetch([makeLang('fr-t7', 'French')], { 'fr-t7': { welcome: 'Bienvenue' } })
+
+    await task()
+
+    assert.equal((await storedRow('fr-t7')).completeness, 75)
+  })
+
+  test('computes completeness for a brand-new locale row', async () => {
+    stubFetch([makeLang('fr-t8', 'French')], { 'fr-t8': { welcome: 'Bienvenue', bye: '' } })
+
+    await task()
+
+    assert.equal((await storedRow('fr-t8')).completeness, 25)
+  })
+
+  test('merges onto a row still holding the column default as if it were empty', async () => {
+    await seedLocale('fr-t9', [])
+    stubFetch([makeLang('fr-t9', 'French')], { 'fr-t9': { welcome: 'Bienvenue' } })
+
+    await task()
+
+    const row = await storedRow('fr-t9')
+    assert.deepEqual(row.strings, { welcome: 'Bienvenue' })
+    assert.equal(row.completeness, 25)
+  })
+
+  test('invalidates the cached getStrings() result for a merged locale', async () => {
+    await seedLocale('fr-t10', { welcome: 'Bienvenue (ancien)', save: 'Enregistrer' })
+    assert.deepEqual(await CARDINAL.models.locales.getStrings('fr-t10'), {
+      welcome: 'Bienvenue (ancien)',
+      save: 'Enregistrer'
+    })
+    stubFetch([makeLang('fr-t10', 'French')], { 'fr-t10': { welcome: 'Bienvenue' } })
+
+    await task()
+
+    assert.deepEqual(await CARDINAL.models.locales.getStrings('fr-t10'), {
+      welcome: 'Bienvenue',
+      save: 'Enregistrer'
+    })
   })
 
   test('skips a language with no strings file on wiki-locales without throwing', async () => {
@@ -206,8 +307,7 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
 describe('update-locales.task (unit, no DB)', () => {
   let wikiHandle: { restore(): void }
   let previousFetch: typeof fetch
-  let insertValues: ReturnType<typeof mock.fn>
-  let onConflictDoUpdate: ReturnType<typeof mock.fn>
+  let mergeDownloadedStrings: ReturnType<typeof mock.fn>
   let loggerWarn: ReturnType<typeof mock.fn>
   let broadcastReload: ReturnType<typeof mock.fn>
 
@@ -221,17 +321,15 @@ describe('update-locales.task (unit, no DB)', () => {
   })
 
   beforeEach(() => {
-    onConflictDoUpdate = mock.fn(async () => true)
-    insertValues = mock.fn(() => ({ onConflictDoUpdate }))
+    mergeDownloadedStrings = mock.fn(async () => 100)
     loggerWarn = mock.fn()
     broadcastReload = mock.fn(async () => {})
     wikiHandle = installTestWiki({
       config: {},
       logger: { info: mock.fn(), error: mock.fn(), warn: loggerWarn, debug: mock.fn() },
-      db: { insert: () => ({ values: insertValues }) },
       // -> Deliberately no `reloadCache` method: a `task()` that reloaded locally instead of
       //    broadcasting to the cluster would throw here rather than silently pass.
-      models: { locales: { broadcastReload } }
+      models: { locales: { broadcastReload, mergeDownloadedStrings } }
     })
   })
 
@@ -277,7 +375,7 @@ describe('update-locales.task (unit, no DB)', () => {
     await assert.rejects(task())
 
     assert.equal(fetchSpy.mock.callCount(), 1)
-    assert.equal(insertValues.mock.callCount(), 0)
+    assert.equal(mergeDownloadedStrings.mock.callCount(), 0)
   })
 
   test('percent-encodes the derived filename in the strings URL', async () => {
@@ -312,7 +410,7 @@ describe('update-locales.task (unit, no DB)', () => {
 
     await assert.doesNotReject(task())
 
-    assert.equal(insertValues.mock.callCount(), 0)
+    assert.equal(mergeDownloadedStrings.mock.callCount(), 0)
     assert.equal(loggerWarn.mock.callCount(), 1)
     assert.equal(
       broadcastReload.mock.callCount(),
@@ -331,8 +429,41 @@ describe('update-locales.task (unit, no DB)', () => {
 
     await task()
 
-    assert.equal(insertValues.mock.callCount(), 1)
-    assert.equal(onConflictDoUpdate.mock.callCount(), 1)
+    assert.equal(mergeDownloadedStrings.mock.callCount(), 1)
+  })
+
+  test('hands the downloaded strings, the language metadata and the bundled en strings to mergeDownloadedStrings', async () => {
+    globalThis.fetch = mock.fn(async (url: string) => {
+      if (url.includes('metadata.json')) {
+        return new Response(
+          JSON.stringify({ languages: [makeLang({ region: 'CA', isRtl: false })] }),
+          { status: 200 }
+        )
+      }
+      return new Response(JSON.stringify({ welcome: 'Bienvenue' }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await task()
+
+    assert.equal(mergeDownloadedStrings.mock.callCount(), 1)
+    const [code, meta, downloaded, baseStrings] = mergeDownloadedStrings.mock.calls[0]!
+      .arguments as [
+      string,
+      Record<string, unknown>,
+      Record<string, string>,
+      Record<string, unknown>
+    ]
+    assert.equal(code, 'fr-CA')
+    assert.deepEqual(meta, {
+      name: 'French',
+      nativeName: 'French',
+      language: 'fr',
+      region: 'CA',
+      script: '',
+      isRTL: false
+    })
+    assert.deepEqual(downloaded, { welcome: 'Bienvenue' })
+    assert.equal(typeof baseStrings['common.actions.save'], 'string')
   })
 
   test('routes a real update through the HA cache-broadcast path exactly once', async () => {
@@ -358,7 +489,7 @@ describe('update-locales.task (unit, no DB)', () => {
 
     await task()
 
-    assert.equal(insertValues.mock.callCount(), 0)
+    assert.equal(mergeDownloadedStrings.mock.callCount(), 0)
     assert.equal(broadcastReload.mock.callCount(), 0)
   })
 })

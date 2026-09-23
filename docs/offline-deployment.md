@@ -107,7 +107,11 @@ source feeding the one that already exists:
 1. **Vendored** (`backend/locales/*.json`, Localazy-managed, baked into the image) — every language
    `locales/metadata.js` declares.
 2. **Network** (`update-locales` task, daily, off by `offline` or `update.locales: false`) — pulls the
-   same vendored set fresher than the image, when online.
+   same vendored set fresher than the image, when online. Merged per key onto the stored strings, as
+   a sideload is: a downloaded value replaces only the key it names, so sideloaded and Cardinal-only
+   keys the download lacks survive. A sideloaded value for a key the download also carries is
+   overwritten, and the next boot does not re-apply it (the row is now newer than the file); run
+   `POST /_api/locales/sideload` to restore it.
 3. **Sideloaded** (`<dataPath>/locales/*.json`, this feature) — anything an operator drops into the
    data volume, online or offline. Unlike the other two, a sideloaded code needs no entry in
    `locales/metadata.js` — this is how a locale nobody has vendored yet gets **added**, not just
