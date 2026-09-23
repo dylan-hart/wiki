@@ -1074,3 +1074,17 @@ describe('MainLayout inline sidebar toggle replaces the corner FAB (OpenProject 
     expect(headerNav(wrapper).props('showSidebarToggle')).toBe(true)
   })
 })
+
+describe('MainLayout route meta hideSideNav', () => {
+  it('keeps the site sidebar out of a full-page route such as /_notes', async () => {
+    const { wrapper } = await mountLayout('/_notes')
+
+    expect(wrapper.findComponent({ name: 'WDrawer' }).props('modelValue')).toBe(false)
+  })
+
+  it('still shows the site sidebar on other app routes', async () => {
+    const { wrapper } = await mountLayout('/_tags')
+
+    expect(wrapper.findComponent({ name: 'WDrawer' }).props('modelValue')).toBe(true)
+  })
+})

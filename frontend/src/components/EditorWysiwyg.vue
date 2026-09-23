@@ -156,6 +156,27 @@ const dark = useDark()
 
 const { t } = useI18n()
 
+const props = defineProps({
+  content: {
+    type: String,
+    default: null
+  },
+  uploadFile: {
+    type: Function,
+    default: null
+  },
+  autofocus: {
+    type: Boolean,
+    default: false
+  }
+})
+
+const emit = defineEmits(['update:content'])
+
+const noteMode = props.content !== null
+
+let lastEmittedContent = props.content
+
 /**
  * Neither tone is a theme-aware token, so the pair has to be picked per theme by hand: `grey-10`
  * (near-black) is all but invisible against the dark toolbar background below.
@@ -165,6 +186,7 @@ const inactiveIconColor = computed(() => (dark.isActive ? 'grey-6' : 'grey-10'))
 /** Kept identical to `EditorMarkdown.vue`'s own `collabEnabled`. */
 const collabEnabled = computed(
   () =>
+    !noteMode &&
     siteStore.features.collaborativeEditing &&
     userStore.authenticated &&
     editorStore.mode === 'edit' &&
@@ -219,7 +241,7 @@ const menuBar = computed(() =>
     TEXT_COLORS,
     HIGHLIGHT_COLORS,
     insertLink: () => insertLink(),
-    openFileManager: (opts) => siteStore.openFileManager(opts),
+    openFileManager: (opts) => (noteMode ? pickNoteFiles() : siteStore.openFileManager(opts)),
     insertBlock: () => insertBlock(),
     insertWhiteboard: () => insertWhiteboard(),
     t
@@ -309,6 +331,11 @@ function buildExtensions(collab) {
 }
 
 function handleEditorUpdate({ editor }) {
+  if (noteMode) {
+    lastEmittedContent = editor.getMarkdown()
+    emit('update:content', lastEmittedContent)
+    return
+  }
   editorStore.markDirty()
   pageStore.$patch({
     content: editor.getMarkdown(),
@@ -329,6 +356,19 @@ function isLegacyWysiwygJson(content) {
 }
 
 function init() {
+  if (noteMode) {
+    editor = useEditor({
+      content: props.content,
+      contentType: 'markdown',
+      editable: true,
+      autofocus: props.autofocus ? 'end' : false,
+      extensions: buildExtensions(null),
+      editorProps: buildEditorProps(),
+      onUpdate: handleEditorUpdate
+    })
+    return
+  }
+
   editorStore.$patch({
     hideSideNav: false
   })
@@ -532,7 +572,7 @@ function insertAssetClb(opts) {
  * filename is kept and a clipboard paste's is not.
  */
 function refuseFilesWhenSuggesting() {
-  if (editorStore.mode !== 'suggest') {
+  if (noteMode || editorStore.mode !== 'suggest') {
     return false
   }
   notify({
@@ -543,6 +583,10 @@ function refuseFilesWhenSuggesting() {
 }
 
 function insertFilesAsAssets(files, { generateUniqueName = false, position = null } = {}) {
+  if (noteMode) {
+    insertFilesAsNoteUploads(files, { position })
+    return
+  }
   if (position != null) {
     editor.value.chain().focus().setTextSelection(position).run()
   }
@@ -562,6 +606,46 @@ function insertFilesAsAssets(files, { generateUniqueName = false, position = nul
       .setLink({ href: blobUrl })
       .run()
   }
+}
+
+async function insertFilesAsNoteUploads(files, { position = null } = {}) {
+  if (position != null) {
+    editor.value.chain().focus().setTextSelection(position).run()
+  }
+  for (const file of files) {
+    const uploaded = await Promise.resolve(props.uploadFile?.(file)).catch(() => null)
+    if (!uploaded?.url || !editor.value || editor.value.isDestroyed) {
+      continue
+    }
+    const name = uploaded.name || file.name
+    if (file.type.startsWith('image/')) {
+      editor.value.chain().focus().setImage({ src: uploaded.url, alt: name }).run()
+      continue
+    }
+    const { from } = editor.value.state.selection
+    editor.value
+      .chain()
+      .focus()
+      .insertContentAt(from, name)
+      .setTextSelection({ from, to: from + name.length })
+      .extendMarkRange('link')
+      .setLink({ href: uploaded.url })
+      .run()
+  }
+}
+
+function pickNoteFiles() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  input.multiple = true
+  input.addEventListener('change', () => {
+    const files = Array.from(input.files ?? [])
+    if (files.length > 0) {
+      insertFilesAsNoteUploads(files)
+    }
+  })
+  input.click()
 }
 
 /*
@@ -672,6 +756,17 @@ onMounted(() => {
 
 init()
 
+watch(
+  () => props.content,
+  (content) => {
+    if (!noteMode || content === lastEmittedContent || !editor.value) {
+      return
+    }
+    lastEmittedContent = content
+    editor.value.commands.setContent(content ?? '', { contentType: 'markdown', emitUpdate: false })
+  }
+)
+
 // -> Registered after `init()` on purpose: `useEditor()` defers construction to its own mount hook,
 //    and Vue runs mount hooks in registration order, so only a later-registered hook sees
 //    `editor.value`.
@@ -741,7 +836,9 @@ onBeforeUnmount(() => {
   stopCollabLastSaveWatch?.()
   // -> Before the editor goes: leaving the room is what takes this author's avatar out of everyone
   //    else's header.
-  stopCollabSession()
+  if (!noteMode) {
+    stopCollabSession()
+  }
   editor.value.destroy()
 })
 
