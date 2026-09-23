@@ -107,6 +107,7 @@ export const useSiteStore = defineStore('site', {
       browse: false,
       collaborativeEditing: false,
       comments: false,
+      notes: true,
       /**
        * The site-wide execution kill switch for per-page scripts/styles. Off by default, same
        * rationale as `comments` above: a consumer should have a real `false` to gate on before the

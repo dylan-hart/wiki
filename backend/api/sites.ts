@@ -4,6 +4,7 @@ import { CustomError, requestOrigin } from '../helpers/common.ts'
 import { defaultLocale } from '../helpers/localeRouting.ts'
 import { resolveSiteParam } from '../helpers/siteResolution.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
+import { notesEnabledIn } from '../helpers/notes.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { semanticSearchAvailable } from '../helpers/semanticSearch.ts'
 import { maySiteAdmin, SITE_PERMISSIONS } from '../helpers/siteRules.ts'
@@ -156,6 +157,7 @@ export async function buildSitePayload(
     defaults: config.defaults,
     features: {
       ...config.features,
+      notes: notesEnabledIn(config),
       semanticSearch: semanticSearchAvailable(config)
     },
     uploads: config.uploads,

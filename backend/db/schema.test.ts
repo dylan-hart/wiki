@@ -750,3 +750,56 @@ describe('pageTemplates table', () => {
     )
   })
 })
+
+describe('personal notes tables', () => {
+  function foreignKey(table: PgTable, column: string) {
+    const fk = getTableConfig(table).foreignKeys.find((f) =>
+      f.reference().columns.some((c) => c.name === column)
+    )
+    assert.ok(fk, `${getTableName(table)}.${column} has no foreign key`)
+    return { table: getTableName(fk.reference().foreignTable), onDelete: fk.onDelete }
+  }
+
+  test('every owner, site and parent link cascades, so no note outlives what holds it', () => {
+    const expected: [PgTable, string, string][] = [
+      [schema.noteSections, 'siteId', 'sites'],
+      [schema.noteSections, 'userId', 'users'],
+      [schema.notes, 'siteId', 'sites'],
+      [schema.notes, 'userId', 'users'],
+      [schema.notes, 'sectionId', 'noteSections'],
+      [schema.noteImages, 'siteId', 'sites'],
+      [schema.noteImages, 'userId', 'users'],
+      [schema.noteImages, 'noteId', 'notes']
+    ]
+    for (const [table, column, target] of expected) {
+      assert.deepEqual(foreignKey(table, column), { table: target, onDelete: 'cascade' })
+    }
+  })
+
+  test('a note title is optional and its content defaults to empty', () => {
+    const columns = Object.fromEntries(
+      getTableConfig(schema.notes).columns.map((col) => [col.name, col])
+    )
+    assert.equal(columns.title!.notNull, false)
+    assert.equal(columns.content!.notNull, true)
+    assert.equal(columns.content!.hasDefault, true)
+  })
+
+  test('the genesis migration creates all three tables with cascading keys', async () => {
+    const sql = await readFile(
+      path.join(MIGRATIONS_DIR, '20260913190940_main', 'migration.sql'),
+      'utf8'
+    )
+    for (const table of ['noteSections', 'notes', 'noteImages']) {
+      assert.match(sql, new RegExp(`CREATE TABLE "${table}" \\(`))
+    }
+    assert.match(
+      sql,
+      /ALTER TABLE "notes" ADD CONSTRAINT "notes_sectionId_noteSections_id_fkey" FOREIGN KEY \("sectionId"\) REFERENCES "noteSections"\("id"\) ON DELETE CASCADE/
+    )
+    assert.match(
+      sql,
+      /ALTER TABLE "noteImages" ADD CONSTRAINT "noteImages_userId_users_id_fkey" FOREIGN KEY \("userId"\) REFERENCES "users"\("id"\) ON DELETE CASCADE/
+    )
+  })
+})
