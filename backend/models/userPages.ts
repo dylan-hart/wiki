@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, notInArray, sql } from 'drizzle-orm'
 import { pages as pagesTable, userPages as userPagesTable } from '../db/schema.ts'
+import type { AccessActor } from './groups.ts'
 
 export type UserPageKind = 'recent' | 'favorite' | 'pinned'
 
@@ -101,14 +102,22 @@ class UserPages {
     return rows.length > 0
   }
 
+  /**
+   * @param actor Who is asking, as the request presents itself (`groups.actorForRequest`), not
+   *   `userId`'s own full membership: an API key acting for the user carries its scope, its
+   *   classification allow-set and its site pin, and a page any of those shuts out must not be
+   *   listed through the key.
+   */
   async list({
     siteId,
     userId,
-    kind
+    kind,
+    actor
   }: {
     siteId: string
     userId: string
     kind: UserPageKind
+    actor: AccessActor
   }): Promise<UserPageEntry[]> {
     const order =
       kind === 'pinned'
@@ -143,7 +152,6 @@ class UserPages {
     if (rows.length < 1) {
       return []
     }
-    const actor = await CARDINAL.models.groups.actorForUserId(userId)
     return rows
       .filter((row) =>
         CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
