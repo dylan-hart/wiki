@@ -22,9 +22,17 @@ import { MAX_BLOCK_BYTES, MAX_STROKES } from './limits.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-const BOARD =
-  '{"v":1,"w":400,"h":200,"s":[{"c":"#3366cc","z":4,"p":[10,20,50,60,80,50,120,40,50]}]}'
-const EMPTY = '{"v":1,"w":800,"h":450,"s":[]}'
+const BOARD = '{"v":2,"w":400,"h":200}\n{"c":"#3366cc","z":4,"p":[10,20,50,60,80,50,120,40,50]}'
+const EMPTY = '{"v":2,"w":800,"h":450}'
+
+function boardBody(header, strokes) {
+  return [JSON.stringify({ v: 2, ...header }), ...strokes.map((s) => JSON.stringify(s))].join('\n')
+}
+
+function readBody(body) {
+  const [header, ...lines] = body.split('\n')
+  return { header: JSON.parse(header), strokes: lines.map((line) => JSON.parse(line)) }
+}
 
 function editorRoot({ editable = true } = {}) {
   const root = document.createElement('div')
@@ -151,7 +159,7 @@ describe('block-whiteboard', () => {
         z: 2,
         p: [1, 1, 1]
       }))
-      const el = await mountBoard(JSON.stringify({ v: 1, w: 100, h: 100, s: strokes }))
+      const el = await mountBoard(boardBody({ w: 100, h: 100 }, strokes))
 
       expect(canvasOf(el)).toBeNull()
       expect(errorOf(el).textContent).toContain('over the size limit of 256 KiB, 2000 strokes')
@@ -163,20 +171,15 @@ describe('block-whiteboard', () => {
     })
 
     it('renders hostile stroke data as inert, sanitised attributes', async () => {
-      const hostile = JSON.stringify({
-        v: 1,
-        w: '<script>',
-        h: Number.POSITIVE_INFINITY,
-        s: [
-          {
-            c: '#fff" onload="alert(1)',
-            z: '"><script>alert(1)</script>',
-            p: [1e308, -1e308, 'x', 10, 10, 50, 20, 20, 50]
-          },
-          { c: 'javascript:alert(1)', z: 3, p: [5, 5, 5, 6, 6, 6] }
-        ]
-      })
-      const el = await mountBoard(hostile)
+      const hostile = boardBody({ w: '<script>', h: Number.POSITIVE_INFINITY }, [
+        {
+          c: '#fff" onload="alert(1)',
+          z: '"><script>alert(1)</script>',
+          p: [1e308, -1e308, 'x', 10, 10, 50, 20, 20, 50]
+        },
+        { c: 'javascript:alert(1)', z: 3, p: [5, 5, 5, 6, 6, 6] }
+      ])
+      const el = await mountBoard(hostile + '\n</pre><script>alert(1)</script>')
 
       expect(el.shadowRoot.querySelector('script')).toBeNull()
       expect(el.shadowRoot.querySelector('[onload]')).toBeNull()
@@ -214,17 +217,96 @@ describe('block-whiteboard', () => {
       expect(changes[0].bubbles).toBe(true)
       expect(changes[0].composed).toBe(true)
       expect(outside).toHaveBeenCalledTimes(1)
-      const written = JSON.parse(changes[0].detail.body)
-      expect(Object.keys(written)).toEqual(['v', 'w', 'h', 's'])
-      expect(written.s).toHaveLength(2)
-      expect(written.s[1]).toEqual({
+      const written = readBody(changes[0].detail.body)
+      expect(written.header).toEqual({ v: 2, w: 400, h: 200 })
+      expect(written.strokes).toHaveLength(2)
+      expect(written.strokes[1]).toEqual({
         c: DEFAULT_COLOR,
         z: 6,
         p: [100, 100, 50, 120, 110, 50, 140, 130, 50]
       })
+      expect(changes[0].detail.body).toBe(
+        BOARD + '\n{"c":"#1f2937","z":6,"p":[100,100,50,120,110,50,140,130,50]}'
+      )
       expect(el.querySelector('pre').textContent).toBe(BOARD)
       expect(pathsOf(el)).toHaveLength(2)
       document.body.removeEventListener('whiteboard-change', outside)
+    })
+
+    it('writes the first stroke on an empty body under a fresh header', async () => {
+      const el = await mountBoard('', { editor: true })
+      const changes = nextChange(el)
+
+      await drawStroke(el, [
+        [10, 10],
+        [20, 20]
+      ])
+
+      expect(changes[0].detail.body).toBe(
+        '{"v":2,"w":800,"h":450}\n{"c":"#1f2937","z":6,"p":[10,10,50,20,20,50]}'
+      )
+    })
+
+    it('draws the readable strokes of a board with a damaged line, and appends past it', async () => {
+      const damaged = BOARD + '\n{"c":"#000","z":2,"p":[1,1\n{"c":"#3366cc","z":4,"p":[5,5,50]}'
+      const el = await mountBoard(damaged, { editor: true })
+      const changes = nextChange(el)
+
+      expect(errorOf(el)).toBeNull()
+      expect(pathsOf(el)).toHaveLength(2)
+
+      await drawStroke(el, [
+        [100, 100],
+        [150, 150]
+      ])
+
+      expect(changes[0].detail.body).toBe(
+        damaged + '\n{"c":"#1f2937","z":6,"p":[100,100,50,150,150,50]}'
+      )
+      expect(pathsOf(el)).toHaveLength(3)
+    })
+
+    it('appends to what the editor last wrote into its fence, not to what it drew itself', async () => {
+      const el = await mountBoard(BOARD, { editor: true })
+      const changes = nextChange(el)
+      await drawStroke(el, [
+        [100, 100],
+        [150, 150]
+      ])
+      const merged = changes[0].detail.body + '\n{"c":"#3366cc","z":4,"p":[7,7,50]}'
+      el.querySelector('pre').textContent = merged
+      await Promise.resolve()
+      await el.updateComplete
+      expect(pathsOf(el)).toHaveLength(3)
+
+      await drawStroke(el, [
+        [200, 20],
+        [210, 30]
+      ])
+
+      expect(changes[1].detail.body).toBe(
+        merged + '\n{"c":"#1f2937","z":6,"p":[200,20,50,210,30,50]}'
+      )
+    })
+
+    it('counts a damaged line toward the stroke cap', async () => {
+      const strokes = Array.from({ length: MAX_STROKES - 1 }, () => ({
+        c: '#000',
+        z: 2,
+        p: [1, 1, 1]
+      }))
+      const el = await mountBoard(boardBody({ w: 100, h: 100 }, strokes) + '\n{broken', {
+        editor: true
+      })
+      const changes = nextChange(el)
+
+      await drawStroke(el, [
+        [10, 10],
+        [20, 20]
+      ])
+
+      expect(changes).toHaveLength(0)
+      expect(errorOf(el).textContent).toContain('This whiteboard is full')
     })
 
     it('stops a drawing pointerdown from reaching the editor, and cancels its default', async () => {
@@ -262,13 +344,14 @@ describe('block-whiteboard', () => {
       )
       await drawStroke(el, [[30, 30]], { pointerType: 'touch', pressure: 1, pointerId: 2 })
 
-      const written = JSON.parse(changes[1].detail.body)
-      expect(written.s[0].p).toEqual([10, 10, 83, 20, 20, 83])
-      expect(written.s[1].p).toEqual([30, 30, 50])
+      const written = readBody(changes[1].detail.body)
+      expect(written.strokes[0].p).toEqual([10, 10, 83, 20, 20, 83])
+      expect(written.strokes[1].p).toEqual([30, 30, 50])
+      expect(changes[1].detail.body.startsWith(changes[0].detail.body + '\n')).toBe(true)
     })
 
     it('clamps a pointer dragged off the sheet to the board edge', async () => {
-      const el = await mountBoard('{"v":1,"w":100,"h":50,"s":[]}', { editor: true })
+      const el = await mountBoard('{"v":2,"w":100,"h":50}', { editor: true })
       const changes = nextChange(el)
 
       await drawStroke(el, [
@@ -276,7 +359,7 @@ describe('block-whiteboard', () => {
         [500, 900]
       ])
 
-      expect(JSON.parse(changes[0].detail.body).s[0].p).toEqual([0, 10, 50, 100, 50, 50])
+      expect(readBody(changes[0].detail.body).strokes[0].p).toEqual([0, 10, 50, 100, 50, 50])
     })
 
     it('reads coalesced pointer events when the browser offers them', async () => {
@@ -294,7 +377,7 @@ describe('block-whiteboard', () => {
       canvas.dispatchEvent(move)
       canvas.dispatchEvent(pointer('pointerup'))
 
-      expect(JSON.parse(changes[0].detail.body).s[0].p).toEqual([
+      expect(readBody(changes[0].detail.body).strokes[0].p).toEqual([
         0, 0, 50, 10, 10, 50, 20, 20, 50, 30, 30, 50
       ])
     })
@@ -326,7 +409,7 @@ describe('block-whiteboard', () => {
       canvas.dispatchEvent(pointer('pointerup'))
 
       expect(changes).toHaveLength(1)
-      expect(JSON.parse(changes[0].detail.body).s[0].p).toEqual([1, 1, 50])
+      expect(readBody(changes[0].detail.body).strokes[0].p).toEqual([1, 1, 50])
     })
 
     it('re-reads its body when the editor rewrites the fence, one undo step at a time', async () => {
@@ -417,9 +500,7 @@ describe('block-whiteboard', () => {
 
     it('refuses to start a stroke on a board already at the stroke cap', async () => {
       const strokes = Array.from({ length: MAX_STROKES }, () => ({ c: '#000', z: 2, p: [1, 1, 1] }))
-      const el = await mountBoard(JSON.stringify({ v: 1, w: 100, h: 100, s: strokes }), {
-        editor: true
-      })
+      const el = await mountBoard(boardBody({ w: 100, h: 100 }, strokes), { editor: true })
       const changes = nextChange(el)
 
       await drawStroke(el, [
@@ -461,7 +542,7 @@ describe('block-whiteboard', () => {
       canvasOf(el).dispatchEvent(pointer('pointerup', { pointerType: 'pen', pointerId: 9 }))
 
       expect(started).toBe(true)
-      expect(JSON.parse(changes[0].detail.body).s[0].p).toEqual([40, 40, 40, 60, 50, 60])
+      expect(readBody(changes[0].detail.body).strokes[0].p).toEqual([40, 40, 40, 60, 50, 60])
     })
 
     it('returns false outside drawing mode and on an unreadable body', async () => {

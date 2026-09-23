@@ -11,7 +11,7 @@ import EditorWysiwyg from './EditorWysiwyg.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-const EMPTY_BODY = '{"v":1,"w":800,"h":450,"s":[]}'
+const EMPTY_BODY = '{"v":2,"w":800,"h":450}'
 const EMPTY_BOARD_MARKDOWN = '::block-whiteboard\n```whiteboard\n' + EMPTY_BODY + '\n```\n::'
 
 const beginStroke = vi.fn(() => true)
@@ -31,7 +31,7 @@ function boardBody(strokeCount) {
   for (let i = 0; i < strokeCount; i++) {
     s.push({ c: '#000000', z: 4, p: [i, i, 50, i + 1, i + 1, 60] })
   }
-  return JSON.stringify({ v: 1, w: 800, h: 450, s })
+  return [EMPTY_BODY, ...s.map((stroke) => JSON.stringify(stroke))].join('\n')
 }
 
 function boardMarkdown(body) {
@@ -269,7 +269,7 @@ describe('EditorWysiwyg ink insertion: stylus auto-insert', () => {
   it('refuses a pen insertion once the page is at its combined drawing cap', async () => {
     const { wrapper, editor } = await mountEditor('First')
     mounted = wrapper
-    const bigBody = JSON.stringify({ v: 1, w: 800, h: 450, s: [], pad: 'x'.repeat(262100) })
+    const bigBody = JSON.stringify({ v: 2, w: 800, h: 450, pad: 'x'.repeat(262110) })
     const board = {
       type: 'wikiBlock',
       attrs: { block: 'whiteboard', props: {} },
@@ -416,17 +416,11 @@ describe('EditorWysiwyg ink insertion: whiteboard-change write-back', () => {
     [
       'too many points',
       () =>
-        JSON.stringify({
-          v: 1,
-          w: 800,
-          h: 450,
-          s: [{ c: '#000', z: 1, p: Array.from({ length: 150003 }, () => 0) }]
-        })
+        EMPTY_BODY +
+        '\n' +
+        JSON.stringify({ c: '#000', z: 1, p: Array.from({ length: 150003 }, () => 0) })
     ],
-    [
-      'too many bytes',
-      () => JSON.stringify({ v: 1, w: 800, h: 450, s: [], pad: 'x'.repeat(262144) })
-    ]
+    ['too many bytes', () => JSON.stringify({ v: 2, w: 800, h: 450, pad: 'x'.repeat(262144) })]
   ])('refuses a body with %s and keeps the last accepted one', async (_label, makeBody) => {
     const { wrapper, editor, pageStore } = await mountEditor(boardMarkdown(boardBody(1)))
     mounted = wrapper
@@ -444,7 +438,7 @@ describe('EditorWysiwyg ink insertion: whiteboard-change write-back', () => {
     const { wrapper, editor } = await mountEditor(boardMarkdown(EMPTY_BODY))
     mounted = wrapper
 
-    whiteboardChange(editor.view.dom.querySelector('block-whiteboard'), '{"v":1,')
+    whiteboardChange(editor.view.dom.querySelector('block-whiteboard'), '{"v":2,')
     await nextTick()
 
     expect(bodyOf(whiteboardNodes(editor)[0])).toBe(EMPTY_BODY)
@@ -454,7 +448,7 @@ describe('EditorWysiwyg ink insertion: whiteboard-change write-back', () => {
 
 describe('EditorWysiwyg ink insertion: page-wide cap and highlighting', () => {
   function paddedBody(padLength) {
-    return JSON.stringify({ v: 1, w: 800, h: 450, s: [], pad: 'x'.repeat(padLength) })
+    return JSON.stringify({ v: 2, w: 800, h: 450, pad: 'x'.repeat(padLength) })
   }
 
   function setBoards(editor, bodies) {

@@ -49,7 +49,8 @@ describe('MarkdownRenderer fenced diagram handoff', () => {
    * special case that skips escaping.
    */
   it('leaves a whiteboard body inside ::block-whiteboard as a quiet pre whose text is the JSON', () => {
-    const body = '{"v":1,"w":800,"h":450,"s":[{"c":"#1f2937","z":4,"p":[1,2,3,4,5,6]}]}'
+    const body =
+      '{"v":2,"w":800,"h":450}\n{"c":"#1f2937","z":4,"p":[1,2,3,4,5,6]}\n{"c":"#1f2937","z":4,"p":[7,8,9]}'
     const html = new MarkdownRenderer({}).render(
       `::block-whiteboard\n\`\`\`whiteboard\n${body}\n\`\`\`\n::\n`
     )

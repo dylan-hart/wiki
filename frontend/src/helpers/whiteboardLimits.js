@@ -13,24 +13,38 @@ export function whiteboardBodyBytes(body) {
   return utf8ByteLength(String(body ?? '').trim())
 }
 
-export function measureWhiteboardBody(body) {
-  const bytes = whiteboardBodyBytes(body)
-  let parsed
+function parseLine(line) {
   try {
-    parsed = JSON.parse(String(body ?? '').trim())
+    return JSON.parse(line)
   } catch {
+    return undefined
+  }
+}
+
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function measureWhiteboardBody(body) {
+  const text = String(body ?? '').trim()
+  const bytes = utf8ByteLength(text)
+  if (!text) {
     return { bytes, strokes: 0, points: 0, valid: false }
   }
-  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.s)) {
-    return { bytes, strokes: 0, points: 0, valid: false }
-  }
+  const [header, ...lines] = text.split('\n')
+  let strokes = 0
   let points = 0
-  for (const stroke of parsed.s) {
-    if (stroke && Array.isArray(stroke.p)) {
+  for (const line of lines) {
+    if (line.trim() === '') {
+      continue
+    }
+    strokes++
+    const stroke = parseLine(line)
+    if (isPlainObject(stroke) && Array.isArray(stroke.p)) {
       points += Math.floor(stroke.p.length / 3)
     }
   }
-  return { bytes, strokes: parsed.s.length, points, valid: true }
+  return { bytes, strokes, points, valid: isPlainObject(parseLine(header)) }
 }
 
 export function whiteboardBodyRefusal(body) {
