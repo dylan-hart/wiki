@@ -106,6 +106,22 @@ describe('rendering.postProcess: whiteboard size cap', () => {
     assert.equal(err.statusCode, 400)
   })
 
+  test('measures a block with no fence by its text, the way the block reads it', async () => {
+    const err = await refusal(`<block-whiteboard><p>${'x'.repeat(262145)}</p></block-whiteboard>`)
+    assert.equal(err.statusCode, 400)
+  })
+
+  test('measures every fence in one block as one body', async () => {
+    const half = 'x'.repeat(140000)
+    await rendering.postProcess('site-1', block(half), PERMISSIONS)
+
+    const err = await refusal(
+      `<block-whiteboard><pre class="codeblock-whiteboard"><code>${half}</code></pre><pre class="codeblock-whiteboard"><code>${half}</code></pre></block-whiteboard>`
+    )
+    assert.equal(err.statusCode, 400)
+    assert.match(err.message, /280001 bytes/)
+  })
+
   test('does not count one pre twice when it is both class-matched and first in its block', async () => {
     const body = 'x'.repeat(262144)
     await rendering.postProcess('site-1', block(body).repeat(4), PERMISSIONS)
@@ -135,6 +151,16 @@ describe('rendering.postProcess: whiteboard bodies stay out of search text', () 
     const result = await rendering.postProcess(
       'site-1',
       `<p>One</p>\n${block(board(1), 'codeblock hljs')}\n<pre class="codeblock-whiteboard"><code>${board(1)}</code></pre>\n<p>Two</p>`,
+      PERMISSIONS
+    )
+
+    assert.equal(result.text, 'One Two')
+  })
+
+  test('drops the body of a block with no fence, and every fence of a block with several', async () => {
+    const result = await rendering.postProcess(
+      'site-1',
+      `<p>One</p>\n<block-whiteboard><p>${board(1)}</p></block-whiteboard>\n<block-whiteboard>${block(board(1)).replaceAll(/<\/?block-whiteboard>/g, '')}<pre><code>${board(1)}</code></pre></block-whiteboard>\n<p>Two</p>`,
       PERMISSIONS
     )
 

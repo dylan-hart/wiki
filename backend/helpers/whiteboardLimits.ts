@@ -1,3 +1,5 @@
+import { CustomError } from './common.ts'
+
 export const WHITEBOARD_MAX_BLOCK_BYTES = 262_144
 export const WHITEBOARD_MAX_STROKES = 2_000
 export const WHITEBOARD_MAX_POINTS = 50_000
@@ -70,6 +72,17 @@ export function findWhiteboardCapViolation(bodies: string[]): WhiteboardCapViola
   }
 
   return null
+}
+
+/**
+ * The page save's refusal, shared by a render (`models/rendering.ts`) and a markdown body
+ * (`models/pages.ts`) so both answer the same 400.
+ */
+export function assertPageWhiteboardsWithinCap(bodies: string[]): void {
+  const violation = findWhiteboardCapViolation(bodies)
+  if (violation) {
+    throw new CustomError('pageWhiteboardTooLarge', describeWhiteboardCapViolation(violation))
+  }
 }
 
 export function describeWhiteboardCapViolation(violation: WhiteboardCapViolation): string {
