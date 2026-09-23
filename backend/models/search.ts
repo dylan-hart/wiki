@@ -34,6 +34,7 @@ const ENGINE_INIT_TIMEOUT_MS = 30_000
 export interface SearchConfig {
   dictOverrides: Record<string, string>
   semanticEnabled: boolean
+  semanticMinMatch: number
 }
 
 /**
@@ -467,7 +468,8 @@ class Search {
       | undefined
     return {
       dictOverrides: (config?.dictOverrides ?? {}) as Record<string, string>,
-      semanticEnabled: config?.semanticEnabled ?? false
+      semanticEnabled: config?.semanticEnabled ?? false,
+      semanticMinMatch: config?.semanticMinMatch ?? 0
     }
   }
 

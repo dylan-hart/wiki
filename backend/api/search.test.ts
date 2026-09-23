@@ -36,6 +36,7 @@ let validateCalls: any[]
 let validateResult: string | null
 let updateSiteCalls: any[]
 let semanticEnabled: boolean
+let semanticMinMatch: number
 
 before(async () => {
   refreshCalls = 0
@@ -44,6 +45,7 @@ before(async () => {
   validateResult = null
   updateSiteCalls = []
   semanticEnabled = false
+  semanticMinMatch = 0
 
   const wiki = {
     sites,
@@ -65,7 +67,7 @@ before(async () => {
         refreshFromDisk: async () => {
           refreshCalls++
         },
-        getConfig: (_siteId: string) => ({ dictOverrides, semanticEnabled }),
+        getConfig: (_siteId: string) => ({ dictOverrides, semanticEnabled, semanticMinMatch }),
         getAvailableDictionaries: async () => availableDictionaries
       },
       sites: {
@@ -241,10 +243,51 @@ test('PATCH .../search always accepts semanticEnabled: false, capability or no c
   ])
 })
 
-test('PATCH .../search 400s when neither dictOverrides nor semanticEnabled is provided', async () => {
+test('PATCH .../search 400s when none of dictOverrides, semanticEnabled or semanticMinMatch is provided', async () => {
   const res = await app.inject({ method: 'PATCH', url: `/sites/${SITE_ID}/search`, payload: {} })
   assert.equal(res.statusCode, 400)
 })
+
+test('PATCH .../search stores semanticMinMatch on its own', async () => {
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: false }
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/search`,
+    payload: { semanticMinMatch: 65 }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(updateSiteCalls.at(-1), [
+    SITE_ID,
+    { config: { search: { config: { semanticMinMatch: 65 } } } }
+  ])
+})
+
+test('PATCH .../search stores semanticMinMatch alongside semanticEnabled', async () => {
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: true }
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/search`,
+    payload: { semanticEnabled: true, semanticMinMatch: 0 }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(updateSiteCalls.at(-1), [
+    SITE_ID,
+    { config: { search: { config: { semanticEnabled: true, semanticMinMatch: 0 } } } }
+  ])
+})
+
+for (const invalid of [-1, 101, 50.5, 'high']) {
+  test(`PATCH .../search rejects semanticMinMatch: ${JSON.stringify(invalid)}`, async () => {
+    const callsBefore = updateSiteCalls.length
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/search`,
+      payload: { semanticMinMatch: invalid }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateSiteCalls.length, callsBefore)
+  })
+}
 
 test('GET .../search/semantic 404s for a site that does not exist', async () => {
   const res = await app.inject({
@@ -256,11 +299,13 @@ test('GET .../search/semantic 404s for a site that does not exist', async () => 
 
 test('GET .../search/semantic reports the stored setting and the instance capability', async () => {
   semanticEnabled = true
+  semanticMinMatch = 40
   ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: false }
   const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/search/semantic` })
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(res.json(), { enabled: true, available: false })
+  assert.deepEqual(res.json(), { enabled: true, available: false, minMatch: 40 })
   semanticEnabled = false
+  semanticMinMatch = 0
 })
 
 test('POST .../search/rebuild-embeddings 400s when the capability is unavailable', async () => {

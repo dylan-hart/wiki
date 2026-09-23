@@ -488,7 +488,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {}, semanticEnabled: false }
+      config: { dictOverrides: {}, semanticEnabled: false, semanticMinMatch: 0 }
     })
   })
 
@@ -501,7 +501,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: { en: 'english' }, semanticEnabled: false }
+      config: { dictOverrides: { en: 'english' }, semanticEnabled: false, semanticMinMatch: 0 }
     })
   })
 
@@ -514,7 +514,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {}, semanticEnabled: true }
+      config: { dictOverrides: {}, semanticEnabled: true, semanticMinMatch: 0 }
     })
   })
 
@@ -537,7 +537,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {}, semanticEnabled: false }
+      config: { dictOverrides: {}, semanticEnabled: false, semanticMinMatch: 0 }
     })
   })
 })

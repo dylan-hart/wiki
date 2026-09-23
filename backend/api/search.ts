@@ -31,7 +31,11 @@ async function routes(app: FastifyInstance) {
    */
   app.patch<{
     Params: { siteId: string }
-    Body: { dictOverrides?: Record<string, string>; semanticEnabled?: boolean }
+    Body: {
+      dictOverrides?: Record<string, string>
+      semanticEnabled?: boolean
+      semanticMinMatch?: number
+    }
   }>(
     '/sites/:siteId/search',
     {
@@ -41,7 +45,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Update the search configuration of a site',
         description:
-          'Every dictionary named in `dictOverrides` must exist in this database, otherwise indexing would fail later, long after the setting was accepted. Changing a mapping affects pages the next time they are indexed — rebuild the index to apply it to existing content. `semanticEnabled` may only be set to `true` when semantic search is available on this instance.',
+          'Every dictionary named in `dictOverrides` must exist in this database, otherwise indexing would fail later, long after the setting was accepted. Changing a mapping affects pages the next time they are indexed — rebuild the index to apply it to existing content. `semanticEnabled` may only be set to `true` when semantic search is available on this instance. `semanticMinMatch` is the minimum match percentage (0-100) a semantic search result must reach, on the same scale as the percentage shown beside each result (`round((1 - distance) * 100)`); it is applied as `distance <= 1 - semanticMinMatch / 100`, and `0` applies no floor at all.',
         tags: ['Search'],
         params: { $ref: 'SiteIdParams#' },
         body: {
@@ -56,6 +60,13 @@ async function routes(app: FastifyInstance) {
               type: 'boolean',
               description:
                 'Whether semantic (embedding) search is enabled for this site. Rejected when `true` if semantic search is not available on this instance.'
+            },
+            semanticMinMatch: {
+              type: 'integer',
+              minimum: 0,
+              maximum: 100,
+              description:
+                'Minimum match percentage (0-100) a semantic search result must reach to be returned. `0` applies no floor.'
             }
           }
         },
@@ -79,7 +90,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (req.body.dictOverrides === undefined && req.body.semanticEnabled === undefined) {
+      if (
+        req.body.dictOverrides === undefined &&
+        req.body.semanticEnabled === undefined &&
+        req.body.semanticMinMatch === undefined
+      ) {
         return reply.badRequest('No search settings provided to update.')
       }
 
@@ -106,6 +121,9 @@ async function routes(app: FastifyInstance) {
       if (req.body.semanticEnabled !== undefined) {
         patch.semanticEnabled = req.body.semanticEnabled
       }
+      if (req.body.semanticMinMatch !== undefined) {
+        patch.semanticMinMatch = req.body.semanticMinMatch
+      }
 
       const updated = await CARDINAL.models.sites.updateSite(req.params.siteId, {
         config: { search: { config: patch } }
@@ -130,7 +148,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Get a site's semantic search setting",
         description:
-          "`available` reflects `CARDINAL.capabilities.semanticSearch` (instance-wide: whether pgvector is usable at all); `enabled` is this site's own stored setting, independent of `available`. The feature is reachable only when both are true.",
+          "`available` reflects `CARDINAL.capabilities.semanticSearch` (instance-wide: whether pgvector is usable at all); `enabled` is this site's own stored setting, independent of `available`. The feature is reachable only when both are true. `minMatch` is the site's minimum match percentage for a semantic result (`0` is no floor).",
         tags: ['Search'],
         params: { $ref: 'SiteIdParams#' },
         response: {
@@ -139,7 +157,8 @@ async function routes(app: FastifyInstance) {
             type: 'object',
             properties: {
               enabled: { type: 'boolean' },
-              available: { type: 'boolean' }
+              available: { type: 'boolean' },
+              minMatch: { type: 'integer' }
             }
           },
           401: { $ref: 'ApiError#' },
@@ -150,7 +169,8 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       return {
         enabled: CARDINAL.models.search.getConfig(req.params.siteId).semanticEnabled,
-        available: CARDINAL.capabilities?.semanticSearch ?? false
+        available: CARDINAL.capabilities?.semanticSearch ?? false,
+        minMatch: CARDINAL.models.search.getConfig(req.params.siteId).semanticMinMatch
       }
     }
   )
