@@ -115,9 +115,7 @@ export function usePageScripts() {
       try {
         mod = await import(/* @vite-ignore */ url)
       } catch (err) {
-        if (thisGeneration === generation) {
-          log.warn('page', 'could not load the page script', err)
-        }
+        log.warn('page', 'could not load the page script', err)
         return
       }
       if (thisGeneration !== generation) {
