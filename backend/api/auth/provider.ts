@@ -37,16 +37,32 @@ export function loginErrorUrl(redirect: string, code: string): string {
 
 const LINK_RESULT_PARAMS = ['authLink', 'authLinkError', 'strategyId']
 
+/**
+ * `redirect` was validated on the way in, but `URL` normalizes what it parses — `/.//evil.example`,
+ * `/a/..//evil.example` and `/%2e//evil.example` all come out with a `//evil.example` pathname —
+ * so the result is validated again and `/` carries the outcome instead of anything that fails. An
+ * absolute target keeps its own origin through the round trip and is otherwise re-checked the same
+ * way; whether one may be followed at all was the caller's decision.
+ */
 export function linkResultUrl(redirect: string, params: Record<string, string>): string {
   const absolute = /^[a-z][a-z0-9+.-]*:/i.test(redirect)
-  const url = new URL(redirect || '/', 'http://link.invalid')
-  for (const key of LINK_RESULT_PARAMS) {
-    url.searchParams.delete(key)
+  const build = (target: string, keepAbsolute: boolean): string | null => {
+    let url: URL
+    try {
+      url = new URL(target, 'http://link.invalid')
+    } catch {
+      return null
+    }
+    for (const key of LINK_RESULT_PARAMS) {
+      url.searchParams.delete(key)
+    }
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value)
+    }
+    const result = keepAbsolute ? url.toString() : `${url.pathname}${url.search}${url.hash}`
+    return isFollowableRedirectTarget(result, { allowAbsolute: keepAbsolute }) ? result : null
   }
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value)
-  }
-  return absolute ? url.toString() : `${url.pathname}${url.search}${url.hash}`
+  return build(redirect || '/', absolute) ?? build('/', false)!
 }
 
 function errorCode(err: any): string {
