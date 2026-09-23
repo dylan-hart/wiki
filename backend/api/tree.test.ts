@@ -393,6 +393,48 @@ test('REORDER route: the site root is judged on the empty path', async () => {
   assert.equal(checked[0].path, '')
 })
 
+test('REORDER route: judges the folder through the same two filters GET /tree lists it with', async () => {
+  const calls = stubReorder()
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    permission: string,
+    page: any
+  ) => permission === 'manage:pages' || page.path !== 'sub/hidden'
+  const entry = (id: string, fileName: string) => ({
+    id,
+    type: 'page',
+    folderPath: 'sub',
+    fileName,
+    tags: [],
+    classification: null
+  })
+
+  const anonymous = await app.inject({
+    method: 'PUT',
+    url: `/sites/${ENABLED_SITE_ID}/tree/order`,
+    payload: { parentPath: 'sub', ids: [ENTRY_A] }
+  })
+  const signedIn = await app.inject({
+    method: 'PUT',
+    url: `/sites/${ENABLED_SITE_ID}/tree/order`,
+    headers: { 'x-test-session': JSON.stringify({ authenticated: true, user: { id: 'u1' } }) },
+    payload: { parentPath: 'sub', ids: [ENTRY_A] }
+  })
+
+  assert.equal(anonymous.statusCode, 200)
+  assert.equal(signedIn.statusCode, 200)
+  assert.deepEqual(
+    calls.map((call) => call.publicOnly),
+    [true, false]
+  )
+  assert.deepEqual(
+    calls[0]
+      .filterVisible([entry(ENTRY_A, 'shown'), entry(ENTRY_B, 'hidden')])
+      .map((visible: { id: string }) => visible.id),
+    [ENTRY_A]
+  )
+})
+
 test('REORDER route: refused 403 without manage:pages on the folder, and reorders nothing', async () => {
   const calls = stubReorder()
   ;(globalThis as any).CARDINAL.models.groups.checkAccess = (_actor: any, permission: string) =>

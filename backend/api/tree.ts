@@ -595,7 +595,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Reorder the entries of a folder',
         description:
-          "Sets the manual order of one folder's pages and sub-folders. `parentId` and `parentPath` both address the folder, the ID winning when both are given (and its own locale winning over `locale`); neither means the site root. `ids` lists the tree entry IDs of every page and sub-folder directly in the folder, in the order they should appear -- assets are not ordered and are left out. A page and a folder sharing a name are two entries and both IDs must be listed; the pair takes the position of whichever comes first and both are given the same order, so they read as one entry.\n\nThe caller needs `manage:pages` on the folder's path. All-or-nothing: an `ids` list that is not exactly the folder's current contents (an entry added or removed since the client last listed it, or an ID from elsewhere) answers 409 and changes nothing, so the client reloads the folder and tries again.",
+          "Sets the manual order of one folder's pages and sub-folders. `parentId` and `parentPath` both address the folder, the ID winning when both are given (and its own locale winning over `locale`); neither means the site root. `ids` lists the tree entry IDs of every page and sub-folder directly in the folder that `GET /sites/:siteId/tree` lists to the caller, in the order they should appear -- assets are not ordered and are left out. A page and a folder sharing a name are two entries and both IDs must be listed; the pair takes the position of whichever comes first and both are given the same order, so they read as one entry. An entry the caller cannot see keeps its place in the folder, the visible entries being reordered around it.\n\nThe caller needs `manage:pages` on the folder's path. All-or-nothing: an `ids` list that is not exactly what the caller can currently see of the folder (an entry added or removed since the client last listed it, or an ID from elsewhere) answers 409 and changes nothing, so the client reloads the folder and tries again.",
         tags: ['Tree'],
         params: { $ref: 'SiteIdParams#' },
         body: {
@@ -622,7 +622,8 @@ async function routes(app: FastifyInstance) {
               maxItems: 5000,
               uniqueItems: true,
               items: { type: 'string', format: 'uuid' },
-              description: 'Every page and sub-folder entry ID in the folder, in the new order.'
+              description:
+                'Every page and sub-folder entry ID in the folder the caller can see, in the new order.'
             }
           }
         },
@@ -664,7 +665,11 @@ async function routes(app: FastifyInstance) {
         locale,
         parentId: req.body.parentId,
         parentPath: req.body.parentPath,
-        ids: req.body.ids
+        ids: req.body.ids,
+        // -> The two filters `GET /tree` lists the folder through, so `ids` built from that listing
+        //    matches, and an entry the caller cannot see neither blocks the reorder nor is revealed.
+        publicOnly: !req.session?.authenticated,
+        filterVisible: (entries) => visibleTreeItems(req, siteId, locale, entries)
       })
       return { ok: true, message: 'Folder reordered successfully.', count }
     }
