@@ -94,8 +94,27 @@ export async function measureGraphControlRow({ browser, html }) {
             captionOffset: caption.getBoundingClientRect().left - groupRect.left,
             toggles: [...group.querySelectorAll('.w-btn-toggle')].map((toggle) => ({
               width: toggle.getBoundingClientRect().width,
+              overflow:
+                Math.max(
+                  ...[...toggle.querySelectorAll('.w-btn-toggle__segment')].map(
+                    (segment) => segment.getBoundingClientRect().right
+                  )
+                ) - controlsRect.right,
               segmentWidths: [...toggle.querySelectorAll('.w-btn-toggle__segment')].map(
                 (segment) => segment.getBoundingClientRect().width
+              ),
+              labelLineCounts: [...toggle.querySelectorAll('.w-btn-toggle__segment > span')].map(
+                (label) => {
+                  const range = document.createRange()
+                  range.selectNodeContents(label)
+                  return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)))
+                    .size
+                }
+              ),
+              labelOverflows: [...toggle.querySelectorAll('.w-btn-toggle__segment > span')].map(
+                (label) =>
+                  label.getBoundingClientRect().right -
+                  label.parentElement.getBoundingClientRect().right
               )
             }))
           }

@@ -21,6 +21,7 @@ import {
 } from '../db/schema.ts'
 import type { SiteRow } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
+import { AUTO_TAG_MAX_TAGS, AUTO_TAG_THRESHOLD } from '../helpers/autoTag.ts'
 import { ClusterReloaded } from '../helpers/clusterCache.ts'
 import { CustomError } from '../helpers/common.ts'
 import { normalizeHostname, siteIdForHostname } from '../helpers/siteResolution.ts'
@@ -184,6 +185,8 @@ class Sites extends ClusterReloaded {
               }
             },
             features: {
+              aiAssist: false,
+              aiAssistDailyCap: 50,
               browse: true,
               collaborativeEditing: true,
               comments: false,
@@ -253,13 +256,20 @@ class Sites extends ClusterReloaded {
             analytics: {
               providers: {}
             },
+            ai: {
+              provider: '',
+              providers: {}
+            },
             search: {
               engine: 'db',
               config: {
                 dictOverrides: {},
                 // -> Can't enable what isn't there: on only where the instance-wide capability
                 //    (pgvector) is itself true. An operator can still flip it per site afterwards.
-                semanticEnabled: CARDINAL.capabilities?.semanticSearch ?? false
+                semanticEnabled: CARDINAL.capabilities?.semanticSearch ?? false,
+                semanticMinMatch: 0,
+                autoTagThreshold: AUTO_TAG_THRESHOLD,
+                autoTagMaxTags: AUTO_TAG_MAX_TAGS
               }
             }
           },
@@ -497,6 +507,8 @@ class Sites extends ClusterReloaded {
           }
         },
         features: {
+          aiAssist: false,
+          aiAssistDailyCap: 50,
           browse: true,
           collaborativeEditing: true,
           comments: false,
@@ -558,11 +570,18 @@ class Sites extends ClusterReloaded {
         analytics: {
           providers: {}
         },
+        ai: {
+          provider: '',
+          providers: {}
+        },
         search: {
           engine: 'db',
           config: {
             dictOverrides: {},
-            semanticEnabled: CARDINAL.capabilities?.semanticSearch ?? false
+            semanticEnabled: CARDINAL.capabilities?.semanticSearch ?? false,
+            semanticMinMatch: 0,
+            autoTagThreshold: AUTO_TAG_THRESHOLD,
+            autoTagMaxTags: AUTO_TAG_MAX_TAGS
           }
         }
       }

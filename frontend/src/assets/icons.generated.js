@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `npm run icons:check` fails the build if this drifts.
 
-  381 icons.
+  382 icons.
 */
 export const BUNDLED_ICONS = {
   "la:plus": {"body":"<path fill=\"currentColor\" d=\"M15 5v10H5v2h10v10h2V17h10v-2H17V5z\"/>","width":32,"height":32},
@@ -190,6 +190,7 @@ export const BUNDLED_ICONS = {
   "tabler:folder-share": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M13 19H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v4m-5 9l5-5m0 4.5V17h-4.5\"/>","width":24,"height":24},
   "tabler:forms": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M12 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3M6 3a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3m7-14h7a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-7M5 7H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h1\"/><path fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-width=\"1.5\" d=\"M17 12h.01M13 12h.01\"/>","width":24,"height":24},
   "tabler:frame": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M4 7h16M4 17h16M7 4v16M17 4v16\"/>","width":24,"height":24},
+  "tabler:gauge": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0\"/><path d=\"M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0m2.41-1.41L16 8m-9 4a5 5 0 0 1 5-5\"/></g>","width":24,"height":24},
   "tabler:gender-bigender": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M7 11a4 4 0 1 0 8 0a4 4 0 1 0-8 0m12-8l-5 5m1-5h4v4m-8 9v6m-3-3h6\"/>","width":24,"height":24},
   "tabler:git-branch": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M5 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0M5 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0m10 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M7 8v8m2 2h6a2 2 0 0 0 2-2v-5\"/><path d=\"m14 14l3-3l3 3\"/></g>","width":24,"height":24},
   "tabler:grid-dots": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M4 5a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0M4 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0M4 19a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0\"/>","width":24,"height":24},

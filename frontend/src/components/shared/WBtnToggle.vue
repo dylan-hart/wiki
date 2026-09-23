@@ -117,6 +117,7 @@ function segmentStyle(opt) {
 */
 .w-btn-toggle__segment {
   min-height: 30px;
+  white-space: nowrap;
 }
 
 /*

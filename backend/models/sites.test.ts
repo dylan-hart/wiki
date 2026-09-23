@@ -97,6 +97,8 @@ describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.deepEqual(config.analytics, { providers: {} })
     assert.deepEqual(config.defaults, { tocDepth: { min: 1, max: 2 } })
     assert.deepEqual(config.features, {
+      aiAssist: false,
+      aiAssistDailyCap: 50,
       browse: true,
       collaborativeEditing: true,
       comments: false,
@@ -488,7 +490,13 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {}, semanticEnabled: false }
+      config: {
+        dictOverrides: {},
+        semanticEnabled: false,
+        semanticMinMatch: 0,
+        autoTagThreshold: 0.15,
+        autoTagMaxTags: 3
+      }
     })
   })
 
@@ -501,7 +509,13 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: { en: 'english' }, semanticEnabled: false }
+      config: {
+        dictOverrides: { en: 'english' },
+        semanticEnabled: false,
+        semanticMinMatch: 0,
+        autoTagThreshold: 0.15,
+        autoTagMaxTags: 3
+      }
     })
   })
 
@@ -514,7 +528,13 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {}, semanticEnabled: true }
+      config: {
+        dictOverrides: {},
+        semanticEnabled: true,
+        semanticMinMatch: 0,
+        autoTagThreshold: 0.15,
+        autoTagMaxTags: 3
+      }
     })
   })
 
@@ -537,7 +557,13 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {}, semanticEnabled: false }
+      config: {
+        dictOverrides: {},
+        semanticEnabled: false,
+        semanticMinMatch: 0,
+        autoTagThreshold: 0.15,
+        autoTagMaxTags: 3
+      }
     })
   })
 })

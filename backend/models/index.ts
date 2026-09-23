@@ -1,3 +1,4 @@
+import { ai } from './ai.ts'
 import { analytics } from './analytics.ts'
 import { apiKeys } from './apiKeys.ts'
 import { approvalNotifications } from './approvalNotifications.ts'
@@ -64,6 +65,7 @@ import { userPages } from './userPages.ts'
 import { users } from './users.ts'
 
 export default {
+  ai,
   analytics,
   apiKeys,
   approvalNotifications,

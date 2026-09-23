@@ -184,7 +184,7 @@ literal and assert it to `CardinalGlobal`, since each populates the object progr
 `backend/types/fastify.d.ts` augments Fastify: session fields (`authenticated`, `user`,
 `permissions`) and the per-route `config.permissions` used by the `preHandler` permission hook.
 
-**Five dynamic paths are extension-sensitive** and invisible to the type checker — they must be
+**Six dynamic paths are extension-sensitive** and invisible to the type checker — they must be
 updated by hand if the files they point at are ever renamed:
 
 - `core/scheduler.ts` → `path.join(CARDINAL.SERVERPATH, 'worker.ts')` (the piscina pool entry)
@@ -194,6 +194,8 @@ updated by hand if the files they point at are ever renamed:
   presence check in `hasImplementation()` that gates it
 - `models/search.ts` → `import('../modules/search/${key}/search.ts')`, plus the `search.ts`
   presence check in `hasImplementation()` that gates it
+- `models/ai.ts` → `import('../modules/ai/${key}/ai.ts')`, plus the `ai.ts` presence check in
+  `hasImplementation()` that gates it (and `models/ai.modules.test.ts`, which imports the same path)
 
 `scheduler.ts` matches `tasks/simple/` filenames against `/^[^.]+\.[jt]s$/`, so `.ts` and `.js` are
 both accepted but any other dotted filename (a stray `.test.ts`, a `.d.ts`) is rejected outright.

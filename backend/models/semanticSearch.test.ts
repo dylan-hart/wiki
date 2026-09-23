@@ -16,6 +16,7 @@ import {
   annSearch,
   bestChunkPerPage,
   dedupeAndRank,
+  maxDistanceForMinMatch,
   mergeHopResults,
   runHop2,
   search,
@@ -38,6 +39,35 @@ describe('semanticSearch: toVectorLiteral', () => {
   test('rejects a non-finite component', () => {
     assert.throws(() => toVectorLiteral([0.1, Number.NaN, 0.3]), /finite numbers/)
     assert.throws(() => toVectorLiteral([0.1, Number.POSITIVE_INFINITY]), /finite numbers/)
+  })
+})
+
+describe('semanticSearch: maxDistanceForMinMatch', () => {
+  test('0 applies no floor at all', () => {
+    assert.equal(maxDistanceForMinMatch(0), null)
+  })
+
+  test('a negative or non-finite percentage applies no floor', () => {
+    assert.equal(maxDistanceForMinMatch(-5), null)
+    assert.equal(maxDistanceForMinMatch(Number.NaN), null)
+    assert.equal(maxDistanceForMinMatch(Number.POSITIVE_INFINITY), null)
+  })
+
+  test("inverts SearchResultSimilarityBadge.vue's percent = (1 - distance) * 100", () => {
+    assert.ok(Math.abs(maxDistanceForMinMatch(87)! - 0.13) < 1e-9)
+    assert.equal(maxDistanceForMinMatch(100), 0)
+    assert.equal(maxDistanceForMinMatch(50), 0.5)
+  })
+
+  test('a percentage above 100 is clamped to an exact-match-only floor', () => {
+    assert.equal(maxDistanceForMinMatch(150), 0)
+  })
+
+  test('every whole percentage round-trips through the badge formula', () => {
+    for (let percent = 1; percent <= 100; percent++) {
+      const distance = maxDistanceForMinMatch(percent)!
+      assert.equal(Math.round((1 - distance) * 100), percent)
+    }
   })
 })
 
@@ -606,6 +636,92 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.ok(own[1]!.distance < own[2]!.distance)
     })
 
+    test('maxDistance drops every chunk farther than the floor, keeping the rest in order', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      const exact = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/floor-exact', title: 'Floor Exact' }),
+        actor
+      )
+      const partial = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/floor-partial', title: 'Floor Partial' }),
+        actor
+      )
+      const unrelated = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/floor-unrelated', title: 'Floor Unrelated' }),
+        actor
+      )
+      await insertChunk(exact.id, basisVector(40))
+      await insertChunk(partial.id, pad([...Array.from({ length: 40 }, () => 0), 0.7, 0.7]))
+      await insertChunk(unrelated.id, basisVector(42))
+      const own = (rows: SemanticChunkMatch[]) =>
+        rows.filter((r) => [exact.id, partial.id, unrelated.id].includes(r.pageId))
+
+      const at70 = own(
+        await annSearch(basisVector(40), {
+          siteId: fixtures.siteId,
+          locales: ['en'],
+          maxDistance: maxDistanceForMinMatch(70)
+        })
+      )
+      assert.deepEqual(
+        at70.map((r) => r.pageId),
+        [exact.id, partial.id]
+      )
+      assert.ok(at70.every((r) => Math.round((1 - r.distance) * 100) >= 70))
+
+      const at80 = own(
+        await annSearch(basisVector(40), {
+          siteId: fixtures.siteId,
+          locales: ['en'],
+          maxDistance: maxDistanceForMinMatch(80)
+        })
+      )
+      assert.deepEqual(
+        at80.map((r) => r.pageId),
+        [exact.id]
+      )
+    })
+
+    test('no maxDistance keeps even an opposite-direction chunk (distance > 1)', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      const opposite = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/floor-opposite', title: 'Floor Opposite' }),
+        actor
+      )
+      await insertChunk(
+        opposite.id,
+        basisVector(43).map((v) => -v)
+      )
+
+      const query = pad([...Array.from({ length: 43 }, () => 0), 1])
+      const unfloored = await annSearch(query, { siteId: fixtures.siteId, locales: ['en'] })
+      const row = unfloored.find((r) => r.pageId === opposite.id)
+      assert.ok(row, 'the opposite-direction chunk still comes back with no floor set')
+      assert.ok(row.distance > 1)
+
+      const floored = await annSearch(query, {
+        siteId: fixtures.siteId,
+        locales: ['en'],
+        maxDistance: maxDistanceForMinMatch(1)
+      })
+      assert.equal(
+        floored.some((r) => r.pageId === opposite.id),
+        false
+      )
+    })
+
     test("scoped to siteId: another site's chunks never come back", async (t) => {
       if (!pgvectorAvailable) {
         t.skip('pgvector extension not installed on this Postgres')
@@ -1096,6 +1212,60 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
         excludedAppearances.every((r) => r.distance > 0.9),
         "excluded-seed-target's own matching vector (basisVector(23)) was never used as a hop-2 query -- it only ever appears as a distant match under the 3 real seed vectors, never near 0"
       )
+    })
+
+    test("maxDistance applies to hop 2's own seed-relative distance too", async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      await fixtures.db
+        .update(groupsTable)
+        .set({ rules: [hop2AllowAllRule] })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await groupsModel.reloadCache()
+
+      const seedVector = basisVector(50)
+      const nearSeed = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'hop2-floor-near', title: 'Hop2 Floor Near' }),
+        actor
+      )
+      await insertChunk(nearSeed.id, seedVector)
+      const farFromSeed = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'hop2-floor-far', title: 'Hop2 Floor Far' }),
+        actor
+      )
+      await insertChunk(farFromSeed.id, basisVector(51))
+
+      const seed = makeRow({
+        pageId: 'seed-page-not-a-real-row',
+        embedding: seedVector,
+        distance: 0.1
+      })
+      const readerActor = { groupIds: [fixtures.groupId], permissions: [] }
+
+      const unfloored = await runHop2([seed], {
+        siteId: fixtures.siteId,
+        locales: ['en'],
+        actor: readerActor
+      })
+      assert.ok(unfloored.some((r) => r.pageId === farFromSeed.id))
+
+      const floored = await runHop2([seed], {
+        siteId: fixtures.siteId,
+        locales: ['en'],
+        actor: readerActor,
+        maxDistance: maxDistanceForMinMatch(50)
+      })
+      assert.ok(floored.some((r) => r.pageId === nearSeed.id))
+      assert.equal(
+        floored.some((r) => r.pageId === farFromSeed.id),
+        false
+      )
+      assert.ok(floored.every((r) => r.distance <= 0.5))
     })
 
     test('a page excluded by a filter never reappears via hop-2 expansion', async (t) => {

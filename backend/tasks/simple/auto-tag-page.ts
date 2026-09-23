@@ -62,11 +62,15 @@ export async function task(payload?: AutoTagPagePayload): Promise<TaskResult | v
 
     const carried = new Set<string>(page.tags ?? [])
     const siteTags = await CARDINAL.models.tags.getTags(page.siteId)
-    const derived = deriveAutoTags({
-      title: page.title,
-      text: chunkTexts,
-      existingTags: siteTags.map((entry) => entry.tag).filter((tag) => !carried.has(tag))
-    })
+    const { autoTagThreshold, autoTagMaxTags } = CARDINAL.models.search.getConfig(page.siteId)
+    const derived = deriveAutoTags(
+      {
+        title: page.title,
+        text: chunkTexts,
+        existingTags: siteTags.map((entry) => entry.tag).filter((tag) => !carried.has(tag))
+      },
+      { threshold: autoTagThreshold, maxTags: autoTagMaxTags }
+    )
     if (derived.length < 1) {
       await clearMarker(pageId)
       return { summary: 'auto-tagging found no matching tags', applied: 0 }

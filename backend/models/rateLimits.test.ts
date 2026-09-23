@@ -143,6 +143,64 @@ describe('rateLimits (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(verdict.hits, 1)
   })
 
+  test('peek() on an unknown key reports a full budget and writes no row', async () => {
+    const key = `test:${randomUUID()}`
+    const verdict = await rateLimitsModel.peek(key, POLICY)
+    assert.deepEqual(verdict, { allowed: true, hits: 0, retryAfter: 0, resetsIn: 0 })
+    const rows = await fixtures.db
+      .select()
+      .from(rateLimitsTable)
+      .where(eq(rateLimitsTable.key, key))
+    assert.equal(rows.length, 0)
+  })
+
+  test('peek() reads the live count without consuming from it', async () => {
+    const key = `test:${randomUUID()}`
+    await rateLimitsModel.consume(key, POLICY)
+    await rateLimitsModel.consume(key, POLICY)
+
+    const first = await rateLimitsModel.peek(key, POLICY)
+    const second = await rateLimitsModel.peek(key, POLICY)
+    assert.equal(first.allowed, true)
+    assert.equal(first.hits, 2)
+    assert.equal(second.hits, 2, 'a peek must not count as an attempt')
+    assert.ok(first.resetsIn > 0 && first.resetsIn <= POLICY.windowSeconds)
+  })
+
+  test('peek() refuses once the window holds `max` hits, until the window rolls over', async () => {
+    const key = `test:${randomUUID()}`
+    for (let i = 0; i < POLICY.max; i++) {
+      await rateLimitsModel.consume(key, POLICY)
+    }
+    const verdict = await rateLimitsModel.peek(key, POLICY)
+    assert.equal(verdict.allowed, false)
+    assert.equal(verdict.hits, POLICY.max)
+    assert.ok(verdict.retryAfter > 0 && verdict.retryAfter <= POLICY.windowSeconds)
+    assert.equal(verdict.retryAfter, verdict.resetsIn)
+  })
+
+  test('peek() reports a live ban as refused with the ban as retryAfter', async () => {
+    const key = `test:${randomUUID()}`
+    for (let i = 0; i <= POLICY.max; i++) {
+      await rateLimitsModel.consume(key, POLICY)
+    }
+    const verdict = await rateLimitsModel.peek(key, POLICY)
+    assert.equal(verdict.allowed, false)
+    assert.ok(verdict.retryAfter > 0 && verdict.retryAfter <= POLICY.banSeconds)
+  })
+
+  test('peek() treats a window that has rolled over as empty', async () => {
+    const key = `test:${randomUUID()}`
+    await fixtures.db.insert(rateLimitsTable).values({
+      key,
+      hits: POLICY.max,
+      windowStartedAt: new Date(Date.now() - (POLICY.windowSeconds + 5) * 1000),
+      updatedAt: new Date()
+    })
+    const verdict = await rateLimitsModel.peek(key, POLICY)
+    assert.deepEqual(verdict, { allowed: true, hits: 0, retryAfter: 0, resetsIn: 0 })
+  })
+
   test('purgeStale() drops only rows untouched for over a day', async () => {
     const staleKey = `test:stale:${randomUUID()}`
     const freshKey = `test:fresh:${randomUUID()}`

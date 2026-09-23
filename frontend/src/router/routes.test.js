@@ -62,6 +62,7 @@ describe('admin site-scoped route meta (OpenProject #3343)', () => {
   const SITE_SCOPED_PATHS = [
     ':siteid/general',
     ':siteid/analytics',
+    ':siteid/ai',
     ':siteid/approvals',
     ':siteid/blocks',
     ':siteid/editors',

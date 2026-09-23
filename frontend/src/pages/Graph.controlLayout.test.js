@@ -55,6 +55,28 @@ describe(
       expect(groupBy.width).toBeGreaterThan(result.contentWidth - 1)
     })
 
+    it('keeps every toggle label, OVER included, on one line inside its segment and the panel', async () => {
+      const wrapper = await mountGraph({
+        pageviewsEnabled: true,
+        authenticated: true,
+        graphPrefs: { sizeBy: 'visits' }
+      })
+      const html = wrapper.find('.graph-view-right-rail').html()
+      const result = await measureGraphControlRow({ browser, html })
+      const toggles = result.groups.flatMap((group) => group.toggles)
+
+      expect(toggles.map((toggle) => toggle.labelLineCounts)).toEqual([
+        [1, 1, 1],
+        [1, 1],
+        [1, 1],
+        [1, 1, 1]
+      ])
+      for (const toggle of toggles) {
+        expect(Math.max(...toggle.labelOverflows)).toBeLessThan(0.5)
+        expect(toggle.overflow).toBeLessThan(0.5)
+      }
+    })
+
     it('left-aligns every control caption', async () => {
       const result = await measure()
 

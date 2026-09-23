@@ -7,6 +7,7 @@ import {
   matchLocaleCode,
   pagePathHash,
   parseLocalePrefix,
+  resolveCreatePath,
   resolveRouteLocale,
   shouldPrefixLocale
 } from './pagePaths.js'
@@ -324,5 +325,32 @@ describe('pagePathHash', () => {
 
   it('differs for different paths', () => {
     expect(pagePathHash('some/page')).not.toBe(pagePathHash('some/other-page'))
+  })
+})
+
+describe('resolveCreatePath', () => {
+  it('keeps an explicit path, minus its leading slash', () => {
+    expect(resolveCreatePath({ path: '/guides/setup', currentPath: 'a/b' })).toBe('guides/setup')
+  })
+
+  it('keeps an explicitly empty path', () => {
+    expect(resolveCreatePath({ path: '', currentPath: 'a/b' })).toBe('')
+  })
+
+  it('defaults to new-page beside the current page', () => {
+    expect(resolveCreatePath({ currentPath: 'guides/intro' })).toBe('guides/new-page')
+  })
+
+  it('defaults to a root new-page from a top-level page', () => {
+    expect(resolveCreatePath({ currentPath: 'home' })).toBe('new-page')
+    expect(resolveCreatePath()).toBe('new-page')
+  })
+
+  it('places the default under basePath, trimming its slashes', () => {
+    expect(resolveCreatePath({ basePath: '/docs/', currentPath: 'a/b' })).toBe('docs/new-page')
+  })
+
+  it('treats an empty basePath as the root', () => {
+    expect(resolveCreatePath({ basePath: '', currentPath: 'a/b' })).toBe('new-page')
   })
 })

@@ -321,11 +321,17 @@ describe('search.getConfig()', () => {
 
     assert.deepEqual(search.getConfig('site-a'), {
       dictOverrides: { en: 'english' },
-      semanticEnabled: false
+      semanticEnabled: false,
+      semanticMinMatch: 0,
+      autoTagThreshold: 0.15,
+      autoTagMaxTags: 3
     })
     assert.deepEqual(search.getConfig('site-b'), {
       dictOverrides: {},
-      semanticEnabled: false
+      semanticEnabled: false,
+      semanticMinMatch: 0,
+      autoTagThreshold: 0.15,
+      autoTagMaxTags: 3
     })
   })
 
@@ -337,8 +343,25 @@ describe('search.getConfig()', () => {
 
     assert.deepEqual(search.getConfig('site-c'), {
       dictOverrides: {},
-      semanticEnabled: true
+      semanticEnabled: true,
+      semanticMinMatch: 0,
+      autoTagThreshold: 0.15,
+      autoTagMaxTags: 3
     })
+  })
+
+  test('reads semanticMinMatch off the named site', () => {
+    ;(globalThis as any).CARDINAL.sites['site-floor'] = {
+      id: 'site-floor',
+      config: {
+        search: {
+          engine: 'db',
+          config: { dictOverrides: {}, semanticEnabled: true, semanticMinMatch: 70 }
+        }
+      }
+    }
+
+    assert.equal(search.getConfig('site-floor').semanticMinMatch, 70)
   })
 
   test('defaults to an empty dictOverrides and semanticEnabled: false for a site with no search config', () => {
@@ -346,14 +369,49 @@ describe('search.getConfig()', () => {
 
     assert.deepEqual(search.getConfig('site-bare'), {
       dictOverrides: {},
-      semanticEnabled: false
+      semanticEnabled: false,
+      semanticMinMatch: 0,
+      autoTagThreshold: 0.15,
+      autoTagMaxTags: 3
     })
+  })
+
+  test('reads the auto-tag threshold and max tags off the named site', () => {
+    ;(globalThis as any).CARDINAL.sites['site-d'] = {
+      id: 'site-d',
+      config: {
+        search: {
+          engine: 'db',
+          config: { dictOverrides: {}, autoTagThreshold: 0.3, autoTagMaxTags: 5 }
+        }
+      }
+    }
+
+    assert.deepEqual(search.getConfig('site-d'), {
+      dictOverrides: {},
+      semanticEnabled: false,
+      semanticMinMatch: 0,
+      autoTagThreshold: 0.3,
+      autoTagMaxTags: 5
+    })
+  })
+
+  test('keeps an explicit auto-tag threshold of 0 rather than falling back to the default', () => {
+    ;(globalThis as any).CARDINAL.sites['site-e'] = {
+      id: 'site-e',
+      config: { search: { engine: 'db', config: { autoTagThreshold: 0 } } }
+    }
+
+    assert.equal(search.getConfig('site-e').autoTagThreshold, 0)
   })
 
   test('defaults the same way for a siteId nothing in CARDINAL.sites knows about', () => {
     assert.deepEqual(search.getConfig('site-nonexistent'), {
       dictOverrides: {},
-      semanticEnabled: false
+      semanticEnabled: false,
+      semanticMinMatch: 0,
+      autoTagThreshold: 0.15,
+      autoTagMaxTags: 3
     })
   })
 })

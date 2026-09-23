@@ -1,0 +1,22 @@
+key: openai
+title: OpenAI
+icon: '/_assets/icons/ultraviolet-bot.svg'
+description: 'Text generation through the OpenAI API. Prompts and the selected page text are sent to OpenAI, and the reply is returned to the editor.'
+vendor: OpenAI
+website: 'https://platform.openai.com'
+props:
+  apiKey:
+    type: String
+    title: API Key
+    hint: A secret key from the API keys page of the OpenAI platform dashboard.
+    icon: tabler:key
+    sensitive: true
+    required: true
+    order: 1
+  model:
+    type: String
+    title: Model
+    hint: The OpenAI model ID requests are sent to, for example gpt-5-mini or gpt-5.
+    icon: tabler:cpu
+    default: gpt-5-mini
+    order: 2

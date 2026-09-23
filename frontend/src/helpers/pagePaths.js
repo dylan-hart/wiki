@@ -167,3 +167,21 @@ export function localizedPagePath(path, locale, siteLocales) {
     ? `/${localeUrlSegment(locale, siteLocales.aliases)}${bare}`
     : bare
 }
+
+export function resolveCreatePath({ path, basePath, currentPath = '' } = {}) {
+  if (path?.startsWith('/')) {
+    path = path.substring(1)
+  }
+  if (path || path === '') {
+    return path
+  }
+  if (basePath?.startsWith('/')) {
+    basePath = basePath.substring(1)
+  }
+  if (basePath?.endsWith('/')) {
+    basePath = basePath.substring(0, basePath.length - 1)
+  }
+  const parentPath =
+    basePath || basePath === '' ? basePath : currentPath.split('/').slice(0, -1).join('/')
+  return parentPath ? `${parentPath}/new-page` : 'new-page'
+}

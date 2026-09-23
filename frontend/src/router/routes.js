@@ -145,6 +145,11 @@ const routes = [
         component: () => import('@/pages/AdminTheme.vue'),
         meta: { siteScoped: true }
       },
+      {
+        path: ':siteid/ai',
+        component: () => import('@/pages/AdminAi.vue'),
+        meta: { siteScoped: true }
+      },
       { path: 'auth', component: () => import('@/pages/AdminAuth.vue') },
       { path: 'groups/:id?/:section?', component: () => import('@/pages/AdminGroups.vue') },
       { path: 'users/:id?/:section?', component: () => import('@/pages/AdminUsers.vue') },

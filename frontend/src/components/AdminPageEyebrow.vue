@@ -57,6 +57,7 @@ const PAGE_GROUPS = new Map([
   ['extensions', 'admin.nav.integrationsAutomation'],
   ['mail', 'admin.nav.integrationsAutomation'],
   ['analytics', 'admin.nav.integrationsAutomation'],
+  ['ai', 'admin.nav.integrationsAutomation'],
   ['flags', 'admin.nav.securityAdvanced'],
   ['utilities', 'admin.nav.securityAdvanced']
 ])

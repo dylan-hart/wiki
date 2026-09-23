@@ -1532,6 +1532,7 @@ onBeforeUnmount(() => {
   :deep(.w-btn-toggle__segment) {
     flex: 1 1 0;
     justify-content: center;
+    padding-inline: 6px;
   }
 }
 
@@ -1553,10 +1554,6 @@ onBeforeUnmount(() => {
   */
   > .w-btn-toggle {
     flex: var(--option-count, 1) 1 0;
-  }
-
-  :deep(.w-btn-toggle__segment) {
-    padding-inline: 6px;
   }
 }
 

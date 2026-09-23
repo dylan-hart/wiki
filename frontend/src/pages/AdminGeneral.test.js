@@ -246,6 +246,8 @@ describe('AdminGeneral save() field round-trip', () => {
       robots: { index: true, follow: false },
       security: { embedAllowedOrigins: FIXTURE_SITE.security.embedAllowedOrigins },
       features: {
+        aiAssist: false,
+        aiAssistDailyCap: 50,
         browse: true,
         comments: true,
         pageScripts: true,
@@ -291,6 +293,86 @@ describe('AdminGeneral save() field round-trip', () => {
       title: 'New title',
       content: 'New message'
     })
+  })
+
+  it('hides the daily limit field while the writing assistant is off', async () => {
+    const wrapper = await mountLoaded()
+
+    expect(wrapper.find('[aria-label="admin.general.allowAiAssist"]').exists()).toBe(true)
+    expect(wrapper.find('input[aria-label="admin.general.aiAssistDailyCap"]').exists()).toBe(false)
+  })
+
+  it('loads a stored writing assistant setting and round-trips an edited daily limit', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ...FIXTURE_SITE,
+          features: { ...FIXTURE_SITE.features, aiAssist: true, aiAssistDailyCap: 20 }
+        })
+    })
+    const router = await createTestRouter(
+      ['/_admin/:siteid/general'],
+      `/_admin/${FIXTURE_SITE.id}/general`
+    )
+    const { wrapper } = mountWithApp(AdminGeneral, {
+      router,
+      stores: { admin: { currentSiteId: FIXTURE_SITE.id }, user: { permissions: ['manage:sites'] } }
+    })
+    await flushPromises()
+
+    const capInput = wrapper.get('input[aria-label="admin.general.aiAssistDailyCap"]')
+    expect(capInput.element.value).toBe('20')
+    await capInput.setValue('75')
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([FIXTURE_SITE]) })
+    const applyBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('common.actions.apply'))
+    await applyBtn.trigger('click')
+    await flushPromises()
+
+    const [, options] = API_CLIENT.put.mock.calls[0]
+    expect(options.json.features.aiAssist).toBe(true)
+    expect(options.json.features.aiAssistDailyCap).toBe(75)
+  })
+
+  it.each([
+    ['', 50],
+    ['0', 50],
+    ['-4', 50],
+    ['12.7', 12],
+    ['999999', 100000]
+  ])('sends a daily limit of %j as %i', async (typed, sent) => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ...FIXTURE_SITE,
+          features: { ...FIXTURE_SITE.features, aiAssist: true, aiAssistDailyCap: 20 }
+        })
+    })
+    const router = await createTestRouter(
+      ['/_admin/:siteid/general'],
+      `/_admin/${FIXTURE_SITE.id}/general`
+    )
+    const { wrapper } = mountWithApp(AdminGeneral, {
+      router,
+      stores: { admin: { currentSiteId: FIXTURE_SITE.id }, user: { permissions: ['manage:sites'] } }
+    })
+    await flushPromises()
+
+    await wrapper.get('input[aria-label="admin.general.aiAssistDailyCap"]').setValue(typed)
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([FIXTURE_SITE]) })
+    const applyBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('common.actions.apply'))
+    await applyBtn.trigger('click')
+    await flushPromises()
+
+    const [, options] = API_CLIENT.put.mock.calls[0]
+    expect(options.json.features.aiAssistDailyCap).toBe(sent)
   })
 
   it('falls back to the empty banner default when the site payload omits it', async () => {

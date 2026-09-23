@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { parse } from 'pg-connection-string'
@@ -8,7 +8,29 @@ import { parse } from 'pg-connection-string'
 import { bootstrapPgvector } from './pgvectorBootstrap.ts'
 import { relations } from '../db/relations.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
+import { installTestWiki } from '../test/mocks.ts'
 import type { WikiDb } from './db.ts'
+
+describe('bootstrapPgvector() -- success log', () => {
+  test('names both embedding-chunk tables it creates', async () => {
+    const info = mock.fn()
+    const wiki = installTestWiki({ logger: { info } })
+    try {
+      const db = { execute: mock.fn(async () => ({ rows: [] })) } as unknown as WikiDb
+
+      const result = await bootstrapPgvector(db)
+      assert.equal(result, true)
+
+      assert.equal(info.mock.callCount(), 1)
+      const [scope, message, fields] = info.mock.calls[0]!.arguments as any[]
+      assert.equal(scope, 'db')
+      assert.equal(message, 'pgvector capability enabled')
+      assert.deepEqual(fields, { tables: 'pageEmbeddingChunks,assetEmbeddingChunks' })
+    } finally {
+      wiki.restore()
+    }
+  })
+})
 
 /**
  * Real Postgres roles and privileges rather than a mocked `db.execute`: the negative case is a

@@ -7,6 +7,7 @@ import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
  * rather than a hand-picked list that drifts as schemas are added.
  */
 export async function registerAllSchemas(app: FastifyInstance) {
+  await import('./schemas/ai.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/analytics.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/apiKey.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/approval.ts').then((m) => m.registerSchemas(app))
@@ -67,6 +68,8 @@ async function routes(app: FastifyInstance) {
   app.register(async (contentApp) => {
     contentApp.addHook('preHandler', siteEnabledPreHandler)
 
+    contentApp.register(import('./ai.ts'))
+    contentApp.register(import('./aiAssist.ts'))
     contentApp.register(import('./analytics.ts'))
     contentApp.register(import('./apiKeys.ts'), { prefix: '/api-keys' })
     contentApp.register(import('./approvals.ts'))

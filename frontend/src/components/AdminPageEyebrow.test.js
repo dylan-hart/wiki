@@ -67,6 +67,7 @@ const ROUTES = [
   unscoped('/_admin/extensions'),
   unscoped('/_admin/mail'),
   scoped('/_admin/:siteid/analytics'),
+  scoped('/_admin/:siteid/ai'),
   unscoped('/_admin/security'),
   unscoped('/_admin/flags'),
   unscoped('/_admin/utilities'),
@@ -114,6 +115,7 @@ describe('AdminPageEyebrow group derivation', () => {
     ['/_admin/extensions', 'Integrations'],
     ['/_admin/mail', 'Integrations'],
     [`/_admin/${SITE_ID}/analytics`, 'Integrations'],
+    [`/_admin/${SITE_ID}/ai`, 'Integrations'],
     ['/_admin/security', 'Access'],
     ['/_admin/flags', 'Advanced'],
     ['/_admin/utilities', 'Advanced']

@@ -160,6 +160,8 @@ async function postBoot() {
   //    idempotent
   await CARDINAL.models.search.initActiveEngines()
 
+  await CARDINAL.models.ai.refreshFromDisk()
+
   // -> Optional third-party tooling: report what is available, since features silently degrade
   //    without it
   await CARDINAL.models.extensions.refreshFromDisk()
