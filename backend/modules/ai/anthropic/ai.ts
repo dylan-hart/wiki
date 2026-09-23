@@ -1,3 +1,5 @@
+import type { AiProviderContext } from '../../../models/ai.ts'
+
 const MODULE_KEY = 'anthropic'
 
 export const API_URL = 'https://api.anthropic.com/v1/messages'
@@ -8,12 +10,7 @@ export const TIMEOUT_MS = 60_000
 export const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 export const FALLBACK_MODELS: ReadonlySet<string> = new Set(['claude-opus-5', 'claude-fable-5-1'])
 
-export interface AiGenerateContext {
-  siteId: string
-  system?: string
-  maxOutputTokens?: number
-  signal?: AbortSignal
-}
+export type AiGenerateContext = AiProviderContext
 
 export interface AnthropicConfig {
   apiKey?: string
