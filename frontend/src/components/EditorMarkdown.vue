@@ -479,6 +479,7 @@ import {
   aiGenerate,
   fetchAiStatus
 } from '@/composables/aiAssist'
+import { promptViaDialog, registerAiCursorActions } from '@/composables/aiAssistCursorActions'
 import { dialog } from '@/composables/dialog'
 import { useMarkdownCollab } from '@/composables/markdownCollab'
 import { notify } from '@/composables/notify'
@@ -1346,6 +1347,23 @@ watch(
   }
 )
 
+const AiPromptDialog = defineAsyncComponent(() => import('./AiPromptDialog.vue'))
+
+async function generateWithAi({ action, text, prompt }) {
+  try {
+    return await aiGenerate(siteStore.id, {
+      action,
+      text,
+      prompt,
+      pageId: pageStore.id,
+      path: pageStore.path,
+      locale: pageStore.locale
+    })
+  } finally {
+    refreshAiStatus()
+  }
+}
+
 onMounted(async () => {
   editorStore.$patch({
     hideSideNav: true
@@ -1612,6 +1630,15 @@ onMounted(async () => {
   })
 
   refreshAiStatus()
+
+  registerAiCursorActions(editor, {
+    t,
+    askPrompt: ({ action, required }) =>
+      promptViaDialog(dialog, AiPromptDialog, { action, required }),
+    generate: generateWithAi,
+    notify,
+    errorMessage: (err) => aiErrorMessage(err, t)
+  })
 
   debouncedContentChange = debounce((ev) => {
     editorStore.markDirty()
