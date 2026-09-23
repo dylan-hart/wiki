@@ -15,7 +15,7 @@
  */
 export function buildMenuBar(
   getEditorRef,
-  { TEXT_COLORS, HIGHLIGHT_COLORS, insertLink, openFileManager, insertBlock, t }
+  { TEXT_COLORS, HIGHLIGHT_COLORS, insertLink, openFileManager, insertBlock, insertWhiteboard, t }
 ) {
   /*
     Re-read on every access rather than captured once: the ref is assigned on mount and its `.value`
@@ -398,6 +398,12 @@ export function buildMenuBar(
       icon: 'tabler:puzzle',
       title: t('editor.wysiwyg.insertBlock'),
       action: () => insertBlock()
+    },
+    {
+      key: 'draw',
+      icon: 'tabler:scribble',
+      title: t('editor.wysiwyg.draw'),
+      action: () => insertWhiteboard()
     },
     {
       key: 'table',
