@@ -12,6 +12,7 @@ import { passkeysAllowed } from './security.ts'
 import { randomToken } from '../helpers/randomToken.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
 import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
+import { DISCONNECTED_AUTH_KEY, strategyEntries } from '../helpers/userAuthEntries.ts'
 import { generateRecoveryCodes, normalizeRecoveryCode } from '../helpers/recoveryCodes.ts'
 import type { AuditActor } from './auditLog.ts'
 
@@ -189,8 +190,7 @@ function isUsableLogin(strategyId: string, entry: any): boolean {
  * still leaves the account reachable.
  */
 export function countAlternativeLogins(user: any, strategyId?: string): number {
-  const auth = (user.auth ?? {}) as Record<string, any>
-  const otherProviders = Object.entries(auth).filter(
+  const otherProviders = strategyEntries(user.auth).filter(
     ([id, config]) => id !== strategyId && isUsableLogin(id, config)
   ).length
   const passkeys = passkeysAllowed() ? ((user.passkeys ?? {}).authenticators ?? []).length : 0
@@ -229,6 +229,8 @@ class UserCredentials {
    * @param opts.db Joins a caller's open transaction rather than racing it
    * @param opts.mirrorInto Copies the freshly-written blob onto a caller's own stale `user` object, so
    *   a login flow holding a row from before this write keeps reading its own change back
+   * @param opts.clearDisconnected Drops this strategy's {@link DISCONNECTED_AUTH_KEY} marker in the
+   *   same write — for the connect flow alone
    * @returns Whether a write actually happened: false when the user is gone, or `mutate` declined
    */
   async patchStrategyAuth(
@@ -238,7 +240,7 @@ class UserCredentials {
       entry: Record<string, any> | undefined,
       current: any
     ) => Record<string, any> | null | Promise<Record<string, any> | null>,
-    opts: { db?: WikiDbOrTx; mirrorInto?: { auth: unknown } } = {}
+    opts: { db?: WikiDbOrTx; mirrorInto?: { auth: unknown }; clearDisconnected?: boolean } = {}
   ): Promise<boolean> {
     const db = opts.db ?? CARDINAL.db
     return withAdvisoryLock(authLockKey(userId), async () => {
@@ -252,6 +254,15 @@ class UserCredentials {
         return false
       }
       currentAuth[strategyId] = { ...currentAuth[strategyId], ...patch }
+      if (opts.clearDisconnected && currentAuth[DISCONNECTED_AUTH_KEY]?.[strategyId]) {
+        const markers = { ...currentAuth[DISCONNECTED_AUTH_KEY] }
+        delete markers[strategyId]
+        if (Object.keys(markers).length > 0) {
+          currentAuth[DISCONNECTED_AUTH_KEY] = markers
+        } else {
+          delete currentAuth[DISCONNECTED_AUTH_KEY]
+        }
+      }
       if (opts.mirrorInto) {
         opts.mirrorInto.auth = currentAuth
       }
@@ -357,9 +368,7 @@ class UserCredentials {
   ): Promise<UserAuthProvider[]> {
     const strategies = await CARDINAL.db.select().from(authenticationTable)
     const providers: UserAuthProvider[] = []
-    for (const [strategyId, rawConfig] of Object.entries(
-      (user.auth ?? {}) as Record<string, any>
-    )) {
+    for (const [strategyId, rawConfig] of strategyEntries(user.auth)) {
       const strategy = strategies.find((s: any) => s.id === strategyId)
       const definition = CARDINAL.data.authentication?.find((d: any) => d.key === strategy?.module)
       const { password, tfaSecret, tfaIsActive, tfaRequired, recoveryCodes, ...rest } =
@@ -455,6 +464,10 @@ class UserCredentials {
    * lock: two concurrent removals of an account's only two providers would each see the other as a
    * way in.
    *
+   * The same write records the provider under {@link DISCONNECTED_AUTH_KEY}: a disconnect is usually
+   * someone cutting off an identity they no longer trust, and `trustEmailForLinking` would otherwise
+   * bind it straight back at its next login.
+   *
    * @throws `ERR_UNLINK_LOCAL_STRATEGY`, `ERR_INVALID_USER`, `ERR_UNLINK_NOT_LINKED` or
    *         `ERR_UNLINK_LAST_LOGIN_METHOD`
    */
@@ -480,6 +493,10 @@ class UserCredentials {
       assertUnlinkable(current, strategyId)
       const remaining = { ...((current.auth ?? {}) as Record<string, any>) }
       delete remaining[strategyId]
+      remaining[DISCONNECTED_AUTH_KEY] = {
+        ...remaining[DISCONNECTED_AUTH_KEY],
+        [strategyId]: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
+      }
       await CARDINAL.db
         .update(usersTable)
         .set({ auth: remaining, updatedAt: sql`now()` })
@@ -852,6 +869,8 @@ class UserCredentials {
    * moment can both succeed; `users.getByProviderLink()` then resolves to whichever account was
    * created first.
    *
+   * The explicit connect flow is what lifts a {@link DISCONNECTED_AUTH_KEY} marker, in the same write.
+   *
    * @throws `ERR_LINK_NOT_SIGNED_IN`, `ERR_LINK_ALREADY_LINKED` or `ERR_LINK_IDENTITY_IN_USE`
    */
   async linkStrategy({
@@ -869,18 +888,23 @@ class UserCredentials {
     siteId?: string
     ip?: string
   }): Promise<void> {
-    const written = await this.patchStrategyAuth(userId, strategyId, async (entry) => {
-      if (entry) {
-        throw new Error('ERR_LINK_ALREADY_LINKED')
-      }
-      const holder = await CARDINAL.models.users.getByProviderLink(strategyId, identity.id)
-      if (holder) {
-        throw new Error(
-          holder.id === userId ? 'ERR_LINK_ALREADY_LINKED' : 'ERR_LINK_IDENTITY_IN_USE'
-        )
-      }
-      return { id: identity.id, email: identity.email }
-    })
+    const written = await this.patchStrategyAuth(
+      userId,
+      strategyId,
+      async (entry) => {
+        if (entry) {
+          throw new Error('ERR_LINK_ALREADY_LINKED')
+        }
+        const holder = await CARDINAL.models.users.getByProviderLink(strategyId, identity.id)
+        if (holder) {
+          throw new Error(
+            holder.id === userId ? 'ERR_LINK_ALREADY_LINKED' : 'ERR_LINK_IDENTITY_IN_USE'
+          )
+        }
+        return { id: identity.id, email: identity.email }
+      },
+      { clearDisconnected: true }
+    )
     if (!written) {
       throw new Error('ERR_LINK_NOT_SIGNED_IN')
     }
@@ -890,13 +914,37 @@ class UserCredentials {
       return
     }
     CARDINAL.models.flags.authDebug(`User ${userId} connected sign-in strategy ${strategyId}`)
+    await this.announceSignInMethodAdded({ user, strategyId, methodName, siteId, ip })
+  }
+
+  /**
+   * The audit record and the account holder's notice for a provider that has just been bound to the
+   * account: by the connect flow, or by a `trustEmailForLinking` login binding an account that had
+   * no link to it (`trustedEmail`, recorded in the entry's detail). The link is already written, so a
+   * notice that fails to send is logged rather than thrown.
+   */
+  async announceSignInMethodAdded({
+    user,
+    strategyId,
+    methodName,
+    siteId,
+    ip,
+    trustedEmail = false
+  }: {
+    user: { id: string; name: string; email: string; prefs?: unknown }
+    strategyId: string
+    methodName: string
+    siteId?: string
+    ip?: string
+    trustedEmail?: boolean
+  }): Promise<void> {
     await CARDINAL.models.auditLog.record({
       event: 'user.signInMethodAdded',
-      actor: { id: userId, name: user.name, email: user.email, ip },
+      actor: { id: user.id, name: user.name, email: user.email, ip },
       targetType: 'user',
-      targetId: userId,
+      targetId: user.id,
       targetLabel: user.email,
-      detail: { strategyId },
+      detail: trustedEmail ? { strategyId, trustedEmail: true } : { strategyId },
       siteId: siteId || null
     })
     try {
@@ -904,13 +952,13 @@ class UserCredentials {
         to: user.email,
         name: user.name,
         methodName,
-        userId,
+        userId: user.id,
         locale: (user.prefs as Record<string, any> | null)?.locale,
         siteId: siteId || undefined
       })
     } catch (err: any) {
       CARDINAL.logger.warn('auth', 'sending the sign-in-method-added notice failed', {
-        user: userId,
+        user: user.id,
         error: err
       })
     }

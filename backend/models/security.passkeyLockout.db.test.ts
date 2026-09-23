@@ -1,6 +1,7 @@
 import { after, before, beforeEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { users as usersTable } from '../db/schema.ts'
+import { DISCONNECTED_AUTH_KEY } from '../helpers/userAuthEntries.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
 const passkeys = { authenticators: [{ id: 'cred-1', name: 'Laptop' }] }
@@ -75,6 +76,15 @@ describe('Security#checkPasskeyLockout (DB-backed)', { skip: !hasTestDatabase() 
     })
 
     assert.equal(await security.checkPasskeyLockout({ allowPasskeys: false }), null)
+  })
+
+  test('a record of a disconnected provider is not mistaken for a way in', async () => {
+    await addUser({
+      local: { password: 'x', restrictLogin: true },
+      [DISCONNECTED_AUTH_KEY]: { github: '2026-09-23T00:00:00.000Z' }
+    })
+
+    assert.match((await security.checkPasskeyLockout({ allowPasskeys: false })) ?? '', /1 account/)
   })
 
   test('ignores a restricted account that has no passkey', async () => {
