@@ -31,6 +31,13 @@ export const HOP2_SEED_COUNT = 3
  */
 export const HOP2_DISTANCE_PENALTY = 0.1
 
+export function maxDistanceForMinMatch(minMatchPercent: number): number | null {
+  if (!Number.isFinite(minMatchPercent) || minMatchPercent <= 0) {
+    return null
+  }
+  return 1 - Math.min(minMatchPercent, 100) / 100
+}
+
 export interface SemanticChunkMatch {
   pageId: string
   chunkIndex: number
@@ -78,10 +85,11 @@ export interface AnnSearchScope extends SearchFilters {
   /** Never empty — the route defaults it to the site's primary locale. */
   locales: string[]
   actor?: AccessActor
+  maxDistance?: number | null
 }
 
 /** `actor` is excluded deliberately: permission filtering is `filterVisible`'s job, never SQL. */
-type ChunkFilters = Omit<AnnSearchScope, 'siteId' | 'actor'>
+type ChunkFilters = Omit<AnnSearchScope, 'siteId' | 'actor' | 'maxDistance'>
 
 function toVisibilityRef(row: SemanticChunkMatch): VisibilityRef {
   return {
@@ -131,11 +139,15 @@ function parseVector(raw: unknown): number[] {
 async function queryChunks(
   embedding: number[],
   siteId: string,
-  filters: ChunkFilters
+  filters: ChunkFilters,
+  maxDistance: number | null = null
 ): Promise<SemanticChunkMatch[]> {
   const vectorLiteral = toVectorLiteral(embedding)
 
   const conditions = [sql`p."siteId" = ${siteId}`, ...buildSqlFilterConditions(filters)]
+  if (maxDistance !== null) {
+    conditions.push(sql`(pec.embedding <=> ${vectorLiteral}::vector) <= ${maxDistance}`)
+  }
 
   const result = await CARDINAL.db.execute(sql`
     SELECT
@@ -185,9 +197,9 @@ async function queryChunks(
  */
 export async function annSearch(
   embedding: number[],
-  { siteId, actor, ...filters }: AnnSearchScope
+  { siteId, actor, maxDistance = null, ...filters }: AnnSearchScope
 ): Promise<SemanticChunkMatch[]> {
-  const rows = await queryChunks(embedding, siteId, filters)
+  const rows = await queryChunks(embedding, siteId, filters, maxDistance)
   return filterVisible(rows, actor, siteId, toVisibilityRef)
 }
 
@@ -223,9 +235,9 @@ export async function runHop2(
  */
 async function hop1Outcome(
   queryVector: number[],
-  { siteId, actor, ...filters }: AnnSearchScope
+  { siteId, actor, maxDistance = null, ...filters }: AnnSearchScope
 ): Promise<HopOutcome> {
-  const scanned = await queryChunks(queryVector, siteId, filters)
+  const scanned = await queryChunks(queryVector, siteId, filters, maxDistance)
   const visible = filterVisible(scanned, actor, siteId, toVisibilityRef)
   return { scanned, visible }
 }
@@ -233,10 +245,10 @@ async function hop1Outcome(
 /** `runHop2`'s counterpart, for the same reason `hop1Outcome` is `annSearch`'s. */
 async function hop2Outcome(
   seeds: SemanticChunkMatch[],
-  { siteId, actor, ...filters }: AnnSearchScope
+  { siteId, actor, maxDistance = null, ...filters }: AnnSearchScope
 ): Promise<HopOutcome> {
   const scannedBatches = await Promise.all(
-    seeds.map((seed) => queryChunks(seed.embedding, siteId, filters))
+    seeds.map((seed) => queryChunks(seed.embedding, siteId, filters, maxDistance))
   )
   const scanned = scannedBatches.flat()
   const visible = filterVisible(scanned, actor, siteId, toVisibilityRef)
@@ -338,7 +350,10 @@ export async function search(
     return { results: [], totalHits: 0, totalHitsApproximate: false, suggestion: null }
   }
 
-  const scope: AnnSearchScope = { ...filters, siteId, locales, actor }
+  const maxDistance = maxDistanceForMinMatch(
+    CARDINAL.models.search.getConfig(siteId).semanticMinMatch
+  )
+  const scope: AnnSearchScope = { ...filters, siteId, locales, actor, maxDistance }
   const hop1Result = await hop1Outcome(queryVector, scope)
   const seeds = selectHop2Seeds(hop1Result.visible)
   const hop2Result = seeds.length > 0 ? await hop2Outcome(seeds, scope) : EMPTY_HOP_OUTCOME

@@ -35,6 +35,7 @@ async function routes(app: FastifyInstance) {
     Body: {
       dictOverrides?: Record<string, string>
       semanticEnabled?: boolean
+      semanticMinMatch?: number
       autoTagThreshold?: number
       autoTagMaxTags?: number
     }
@@ -47,7 +48,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Update the search configuration of a site',
         description:
-          'Every dictionary named in `dictOverrides` must exist in this database, otherwise indexing would fail later, long after the setting was accepted. Changing a mapping affects pages the next time they are indexed — rebuild the index to apply it to existing content. `semanticEnabled` may only be set to `true` when semantic search is available on this instance. `autoTagThreshold` and `autoTagMaxTags` apply to pages auto-tagged after the change; tags already applied are left as they are.',
+          'Every dictionary named in `dictOverrides` must exist in this database, otherwise indexing would fail later, long after the setting was accepted. Changing a mapping affects pages the next time they are indexed — rebuild the index to apply it to existing content. `semanticEnabled` may only be set to `true` when semantic search is available on this instance. `semanticMinMatch` is the minimum match percentage (0-100) a semantic search result must reach, on the same scale as the percentage shown beside each result (`round((1 - distance) * 100)`); it is applied as `distance <= 1 - semanticMinMatch / 100`, and `0` applies no floor at all. `autoTagThreshold` and `autoTagMaxTags` apply to pages auto-tagged after the change; tags already applied are left as they are.',
         tags: ['Search'],
         params: { $ref: 'SiteIdParams#' },
         body: {
@@ -75,6 +76,13 @@ async function routes(app: FastifyInstance) {
               minimum: 1,
               maximum: AUTO_TAG_MAX_TAGS_LIMIT,
               description: 'The most tags auto-tagging adds to any one page.'
+            },
+            semanticMinMatch: {
+              type: 'integer',
+              minimum: 0,
+              maximum: 100,
+              description:
+                'Minimum match percentage (0-100) a semantic search result must reach to be returned. `0` applies no floor.'
             }
           }
         },
@@ -101,6 +109,7 @@ async function routes(app: FastifyInstance) {
       if (
         req.body.dictOverrides === undefined &&
         req.body.semanticEnabled === undefined &&
+        req.body.semanticMinMatch === undefined &&
         req.body.autoTagThreshold === undefined &&
         req.body.autoTagMaxTags === undefined
       ) {
@@ -129,6 +138,9 @@ async function routes(app: FastifyInstance) {
       }
       if (req.body.semanticEnabled !== undefined) {
         patch.semanticEnabled = req.body.semanticEnabled
+      }
+      if (req.body.semanticMinMatch !== undefined) {
+        patch.semanticMinMatch = req.body.semanticMinMatch
       }
       if (req.body.autoTagThreshold !== undefined) {
         patch.autoTagThreshold = req.body.autoTagThreshold
@@ -160,7 +172,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Get a site's semantic search and auto-tagging settings",
         description:
-          "`available` reflects `CARDINAL.capabilities.semanticSearch` (instance-wide: whether pgvector is usable at all); `enabled` is this site's own stored setting, independent of `available`. The feature is reachable only when both are true. `autoTagThreshold` (a 0-1 overlap fraction, higher is stricter) and `autoTagMaxTags` tune auto-tagging, which runs on embedded page text and so only while semantic search is available.",
+          "`available` reflects `CARDINAL.capabilities.semanticSearch` (instance-wide: whether pgvector is usable at all); `enabled` is this site's own stored setting, independent of `available`. The feature is reachable only when both are true. `minMatch` is the site's minimum match percentage for a semantic result (`0` is no floor). `autoTagThreshold` (a 0-1 overlap fraction, higher is stricter) and `autoTagMaxTags` tune auto-tagging, which runs on embedded page text and so only while semantic search is available.",
         tags: ['Search'],
         params: { $ref: 'SiteIdParams#' },
         response: {
@@ -170,6 +182,7 @@ async function routes(app: FastifyInstance) {
             properties: {
               enabled: { type: 'boolean' },
               available: { type: 'boolean' },
+              minMatch: { type: 'integer' },
               autoTagThreshold: { type: 'number' },
               autoTagMaxTags: { type: 'integer' }
             }
@@ -184,6 +197,7 @@ async function routes(app: FastifyInstance) {
       return {
         enabled: config.semanticEnabled,
         available: CARDINAL.capabilities?.semanticSearch ?? false,
+        minMatch: config.semanticMinMatch,
         autoTagThreshold: config.autoTagThreshold,
         autoTagMaxTags: config.autoTagMaxTags
       }

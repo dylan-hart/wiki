@@ -37,6 +37,7 @@ export interface SearchConfig {
   semanticEnabled: boolean
   autoTagThreshold: number
   autoTagMaxTags: number
+  semanticMinMatch: number
 }
 
 /**
@@ -471,6 +472,7 @@ class Search {
     return {
       dictOverrides: (config?.dictOverrides ?? {}) as Record<string, string>,
       semanticEnabled: config?.semanticEnabled ?? false,
+      semanticMinMatch: config?.semanticMinMatch ?? 0,
       autoTagThreshold: config?.autoTagThreshold ?? AUTO_TAG_THRESHOLD,
       autoTagMaxTags: config?.autoTagMaxTags ?? AUTO_TAG_MAX_TAGS
     }

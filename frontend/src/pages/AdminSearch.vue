@@ -168,6 +168,25 @@
             :aria-label="t('admin.search.semanticEnabled')" />
         </w-settings-row>
         <w-settings-row
+          icon="tabler:percentage"
+          control-width="auto"
+          :label="t('admin.search.semanticMinMatch')"
+          :hint="t('admin.search.semanticMinMatchHint')">
+          <div style="width: 120px">
+            <w-input
+              dense
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              v-model.number="state.semanticMinMatch"
+              :disabled="!state.semanticAvailable"
+              hide-bottom-space
+              suffix="%"
+              :aria-label="t('admin.search.semanticMinMatch')" />
+          </div>
+        </w-settings-row>
+        <w-settings-row
           icon="tabler:tags"
           control-width="auto"
           :label="t('admin.search.autoTagThreshold')"
@@ -264,6 +283,7 @@ const { state, load } = useAdminSettings({
     selectedEngineKey: '',
     semanticEnabled: false,
     semanticAvailable: false,
+    semanticMinMatch: 0,
     semanticSaving: false,
     semanticRebuildLoading: false,
     autoTagThresholdPercent: 15,
@@ -296,6 +316,7 @@ const autoTagMaxTagsRules = [
 function applySemantic(semantic) {
   state.semanticEnabled = semantic?.enabled ?? false
   state.semanticAvailable = semantic?.available ?? false
+  state.semanticMinMatch = semantic?.minMatch ?? 0
   state.autoTagThresholdPercent = thresholdToPercent(semantic?.autoTagThreshold ?? 0.15)
   state.autoTagMaxTags = semantic?.autoTagMaxTags ?? 3
 }
@@ -437,6 +458,11 @@ async function rebuild() {
   state.rebuildLoading = false
 }
 
+function normalizeMinMatch(value) {
+  const percent = Math.round(Number(value))
+  return Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0
+}
+
 /**
  * On failure, re-fetches the semantic setting rather than leaving the toggle showing what the reader
  * clicked: a stale `state.semanticAvailable` lets a click through that the server then refuses.
@@ -448,10 +474,12 @@ async function saveSemanticEnabled() {
     return
   }
   state.semanticSaving = true
+  state.semanticMinMatch = normalizeMinMatch(state.semanticMinMatch)
   try {
     await API_CLIENT.patch(`sites/${adminStore.currentSiteId}/search`, {
       json: {
         semanticEnabled: state.semanticEnabled,
+        semanticMinMatch: state.semanticMinMatch,
         autoTagThreshold: percentToThreshold(state.autoTagThresholdPercent),
         autoTagMaxTags: state.autoTagMaxTags
       }

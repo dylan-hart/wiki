@@ -1197,6 +1197,8 @@
   "admin.search.saveFailed": "Failed to save the search configuration.",
   "admin.search.semanticEnabled": "Enable Semantic Search",
   "admin.search.semanticEnabledHint": "Lets readers search by meaning, not just keyword match, using embeddings generated locally from page content. Independent of the search engine selected above.",
+  "admin.search.semanticMinMatch": "Minimum Match",
+  "admin.search.semanticMinMatchHint": "Leaves out any semantic search result scoring below this match percentage -- the same percentage shown beside each result. 0% keeps every result.",
   "admin.search.semanticSaveFailed": "Failed to save the semantic search settings.",
   "admin.search.semanticSaveSuccess": "Semantic search settings saved successfully.",
   "admin.search.semanticTitle": "Semantic Search",

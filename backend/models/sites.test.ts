@@ -493,6 +493,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
       config: {
         dictOverrides: {},
         semanticEnabled: false,
+        semanticMinMatch: 0,
         autoTagThreshold: 0.15,
         autoTagMaxTags: 3
       }
@@ -511,6 +512,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
       config: {
         dictOverrides: { en: 'english' },
         semanticEnabled: false,
+        semanticMinMatch: 0,
         autoTagThreshold: 0.15,
         autoTagMaxTags: 3
       }
@@ -529,6 +531,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
       config: {
         dictOverrides: {},
         semanticEnabled: true,
+        semanticMinMatch: 0,
         autoTagThreshold: 0.15,
         autoTagMaxTags: 3
       }
@@ -557,6 +560,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
       config: {
         dictOverrides: {},
         semanticEnabled: false,
+        semanticMinMatch: 0,
         autoTagThreshold: 0.15,
         autoTagMaxTags: 3
       }

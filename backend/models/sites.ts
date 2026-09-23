@@ -267,6 +267,7 @@ class Sites extends ClusterReloaded {
                 // -> Can't enable what isn't there: on only where the instance-wide capability
                 //    (pgvector) is itself true. An operator can still flip it per site afterwards.
                 semanticEnabled: CARDINAL.capabilities?.semanticSearch ?? false,
+                semanticMinMatch: 0,
                 autoTagThreshold: AUTO_TAG_THRESHOLD,
                 autoTagMaxTags: AUTO_TAG_MAX_TAGS
               }
@@ -578,6 +579,7 @@ class Sites extends ClusterReloaded {
           config: {
             dictOverrides: {},
             semanticEnabled: CARDINAL.capabilities?.semanticSearch ?? false,
+            semanticMinMatch: 0,
             autoTagThreshold: AUTO_TAG_THRESHOLD,
             autoTagMaxTags: AUTO_TAG_MAX_TAGS
           }

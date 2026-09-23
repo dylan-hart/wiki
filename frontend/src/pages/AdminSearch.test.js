@@ -533,12 +533,14 @@ describe('semantic search setting (task #3104)', () => {
   function mockLoad({
     enabled = false,
     available = false,
+    minMatch = 0,
     autoTagThreshold = 0.15,
     autoTagMaxTags = 3
   } = {}) {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([engine()]) })
     API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve({ enabled, available, autoTagThreshold, autoTagMaxTags })
+      json: () =>
+        Promise.resolve({ enabled, available, minMatch, autoTagThreshold, autoTagMaxTags })
     })
   }
 
@@ -548,6 +550,10 @@ describe('semantic search setting (task #3104)', () => {
 
   function maxTagsInputOf(wrapper) {
     return wrapper.find('input[aria-label="admin.search.autoTagMaxTags"]')
+  }
+
+  function minMatchOf(wrapper) {
+    return wrapper.find('input[aria-label="admin.search.semanticMinMatch"]')
   }
 
   function toggleOf(wrapper) {
@@ -597,7 +603,12 @@ describe('semantic search setting (task #3104)', () => {
     await flushPromises()
 
     expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/search', {
-      json: { semanticEnabled: true, autoTagThreshold: 0.15, autoTagMaxTags: 3 }
+      json: {
+        semanticEnabled: true,
+        semanticMinMatch: 0,
+        autoTagThreshold: 0.15,
+        autoTagMaxTags: 3
+      }
     })
     expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
   })
@@ -626,7 +637,12 @@ describe('semantic search setting (task #3104)', () => {
     await flushPromises()
 
     expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/search', {
-      json: { semanticEnabled: true, autoTagThreshold: 0.25, autoTagMaxTags: 4 }
+      json: {
+        semanticEnabled: true,
+        semanticMinMatch: 0,
+        autoTagThreshold: 0.25,
+        autoTagMaxTags: 4
+      }
     })
   })
 
@@ -673,6 +689,70 @@ describe('semantic search setting (task #3104)', () => {
 
     expect(thresholdInputOf(wrapper).attributes('disabled')).toBeDefined()
     expect(maxTagsInputOf(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it('shows the stored minimum match and saves an edited one alongside the toggle', async () => {
+    mockLoad({ enabled: true, available: true, minMatch: 35 })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    expect(minMatchOf(wrapper).element.value).toBe('35')
+    expect(minMatchOf(wrapper).attributes('disabled')).toBeUndefined()
+
+    await minMatchOf(wrapper).setValue('60')
+
+    API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await applyBtnOf(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/search', {
+      json: {
+        semanticEnabled: true,
+        semanticMinMatch: 60,
+        autoTagThreshold: 0.15,
+        autoTagMaxTags: 3
+      }
+    })
+  })
+
+  it.each([
+    ['150', 100],
+    ['-10', 0],
+    ['42.6', 43],
+    ['', 0]
+  ])(
+    'clamps a minimum match of %j to a whole 0-100 percentage (%i) before saving',
+    async (typed, sent) => {
+      mockLoad({ enabled: true, available: true, minMatch: 10 })
+
+      const wrapper = mountAdminSearch()
+      await flushPromises()
+
+      await minMatchOf(wrapper).setValue(typed)
+
+      API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+      await applyBtnOf(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/search', {
+        json: {
+          semanticEnabled: true,
+          semanticMinMatch: sent,
+          autoTagThreshold: 0.15,
+          autoTagMaxTags: 3
+        }
+      })
+    }
+  )
+
+  it('disables the minimum match input when the capability is off', async () => {
+    mockLoad({ enabled: false, available: false, minMatch: 0 })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    expect(minMatchOf(wrapper).attributes('disabled')).toBeDefined()
   })
 
   it('notifies semanticSaveFailed and re-fetches the current value when the save is rejected', async () => {
