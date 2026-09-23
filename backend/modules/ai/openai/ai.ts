@@ -9,6 +9,14 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 4096
 
 export const DEFAULT_TIMEOUT_MS = 60_000
 
+export const REASONING_EFFORT = 'low'
+
+const REASONING_MODEL = /^(gpt-5|o\d)/
+
+export function isReasoningModel(model: string): boolean {
+  return REASONING_MODEL.test(model)
+}
+
 export type OpenAiGenerateContext = AiProviderContext
 
 export interface OpenAiConfig {
@@ -37,10 +45,12 @@ function trimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function outputTokenCap(requested: number | undefined): number {
-  return Number.isInteger(requested) && (requested as number) > 0
-    ? (requested as number)
-    : DEFAULT_MAX_OUTPUT_TOKENS
+function outputTokenCap(requested: number | undefined, reasoning: boolean): number {
+  const cap =
+    Number.isInteger(requested) && (requested as number) > 0
+      ? (requested as number)
+      : DEFAULT_MAX_OUTPUT_TOKENS
+  return reasoning ? Math.max(cap, DEFAULT_MAX_OUTPUT_TOKENS) : cap
 }
 
 function extractText(output: unknown): string {
@@ -103,6 +113,7 @@ export default async function generate(
       return null
     }
     const model = trimmedString(config?.model) || DEFAULT_MODEL
+    const reasoning = isReasoningModel(model)
     const system = trimmedString(context?.system)
     const timeout = AbortSignal.timeout(DEFAULT_TIMEOUT_MS)
     const signal = context?.signal ? AbortSignal.any([context.signal, timeout]) : timeout
@@ -119,7 +130,8 @@ export default async function generate(
           model,
           ...(system ? { instructions: system } : {}),
           input: prompt,
-          max_output_tokens: outputTokenCap(context?.maxOutputTokens),
+          ...(reasoning ? { reasoning: { effort: REASONING_EFFORT } } : {}),
+          max_output_tokens: outputTokenCap(context?.maxOutputTokens, reasoning),
           store: false
         }),
         signal
