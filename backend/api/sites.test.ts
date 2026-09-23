@@ -516,6 +516,35 @@ test('site:general on this site may save general-surface fields', async () => {
   assert.equal(updateSiteCalls[0].patch.config.title, 'Renamed')
 })
 
+test('site:general sending the writing assistant settings under features changes neither', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { features: { aiAssist: true, aiAssistDailyCap: 100000, comments: true } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.deepEqual(updateSiteCalls[0].patch.config, { features: { comments: true } })
+})
+
+test('site:general sending an ai key is refused as a manage:sites-only field', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { ai: { assist: true, assistDailyCap: 100000 } }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
 test('site:general on this site may save allowedUrlSchemes (task #2457)', async () => {
   const res = await app.inject({
     method: 'PUT',

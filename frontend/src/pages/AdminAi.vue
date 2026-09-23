@@ -50,6 +50,34 @@
             :aria-label="t('admin.ai.provider')" />
         </w-settings-row>
       </w-settings-card>
+      <w-settings-card class="mt-4" :title="t('admin.ai.assistSection')">
+        <w-settings-row
+          tag="label"
+          control-width="auto"
+          icon="tabler:sparkles"
+          :label="t('admin.ai.allowAssist')"
+          :hint="t('admin.ai.allowAssistHint')">
+          <w-toggle
+            v-model="state.assist"
+            :loading="state.loading > 0"
+            :aria-label="t('admin.ai.allowAssist')" />
+        </w-settings-row>
+        <w-settings-row
+          v-if="state.assist"
+          control-width="fixed"
+          icon="tabler:gauge"
+          :label="t('admin.ai.assistDailyCap')"
+          :hint="t('admin.ai.assistDailyCapHint')">
+          <w-input
+            v-model.number="state.assistDailyCap"
+            type="number"
+            min="1"
+            max="100000"
+            dense
+            :suffix="t('admin.ai.assistDailyCapSuffix')"
+            :aria-label="t('admin.ai.assistDailyCap')" />
+        </w-settings-row>
+      </w-settings-card>
       <w-settings-card
         v-if="provider"
         class="mt-4"
@@ -85,6 +113,9 @@ import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
+const AI_ASSIST_DEFAULT_DAILY_CAP = 50
+const AI_ASSIST_MAX_DAILY_CAP = 100000
+
 const dark = useDark()
 
 const { t } = useI18n()
@@ -97,10 +128,18 @@ const { state, load, refresh, save } = useAdminSettings({
   i18nPrefix: 'admin.ai',
   extraState: {
     providers: [],
-    selectedProvider: ''
+    selectedProvider: '',
+    assist: false,
+    assistDailyCap: AI_ASSIST_DEFAULT_DAILY_CAP
   },
-  fetch: (siteId) => API_CLIENT.get(`sites/${siteId}/ai/providers`).json(),
-  onLoaded: (providers) => {
+  fetch: async (siteId) => {
+    const [providers, settings] = await Promise.all([
+      API_CLIENT.get(`sites/${siteId}/ai/providers`).json(),
+      API_CLIENT.get(`sites/${siteId}/ai`).json()
+    ])
+    return { providers, settings }
+  },
+  onLoaded: ({ providers, settings }) => {
     state.providers = (providers ?? []).map((prov) => ({
       key: prov.key,
       title: prov.title,
@@ -111,11 +150,21 @@ const { state, load, refresh, save } = useAdminSettings({
       config: buildConfigEditor(prov.props, prov.config)
     }))
     state.selectedProvider = state.providers.find((prov) => prov.isSelected)?.key ?? ''
+    state.assist = settings?.assist === true
+    state.assistDailyCap = parseAssistDailyCap(settings?.assistDailyCap)
   },
   commit: (siteId) => {
+    const assist = {
+      assist: state.assist,
+      assistDailyCap: parseAssistDailyCap(state.assistDailyCap)
+    }
     const json = provider.value
-      ? { provider: provider.value.key, config: buildConfigPayload(provider.value.config) }
-      : { provider: '' }
+      ? {
+          provider: provider.value.key,
+          config: buildConfigPayload(provider.value.config),
+          ...assist
+        }
+      : { provider: '', ...assist }
     return API_CLIENT.put(`sites/${siteId}/ai`, { json }).json()
   },
   onSaved: () => load()
@@ -135,4 +184,12 @@ const providerOptions = computed(() => [
 const provider = computed(
   () => state.providers.find((prov) => prov.key === state.selectedProvider) ?? null
 )
+
+function parseAssistDailyCap(value) {
+  const cap = Math.floor(Number(value))
+  if (!Number.isFinite(cap) || cap < 1) {
+    return AI_ASSIST_DEFAULT_DAILY_CAP
+  }
+  return Math.min(cap, AI_ASSIST_MAX_DAILY_CAP)
+}
 </script>

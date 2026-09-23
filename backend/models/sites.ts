@@ -185,8 +185,6 @@ class Sites extends ClusterReloaded {
               }
             },
             features: {
-              aiAssist: false,
-              aiAssistDailyCap: 50,
               browse: true,
               collaborativeEditing: true,
               comments: false,
@@ -258,7 +256,9 @@ class Sites extends ClusterReloaded {
             },
             ai: {
               provider: '',
-              providers: {}
+              providers: {},
+              assist: false,
+              assistDailyCap: 50
             },
             search: {
               engine: 'db',
@@ -507,8 +507,6 @@ class Sites extends ClusterReloaded {
           }
         },
         features: {
-          aiAssist: false,
-          aiAssistDailyCap: 50,
           browse: true,
           collaborativeEditing: true,
           comments: false,
@@ -572,7 +570,9 @@ class Sites extends ClusterReloaded {
         },
         ai: {
           provider: '',
-          providers: {}
+          providers: {},
+          assist: false,
+          assistDailyCap: 50
         },
         search: {
           engine: 'db',

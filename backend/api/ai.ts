@@ -1,4 +1,5 @@
 import { actorFromRequest } from '../models/auditLog.ts'
+import { AI_ASSIST_MAX_DAILY_CAP, aiAssistDailyCap, aiAssistEnabled } from '../helpers/aiAssist.ts'
 import type { FastifyInstance } from 'fastify'
 
 async function routes(app: FastifyInstance) {
@@ -30,9 +31,53 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  app.get<{ Params: { siteId: string } }>(
+    '/sites/:siteId/ai',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: "Get a site's AI settings",
+        description:
+          "The selected provider's key (an empty string for none) and the Markdown editor's writing assistant settings. `assist` turns the assistant on for the site, and `assistDailyCap` is how many assistant actions each user may run per 24-hour window. Both spend the provider's API key, which is why they live here beside it and need `manage:system`, rather than under the delegable `features` settings.",
+        tags: ['AI'],
+        params: { $ref: 'SiteIdParams#' },
+        response: {
+          200: {
+            description: "The site's AI settings",
+            type: 'object',
+            properties: {
+              provider: { type: 'string' },
+              assist: { type: 'boolean' },
+              assistDailyCap: { type: 'integer' }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req) => {
+      const siteConfig = CARDINAL.sites[req.params.siteId]?.config as
+        | Record<string, any>
+        | undefined
+      return {
+        provider: CARDINAL.models.ai.getSelectedKey(req.params.siteId),
+        assist: aiAssistEnabled(siteConfig),
+        assistDailyCap: aiAssistDailyCap(siteConfig)
+      }
+    }
+  )
+
   app.put<{
     Params: { siteId: string }
-    Body: { provider: string; config?: Record<string, any> }
+    Body: {
+      provider: string
+      config?: Record<string, any>
+      assist?: boolean
+      assistDailyCap?: number
+    }
   }>(
     '/sites/:siteId/ai',
     {
@@ -40,9 +85,9 @@ async function routes(app: FastifyInstance) {
         permissions: ['manage:system']
       },
       schema: {
-        summary: "Select a site's AI provider",
+        summary: "Select a site's AI provider and writing assistant settings",
         description:
-          "Makes the named provider the one this site's AI features call, and saves its config. An empty `provider` turns AI off for the site while keeping every provider's saved config. Values are validated against what the provider's `definition.yml` declares: an unrecognized key, a value of the wrong type or a `required` prop (the API key) left empty is refused, and nothing is written. Required checks run against the config that would actually end up stored, so a masked API key sent back unchanged keeps the stored one.",
+          "Makes the named provider the one this site's AI features call, and saves its config along with the optional writing assistant settings `assist` and `assistDailyCap`. An empty `provider` turns AI off for the site while keeping every provider's saved config. Values are validated against what the provider's `definition.yml` declares: an unrecognized key, a value of the wrong type or a `required` prop (the API key) left empty is refused, and nothing is written. Required checks run against the config that would actually end up stored, so a masked API key sent back unchanged keeps the stored one.",
         tags: ['AI'],
         params: { $ref: 'SiteIdParams#' },
         body: {
@@ -56,6 +101,18 @@ async function routes(app: FastifyInstance) {
             config: {
               type: 'object',
               additionalProperties: true
+            },
+            assist: {
+              type: 'boolean',
+              description:
+                "Whether the Markdown editor's writing assistant (rewrite, summarize, expand, generate from a prompt) is offered on this site. Off by default. Turning it on grants nobody a permission: a user still needs `write:pages` on the page, a provider must be available, and each user is held to `assistDailyCap`. Saved even when `provider` is empty. Omit it to leave the stored value unchanged."
+            },
+            assistDailyCap: {
+              type: 'integer',
+              minimum: 1,
+              maximum: AI_ASSIST_MAX_DAILY_CAP,
+              description:
+                'How many writing assistant actions each user may run on this site per 24-hour window. The window is fixed and starts at the first action. Omit it to leave the stored value unchanged.'
             }
           },
           required: ['provider']
@@ -106,7 +163,11 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      const saved = await models.ai.selectProvider(siteId, key, req.body.config)
+      const assistSettings = {
+        assist: req.body.assist,
+        assistDailyCap: req.body.assistDailyCap
+      }
+      const saved = await models.ai.selectProvider(siteId, key, req.body.config, assistSettings)
       if (!saved) {
         return reply.internalServerError('Failed to save the AI provider.')
       }
@@ -117,7 +178,14 @@ async function routes(app: FastifyInstance) {
         targetType: 'site',
         targetId: siteId,
         targetLabel: CARDINAL.sites[siteId]?.config?.title,
-        detail: { changedFields: ['ai'], provider: key },
+        detail: {
+          changedFields: ['ai'],
+          provider: key,
+          ...(assistSettings.assist !== undefined ? { assist: assistSettings.assist } : {}),
+          ...(assistSettings.assistDailyCap !== undefined
+            ? { assistDailyCap: assistSettings.assistDailyCap }
+            : {})
+        },
         siteId
       })
 

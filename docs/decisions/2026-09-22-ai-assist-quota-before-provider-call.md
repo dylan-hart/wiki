@@ -10,8 +10,8 @@ The Markdown editor's writing assistant (rewrite, summarize, expand, generate fr
 text to an AI provider using the administrator's own metered API key. Each site has two settings for
 it:
 
-- `features.aiAssist` turns it on, and is off by default.
-- `features.aiAssistDailyCap` (default 50) limits how many actions each user may run in a 24-hour
+- `ai.assist` turns it on, and is off by default.
+- `ai.assistDailyCap` (default 50) limits how many actions each user may run in a 24-hour
   window.
 
 The counter is the existing database-backed rate limiter (`models/rateLimits.ts`), with the key
@@ -22,7 +22,7 @@ same property the authentication limiter relies on.
 the fifth step writes to the counter:
 
 1. A guest is refused with 401.
-2. `features.aiAssist` being off gives 403. This is checked before `write:pages`, the same shape as
+2. `ai.assist` being off gives 403. This is checked before `write:pages`, the same shape as
    `features.pageScripts`.
 3. No `write:pages` on the page gives 403.
 4. The allowance being used up gives 429 with `Retry-After`. This check reads the counter through

@@ -190,32 +190,6 @@
           <w-settings-row
             tag="label"
             control-width="auto"
-            icon="tabler:sparkles"
-            :label="t(`admin.general.allowAiAssist`)"
-            :hint="t(`admin.general.allowAiAssistHint`)">
-            <w-toggle
-              v-model="state.config.features.aiAssist"
-              :loading="state.loading > 0"
-              :aria-label="t(`admin.general.allowAiAssist`)" />
-          </w-settings-row>
-          <w-settings-row
-            v-if="state.config.features.aiAssist"
-            control-width="fixed"
-            icon="tabler:gauge"
-            :label="t(`admin.general.aiAssistDailyCap`)"
-            :hint="t(`admin.general.aiAssistDailyCapHint`)">
-            <w-input
-              v-model.number="state.config.features.aiAssistDailyCap"
-              type="number"
-              min="1"
-              max="100000"
-              dense
-              :suffix="t(`admin.general.aiAssistDailyCapSuffix`)"
-              :aria-label="t(`admin.general.aiAssistDailyCap`)" />
-          </w-settings-row>
-          <w-settings-row
-            tag="label"
-            control-width="auto"
             icon="tabler:user-shield"
             :label="t(`admin.general.allowProfile`)"
             :hint="t(`admin.general.allowProfileHint`)">
@@ -518,9 +492,6 @@ import { isValidHostname } from '@/helpers/siteValidation'
 import { hostnameRenamedAway } from '@/helpers/siteRename'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-const AI_ASSIST_DEFAULT_DAILY_CAP = 50
-const AI_ASSIST_MAX_DAILY_CAP = 100000
-
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
@@ -555,8 +526,6 @@ function defaultConfig() {
       follow: false
     },
     features: {
-      aiAssist: false,
-      aiAssistDailyCap: AI_ASSIST_DEFAULT_DAILY_CAP,
       comments: false,
       pageScripts: false,
       reasonForChange: 'required',
@@ -676,8 +645,6 @@ const {
           embedAllowedOrigins: parseEmbedAllowedOrigins(config.security?.embedAllowedOrigins)
         },
         features: {
-          aiAssist: config.features?.aiAssist ?? false,
-          aiAssistDailyCap: parseAiAssistDailyCap(config.features?.aiAssistDailyCap),
           browse: config.features?.browse ?? false,
           comments: config.features?.comments ?? false,
           pageScripts: config.features?.pageScripts ?? false,
@@ -741,14 +708,6 @@ const {
 })
 
 /** The form holds this as a comma-separated string; the API expects an array. */
-function parseAiAssistDailyCap(value) {
-  const cap = Math.floor(Number(value))
-  if (!Number.isFinite(cap) || cap < 1) {
-    return AI_ASSIST_DEFAULT_DAILY_CAP
-  }
-  return Math.min(cap, AI_ASSIST_MAX_DAILY_CAP)
-}
-
 function parsePageExtensions(value) {
   const extensions = Array.isArray(value) ? value : String(value ?? '').split(',')
   return [

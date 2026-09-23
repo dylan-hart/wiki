@@ -52,11 +52,11 @@ export const AI_ASSIST_REFUSALS: Record<AiAssistReason, { statusCode: number; me
 }
 
 export function aiAssistEnabled(siteConfig: Record<string, any> | undefined): boolean {
-  return siteConfig?.features?.aiAssist === true
+  return siteConfig?.ai?.assist === true
 }
 
 export function aiAssistDailyCap(siteConfig: Record<string, any> | undefined): number {
-  const cap = Number(siteConfig?.features?.aiAssistDailyCap)
+  const cap = Number(siteConfig?.ai?.assistDailyCap)
   if (!Number.isFinite(cap) || cap < 1) {
     return AI_ASSIST_DEFAULT_DAILY_CAP
   }

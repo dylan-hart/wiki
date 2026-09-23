@@ -75,8 +75,7 @@ describe('aiAssist routes', () => {
       generate: (...args: any[]) => generateMock(...args)
     }
     siteConfig = {
-      features: { aiAssist: true, aiAssistDailyCap: 5 },
-      ai: { provider: 'anthropic', providers: {} }
+      ai: { provider: 'anthropic', providers: {}, assist: true, assistDailyCap: 5 }
     }
     checkAccessMock = mock.fn(() => writable)
     peekMock = mock.fn(async () => ({ allowed: true, hits: 2, retryAfter: 0, resetsIn: 3600 }))
@@ -115,7 +114,7 @@ describe('aiAssist routes', () => {
     })
 
     test('the site flag off reports reason disabled before any permission or counter check', async () => {
-      siteConfig.features.aiAssist = false
+      siteConfig.ai.assist = false
       const res = await app.inject({ method: 'GET', url: `${STATUS_URL}?path=docs/page&locale=en` })
       assert.equal(res.json().reason, 'disabled')
       assert.equal(res.json().available, false)
@@ -124,7 +123,7 @@ describe('aiAssist routes', () => {
     })
 
     test('the flag absent altogether counts as off', async () => {
-      siteConfig.features = {}
+      delete siteConfig.ai.assist
       const res = await app.inject({ method: 'GET', url: STATUS_URL })
       assert.equal(res.json().reason, 'disabled')
     })
@@ -186,7 +185,7 @@ describe('aiAssist routes', () => {
     })
 
     test('an unusable stored cap falls back to the default of 50', async () => {
-      siteConfig.features.aiAssistDailyCap = 'lots'
+      siteConfig.ai.assistDailyCap = 'lots'
       const res = await app.inject({ method: 'GET', url: STATUS_URL })
       assert.equal(res.json().cap, 50)
       assert.equal(peekMock.mock.calls[0]!.arguments[1].max, 50)
@@ -204,7 +203,7 @@ describe('aiAssist routes', () => {
     })
 
     test('the site flag off answers 403 before write:pages is consulted or the provider is reached', async () => {
-      siteConfig.features.aiAssist = false
+      siteConfig.ai.assist = false
       const res = await generate()
       assert.equal(res.statusCode, 403)
       assert.match(res.json().message, /disabled for this site/)
