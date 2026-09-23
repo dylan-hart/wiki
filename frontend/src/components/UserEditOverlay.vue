@@ -506,6 +506,19 @@
                     <w-item-section>
                       <w-item-label>{{ prv.authName }}</w-item-label>
                       <w-item-label caption>{{ prv.config.key }}</w-item-label>
+                      <w-item-label v-if="canManage && !prv.config.canDisconnect" caption>
+                        {{ t('admin.users.providerDisconnectOnlyMethod') }}
+                      </w-item-label>
+                    </w-item-section>
+                    <w-item-section v-if="canManage" side>
+                      <w-btn
+                        class="acrylic-btn"
+                        flat
+                        icon="tabler:trash"
+                        color="negative"
+                        :disabled="!prv.config.canDisconnect"
+                        :aria-label="t(`admin.users.providerDisconnect`)"
+                        @click="disconnectProvider(prv)" />
                     </w-item-section>
                   </w-item>
                 </template>
@@ -733,6 +746,7 @@ import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
+import { localizeError } from '@/helpers/localization'
 import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
 
 import UserChangePwdDialog from './UserChangePwdDialog.vue'
@@ -1065,6 +1079,49 @@ function revokePasskey(pkey) {
     }
     loading.hide()
   })
+}
+
+function disconnectProvider(prv) {
+  confirm({
+    title: t('admin.users.providerDisconnect'),
+    message: t('admin.users.providerDisconnectConfirm', { provider: prv.authName }),
+    destructive: true,
+    persistent: true,
+    okLabel: t('admin.users.providerDisconnect')
+  }).onOk(async () => {
+    loading.show()
+    try {
+      await API_CLIENT.delete(
+        `users/${adminStore.overlayOpts.id}/auth/${encodeURIComponent(prv.authId)}`
+      )
+      notify({
+        type: 'positive',
+        message: t('admin.users.providerDisconnectSuccess')
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.users.providerDisconnectFailed'),
+        caption: localizeError(apiErrorMessage(err), t)
+      })
+    }
+    await refreshLinkedProviders()
+    loading.hide()
+  })
+}
+
+async function refreshLinkedProviders() {
+  try {
+    const user = await API_CLIENT.get(`users/${adminStore.overlayOpts.id}`).json()
+    const localEntries = (state.user.auth ?? []).filter((prv) => prv.strategyKey === 'local')
+    const linkedEntries = (user?.auth ?? []).filter((prv) => prv.strategyKey !== 'local')
+    state.user.auth = [...localEntries, ...linkedEntries]
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: apiErrorMessage(err, t('common.error.unexpected'))
+    })
+  }
 }
 
 function toggleVerified() {

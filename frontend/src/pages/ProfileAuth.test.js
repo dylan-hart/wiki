@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises } from '@vue/test-utils'
 
 import ProfileAuth from './ProfileAuth.vue'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 import { pendingProfileSaves } from '@/composables/profileSaving'
-import { dialog } from '@/composables/dialog'
+import { confirm, dialog } from '@/composables/dialog'
+import { queue as notifyQueue } from '@/composables/notify'
 
 /*
   The write-action tests need `confirm(...).onOk(cb)` to fire its callback immediately rather than
@@ -78,10 +78,7 @@ async function mountPage({ authMethods, recoveryCodesResponse, passkeys = [], pa
     'users/profile/tfa/recovery-codes': recoveryCodesResponse
   })
 
-  const i18n = createTestI18n(MESSAGES)
-  const wrapper = mount(ProfileAuth, {
-    global: { plugins: [i18n] }
-  })
+  const { wrapper } = mountWithApp(ProfileAuth, { messages: MESSAGES })
   await flushPromises()
   return wrapper
 }
@@ -279,8 +276,7 @@ describe('ProfileAuth recovery-code count', () => {
       return { json: () => Promise.resolve(undefined) }
     })
 
-    const i18n = createTestI18n(MESSAGES)
-    const wrapper = mount(ProfileAuth, { global: { plugins: [i18n] } })
+    const { wrapper } = mountWithApp(ProfileAuth, { messages: MESSAGES })
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('recovery codes remaining')
@@ -459,5 +455,226 @@ describe('ProfileAuth admin policy toggles', () => {
     const wrapper = await mountActionsMenu({ canChangePassword: false })
     expect(wrapper.text()).not.toContain('Change Password')
     expect(wrapper.text()).toContain('Disable 2FA')
+  })
+})
+
+const LINK_MESSAGES = {
+  ...MESSAGES,
+  profile: {
+    ...MESSAGES.profile,
+    authConnect: 'Connect a Sign-in Method',
+    authConnectInfo: 'Link another provider to your account.',
+    authConnectWith: 'Connect {provider}',
+    authDisconnect: 'Disconnect',
+    authDisconnectConfirm: 'Disconnect {provider}?',
+    authDisconnectSuccess: 'Sign-in method disconnected.',
+    authDisconnectFailed: 'Failed to disconnect the sign-in method.',
+    authDisconnectOnlyMethod: 'This is the only way to sign in to your account.'
+  },
+  error: {
+    ERR_UNLINK_LAST_LOGIN_METHOD: 'This is the only way to sign in to the account.'
+  }
+}
+
+const SITE_STRATEGIES = [
+  {
+    id: 'auth-local',
+    activeStrategy: {
+      displayName: 'Local',
+      strategy: { key: 'local', icon: 'local.svg', useForm: true }
+    }
+  },
+  {
+    id: 'auth-oidc',
+    activeStrategy: {
+      displayName: 'Corp SSO',
+      strategy: { key: 'oidc', icon: 'oidc.svg', useForm: false }
+    }
+  },
+  {
+    id: 'auth-github',
+    activeStrategy: {
+      displayName: 'GitHub',
+      strategy: { key: 'github', icon: 'github.svg', useForm: false }
+    }
+  }
+]
+
+function providerAuthMethod(config = {}) {
+  return {
+    authId: 'auth-oidc',
+    authName: 'Corp SSO',
+    strategyKey: 'oidc',
+    strategyIcon: 'oidc.svg',
+    config: {
+      isPasswordSet: false,
+      isTfaSetup: false,
+      isTfaRequired: false,
+      isPasswordLoginEnabled: true,
+      canChangePassword: true,
+      canDisablePasswordLogin: true,
+      canDisconnect: true,
+      ...config
+    }
+  }
+}
+
+async function mountLinkPage({ authMethods, siteStrategies = SITE_STRATEGIES }) {
+  const { calls } = stubApi({
+    'users/profile/auth': { authMethods, passkeys: [] },
+    'sites/site-1/auth/strategies': siteStrategies
+  })
+  const { wrapper } = mountWithApp(ProfileAuth, {
+    messages: LINK_MESSAGES,
+    stores: { site: { id: 'site-1' } }
+  })
+  await flushPromises()
+  return { wrapper, calls }
+}
+
+function connectCard(wrapper) {
+  return wrapper
+    .findAll('.w-settings-card')
+    .find((card) => card.text().includes('Connect a Sign-in Method'))
+}
+
+async function openProviderMenu(wrapper) {
+  const row = wrapper
+    .findAll('.w-settings-row')
+    .find((r) => r.find('.w-settings-row__label').text() === 'Corp SSO')
+  await row.find('[aria-label="Actions"]').trigger('click')
+  return row
+}
+
+function disconnectItem(row) {
+  return row.findAll('.w-item').find((i) => i.text().includes('Disconnect'))
+}
+
+describe('ProfileAuth connect a sign-in method', () => {
+  it('offers only the enabled redirect-based strategies the account has not linked yet', async () => {
+    const { wrapper, calls } = await mountLinkPage({
+      authMethods: [localAuthMethod({ isTfaSetup: false }), providerAuthMethod()]
+    })
+
+    expect(calls).toContain('sites/site-1/auth/strategies')
+    const card = connectCard(wrapper)
+    expect(card).toBeTruthy()
+    expect(card.findAll('.w-settings-row__label').map((l) => l.text())).toEqual(['GitHub'])
+  })
+
+  it('links each one to the link-mode authorize flow, returning to the current path', async () => {
+    window.history.replaceState({}, '', '/en/some/page')
+    const { wrapper } = await mountLinkPage({
+      authMethods: [localAuthMethod({ isTfaSetup: false })]
+    })
+
+    const link = wrapper.find('a[aria-label="Connect GitHub"]')
+    const url = new URL(link.attributes('href'), 'https://wiki.example')
+    expect(url.pathname).toBe('/_api/auth/auth-github/authorize')
+    expect(url.searchParams.get('mode')).toBe('link')
+    expect(url.searchParams.get('siteId')).toBe('site-1')
+    expect(url.searchParams.get('redirect')).toBe('/en/some/page')
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('returns to the root when the current path is longer than the redirect cap', async () => {
+    window.history.replaceState({}, '', `/${'a'.repeat(300)}`)
+    const { wrapper } = await mountLinkPage({
+      authMethods: [localAuthMethod({ isTfaSetup: false })]
+    })
+
+    const link = wrapper.find('a[aria-label="Connect GitHub"]')
+    const url = new URL(link.attributes('href'), 'https://wiki.example')
+    expect(url.searchParams.get('redirect')).toBe('/')
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('draws no connect card once every redirect-based strategy is linked', async () => {
+    const { wrapper } = await mountLinkPage({
+      authMethods: [
+        localAuthMethod({ isTfaSetup: false }),
+        providerAuthMethod(),
+        { ...providerAuthMethod(), authId: 'auth-github', authName: 'GitHub' }
+      ]
+    })
+    expect(connectCard(wrapper)).toBeUndefined()
+  })
+})
+
+describe('ProfileAuth disconnect a sign-in method', () => {
+  beforeEach(() => {
+    confirm.mockClear()
+    pendingProfileSaves.value = 0
+  })
+
+  it('confirms, then deletes the linked provider and reloads the list', async () => {
+    const { wrapper, calls } = await mountLinkPage({
+      authMethods: [localAuthMethod({ isTfaSetup: false }), providerAuthMethod()]
+    })
+    API_CLIENT.delete.mockReturnValue(Promise.resolve({}))
+    const row = await openProviderMenu(wrapper)
+    const loadsBefore = calls.filter((u) => u === 'users/profile/auth').length
+
+    await disconnectItem(row).trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Disconnect Corp SSO?',
+        destructive: true,
+        persistent: true
+      })
+    )
+    expect(API_CLIENT.delete).toHaveBeenCalledWith('users/profile/auth/auth-oidc')
+    expect(calls.filter((u) => u === 'users/profile/auth').length).toBe(loadsBefore + 1)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Sign-in method disconnected.'
+    })
+    expect(pendingProfileSaves.value).toBe(0)
+  })
+
+  it('disables Disconnect, with the reason in the row, when it is the only way to sign in', async () => {
+    const { wrapper } = await mountLinkPage({
+      authMethods: [providerAuthMethod({ canDisconnect: false })]
+    })
+    const row = await openProviderMenu(wrapper)
+
+    expect(row.find('.w-settings-row__hint').text()).toContain(
+      'This is the only way to sign in to your account.'
+    )
+    const item = disconnectItem(row)
+    expect(item.attributes('aria-disabled')).toBe('true')
+    await item.trigger('click')
+    await flushPromises()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(API_CLIENT.delete).not.toHaveBeenCalled()
+  })
+
+  it('offers no Disconnect on the local row', async () => {
+    const { wrapper } = await mountLinkPage({ authMethods: [localAuthMethod()] })
+    await wrapper.find('[aria-label="Actions"]').trigger('click')
+    expect(wrapper.text()).not.toContain('Disconnect')
+  })
+
+  it('reports a refused disconnect with the localized server error', async () => {
+    const { wrapper } = await mountLinkPage({
+      authMethods: [localAuthMethod({ isTfaSetup: false }), providerAuthMethod()]
+    })
+    const err = Object.assign(new Error('Bad Request'), {
+      data: { message: 'ERR_UNLINK_LAST_LOGIN_METHOD' }
+    })
+    API_CLIENT.delete.mockReturnValue(Promise.reject(err))
+    const row = await openProviderMenu(wrapper)
+
+    await disconnectItem(row).trigger('click')
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to disconnect the sign-in method.',
+      caption: 'This is the only way to sign in to the account.'
+    })
+    expect(pendingProfileSaves.value).toBe(0)
   })
 })
