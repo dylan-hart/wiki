@@ -146,6 +146,8 @@ describe('DELETE /users/:userId/auth/:strategyId (DB-backed)', { skip: !hasTestD
   before(async () => {
     await ensureTemporal()
     CARDINAL.data.systemIds = { ...CARDINAL.data.systemIds, localAuthId: LOCAL_ID } as any
+    // -> Both enabled and loaded: only a working strategy counts as a way in
+    CARDINAL.auth.strategies = { [LOCAL_ID]: {}, [STRATEGY_ID]: {} } as any
     mock.method(CARDINAL.models.mail, 'sendSignInMethodRemoved', async () => {})
     app = await buildTestApp({
       routes: usersRoutes,

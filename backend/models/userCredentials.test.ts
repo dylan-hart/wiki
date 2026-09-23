@@ -53,8 +53,15 @@ describe('userCredentials.countAlternativeLogins', () => {
     passkeys: { authenticators: [{ id: 'k1' }] }
   }
 
-  function withSecurity(security: Record<string, any> | undefined) {
-    ;(globalThis as any).CARDINAL = { config: { security } }
+  /** Every strategy these tests name is enabled and loaded unless a test says otherwise. */
+  function withSecurity(
+    security: Record<string, any> | undefined,
+    loaded = [STRATEGY, 'strategy-b', 'strategy-c', 'strategy-local']
+  ) {
+    ;(globalThis as any).CARDINAL = {
+      config: { security },
+      auth: { strategies: Object.fromEntries(loaded.map((id) => [id, {}])) }
+    }
   }
 
   afterEach(() => {
@@ -80,6 +87,12 @@ describe('userCredentials.countAlternativeLogins', () => {
     withSecurity({ allowPasskeys: false })
     const linked = { ...user, auth: { ...user.auth, 'strategy-c': {} } }
     assert.equal(countAlternativeLogins(linked, STRATEGY), 1)
+  })
+
+  test('does not count a provider whose strategy is disabled or deleted', () => {
+    withSecurity({ allowPasskeys: false }, [STRATEGY, 'strategy-b'])
+    const linked = { ...user, auth: { ...user.auth, 'strategy-c': { id: 'p2' } } }
+    assert.equal(countAlternativeLogins(linked, STRATEGY), 0)
   })
 
   describe('a stored password', () => {
@@ -108,6 +121,14 @@ describe('userCredentials.countAlternativeLogins', () => {
     test('does not count when nothing recorded whether it is known', () => {
       withSecurity({ allowPasskeys: false })
       assert.equal(countAlternativeLogins(withLocal({ password: 'hash' }), STRATEGY), 0)
+    })
+
+    test('does not count when its strategy is not loaded, known or not', () => {
+      withSecurity({ allowPasskeys: false }, [STRATEGY])
+      assert.equal(
+        countAlternativeLogins(withLocal({ password: 'hash', isPasswordKnown: true }), STRATEGY),
+        0
+      )
     })
 
     test('does not count when password login is restricted, known or not', () => {

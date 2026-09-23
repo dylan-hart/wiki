@@ -12,6 +12,10 @@ const LOCAL_ID = '10000000-0000-4000-8000-000000000001'
 const OIDC_ID = '10000000-0000-4000-8000-000000000002'
 const SAML_ID = '10000000-0000-4000-8000-000000000003'
 const UNKNOWN_USER_ID = '20000000-0000-4000-8000-000000000001'
+const DISABLED_ID = '10000000-0000-4000-8000-000000000004'
+
+/** What `models/authentication.ts#activateStrategies()` leaves loaded: every strategy but `DISABLED_ID`. */
+const LOADED_STRATEGIES = { [LOCAL_ID]: {}, [OIDC_ID]: {}, [SAML_ID]: {} }
 
 let fixtures: TestFixtures
 
@@ -59,7 +63,10 @@ describe('userCredentials.assertUnlinkable', () => {
   let wiki: { restore(): void }
 
   before(() => {
-    wiki = installTestWiki({ config: { security: { allowPasskeys: true } } })
+    wiki = installTestWiki({
+      config: { security: { allowPasskeys: true } },
+      auth: { strategies: LOADED_STRATEGIES }
+    })
   })
 
   after(() => wiki.restore())
@@ -90,6 +97,11 @@ describe('userCredentials.assertUnlinkable', () => {
   test('another linked provider counts as another way in', () => {
     const user = { auth: { [OIDC_ID]: { id: 'p1' }, [SAML_ID]: { id: 'p2' } } }
     assert.doesNotThrow(() => assertUnlinkable(user, OIDC_ID))
+  })
+
+  test('a provider whose strategy is disabled or deleted does not count', () => {
+    const user = { auth: { [OIDC_ID]: { id: 'p1' }, [DISABLED_ID]: { id: 'p2' } } }
+    assert.throws(() => assertUnlinkable(user, OIDC_ID), /ERR_UNLINK_LAST_LOGIN_METHOD/)
   })
 
   test('a password the account holder knows counts as another way in', () => {
@@ -167,6 +179,7 @@ describe('userCredentials.describeLinkedProviders reports canDisconnect', () => 
   before(() => {
     wiki = installTestWiki({
       config: { security: { allowPasskeys: true } },
+      auth: { strategies: LOADED_STRATEGIES },
       data: {
         systemIds: { localAuthId: LOCAL_ID },
         authentication: [
@@ -224,6 +237,11 @@ describe('userCredentials.describeLinkedProviders reports canDisconnect', () => 
     assert.deepEqual(byId(await userCredentials.describeLinkedProviders(user)), expected)
   })
 
+  test('a provider is not disconnectable when the only other is disabled', async () => {
+    const user = { auth: { [OIDC_ID]: { id: 'p1' }, [DISABLED_ID]: { id: 'p2' } } }
+    assert.equal(byId(await userCredentials.describeLinkedProviders(user))[OIDC_ID], false)
+  })
+
   test('two providers each leave the other as a way in', async () => {
     const user = { auth: { [OIDC_ID]: { id: 'p1' }, [SAML_ID]: { id: 'p2' } } }
     assert.deepEqual(byId(await userCredentials.describeLinkedProviders(user)), {
@@ -249,6 +267,7 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
     ;({ mail: mailModel } = await import('./mail.ts'))
     await ensureTemporal()
     CARDINAL.data.systemIds = { ...CARDINAL.data.systemIds, localAuthId: LOCAL_ID } as any
+    CARDINAL.auth.strategies = { ...LOADED_STRATEGIES } as any
   })
 
   async function seedUser(auth: Record<string, any>): Promise<string> {
@@ -363,6 +382,22 @@ describe('userCredentials.unlinkStrategy (DB-backed)', { skip: !hasTestDatabase(
   test('refuses the last way into the account, leaving it linked', async (t) => {
     const sendMock = t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
     const userId = await seedUser({ [OIDC_ID]: { id: 'p' } })
+
+    await assert.rejects(
+      userCredentials.unlinkStrategy({
+        userId,
+        strategyId: OIDC_ID,
+        actor: { id: userId, name: 'Unlink User' }
+      }),
+      /ERR_UNLINK_LAST_LOGIN_METHOD/
+    )
+    assert.deepEqual((await authOf(userId))[OIDC_ID], { id: 'p' })
+    assert.equal(sendMock.mock.callCount(), 0)
+  })
+
+  test('refuses when the only other provider belongs to a disabled strategy', async (t) => {
+    const sendMock = t.mock.method(mailModel, 'sendSignInMethodRemoved', async () => {})
+    const userId = await seedUser({ [OIDC_ID]: { id: 'p' }, [DISABLED_ID]: { id: 'q' } })
 
     await assert.rejects(
       userCredentials.unlinkStrategy({

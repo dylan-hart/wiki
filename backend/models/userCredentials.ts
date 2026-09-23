@@ -168,22 +168,29 @@ export async function matchRecoveryCode(
 }
 
 /**
- * How many ways into the account remain if the given provider stops working. A provider that is
- * itself restricted does not count — it is no way in either. Passkeys count whichever host they were
- * registered against: on a multi-site instance one bound to another site still leaves the account
- * reachable.
- * FIXME: a local entry counts whenever it is unrestricted, including the random password
- * `users.createUser()` writes for an account a provider auto-provisioned. That password is no way
- * in that the account holder knows, so `unlinkStrategy()` can remove such an account's only
- * provider.
+ * Whether one stored `auth` entry is, right now, a way into the account. Its strategy has to be
+ * enabled and loaded: a disabled strategy has no `CARDINAL.auth.strategies` instance and its
+ * authorize route answers 404, and deleting a strategy leaves every account's entry for it behind.
+ * An entry that is itself restricted is no way in either, and nor is a password the account holder
+ * does not know — the random one `users.createUser()` writes for an account a provider
+ * auto-provisioned, stored as `isPasswordKnown: false`.
+ */
+function isUsableLogin(strategyId: string, entry: any): boolean {
+  if (!CARDINAL.auth?.strategies?.[strategyId]) {
+    return false
+  }
+  return !entry?.restrictLogin && (!entry?.password || entry.isPasswordKnown === true)
+}
+
+/**
+ * How many ways into the account remain if the given provider stops working, counting only
+ * {@link isUsableLogin} entries. Passkeys count whichever host they were registered against: on a
+ * multi-site instance one bound to another site still leaves the account reachable.
  */
 export function countAlternativeLogins(user: any, strategyId: string): number {
   const auth = (user.auth ?? {}) as Record<string, any>
   const otherProviders = Object.entries(auth).filter(
-    ([id, config]) =>
-      id !== strategyId &&
-      !config?.restrictLogin &&
-      (!config?.password || config.isPasswordKnown === true)
+    ([id, config]) => id !== strategyId && isUsableLogin(id, config)
   ).length
   const passkeys = passkeysAllowed() ? ((user.passkeys ?? {}).authenticators ?? []).length : 0
   return otherProviders + passkeys
