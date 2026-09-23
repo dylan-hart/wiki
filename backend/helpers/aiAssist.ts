@@ -63,11 +63,6 @@ export function aiAssistDailyCap(siteConfig: Record<string, any> | undefined): n
   return Math.min(Math.floor(cap), AI_ASSIST_MAX_DAILY_CAP)
 }
 
-export function aiProviderConfigured(siteConfig: Record<string, any> | undefined): boolean {
-  const provider = siteConfig?.ai?.provider
-  return typeof provider === 'string' && provider.length > 0
-}
-
 export function aiAssistQuotaKey(siteId: string, userId: string): string {
   return `ai-assist:${siteId}:${userId}`
 }
@@ -141,7 +136,8 @@ export async function evaluateAiAssist(
   if (!counter.allowed) {
     return refuse('capReached', actor.id, counter)
   }
-  if (!aiProviderConfigured(siteConfig)) {
+  const registry = aiRegistry()
+  if (!registry || !(await registry.availability(siteId)).available) {
     return refuse('unconfigured', actor.id, counter)
   }
 
@@ -264,9 +260,11 @@ export function buildAiAssistPrompt({
   }
 }
 
-type AiRegistry = Pick<typeof aiModel, 'generate'>
+type AiRegistry = Pick<typeof aiModel, 'availability' | 'generate'>
 
 export function aiRegistry(): AiRegistry | null {
-  const ai = CARDINAL.models.ai as AiRegistry | undefined
-  return typeof ai?.generate === 'function' ? ai : null
+  const ai = CARDINAL.models.ai as Partial<AiRegistry> | undefined
+  return typeof ai?.availability === 'function' && typeof ai?.generate === 'function'
+    ? (ai as AiRegistry)
+    : null
 }

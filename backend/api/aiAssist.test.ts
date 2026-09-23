@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import aiAssistRoutes from './aiAssist.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 import { AI_ASSIST_WINDOW_SECONDS } from '../helpers/aiAssist.ts'
+import { ai } from '../models/ai.ts'
 
 const SITE_ID = '11111111-1111-4111-8111-111111111111'
 const PAGE_ID = '22222222-2222-4222-8222-222222222222'
@@ -22,13 +23,18 @@ describe('aiAssist routes', () => {
   let generateMock: Mock<(...args: any[]) => any>
   let getPageMock: Mock<(...args: any[]) => any>
   let checkAccessMock: Mock<(...args: any[]) => any>
-  let registryPresent: boolean
+  let availabilityMock: Mock<(...args: any[]) => any>
+  let registry: Record<string, any> | undefined
+  let offline: boolean
 
   before(async () => {
     app = await buildTestApp({
       routes: aiAssistRoutes,
       session: () => session,
       wiki: {
+        get config() {
+          return { offline }
+        },
         get sites() {
           return { [SITE_ID]: { id: SITE_ID, isEnabled: true, config: siteConfig } }
         },
@@ -46,9 +52,7 @@ describe('aiAssist routes', () => {
             consume: (...args: any[]) => consumeMock(...args)
           },
           get ai() {
-            return registryPresent
-              ? { generate: (...args: any[]) => generateMock(...args) }
-              : undefined
+            return registry
           }
         }
       }
@@ -60,7 +64,16 @@ describe('aiAssist routes', () => {
   beforeEach(() => {
     session = { authenticated: true, user: { id: USER_ID }, permissions: [] }
     writable = true
-    registryPresent = true
+    offline = false
+    availabilityMock = mock.fn(async () => ({
+      available: true,
+      provider: 'anthropic',
+      reason: null
+    }))
+    registry = {
+      availability: (...args: any[]) => availabilityMock(...args),
+      generate: (...args: any[]) => generateMock(...args)
+    }
     siteConfig = {
       features: { aiAssist: true, aiAssistDailyCap: 5 },
       ai: { provider: 'anthropic', providers: {} }
@@ -159,11 +172,17 @@ describe('aiAssist routes', () => {
       })
     })
 
-    test('with no provider configured it reports reason unconfigured', async () => {
-      siteConfig.ai = { provider: '', providers: {} }
+    test('with no provider available it reports reason unconfigured', async () => {
+      availabilityMock = mock.fn(async () => ({
+        available: false,
+        provider: null,
+        reason: 'noProvider'
+      }))
       const res = await app.inject({ method: 'GET', url: STATUS_URL })
       assert.equal(res.json().reason, 'unconfigured')
+      assert.equal(res.json().available, false)
       assert.equal(res.json().remaining, 3)
+      assert.equal(availabilityMock.mock.calls[0]?.arguments[0], SITE_ID)
     })
 
     test('an unusable stored cap falls back to the default of 50', async () => {
@@ -243,16 +262,34 @@ describe('aiAssist routes', () => {
       assert.equal(generateMock.mock.calls.length, 0)
     })
 
-    test('no provider configured answers 503 without using any allowance', async () => {
-      siteConfig.ai = { provider: '' }
-      const res = await generate()
-      assert.equal(res.statusCode, 503)
-      assert.equal(consumeMock.mock.calls.length, 0)
-      assert.equal(generateMock.mock.calls.length, 0)
+    for (const reason of ['noProvider', 'offline', 'noImplementation', 'notConfigured']) {
+      test(`an unavailable provider (${reason}) answers 503 without using any allowance`, async () => {
+        availabilityMock = mock.fn(async () => ({ available: false, provider: null, reason }))
+        const res = await generate()
+        assert.equal(res.statusCode, 503)
+        assert.match(res.json().message, /No AI provider is available/)
+        assert.equal(consumeMock.mock.calls.length, 0)
+        assert.equal(generateMock.mock.calls.length, 0)
+      })
+    }
+
+    test('offline mode, through the real AI registry, answers 503 without using any allowance', async () => {
+      await ai.refreshFromDisk()
+      try {
+        assert.ok(ai.getDefinition('anthropic'), 'the anthropic provider module is installed')
+        registry = ai
+        offline = true
+        const res = await generate()
+        assert.equal(res.statusCode, 503)
+        assert.equal(consumeMock.mock.calls.length, 0)
+        assert.equal(generateMock.mock.calls.length, 0)
+      } finally {
+        ai.definitions = []
+      }
     })
 
     test('no AI registry loaded answers 503 without using any allowance', async () => {
-      registryPresent = false
+      registry = undefined
       const res = await generate()
       assert.equal(res.statusCode, 503)
       assert.equal(consumeMock.mock.calls.length, 0)

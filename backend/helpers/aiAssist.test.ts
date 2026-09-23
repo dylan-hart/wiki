@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
-import { afterEach, describe, mock, test } from 'node:test'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { after, afterEach, before, describe, mock, test } from 'node:test'
 import {
   AI_ASSIST_DEFAULT_DAILY_CAP,
   AI_ASSIST_MAX_DAILY_CAP,
@@ -7,12 +10,12 @@ import {
   aiAssistDailyCap,
   aiAssistEnabled,
   aiAssistPolicy,
-  aiProviderConfigured,
   aiRegistry,
   buildAiAssistPrompt,
   consumeAiAssistQuota,
   evaluateAiAssist
 } from './aiAssist.ts'
+import { ai } from '../models/ai.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 const SITE_ID = 'site-1'
@@ -42,12 +45,6 @@ describe('aiAssist config readers', () => {
     assert.equal(aiAssistDailyCap(undefined), AI_ASSIST_DEFAULT_DAILY_CAP)
   })
 
-  test('a provider counts as configured only when one is selected', () => {
-    assert.equal(aiProviderConfigured({ ai: { provider: 'openai', providers: {} } }), true)
-    assert.equal(aiProviderConfigured({ ai: { provider: '', providers: {} } }), false)
-    assert.equal(aiProviderConfigured({}), false)
-  })
-
   test('the policy is a fixed 24h window whose ban never outlasts it', () => {
     assert.deepEqual(aiAssistPolicy(5), {
       max: 5,
@@ -71,13 +68,32 @@ describe('evaluateAiAssist: the gate in front of the provider call', () => {
     handle = null
   })
 
-  function install(features: Record<string, any>, peek: (...args: any[]) => Promise<any>) {
+  const AVAILABLE = { available: true, provider: 'anthropic', reason: null }
+
+  function install(
+    features: Record<string, any>,
+    peek: (...args: any[]) => Promise<any>,
+    {
+      registry = { availability: async () => AVAILABLE, generate: async () => 'ok' },
+      aiConfig = { provider: 'anthropic', providers: {} },
+      config = {},
+      serverPath
+    }: {
+      registry?: Record<string, any> | null
+      aiConfig?: Record<string, any>
+      config?: Record<string, any>
+      serverPath?: string
+    } = {}
+  ) {
     const peekMock = mock.fn(peek)
+    const consumeMock = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
     handle = installTestWiki({
+      ...(serverPath ? { SERVERPATH: serverPath } : {}),
+      config,
       sites: {
         [SITE_ID]: {
           id: SITE_ID,
-          config: { features, ai: { provider: 'anthropic', providers: {} } }
+          config: { features, ai: structuredClone(aiConfig) }
         }
       },
       models: {
@@ -86,10 +102,11 @@ describe('evaluateAiAssist: the gate in front of the provider call', () => {
           checkAccess: () => true,
           groupIdsForRequest: () => []
         },
-        rateLimits: { peek: peekMock }
+        rateLimits: { peek: peekMock, consume: consumeMock },
+        ...(registry ? { ai: registry } : {})
       }
     })
-    return peekMock
+    return Object.assign(peekMock, { consumeMock })
   }
 
   const req = { session: { authenticated: true, user: { id: USER_ID }, permissions: [] } } as any
@@ -130,6 +147,110 @@ describe('evaluateAiAssist: the gate in front of the provider call', () => {
       cap: 3,
       remaining: 0,
       retryAfter: 600
+    })
+  })
+
+  test('capReached is still reported ahead of an unavailable provider', async () => {
+    const availability = mock.fn(async () => ({
+      available: false,
+      provider: null,
+      reason: 'noProvider'
+    }))
+    install(
+      { aiAssist: true, aiAssistDailyCap: 3 },
+      async () => ({ allowed: false, hits: 3, retryAfter: 600, resetsIn: 600 }),
+      { registry: { availability, generate: async () => 'ok' } }
+    )
+    const { status } = await evaluateAiAssist(req, SITE_ID, target)
+    assert.equal(status.reason, 'capReached')
+    assert.equal(availability.mock.calls.length, 0)
+  })
+
+  test('no AI registry loaded: refused as unconfigured', async () => {
+    install({ aiAssist: true }, async () => ({ allowed: true, hits: 0 }), { registry: null })
+    const { status } = await evaluateAiAssist(req, SITE_ID, target)
+    assert.equal(status.available, false)
+    assert.equal(status.reason, 'unconfigured')
+  })
+
+  describe('provider availability, through the real AI registry', () => {
+    let serverPath: string
+
+    before(async () => {
+      serverPath = await fs.mkdtemp(path.join(os.tmpdir(), 'cardinal-ai-assist-'))
+      const definition = (key: string) =>
+        [
+          `key: ${key}`,
+          `title: ${key}`,
+          'description: A test provider.',
+          'vendor: Test',
+          'website: https://example.test',
+          'props:',
+          '  apiKey:',
+          '    type: String',
+          '    sensitive: true',
+          '    required: true',
+          ''
+        ].join('\n')
+      for (const key of ['fake', 'nocode']) {
+        await fs.mkdir(path.join(serverPath, 'modules/ai', key), { recursive: true })
+        await fs.writeFile(
+          path.join(serverPath, 'modules/ai', key, 'definition.yml'),
+          definition(key)
+        )
+      }
+      await fs.writeFile(path.join(serverPath, 'modules/ai/fake/ai.ts'), 'export default null\n')
+      const refresh = installTestWiki({ SERVERPATH: serverPath })
+      await ai.refreshFromDisk()
+      refresh.restore()
+    })
+
+    after(async () => {
+      ai.definitions = []
+      await fs.rm(serverPath, { recursive: true, force: true })
+    })
+
+    const CONFIGURED = { provider: 'fake', providers: { fake: { apiKey: 'sk-test' } } }
+    const cases: [string, Record<string, any>, Record<string, any>][] = [
+      ['no provider selected', { provider: '', providers: {} }, {}],
+      ['a provider with no definition', { provider: 'gone', providers: {} }, {}],
+      ['offline mode', CONFIGURED, { offline: true }],
+      [
+        'a provider module with no ai.ts',
+        { provider: 'nocode', providers: { nocode: { apiKey: 'sk-test' } } },
+        {}
+      ],
+      ['stored provider config that fails validation', { provider: 'fake', providers: {} }, {}]
+    ]
+
+    for (const [label, aiConfig, config] of cases) {
+      test(`${label}: refused as unconfigured, and no quota is used`, async () => {
+        const peek = install(
+          { aiAssist: true, aiAssistDailyCap: 3 },
+          async () => ({ allowed: true, hits: 1, retryAfter: 0, resetsIn: 50 }),
+          { registry: ai, aiConfig, config, serverPath }
+        )
+        const { status } = await evaluateAiAssist(req, SITE_ID, target)
+        assert.deepEqual(status, {
+          available: false,
+          reason: 'unconfigured',
+          cap: 3,
+          remaining: 2,
+          retryAfter: 0
+        })
+        assert.equal(peek.consumeMock.mock.calls.length, 0)
+      })
+    }
+
+    test('a selected, implemented and valid provider passes', async () => {
+      install({ aiAssist: true }, async () => ({ allowed: true, hits: 0, retryAfter: 0 }), {
+        registry: ai,
+        aiConfig: CONFIGURED,
+        serverPath
+      })
+      const { status } = await evaluateAiAssist(req, SITE_ID, target)
+      assert.equal(status.available, true)
+      assert.equal(status.reason, null)
     })
   })
 
@@ -214,9 +335,14 @@ describe('aiRegistry', () => {
     assert.equal(aiRegistry(), null)
   })
 
+  test('is null while the loaded registry cannot report availability', () => {
+    handle = installTestWiki({ models: { ai: { generate: async () => 'ok' } } })
+    assert.equal(aiRegistry(), null)
+  })
+
   test('returns the loaded registry', () => {
-    const generate = async () => 'ok'
-    handle = installTestWiki({ models: { ai: { generate } } })
-    assert.equal(aiRegistry()?.generate, generate)
+    const registry = { availability: async () => ({ available: true }), generate: async () => 'ok' }
+    handle = installTestWiki({ models: { ai: registry } })
+    assert.equal(aiRegistry(), registry)
   })
 })
