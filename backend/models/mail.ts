@@ -32,6 +32,7 @@ export type MailKind =
   | 'tfaRecoveryCodesGenerated'
   | 'tfaNewDeviceLogin'
   | 'signInMethodAdded'
+  | 'signInMethodRemoved'
 
 export interface MailMessage {
   to: string
@@ -575,6 +576,41 @@ class MailModel {
       { name, link },
       { kind: 'tfaRecoveryCodesGenerated', userId }
     )
+  }
+
+  async sendSignInMethodRemoved({
+    to,
+    name,
+    methodName,
+    userId,
+    locale,
+    siteId
+  }: {
+    to: string
+    name: string
+    methodName: string
+    userId?: string
+    locale?: string | null
+    siteId?: string
+  }): Promise<void> {
+    const link = this.buildLink('/login', this.resolveMailBaseURL(siteId))
+    const key = 'signInMethodRemoved'
+    await this.send({
+      to,
+      kind: 'signInMethodRemoved',
+      userId,
+      subject: await CARDINAL.models.locales.resolveString(locale, `mail.${key}.subject`),
+      text: await CARDINAL.models.locales.resolveString(locale, `mail.${key}.text`, {
+        name,
+        method: methodName,
+        link
+      }),
+      html: await CARDINAL.models.locales.resolveString(locale, `mail.${key}.html`, {
+        name: escapeHtml(name),
+        method: escapeHtml(methodName),
+        link
+      })
+    })
   }
 
   /**

@@ -21,6 +21,7 @@ export const AUDIT_EVENTS = [
   'user.passkeyEnrolled',
   'user.passkeyRemoved',
   'user.signInMethodAdded',
+  'user.signInMethodRemoved',
   'user.loggedOut',
   'group.created',
   'group.updated',

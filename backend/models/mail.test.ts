@@ -785,6 +785,36 @@ describe('mail template senders', () => {
     assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
   })
 
+  test('sendSignInMethodRemoved names the removed method and links at the given siteId hostname', async () => {
+    await mail.sendSignInMethodRemoved({
+      to: 'ada@example.com',
+      name: 'Ada',
+      methodName: 'Okta',
+      siteId: DEFAULT_SITE_ID
+    })
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+    assert.equal(msg.subject, enStrings['mail.signInMethodRemoved.subject'])
+    assert.match(msg.text, /Ada/)
+    assert.match(msg.text, /"Okta"/)
+    assert.match(msg.html, /<strong>Okta<\/strong>/)
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
+  })
+
+  test('sendSignInMethodRemoved escapes the method and user names in the HTML body only', async () => {
+    await mail.sendSignInMethodRemoved({
+      to: 'ada@example.com',
+      name: 'Ada <b>',
+      methodName: 'R&D <SSO>'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /R&amp;D &lt;SSO&gt;/)
+    assert.match(msg.html, /Ada &lt;b&gt;/)
+    assert.doesNotMatch(msg.html, /<SSO>/)
+    assert.match(msg.text, /R&D <SSO>/)
+    assert.match(msg.text, /Ada <b>/)
+  })
+
   test('sendTfaNewDeviceLogin links at the given siteId hostname (OpenProject #3386)', async () => {
     await mail.sendTfaNewDeviceLogin({
       to: 'ada@example.com',
@@ -1670,6 +1700,17 @@ describe('mail send wrappers set their own kind', () => {
           methodName: 'GitHub',
           userId: 'u1'
         })
+    ],
+    [
+      'sendSignInMethodRemoved',
+      'signInMethodRemoved',
+      () =>
+        mail.sendSignInMethodRemoved({
+          to: 'a@example.com',
+          name: 'A',
+          methodName: 'Okta',
+          userId: 'u1'
+        })
     ]
   ]
 
@@ -1700,7 +1741,8 @@ describe('mail send wrappers set their own kind', () => {
       tfaDisabled: true,
       tfaRecoveryCodesGenerated: true,
       tfaNewDeviceLogin: true,
-      signInMethodAdded: true
+      signInMethodAdded: true,
+      signInMethodRemoved: true
     }
     const all = Object.keys(allKinds) as MailKind[]
     for (const kind of all) {
