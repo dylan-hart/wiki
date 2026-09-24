@@ -21,7 +21,8 @@ const EditorStub = defineComponent({
   props: {
     content: { type: String, default: null },
     uploadFile: { type: Function, default: null },
-    autofocus: { type: Boolean, default: false }
+    autofocus: { type: Boolean, default: false },
+    readonly: { type: Boolean, default: false }
   },
   emits: ['update:content'],
   setup(props) {
@@ -68,8 +69,8 @@ function fakeServer({ sections = [], notes = [] } = {}) {
       const note = {
         id: `n${++db.seq}`,
         sectionId: opts.json.sectionId,
-        title: null,
-        content: '',
+        title: opts.json.title ?? null,
+        content: opts.json.content ?? '',
         excerpt: ''
       }
       db.notes.push(note)
@@ -87,7 +88,13 @@ function fakeServer({ sections = [], notes = [] } = {}) {
     if (!note) {
       return reply({ updatedAt: 'now' })
     }
-    Object.assign(note, opts.json)
+    const { expectedUpdatedAt, ...changes } = opts.json
+    if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== note.updatedAt) {
+      const err = refusal(409, 'noteConflict', 'This note was saved somewhere else.')
+      err.data.note = { ...note }
+      return { json: () => Promise.reject(err) }
+    }
+    Object.assign(note, changes)
     note.updatedAt = `2026-09-23T10:00:00.${String(++db.seq).padStart(3, '0')}Z`
     return reply({ updatedAt: note.updatedAt })
   })
@@ -125,10 +132,16 @@ function putCalls() {
 
 let wrapper = null
 
-async function mountNotes({ path = '/_notes', authenticated = true, features = {} } = {}) {
+async function mountNotes({
+  path = '/_notes',
+  authenticated = true,
+  features = {},
+  messages = {}
+} = {}) {
   const router = await createTestRouter(['/_notes', '/login', '/elsewhere', '/:path(.*)*'], path)
   const mounted = mountWithApp(Notes, {
     router,
+    messages,
     attachTo: document.body,
     stores: {
       site: (store) => {
@@ -224,7 +237,7 @@ describe('Notes screen', () => {
   })
 
   it('autosaves content and title, and an untitled note shows its first line', async () => {
-    fakeServer({
+    const db = fakeServer({
       sections: [{ id: 's1', title: 'Work' }],
       notes: [{ id: 'n1', sectionId: 's1', title: null, content: '', excerpt: '' }]
     })
@@ -241,10 +254,102 @@ describe('Notes screen', () => {
     expect(putCalls()).toEqual([[`${BASE}/n1`, { content: '# Groceries\n\nmilk' }]])
     expect(wrapper.find('.notes-save-indicator').text()).toBe('notes.saved')
 
+    // -> From here on the note's updatedAt is known, and each save says which version it was made from.
+    const savedAt = db.notes[0].updatedAt
     await wrapper.find('input[aria-label="notes.noteTitle"]').setValue('Shopping')
     await wrapper.vm.autosave.flush()
-    expect(putCalls().at(-1)).toEqual([`${BASE}/n1`, { title: 'Shopping' }])
+    expect(putCalls().at(-1)).toEqual([
+      `${BASE}/n1`,
+      { title: 'Shopping', expectedUpdatedAt: savedAt }
+    ])
     expect(listLabels()).toEqual(['Shopping'])
+  })
+
+  it('clicking back to the open note while a switch away waits on its save keeps that note open', async () => {
+    fakeServer({
+      sections: [{ id: 's1', title: 'Work' }],
+      notes: [
+        { id: 'n1', sectionId: 's1', title: 'A', content: 'a', excerpt: 'a' },
+        { id: 'n2', sectionId: 's1', title: 'B', content: 'b', excerpt: 'b' }
+      ]
+    })
+    await mountNotes()
+    expect(editor().props('content')).toBe('a')
+
+    let finishSave
+    API_CLIENT.put.mockImplementationOnce(() => ({
+      json: () =>
+        new Promise((resolve) => {
+          finishSave = () => resolve({ updatedAt: '2026-09-23T10:00:00.000Z' })
+        })
+    }))
+    editor().vm.$emit('update:content', 'a, edited')
+    await wrapper.find('[data-note-id="n2"] .notes-list-select').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-note-id="n1"] .notes-list-select').trigger('click')
+    finishSave()
+    await flushPromises()
+
+    expect(API_CLIENT.get).not.toHaveBeenCalledWith(`${BASE}/n2`)
+    expect(editor().props('content')).toBe('a, edited')
+    expect(wrapper.find('.notes-list-item--active').attributes('data-note-id')).toBe('n1')
+  })
+
+  it('a save made from a version saved elsewhere keeps both: this one as a conflicted copy', async () => {
+    const OTHER_TAB_AT = '2026-09-23T11:00:00.000Z'
+    const db = fakeServer({
+      sections: [{ id: 's1', title: 'Work' }],
+      notes: [
+        {
+          id: 'n1',
+          sectionId: 's1',
+          title: 'Plan',
+          content: 'v1',
+          excerpt: 'v1',
+          updatedAt: '2026-09-23T09:00:00.000Z'
+        }
+      ]
+    })
+    await mountNotes({
+      messages: {
+        'notes.conflictedCopyTitle': '{title} (conflicted copy)',
+        'notes.conflictKeptBoth': 'Kept yours as {title}.'
+      }
+    })
+    Object.assign(db.notes[0], {
+      content: 'From the other tab',
+      excerpt: 'From the other tab',
+      updatedAt: OTHER_TAB_AT
+    })
+
+    editor().vm.$emit('update:content', 'Typed here')
+    await wrapper.vm.autosave.flush()
+    await flushPromises()
+
+    const copy = db.notes.find((n) => n.id !== 'n1')
+    expect(copy).toMatchObject({
+      sectionId: 's1',
+      title: 'Plan (conflicted copy)',
+      content: 'Typed here'
+    })
+    expect(db.notes[0].content).toBe('From the other tab')
+    expect(editor().props('content')).toBe('From the other tab')
+    expect(editor().props('readonly')).toBe(false)
+    expect(listLabels()).toEqual(['Plan', 'Plan (conflicted copy)'])
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'warning', message: 'Kept yours as Plan (conflicted copy).' })
+    )
+    expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'negative' }))
+    expect(wrapper.find('.notes-save-indicator').text()).toBe('notes.saved')
+
+    editor().vm.$emit('update:content', 'From the other tab, then here')
+    await wrapper.vm.autosave.flush()
+    expect(putCalls().at(-1)).toEqual([
+      `${BASE}/n1`,
+      { content: 'From the other tab, then here', expectedUpdatedAt: OTHER_TAB_AT }
+    ])
+    expect(db.notes[0].content).toBe('From the other tab, then here')
+    expect(db.notes).toHaveLength(2)
   })
 
   it('adds a note in one click and opens it with the caret in the body', async () => {
@@ -459,6 +564,28 @@ describe('Notes screen', () => {
     const calls = API_CLIENT.post.mock.calls.length
     expect(await upload(new File(['x'], 'a.pdf', { type: 'application/pdf' }))).toBeNull()
     expect(API_CLIENT.post.mock.calls).toHaveLength(calls)
+  })
+
+  it('says why an image upload was refused, e.g. a used-up quota', async () => {
+    fakeServer({
+      sections: [{ id: 's1', title: 'Work' }],
+      notes: [{ id: 'n1', sectionId: 's1', title: 'A', content: '', excerpt: '' }]
+    })
+    await mountNotes()
+    API_CLIENT.post.mockImplementationOnce(() => ({
+      json: () =>
+        Promise.reject(refusal(413, 'noteImageQuotaExceeded', 'Your note images are full.'))
+    }))
+
+    const image = new File(['x'], 'shot.png', { type: 'image/png' })
+    expect(await editor().props('uploadFile')(image)).toBeNull()
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'negative',
+        message: 'notes.imageUploadFailed',
+        caption: 'Your note images are full.'
+      })
+    )
   })
 
   describe('?new=1 from the quick-note entry points', () => {
@@ -676,13 +803,49 @@ describe('Notes screen', () => {
       expect(API_CLIENT.put).not.toHaveBeenCalled()
       await clickPromote()
 
-      expect(putCalls()).toEqual([[`${BASE}/n1`, { content: 'typed just now' }]])
+      expect(putCalls()).toEqual([
+        [`${BASE}/n1`, { content: 'typed just now', expectedUpdatedAt: SAVED_AT }]
+      ])
       const putOrder = API_CLIENT.put.mock.invocationCallOrder[0]
       const promoteCall = API_CLIENT.post.mock.calls.findIndex(([url]) => url.endsWith('/promote'))
       expect(putOrder).toBeLessThan(API_CLIENT.post.mock.invocationCallOrder[promoteCall])
       expect(db.promoted[0]).toMatchObject({ content: 'typed just now' })
       expect(db.promoted[0].render).toContain('typed just now')
       expect(push).toHaveBeenCalledWith('/docs/plan')
+    })
+
+    it('locks the note against typing while the promote is in flight, and unlocks it on failure', async () => {
+      answerPromoteDialog({ path: 'docs/plan', title: 'Plan' })
+      await mountForPromote([
+        {
+          id: 'n1',
+          sectionId: 's1',
+          title: 'Plan',
+          content: 'v1',
+          excerpt: 'v1',
+          updatedAt: SAVED_AT
+        }
+      ])
+      let refuse
+      API_CLIENT.post.mockImplementationOnce(() => ({
+        json: () =>
+          new Promise((_resolve, reject) => {
+            refuse = () => reject(refusal(409, 'pageDuplicatePath', 'Taken.'))
+          })
+      }))
+      const title = () => wrapper.find('input[aria-label="notes.noteTitle"]')
+      expect(editor().props('readonly')).toBe(false)
+
+      await clickPromote()
+      expect(refuse).toBeTypeOf('function')
+      expect(editor().props('readonly')).toBe(true)
+      expect(title().attributes('readonly')).toBeDefined()
+
+      refuse()
+      await flushPromises()
+      expect(editor().props('readonly')).toBe(false)
+      expect(title().attributes('readonly')).toBeUndefined()
+      expect(wrapper.vm.state.current?.id).toBe('n1')
     })
 
     it('does not promote when the pending edit cannot be saved', async () => {

@@ -3,6 +3,8 @@ import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import notesRoutes, { noteImageUrl } from './notes.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import { CustomError } from '../helpers/common.ts'
+import { NoteConflictError } from '../models/notes.ts'
 import { WHITEBOARD_MAX_BLOCK_BYTES } from '../helpers/whiteboardLimits.ts'
 
 const SITE_ID = '11111111-1111-4111-8111-111111111111'
@@ -87,6 +89,7 @@ describe('notes routes', () => {
   let model: Record<string, ReturnType<typeof mock.fn>>
   let searchRows: any[]
   let executeCalls: number
+  let consumeUpload: ReturnType<typeof mock.fn>
 
   function setNotesFlag(value: boolean | undefined) {
     const features = CARDINAL.sites[SITE_ID]!.config.features as Record<string, unknown>
@@ -134,6 +137,7 @@ describe('notes routes', () => {
         db: { select: () => chain(() => searchRows) },
         models: {
           groups: { groupIdsForRequest: () => [] },
+          rateLimits: { consume: (...args: any[]) => consumeUpload(...args) },
           notes: Object.fromEntries(
             MODEL_METHODS.map((name) => [name, (...args: any[]) => model[name]!(...args)])
           )
@@ -149,6 +153,7 @@ describe('notes routes', () => {
     setNotesFlag(true)
     searchRows = []
     executeCalls = 0
+    consumeUpload = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
     model = {
       listSections: mock.fn(async () => [section(SECTION_ID, 0), section(OTHER_SECTION_ID, 1)]),
       createSection: mock.fn(async (_s: string, _u: string, { title }: any) => ({
@@ -480,8 +485,46 @@ describe('notes routes', () => {
       assert.deepEqual(res.json(), { updatedAt: '2026-09-23T11:00:00.000Z' })
       assert.deepEqual(model.updateNote!.mock.calls[0]?.arguments.slice(2), [
         NOTE_ID,
-        { content: 'New body' }
+        { content: 'New body' },
+        { expectedUpdatedAt: undefined }
       ])
+    })
+
+    test('update passes the version it was made from on to the model', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `${BASE}/${NOTE_ID}`,
+        payload: { content: 'New body', expectedUpdatedAt: '2026-09-23T10:00:00.000Z' }
+      })
+
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(model.updateNote!.mock.calls[0]?.arguments.slice(3), [
+        { content: 'New body' },
+        { expectedUpdatedAt: '2026-09-23T10:00:00.000Z' }
+      ])
+    })
+
+    test('an update made from an older version answers 409 noteConflict with the stored note', async () => {
+      const stored = note(NOTE_ID, {
+        content: 'Saved in another tab',
+        updatedAt: new Date('2026-09-23T12:00:00Z')
+      })
+      model.updateNote = mock.fn(async () => {
+        throw new NoteConflictError(stored as any)
+      })
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: `${BASE}/${NOTE_ID}`,
+        payload: { content: 'Typed here', expectedUpdatedAt: '2026-09-23T10:00:00.000Z' }
+      })
+
+      assert.equal(res.statusCode, 409)
+      const body = res.json()
+      assert.equal(body.error, 'noteConflict')
+      assert.equal(body.note.id, NOTE_ID)
+      assert.equal(body.note.content, 'Saved in another tab')
+      assert.equal(body.note.updatedAt, '2026-09-23T12:00:00.000Z')
     })
 
     test('update clears a title sent as null or blank', async () => {
@@ -629,6 +672,46 @@ describe('notes routes', () => {
       assert.equal(input.mimeType, 'image/png')
       assert.equal(input.fileName, 'evil name.png')
       assert.ok(Buffer.from(input.data).equals(PNG))
+    })
+
+    test('an upload spends the caller’s upload budget, and a spent budget answers 429 first', async () => {
+      const { payload, headers } = await multipart(PNG)
+      const upload = () =>
+        app.inject({ method: 'POST', url: `${BASE}/${NOTE_ID}/images`, payload, headers })
+
+      assert.equal((await upload()).statusCode, 200)
+      assert.equal(consumeUpload.mock.calls[0]?.arguments[0], `upload:${OWNER_ID}`)
+
+      // -> Another user, so the ban this memoizes does not reach the other tests.
+      session = { authenticated: true, user: { id: MOVE_TARGET_ID }, permissions: [] }
+      consumeUpload.mock.mockImplementation(async () => ({
+        allowed: false,
+        hits: 21,
+        retryAfter: 60
+      }))
+      const refused = await upload()
+
+      assert.equal(refused.statusCode, 429)
+      assert.equal(refused.headers['retry-after'], '60')
+      assert.equal(model.addImage!.mock.calls.length, 1)
+    })
+
+    test('an upload past the image quota answers 413 with its own error code', async () => {
+      model.addImage = mock.fn(async () => {
+        throw new CustomError('noteImageQuotaExceeded', 'Over the note image quota.', 413)
+      })
+      const { payload, headers } = await multipart(PNG)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `${BASE}/${NOTE_ID}/images`,
+        payload,
+        headers
+      })
+
+      assert.equal(res.statusCode, 413)
+      assert.equal(res.json().error, 'noteImageQuotaExceeded')
+      assert.equal(res.json().message, 'Over the note image quota.')
     })
 
     test('noteImageUrl is the pinned format', () => {

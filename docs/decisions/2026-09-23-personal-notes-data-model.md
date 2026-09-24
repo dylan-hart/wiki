@@ -49,6 +49,11 @@ personal scratch material, not site content, so they do not need the large-file 
   (`helpers/notes.ts#noteExcerpt`). The model rewrites it on every content write. A note list, and
   #3770's search results, then never load full content: a note holding a whiteboard can be about
   1 MiB.
+- **Replication does not carry notes.** `models/replicationExport.ts` leaves all three tables out
+  of a snapshot: a note is readable by its owner alone, and a snapshot by whoever holds it. A
+  restore (`models/replicationImport.ts`) deletes every user and site on the target, so the cascade
+  deletes every note there too. The replication routes' descriptions and the admin replication
+  warning say so.
 - **Deleting a site deletes the notes on it, by cascade.** `models/sites.ts#deleteSite` refuses a
   site that still holds pages or assets, but personal notes are not site content and do not block
   the delete. The cascade removes them and their images with the site, and `deleteSite` needs no

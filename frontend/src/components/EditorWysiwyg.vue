@@ -168,6 +168,11 @@ const props = defineProps({
   autofocus: {
     type: Boolean,
     default: false
+  },
+  /** Note mode only: refuses typing while the parent is busy with the note, e.g. promoting it. */
+  readonly: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -360,7 +365,7 @@ function init() {
     editor = useEditor({
       content: props.content,
       contentType: 'markdown',
-      editable: true,
+      editable: !props.readonly,
       autofocus: props.autofocus ? 'end' : false,
       extensions: buildExtensions(null),
       editorProps: buildEditorProps(),
@@ -766,6 +771,17 @@ watch(
     }
     lastEmittedContent = content
     editor.value.commands.setContent(content ?? '', { contentType: 'markdown', emitUpdate: false })
+  }
+)
+
+watch(
+  () => props.readonly,
+  (readonly) => {
+    if (!noteMode || !editor.value) {
+      return
+    }
+    // -> No update event: the content did not change, and one would schedule a needless save.
+    editor.value.setEditable(!readonly, false)
   }
 )
 

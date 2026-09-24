@@ -119,6 +119,9 @@ export function orderCommentsByReplyDepth(rows: ArchiveRow[]): ArchiveRow[] {
  * Target side of replication: restores a whole-instance snapshot tarball, wiping every table the
  * snapshot covers — settings included — before inserting the archive's own rows.
  *
+ * **Personal notes do not survive a restore.** The snapshot carries none, and deleting `users` and
+ * `sites` cascades to `noteSections`, `notes` and `noteImages`, so every note on this instance goes.
+ *
  * **No id remapping**, unlike `siteImport.ts`: a whole-instance wipe-and-replace has no coexistence
  * case, so the archive's own ids are used exactly as given.
  *

@@ -98,6 +98,18 @@ test('JOB_SCHEDULE_SEED registers purgePageDrafts on a valid daily cron, at a mi
   )
 })
 
+test('JOB_SCHEDULE_SEED registers purgeNoteImages on a valid daily cron, at a minute no other seeded job uses', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeNoteImages')
+  assert.ok(entry, 'expected a purgeNoteImages entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+
+  const crons: string[] = JOB_SCHEDULE_SEED.filter((e) => e.task !== 'purgeNoteImages').map(
+    (e) => e.cron
+  )
+  assert.ok(!crons.includes(entry!.cron), `purgeNoteImages shares its cron "${entry!.cron}"`)
+})
+
 test('JOB_SCHEDULE_SEED registers purgeSessions on a valid hourly cron, offset from purgeRateLimits', () => {
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeSessions')
   assert.ok(entry, 'expected a purgeSessions entry in the schedule seed')
@@ -128,6 +140,7 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'purgeExports',
       'purgeGuestPii',
       'purgeImports',
+      'purgeNoteImages',
       'purgePageDrafts',
       'purgePageviews',
       'purgePageWatchEvents',

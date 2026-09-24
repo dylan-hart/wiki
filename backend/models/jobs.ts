@@ -116,6 +116,11 @@ export const JOB_SCHEDULE_SEED = [
     cron: '58 0 * * *',
     type: 'system'
   },
+  {
+    task: 'purgeNoteImages',
+    cron: '52 0 * * *',
+    type: 'system'
+  },
   // -> Same "the comparison happens inside the task" shape as `storageSyncTick`, but every 5
   //    minutes: a replication schedule is realistically daily or weekly, and `* * * * *` is already
   //    claimed.

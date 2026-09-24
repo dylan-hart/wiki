@@ -56,6 +56,7 @@
                 :model-value="state.current.title ?? ''"
                 :placeholder="titlePlaceholder"
                 :aria-label="t('notes.noteTitle')"
+                :readonly="editingLocked"
                 hide-bottom-space
                 @update:model-value="onTitleInput" />
               <w-btn
@@ -73,6 +74,7 @@
               :content="state.current.content ?? ''"
               :upload-file="uploadFile"
               :autofocus="state.focusBody"
+              :readonly="editingLocked"
               @update:content="onContentInput" />
           </template>
           <div v-else-if="state.noteLoading" class="notes-page-message">
@@ -109,12 +111,16 @@ import { notesApi } from '@/composables/notesApi'
 import { useNotePromote } from '@/composables/notePromote'
 import { notify } from '@/composables/notify'
 
+import { apiErrorBody } from '@/helpers/apiError'
 import { noteExcerpt } from '@/helpers/noteExcerpt'
 
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 const LAST_SECTION_KEY_PREFIX = 'notes.lastSection.'
+
+/** `backend/helpers/noteContent.ts#NOTE_MAX_TITLE_LENGTH`: the server refuses a longer title. */
+const NOTE_TITLE_MAX = 255
 
 const route = useRoute()
 const router = useRouter()
@@ -143,21 +149,97 @@ const state = reactive({
   current: null,
   noteLoading: false,
   focusBody: false,
-  promoting: false
+  promoting: false,
+  resolvingConflict: false
 })
 
 const notesEnabled = computed(() => siteStore.features?.notes !== false)
 
 const api = computed(() => notesApi(siteStore.id))
 
-const autosave = createNoteAutosave({
-  save: async (noteId, patch) => {
-    const saved = await api.value.updateNote(noteId, patch)
-    if (saved?.updatedAt && state.current?.id === noteId) {
-      state.current.updatedAt = saved.updatedAt
+/**
+ * While a promote is in flight its content has already been saved and is about to be turned into a
+ * page, and while a conflict is being resolved the open note is about to be replaced: anything
+ * typed then would be lost.
+ */
+const editingLocked = computed(() => state.promoting || state.resolvingConflict)
+
+/**
+ * Sends the `updatedAt` this screen last saw of the open note, so a save made from a version that
+ * another tab or device has since overwritten is refused rather than overwriting it in turn.
+ */
+async function saveNote(noteId, patch) {
+  const known = state.current?.id === noteId ? state.current.updatedAt : null
+  let saved
+  try {
+    saved = await api.value.updateNote(
+      noteId,
+      known ? { ...patch, expectedUpdatedAt: known } : patch
+    )
+  } catch (err) {
+    const refusal = apiErrorBody(err)
+    if (refusal?.error === 'noteConflict' && refusal.note) {
+      await keepBothVersions(noteId, patch, refusal.note)
+      return refusal.note
     }
-    return saved
-  },
+    throw err
+  }
+  if (saved?.updatedAt && state.current?.id === noteId) {
+    state.current.updatedAt = saved.updatedAt
+  }
+  return saved
+}
+
+function conflictedCopyTitle(title, content) {
+  const base = title?.trim() || noteExcerpt(content) || t('notes.untitledNote')
+  const over = t('notes.conflictedCopyTitle', { title: base }).length - NOTE_TITLE_MAX
+  return t('notes.conflictedCopyTitle', {
+    title: over > 0 ? base.slice(0, base.length - over) : base
+  })
+}
+
+/**
+ * Neither version is thrown away. What this screen has becomes a new note in the same section, and
+ * the open note then shows the version that was saved elsewhere. If the copy cannot be made, the
+ * error propagates and autosave keeps this screen's edits for its next attempt, which meets the same
+ * conflict and tries again.
+ */
+async function keepBothVersions(noteId, patch, stored) {
+  state.resolvingConflict = true
+  try {
+    const open = state.current?.id === noteId ? state.current : null
+    const title = open ? open.title : (patch.title ?? stored.title)
+    const content = open ? open.content : (patch.content ?? stored.content)
+    const copyTitle = conflictedCopyTitle(title, content)
+    const copy = await api.value.createNote({
+      sectionId: stored.sectionId,
+      title: copyTitle,
+      content: content ?? ''
+    })
+    // -> Everything typed here is in the copy now.
+    autosave.cancel(noteId)
+    if (state.activeSectionId === stored.sectionId) {
+      state.notes.push({ ...copy })
+    }
+    const entry = listEntry(noteId)
+    if (entry) {
+      entry.title = stored.title ?? null
+      entry.excerpt = stored.excerpt ?? noteExcerpt(stored.content)
+    }
+    if (state.current?.id === noteId) {
+      state.current = { ...state.current, ...stored, content: stored.content ?? '' }
+    }
+    notify({
+      type: 'warning',
+      message: t('notes.conflictKeptBoth', { title: copyTitle })
+    })
+  } finally {
+    state.resolvingConflict = false
+  }
+}
+
+const autosave = createNoteAutosave({
+  save: saveNote,
   onError: () => {
     notify({ type: 'negative', message: t('notes.saveFailed') })
   }
@@ -225,12 +307,19 @@ async function loadNotes(sectionId) {
 
 let openSeq = 0
 
+/**
+ * The latest click always wins. The sequence number is taken before anything else, so clicking the
+ * note that is still open, while a switch away from it waits on a save, cancels that switch.
+ */
 async function openNote(noteId, { focus = false } = {}) {
+  const seq = ++openSeq
   if (state.current?.id === noteId) {
     return
   }
-  const seq = ++openSeq
   await autosave.flush()
+  if (seq !== openSeq) {
+    return
+  }
   state.current = null
   state.noteLoading = true
   state.focusBody = focus
@@ -240,7 +329,9 @@ async function openNote(noteId, { focus = false } = {}) {
       state.current = { ...note, content: note.content ?? '' }
     }
   } catch {
-    notify({ type: 'negative', message: t('notes.loadFailed') })
+    if (seq === openSeq) {
+      notify({ type: 'negative', message: t('notes.loadFailed') })
+    }
   } finally {
     state.noteLoading = false
   }
@@ -493,8 +584,13 @@ async function uploadFile(file) {
   try {
     const uploaded = await api.value.uploadImage(noteId, file)
     return uploaded?.url ? { url: uploaded.url, name: file.name } : null
-  } catch {
-    notify({ type: 'negative', message: t('notes.imageUploadFailed') })
+  } catch (err) {
+    // -> The server's message says why, e.g. that the note image quota is used up.
+    notify({
+      type: 'negative',
+      message: t('notes.imageUploadFailed'),
+      caption: apiErrorBody(err)?.message
+    })
     return null
   }
 }
