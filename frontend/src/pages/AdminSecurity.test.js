@@ -470,7 +470,7 @@ describe('AdminSecurity allowPasskeys', () => {
 
   it("surfaces the server's lockout refusal in the save-failure toast", async () => {
     const refusal =
-      'Passkeys cannot be turned off yet: 1 account has password login turned off and can only sign in with a passkey.'
+      'Passkeys cannot be turned off yet: 1 account has no way to sign in other than a passkey.'
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ uploadMaxFileSize: 1024 }) })
     API_CLIENT.put.mockReturnValueOnce({
       json: () => Promise.reject({ data: { message: refusal } })

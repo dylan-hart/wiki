@@ -1212,7 +1212,7 @@
   "admin.search.title": "Search Engine",
   "admin.searchRebuildIndex": "Rebuild Index",
   "admin.security.allowPasskeys": "Allow Passkeys",
-  "admin.security.allowPasskeysHint": "Let users register passkeys and sign in with them. Turning this off hides the passkey controls and refuses passkey sign-in; passkeys already registered stay stored and can still be removed. Refused while any account has password login turned off and relies on a passkey alone.",
+  "admin.security.allowPasskeysHint": "Let users register passkeys and sign in with them. Turning this off hides the passkey controls and refuses passkey sign-in; passkeys already registered stay stored and can still be removed. Refused while any account has no working way to sign in other than a passkey.",
   "admin.security.apiRateLimit": "API Rate Limiting",
   "admin.security.apiRateLimitBan": "Ban Duration",
   "admin.security.apiRateLimitBanHint": "How long a client is refused for once it goes over, as a duration. Requests made while banned do not extend it.",
