@@ -87,6 +87,22 @@ describe('isDrawShortcut', () => {
       true
     )
   })
+
+  it('still takes Ctrl+Alt+P when AltGraph is reported but the layout types no character there', () => {
+    const altGraph = (key) => key === 'AltGraph'
+
+    expect(
+      isDrawShortcut({ ...base, key: 'p', ctrlKey: true, getModifierState: altGraph }, false)
+    ).toBe(true)
+  })
+
+  it('ignores AltGraph on macOS, where Firefox reports Option as AltGraph', () => {
+    const altGraph = (key) => key === 'AltGraph'
+
+    expect(
+      isDrawShortcut({ ...base, key: 'π', metaKey: true, getModifierState: altGraph }, true)
+    ).toBe(true)
+  })
 })
 
 describe('isPenContact', () => {

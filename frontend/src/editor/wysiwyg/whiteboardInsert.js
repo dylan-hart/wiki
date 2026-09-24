@@ -32,12 +32,21 @@ export function isDrawShortcut(event, mac = isMacPlatform()) {
   if (event.code !== 'KeyP' || !event.altKey || event.shiftKey) {
     return false
   }
+  if (mac) {
+    return event.metaKey && !event.ctrlKey
+  }
   // -> AltGr arrives on Windows as Ctrl+Alt, so without this AltGr+P -- the character key for `ö`
-  //    and others on several layouts -- would insert a board instead of typing.
-  if (event.getModifierState?.('AltGraph')) {
+  //    and others on several layouts -- would insert a board instead of typing. Only a layout
+  //    that types something there is left alone: `getModifierState('AltGraph')` alone can't tell
+  //    AltGr from Ctrl+Alt everywhere, and macOS Firefox reports Option as AltGraph.
+  if (event.getModifierState?.('AltGraph') && typesCharacterOtherThanP(event.key)) {
     return false
   }
-  return mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+  return event.ctrlKey && !event.metaKey
+}
+
+function typesCharacterOtherThanP(key) {
+  return typeof key === 'string' && [...key].length === 1 && key.toLowerCase() !== 'p'
 }
 
 export function isPenContact(event) {
