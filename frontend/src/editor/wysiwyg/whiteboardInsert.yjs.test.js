@@ -115,6 +115,35 @@ function expectConverged(a, b, seeds) {
   )
 }
 
+/** What the block draws: every line after the first that parses to a stroke, by its seed. */
+function drawnSeeds(body) {
+  return body
+    .trim()
+    .split('\n')
+    .slice(1)
+    .map((line) => {
+      try {
+        return JSON.parse(line)
+      } catch {
+        return null
+      }
+    })
+    .filter((stroke) => Array.isArray(stroke?.p))
+    .map((stroke) => stroke.p[0])
+    .sort((x, y) => x - y)
+}
+
+function seedPairFrom(markdown) {
+  const docA = new Y.Doc()
+  const docB = new Y.Doc()
+  const a = createReplica(docA)
+  a.commands.setContent(markdown, { contentType: 'markdown' })
+  const b = createReplica(docB)
+  exchange(docA, docB)
+  expect(bodyOn(b)).toBe(bodyOn(a))
+  return { a, b, docA, docB }
+}
+
 describe('applyWhiteboardBody under Yjs collaboration', () => {
   it('merges two first strokes drawn at once on an empty board into a readable board', () => {
     const { a, b, docA, docB } = seedPair(EMPTY_WHITEBOARD_BODY)
@@ -124,6 +153,44 @@ describe('applyWhiteboardBody under Yjs collaboration', () => {
     exchange(docA, docB)
 
     expectConverged(a, b, [100, 200])
+  })
+
+  it('keeps both first strokes drawn at once on an empty fence, on lines of their own', () => {
+    const { a, b, docA, docB } = seedPairFrom(boardMarkdown(''))
+    expect(bodyOn(a).trim()).toBe('')
+
+    // -> What the block sends for an empty source: a fresh header plus the stroke.
+    apply(a, boardBody(100))
+    apply(b, boardBody(200))
+    exchange(docA, docB)
+
+    const body = bodyOn(a)
+    expect(bodyOn(b)).toBe(body)
+    expect(JSON.parse(body.trim().split('\n')[0])).toEqual(JSON.parse(EMPTY_WHITEBOARD_BODY))
+    expect(drawnSeeds(body)).toEqual([100, 200])
+
+    apply(a, withStroke(a, 300))
+    exchange(docA, docB)
+    expect(drawnSeeds(bodyOn(b))).toEqual([100, 200, 300])
+  })
+
+  it('keeps both first strokes when each replica adds the code block a bare board lacks', () => {
+    const { a, b, docA, docB } = seedPairFrom('::block-whiteboard\n::')
+    expect(findBoard(a).node.childCount).toBe(0)
+
+    apply(a, boardBody(100))
+    apply(b, boardBody(200))
+    exchange(docA, docB)
+
+    expect(findBoard(a).node.childCount).toBe(2)
+    expect(bodyOn(b)).toBe(bodyOn(a))
+    expect(drawnSeeds(bodyOn(a))).toEqual([100, 200])
+
+    apply(a, withStroke(a, 300))
+    apply(b, withStroke(b, 400))
+    exchange(docA, docB)
+    expect(bodyOn(b)).toBe(bodyOn(a))
+    expect(drawnSeeds(bodyOn(a))).toEqual([100, 200, 300, 400])
   })
 
   it('merges two strokes drawn at once on a board that already has one', () => {

@@ -32,6 +32,11 @@ export function isDrawShortcut(event, mac = isMacPlatform()) {
   if (event.code !== 'KeyP' || !event.altKey || event.shiftKey) {
     return false
   }
+  // -> AltGr arrives on Windows as Ctrl+Alt, so without this AltGr+P -- the character key for `ö`
+  //    and others on several layouts -- would insert a board instead of typing.
+  if (event.getModifierState?.('AltGraph')) {
+    return false
+  }
   return mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
 }
 
@@ -39,18 +44,29 @@ export function isPenContact(event) {
   return event.pointerType === 'pen' && event.button === 0
 }
 
-export function firstCodeBlock(node, nodePos) {
-  let found = null
-  node.forEach((child, offset) => {
-    if (!found && child.type.name === 'codeBlock') {
-      found = { node: child, pos: nodePos + 1 + offset }
+/**
+ * Every code block in a board, in document order. There is normally one; two collaborators drawing
+ * the first stroke on a board that had none each insert one, and Yjs keeps both. The block reads
+ * all of them joined (`readWhiteboardSource`), and so do this file and the server.
+ */
+export function whiteboardCodeBlocks(node, nodePos) {
+  const found = []
+  node.descendants((child, offset) => {
+    if (child.type.name === 'codeBlock') {
+      found.push({ node: child, pos: nodePos + 1 + offset })
+      return false
     }
+    return true
   })
   return found
 }
 
+function joinedText(codes) {
+  return codes.map((code) => code.node.textContent).join('\n')
+}
+
 export function whiteboardBodyOf(node) {
-  return firstCodeBlock(node, 0)?.node.textContent ?? ''
+  return joinedText(whiteboardCodeBlocks(node, 0))
 }
 
 export function pageWhiteboardBytes(doc) {
@@ -122,18 +138,28 @@ export function insertWhiteboardInto(tr, from, to) {
     return null
   }
 
+  // -> The caret goes on a line of its own after the board. Searching forward from there for any
+  //    textblock would, when the next node is another board (or any block), land inside that
+  //    block's hidden code block, where typing edits its body unseen.
   const after = inserted + tr.doc.nodeAt(inserted).nodeSize
   const $after = tr.doc.resolve(after)
+  const { paragraph } = tr.doc.type.schema.nodes
   if (
-    !$after.nodeAfter &&
-    $after.parent.canReplaceWith($after.index(), $after.index(), tr.doc.type.schema.nodes.paragraph)
+    !$after.nodeAfter?.isTextblock &&
+    $after.parent.canReplaceWith($after.index(), $after.index(), paragraph)
   ) {
-    tr.insert(after, tr.doc.type.schema.nodes.paragraph.create())
+    tr.insert(after, paragraph.create())
   }
   tr.setSelection(Selection.near(tr.doc.resolve(after), 1))
   return inserted
 }
 
+/**
+ * A first stroke on an empty fence writes the header and the stroke, and ends them with a line
+ * break: two collaborators doing that at once both insert at the same offset, and without it Yjs
+ * joins the second header onto the first stroke's line (`H\n{A}H\n{B}`), losing stroke A. With it
+ * the second header is a line of its own, which the block skips.
+ */
 export function appendedSuffix(current, body) {
   const start = current.length - current.trimStart().length
   const end = start + current.trim().length
@@ -141,7 +167,21 @@ export function appendedSuffix(current, body) {
   if (body.length <= kept.length || !body.startsWith(kept)) {
     return null
   }
-  return { at: end, text: body.slice(kept.length) }
+  const text = body.slice(kept.length)
+  return { at: end, text: kept ? text : `${text}\n` }
+}
+
+/** `offset` into `joinedText(codes)`, as a document position inside the code block holding it. */
+function positionInCodeBlocks(codes, offset) {
+  let start = 0
+  for (const [index, code] of codes.entries()) {
+    const length = code.node.textContent.length
+    if (offset <= start + length || index === codes.length - 1) {
+      return code.pos + 1 + Math.min(offset - start, length)
+    }
+    start += length + 1
+  }
+  return null
 }
 
 function stopUndoCapturing(state) {
@@ -156,8 +196,8 @@ export function applyWhiteboardBody(view, target, body, onRefuse) {
     return false
   }
 
-  const code = firstCodeBlock(target.node, target.pos)
-  const current = code?.node.textContent ?? ''
+  const codes = whiteboardCodeBlocks(target.node, target.pos)
+  const current = joinedText(codes)
   if (current === body) {
     return true
   }
@@ -171,11 +211,16 @@ export function applyWhiteboardBody(view, target, body, onRefuse) {
 
   const { schema } = state
   const tr = state.tr
-  const appended = code ? appendedSuffix(current, body) : null
+  const appended = codes.length > 0 ? appendedSuffix(current, body) : null
   if (appended) {
-    tr.insertText(appended.text, code.pos + 1 + appended.at)
-  } else if (code) {
-    tr.replaceWith(code.pos + 1, code.pos + code.node.nodeSize - 1, schema.text(body))
+    tr.insertText(appended.text, positionInCodeBlocks(codes, appended.at))
+  } else if (codes.length > 0) {
+    // -> Back to one code block: the new body already holds whatever the others did.
+    const [first, ...rest] = codes
+    for (const code of rest.reverse()) {
+      tr.delete(code.pos, code.pos + code.node.nodeSize)
+    }
+    tr.replaceWith(first.pos + 1, first.pos + first.node.nodeSize - 1, schema.text(body))
   } else {
     tr.insert(
       target.pos + 1,

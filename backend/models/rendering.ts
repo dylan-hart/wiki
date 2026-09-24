@@ -8,11 +8,7 @@ import {
   unwrapOrphanedChildBlocks
 } from '../helpers/htmlSanitizePolicy.ts'
 import { stripLocalePrefix } from '../helpers/localeRouting.ts'
-import { CustomError } from '../helpers/common.ts'
-import {
-  describeWhiteboardCapViolation,
-  findWhiteboardCapViolation
-} from '../helpers/whiteboardLimits.ts'
+import { assertPageWhiteboardsWithinCap } from '../helpers/whiteboardLimits.ts'
 import type { IconifyIcon } from '@iconify/types'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 import type { RenderPermissions } from '../helpers/htmlSanitizePolicy.ts'
@@ -133,7 +129,7 @@ class Rendering {
     */
     $ = cheerio.load(sanitizeHtml($.html(), options), null, false)
 
-    this.assertWhiteboardsWithinCap($)
+    assertPageWhiteboardsWithinCap(this.whiteboardBodies($).map((body) => body.text))
 
     const toc = this.anchorHeadings($)
     const links = this.extractInternalLinks($, pagePath, siteId)
@@ -146,22 +142,37 @@ class Rendering {
     }
   }
 
+  /**
+   * Read exactly the way `block-whiteboard` reads its body (`readWhiteboardSource`): every `pre`
+   * inside the block, joined by line breaks, or the block's whole text when it holds none -- a
+   * board without a fence is drawn from that text, so it is measured, and kept out of search, the
+   * same way. A whiteboard fence outside any block is measured too. `elements` is what holds the
+   * body, for `extractText` to drop.
+   */
   private whiteboardBodies($: cheerio.CheerioAPI) {
-    let bodies = $('pre.codeblock-whiteboard')
+    const bodies: { text: string; elements: cheerio.Cheerio<any> }[] = []
     $('block-whiteboard').each((_, el) => {
-      bodies = bodies.add($(el).find('pre').first())
+      const block = $(el)
+      const fences = block.find('pre')
+      bodies.push(
+        fences.length > 0
+          ? {
+              text: fences
+                .map((_, pre) => $(pre).text())
+                .get()
+                .join('\n'),
+              elements: fences
+            }
+          : { text: block.text(), elements: block }
+      )
+    })
+    $('pre.codeblock-whiteboard').each((_, el) => {
+      const fence = $(el)
+      if (fence.closest('block-whiteboard').length === 0) {
+        bodies.push({ text: fence.text(), elements: fence })
+      }
     })
     return bodies
-  }
-
-  private assertWhiteboardsWithinCap($: cheerio.CheerioAPI): void {
-    const bodies = this.whiteboardBodies($)
-      .map((_, el) => $(el).text())
-      .get()
-    const violation = findWhiteboardCapViolation(bodies)
-    if (violation) {
-      throw new CustomError('pageWhiteboardTooLarge', describeWhiteboardCapViolation(violation))
-    }
   }
 
   /** `data-line`/`.line` are the editor's preview scroll-sync markers, meaningless once stored. */
@@ -402,7 +413,9 @@ class Rendering {
   private extractText($: cheerio.CheerioAPI): string {
     const $copy = cheerio.load($.html(), null, false)
     $copy('script, style').remove()
-    this.whiteboardBodies($copy).remove()
+    for (const body of this.whiteboardBodies($copy)) {
+      body.elements.remove()
+    }
     return $copy.root().text().replaceAll(/\s+/g, ' ').trim()
   }
 

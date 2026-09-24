@@ -18,6 +18,8 @@ import { rulesAllow } from '../helpers/pageRules.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import { rewriteLinkText, rewriteRedirectTarget } from '../helpers/pageLinkRewrite.ts'
 import { isLegacyWysiwygJson } from '../helpers/wysiwygHeadlessMarkdown.ts'
+import { assertPageWhiteboardsWithinCap } from '../helpers/whiteboardLimits.ts'
+import { whiteboardBodiesInMarkdown } from '../helpers/whiteboardMarkdown.ts'
 import { computeTranslationStaleness } from '../helpers/translationStaleness.ts'
 import type { TranslationStalenessEntry } from '../helpers/translationStaleness.ts'
 import { announce } from './hooks.ts'
@@ -63,6 +65,17 @@ export function getEditorForContentType(contentType: string): string {
  */
 export function getContentTypeForEditor(editor: string): string {
   return EDITOR_CONTENT_TYPES[editor] ?? 'text'
+}
+
+/**
+ * The render's own cap (`models/rendering.ts`) is not enough for markdown: a save carrying no
+ * render, or one that holds no board, still stores the content and its history row, and the
+ * re-render queued for it then meets the cap in `storeRender()`, where the refusal is only logged
+ * and the page is left with a blank render. Measuring the markdown itself refuses that save up
+ * front, with the same error.
+ */
+function assertMarkdownWhiteboardsWithinCap(content: string): void {
+  assertPageWhiteboardsWithinCap(whiteboardBodiesInMarkdown(content))
 }
 
 /**
@@ -829,6 +842,9 @@ class Pages {
     if (!isRedirect && (!content || content.trim().length < 1)) {
       throw new CustomError('pageEmptyContent', 'A page cannot be empty.')
     }
+    if (getContentTypeForEditor(editor) === 'markdown') {
+      assertMarkdownWhiteboardsWithinCap(content)
+    }
 
     const hash = generatePathHash(path)
     await this.assertNoPageAt(siteId, locale, path)
@@ -1070,6 +1086,12 @@ class Pages {
       !isLegacyWysiwygJson(values.content)
     if (isLegacyWysiwygConversionSave) {
       values.contentType = 'markdown'
+    }
+    if (
+      values.content !== undefined &&
+      (values.contentType ?? existing.contentType) === 'markdown'
+    ) {
+      assertMarkdownWhiteboardsWithinCap(values.content)
     }
     if (patch.publishState !== undefined) {
       if (
