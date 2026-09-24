@@ -5,7 +5,8 @@ import type { FastifyInstance } from 'fastify'
  * No route-level `permissions`: every route answers only with the caller's own notifications,
  * scoped by session user id, so being logged in is the whole route-level check. `read:pages` is
  * re-verified at read time in `models/pageWatchEvents.ts#listForUser`, since it can be revoked
- * after a row is written.
+ * after a row is written -- as the request's own actor, so an API key's scope, classification
+ * allow-set and site pin narrow the inbox as they narrow a page read.
  */
 
 async function routes(app: FastifyInstance) {
@@ -32,7 +33,11 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply
       }
-      const rows = await CARDINAL.models.pageWatchEvents.listForUser(userId, req.params.siteId)
+      const rows = await CARDINAL.models.pageWatchEvents.listForUser(
+        userId,
+        req.params.siteId,
+        CARDINAL.models.groups.actorForRequest(req)
+      )
 
       // -> Caches the in-flight promise, not the resolved name: rows resolve concurrently, so two
       //    rows sharing an actor would otherwise both miss and both call `getById`.
@@ -85,7 +90,11 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply
       }
-      const count = await CARDINAL.models.pageWatchEvents.unreadCount(userId, req.params.siteId)
+      const count = await CARDINAL.models.pageWatchEvents.unreadCount(
+        userId,
+        req.params.siteId,
+        CARDINAL.models.groups.actorForRequest(req)
+      )
       return { count }
     }
   )

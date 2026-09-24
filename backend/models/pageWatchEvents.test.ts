@@ -297,6 +297,50 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     await groupsModel.reloadCache()
   })
 
+  // -> A session's view: the user's own group membership, with no credential narrowing it
+  const inboxAsUser = async (userId: string, site: string) =>
+    pageWatchEventsModel.listForUser(userId, site, await groupsModel.actorForUserId(userId))
+  const unreadAsUser = async (userId: string, site: string) =>
+    pageWatchEventsModel.unreadCount(userId, site, await groupsModel.actorForUserId(userId))
+
+  test('the inbox and its badge are filtered as the asking actor, so an API key’s narrowings hold', async () => {
+    const userId = await makeUser('inbox-api-key@example.com')
+    await pageWatchEventsModel.recordMany([
+      {
+        siteId,
+        pageId,
+        pageTitle: 'Inbox Fixture',
+        pagePath: 'inbox-fixture',
+        pageLocale: 'en',
+        userId,
+        action: 'updated',
+        actorId: actor.id,
+        changedFields: ['title'],
+        notifyMode: 'digest'
+      }
+    ])
+    const member = await groupsModel.actorForUserId(userId)
+    assert.equal((await pageWatchEventsModel.listForUser(userId, siteId, member)).length, 1)
+    assert.equal(await pageWatchEventsModel.unreadCount(userId, siteId, member), 1)
+
+    for (const [narrowing, key] of [
+      ['a key scoped away from read:pages', { ...member, scope: ['read:comments'] }],
+      ['a key allowed no classification', { ...member, allowedClassifications: [] }],
+      ['a key pinned to another site', { ...member, siteId: otherSiteId }]
+    ] as [string, typeof member][]) {
+      assert.deepEqual(
+        await pageWatchEventsModel.listForUser(userId, siteId, key),
+        [],
+        `${narrowing} lists nothing`
+      )
+      assert.equal(
+        await pageWatchEventsModel.unreadCount(userId, siteId, key),
+        0,
+        `${narrowing} counts nothing`
+      )
+    }
+  })
+
   after(async () => {
     await teardownTestDb()
   })
@@ -388,7 +432,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
       }
     ])
 
-    const rows = await pageWatchEventsModel.listForUser(userId, siteId)
+    const rows = await inboxAsUser(userId, siteId)
     const ids = rows.map((r) => r.id)
 
     assert.deepEqual(ids, [newer!.id, older!.id])
@@ -415,9 +459,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
       }
     ])
 
-    assert.ok(
-      (await pageWatchEventsModel.listForUser(userId, siteId)).some((r) => r.id === row!.id)
-    )
+    assert.ok((await inboxAsUser(userId, siteId)).some((r) => r.id === row!.id))
 
     // -> The DENY lands after the event was already recorded: read time is the only re-check.
     await fixtures.db
@@ -450,7 +492,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     await groupsModel.reloadCache()
 
     try {
-      const rows = await pageWatchEventsModel.listForUser(userId, siteId)
+      const rows = await inboxAsUser(userId, siteId)
       assert.ok(
         !rows.some((r) => r.id === row!.id),
         'a notification about a page the user has since lost read:pages on must not appear in the inbox'
@@ -497,7 +539,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     const firstResult = await pageWatchEventsModel.markRead(row!.id, userId)
     assert.equal(firstResult, true)
 
-    const rows = await pageWatchEventsModel.listForUser(userId, siteId)
+    const rows = await inboxAsUser(userId, siteId)
     assert.ok(!rows.some((r) => r.id === row!.id))
 
     const secondResult = await pageWatchEventsModel.markRead(row!.id, userId)
@@ -525,7 +567,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     const result = await pageWatchEventsModel.markRead(row!.id, strangerId)
     assert.equal(result, false)
 
-    const rows = await pageWatchEventsModel.listForUser(ownerId, siteId)
+    const rows = await inboxAsUser(ownerId, siteId)
     assert.ok(rows.some((r) => r.id === row!.id))
   })
 
@@ -573,7 +615,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     ])
     await pageWatchEventsModel.markRead(readRow!.id, userId)
 
-    const count = await pageWatchEventsModel.unreadCount(userId, siteId)
+    const count = await unreadAsUser(userId, siteId)
     assert.equal(count, 2)
   })
 
@@ -603,7 +645,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
       { ...base, pageId, pagePath: 'inbox-fixture' },
       { ...base, pageId: hiddenPage.id, pagePath: 'inbox-count-hidden' }
     ])
-    assert.equal(await pageWatchEventsModel.unreadCount(userId, siteId), 2)
+    assert.equal(await unreadAsUser(userId, siteId), 2)
 
     const allow = {
       id: 'inbox-read-everywhere',
@@ -636,8 +678,8 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     await groupsModel.reloadCache()
 
     try {
-      assert.equal(await pageWatchEventsModel.unreadCount(userId, siteId), 1)
-      assert.equal((await pageWatchEventsModel.listForUser(userId, siteId)).length, 1)
+      assert.equal(await unreadAsUser(userId, siteId), 1)
+      assert.equal((await inboxAsUser(userId, siteId)).length, 1)
     } finally {
       await fixtures.db
         .update(groupsTable)
@@ -663,7 +705,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     }))
     await pageWatchEventsModel.recordMany(rows)
 
-    assert.equal(await pageWatchEventsModel.unreadCount(userId, siteId), UNREAD_COUNT_SCAN_LIMIT)
+    assert.equal(await unreadAsUser(userId, siteId), UNREAD_COUNT_SCAN_LIMIT)
   })
 
   /** `pageId` is an `on delete set null` foreign key, so deleting the page unlinks the row. */
@@ -696,7 +738,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
 
     await pagesModel.deletePage(siteId, deletablePage.id, actor)
 
-    const rows = await pageWatchEventsModel.listForUser(userId, siteId)
+    const rows = await inboxAsUser(userId, siteId)
     const found = rows.find((r) => r.id === row!.id)
     assert.ok(found, 'the row must still exist and still be readable after its page was deleted')
     assert.equal(found!.pageId, null)

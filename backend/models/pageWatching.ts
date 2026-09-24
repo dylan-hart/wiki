@@ -4,6 +4,7 @@ import {
   pages as pagesTable,
   users as usersTable
 } from '../db/schema.ts'
+import type { AccessActor } from './groups.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 
 export type WatchNotifyMode = 'immediate' | 'digest'
@@ -206,8 +207,13 @@ class PageWatching {
    * path/locale/tags/classification, not just at subscribe time. A row that no longer passes is
    * dropped rather than surfaced as a 403: watching is per-page, so one revoked page must not fail
    * the caller's whole list.
+   *
+   * @param actor Who is asking, as the request presents itself (`groups.actorForRequest`, or
+   *   `mcp/auth.ts#actorFor`), not `userId`'s own full membership: an API key acting for the user
+   *   carries its scope, classification allow-set and site pin, and a page any of them shuts out
+   *   must not be listed through the key.
    */
-  async listForUser(siteId: string, userId: string): Promise<WatchedPage[]> {
+  async listForUser(siteId: string, userId: string, actor: AccessActor): Promise<WatchedPage[]> {
     const rows = await CARDINAL.db
       .select({
         pageId: pagesTable.id,
@@ -232,7 +238,6 @@ class PageWatching {
     if (rows.length < 1) {
       return []
     }
-    const actor = await CARDINAL.models.groups.actorForUserId(userId)
     return rows
       .filter((row) =>
         CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
